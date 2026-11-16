@@ -32,8 +32,9 @@ epicenter writing search '{"project":"My essay"}'
 
 Use a returned time with `epicenter writing get '{"time":"TIME"}'` to read one
 note. `epicenter writing add --help` lists the keys an action takes.
-The CLI lists every action with `epicenter writing`. `set` changes fields;
-`edit` changes an exact passage in the body. The UI edits only the body.
+The CLI lists every action with `epicenter writing`. `set` changes fields,
+and with `edit: { old, new }` it replaces an exact passage in the body, both
+in one write. The UI changes only the body.
 MCP offers the same actions at the server root. Start by asking an assistant
 to find relevant notes, with their sources, before drafting anything new.
 

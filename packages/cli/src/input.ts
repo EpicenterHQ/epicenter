@@ -89,13 +89,16 @@ export function checkInput(
 	}
 	const first = Value.Errors(schema, value)[0];
 	const params = first?.params as { requiredProperties?: string[] } | undefined;
-	const field =
-		first?.instancePath
-			.split('/')[1]
-			?.replace(/~1/g, '/')
-			.replace(/~0/g, '~') || params?.requiredProperties?.[0];
+	const at = (first?.instancePath.split('/').slice(1) ?? []).map((part) =>
+		part.replace(/~1/g, '/').replace(/~0/g, '~'),
+	);
+	const field = at[0] || params?.requiredProperties?.[0];
 	const name = field ?? 'input';
-	if (first?.keyword === 'required') return { error: `${name} is needed` };
+	// A key missing inside an object is named by its path: `edit.new is needed`.
+	if (first?.keyword === 'required')
+		return {
+			error: `${[...at, params?.requiredProperties?.[0]].filter(Boolean).join('.') || name} is needed`,
+		};
 	const fieldSchema = field ? action.input[field] : undefined;
 	const words =
 		field && fieldSchema && given && whatFits(fieldSchema, given[field]);
@@ -125,6 +128,8 @@ type Described = {
 	type?: string;
 	format?: string;
 	minimum?: number;
+	minItems?: number;
+	items?: Described;
 	required?: string[];
 	properties?: Record<string, Described>;
 	anyOf?: Described[];
@@ -132,7 +137,7 @@ type Described = {
 	enum?: unknown[];
 };
 
-/** A value `field` takes, for an example: its first choice, a day for a date, `"text"` for other text, an object of its required keys. */
+/** A value `field` takes, for an example: its first choice, a day for a date, `"text"` for other text, as many items as a list needs, an object of its required keys. */
 function exampleOf(field: Described): unknown {
 	const choices =
 		field.enum ??
@@ -148,7 +153,10 @@ function exampleOf(field: Described): unknown {
 	if (field.type === 'number' || field.type === 'integer')
 		return field.minimum ?? 1;
 	if (field.type === 'boolean') return true;
-	if (field.type === 'array') return [];
+	if (field.type === 'array')
+		return Array.from({ length: field.minItems ?? 0 }, () =>
+			exampleOf(field.items ?? {}),
+		);
 	if (field.type === 'object')
 		return Object.fromEntries(
 			(field.required ?? []).map((key) => [

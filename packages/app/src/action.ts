@@ -92,7 +92,7 @@ type Returned =
 
 type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
 
-/** The value `run` receives for `input`: a switch or a list is always there, `false` or `[]` when the caller left it out. */
+/** The value `run` receives for `input`: a switch or a list with no `min` is always there, `false` or `[]` when the caller left it out. */
 export type InputOf<I extends Input> = Simplify<
 	Omit<Static<TObject<I>>, FilledKeys<I>> & {
 		[K in FilledKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
@@ -168,7 +168,7 @@ export async function runYielding(
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields. Calling it gives `run` an absent switch as `false` and an absent
- * list as `[]`, as a read of a collection does, however it is called. Inside
+ * list with no `min` as `[]`, as a read of a collection does, however it is called. Inside
  * `run`, the app's collections and `folder` reach the folder of the run that
  * called it, however deep. Throws when the definition is wrong in a way its
  * types cannot say, such as a field with a `default`.

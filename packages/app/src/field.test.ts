@@ -13,6 +13,15 @@ describe('whatFits', () => {
 		);
 	});
 
+	test("says a list's minimum", () => {
+		expect(whatFits(field.list(field.text(), { min: 1 }), [])).toBe(
+			'a list of text with at least 1 item',
+		);
+		expect(whatFits(field.list(field.date(), { min: 2 }), ['soon'])).toBe(
+			'a list of at least 2 items, each a day like 2026-11-12',
+		);
+	});
+
 	test('says X of a field that also takes null, and nothing of null itself', () => {
 		const rating = Type.Union([field.integer({ min: 1, max: 5 }), Type.Null()]);
 		expect(whatFits(rating, 7)).toBe('a whole number from 1 to 5');

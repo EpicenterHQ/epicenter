@@ -58,8 +58,8 @@ and does not run it.
   description, input, and `annotations`. It exists to type
   `run`'s input from `input`: an action written inline in `defineApp` would
   have an untyped input. However it is called, `run` gets an absent switch as
-  `false` and an absent list as `[]`, and every other field as the caller gave
-  it. `run` returns a value that survives
+  `false` and an absent list as `[]` (unless the list has a `min`), and every
+  other field as the caller gave it. `run` returns a value that survives
   JSON; anything else, such as a `Date`, is a type error where the action is
   written. `run` may be an `async function*` whose yields also survive JSON:
   each reaches only a UI that asked for it, as it runs, and called anywhere
@@ -70,7 +70,7 @@ and does not run it.
   `description`, `collections`, and `actions`, with `{}` for none. Each
   collection's name is its key in `collections`; each action's words are its
   keys in `actions`, so `{ books: books.actions(), log }` gives `books list`
-  through `books edit` and `log`. `app.actions.books.add(...)` in code,
+  through `books set` and `log`. `app.actions.books.add(...)` in code,
   `epicenter reading books add` on the command line, and `reading_books_add`
   over MCP are one action. No key at any depth may be `then`, which a UI's
   client cannot call.
@@ -135,6 +135,7 @@ the change second, because which record and what to change are two roles:
 | --- | --- |
 | `list()` | every record, whole, as `get` gives it, sorted by path |
 | `get(keys)` | the record, or `undefined` when there is no file |
+| `need(keys)` | the record when its file is there and every value fits; throws `ActionError.Missing` or `ActionError.Refused` otherwise; a method only |
 | `add({ ...keys, ...fields, body? })` | makes a file from the whole new record; throws when one is at its path |
 | `set(keys, { ...fields, body? })` | changes the fields given, and the body when it is given; `null` removes an optional field |
 | `set(keys, (record) => ({ ...fields, body? }))` | writes what a function computes from the record |
@@ -150,12 +151,12 @@ placeholder has the same methods without the keys: `settings.get()`,
 
 Each writer differs in what it needs of the file:
 
-| The file | `get` | `add` | `set` | `update` | `delete` |
-| --- | --- | --- | --- | --- | --- |
-| is absent | `undefined` | writes it | throws `ActionError.Missing` | calls the function with `undefined`; what it returns is the whole record | `false` |
-| fits | the record | refuses | writes | writes | `true` |
-| has a field that does not fit | the record, with `problems` | refuses | given data, writes the fields given and leaves the rest; given a function, refuses to write a field that does not fit | refuses to write a field that does not fit | `true` |
-| has front matter that cannot be read | throws `ActionError.Refused` | refuses | throws `ActionError.Refused` | throws `ActionError.Refused` | `true` |
+| The file | `get` | `need` | `add` | `set` | `update` | `delete` |
+| --- | --- | --- | --- | --- | --- | --- |
+| is absent | `undefined` | throws `ActionError.Missing` | writes it | throws `ActionError.Missing` | calls the function with `undefined`; what it returns is the whole record | `false` |
+| fits | the record | the record | refuses | writes | writes | `true` |
+| has a field that does not fit | the record, with `problems` | throws `ActionError.Refused`, listing them | refuses | given data, writes the fields given and leaves the rest; given a function, refuses to write a field that does not fit | refuses to write a field that does not fit | `true` |
+| has front matter that cannot be read | throws `ActionError.Refused` | throws `ActionError.Refused` | refuses | throws `ActionError.Refused` | throws `ActionError.Refused` | `true` |
 
 A collection with no placeholder follows the same table: it reads as
 `undefined` before its first write, so read it as
@@ -163,8 +164,8 @@ A collection with no placeholder follows the same table: it reads as
 method still refuses a missing file, so code that refreshes a sign-in cannot
 bring back a file a person deleted.
 
-`actions()` gives five verbs to expose: `list`, `get`, `add`, `set`, and
-`edit`, every collection alike; `actions('delete')` gives `delete`, which
+`actions()` gives four verbs to expose: `list`, `get`, `add`, and `set`,
+every collection alike; `actions('delete')` gives `delete`, which
 `actions()` leaves out. The verbs are built on the methods for a caller that
 sends only plain data, and differ from them:
 
@@ -173,8 +174,7 @@ sends only plain data, and differ from them:
 | `list` | none | its rows leave out `body` |
 | `get` | the keys | throws `ActionError.Missing` (`There is no <path>`) where the method answers `undefined` |
 | `add` | the record | no |
-| `set` | the keys, fields, and optionally `was` | takes no `body`; with no placeholder, makes the file when there is none, as `add` would |
-| `edit` | the keys, `old`, `new` | replaces the one place `old` is in the body; `old` may be the whole body |
+| `set` | the keys, fields, and optionally `was` and `edit` | takes no `body`, but `edit: { old, new }` replaces the passage `old` of it with `new`; with no placeholder, makes the file from fields when there is none, as `add` would |
 | `delete` | the keys | only when named |
 
 A verb's input is flat: each key is an input field beside the rest of the
@@ -184,7 +184,7 @@ sets one word.
 A key finds its file by its exact name first, then by the tidy name: NFC,
 trimmed, with each run of whitespace one space. So `"Tokyo "` finds
 `Tokyo.md`, and a row for `data/notes/Dune  Messiah.md`, named by hand with
-two spaces, finds that file. `get`, `set`, `delete`, and an `update` of a
+two spaces, finds that file. `get`, `need`, `set`, `delete`, and an `update` of a
 file that is there do this. `add` and an `update` that makes a file always
 write the tidy name, which `pathOf` gives. A key that is then empty, holds
 `/` or `\`, starts with `.`, or is over 200 bytes is refused. So an action
@@ -194,15 +194,29 @@ never writes `data/words/${word}.md` itself:
 const found = await words.get({ word });
 ```
 
-A save from outside names what it replaces. `edit`'s `old` is its own check:
-when it is not in the body, or is there more than once, the refusal is
-`{ name: 'Changed' }`, so a passage someone changed since it was read is
-never overwritten. The `set` verb's `was` names the values the caller last
-saw, `null` for a field that was absent: `{ meaning: 'a lucky find' }`. When
-one of them differs now, compared as JSON inside the same write, the refusal
-is `{ name: 'Changed', why: 'was' }`. Without `was`, two callers setting the
-same field from stale screens: the last write wins. Two callers setting
-different fields both land, since a write changes only the lines it names.
+The `set` verb is the `set` method for a caller that cannot send a function,
+so it sends what it last saw instead, and one call is one write. `was` names
+the field values the caller last saw, `null` for a field that was absent:
+`{ meaning: 'a lucky find' }`. `edit` is `{ old, new }`, both required:
+`old` names the passage of the body it last saw, and `new` is what replaces
+it. `old` must be in the body exactly once, or be the whole body, or be empty
+for an empty body. A passage needs a file, so with none the refusal is
+`ActionError.Missing`, even for a collection with no placeholder. Every guard
+is checked inside the write before anything is written: when a `was` value
+differs now, compared as JSON, the refusal is `{ name: 'Changed', why: 'was' }`,
+and when `old` is not there, is there twice, or is empty and the body is not,
+it is `Changed` with `why` `quote`, `twice`, or `empty`, and neither the fields nor
+the body are written. So a page saves a record's fields and its notes in one
+call:
+
+```sh
+epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":"luck"},"edit":{"old":"First seen.\n","new":"First seen in a novel.\n"}}'
+```
+
+Without `was`, two callers setting the same field from stale screens: the
+last write wins. Two callers setting different fields both land, since a
+write changes only the lines it names. A collection whose fields are all
+`readOnly` still has `set`, for its body.
 
 The same goes for a value an action computes from `get` and writes with
 `set`: a change made between them is lost. Compute it inside the write
@@ -245,8 +259,9 @@ books.update({ title }, (book) =>
 ```
 
 `update` is not a verb, since a caller cannot send a function; neither is a
-`set` given one, or a `set` given a body, which would replace a person's text
-blindly from a stale page; `edit` is the verb for the body.
+`set` given one, or a `set` given a whole body, which would replace a person's
+text blindly from a stale page; the `set` verb's `edit` changes the body
+instead.
 
 A field marked `readOnly` is written only by the app's own actions, through
 the collection's methods; the exposed `add` and `set` leave it out, and
@@ -268,7 +283,8 @@ is its value when the value fits the field, and absent otherwise; nothing
 takes its place. When a field's key is not in the file, a switch
 (`field.boolean`) reads `false` and a list (`field.list`) reads `[]`; that is
 what those two helpers mean, and neither value is written unless a caller
-gives it. Every other absent field is absent.
+gives it. A list with a `min` is required instead, so an absent one is
+missing. Every other absent field is absent.
 
 `path`, each key from the path, and `body` come from the file itself, after
 the fields, so front matter never replaces them: `data/words/你好.md` reads as
@@ -301,7 +317,22 @@ field, since a file written by hand may lack it or hold a value that does not
 fit. So `!record.problems` is the check that makes a required field safe to
 use, and `records.filter((record) => !record.problems)` narrows the type.
 Every key is there, since the path holds it. `RecordOf<D>` and `Row<D>` (the
-`list` verb's row) name them, and `Keys<D>` names a record's keys.
+`list` verb's row) name them, `FittingRecordOf<D>` names one without
+`problems`, and `Keys<D>` names a record's keys. `D` may be the collection
+itself: `FittingRecordOf<typeof tasks>`.
+
+- Code that computes from a record calls `need`, which gives every field in
+  full or refuses: a list is an array, a switch a `boolean`, a required field
+  its type, and only an optional field may be absent.
+- Code that passes a record on to a page calls `get` or `list` and lets
+  `problems` through, so a person can see and repair them.
+
+Do not default a field with `?? []` or `?? false`, which puts back the silent
+replacement a read that gives only what the file holds exists to prevent.
+
+```ts
+const watch = await watches.need({ id }); // watch.from is string[]
+```
 
 A path's case is its own: on a disk that ignores case, such as macOS's,
 `data/words/Hello.md` and `data/words/hello.md` name one file, and `get`
@@ -318,9 +349,8 @@ answers under the path its keys make, while `list` gives the name on disk.
   that is not a placeholder;
 - a list of paths: a second layout is a second collection;
 - a field or placeholder named `path`, `body`, or `problems`, which a read
-  gives itself, or `was`, which the `set` verb takes beside the fields; a
-  placeholder named `old` or `new`, which `edit` takes beside the keys; a field named as
-  a placeholder, since a record holds both; a field name that a front matter
+  gives itself, or `was` or `edit`, which the `set` verb takes beside the
+  fields; a field named as a placeholder, since a record holds both; a field name that a front matter
   line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
   code where the value is read: `(record.limit ?? 50)`.
@@ -346,13 +376,17 @@ should take what they know. Vocab's `review` takes `{ word, grade }` and calls
 | `field.datetime()` | `string`, RFC 3339 | `"name": "2026-11-10T22:41:05+08:00"` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `"name": "a"` |
 | `field.boolean()` | `boolean`, `false` unless given | `"name": true` |
-| `field.list(item)` | an array of `item`'s value, empty unless given | `"name": ["a", "b"]` |
+| `field.list(item, { min })` | an array of `item`'s value, empty unless given, or required with at least `min` items | `"name": ["a", "b"]` |
 | `field.ref(collection)` | `string`, the key of a record in `collection` | `"name": "essays"` |
 
 `field.list(item)` is a list of any field: `field.list(field.select(['x', 'threads']))`
 is several of a fixed set, and `field.list(Type.Object({ name: Type.String() }))`
-is several objects. It is never required, reads as `[]` when its line is
-absent, and a write may leave it out.
+is several objects. It is not required, reads as `[]` when its line is
+absent, and a write may leave it out. `field.list(item, { min: 1 })` needs at
+least one item: its schema has `minItems`, it is required like any other
+field, and an absent one is missing rather than `[]`, which would not fit.
+An action that cannot run without an item says so this way, so `--help` and
+the schema an agent receives call it required. `min: 0` is the same as none.
 
 `field.ref(collection)` holds the key of a record in `collection`: the value
 of the one placeholder in its path. `field.ref(shelves)` for
@@ -364,9 +398,12 @@ refuses a target whose path has no placeholder or more than one, and a
 `.local` target.
 
 - A collection's `add`, and its `set` given fields, read the record each key
-  names before they write. They refuse a key that is not exactly the one its file would carry
-  (`" essays "` is not `essays`), and a key whose record is not there. Each
-  throws `ActionError.Refused`, one line per key, such as
+  names before they write. A key is good when `get` on the target would find
+  a record by it, its exact name first and then its tidy name, and that
+  record's key is the key: `"Dune  Messiah"` finds a file named by hand with
+  two spaces, and `" essays "` is refused, naming `"essays"` to write. A key
+  whose record is not there is refused too. Each throws
+  `ActionError.Refused`, one line per key, such as
   `data/books/dune.md: shelf: "poems" names no record in data/shelves/{shelf}.md`,
   and writes nothing. A `.local` collection's line leaves the key out.
 - A function given to `set` or `update` is not checked against the target:
@@ -389,7 +426,7 @@ and `defineAction` refuse a schema with one at any depth, so the default is
 written in code where the value is read. `field.boolean` and `field.list`
 mark their schema `"x-epicenter-field": "switch"` or `"list"`, which names
 their kind rather than a value; a read and an action's call give an absent
-one as `false` or `[]`. Fields describe data;
+one as `false` or `[]`, except a list with `minItems`, which is required. Fields describe data;
 `defineAction({ privateInput: true, ... })` declares private handling for the
 whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
 unchanged and have no effect on this policy. Schemas must serialize as
@@ -736,8 +773,8 @@ Closing the page or aborting an observer does not cancel execution.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionYield<A>` name what action
 `A` takes from a caller, returns to a client, and yields while it runs:
-`ActionInput<typeof app.actions.set>`. A switch and a list are optional in
-`ActionInput`; an action that only returns yields `never`.
+`ActionInput<typeof app.actions.set>`. A switch and a list without `min` are
+optional in `ActionInput`; an action that only returns yields `never`.
 
 A UI routes to a record by its keys, which every row carries, each
 URL-encoded: `#/words/<word>`. The page calls `get` with the keys from its

@@ -9,14 +9,18 @@
  * - a list reads as `[]` when its line is absent, as absent when its value
  *   does not fit, and is written as JSON
  * - an item that does not fit is refused by what each item must be
+ * - a list with `min` is required: its schema has `minItems`, an absent one
+ *   is missing rather than `[]`, and an action's call does not fill it
  *
  * See also:
  * - `app.types.test.ts` for the types a list gives
  * - `packages/cli/src/input.test.ts` for lists on the command line
  */
 import { expect, test } from 'bun:test';
+import { Type } from 'typebox';
 import {
 	createMemoryContext,
+	defineAction,
 	defineCollection,
 	field,
 	inRun,
@@ -79,4 +83,68 @@ test('a list item that does not fit its field is refused, naming what each must 
 	await expect(refused).rejects.toThrow(
 		'data/books/dune.md: platforms: ["mastodon"] is not a list, each one of x, threads',
 	);
+});
+
+test('a list with min is required, with minItems in its schema; min 0 changes nothing', () => {
+	const schema = (fields: Record<string, ReturnType<typeof field.list>>) =>
+		JSON.parse(JSON.stringify(Type.Object(fields)));
+	expect(schema({ airports: field.list(field.text(), { min: 1 }) })).toEqual({
+		type: 'object',
+		required: ['airports'],
+		properties: {
+			airports: {
+				type: 'array',
+				minItems: 1,
+				'x-epicenter-field': 'list',
+				items: { type: 'string' },
+			},
+		},
+	});
+	expect(schema({ tags: field.list(field.text(), { min: 0 }) })).toEqual(
+		schema({ tags: field.list(field.text()) }),
+	);
+	expect(() => field.list(field.text(), { min: -1 })).toThrow(
+		"field.list's min must be a whole number of at least 0, not -1",
+	);
+});
+
+test('a list with min reads as missing when its line is absent, and refuses too few items', async () => {
+	const trips = defineCollection({
+		path: 'data/trips/{trip}.md',
+		fields: { airports: field.list(field.text(), { min: 2 }) },
+	});
+	const context = createMemoryContext({ 'data/trips/a.md': '---\n---\n' });
+	expect(await inRun(context, () => trips.get({ trip: 'a' }))).toEqual({
+		path: 'data/trips/a.md',
+		trip: 'a',
+		body: '',
+		problems: ['airports is missing'],
+	});
+	await expect(
+		inRun(context, () => trips.add({ trip: 'b', airports: ['SFO'] })),
+	).rejects.toThrow(
+		'data/trips/b.md: airports: ["SFO"] is not a list of text with at least 2 items',
+	);
+	await expect(
+		inRun(context, () => trips.add({ trip: 'b' } as never)),
+	).rejects.toThrow('data/trips/b.md: airports is missing');
+});
+
+test("an action's call does not fill a list with min", async () => {
+	let given: unknown;
+	const save = defineAction({
+		description: 'Save a route',
+		input: {
+			airports: field.list(field.text(), { min: 1 }),
+			tags: field.list(field.text()),
+		},
+		run: (input) => {
+			given = input;
+			return null;
+		},
+	});
+	await save({ airports: ['SFO', 'NRT'] });
+	expect(given).toEqual({ airports: ['SFO', 'NRT'], tags: [] });
+	await save({} as never);
+	expect(given).toEqual({ tags: [] });
 });

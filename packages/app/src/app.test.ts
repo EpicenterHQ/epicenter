@@ -236,7 +236,6 @@ describe('defineApp', () => {
 			'get',
 			'add',
 			'set',
-			'edit',
 		]);
 	});
 
@@ -449,6 +448,7 @@ describe('defineCollection', () => {
 						body: field.text(),
 						path: field.text(),
 						problems: field.text(),
+						edit: field.text(),
 						'two words': field.text(),
 					},
 				}),
@@ -458,17 +458,18 @@ describe('defineCollection', () => {
 			'The collection at data/words/{word}.md has a field "body", which is the file\'s text after its front matter',
 			'The collection at data/words/{word}.md has a field "path", which is the file\'s address',
 			'The collection at data/words/{word}.md has a field "problems", which a read uses to say what does not fit',
+			'The collection at data/words/{word}.md has a field "edit", which the set verb takes beside the fields',
 			'The collection at data/words/{word}.md has a field "two words", which a front matter line cannot name',
 		]);
 	});
 
-	test('names placeholders a read or edit takes itself', () => {
-		const path = 'data/notes/{body}/{path}/{problems}/{old}/{input}.md';
+	test('names placeholders a read or the set verb takes itself', () => {
+		const path = 'data/notes/{body}/{path}/{problems}/{edit}/{input}.md';
 		expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([
 			`The collection at ${path} has the placeholder {body}, which is the file's text after its front matter`,
 			`The collection at ${path} has the placeholder {path}, which is the file's address`,
 			`The collection at ${path} has the placeholder {problems}, which a read uses to say what does not fit`,
-			`The collection at ${path} has the placeholder {old}, which edit takes beside the keys`,
+			`The collection at ${path} has the placeholder {edit}, which the set verb takes beside the fields`,
 		]);
 	});
 

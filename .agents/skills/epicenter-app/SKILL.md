@@ -67,7 +67,7 @@ The files outlive every UI and agent, so their shape is the decision that
 matters most. Define each collection with `defineCollection({ path, fields })`
 in `code/epicenter.ts`: a path template and the fields of each file's front matter
 (`packages/app/README.md`). A collection gives
-`list|get|add|set|edit` through `.actions()`, and `delete` only when named
+`list|get|add|set` through `.actions()`, and `delete` only when named
 (`.actions('delete')`). An app with one collection spreads them at the top, so they are
 its own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests
 each under its name (`epicenter mail messages list`). A record's address is
@@ -76,8 +76,7 @@ A path is one relative `.md` template under `data/`, such as
 `data/days/{day}.md`; files in a second layout are a second collection.
 `defineCollection` refuses a path outside `data/`, a list of paths, or a part
 starting with `.`. A field or placeholder may not be named `path`,
-`body`, `problems`, `was`, `json`, `help`, or `input`, and a placeholder may
-not be `old` or `new`. No field has a `default`: a definition with one is
+`body`, `problems`, `was`, or `edit`. No field has a `default`: a definition with one is
 refused, so write the default where the value is read (`limit ?? 50`).
 
 - Choose the path by how people and agents will name a file. `{time}` suits
@@ -110,19 +109,31 @@ refused, so write the default where the value is read (`limit ?? 50`).
 - A read gives only what the file holds: a field that does not fit reads as
   absent, and the file carries `problems` quoting what was dropped. An absent
   switch reads `false` and an absent list `[]`; nothing else is filled. A
-  record without `problems` has its required fields, so check
-  `!record.problems` before relying on one. A function given to `set` or
-  `update` may not write a field whose value does not fit; plain data repairs
-  it. Front matter that cannot be read, or opens with `---` and never closes,
-  is refused by `get` and every writer, and listed with `problems`.
-- A body changes through the `edit` verb (`{ old, new }` beside the keys), which
-  is refused with `Changed` unless `old` occurs exactly once; `old` may be the
-  whole body, so a body read before someone else changed it is never written
-  back over theirs (ADR-0869). An empty `old` fills an empty body. In code,
-  `set` carries `body`, as data or from a function of the record.
-- The `set` verb takes fields only, and an optional `was` naming the values
-  the caller last saw (`null` for absent); it is
-  refused with `Changed` when one has changed since.
+  record without `problems` has its required fields. A function given to
+  `set` or `update` may not write a field whose value does not fit; plain
+  data repairs it. Front matter that cannot be read, or opens with `---` and
+  never closes, is refused by `get`, `need`, and every writer, and listed
+  with `problems`.
+- Code that computes from a record calls `need(keys)`, which gives every
+  field in full (a list is an array, a switch a `boolean`, a required field
+  its type) or throws `Missing` or `Refused`. Code that passes a record on to
+  a page calls `get` or `list` and lets `problems` through. Do not default a
+  field with `?? []` or `?? false`: that puts back the silent replacement a
+  read that gives only what the file holds exists to prevent. Name a fitting
+  record's type with `FittingRecordOf<typeof tasks>`.
+- `field.list(item)` reads as `[]` when absent and is never needed from a
+  caller. An action that cannot run without an item declares
+  `field.list(item, { min: 1 })`: it is required, `--help` and the schema an
+  agent receives say so, and an empty list is refused before `run`.
+- The `set` verb sends what the caller last saw, since it cannot send a
+  function: fields, an optional `was` naming the field values it last saw
+  (`null` for absent), and `edit: { old, new }` to replace the passage `old`
+  of the body. `old` must occur exactly once, or be the whole body, or be empty
+  for an empty body (ADR-0869). One call is one write: when a `was` value or
+  the passage does not hold, it is refused with `Changed` (`why` says which)
+  and nothing is written, fields included. So a page that saves a record's
+  fields and its notes sends one `set`. In code, `set` carries `body`, as
+  data or from a function of the record.
 - A secret, such as a sign-in token, is a collection with no placeholder at a
   `.local.md` path (`data/google.local.md`), its fields declared like any other
   (ADR-0870). A `.local` file stays on the computer that runs the app:
@@ -383,8 +394,8 @@ failure to show.
   [input ownership](../svelte/references/input-ownership.md).
   Writes also arrive from other tabs, agents, and the command line; blocking
   local edits while pending prevents only this page's overlap.
-- Use `edit` with its quoted base (`old: base, new: draft`) when the app promises
-  conflict detection. On `Changed`, reread and preserve the submitted text
+- Use `set` with its quoted base (`edit: { old: base, new: draft }`, beside
+  any fields and their `was`) when the app promises conflict detection. On `Changed`, reread and preserve the submitted text
   while resolving the conflict. When last-write-wins is accepted, use the app's
   replacement action without adding rebasing or a recovery queue.
 - Show a write before it lands from the mutations still pending:

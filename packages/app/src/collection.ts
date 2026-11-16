@@ -10,8 +10,11 @@
  *   (`words.get({ word })`, `words.set({ word }, { meaning })`), over the
  *   folder of the run they are called in;
  * - `actions()`, which gives its verbs as actions to expose (`list`, `get`,
- *   `add`, `set`, `edit`, and `delete` when named), each built on those
- *   methods for a caller that can send only plain data.
+ *   `add`, `set`, and `delete` when named), each built on those methods for
+ *   a caller that can send only plain data. The `set` verb is the `set`
+ *   method for a caller that cannot send a function, so it sends what it
+ *   last saw instead: `was` for fields, and `edit` for a passage of the
+ *   body, `old` as it was and `new` to put in its place.
  *
  * A method names a record by its keys, each placeholder's value
  * (`{ word }` for `data/words/{word}.md`), and reads only those names, so a
@@ -34,10 +37,13 @@
  * fits, else absent, and a file that does not fit says why in `problems`. A
  * field whose line is not JSON is absent the same way, and its problem gives
  * the line number and what to write (ADR-0924). An absent switch reads
- * `false` and an absent list `[]` (`absentValue`). A change a function
- * computes may not write over a value that does not fit, or that is not JSON.
- * `path`, the keys, and `body` always come from the file itself. Front matter
- * no field declares is kept by every write, and nothing reports it.
+ * `false` and an absent list with no `min` `[]` (`absentValue`). A change a
+ * function computes may not write over a value that does not fit, or that is
+ * not JSON. `path`, the keys, and `body` always come from the file itself.
+ * Front matter no field declares is kept by every write, and nothing reports
+ * it. `get` gives a record with its `problems`, for a page where a person can
+ * repair them; `need` gives only a record that fits, for code that computes
+ * from it, and refuses any other.
  *
  * A field marked `readOnly` is left out of the exposed `add` and `set`, so only
  * the app's own actions write it, through the methods. When such a field is
@@ -168,6 +174,15 @@ export type Row<D extends CollectionDef> = Read<D, unknown>;
 /** One record as `get` and `list` read it: a row and its body. */
 export type RecordOf<D extends CollectionDef> = Read<D, { body: string }>;
 
+/**
+ * A record whose every value fits, as `need` gives it: what `RecordOf`
+ * narrows to after `!record.problems`, named for a function that takes one.
+ */
+export type FittingRecordOf<D extends CollectionDef> = Extract<
+	RecordOf<D>,
+	{ problems?: undefined }
+>;
+
 /** The keys a caller gives when adding: every one but `{time}`, which `add` makes. */
 type AddKeys<D extends CollectionDef> = Exclude<
 	Placeholders<D['path']>,
@@ -212,6 +227,20 @@ export type Handle<D extends CollectionDef> = {
 	list(): Promise<RecordOf<D>[]>;
 	/** The record the keys name, or `undefined` when there is no file. */
 	get(...keys: KeysArg<D>): Promise<RecordOf<D> | undefined>;
+	/**
+	 * The record the keys name, for code that cannot go on without it: every
+	 * field is there and fits, so a list is an array and a required field its
+	 * type. Throws `ActionError.Missing` when there is no file, and
+	 * `ActionError.Refused` listing its problems when a value does not fit,
+	 * as `get` refuses front matter that cannot be read. Code that hands a
+	 * record to a page, where a person can see and repair its problems,
+	 * calls `get` instead.
+	 *
+	 * ```ts
+	 * const { from, to } = await watches.need({ id });
+	 * ```
+	 */
+	need(...keys: KeysArg<D>): Promise<FittingRecordOf<D>>;
 	/** Make a file from the whole new record; throws when one is already at its path. */
 	add(record: AddInput<D, keyof D['fields']>): Promise<RecordOf<D>>;
 	/**
@@ -252,9 +281,9 @@ export type Handle<D extends CollectionDef> = {
 };
 
 /** The verbs a collection may expose. */
-export type Verb = 'list' | 'get' | 'add' | 'set' | 'edit' | 'delete';
+export type Verb = 'list' | 'get' | 'add' | 'set' | 'delete';
 
-/** The verbs that fit a collection: all six, less `add` when a field `add` could never be given is required. */
+/** The verbs that fit a collection: all five, less `add` when a field `add` could never be given is required. */
 type VerbOf<D extends CollectionDef> = [UnaddableKeys<D['fields']>] extends [
 	never,
 ]
@@ -273,18 +302,18 @@ type Was<D extends CollectionDef> = {
 	-readonly [K in keyof D['fields']]?: ValueOf<D['fields'], K> | null;
 };
 
+/** The passage of the body the `set` verb replaces: `old` as the caller last saw it, and `new` to put in its place. */
+type Edit = { old: string; new: string };
+
 /** The action verb `V` gives: its keys flat beside the rest of its input. */
 type VerbAction<D extends CollectionDef, V extends Verb> = {
 	list: Action<Record<string, never>, Promise<Row<D>[]>, never>;
 	get: Action<KeysIn<D>, Promise<RecordOf<D>>, never>;
 	add: Action<AddInput<D, Writable<D>>, Promise<RecordOf<D>>, never>;
 	set: Action<
-		Simplify<Keys<D> & Patch<D['fields'], Writable<D>> & { was?: Was<D> }>,
-		Promise<RecordOf<D>>,
-		never
-	>;
-	edit: Action<
-		Simplify<Keys<D> & { old: string; new: string }>,
+		Simplify<
+			Keys<D> & Patch<D['fields'], Writable<D>> & { was?: Was<D>; edit?: Edit }
+		>,
 		Promise<RecordOf<D>>,
 		never
 	>;
@@ -395,6 +424,7 @@ export function defineCollection<const D extends CollectionDef>(
 		list: records.list,
 		add: records.add,
 		get: named(records.get, 0),
+		need: named(records.need, 0),
 		set: named(records.set, 1),
 		update: named(records.update, 1),
 		delete: named(records.delete, 0),
@@ -407,6 +437,10 @@ export function defineCollection<const D extends CollectionDef>(
 				);
 			for (const verb of verbs) {
 				if (fit.includes(verb)) continue;
+				if ((verb as string) === 'edit')
+					throw new Error(
+						`${layout.text} has no "edit": set takes edit: { old, new } now, replacing a passage of the body in the same write as the fields`,
+					);
 				if (verb === 'add')
 					throw new Error(
 						`${layout.text} has no "add": ${unaddable.join(', ')} ${unaddable.length === 1 ? 'is' : 'are'} written only by the app's own actions and required, so an exposed add could never be given ${unaddable.length === 1 ? 'it' : 'them'}; write the app's own add with defineAction`,
@@ -425,22 +459,20 @@ export function defineCollection<const D extends CollectionDef>(
 	} as unknown as Collection<D>;
 }
 
-const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'edit', 'delete'];
+const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'delete'];
 
 /**
  * Names neither a field nor a placeholder may have, and why: a read gives
- * `path`, `body`, and `problems` itself, and the `set` verb takes `was`
- * beside the fields.
+ * `path`, `body`, and `problems` itself, and the `set` verb takes `was` and
+ * `edit` beside the fields.
  */
 const RESERVED: ReadonlyMap<string, string> = new Map([
 	['path', "which is the file's address"],
 	['body', "which is the file's text after its front matter"],
 	['problems', 'which a read uses to say what does not fit'],
 	['was', 'which the set verb takes beside the fields'],
+	['edit', 'which the set verb takes beside the fields'],
 ]);
-
-/** Names a placeholder may not have because `edit` takes them beside the keys. */
-const EDIT_INPUT = new Set(['old', 'new']);
 
 function containsFileMarker(
 	value: unknown,
@@ -474,9 +506,7 @@ function collectionProblems(def: CollectionDef): string[] {
 	const at = `The collection at ${path}`;
 	const problems: string[] = [];
 	for (const key of keys) {
-		const reserved =
-			RESERVED.get(key) ??
-			(EDIT_INPUT.has(key) ? 'which edit takes beside the keys' : undefined);
+		const reserved = RESERVED.get(key);
 		if (reserved)
 			problems.push(`${at} has the placeholder {${key}}, ${reserved}`);
 	}
@@ -591,6 +621,15 @@ type Records = ReturnType<typeof createRecords>;
 
 function createRecords(layout: Template, fields: Fields) {
 	const local = isLocalPath(layout.text);
+
+	/** The file `keys` name, read: its record and problems, or `undefined` when there is none; refuses front matter that cannot be read. */
+	async function read(keys: object) {
+		const { path, text } = await find(keys);
+		if (text === undefined) return undefined;
+		const found = readMarkdown(text);
+		if (!found.readable) throw unreadable(path);
+		return { path, ...project(path, found) };
+	}
 
 	/** Each placeholder's value from `keys`, and nothing else from it; throws for one that is not text. */
 	function valuesOf(keys: object): Record<string, string> {
@@ -737,11 +776,13 @@ function createRecords(layout: Template, fields: Fields) {
 
 	/**
 	 * Refuse, with `ActionError.Refused`, each key `given` would store in a
-	 * reference that is not exactly the key of a record in its target: one the
-	 * target's path would change, or with no file. It reads those files and
-	 * writes nothing; `add` and a `set` given plain data call it before they
-	 * write. A change a function computes does not: what it returns is the
-	 * app's own, as a `readOnly` field is.
+	 * reference that is not the key of a record in its target. A key is good
+	 * when `get` on the target would find a record by it, by its exact name
+	 * first and then its tidy name, and that record's key is the key given, so
+	 * `" essays "` is refused where `essays.md` is the record it finds. It
+	 * reads those files and writes nothing; `add` and a `set` given plain data
+	 * call it before they write. A change a function computes does not: what
+	 * it returns is the app's own, as a `readOnly` field is.
 	 */
 	async function checkReferences(path: string, given: Record<string, unknown>) {
 		const problems: string[] = [];
@@ -751,18 +792,33 @@ function createRecords(layout: Template, fields: Fields) {
 			for (const each of many ? (Array.isArray(value) ? value : []) : [value]) {
 				if (typeof each !== 'string') continue;
 				const quoted = `${path}: ${quote(key, each, local)}`;
-				let file: string | undefined;
+				const exact = target.fillExact({ [placeholder]: each });
+				let tidy: string | undefined;
 				try {
-					file = target.fill({ [placeholder]: each });
+					tidy = target.fill({ [placeholder]: each });
 				} catch {
-					file = undefined;
+					tidy = undefined;
 				}
-				if (file === undefined || target.match(file)?.[placeholder] !== each)
+				if (exact === undefined && tidy === undefined) {
 					problems.push(
 						`${quoted} is not a key ${target.text} can name a file by`,
 					);
-				else if ((await folder.read(file)) === undefined)
+					continue;
+				}
+				if (exact !== undefined && (await folder.read(exact)) !== undefined)
+					continue;
+				if (
+					tidy === undefined ||
+					tidy === exact ||
+					(await folder.read(tidy)) === undefined
+				) {
 					problems.push(`${quoted} names no record in ${target.text}`);
+					continue;
+				}
+				const found = target.match(tidy)?.[placeholder] ?? '';
+				problems.push(
+					`${quoted} is not exactly the key of its record in ${target.text}; write ${local ? 'its key as the file names it' : JSON.stringify(found)}`,
+				);
 			}
 		}
 		if (problems.length)
@@ -870,10 +926,13 @@ function createRecords(layout: Template, fields: Fields) {
 
 	/**
 	 * Write plain data a caller gave over the file `keys` name: `given`'s
-	 * fields, and `body` when it is given. `was`, when given, names fields
-	 * and the values the caller last saw, `null` for absent; the write is
-	 * refused with `ActionError.Changed` when one differs, checked inside the
-	 * same write. `create` makes the file, as `add` would, when it is absent.
+	 * fields, and `body` when it is given. A caller that cannot send a
+	 * function sends what it last saw instead, each checked inside the same
+	 * write before anything is written: `was` names fields and their values,
+	 * `null` for absent, refused as `Changed` with `why: 'was'` when one
+	 * differs; `edit` replaces `old` in the body with `new`, refused as
+	 * `edited` refuses it. `create` makes the file, as `add` would, when it is
+	 * absent; a passage needs a file to be in, so with none it is `Missing`.
 	 */
 	async function put(
 		keys: object,
@@ -881,12 +940,19 @@ function createRecords(layout: Template, fields: Fields) {
 		{
 			body,
 			was,
+			edit,
 			create = false,
-		}: { body?: unknown; was?: Record<string, unknown>; create?: boolean },
+		}: {
+			body?: unknown;
+			was?: Record<string, unknown>;
+			edit?: Edit;
+			create?: boolean;
+		},
 	) {
 		const { path } = await find(keys);
 		if (
 			body === undefined &&
+			edit === undefined &&
 			Object.values(given).every((value) => value === undefined)
 		)
 			throw new Error(`Nothing to set in ${path}: give a field`);
@@ -896,7 +962,12 @@ function createRecords(layout: Template, fields: Fields) {
 			for (const [key, seen] of Object.entries(was ?? {}))
 				if (!Value.Equal(now?.[key] ?? null, seen ?? null))
 					throw ActionError.Changed({ path, why: 'was' }).error;
-			return { fields: given, body };
+			if (!edit) return { fields: given, body };
+			if (!now) throw ActionError.Missing({ path }).error;
+			return {
+				fields: given,
+				body: edited(path, now.body, edit.old, edit.new),
+			};
 		});
 	}
 
@@ -918,11 +989,20 @@ function createRecords(layout: Template, fields: Fields) {
 			return { files: read.length, records };
 		},
 		async get(keys: object) {
-			const { path, text } = await find(keys);
-			if (text === undefined) return undefined;
-			const found = readMarkdown(text);
-			if (!found.readable) throw unreadable(path);
-			return project(path, found).record;
+			return (await read(keys))?.record;
+		},
+		async need(keys: object) {
+			const found = await read(keys);
+			if (!found) throw ActionError.Missing({ path: pathOf(keys) }).error;
+			const { path, record, problems } = found;
+			if (problems.length)
+				throw ActionError.Refused({
+					message: [
+						`${path} has values that do not fit its fields; repair them with plain data first:`,
+						...problems.map(({ line }) => `${path}: ${line}`),
+					].join('\n'),
+				}).error;
+			return record;
 		},
 		async add(input: Record<string, unknown>) {
 			const { body, ...given } = input;
@@ -1044,13 +1124,22 @@ function verbActions(
 			Type.String({ description: 'The text after the front matter' }),
 		),
 	};
-	const quoted = {
-		old: Type.String({
-			description:
-				'The exact text to replace, as get returned it, once in the body; the whole body to replace it all, or empty for an empty body',
-		}),
-		new: Type.String({ description: 'The text to put in its place' }),
-	};
+	const editIn = Type.Optional(
+		Type.Object(
+			{
+				old: Type.String({
+					description:
+						'The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body',
+				}),
+				new: Type.String({ description: 'The text to put in its place' }),
+			},
+			{
+				additionalProperties: false,
+				description:
+					'{ "old": the passage of the body as you last saw it, "new": the text to put in its place }; refused when old is not in the body now',
+			},
+		),
+	);
 	const local = { openWorldHint: false } as const;
 	/** Refuse a field only the app's own actions write; the runner refuses it first, this guards a direct call. */
 	const outside = (input: Record<string, unknown>) => {
@@ -1059,12 +1148,10 @@ function verbActions(
 				throw new Error(`${key} is written only by the app's own actions`);
 		return input;
 	};
-	/** `input` without its keys and without `skip`: what a verb changes. */
-	const rest = (input: Record<string, unknown>, ...skip: string[]) =>
+	/** `input` without its keys: what a verb changes. */
+	const rest = (input: Record<string, unknown>) =>
 		Object.fromEntries(
-			Object.entries(input).filter(
-				([key]) => !keys.includes(key) && !skip.includes(key),
-			),
+			Object.entries(input).filter(([key]) => !keys.includes(key)),
 		);
 	const action = (
 		run: (input: Record<string, unknown>) => unknown,
@@ -1102,29 +1189,25 @@ function verbActions(
 			annotations: { destructiveHint: false, ...local },
 		}),
 		set: action(
-			(input) =>
-				records.put(input, rest(outside(input), 'was'), {
-					was: input.was as Record<string, unknown> | undefined,
-					create: !keyed,
-				}),
-			{
-				description: `Change the fields given in one ${what}, keeping the rest and the body; null removes a field that may be absent; ${keyed ? 'refused when there is none' : 'makes the file when there is none'}; refused when a value named in was has changed since`,
-				input: { ...keysIn, ...patchIn, was },
-				annotations: { idempotentHint: true, ...local },
-			},
-		),
-		edit: action(
 			(input) => {
-				const { old, new: replacement } = rest(input);
-				if (typeof old !== 'string' || typeof replacement !== 'string')
-					throw new Error(`Edit ${layout.text} with { old, new }, each text`);
-				return records.set(input, (now: AnyRecord) => ({
-					body: edited(now.path, now.body, old, replacement),
-				}));
+				const { was, edit, ...given } = rest(outside(input));
+				const { old, new: replacement } = (edit ?? {}) as Partial<Edit>;
+				if (
+					edit !== undefined &&
+					(typeof old !== 'string' || typeof replacement !== 'string')
+				)
+					throw new Error(
+						`Edit the body of ${layout.text} with edit: { old, new }, each text: old as you last saw it, and new to put in its place`,
+					);
+				return records.put(input, given, {
+					was: was as Record<string, unknown> | undefined,
+					edit: edit as Edit | undefined,
+					create: !keyed,
+				});
 			},
 			{
-				description: `Replace one passage of a ${what}'s body: old must appear in it exactly once, or be the whole body, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
-				input: { ...keysIn, ...quoted },
+				description: `Change one ${what} in one write: the fields given, keeping the rest (null removes one that may be absent), and with edit, the passage edit.old of the body replaced by edit.new. Refused, writing nothing, when ${keyed ? `there is no such ${what}, or ` : 'edit is given and there is no file yet (with fields alone it makes the file), or '}when a value in was or edit.old is not what is there now`,
+				input: { ...keysIn, ...patchIn, was, edit: editIn },
 				annotations: local,
 			},
 		),

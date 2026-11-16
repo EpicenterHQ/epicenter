@@ -178,13 +178,12 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		'reading_books_get',
 		'reading_books_add',
 		'reading_books_set',
-		'reading_books_edit',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
 		'reading_explode',
 	]);
-	expect(reading.actions[5]).toEqual({
+	expect(reading.actions[4]).toEqual({
 		name: 'reading_log',
 		description: 'Record minutes read today',
 		inputSchema: {
@@ -195,7 +194,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		},
 		annotations: MCP_DEFAULTS,
 	});
-	expect(reading.actions[7].annotations).toEqual({
+	expect(reading.actions[6].annotations).toEqual({
 		...MCP_DEFAULTS,
 		readOnlyHint: true,
 		openWorldHint: false,
@@ -471,9 +470,13 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	expect(await readFile(join(folder, 'data/items/dune.md'), 'utf8')).toContain(
 		'kind: "quote"',
 	);
-	// An edit names the record it did not find.
+	// A passage names the record it did not find.
 	expect(
-		await f.run('capture', 'edit', '{"id":"new-one","old":"","new":"x"}'),
+		await f.run(
+			'capture',
+			'set',
+			'{"id":"new-one","edit":{"old":"","new":"x"}}',
+		),
 	).toEqual({
 		code: 1,
 		stdout: '',
@@ -486,8 +489,8 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	expect(
 		(
 			await json(
-				'edit',
-				'{"id":"dune","old":"mind-killer","new":"little-death"}',
+				'set',
+				'{"id":"dune","edit":{"old":"mind-killer","new":"little-death"}}',
 			)
 		).code,
 	).toBe(0);
@@ -517,10 +520,9 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			'capture_get',
 			'capture_add',
 			'capture_set',
-			'capture_edit',
 			'capture_delete',
 		]);
-		expect(tools[5]?.annotations).toEqual({
+		expect(tools[4]?.annotations).toEqual({
 			readOnlyHint: false,
 			destructiveHint: true,
 			idempotentHint: true,

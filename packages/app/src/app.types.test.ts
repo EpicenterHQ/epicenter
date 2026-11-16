@@ -17,6 +17,7 @@ import {
 	defineAction,
 	defineApp,
 	defineCollection,
+	type FittingRecordOf,
 	field,
 	inRun,
 } from './index.ts';
@@ -92,11 +93,9 @@ type Out<A> = A extends (input: never) => infer O ? Awaited<O> : never;
 describe('an app author', () => {
 	test('gets every action under its words, with exact inputs and outputs', () => {
 		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
+		assertType<Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set'>>();
 		assertType<
-			Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set' | 'edit'>
-		>();
-		assertType<
-			Equal<keyof Actions['settings'], 'list' | 'get' | 'add' | 'set' | 'edit'>
+			Equal<keyof Actions['settings'], 'list' | 'get' | 'add' | 'set'>
 		>();
 		assertType<
 			Equal<
@@ -109,20 +108,14 @@ describe('an app author', () => {
 						createdAt?: string | null;
 						due?: string | null;
 					};
+					edit?: { old: string; new: string };
 				}
 			>
 		>();
+		// @ts-expect-error an edit names both old and new
+		() => vocab.actions.words.set({ word: 'a', edit: { old: 'x' } });
 		assertType<Equal<In<Actions['words']['get']>, { word: string }>>();
-		assertType<
-			Equal<
-				In<Actions['words']['edit']>,
-				{ word: string; old: string; new: string }
-			>
-		>();
 		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
-		assertType<
-			Equal<In<Actions['settings']['edit']>, { old: string; new: string }>
-		>();
 		assertType<
 			Equal<
 				Out<Actions['words']['list']>[number],
@@ -150,6 +143,7 @@ describe('an app author', () => {
 				{
 					dailyGoal?: number | null | undefined;
 					was?: { dailyGoal?: number | null };
+					edit?: { old: string; new: string };
 				}
 			>
 		>();
@@ -235,16 +229,14 @@ describe('an app author', () => {
 
 	test('a required readOnly field leaves add out, and delete comes only when named', () => {
 		const given = () => words.actions();
-		assertType<
-			Equal<keyof ReturnType<typeof given>, 'list' | 'get' | 'set' | 'edit'>
-		>();
+		assertType<Equal<keyof ReturnType<typeof given>, 'list' | 'get' | 'set'>>();
 		assertType<
 			Equal<keyof ReturnType<typeof words.actions<'delete'>>, 'delete'>
 		>();
 		// @ts-expect-error words has a required readOnly createdAt, so no add
 		() => words.actions('add');
-		// @ts-expect-error edit is a verb only, not a method
-		() => words.edit;
+		// @ts-expect-error set takes edit, so there is no edit verb
+		() => words.actions('edit');
 		const flags = defineCollection({
 			path: 'data/flags/{id}.md',
 			fields: {
@@ -259,6 +251,7 @@ describe('an app author', () => {
 				{
 					id: string;
 					was?: { pinned?: boolean | null; labels?: string[] | null };
+					edit?: { old: string; new: string };
 				}
 			>
 		>();
@@ -327,6 +320,76 @@ describe('an app author', () => {
 		});
 		assertType<
 			Equal<ActionInput<typeof shelve>, { shelves?: string[]; shelf?: string }>
+		>();
+	});
+
+	test('need gives a record with every field, named by FittingRecordOf', () => {
+		const tasks = defineCollection({
+			path: 'data/tasks/{id}.md',
+			fields: {
+				title: field.text(),
+				note: field.text({ optional: true }),
+				tags: field.list(field.text()),
+			},
+		});
+		type Task = FittingRecordOf<typeof tasks>;
+		const titled = (task: Task) => task.title;
+		() =>
+			inRun(createMemoryContext(), async () => {
+				const task = await tasks.need({ id: 'a' });
+				assertType<Equal<typeof task.tags, string[]>>();
+				assertType<Equal<typeof task.title, string>>();
+				assertType<Equal<typeof task.note, string | undefined>>();
+				// A fitting record from list passes where one from need does.
+				for (const each of await tasks.list()) if (!each.problems) titled(each);
+				return titled(task);
+			});
+		assertType<Equal<Parameters<typeof settings.need>, []>>();
+	});
+
+	test('a list with min is required, to give and in a read, and never always filled', () => {
+		const route = defineAction({
+			description: 'Save a route',
+			input: {
+				airports: field.list(field.text(), { min: 1 }),
+				stops: field.list(field.text(), { min: 0 }),
+			},
+			run: ({ airports, stops }) => {
+				assertType<Equal<typeof airports, string[]>>();
+				assertType<Equal<typeof stops, string[]>>();
+				return airports.length + stops.length;
+			},
+		});
+		assertType<
+			Equal<ActionInput<typeof route>, { airports: string[]; stops?: string[] }>
+		>();
+		const trips = defineCollection({
+			path: 'data/trips/{trip}.md',
+			fields: { airports: field.list(field.text(), { min: 1 }) },
+		});
+		type Found = Awaited<ReturnType<typeof trips.list>>[number];
+		(record: Found) => {
+			if (!record.problems)
+				assertType<Equal<typeof record.airports, string[]>>();
+			// @ts-expect-error a record with problems may lack it
+			return record.airports.length;
+		};
+		type AddIn = In<ReturnType<typeof trips.actions<'add'>>['add']>;
+		assertType<
+			Equal<AddIn, { trip: string; airports: string[]; body?: string }>
+		>();
+		type SetIn = In<ReturnType<typeof trips.actions<'set'>>['set']>;
+		// A required list cannot be removed with null.
+		assertType<
+			Equal<
+				SetIn,
+				{
+					trip: string;
+					airports?: string[];
+					was?: { airports?: string[] | null };
+					edit?: { old: string; new: string };
+				}
+			>
 		>();
 	});
 

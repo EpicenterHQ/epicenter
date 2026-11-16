@@ -52,7 +52,7 @@ export type App<
  * given, `{}` for none. Each collection's name is its key in `collections`;
  * each action's words are its keys in `actions`, so
  * `words: { ...words.actions(), add: learn }` gives `words list` through
- * `words edit`, with `words add` replaced by `learn`. A later key replaces
+ * `words set`, with `words add` replaced by `learn`. A later key replaces
  * an earlier one, as in any object. Returns `app` itself; throws when it is
  * wrong in a way its types cannot say, so `epicenter` checks an app it loads
  * by calling this again.

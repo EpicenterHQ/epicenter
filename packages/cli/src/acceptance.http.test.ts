@@ -103,7 +103,6 @@ test('HTTP tools/list offers app actions', async () => {
 		'reading_books_get',
 		'reading_books_add',
 		'reading_books_set',
-		'reading_books_edit',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',

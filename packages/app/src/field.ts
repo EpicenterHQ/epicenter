@@ -4,14 +4,16 @@
  * Every caller gives an action's input as one JSON object whose keys are its
  * fields; MCP shows each as a property of the tool's input.
  *
- * A field is required unless it says `optional`. A switch (`boolean`) and a
- * list (`list`) is never required: an absent switch is `false`, an
- * absent list is empty. That is a rule of these two helpers, which mark their
- * schema with its kind (`absentValue`); no field carries a JSON Schema
- * `default`, and a definition that has one is refused (`defaultIn`). A
- * collection's field that says `readOnly` is written only by the app's own
- * actions: the exposed `add` and `set` leave it out. Fields describe data; an
- * action declares private input handling separately.
+ * A field is required unless it says `optional`. A switch (`boolean`) is
+ * never required, and an absent one is `false`. A list (`list`) is not
+ * required, and an absent one is empty, unless it says `min` of 1 or more:
+ * then `[]` would not fit, so it is required like any other field. That is a
+ * rule of these two helpers, which mark their schema with its kind
+ * (`absentValue`); no field carries a JSON Schema `default`, and a definition
+ * that has one is refused (`defaultIn`). A collection's field that says
+ * `readOnly` is written only by the app's own actions: the exposed `add` and
+ * `set` leave it out. Fields describe data; an action declares private input
+ * handling separately.
  */
 import {
 	type TArray,
@@ -105,16 +107,15 @@ const KIND = 'x-epicenter-field';
 
 /**
  * What a field reads as when its key is absent: `false` for `field.boolean`,
- * `[]` for `field.list`, and `undefined` for every other field. A read of a
- * file and a call of an action both use it, so the two agree.
+ * `[]` for a `field.list` with no `min`, and `undefined` for every other
+ * field, a list that needs an item included. A read of a file and a call of
+ * an action both use it, so the two agree.
  */
 export function absentValue(schema: unknown): false | [] | undefined {
-	const kind =
-		typeof schema === 'object' && schema !== null
-			? (schema as Record<string, unknown>)[KIND]
-			: undefined;
+	if (typeof schema !== 'object' || schema === null) return undefined;
+	const { [KIND]: kind, minItems } = schema as Record<string, unknown>;
 	if (kind === 'switch') return false;
-	if (kind === 'list') return [];
+	if (kind === 'list' && !minItems) return [];
 	return undefined;
 }
 
@@ -154,9 +155,15 @@ type Optionally<T extends TSchema, O> = Marked<
 	O
 >;
 
-/** The keys of `F` that are a switch or a list, which a read and an action's `run` always have. */
+/**
+ * The keys of `F` that are a switch or a list that may be empty, which a read
+ * and an action's `run` always have. A list with a `min` is required, so it is
+ * there as any required field is.
+ */
 export type FilledKeys<F> = {
-	[K in keyof F]: F[K] extends { [KIND]: 'switch' | 'list' } ? K : never;
+	[K in keyof F]: F[K] extends { [KIND]: 'switch' | 'list'; '~optional': true }
+		? K
+		: never;
 }[keyof F];
 
 /** A switch: `false` unless its key is given, or is in the file. */
@@ -197,15 +204,38 @@ export function refPathOf(schema: unknown): string | undefined {
 	return typeof path === 'string' ? path : undefined;
 }
 
-/** A list of `item`, optional and empty unless given. */
-function list<const T extends TSchema, const O extends Options>(
+/** A list that needs at least one item: required, and never filled when absent. */
+export type TRequiredList<T extends TSchema> = TArray<T> & { [KIND]: 'list' };
+
+type ListOptions = Options & {
+	/** The fewest items it holds; 1 or more makes it required, since `[]` would not fit. */
+	min?: number;
+};
+
+/** A list of `item`: optional and empty unless given, or required with at least `min` items. */
+function list<const T extends TSchema, const O extends ListOptions>(
 	item: T,
-	options?: Only<O, Options>,
+	options?: Only<O, ListOptions>,
 ) {
-	only('list', options, OPTIONS);
-	return Type.Optional(
-		Type.Array(item, { ...schemaOptions(options), [KIND]: 'list' }),
-	) as unknown as Marked<TList<T>, O>;
+	only('list', options, [...OPTIONS, 'min']);
+	const min = options?.min ?? 0;
+	if (!Number.isInteger(min) || min < 0)
+		throw new Error(
+			`field.list's min must be a whole number of at least 0, not ${min}`,
+		);
+	const array = Type.Array(item, {
+		...schemaOptions(options),
+		...(min > 0 ? { minItems: min } : {}),
+		[KIND]: 'list',
+	});
+	return (min > 0 ? array : Type.Optional(array)) as unknown as Marked<
+		O extends { min: infer M extends number }
+			? M extends 0
+				? TList<T>
+				: TRequiredList<T>
+			: TList<T>,
+		O
+	>;
 }
 
 function maybeOptional<T extends TSchema, O extends MaybeOptional>(
@@ -374,7 +404,8 @@ export const field = {
 
 	/**
 	 * A list of any field: `field.list(field.select(['x', 'threads']))`. It is
-	 * never required, and reads as `[]` when absent.
+	 * not required, and reads as `[]` when absent. `{ min: 1 }` makes it need
+	 * at least one item: then it is required, and an absent one is missing.
 	 */
 	list,
 
@@ -382,9 +413,9 @@ export const field = {
 	 * The key of a record in `collection`: the value of the one placeholder in
 	 * its path, so `field.ref(essays)` for `data/essays/{slug}.md` holds a slug
 	 * such as `"dune"`. `collection` is declared before the field that names
-	 * it. A collection's `add` and `set` refuse a key with no record, or one
-	 * that is not exactly the key its file would carry; a read returns the key
-	 * and opens no other file.
+	 * it. A collection's `add` and `set` refuse a key unless `get` on
+	 * `collection` would find a record by it whose key it is; a read returns
+	 * the key and opens no other file.
 	 */
 	ref: <const O extends MaybeOptional>(
 		collection: AnyCollection,
@@ -408,6 +439,7 @@ type Described = {
 	description?: string;
 	minimum?: number;
 	maximum?: number;
+	minItems?: number;
 	items?: Described;
 	anyOf?: Described[];
 	const?: unknown;
@@ -440,6 +472,7 @@ const SAID = new Set([
 	'pattern',
 	'minimum',
 	'maximum',
+	'minItems',
 ]);
 
 /** The schema a field takes besides `null`: `X | null`, as `set` takes a field, is `X`. */
@@ -462,10 +495,15 @@ function wanted(schema: Described): string | undefined {
 	// A pattern is a regular expression; the field's description says it in words.
 	if (schema.pattern !== undefined) return schema.description;
 	if (schema.format !== undefined) return FORMATS[schema.format];
-	if (schema.type === 'array' && schema.items) {
-		const each = wanted(schema.items);
-		if (each === 'text') return 'a list of text';
-		if (each) return `a list, each ${each}`;
+	if (schema.type === 'array') {
+		const each = schema.items && wanted(schema.items);
+		const min = schema.minItems ?? 0;
+		const atLeast =
+			min > 0 ? `at least ${min} item${min === 1 ? '' : 's'}` : '';
+		if (each === 'text')
+			return atLeast ? `a list of text with ${atLeast}` : 'a list of text';
+		const list = atLeast ? `a list of ${atLeast}` : 'a list';
+		return each ? `${list}, each ${each}` : list;
 	}
 	const kind = schema.type === undefined ? undefined : TYPES[schema.type];
 	if (!kind) return kind;
