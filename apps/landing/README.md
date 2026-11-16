@@ -1,20 +1,17 @@
-# @epicenter/landing
+# Epicenter website
 
-Epicenter's public landing site, built with [Astro](https://astro.build/) and deployed as Cloudflare Workers static assets (`wrangler deploy`).
+This Astro app builds the homepage at [epicenter.so](https://epicenter.so/).
+From the repository root, run `bun install` and `bun dev:landing` to work on it,
+or `bun run --cwd apps/landing build` to generate `apps/landing/dist/`.
 
-## Commands
+Pull requests get a Worker preview. A merge to main deploys the build to
+[the landing Worker](https://landing.epicenter.workers.dev/). The public domain
+is attached to a separate Cloudflare Pages project named `epicenter`, published
+by direct upload. That deployment also serves the Mail verification page,
+its privacy disclosures, and the archive.
 
-All commands are run from the root of the project, from a terminal:
-
-| Command               | Action                                           |
-| :-------------------- | :----------------------------------------------- |
-| `bun install`         | Installs dependencies                            |
-| `bun dev`             | Starts local dev server at `localhost:4321`      |
-| `bun build`           | Build your production site to `./dist/`          |
-| `bun preview`         | Preview your build locally, before deploying     |
-| `bun astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `bun astro -- --help` | Get help using the Astro CLI                     |
-
-## Learn more
-
-Check [our documentation](../../docs/) or jump into our [Discord server](https://go.epicenter.so/discord).
+To publish a homepage change on Pages, start with the current Pages site's
+assets and replace the homepage and the assets it references from the new
+build. Check the preview at `/`, `/mail`, and `/privacy` before publishing
+to the production branch. Uploading the Worker build alone would drop the
+Mail page.
