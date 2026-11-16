@@ -42,7 +42,7 @@ Install the developer preview on macOS or Linux, arm64 or x64. Git, curl, and
 shasum or sha256sum are required. Bun and an AI account are not required.
 
 ```sh
-curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.1.0/install.sh | sh
+curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.0/install.sh | sh
 ```
 
 The installer verifies the download and installs `~/.local/bin/epicenter`.
@@ -61,6 +61,13 @@ Open `http://127.0.0.1:4747/writing/` to save a thought, quote, or link with its
 source, then find and edit it. Keep the terminal open while the server runs.
 Your notes are Markdown files in `apps/writing/data/notes/`. You own the app's
 copy in `apps/writing/code/` and can change it with your editor or coding agent.
+
+For a task list, copy [Tasks](examples/tasks/README.md) into an Epicenter
+running CLI 0.4.0 or later:
+
+```sh
+epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
+```
 
 For CLI commands, MCP setup, and optional background service installation, see
 [the CLI guide](packages/cli/README.md).
@@ -113,7 +120,7 @@ you apply.
 ## Status
 
 The CLI developer preview installs as a standalone executable from
-[GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.1.0).
+[GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.4.0).
 Writing is an exported app copied separately from GitHub. The executable
 carries the runtime; each app remains ordinary editable source.
 `epicenter service install` keeps `serve` running as a macOS LaunchAgent; the

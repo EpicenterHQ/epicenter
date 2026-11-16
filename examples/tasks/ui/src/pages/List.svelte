@@ -1,0 +1,216 @@
+<!--
+	The task list: a quick add at the top, open tasks grouped by when they are
+	due, and the done ones folded away at the bottom.
+-->
+<script lang="ts">
+	import * as Alert from '$lib/components/ui/alert';
+	import { Button } from '$lib/components/ui/button';
+	import { IconButton } from '$lib/components/ui/icon-button';
+	import * as Collapsible from '$lib/components/ui/collapsible';
+	import * as Empty from '$lib/components/ui/empty';
+	import { Input } from '$lib/components/ui/input';
+	import { toast } from 'svelte-sonner';
+	import { Spinner } from '$lib/components/ui/spinner';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import PlusIcon from '@lucide/svelte/icons/plus';
+	import type { ActionError } from '@epicenter/app/client';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { type Task, reads, writes } from '$lib/app.js';
+	import TaskRow from '$lib/components/TaskRow.svelte';
+	import { completed, dayOf, groupOpen, splitTasks, hrefOf, misfitKeyOf, misfitLabelOf } from '$lib/tasks.js';
+
+	const tasks = createQuery(() => reads.list());
+	const addTask = createMutation(() => writes.add);
+	const setTask = createMutation(() => writes.set);
+	let titleField: HTMLInputElement | null = null;
+	let dueField: HTMLInputElement | null = null;
+
+	const partition = $derived(splitTasks(tasks.data ?? []));
+	const broken = $derived(partition.errs);
+	const rows = $derived(partition.oks.map((task) => setTask.isPending && setTask.variables?.time === task.time ? { ...task, done: setTask.variables.done ?? task.done } : task));
+
+	let showCompleted = $state(false);
+
+	// Read once a minute so the groups move on at midnight.
+	let now = $state(new Date());
+	$effect(() => {
+		const timer = setInterval(() => (now = new Date()), 60_000);
+		return () => clearInterval(timer);
+	});
+	const today = $derived(dayOf(now));
+
+	const groups = $derived(groupOpen(rows, today));
+	const done = $derived(completed(rows));
+
+	/**
+	 * Each row's change settles its own promise, so quick ticks on several rows
+	 * each get their toast. The check shows the opposite of what it sets, and
+	 * `was` names that, so a task changed elsewhere since is refused, not flipped.
+	 */
+	function toggle(task: Task, isDone: boolean) {
+		const label = task.title;
+		setTask.mutateAsync({ time: task.time, done: isDone, was: { done: !isDone } }).then(
+			() => {
+				if (!isDone) return;
+				toast(`Done: ${label}`, {
+					action: { label: 'Undo', onClick: () => toggle(task, false) },
+				});
+			},
+			(error: ActionError) =>
+				toast.error(`Could not confirm the change to “${label}”`, {
+					description:
+						error.name === 'Changed'
+							? 'It changed elsewhere; the list now shows it as saved.'
+							: error.message,
+				}),
+		);
+	}
+</script>
+
+<div class="min-h-dvh bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+	<header
+		class="sticky top-0 z-10 border-b bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur"
+	>
+		<div class="mx-auto max-w-xl px-4 pt-4 pb-3">
+			<div class="mb-3 flex items-baseline justify-between gap-2">
+				<h1 class="text-2xl font-semibold tracking-tight">Tasks</h1>
+				<span role="status" class="text-xs text-muted-foreground">{addTask.isPending || setTask.isPending ? 'Saving…' : ''}</span>
+			</div>
+			<form
+				class="flex flex-wrap gap-2"
+				onsubmit={(event) => {
+					event.preventDefault();
+					if (addTask.isPending || !titleField || !dueField) return;
+					const input = titleField;
+					const form = event.currentTarget;
+					const title = input.value.trim();
+					if (title === '') return;
+					const due = dueField.value;
+					addTask.mutate({ title, ...(due ? { due } : {}) }, {
+						onSuccess: () => { form.reset(); input.focus(); },
+						onError: (error) => toast.error('Check your tasks before adding this again', { description: error.message }),
+					});
+				}}
+			>
+				<Input
+					bind:ref={() => titleField, (node) => titleField = node}
+					name="title"
+					required
+ readonly={addTask.isPending}
+					class="h-11 flex-1 basis-40 text-base"
+					placeholder="Add a task"
+					aria-label="New task"
+					enterkeyhint="done"
+					autocomplete="off"
+				/>
+				<Input
+					bind:ref={() => dueField, (node) => dueField = node}
+					type="date"
+					name="due"
+ readonly={addTask.isPending}
+					aria-label="New task due date"
+					class="order-3 h-11 w-full sm:order-none sm:w-36"
+				/>
+				<IconButton
+					label="Add task"
+					size="lg"
+					type="submit"
+					class="size-11"
+					disabled={addTask.isPending}
+				>
+					<PlusIcon />
+				</IconButton>
+			</form>
+		</div>
+	</header>
+
+	<main class="mx-auto max-w-xl px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+6rem)]">
+		{#if tasks.error}
+			<Alert.Root variant="destructive" class="mt-3">
+				<Alert.Title>Your tasks could not be loaded</Alert.Title>
+				<Alert.Description>
+					<p>{tasks.error.message}</p>
+					<Button variant="outline" size="sm" class="mt-2" onclick={() => tasks.refetch()}>
+						Try again
+					</Button>
+				</Alert.Description>
+			</Alert.Root>
+		{/if}
+
+		{#if tasks.isPending}
+			<div class="flex justify-center py-16" role="status" aria-label="Loading tasks">
+				<Spinner class="size-5 text-muted-foreground" />
+			</div>
+		{:else}
+			{#if broken.length}
+				<section class="mt-4" aria-labelledby="needs-repair">
+					<h2 id="needs-repair" class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+						Needs repair
+						<span class="ml-1 tabular-nums">{broken.length}</span>
+					</h2>
+					<ul>
+						{#each broken as error (error.path)}
+							<li class="flex items-center gap-3 border-b border-border/60 last:border-b-0">
+								<TriangleAlertIcon class="size-5 shrink-0 text-muted-foreground" aria-label="Needs repair" />
+								<a
+									href={hrefOf({ time: misfitKeyOf(error) })}
+									class="flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 outline-none focus-visible:underline"
+								>
+									<span class="break-anywhere">{misfitLabelOf(error)}</span>
+									<span class="text-xs text-muted-foreground">Needs repair</span>
+								</a>
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+			{#each groups as group (group.key)}
+				<section class="mt-4" aria-labelledby="group-{group.key}">
+					<h2
+						id="group-{group.key}"
+						class="text-xs font-medium tracking-wide uppercase {group.key === 'overdue'
+							? 'text-destructive'
+							: 'text-muted-foreground'}"
+					>
+						{group.label}
+						<span class="ml-1 tabular-nums">{group.tasks.length}</span>
+					</h2>
+					<ul>
+						{#each group.tasks as task (task.time)}
+							<TaskRow {task} {today} showDue={group.key !== 'today'} onToggle={toggle} disabled={setTask.isPending} />
+						{/each}
+					</ul>
+				</section>
+			{:else}
+				{#if !tasks.error && !broken.length}
+					<Empty.Root class="py-16">
+						<Empty.Title>Nothing to do</Empty.Title>
+						<Empty.Description>Add a task above, or ask your agent to.</Empty.Description>
+					</Empty.Root>
+				{/if}
+			{/each}
+
+			{#if done.length > 0}
+				<Collapsible.Root bind:open={showCompleted} class="mt-6">
+					<Collapsible.Trigger
+						class="flex min-h-11 w-full items-center gap-1 text-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:underline"
+					>
+						<ChevronRightIcon
+							class="size-4 transition-transform {showCompleted ? 'rotate-90' : ''}"
+						/>
+						Completed
+						<span class="ml-1 tabular-nums">{done.length}</span>
+					</Collapsible.Trigger>
+					<Collapsible.Content>
+						<ul>
+							{#each done as task (task.time)}
+								<TaskRow {task} {today} onToggle={toggle} disabled={setTask.isPending} />
+							{/each}
+						</ul>
+					</Collapsible.Content>
+				</Collapsible.Root>
+			{/if}
+		{/if}
+	</main>
+</div>
