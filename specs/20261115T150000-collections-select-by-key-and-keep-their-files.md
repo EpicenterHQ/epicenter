@@ -101,9 +101,9 @@ and each other's. These are the changes all three supported.
 
 ### Wave 4a: one JSON object on the command line (ADR-0925)
 
-- [ ] `epicenter <app> <action> [<json> | -]`; `positional`,
+- [x] `epicenter <app> <action> [<json> | -]`; `positional`,
   `RESERVED_FIELDS`, and `--input` removed; help lists keys and an example.
-- [ ] Every written command in the repository's READMEs, vision, skill, and
+- [x] Every written command in the repository's READMEs, vision, skill, and
   examples.
 
 Built before the apps move, so they move once.
@@ -232,8 +232,11 @@ paths do move, which that spec says they would not.
   reproduce on the merged code.
 - A count on 2026-11-15, values unread: all 554 front matter lines in the
   apps' 111 files are `key: <JSON>`; none of the Vault's 3,329 pages is.
-- With the merged command, an app that calls `field.tags()` or declares a
-  default fails to load until wave 4c.
+- Waves 4a and 4b are built and merged. The example writing app, copied to a
+  scratch Epicenter, took JSON as an argument and from stdin, and refused two
+  words, text that is not JSON, an array, and a mistyped key, each with exit 2.
+- With the merged command, an app that calls `field.tags()`, passes
+  `positional`, or declares a default fails to load until wave 4c.
 - No runtime for `files` exists.
 
 ## Success criteria

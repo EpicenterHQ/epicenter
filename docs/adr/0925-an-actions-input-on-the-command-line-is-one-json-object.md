@@ -73,8 +73,9 @@ action's way to read stdin, so private input needs no spelling of its own.
 **`positional` is removed from `defineAction`, and no field name is reserved.**
 
 A definition that still has `positional` throws. `RESERVED_FIELDS` is
-deleted. `--json` and `--help` stay the command's own options, after the
-action's words.
+deleted. `--json` and `--help` stay the command's own options, read anywhere
+before `--`, as for every command. A word after `--` counts as a word, so
+`epicenter tasks add -- '{}'` is two and is refused.
 
 **`--help` lists the keys and prints an example to copy. `--help --json` is unchanged.**
 
@@ -90,6 +91,13 @@ Example:
   epicenter tasks add '{"title":"text"}'
 ```
 
+The usage line ends `<input>` when a key is required, `[<input>]` when none
+is, `-` for private input, and with nothing for an action that takes no
+input. The example gives each required key a value its field takes: `"text"`,
+a select's first choice, `2026-11-12` for a day, a number's minimum or `1`,
+`true` for a switch. When no key is required it shows the first key. Private
+input's example is a `- <<'EOF'` heredoc.
+
 `--input` is removed: with one argument, the word has no job. A routine
 stores its command as the action's words followed by the JSON.
 
@@ -103,6 +111,9 @@ stores its command as the action's words followed by the JSON.
   wrote, it uses `- <<'EOF'`, which has no quoting to get wrong.
 - Every new input shape, a list of objects or a nested object, works on the
   command line the day it works anywhere.
+- A refusal names a key bare on every caller: `title is needed`, where the
+  command line said `--title`. A key the action does not take is reported
+  before a missing one, so a mistyped required key reads as the typo it is.
 - The apps delete 49 `positional` lines. About 25 written commands in eight
   apps' READMEs, the package READMEs, and `docs/vision.md` change. Commands
   that pass no input do not.
