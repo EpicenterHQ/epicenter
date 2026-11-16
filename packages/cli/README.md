@@ -53,9 +53,23 @@ It leaves your Epicenter, shell configuration, and login services alone. If the
 directory is missing from PATH, its instructions use the executable's full path.
 
 To update an existing home, run the installer above on the computer that runs
-`epicenter serve`. Check `epicenter --version`. From the home directory,
-restart the macOS login service with `epicenter service restart`, or restart
+`epicenter serve`. Check the installed CLI with `epicenter --version`. From
+the home directory, restart the macOS login service with `epicenter service restart`, or restart
 `epicenter serve` in its terminal. Reload open app pages to use the new client.
+
+Ask the running server for its version with `curl` and `jq`. Use your home's
+port if you changed it from 4747.
+
+```sh
+curl -fsS http://127.0.0.1:4747/ -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"version-check","version":"1"}}}' \
+  | jq -er '.result.serverInfo.version'
+```
+
+For a routine patch, confirm that version matches the release you installed,
+then try the behavior the patch changed. Check every app when a release
+changes how the host loads apps, reads records, or returns action results.
 
 For a first install, with `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, create an Epicenter:
 
