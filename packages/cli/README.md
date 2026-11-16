@@ -396,15 +396,13 @@ With `--json`, stdout is one JSON object, and MCP returns the same object as `st
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when there is one. A `set` or `edit` that throws `Missing`, when an `add` sits beside it, names that `add` as the next step, so a collection with no placeholder is made on a fresh install:
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when nothing ran and there is one. A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set --goal 20` works on a fresh install. The `set` verb's `was` guard is an object, given in `--input` JSON:
 
 ```txt
-$ epicenter vocab settings set --goal 20
-There is no data/settings.md
-Run: epicenter vocab settings add
+$ epicenter vocab set --input '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
 ```
 
-MCP's text for a thrown action is what the action threw, without that step. The returned value reads this way (`src/output.ts`):
+MCP's text for a thrown action is what the action threw. The returned value reads this way (`src/output.ts`):
 
 - An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values. A `problems` key stays on stdout like any other key.
 - An array of objects whose fields each fit on one line prints one row per object, with `key: value` pairs separated by two spaces. If a field takes more lines, a multiline string or a nested object, each object prints on its own lines, with a blank line between objects.
@@ -421,7 +419,7 @@ body: |
   The deck is in Drive.
 ```
 
-A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, `edit`, and `delete` take each key as a positional word, in path order, where `add` takes the keys it does not make.
+A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, `edit`, and `delete` (given only when the app names it) take each key as a positional word, in path order, where `add` takes the keys it does not make.
 
 ## Check records
 

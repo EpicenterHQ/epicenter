@@ -67,8 +67,8 @@ The files outlive every UI and agent, so their shape is the decision that
 matters most. Define each collection with `defineCollection({ path, fields })`
 in `code/epicenter.ts`: a path template and the fields of each file's front matter
 (`packages/app/README.md`). A collection gives
-`list|get|add|set|edit|delete` (`get|set|edit` for one file) through
-`.actions()`. An app with one collection spreads them at the top, so they are
+`list|get|add|set|edit` through `.actions()`, and `delete` only when named
+(`.actions('delete')`). An app with one collection spreads them at the top, so they are
 its own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests
 each under its name (`epicenter mail messages list`). A record's address is
 its path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
@@ -76,16 +76,17 @@ A path is one relative `.md` template under `data/`, such as
 `data/days/{day}.md`; files in a second layout are a second collection.
 `defineCollection` refuses a path outside `data/`, a list of paths, or a part
 starting with `.`. A field or placeholder may not be named `path`,
-`body`, `problems`, `json`, `help`, or `input`, and a placeholder may not be
-`old` or `new`.
+`body`, `problems`, `was`, `json`, `help`, or `input`, and a placeholder may
+not be `old` or `new`. No field has a `default`: a definition with one is
+refused, so write the default where the value is read (`limit ?? 50`).
 
 - Choose the path by how people and agents will name a file. `{time}` suits
   things made in passing (`data/captures/{time}.md`, `data/tasks/{time}.md`): `add`
   names the file by the time. A placeholder `add` takes suits things named by
   what they are (`data/words/{word}.md`, `data/books/{title}.md`), at the cost of
-  characters a file name cannot hold. Every method names the file by the
-  value as NFC, trimmed, with single spaces, so an action passes what the
-  person typed.
+  characters a file name cannot hold. A method finds a file by the value
+  exactly as given first, then as NFC, trimmed, with single spaces, which is
+  the name `add` writes, so an action passes what the person typed.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
   as `field.date` and `field.datetime` hold them; `toISOString()` gives UTC's
@@ -93,28 +94,35 @@ starting with `.`. A field or placeholder may not be named `path`,
 - Derive a state from fields that already say it rather than storing it
   twice: Reading has no status, since `started` and `finished` say whether
   a book is to read, being read, or read.
-- `list` returns fields without bodies. Put what a list or an agent needs at a
-  glance in a field (a task's `title`); put prose in the body.
+- The `list` verb returns fields without bodies (the method gives whole
+  records). Put what a list or an agent needs at a glance in a field (a
+  task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
   required field takes no `null`. A `set` with no field throws.
 - Mark a field `readOnly` when only the app's own actions may write it (Vocab's
   schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
-  A `readOnly` field that is required with no default removes the exposed
-  `add`, so write the app's own (Capture's `add`).
+  A `readOnly` field that is required removes the exposed `add`, so write
+  the app's own (Capture's `add`).
 - Constrain text with `field.text({ pattern, description })`, the description
   reading after "must be" (Tasks' title: `one line, not blank, saying what to
   do`), so the generated `set` refuses what the app's own `add` would.
-- A read never trusts the file: a field that does not fit reads as its
-  default, or is absent, and the file carries `problems` quoting what was
-  dropped. So every field without a default is optional when read, a required
-  one included. Read code handles absence; it never assumes the declaration.
-  Front matter that cannot be read, or opens with `---` and never closes, is
-  refused by `get` and every writer, and listed as a row with `problems`.
-- A body changes through `edit --old <text> --new <text>`, which replaces one
-  passage and is refused unless `old` occurs exactly once, so a body read
-  before someone else changed it is never written back over theirs
-  (ADR-0869). An empty `old` fills an empty body.
+- A read gives only what the file holds: a field that does not fit reads as
+  absent, and the file carries `problems` quoting what was dropped. An absent
+  switch reads `false` and an absent list `[]`; nothing else is filled. A
+  record without `problems` has its required fields, so check
+  `!record.problems` before relying on one. A function given to `set` or
+  `update` may not write a field whose value does not fit; plain data repairs
+  it. Front matter that cannot be read, or opens with `---` and never closes,
+  is refused by `get` and every writer, and listed with `problems`.
+- A body changes through the `edit` verb (`--old <text> --new <text>`), which
+  is refused with `Changed` unless `old` occurs exactly once; `old` may be the
+  whole body, so a body read before someone else changed it is never written
+  back over theirs (ADR-0869). An empty `old` fills an empty body. In code,
+  `set` carries `body`, as data or from a function of the record.
+- The `set` verb takes fields only, and an optional `was` naming the values
+  the caller last saw (`null` for absent), given in `--input` JSON; it is
+  refused with `Changed` when one has changed since.
 - A secret, such as a sign-in token, is a collection with no placeholder at a
   `.local.md` path (`data/google.local.md`), its fields declared like any other
   (ADR-0870). A `.local` file stays on the computer that runs the app:
@@ -158,11 +166,12 @@ a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
 `{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
 collection's methods, which name a record by its keys and take the change
-second (`words.get({ word })`, `words.set({ word }, fields)`,
-`words.edit({ word }, { old, new })`, `words.update({ word }, change)`), instead
-of parsing front matter again; a row passes as its own keys. A collection with
-no placeholder takes no keys (`settings.get()`), reads as `undefined` until
-its first write, and `set` refuses it until `add` or `update` makes it. For
+second (`words.get({ word })`, `words.set({ word }, { meaning, body })`,
+`words.set({ word }, (now) => change)`, `words.update({ word }, change)`),
+instead of parsing front matter again; a row passes as its own keys. A
+collection with no placeholder takes no keys (`settings.get()`), reads as
+`undefined` until its first write, and the `set` method refuses it until
+`add` or `update` makes it; its `set` verb makes it. For
 other files, the imported `folder` supplies atomic writes and updates.
 `words.pathOf({ word })` gives a record's path; never build one by hand.
 Make the first write through `folder` or a collection, so the call takes
