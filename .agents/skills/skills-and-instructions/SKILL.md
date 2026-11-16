@@ -1,179 +1,108 @@
 ---
 name: skills-and-instructions
-description: Design, write, and maintain skills and agent instructions. Use when the user asks to create, revise, evaluate, or troubleshoot skills or agent instructions, including investigating selection behavior to improve the guidance and deciding where guidance belongs.
+description: Design, write, and maintain skills and agent instructions. Use when the user asks to create, revise, evaluate, or troubleshoot skills or agent instructions.
 ---
 
 # Skills and instructions
 
-A skill should help a future agent do the work better. Preserve knowledge,
-preferences, and lessons it would otherwise miss. Judge the skill by whether
-that guidance helps the agent make better decisions in real situations.
+Help us put what we know about the work into guidance another agent can use.
+That includes practical knowledge, judgment, taste, and a broader understanding
+of what the work calls for.
 
-Placement, structure, and wording for a settled, authorized outcome are your
-work. Apply them, or the wording the user selected, say what you saved, and
-carry the work through. Bring back a choice only when it would change the
-settled outcome.
+Where that understanding is still taking shape, help us develop it.
 
-## Develop the intended capability
+Take responsibility for placement, structure, and composition. Carry the
+user's selected wording and authorized changes into the guidance, say what
+you saved, and carry the work through.
 
-Ground the guidance in actual work, source material, or the user's corrections.
-Extract the judgment that made an accepted interaction work so it transfers
-across topics and formats.
-Treat an accepted response as evidence about useful judgment, rather
-than a template to reproduce.
+## Develop the intent and vision
 
-Use examples as evidence for principles that future agents can apply to new
-cases.
+When the intent or vision is still unsettled, use
+[dialectic](../dialectic/SKILL.md) to develop it together.
 
-When the purpose of the guidance or the workflow it should produce is still
-unsettled, use [dialectic](../dialectic/SKILL.md) throughout: clarify the
-intent together, develop a greenfield vision, and work backward into concrete
-form. Carry forward the intent, vision, and choices already settled in the
-conversation.
+Clarify what we want an agent to understand and how we want it to approach
+the work. Show what that would look like through an agent handling a realistic
+request: what it notices, the decisions it makes, and what the user receives.
+Let the user examine that experience before writing the instructions meant
+to produce it.
 
-Clarify what the guidance should make possible and what judgment future
-agents need.
-Make the vision concrete through a future agent handling realistic work:
-what it recognizes, what decisions it makes, and what the user receives.
-Let the user examine that experience before settling the instructions
-that should produce it. Distinguish illustrative exchanges from results
-obtained by running the guidance.
+Build on intent, vision, and choices already settled in the conversation.
 
-Reconsider the structure before polishing wording.
+## Develop the guidance section by section
 
-Work backward from the recognized vision to responsibilities, structure,
-and wording. Existing skill and section boundaries remain open to change.
-A short sketch of the proposed sections can make this concrete.
+Once the intent and vision are recognized, work backward into the guidance
+that should produce that experience. Propose a structure whose sections each
+have a clear responsibility. Existing skill and section boundaries remain
+open to change.
 
-How much you rethink and how much you show at once are separate choices: you
-can rethink a whole skill while reviewing one section, merge, or replacement
-at a time, at the user's pace. Put Current wording in a blockquote and Proposed
-wording in a copyable block, with explanation outside both.
+Develop the actual articulations section by section, at the user's pace.
+Before rewriting an existing section, ask whether it needs to be there at all.
 
-The user may accept the direction and still object to the wording; carry
-settled pieces forward and keep working on the rest. When behavior is at
-issue, show how each version would handle a realistic request.
+For each section, explain what it needs to contribute to the shared vision
+and show the wording you propose. When revising, put Current wording in a
+blockquote and Proposed wording in a copyable block, with explanation outside
+both. Include enough context for the user to judge the passage.
 
-When reviewing the concrete form of a new skill, show the proposed instructions
-and intended interaction. Use the appropriate surface for other outputs, such
-as caller code, a rendered screen, or an action sequence.
+Examine the wording together against the intent and vision. What understanding
+does it convey? What would it lead an agent to notice, decide, or do?
+Where taste matters, examine what the passage helps an agent recognize as
+good work. Use a realistic example when the consequences need to become
+visible.
 
-## Find the guidance's owner
+Before replacing a substantial passage, ask whether there are phrases,
+sentences, or explanations the user wants to keep. Preserve selected wording
+exactly. An articulation can be worth keeping because it says something
+just right, even when another version would convey the same idea.
 
-Read the involved guidance together. Resolve conflicting instructions
-at their source, and distinguish useful composition from repeated
-responsibility.
+Carry recognized parts forward and compose the next attempt yourself.
+Agreement on the intent or vision establishes the direction; develop and
+examine the wording within it. The user may recognize the thought while
+wanting a different expression.
 
-When a principle has gathered exceptions or patches, use
-[rethink](../rethink/SKILL.md) to rearticulate it and check it against the cases
-that produced them.
+Keep the whole in view as you develop individual sections. Revisit the
+structure when a passage reveals a better arrangement, and read the assembled
+guidance against the shared intent and vision.
 
-Update the existing owner when the intent is the same.
-Create a separate skill when it offers a coherent capability someone
-would reach for independently. Merge or remove guidance whose
-distinction creates more work than it saves.
-Let skills compose where their responsibilities work together.
+For an exact edit or a change whose wording is already settled, carry it
+through directly. Build on intent, vision, and wording already recognized
+in the conversation.
 
-| Material | Home |
+## Where the guidance goes
+
+Update an existing skill or instruction file when it already covers the work.
+Use this table to decide where new material belongs.
+
+| Material | Where it goes |
 |---|---|
-| Constraints that apply across tasks | AGENTS.md |
-| Specialized, recurring judgment | A skill |
-| Architecture and decision history | The relevant README or ADR |
-| Conditional detail | References |
-| Repeated fragile mechanics | Scripts |
+| Instructions that apply across tasks | AGENTS.md |
+| Guidance for a recurring kind of work | A skill |
+| Project architecture and decision history | The relevant README or ADR |
+| Supporting detail needed in particular situations | References |
+| Reusable code for repetitive or fragile steps | Scripts |
 | Advice specific to the current work | The task itself |
 
-Link to existing owners for guidance they already carry. A link can lend
-another skill's method, such as rethink's reasoning, without importing that
-skill's interaction protocol; say which part applies when the difference
-matters. Prefer an existing check or guard for a constraint it reliably
-enforces; preserve the explanation an agent needs to work within it.
+Link to guidance already covered elsewhere so the agent can find it.
 
-## Write for judgment
+## File conventions
 
-State the premise and connect instructions to their reasons so the agent can
-apply them to new cases. Give criteria and boundaries. Use ordered steps where
-sequence affects correctness. Supply the context the agent needs to recognize
-the situation and make a sound decision within the task.
+Save project skills in `.agents/skills/<name>/SKILL.md`. Use lowercase,
+hyphenated names and YAML frontmatter containing `name` and `description`.
 
-Prefer positive framing: describe what the agent should do, when to do it,
-and why. When correcting a failure, state the behavior that would handle that
-situation well. This gives future agents a useful action to take and a principle
-they can apply to new cases. Keep explicit prohibitions where they express a
-necessary boundary more precisely.
+Start the description with what the skill does. Begin the second sentence
+with "Use when" and name the requests or situations that should select it.
+Begin the body with the guidance itself.
 
-Start the frontmatter description with a sentence stating what the skill does.
-Begin the second sentence with "Use when" and name the user intents or situations
-that should select it. This makes both the capability and its selection
-conditions clear. Use examples to distinguish nearby user intents and the
-work each calls for. Revisit the description when the capability changes.
+Put supporting detail in references and explain when to read them.
 
-Begin the body with the guidance itself; selection stays in the
-description.
+Keep durable personal guidance in the tracked dotfiles repository.
 
-Keep the core readable on its own. Link to conditional detail with
-a concrete reason to read it. Keep examples that contribute judgment
-beyond the principle. Remove obsolete references and duplicated
-instructions as part of the same change.
+When importing a skill, inspect its scripts, dependencies, and external
+actions before using it. Identify the tools and credentials it needs.
 
-## Check the assembled guidance
+## Optional references
 
-Read the whole against the intended behavior and the guidance it
-composes with. Check what the instructions jointly encourage, what
-they leave unresolved, and whether they burden unrelated work.
-Check for clarity, repetition, and whether each rule sits with its owner.
-A passage or example may show that the structure or intent needs revisiting.
-
-Choose verification around a concrete uncertainty. Check affected
-links after moving references. Check frontmatter and intended-host
-discovery after changing names, locations, or discovery metadata.
-For a prose correction, inspect the changed guidance and its diff.
-
-When comparing how current and revised guidance handle a request, keep the
-request and unrelated material the same so the difference comes from the
-guidance. Present sample outputs together, each readable on its own, with
-enough of the request and surrounding output to see the difference; bold the
-parts that changed or need attention.
-
-Describe the conditions of actual runs. Treat a preference as evidence about
-that sample.
-Before claiming a general improvement, examine the motivating request
-and materially different work, including a request where direct
-action is appropriate. Judge decisions and outcomes, rather than
-similarity to an approved response.
-
-Read [evaluation](references/evaluation.md) when investigating
-selection or behavior, comparing versions, or asked for evidence
-of improvement. It covers controlled comparisons, fresh cases,
-user judgments, and the limits of the available diagnostics.
-
-Read [composition diagnostics](references/composition-audit.md)
-when checking broken links, duplicated guidance, or competing
-skill descriptions.
-
-## Repository conventions
-
-Project skills live in `.agents/skills/<name>/SKILL.md` with lowercase
-hyphenated names and YAML frontmatter containing `name` and
-`description`. Preserve optional metadata and host settings that
-still serve the capability. Add host-specific scaffolding for an
-identified host requirement.
-
-For shared instruction files, follow the repository's
-[instruction ownership and Claude shim rules](../../../AGENTS.md#agent-instruction-files).
-
-For skills intended for Claude as well, create this relative link
-from the repository root, and update or remove it with the skill:
-
-```bash
-ln -s ../../.agents/skills/<name> .claude/skills/<name>
-```
-
-Codex-only skills use Codex's skill discovery paths. Store durable
-personal guidance in the tracked dotfiles repository so it survives
-host-managed skill updates.
-
-When importing guidance, inspect its scripts, dependencies, external
-actions, and assumptions before using them. Adapt it to local
-conventions and identify the tools or credentials it requires.
-Work within the credentials and permissions available in the session.
+- Read [evaluation](references/evaluation.md) when investigating how agents use
+  guidance or comparing whether a change helps.
+- Read [composition diagnostics](references/composition-audit.md) when
+  investigating broken links, conflicting instructions, repeated guidance,
+  or overlapping skill descriptions.
