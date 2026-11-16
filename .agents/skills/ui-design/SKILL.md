@@ -14,8 +14,9 @@ greenfield composition and collapsing local markup, arbitrary styling, and
 duplicated visual contracts into `@epicenter/ui`, except where app-specific
 behavior or a load-bearing interaction earns the custom shape.
 
-The existing screen is evidence, not a structure to reproduce. For Epicenter
-product apps, `@epicenter/ui` is the default system. Treat shadcn-svelte as
+The existing screen is evidence, not a structure to reproduce. Monorepo apps use
+`@epicenter/ui`. Personal apps own their components in `code/` and can use the
+home palette or their own colors. See [Epicenter apps](../epicenter-app/SKILL.md). Treat shadcn-svelte as
 implementation lineage and upstream grounding, not as an app import path.
 
 ## Canonical Path

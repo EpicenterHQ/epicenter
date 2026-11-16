@@ -26,7 +26,7 @@ such as one per person. `epicenter serve` offers MCP at `/` and each UI at
       epicenter.test.ts         action tests
       package.json  bun.lock    actions' and UI's dependencies
       README.md
-      ui/                       UI source
+      ui/                       optional browser UI
         dist/                   generated, ignored
       node_modules/             supplied @epicenter/app link, ignored
     data/                       records and settings
@@ -39,8 +39,9 @@ such as one per person. `epicenter serve` offers MCP at `/` and each UI at
 root, a subfolder, or an app container's code subtree. Provenance is in
 `code/SOURCE.md`. Later source changes are work for the app's owner; there is
 no merge-based updater. A copied symlink stays a link. For example,
-`code/ui/src/theme.css -> ../../../../../theme.css` needs a root theme in the
-destination Epicenter; new reports links that do not resolve.
+`code/ui/src/theme.css -> ../../../../../theme.css` uses the destination's palette.
+Fresh homes get that file from `init`. `new` reports a missing target if the
+receiving home lacks that file.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
 the smallest whole example. Keep private records out of code publication;
@@ -268,16 +269,17 @@ current branch.
 
 ## Build the UI as a client
 
-Copy an existing app's `code/ui/` into the new app's `code/ui/`: Svelte on Bun's bundler, with `ui/build.ts`,
-the Svelte plugin beside it (`ui/svelte-plugin.ts`), the hash router in
-`src/lib/router.svelte.ts`, and a manifest and icons in `static/`; copy
-`bunfig.toml` with it, whose `peer = false` keeps a peer named `bun` from
-shadowing Bun. The app's `code/package.json` names every package the UI imports,
-from npm, never `workspace:` or `catalog:`. The UI imports Epicenter only
-through `@epicenter/app/client`. It owns its components, copied into
-`src/lib/components/ui/` with `components.json`, `src/lib/utils.ts`, and the
-theme in `src/app.css` (ADR-0874). Add a component by copying it whole,
-dependencies and tests included, and change it in place.
+Add `code/ui/` when the app needs a browser view. The view can keep its own
+colors or import the home's `theme.css`. Finance uses the home variables in
+plain CSS. Tasks maps them to Tailwind utilities. Fonts, layout, and components
+belong to the app.
+
+For a Svelte UI like Tasks, copy its `ui/build.ts`, `ui/svelte-plugin.ts`, and
+the components the view uses. Copy `bunfig.toml` with the build: `peer = false`
+keeps a peer named `bun` from shadowing Bun. Keep component source editable in
+`src/lib/components/ui/` alongside `components.json` in `ui/` and `src/lib/utils.ts`.
+The UI calls Epicenter through `@epicenter/app/client`. Declare other imported
+packages in `code/package.json` with versions resolvable from npm.
 
 Build paths are relative to code/. Component paths starting with src/ or
 static/ are relative to code/ui/.
