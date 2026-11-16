@@ -10,8 +10,10 @@
  *   (`words.get({ word })`, `words.set({ word }, { meaning })`), over the
  *   folder of the run they are called in;
  * - `actions()`, which gives its verbs as actions to expose (`list`, `get`,
- *   `add`, `set`, `edit`, and `delete` when named), each built on those
- *   methods for a caller that can send only plain data.
+ *   `add`, `set`, and `delete` when named), each built on those methods for
+ *   a caller that can send only plain data. The `set` verb is the `set`
+ *   method for a caller that cannot send a function, so it sends what it
+ *   last saw instead: `was` for fields, `old` for a passage of the body.
  *
  * A method names a record by its keys, each placeholder's value
  * (`{ word }` for `data/words/{word}.md`), and reads only those names, so a
@@ -252,9 +254,9 @@ export type Handle<D extends CollectionDef> = {
 };
 
 /** The verbs a collection may expose. */
-export type Verb = 'list' | 'get' | 'add' | 'set' | 'edit' | 'delete';
+export type Verb = 'list' | 'get' | 'add' | 'set' | 'delete';
 
-/** The verbs that fit a collection: all six, less `add` when a field `add` could never be given is required. */
+/** The verbs that fit a collection: all five, less `add` when a field `add` could never be given is required. */
 type VerbOf<D extends CollectionDef> = [UnaddableKeys<D['fields']>] extends [
 	never,
 ]
@@ -273,18 +275,18 @@ type Was<D extends CollectionDef> = {
 	-readonly [K in keyof D['fields']]?: ValueOf<D['fields'], K> | null;
 };
 
+/** The passage of the body the `set` verb replaces: `old` as the caller last saw it and `new` together, or neither. */
+type Passage = { old?: never; new?: never } | { old: string; new: string };
+
 /** The action verb `V` gives: its keys flat beside the rest of its input. */
 type VerbAction<D extends CollectionDef, V extends Verb> = {
 	list: Action<Record<string, never>, Promise<Row<D>[]>, never>;
 	get: Action<KeysIn<D>, Promise<RecordOf<D>>, never>;
 	add: Action<AddInput<D, Writable<D>>, Promise<RecordOf<D>>, never>;
 	set: Action<
-		Simplify<Keys<D> & Patch<D['fields'], Writable<D>> & { was?: Was<D> }>,
-		Promise<RecordOf<D>>,
-		never
-	>;
-	edit: Action<
-		Simplify<Keys<D> & { old: string; new: string }>,
+		Simplify<
+			Keys<D> & Patch<D['fields'], Writable<D>> & { was?: Was<D> } & Passage
+		>,
 		Promise<RecordOf<D>>,
 		never
 	>;
@@ -407,6 +409,10 @@ export function defineCollection<const D extends CollectionDef>(
 				);
 			for (const verb of verbs) {
 				if (fit.includes(verb)) continue;
+				if ((verb as string) === 'edit')
+					throw new Error(
+						`${layout.text} has no "edit": set takes old and new now, replacing a passage of the body in the same write as the fields`,
+					);
 				if (verb === 'add')
 					throw new Error(
 						`${layout.text} has no "add": ${unaddable.join(', ')} ${unaddable.length === 1 ? 'is' : 'are'} written only by the app's own actions and required, so an exposed add could never be given ${unaddable.length === 1 ? 'it' : 'them'}; write the app's own add with defineAction`,
@@ -425,22 +431,21 @@ export function defineCollection<const D extends CollectionDef>(
 	} as unknown as Collection<D>;
 }
 
-const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'edit', 'delete'];
+const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'delete'];
 
 /**
  * Names neither a field nor a placeholder may have, and why: a read gives
- * `path`, `body`, and `problems` itself, and the `set` verb takes `was`
- * beside the fields.
+ * `path`, `body`, and `problems` itself, and the `set` verb takes `was`,
+ * `old`, and `new` beside the fields.
  */
 const RESERVED: ReadonlyMap<string, string> = new Map([
 	['path', "which is the file's address"],
 	['body', "which is the file's text after its front matter"],
 	['problems', 'which a read uses to say what does not fit'],
 	['was', 'which the set verb takes beside the fields'],
+	['old', 'which the set verb takes beside the fields'],
+	['new', 'which the set verb takes beside the fields'],
 ]);
-
-/** Names a placeholder may not have because `edit` takes them beside the keys. */
-const EDIT_INPUT = new Set(['old', 'new']);
 
 function containsFileMarker(
 	value: unknown,
@@ -474,9 +479,7 @@ function collectionProblems(def: CollectionDef): string[] {
 	const at = `The collection at ${path}`;
 	const problems: string[] = [];
 	for (const key of keys) {
-		const reserved =
-			RESERVED.get(key) ??
-			(EDIT_INPUT.has(key) ? 'which edit takes beside the keys' : undefined);
+		const reserved = RESERVED.get(key);
 		if (reserved)
 			problems.push(`${at} has the placeholder {${key}}, ${reserved}`);
 	}
@@ -870,10 +873,13 @@ function createRecords(layout: Template, fields: Fields) {
 
 	/**
 	 * Write plain data a caller gave over the file `keys` name: `given`'s
-	 * fields, and `body` when it is given. `was`, when given, names fields
-	 * and the values the caller last saw, `null` for absent; the write is
-	 * refused with `ActionError.Changed` when one differs, checked inside the
-	 * same write. `create` makes the file, as `add` would, when it is absent.
+	 * fields, and `body` when it is given. A caller that cannot send a
+	 * function sends what it last saw instead, each checked inside the same
+	 * write before anything is written: `was` names fields and their values,
+	 * `null` for absent, refused as `Changed` with `why: 'was'` when one
+	 * differs; `passage` replaces `old` in the body with `new`, refused as
+	 * `edited` refuses it. `create` makes the file, as `add` would, when it is
+	 * absent; a passage needs a file to be in, so with none it is `Missing`.
 	 */
 	async function put(
 		keys: object,
@@ -881,12 +887,19 @@ function createRecords(layout: Template, fields: Fields) {
 		{
 			body,
 			was,
+			passage,
 			create = false,
-		}: { body?: unknown; was?: Record<string, unknown>; create?: boolean },
+		}: {
+			body?: unknown;
+			was?: Record<string, unknown>;
+			passage?: { old: string; new: string };
+			create?: boolean;
+		},
 	) {
 		const { path } = await find(keys);
 		if (
 			body === undefined &&
+			passage === undefined &&
 			Object.values(given).every((value) => value === undefined)
 		)
 			throw new Error(`Nothing to set in ${path}: give a field`);
@@ -896,7 +909,12 @@ function createRecords(layout: Template, fields: Fields) {
 			for (const [key, seen] of Object.entries(was ?? {}))
 				if (!Value.Equal(now?.[key] ?? null, seen ?? null))
 					throw ActionError.Changed({ path, why: 'was' }).error;
-			return { fields: given, body };
+			if (!passage) return { fields: given, body };
+			if (!now) throw ActionError.Missing({ path }).error;
+			return {
+				fields: given,
+				body: edited(path, now.body, passage.old, passage.new),
+			};
 		});
 	}
 
@@ -1044,12 +1062,18 @@ function verbActions(
 			Type.String({ description: 'The text after the front matter' }),
 		),
 	};
-	const quoted = {
-		old: Type.String({
-			description:
-				'The exact text to replace, as get returned it, once in the body; the whole body to replace it all, or empty for an empty body',
-		}),
-		new: Type.String({ description: 'The text to put in its place' }),
+	const passageIn = {
+		old: Type.Optional(
+			Type.String({
+				description:
+					'The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body; refused when it is not there now. Give it with new',
+			}),
+		),
+		new: Type.Optional(
+			Type.String({
+				description: 'The text to put in place of old. Give it with old',
+			}),
+		),
 	};
 	const local = { openWorldHint: false } as const;
 	/** Refuse a field only the app's own actions write; the runner refuses it first, this guards a direct call. */
@@ -1059,12 +1083,10 @@ function verbActions(
 				throw new Error(`${key} is written only by the app's own actions`);
 		return input;
 	};
-	/** `input` without its keys and without `skip`: what a verb changes. */
-	const rest = (input: Record<string, unknown>, ...skip: string[]) =>
+	/** `input` without its keys: what a verb changes. */
+	const rest = (input: Record<string, unknown>) =>
 		Object.fromEntries(
-			Object.entries(input).filter(
-				([key]) => !keys.includes(key) && !skip.includes(key),
-			),
+			Object.entries(input).filter(([key]) => !keys.includes(key)),
 		);
 	const action = (
 		run: (input: Record<string, unknown>) => unknown,
@@ -1102,29 +1124,27 @@ function verbActions(
 			annotations: { destructiveHint: false, ...local },
 		}),
 		set: action(
-			(input) =>
-				records.put(input, rest(outside(input), 'was'), {
-					was: input.was as Record<string, unknown> | undefined,
-					create: !keyed,
-				}),
-			{
-				description: `Change the fields given in one ${what}, keeping the rest and the body; null removes a field that may be absent; ${keyed ? 'refused when there is none' : 'makes the file when there is none'}; refused when a value named in was has changed since`,
-				input: { ...keysIn, ...patchIn, was },
-				annotations: { idempotentHint: true, ...local },
-			},
-		),
-		edit: action(
 			(input) => {
-				const { old, new: replacement } = rest(input);
-				if (typeof old !== 'string' || typeof replacement !== 'string')
-					throw new Error(`Edit ${layout.text} with { old, new }, each text`);
-				return records.set(input, (now: AnyRecord) => ({
-					body: edited(now.path, now.body, old, replacement),
-				}));
+				const { was, old, new: replacement, ...given } = rest(outside(input));
+				const passage = old !== undefined || replacement !== undefined;
+				if (
+					passage &&
+					(typeof old !== 'string' || typeof replacement !== 'string')
+				)
+					throw new Error(
+						`Set a passage of the body of ${layout.text} with old and new together, each text: old as you last saw it, and new to put in its place`,
+					);
+				return records.put(input, given, {
+					was: was as Record<string, unknown> | undefined,
+					passage: passage
+						? { old: old as string, new: replacement as string }
+						: undefined,
+					create: !keyed,
+				});
 			},
 			{
-				description: `Replace one passage of a ${what}'s body: old must appear in it exactly once, or be the whole body, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
-				input: { ...keysIn, ...quoted },
+				description: `Change one ${what} in one write: the fields given, keeping the rest (null removes one that may be absent), and with old and new, the passage old of the body replaced by new. Refused, writing nothing, when ${keyed ? `there is no such ${what}, or ` : 'old is given and there is no file yet (with fields alone it makes the file), or '}when a value in was or the passage old is not what is there now`,
+				input: { ...keysIn, ...patchIn, was, ...passageIn },
 				annotations: local,
 			},
 		),

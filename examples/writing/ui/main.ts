@@ -161,7 +161,7 @@ element('#edit-form').addEventListener('submit', async (event) => {
 	editSave.disabled = true;
 	close.disabled = true;
 	editBody.readOnly = true;
-	const { data, error } = await app.edit({
+	const { data, error } = await app.set({
 		time: selected.time,
 		old: selected.body,
 		new: editBody.value,

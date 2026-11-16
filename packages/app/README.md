@@ -70,7 +70,7 @@ and does not run it.
   `description`, `collections`, and `actions`, with `{}` for none. Each
   collection's name is its key in `collections`; each action's words are its
   keys in `actions`, so `{ books: books.actions(), log }` gives `books list`
-  through `books edit` and `log`. `app.actions.books.add(...)` in code,
+  through `books set` and `log`. `app.actions.books.add(...)` in code,
   `epicenter reading books add` on the command line, and `reading_books_add`
   over MCP are one action. No key at any depth may be `then`, which a UI's
   client cannot call.
@@ -163,8 +163,8 @@ A collection with no placeholder follows the same table: it reads as
 method still refuses a missing file, so code that refreshes a sign-in cannot
 bring back a file a person deleted.
 
-`actions()` gives five verbs to expose: `list`, `get`, `add`, `set`, and
-`edit`, every collection alike; `actions('delete')` gives `delete`, which
+`actions()` gives four verbs to expose: `list`, `get`, `add`, and `set`,
+every collection alike; `actions('delete')` gives `delete`, which
 `actions()` leaves out. The verbs are built on the methods for a caller that
 sends only plain data, and differ from them:
 
@@ -173,8 +173,7 @@ sends only plain data, and differ from them:
 | `list` | none | its rows leave out `body` |
 | `get` | the keys | throws `ActionError.Missing` (`There is no <path>`) where the method answers `undefined` |
 | `add` | the record | no |
-| `set` | the keys, fields, and optionally `was` | takes no `body`; with no placeholder, makes the file when there is none, as `add` would |
-| `edit` | the keys, `old`, `new` | replaces the one place `old` is in the body; `old` may be the whole body |
+| `set` | the keys, fields, and optionally `was`, and `old` with `new` | takes no `body`, but replaces the passage `old` of it with `new`; with no placeholder, makes the file from fields when there is none, as `add` would |
 | `delete` | the keys | only when named |
 
 A verb's input is flat: each key is an input field beside the rest of the
@@ -194,15 +193,29 @@ never writes `data/words/${word}.md` itself:
 const found = await words.get({ word });
 ```
 
-A save from outside names what it replaces. `edit`'s `old` is its own check:
-when it is not in the body, or is there more than once, the refusal is
-`{ name: 'Changed' }`, so a passage someone changed since it was read is
-never overwritten. The `set` verb's `was` names the values the caller last
-saw, `null` for a field that was absent: `{ meaning: 'a lucky find' }`. When
-one of them differs now, compared as JSON inside the same write, the refusal
-is `{ name: 'Changed', why: 'was' }`. Without `was`, two callers setting the
-same field from stale screens: the last write wins. Two callers setting
-different fields both land, since a write changes only the lines it names.
+The `set` verb is the `set` method for a caller that cannot send a function,
+so it sends what it last saw instead, and one call is one write. `was` names
+the field values the caller last saw, `null` for a field that was absent:
+`{ meaning: 'a lucky find' }`. `old` names the passage of the body it last
+saw, and `new` is what replaces it; one without the other is refused. `old`
+must be in the body exactly once, or be the whole body, or be empty for an
+empty body. A passage needs a file, so with none the refusal is
+`ActionError.Missing`, even for a collection with no placeholder. Every guard
+is checked inside the write before anything is written: when a `was` value
+differs now, compared as JSON, the refusal is `{ name: 'Changed', why: 'was' }`,
+and when `old` is not there, is there twice, or is empty and the body is not,
+it is `Changed` with `why` `quote`, `twice`, or `empty`, and neither the fields nor
+the body are written. So a page saves a record's fields and its notes in one
+call:
+
+```sh
+epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":"luck"},"old":"First seen.\n","new":"First seen in a novel.\n"}'
+```
+
+Without `was`, two callers setting the same field from stale screens: the
+last write wins. Two callers setting different fields both land, since a
+write changes only the lines it names. A collection whose fields are all
+`readOnly` still has `set`, for its body.
 
 The same goes for a value an action computes from `get` and writes with
 `set`: a change made between them is lost. Compute it inside the write
@@ -245,8 +258,9 @@ books.update({ title }, (book) =>
 ```
 
 `update` is not a verb, since a caller cannot send a function; neither is a
-`set` given one, or a `set` given a body, which would replace a person's text
-blindly from a stale page; `edit` is the verb for the body.
+`set` given one, or a `set` given a whole body, which would replace a person's
+text blindly from a stale page; the `set` verb's `old` and `new` change the
+body instead.
 
 A field marked `readOnly` is written only by the app's own actions, through
 the collection's methods; the exposed `add` and `set` leave it out, and
@@ -318,9 +332,8 @@ answers under the path its keys make, while `list` gives the name on disk.
   that is not a placeholder;
 - a list of paths: a second layout is a second collection;
 - a field or placeholder named `path`, `body`, or `problems`, which a read
-  gives itself, or `was`, which the `set` verb takes beside the fields; a
-  placeholder named `old` or `new`, which `edit` takes beside the keys; a field named as
-  a placeholder, since a record holds both; a field name that a front matter
+  gives itself, or `was`, `old`, or `new`, which the `set` verb takes beside
+  the fields; a field named as a placeholder, since a record holds both; a field name that a front matter
   line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
   code where the value is read: `(record.limit ?? 50)`.

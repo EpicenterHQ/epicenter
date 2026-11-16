@@ -61,21 +61,14 @@ function run(words: string, input: object, context: Context): Promise<unknown> {
 }
 
 describe('the verbs', () => {
-	test('are five unless delete is named, each taking the keys flat where it names one record', () => {
-		expect(Object.keys(items.actions())).toEqual([
-			'list',
-			'get',
-			'add',
-			'set',
-			'edit',
-		]);
+	test('are four unless delete is named, each taking the keys flat where it names one record', () => {
+		expect(Object.keys(items.actions())).toEqual(['list', 'get', 'add', 'set']);
 		expect(Object.keys(items.actions('delete'))).toEqual(['delete']);
 		expect(Object.keys(app.actions.items)).toEqual([
 			'list',
 			'get',
 			'add',
 			'set',
-			'edit',
 			'delete',
 			'review',
 		]);
@@ -84,17 +77,11 @@ describe('the verbs', () => {
 			'get',
 			'add',
 			'set',
-			'edit',
 			'delete',
 		]);
-		for (const verb of ['get', 'add', 'set', 'edit', 'delete'] as const)
+		for (const verb of ['get', 'add', 'set', 'delete'] as const)
 			expect(Object.keys(app.actions.items[verb].input)).toContain('id');
-		expect(Object.keys(app.actions.items.edit.input)).toEqual([
-			'id',
-			'old',
-			'new',
-		]);
-		// The set verb takes fields and a guard, never the body.
+		// The set verb takes fields, what the caller last saw, and a passage; never the whole body.
 		expect(Object.keys(app.actions.items.set.input)).toEqual([
 			'id',
 			'kind',
@@ -102,6 +89,8 @@ describe('the verbs', () => {
 			'added',
 			'done',
 			'was',
+			'old',
+			'new',
 		]);
 		expect(app.actions.settings.get.input).toEqual({});
 		expect(app.actions.items.list.annotations).toEqual({
@@ -213,7 +202,7 @@ describe('set', () => {
 			'---\nkind: "link"\nadded:   "2026-11-01"\ndone: true\nurl: "https://example.com"\n---\n\nKeep me.\n',
 		);
 		await run(
-			'items edit',
+			'items set',
 			{ id: 'a', old: '\nKeep me.\n', new: 'New.\n' },
 			context,
 		);
@@ -386,9 +375,12 @@ describe('set', () => {
 	});
 });
 
-describe('edit', () => {
-	test('is a verb only', () => {
+describe('set with a passage', () => {
+	test('there is no edit verb: actions names set instead', () => {
 		expect('edit' in items).toBe(false);
+		expect(() => items.actions('edit' as never)).toThrow(
+			'data/items/{id}.md has no "edit": set takes old and new now',
+		);
 	});
 
 	test('replaces one quoted passage of the body, and refuses with Changed one it cannot find exactly once', async () => {
@@ -399,7 +391,7 @@ describe('edit', () => {
 		const at = { id: 'a' };
 		expect(
 			await run(
-				'items edit',
+				'items set',
 				{ ...at, old: 'the plant', new: 'both plants' },
 				context,
 			),
@@ -408,28 +400,29 @@ describe('edit', () => {
 			body: 'Water both plants.\nWater the cat.\n',
 		});
 		expect(
-			run('items edit', { ...at, old: 'the plant', new: 'x' }, context),
+			run('items set', { ...at, old: 'the plant', new: 'x' }, context),
 		).rejects.toMatchObject({
 			name: 'Changed',
+			why: 'quote',
 			message: expect.stringContaining('does not have that text'),
 		});
 		expect(
-			run('items edit', { ...at, old: 'Water', new: 'Feed' }, context),
+			run('items set', { ...at, old: 'Water', new: 'Feed' }, context),
 		).rejects.toMatchObject({
 			name: 'Changed',
 			why: 'twice',
 			message: expect.stringContaining('more than once'),
 		});
 		expect(
-			run('items edit', { ...at, old: '', new: 'x' }, context),
+			run('items set', { ...at, old: '', new: 'x' }, context),
 		).rejects.toMatchObject({ name: 'Changed', why: 'empty' });
 		await expect(
-			run('items edit', { id: 'nope', old: 'a', new: 'b' }, context),
+			run('items set', { id: 'nope', old: 'a', new: 'b' }, context),
 		).rejects.toMatchObject({ name: 'Missing', path: 'data/items/nope.md' });
 		// The whole body may be the quote, which replaces it all.
 		expect(
 			await run(
-				'items edit',
+				'items set',
 				{
 					...at,
 					old: 'Water both plants.\nWater the cat.\n',
@@ -445,12 +438,110 @@ describe('edit', () => {
 			'data/items/a.md': '---\nkind: thought\nadded: 2026-11-01\n---\n',
 		});
 		await run(
-			'items edit',
+			'items set',
 			{ id: 'a', old: '', new: 'First words.\n' },
 			context,
 		);
 		expect(await context.folder.read('data/items/a.md')).toBe(
 			'---\nkind: thought\nadded: 2026-11-01\n---\nFirst words.\n',
+		);
+	});
+
+	test('writes the fields and the passage in one write, returning the body', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md':
+				'---\nkind: "thought"\nadded: "2026-11-01"\n---\nWater the plant.\n',
+		});
+		expect(
+			await run(
+				'items set',
+				{
+					id: 'a',
+					kind: 'quote',
+					was: { kind: 'thought' },
+					old: 'the plant',
+					new: 'the cat',
+				},
+				context,
+			),
+		).toEqual({
+			path: 'data/items/a.md',
+			id: 'a',
+			kind: 'quote',
+			added: '2026-11-01',
+			done: false,
+			body: 'Water the cat.\n',
+		});
+		expect(await context.folder.read('data/items/a.md')).toBe(
+			'---\nkind: "quote"\nadded: "2026-11-01"\n---\nWater the cat.\n',
+		);
+	});
+
+	test('writes nothing when was or the passage does not hold, and says which', async () => {
+		const text =
+			'---\nkind: "thought"\nadded: "2026-11-01"\n---\nWater the plant.\n';
+		const context = createMemoryContext({ 'data/items/a.md': text });
+		await expect(
+			run(
+				'items set',
+				{
+					id: 'a',
+					kind: 'quote',
+					was: { kind: 'link' },
+					old: 'the plant',
+					new: 'the cat',
+				},
+				context,
+			),
+		).rejects.toMatchObject({ name: 'Changed', why: 'was' });
+		await expect(
+			run(
+				'items set',
+				{
+					id: 'a',
+					kind: 'quote',
+					was: { kind: 'thought' },
+					old: 'the dog',
+					new: 'the cat',
+				},
+				context,
+			),
+		).rejects.toMatchObject({ name: 'Changed', why: 'quote' });
+		expect(await context.folder.read('data/items/a.md')).toBe(text);
+	});
+
+	test('refuses old without new, or new without old', async () => {
+		const text = '---\nkind: "thought"\nadded: "2026-11-01"\n---\nBody.\n';
+		const context = createMemoryContext({ 'data/items/a.md': text });
+		for (const half of [{ old: 'Body.\n' }, { new: 'Text.\n' }])
+			await expect(
+				run('items set', { id: 'a', kind: 'quote', ...half }, context),
+			).rejects.toThrow(
+				'Set a passage of the body of data/items/{id}.md with old and new together',
+			);
+		expect(await context.folder.read('data/items/a.md')).toBe(text);
+	});
+
+	test('a collection whose fields are all read-only still sets its body', async () => {
+		const stamped = defineCollection({
+			path: 'data/stamped/{id}.md',
+			fields: { at: field.date({ optional: true, readOnly: true }) },
+		});
+		const { set } = stamped.actions();
+		expect(Object.keys(set.input)).toEqual(['id', 'was', 'old', 'new']);
+		const context = createMemoryContext({
+			'data/stamped/a.md': '---\nat: "2026-11-01"\n---\nDraft.\n',
+		});
+		await inRun(context, () =>
+			set({
+				id: 'a',
+				was: { at: '2026-11-01' },
+				old: 'Draft.\n',
+				new: 'Done.\n',
+			}),
+		);
+		expect(await context.folder.read('data/stamped/a.md')).toBe(
+			'---\nat: "2026-11-01"\n---\nDone.\n',
 		);
 	});
 });
@@ -578,7 +669,7 @@ describe('front matter that cannot be read', () => {
 			])
 				await expect(inRun(context, attempt)).rejects.toMatchObject(refused);
 			await expect(
-				run('items edit', { ...at, old: 'the plant', new: 'the cat' }, context),
+				run('items set', { ...at, old: 'the plant', new: 'the cat' }, context),
 			).rejects.toMatchObject(refused);
 			expect(
 				inRun(context, () =>
@@ -950,12 +1041,7 @@ describe('a readOnly field that is required', () => {
 			path: 'data/stamps/{id}.md',
 			fields: { at: field.datetime({ readOnly: true }), note: field.text() },
 		});
-		expect(Object.keys(stamps.actions())).toEqual([
-			'list',
-			'get',
-			'set',
-			'edit',
-		]);
+		expect(Object.keys(stamps.actions())).toEqual(['list', 'get', 'set']);
 		expect(() => stamps.actions('add' as never)).toThrow(
 			'data/stamps/{id}.md has no "add": at is written only by the app\'s own actions and required, so an exposed add could never be given it; write the app\'s own add with defineAction',
 		);
@@ -963,7 +1049,7 @@ describe('a readOnly field that is required', () => {
 });
 
 describe('a collection with no placeholder', () => {
-	test('reads as absent until a write makes it; the set method and edit refuse it until then', async () => {
+	test('reads as absent until a write makes it; the set method and a passage refuse it until then', async () => {
 		const context = createMemoryContext();
 		expect(await inRun(context, () => settings.get())).toBeUndefined();
 		expect(await run('settings list', {}, context)).toEqual([]);
@@ -974,8 +1060,9 @@ describe('a collection with no placeholder', () => {
 		await expect(
 			inRun(context, () => settings.set({ dailyGoal: 20 })),
 		).rejects.toMatchObject({ name: 'Missing', path: 'data/settings.md' });
+		// A passage needs a file to be in, even beside fields that would make it.
 		await expect(
-			run('settings edit', { old: '', new: 'x' }, context),
+			run('settings set', { dailyGoal: 20, old: '', new: 'x' }, context),
 		).rejects.toMatchObject({ name: 'Missing', path: 'data/settings.md' });
 		expect(await context.folder.list()).toEqual([]);
 
@@ -986,8 +1073,11 @@ describe('a collection with no placeholder', () => {
 		expect(run('settings set', { voice: 'robot' }, context)).rejects.toThrow(
 			'data/settings.md: voice: "robot" is not one of female, male',
 		);
-		await run('settings set', { dailyGoal: null, voice: 'male' }, context);
-		await run('settings edit', { old: '', new: 'Notes.\n' }, context);
+		await run(
+			'settings set',
+			{ dailyGoal: null, voice: 'male', old: '', new: 'Notes.\n' },
+			context,
+		);
 		expect(await run('settings get', {}, context)).toEqual({
 			path: 'data/settings.md',
 			voice: 'male',

@@ -92,37 +92,41 @@ type Out<A> = A extends (input: never) => infer O ? Awaited<O> : never;
 describe('an app author', () => {
 	test('gets every action under its words, with exact inputs and outputs', () => {
 		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
+		assertType<Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set'>>();
 		assertType<
-			Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set' | 'edit'>
-		>();
-		assertType<
-			Equal<keyof Actions['settings'], 'list' | 'get' | 'add' | 'set' | 'edit'>
+			Equal<keyof Actions['settings'], 'list' | 'get' | 'add' | 'set'>
 		>();
 		assertType<
 			Equal<
 				In<Actions['words']['set']>,
-				{
-					word: string;
-					meaning?: string | null | undefined;
-					was?: {
-						meaning?: string | null;
-						createdAt?: string | null;
-						due?: string | null;
-					};
-				}
+				| {
+						word: string;
+						meaning?: string | null | undefined;
+						was?: {
+							meaning?: string | null;
+							createdAt?: string | null;
+							due?: string | null;
+						};
+						old?: never;
+						new?: never;
+				  }
+				| {
+						word: string;
+						meaning?: string | null | undefined;
+						was?: {
+							meaning?: string | null;
+							createdAt?: string | null;
+							due?: string | null;
+						};
+						old: string;
+						new: string;
+				  }
 			>
 		>();
+		// @ts-expect-error old and new come together
+		() => vocab.actions.words.set({ word: 'a', old: 'x' });
 		assertType<Equal<In<Actions['words']['get']>, { word: string }>>();
-		assertType<
-			Equal<
-				In<Actions['words']['edit']>,
-				{ word: string; old: string; new: string }
-			>
-		>();
 		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
-		assertType<
-			Equal<In<Actions['settings']['edit']>, { old: string; new: string }>
-		>();
 		assertType<
 			Equal<
 				Out<Actions['words']['list']>[number],
@@ -147,10 +151,18 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				In<Actions['settings']['set']>,
-				{
-					dailyGoal?: number | null | undefined;
-					was?: { dailyGoal?: number | null };
-				}
+				| {
+						dailyGoal?: number | null | undefined;
+						was?: { dailyGoal?: number | null };
+						old?: never;
+						new?: never;
+				  }
+				| {
+						dailyGoal?: number | null | undefined;
+						was?: { dailyGoal?: number | null };
+						old: string;
+						new: string;
+				  }
 			>
 		>();
 		assertType<
@@ -235,16 +247,14 @@ describe('an app author', () => {
 
 	test('a required readOnly field leaves add out, and delete comes only when named', () => {
 		const given = () => words.actions();
-		assertType<
-			Equal<keyof ReturnType<typeof given>, 'list' | 'get' | 'set' | 'edit'>
-		>();
+		assertType<Equal<keyof ReturnType<typeof given>, 'list' | 'get' | 'set'>>();
 		assertType<
 			Equal<keyof ReturnType<typeof words.actions<'delete'>>, 'delete'>
 		>();
 		// @ts-expect-error words has a required readOnly createdAt, so no add
 		() => words.actions('add');
-		// @ts-expect-error edit is a verb only, not a method
-		() => words.edit;
+		// @ts-expect-error set takes old and new, so there is no edit
+		() => words.actions('edit');
 		const flags = defineCollection({
 			path: 'data/flags/{id}.md',
 			fields: {
@@ -256,10 +266,18 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				SetIn,
-				{
-					id: string;
-					was?: { pinned?: boolean | null; labels?: string[] | null };
-				}
+				| {
+						id: string;
+						was?: { pinned?: boolean | null; labels?: string[] | null };
+						old?: never;
+						new?: never;
+				  }
+				| {
+						id: string;
+						was?: { pinned?: boolean | null; labels?: string[] | null };
+						old: string;
+						new: string;
+				  }
 			>
 		>();
 	});
