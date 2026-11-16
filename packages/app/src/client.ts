@@ -29,7 +29,7 @@
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
  */
-import type { Result } from 'wellcrafted/result';
+import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionYield } from './action.ts';
 import { ActionError } from './errors.ts';
 import type { UploadedFile } from './field.ts';
@@ -43,6 +43,7 @@ import {
 	runId,
 } from './run-client.ts';
 
+export { partitionResults } from 'wellcrafted/result';
 export type { ActionError } from './errors.ts';
 export { type PendingRun, pendingRuns, type Run, type RunEvent };
 
@@ -82,15 +83,25 @@ export type ActionInput<A> = A extends (input: infer In) => unknown
 	: never;
 
 /** What action `A` returns to a client, in its JSON form: `ActionOutput<typeof app.actions.get>`. */
-export type ActionOutput<A> = A extends (input: never) => infer Out
-	? JsonOf<Awaited<Out>>
+type ReturnedBy<A> = A extends (input: never) => infer Out
+	? Awaited<Out>
 	: never;
+export type ActionOutput<A> = JsonOf<
+	Extract<Exclude<ReturnedBy<A>, Err<never>>, Ok<unknown>>['data']
+>;
+type ReturnedError<A> = JsonOf<
+	Exclude<Extract<ReturnedBy<A>, Err<unknown>>['error'], null>
+>;
 
 /** Browser files replace the host's uploaded file handles, including optional files. */
 type BrowserInput<T> = T extends UploadedFile ? Blob : T;
 type RunInput<In> = { [K in keyof In]: BrowserInput<In[K]> };
 
-export type ActionRun<A> = Run<JsonOf<ActionYield<A>>, ActionOutput<A>>;
+export type ActionRun<A> = Run<
+	JsonOf<ActionYield<A>>,
+	ActionOutput<A>,
+	ReturnedError<A>
+>;
 
 declare const actionType: unique symbol;
 
@@ -120,7 +131,7 @@ export type ActionCall<A> = ((
 			: [input: RunInput<ActionInput<A>>]),
 		...CallOptions<A>,
 	]
-) => Promise<Result<ActionOutput<A>, ActionError>>) & {
+) => Promise<Result<ActionOutput<A>, ActionError | ReturnedError<A>>>) & {
 	readonly [actionType]: A;
 };
 

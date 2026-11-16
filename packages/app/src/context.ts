@@ -15,7 +15,9 @@
  * except to a `.local` path under `data/` (ADR-0870).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { Ok, type Result, unwrap } from 'wellcrafted/result';
 import type { Action } from './action.ts';
+import type { ActionError } from './errors.ts';
 
 /** A home-owned daily invocation of an action exposed by the current app. */
 export type Routine<TAction extends Action = Action> = {
@@ -26,6 +28,25 @@ export type Routine<TAction extends Action = Action> = {
 	timeout?: string;
 };
 
+/** Decide synchronously from the current text. Omit text to leave the path as it was. */
+type EditFile = <T, E extends object>(
+	path: string,
+	decide: (
+		before: string | undefined,
+	) => Result<{ value: T; text?: string }, E>,
+) => Promise<Result<T, E | Extract<ActionError, { name: 'Changed' }>>>;
+
+/** Adapt a folder provider's atomic edit to the raw text update contract. */
+export function textUpdate(edit: EditFile): Folder['update'] {
+	return async (path, change) =>
+		unwrap(
+			await edit<string, never>(path, (before) => {
+				const text = change(before);
+				return Ok({ value: text, text });
+			}),
+		);
+}
+
 /**
  * An app's folder as an object. Paths are relative to the folder, with `/`
  * between parts; one that is absolute, climbs out with `..`, or reaches into
@@ -34,6 +55,7 @@ export type Routine<TAction extends Action = Action> = {
  * path with a `.git*` segment; reads may reach other app files.
  */
 export type Folder = {
+	edit: EditFile;
 	/** The text at `path`, or `undefined` when no file is there. */
 	read(path: string): Promise<string | undefined>;
 	readBytes(path: string): Promise<Uint8Array | undefined>;
@@ -174,6 +196,8 @@ function writableFolder(verb: 'write' | 'delete', path: string): Folder {
 
 /** The folder of the run this code is in. */
 export const folder: Folder = {
+	edit: async (path, decide) =>
+		writableFolder('write', path).edit(path, decide),
 	read: (path) => currentRun().folder.read(path),
 	readBytes: (path) => currentRun().folder.readBytes(path),
 	write: async (path, text) => writableFolder('write', path).write(path, text),

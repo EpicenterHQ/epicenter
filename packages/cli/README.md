@@ -220,7 +220,7 @@ stdout contains only the answer.
 
 An action shares its process with other calls. `process.exit` ends that
 process; `process.chdir` or changes to `process.env` affect other apps too.
-An action's writes remain on disk when it throws or is interrupted. Actions
+An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
 `epicenter service install` installs a macOS LaunchAgent for the current Epicenter, running the `epicenter` command found on `PATH` (or the compiled binary) at login. The job keeps the installing shell's `PATH` so actions can find the same programs. The person runs `install` and `uninstall`; agents may run `restart` and `status`. `status --json` reports whether it is installed and running, its pid when running, the serve port, and its log path.
@@ -349,7 +349,7 @@ accepted runs may finish above it, and SQLite rows, indexes, and WAL add space
 beyond serialized JSON. Disk-full errors can prevent a terminal commit. Limits are 32
 active runs, 64 observers, 256 KiB per yield, 1 MiB admission JSON, and 15 MiB
 per file. Accepted runs and published events remain for 24 hours after ending.
-Returned finishes delete input bytes; other outcomes retain them until expiry.
+Successful finishes delete input bytes; other outcomes retain them until expiry.
 Orphan uploads and partial files expire after one hour. Cleanup runs every ten
 minutes and under budget pressure.
 
@@ -393,24 +393,32 @@ ignore rules keep them out of checkpoints. `folder` is not a sandbox.
 
 ## What a run answers
 
-With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`, with `isError` when the exit code is 1 or 2:
+With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`. MCP sets `isError: true` for an Err, a fault, or a refusal before execution. The CLI uses the following exit codes:
 
 ```txt
-{ "returned": <value> }                      exit 0
-{ "threw": { "message", "thrown"? } }        exit 1, also when the run ended without an answer
-{ "error": { "name", "message", "next"? } }  exit 2, nothing ran
+{ "result": { "data": <value>, "error": null } }            exit 0
+{ "result": { "data": null, "error": { "name", "message", ... } } }  exit 1
+{ "fault": { "message", "thrown"? } }                       exit 1
+{ "error": { "name", "message", "next"? } }                 exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when nothing ran and there is one. A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb's `was` guard is an object beside the fields, and `edit: { old, new }` replaces a passage of the body in the same write:
+`Ok(undefined)` arrives with null data. An action can decline with its own
+tagged Err, or an unexpected throw can end the call with a fault. Human
+output puts success data on stdout and failures on stderr. The HTTP event
+stream carries the same answer inside `finished.answer`. A reconnect can
+replay a saved run's earlier answer format without executing it again.
+
+A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb's `was` guard is an object beside the fields, and `edit: { old, new }` replaces a passage of the body in the same write:
 
 ```txt
 $ epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
 $ epicenter vocab set '{"word":"serendipity","edit":{"old":"First seen.","new":"First seen in a novel."}}'
 ```
 
-MCP's text for a thrown action is what the action threw. The returned value reads this way (`src/output.ts`):
+MCP text contains the JSON answer on success and the failure message on error.
+The human CLI formats success data by its structure (`src/output.ts`):
 
-- An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values. A `problems` key stays on stdout like any other key.
+- An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values.
 - An array of objects whose fields each fit on one line prints one row per object, with `key: value` pairs separated by two spaces. If a field takes more lines, a multiline string or a nested object, each object prints on its own lines, with a blank line between objects.
 - An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and single values print as JSON.
 
@@ -430,10 +438,11 @@ A key such as `time` prints as a field: the command reads only the answer, which
 ## Check records
 
 `epicenter check [<app>]` reads every collection an app declares, or every
-app's, and reports the files that do not fit their collection's fields. A read
-never refuses such a file; it gives the file's `problems`
-(`../app/README.md#what-a-read-gives`). This command collects them for a whole
-app, so a person or an agent can repair the records, or the declaration.
+app's, and reports the files that do not fit their collection's fields. A
+`get` returns a tagged `Misfit` for such a file. A generated `list` succeeds
+with one Result per file, including the individual refusals. The check command
+collects those diagnostics for the whole app so a person or agent can repair
+the records or the declaration.
 
 It reads each collection with its `check()` method in a read-only run of the
 app's folder, as a read-only action's run is: it takes no write lock and the

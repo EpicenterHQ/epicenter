@@ -1,5 +1,6 @@
 /** Type checks for ordinary actions, file inputs, run controls, and yields. */
 import { expect, test } from 'bun:test';
+import { Err, Ok } from 'wellcrafted/result';
 import { defineAction } from './action.ts';
 import { type ActionRun, connect, runs } from './client.ts';
 import { field } from './field.ts';
@@ -9,16 +10,27 @@ const upload = defineAction({
 	input: { file: field.file() },
 	async *run() {
 		yield 1 as const;
-		return 'done';
+		return Ok('done');
 	},
 });
 const empty = defineAction({
 	description: 'Empty',
 	input: {},
-	run: () => null,
+	run: () => Ok(null),
 });
+const classify = defineAction({
+	description: 'Classify',
+	input: { yes: field.boolean() },
+	run: ({ yes }) =>
+		yes
+			? Ok(1)
+			: Err({ name: 'NoRoute' as const, message: 'No route', airport: 'LAX' }),
+});
+// @ts-expect-error An action must return a Result even when it always succeeds.
+defineAction({ description: 'Plain', input: {}, run: () => 1 });
 const app = connect<{
 	actions: {
+		classify: typeof classify;
 		upload: typeof upload;
 		daily: { start: typeof empty };
 		practice: { start: typeof empty };
@@ -26,6 +38,17 @@ const app = connect<{
 }>({ app: 'types' });
 // Typecheck these calls without making network requests during bun test.
 function clientUsage() {
+	void app.classify({}).then(({ data, error }) => {
+		if (error === null) {
+			const count: number = data;
+			return count;
+		}
+		if (error.name === 'NoRoute') {
+			const airport: string = error.airport;
+			return airport;
+		}
+		return error.message;
+	});
 	void app.upload(
 		{ file: new Blob() },
 		{

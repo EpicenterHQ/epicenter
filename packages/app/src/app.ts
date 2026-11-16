@@ -19,7 +19,7 @@
  *   collections: { words, settings },
  *   actions: {
  *     words: { ...words.actions(), add: learn },
- *     settings: settings.actions('get', 'add', 'set'),
+ *     settings: settings.actions('get', 'set'),
  *   },
  * });
  * ```

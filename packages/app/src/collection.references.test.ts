@@ -19,6 +19,8 @@
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
+import { Ok, type Result } from 'wellcrafted/result';
+import { expectErr } from 'wellcrafted/testing';
 import {
 	createMemoryContext,
 	defineCollection,
@@ -47,13 +49,12 @@ function setup() {
 	});
 }
 
-/** The message and name a promise rejects with. */
-async function refusal(promise: Promise<unknown>) {
-	const error = (await promise.then(
-		() => undefined,
-		(thrown: unknown) => thrown,
-	)) as { name?: string; message?: string } | undefined;
-	return { name: error?.name, message: error?.message };
+/** The returned refusal, with the two fields this suite compares. */
+async function refusal(
+	promise: Promise<Result<unknown, { name: string; message: string }>>,
+) {
+	const error = expectErr(await promise);
+	return { name: error.name, message: error.message };
 }
 
 test('a reference to a record that exists is written, and a read returns its key without opening it', async () => {
@@ -67,8 +68,8 @@ test('a reference to a record that exists is written, and a read returns its key
 	// A read never checks the key: a record deleted since still reads as its key.
 	await context.folder.delete('data/shelves/essays.md');
 	const dune = await inRun(context, () => books.get({ book: 'dune' }));
-	expect(dune?.shelf).toBe('essays');
-	expect(dune?.problems).toBeUndefined();
+	expect(dune.data?.shelf).toBe('essays');
+	expect(dune.error).toBeNull();
 });
 
 test('add and set refuse a key with no record, writing nothing', async () => {
@@ -102,13 +103,13 @@ test('a key finds its record as get does, by its exact name first', async () => 
 	await context.folder.write('data/shelves/Dune  Messiah.md', '---\n---\n');
 	expect(
 		await inRun(context, () => shelves.get({ shelf: 'Dune  Messiah' })),
-	).toMatchObject({ shelf: 'Dune  Messiah' });
+	).toMatchObject({ data: { shelf: 'Dune  Messiah' } });
 	await inRun(context, () =>
 		books.set({ book: 'dune' }, { shelf: 'Dune  Messiah' }),
 	);
-	expect((await inRun(context, () => books.get({ book: 'dune' })))?.shelf).toBe(
-		'Dune  Messiah',
-	);
+	expect(
+		(await inRun(context, () => books.get({ book: 'dune' }))).data?.shelf,
+	).toBe('Dune  Messiah');
 });
 
 test('a key that finds a record only by its tidy name is refused, naming the key to write', async () => {
@@ -127,10 +128,10 @@ test('a key that finds a record only by its tidy name is refused, naming the key
 test('a change a function computes, in update or set, is stored without checking references', async () => {
 	const context = setup();
 	await inRun(context, () =>
-		books.update({ book: 'dune' }, () => ({ shelf: 'poems' })),
+		books.update({ book: 'dune' }, () => Ok({ shelf: 'poems' })),
 	);
 	await inRun(context, () =>
-		books.set({ book: 'dune' }, () => ({ shelves: ['verse'] })),
+		books.set({ book: 'dune' }, () => Ok({ shelves: ['verse'] })),
 	);
 	expect(await context.folder.read('data/books/dune.md')).toBe(
 		'---\nshelf: "poems"\nshelves: ["verse"]\n---\nA book\n',

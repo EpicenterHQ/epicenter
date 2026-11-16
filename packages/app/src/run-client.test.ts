@@ -4,6 +4,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Type } from 'typebox';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineAction } from './action.ts';
 import { connect, runs } from './client.ts';
@@ -41,12 +42,12 @@ function journal() {
 const upload = defineAction({
 	description: 'Upload',
 	input: { file: field.file() },
-	run: () => null,
+	run: () => Ok(null),
 });
 const empty = defineAction({
 	description: 'Empty',
 	input: {},
-	run: () => null,
+	run: () => Ok(null),
 });
 const app = connect<{
 	actions: {
@@ -149,7 +150,7 @@ for (const schema of [
 			defineAction({
 				description: 'Nested',
 				input: { nested: schema },
-				run: () => null,
+				run: () => Ok(null),
 			}),
 		).toThrow('top-level');
 	});

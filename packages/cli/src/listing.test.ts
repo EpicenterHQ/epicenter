@@ -15,6 +15,7 @@ import {
 	defineApp,
 	defineCollection,
 	field,
+	Ok,
 } from '@epicenter/app';
 import type { Runnable } from './home.ts';
 import { oneAppListing } from './listing.ts';
@@ -31,7 +32,7 @@ test("a reference's schema names its target's path in the listing", () => {
 	const shelve = defineAction({
 		description: 'Shelve a book',
 		input: { shelves: field.list(field.ref(shelves)) },
-		run: (input) => input,
+		run: (input) => Ok(input),
 	});
 	const app = defineApp({
 		description: 'Books',

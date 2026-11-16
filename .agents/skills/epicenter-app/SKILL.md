@@ -76,7 +76,7 @@ A path is one relative `.md` template under `data/`, such as
 `data/days/{day}.md`; files in a second layout are a second collection.
 `defineCollection` refuses a path outside `data/`, a list of paths, or a part
 starting with `.`. A field or placeholder may not be named `path`,
-`body`, `problems`, `was`, or `edit`. No field has a `default`: a definition with one is
+`body`, `was`, or `edit`. No field has a `default`: a definition with one is
 refused, so write the default where the value is read (`limit ?? 50`).
 
 - Choose the path by how people and agents will name a file. `{time}` suits
@@ -93,12 +93,12 @@ refused, so write the default where the value is read (`limit ?? 50`).
 - Derive a state from fields that already say it rather than storing it
   twice: Reading has no status, since `started` and `finished` say whether
   a book is to read, being read, or read.
-- The `list` verb returns fields without bodies (the method gives whole
-  records). Put what a list or an agent needs at a glance in a field (a
+- The `list` verb returns `Ok(rows)`, one Result per file without bodies.
+  The method gives one Result per file with bodies. Put what a list or an agent needs at a glance in a field (a
   task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
-  required field takes no `null`. A `set` with no field throws.
+  required field takes no `null`. A generated `set` with no change returns `Refused`.
 - Mark a field `readOnly` when only the app's own actions may write it (Vocab's
   schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
   A `readOnly` field that is required removes the exposed `add`, so write
@@ -106,21 +106,15 @@ refused, so write the default where the value is read (`limit ?? 50`).
 - Constrain text with `field.text({ pattern, description })`, the description
   reading after "must be" (Tasks' title: `one line, not blank, saying what to
   do`), so the generated `set` refuses what the app's own `add` would.
-- A read gives only what the file holds: a field that does not fit reads as
-  absent, and the file carries `problems` quoting what was dropped. An absent
-  switch reads `false` and an absent list `[]`; nothing else is filled. A
-  record without `problems` has its required fields. A function given to
-  `set` or `update` may not write a field whose value does not fit; plain
-  data repairs it. Front matter that cannot be read, or opens with `---` and
-  never closes, is refused by `get`, `need`, and every writer, and listed
-  with `problems`.
-- Code that computes from a record calls `need(keys)`, which gives every
-  field in full (a list is an array, a switch a `boolean`, a required field
-  its type) or throws `Missing` or `Refused`. Code that passes a record on to
-  a page calls `get` or `list` and lets `problems` through. Do not default a
-  field with `?? []` or `?? false`: that puts back the silent replacement a
-  read that gives only what the file holds exists to prevent. Name a fitting
-  record's type with `FittingRecordOf<typeof tasks>`.
+- `get(keys)` gives `Ok(record)` when the file fits. An absent switch reads
+  as `false` and an absent list as `[]`. A missing keyed file gives
+  `Ok(undefined)` to the method and `Missing` to the generated action.
+  `RecordOf<typeof tasks>` names a fitting record.
+- A malformed file gives `Err(Misfit)`. Its error carries a path and
+  diagnostic lines. For a readable non-local file it also carries a partial
+  `record` for repair. A computed write refuses before its callback runs.
+  A direct patch can repair readable front matter if the whole result fits.
+  Unreadable front matter needs a file edit.
 - `field.list(item)` reads as `[]` when absent and is never needed from a
   caller. An action that cannot run without an item declares
   `field.list(item, { min: 1 })`: it is required, `--help` and the schema an
@@ -139,14 +133,16 @@ refused, so write the default where the value is read (`limit ?? 50`).
   (ADR-0870). A `.local` file stays on the computer that runs the app:
   the root `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
   and its `actions()` throws, so no generated verb hands it to an MCP client.
-  Read it in an action with `(await google.get()) ?? {}` and write it with
-  `google.update(...)`, which makes it on the first sign-in.
+  Read it with `google.get()` and forward the Err before using the token.
+  The read succeeds with an empty record before sign-in. A local `Misfit`
+  omits the partial record and never quotes field values. Use a computed
+  write to compare the old token when refreshing it.
   A fresh clone has none, so the person signs in again.
 - The collections are the contract between code and records. Reads tolerate
   disagreement: undeclared keys are kept by every write and left out of a
   read, and a missing optional field is no problem. Rename or tighten a field
   in two steps: change the code, then repair records with an action or agent.
-  Run `epicenter check <app>` afterward: it lists each record's `problems`.
+  Run `epicenter check <app>` afterward to see any remaining file diagnostics.
   A checkpoint records both code and repairs together.
   There is no global migration gate. Explain any repair when sharing code;
   another person's records change only when they run it.
@@ -171,18 +167,22 @@ Raise it when the app starts using something a newer `@epicenter/app` added,
 always as a floor (`>=`), never a caret. `epicenter new` and `epicenter install [<app>]` install from
 code/package.json (`--frozen-lockfile` when `bun.lock` exists) and link that package;
 a call never installs. Write each action with `defineAction`, which types its
-`run` from its `input`. Add one when the caller cannot do the job with the
+`run` from its `input`. Every action returns one Result. Return `Ok(value)`,
+`Ok(undefined)` for no value, or the Result of another action or collection
+method. A tagged factory such as `ActionError.Missing({ path })` already
+returns an Err. When continuing a calculation, use
+`if (read.error !== null) return read` before reading `read.data`. Add an action when the caller cannot do the job with the
 verbs: a rule on making a file (Tasks' `add` splits a title from its notes),
 a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
 `{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
 collection's methods, which name a record by its keys and take the change
 second (`words.get({ word })`, `words.set({ word }, { meaning, body })`,
-`words.set({ word }, (now) => change)`, `words.update({ word }, change)`),
+`words.set({ word }, (now) => Ok(patch(now)))`, `words.update({ word }, change)`),
 instead of parsing front matter again; a row passes as its own keys. A
-collection with no placeholder takes no keys (`settings.get()`), reads as
-`undefined` until its first write, and the `set` method refuses it until
-`add` or `update` makes it; its `set` verb makes it. For
+collection with no placeholder takes no keys (`settings.get()`). Its fields
+must allow an empty file. It reads as `Ok(record)` before the first write,
+has no `add`, and its `set` method or verb can create the file. For
 other files, the imported `folder` supplies atomic writes and updates.
 `words.pathOf({ word })` gives a record's path; never build one by hand.
 Make the first write through `folder` or a collection, so the call takes
@@ -199,7 +199,7 @@ not enforced.
 
 Make `run` an `async function*` only when a person watches it work, such as a
 chat reply from a model: each yield reaches the page that called it, and no
-one else. Return what the call produced, as any action does, since the
+one else. Return one final Result, as any action does, since the
 command line, Claude, and tests see only the return. Save at the end, before
 returning, so a page closed mid-reply leaves nothing half-saved (ADR-0879).
 To offer Stop, pass `callSignal()` from `@epicenter/app` to the wait, such as
@@ -214,33 +214,32 @@ reaches every app `serve` runs.
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
 directly. A value computed from `get` and written with `set` is last write
-wins: a change made between them is lost. Compute it inside the write
-instead: `set(keys, (record) => fields)` calls the function with the record
-as `get` gives it, throws `ActionError.Missing` when there is no file, and
-writes the fields it returns only over that same record; when the file
-changed meanwhile, it calls the function again on what is there now. Vocab's
+wins: a change made between them is lost. Compute it inside `set`. Its callback receives a fitting record and returns `Ok(patch)`
+or a tagged Err. A missing keyed file gives `Missing`. A concurrent change
+causes a retry with the new record. Vocab's
 `review` schedules a word this way, so two reviews at once both count.
-`update(keys, change)` does the same, also gives `undefined` when there is no
-file and makes the file from what `change` returns, and takes `body` when the
-body changes, so Reading's `start` makes a book or starts it in one `update`,
+`update(keys, change)` also takes a Result-returning callback. For an absent
+keyed file it supplies `undefined` and creates the file from `Ok(patch)`.
+The patch can carry a new `body`, so Reading's `start` makes a book or starts it in one `update`,
 never `get` then `add`, which two calls at once would race.
 
 ```ts
-await words.set({ word }, (found) => ({ reps: (found.reps ?? 0) + 1 }));
+return words.set({ word }, (found) => Ok({ reps: (found.reps ?? 0) + 1 }));
 ```
 
-For any other file, use `folder.update(path, change)`, never `folder.read`
-then `folder.write`. It does the same with the file's text (`undefined` when
-there is none). Either way, keep `change` a pure function of what it is
-given, since it may run more than once; throw in it to refuse, and nothing is
-written. A collection's `change` that returns `{}` leaves a file as it is,
-so Reading's `start` returns `{}` for a book already started.
+Use `folder.update(path, change)` for a raw text change. It passes the current
+text, or `undefined` when the file is absent. Either way, keep `change` a pure function of what it is
+given, since it may run more than once. A collection callback returns a tagged
+Err to decline or `Ok({})` to leave an existing file alone. A raw folder
+callback returns the new text.
 
 ```ts
 await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
 ```
 
-Every collection write goes through `folder.update`. `set` given fields writes
+Use `folder.edit(path, decide)` for a raw text change that may decline. Return
+`Err(reason)`, `Ok({ value })` to preserve the file, or `Ok({ value, text })`
+to replace it. The result carries the value from the winning attempt. `set` given fields writes
 the values it is given, and `folder.write` is for a file whose whole content
 the action decides: for both, the last write wins.
 
@@ -264,7 +263,7 @@ end, and other writes to the app wait for it at most 30 seconds, so fetch
 from a service, call a model, or compute first, then write. When the person's
 input must survive a failure, write it after the slow step fails, not before
 it starts: Vocab's `practice reply` asks the model, then saves both turns, or
-saves the learner's turn alone and throws. Never run `epicenter` against the action's own app
+saves the learner's turn alone and returns its provider error. Never run `epicenter` against the action's own app
 after writing: the inner call waits for the lock its own caller holds, and
 fails after 30 seconds.
 
@@ -352,9 +351,12 @@ import `runs` from `@epicenter/app/client` and use
 it does not store a collection attachment. See the app package README for the
 run events, cancellation, and retention contract.
 
-Each call answers a Result: what the action returned, or a shared `ActionError`:
-`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`, or `Stopped`. Use the
-factories from `@epicenter/app` in actions. Check the name and its subject, never
+Each call gives the action's Result in JSON form. The client also reports
+shared platform errors such as `Changed`, `Misfit`, `Missing`, `Threw`,
+`Refused`, `Unreachable`, and `Stopped`. On the wire, an admitted action's
+finished answer is `{ result: { data, error } }` or `{ fault: { message, ... } }`
+for an unexpected throw. CLI JSON and MCP structured output carry the same
+answer. Check the name and its subject, never
 the message. A `Missing` may describe a dependency rather than the record being
 shown. An error does not establish what was saved or rolled back; reread the
 record when the outcome is uncertain and retain unsent writing. The layout creates one
@@ -380,8 +382,8 @@ failure to show.
   `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the
   keys from its route. Write no code that knows the app's templates; show a
   record's name from its read (`row.word`).
-- Show a record's `problems` quietly where the record is shown, and never
-  crash on a field that is absent.
+- In a list, show a file's `Misfit` beside the other rows. Use its partial
+  record for a repair form when present. Keep the fitting records usable.
 
 - It is a phone Home Screen app first: safe-area insets, 44 px targets, 16 px
   inputs so iOS does not zoom, light and dark from the system.

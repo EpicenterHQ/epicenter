@@ -81,7 +81,7 @@ try {
 	);
 	if (!/Source-Commit: [a-f0-9]{40}/.test(provenance))
 		throw new Error('Missing source provenance');
-	const added = JSON.parse(
+	const answer = JSON.parse(
 		await run(
 			[
 				executable,
@@ -96,7 +96,10 @@ try {
 			],
 			folder,
 		),
-	).returned;
+	);
+	if (answer.result?.error !== null)
+		throw new Error('writing add did not return Ok');
+	const added = answer.result.data;
 	const record = join(folder, 'apps/writing', added.path);
 	const before = await readFile(record, 'utf8');
 	await run(['sh', '-c', 'curl -fsSL "$EPICENTER_INSTALLER_URL" | sh']);

@@ -14,6 +14,7 @@ import {
 	inRun,
 	isLocalPath,
 	normalizePath,
+	Ok,
 	runYielding,
 } from './index.ts';
 
@@ -28,7 +29,7 @@ const log = defineAction({
 	run: async ({ minutes }) => {
 		const before = (await folder.read('data/2026.csv')) ?? 'minutes\n';
 		await folder.write('data/2026.csv', `${before}${minutes}\n`);
-		return { minutes };
+		return Ok({ minutes });
 	},
 });
 
@@ -43,7 +44,7 @@ describe('createMemoryContext', () => {
 		const context = createMemoryContext({ 'data/2026.csv': 'minutes\n10\n' });
 		expect(
 			await inRun(context, () => reading.actions.log({ minutes: 30 })),
-		).toEqual({ minutes: 30 });
+		).toEqual(Ok({ minutes: 30 }));
 		expect(await context.folder.read('data/2026.csv')).toBe(
 			'minutes\n10\n30\n',
 		);
@@ -145,7 +146,7 @@ describe('a read-only run', () => {
 		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n');
 		expect(
 			await inRun(context, () => books.get({ slug: 'dune' })),
-		).toMatchObject({ title: 'Dune' });
+		).toMatchObject({ data: { title: 'Dune' }, error: null });
 	});
 
 	test('writes and deletes a .local file, as a token refresh does', async () => {
@@ -160,7 +161,7 @@ describe('a read-only run', () => {
 			readOnly: { action: 'mail list' },
 		};
 		await inRun(context, async () => {
-			await google.set({ refreshToken: 'new' });
+			expect((await google.set({ refreshToken: 'new' })).error).toBeNull();
 			await folder.write('data/cache.local', 'x');
 			await folder.delete('data/cache.local');
 		});
@@ -208,7 +209,11 @@ describe('normalizePath', () => {
 	);
 });
 
-const noop = defineAction({ description: 'n', input: {}, run() {} });
+const noop = defineAction({
+	description: 'n',
+	input: {},
+	run: () => Ok(undefined),
+});
 
 /** What `make` throws, one problem a line. */
 function problems(make: () => unknown): string[] {
@@ -457,7 +462,6 @@ describe('defineCollection', () => {
 			'The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
 			'The collection at data/words/{word}.md has a field "body", which is the file\'s text after its front matter',
 			'The collection at data/words/{word}.md has a field "path", which is the file\'s address',
-			'The collection at data/words/{word}.md has a field "problems", which a read uses to say what does not fit',
 			'The collection at data/words/{word}.md has a field "edit", which the set verb takes beside the fields',
 			'The collection at data/words/{word}.md has a field "two words", which a front matter line cannot name',
 		]);
@@ -468,12 +472,11 @@ describe('defineCollection', () => {
 		expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([
 			`The collection at ${path} has the placeholder {body}, which is the file's text after its front matter`,
 			`The collection at ${path} has the placeholder {path}, which is the file's address`,
-			`The collection at ${path} has the placeholder {problems}, which a read uses to say what does not fit`,
 			`The collection at ${path} has the placeholder {edit}, which the set verb takes beside the fields`,
 		]);
 	});
 
-	test('a collection with no placeholder may have a required field', () => {
+	test('a keyless collection must be readable before its first write', () => {
 		expect(
 			problems(() =>
 				defineCollection({
@@ -481,7 +484,9 @@ describe('defineCollection', () => {
 					fields: { voice: field.select(['female', 'male']) },
 				}),
 			),
-		).toEqual([]);
+		).toEqual([
+			'The collection at data/settings.md is one file, read as empty before it exists, so the field "voice" must be optional, a switch, or a list without min',
+		]);
 	});
 
 	test('a collection has one path, and a list is refused', () => {
@@ -503,7 +508,7 @@ describe('defineAction', () => {
 				description: 'Connect',
 				privateInput,
 				input: { token: field.text() },
-				run: () => true,
+				run: () => Ok(true),
 			});
 			expect(action.privateInput).toBe(privateInput);
 		}
@@ -512,7 +517,7 @@ describe('defineAction', () => {
 				description: 'Connect',
 				privateInput: 'true' as unknown as boolean,
 				input: {},
-				run: () => true,
+				run: () => Ok(true),
 			}),
 		).toThrow('privateInput flag that is not a boolean');
 	});
@@ -521,7 +526,7 @@ describe('defineAction', () => {
 		const action = defineAction({
 			description: 'Read',
 			input: { value: { type: 'string', writeOnly: true } },
-			run: () => true,
+			run: () => Ok(true),
 		});
 		expect(action.privateInput).toBeUndefined();
 	});
@@ -533,7 +538,7 @@ describe('defineAction', () => {
 				description: 'Connect',
 				input: {},
 				confidential: true,
-				run: () => true,
+				run: () => Ok(true),
 			}),
 		).toThrow('has "confidential", which an action does not take');
 	});
@@ -548,7 +553,7 @@ describe('defineAction', () => {
 			defineAction({
 				description: 'Read',
 				input: { value: schema },
-				run: () => true,
+				run: () => Ok(true),
 			}),
 		).toThrow(TypeError);
 	});
@@ -566,7 +571,7 @@ describe('defineAction', () => {
 		const action = defineAction({
 			description: 'Read',
 			input: { value: schema },
-			run: () => true,
+			run: () => Ok(true),
 		});
 		expect(action.input.value).toEqual(schema);
 	});
@@ -579,13 +584,13 @@ describe('defineAction', () => {
 				yield message;
 				yield { loud };
 				await folder.write('data/said.md', message);
-				return { said: message };
+				return Ok({ said: message });
 			},
 		});
 		const context = createMemoryContext();
-		expect(await inRun(context, () => say({ message: 'hi' }))).toEqual({
-			said: 'hi',
-		});
+		expect(await inRun(context, () => say({ message: 'hi' }))).toEqual(
+			Ok({ said: 'hi' }),
+		);
 		const seen: unknown[] = [];
 		const returned = await inRun(context, () =>
 			runYielding(say, { message: '猫' }, (value) => {
@@ -593,7 +598,7 @@ describe('defineAction', () => {
 			}),
 		);
 		expect(seen).toEqual(['猫', { loud: false }]);
-		expect(returned).toEqual({ said: '猫' });
+		expect(returned).toEqual(Ok({ said: '猫' }));
 		expect(await context.folder.read('data/said.md')).toBe('猫');
 	});
 
@@ -605,12 +610,12 @@ describe('defineAction', () => {
 				done: field.boolean(),
 				note: field.text({ optional: true }),
 			},
-			run: (input) => input,
+			run: (input) => Ok(input),
 		});
 		const given = {};
-		expect(tag(given)).toEqual({ tags: [], done: false });
+		expect(tag(given)).toEqual(Ok({ tags: [], done: false }));
 		expect(given).toEqual({});
-		expect(tag({ done: true })).toEqual({ tags: [], done: true });
+		expect(tag({ done: true })).toEqual(Ok({ tags: [], done: true }));
 	});
 
 	test('refuses a field with a default at any depth, and a field helper an option it does not declare', () => {
@@ -623,7 +628,7 @@ describe('defineAction', () => {
 						filter: Type.Object({ on: Type.Boolean({ default: true }) }),
 						named: Type.Object({ default: Type.String() }),
 					},
-					run() {},
+					run: () => Ok(undefined),
 				}),
 			),
 		).toEqual([
@@ -659,7 +664,7 @@ describe('defineAction', () => {
 					positional: ['a'],
 					annotations: { readOnlyHint: true, dangerous: true } as never,
 					readonly: true,
-					run() {},
+					run: () => Ok(undefined),
 				} as never),
 			),
 		).toEqual([
@@ -668,4 +673,23 @@ describe('defineAction', () => {
 			'The action "Show" has the annotation "dangerous", which MCP does not define',
 		]);
 	});
+});
+
+test('a bare return faults on direct, asynchronous and yielding action calls', async () => {
+	const bare = { input: {}, description: 'Invalid action' };
+	// Simulate an untyped app using the old action contract.
+	const sync = defineAction({ ...bare, run: () => 'bare' } as never);
+	expect(() => sync({})).toThrow('must return Ok(data) or Err(error)');
+	for (const run of [
+		async () => 'bare',
+		async function* () {
+			yield 1;
+			return 'bare';
+		},
+	]) {
+		const action = defineAction({ ...bare, run } as never);
+		await expect(action({})).rejects.toThrow(
+			'must return Ok(data) or Err(error)',
+		);
+	}
 });

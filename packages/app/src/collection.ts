@@ -1,68 +1,41 @@
 /**
- * A collection: a typed set of Markdown files in an app. Its `path` says which
- * files belong and where `add` writes (`path.ts`); its `fields` say what each
- * file's front matter holds. A file's fields are its front matter, and its
- * body is the text after it.
+ * Collections read Markdown files as Results: Ok(record), Ok(undefined) for an
+ * absent keyed file, or Err(Misfit). A record's path, keys and body come from
+ * the file. Absent switches read false and absent lists without min read [].
+ * Misfit carries the fields that fit for a repair form.
  *
- * `defineCollection` returns what it was given, plus:
+ * Methods name a record by its keys and read only those names, so a row or a
+ * record can be passed as keys. Lookup tries the exact filename first, then
+ * the tidy name add writes. A keyless collection reads as an empty record
+ * before its file exists; set creates it and there is no add.
  *
- * - the methods an action reads and writes through, typed by the fields
- *   (`words.get({ word })`, `words.set({ word }, { meaning })`), over the
- *   folder of the run they are called in;
- * - `actions()`, which gives its verbs as actions to expose (`list`, `get`,
- *   `add`, `set`, and `delete` when named), each built on those methods for
- *   a caller that can send only plain data. The `set` verb is the `set`
- *   method for a caller that cannot send a function, so it sends what it
- *   last saw instead: `was` for fields, and `edit` for a passage of the
- *   body, `old` as it was and `new` to put in its place.
+ * Writes merge as JSON Merge Patch: null removes an optional field. Every
+ * write keeps front matter no field declares. Plain set patches can repair
+ * readable files, but must make the whole record fit before writing.
+ * Computed set and update receive only fitting records and return Ok(change)
+ * or Err(error). Update retries its pure callback when the file changes
+ * meanwhile; after 10 tries it answers Err(Changed). Refusals are Results;
+ * callback faults and I/O failures throw.
  *
- * A method names a record by its keys, each placeholder's value
- * (`{ word }` for `data/words/{word}.md`), and reads only those names, so a
- * row or a record can be passed as the keys. A key finds its file by its
- * exact name first, then by the tidy name `add` writes. A collection with no
- * placeholder (`data/settings.md`) has the same methods without the keys.
+ * Generated verbs expose plain-data operations. The set verb guards fields
+ * with was, the values last read (null for absent), and replaces a passage
+ * with edit: { old, new }. Both guards run in the same write. readOnly fields
+ * are left out of the exposed add and set; a required readOnly field removes
+ * the add verb. Methods can still write those fields.
  *
- * The writers differ by what they need of the file. `add` makes a file and
- * refuses one already there. `set` changes the fields and body of a file that
- * exists, merging as JSON Merge Patch does (a field given as `null` is
- * removed); given a function, it writes what the function makes of the
- * record. `update` changes a file by what is in it, or makes it: it gives the
- * record, or `undefined`, to a function and writes what it returns over that
- * same record, as `folder.update` does for text, so a value computed from the
- * record is never written over a change made since. `set` throws
- * `ActionError.Missing` when there is no file; a file whose front matter
- * cannot be read is refused by every writer, and by `get`.
- *
- * A read gives only what the file holds: each field is its value when it
- * fits, else absent, and a file that does not fit says why in `problems`. A
- * field whose line is not JSON is absent the same way, and its problem gives
- * the line number and what to write (ADR-0924). An absent switch reads
- * `false` and an absent list with no `min` `[]` (`absentValue`). A change a
- * function computes may not write over a value that does not fit, or that is
- * not JSON. `path`, the keys, and `body` always come from the file itself.
- * Front matter no field declares is kept by every write, and nothing reports
- * it. `get` gives a record with its `problems`, for a page where a person can
- * repair them; `need` gives only a record that fits, for code that computes
- * from it, and refuses any other.
- *
- * A field marked `readOnly` is left out of the exposed `add` and `set`, so only
- * the app's own actions write it, through the methods. When such a field is
- * required, the collection exposes no `add` at all.
- *
- * A collection whose path is `.local` (`data/google.local.md`) holds what stays on
- * this computer, such as a sign-in (ADR-0870). Its methods work as any
- * collection's, and a read-only action may write it; `actions()` throws, so
- * no generated verb hands its values to a caller.
- *
- * A collection does not know its name: an app names it by its key in
- * `collections`, and everything a collection says names its path instead.
+ * A .local collection's methods work, but actions() throws. Its Misfits omit
+ * record, and no diagnostic or write refusal quotes a file or supplied value.
  */
-
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Action, ActionMeta } from './action.ts';
+import { isActionResult } from './action-result.ts';
 import { folder, isLocalPath } from './context.ts';
-import { ActionError } from './errors.ts';
+import { ActionError, type Problem } from './errors.ts';
+
+export type { Problem } from './errors.ts';
+
 import {
 	absentValue,
 	defaultIn,
@@ -134,14 +107,14 @@ type Patch<F extends Fields, K extends keyof F = keyof F> = {
 };
 
 /**
- * The fields of a record with no `problems`: every required field, a switch,
+ * The fields of a fitting record: every required field, a switch,
  * and a list are there, and an optional field may be absent.
  */
 type Fitting<F extends Fields> = {
 	-readonly [K in Exclude<keyof F, MayLack<F>>]-?: ValueOf<F, K>;
 } & { -readonly [K in MayLack<F>]?: ValueOf<F, K> };
 
-/** The fields of a record with `problems`: any of them may be absent, since a value that does not fit reads as absent. */
+/** The partial fields carried by a Misfit: any of them may be absent, since a value that does not fit reads as absent. */
 type Loose<F extends Fields> = { -readonly [K in keyof F]?: ValueOf<F, K> };
 
 /**
@@ -159,29 +132,34 @@ type KeysArg<D extends CollectionDef> =
 /** What a file is besides its fields: its path, its keys, and maybe more, such as its body. */
 type Named<D extends CollectionDef, More> = { path: string } & Keys<D> & More;
 
-/**
- * `More` and the fields as a read gives them: a record with no `problems`
- * has its required fields, so `!record.problems` makes them safe to use;
- * one with `problems`, one line per problem, may lack any field.
- */
-type Read<D extends CollectionDef, More> =
-	| Simplify<Named<D, More> & Fitting<D['fields']> & { problems?: undefined }>
-	| Simplify<Named<D, More> & Loose<D['fields']> & { problems: string[] }>;
-
-/** A row of the `list` verb: the file's path, its keys, its fields, and its problems. */
-export type Row<D extends CollectionDef> = Read<D, unknown>;
-
-/** One record as `get` and `list` read it: a row and its body. */
-export type RecordOf<D extends CollectionDef> = Read<D, { body: string }>;
-
-/**
- * A record whose every value fits, as `need` gives it: what `RecordOf`
- * narrows to after `!record.problems`, named for a function that takes one.
- */
-export type FittingRecordOf<D extends CollectionDef> = Extract<
-	RecordOf<D>,
-	{ problems?: undefined }
+/** A fitting record, with required fields, filled switches and lists, and body. */
+export type RecordOf<D extends CollectionDef> = Simplify<
+	Named<D, { body: string }> & Fitting<D['fields']>
 >;
+/** A fitting record without its body. */
+export type Row<D extends CollectionDef> = Simplify<
+	Named<D, unknown> & Fitting<D['fields']>
+>;
+/** A malformed file, optionally carrying the fields that fit for repair. */
+export type MisfitOf<
+	D extends CollectionDef,
+	More = { body: string },
+> = Simplify<
+	Pick<Misfit, 'name' | 'message' | 'namespace' | 'path' | 'problems'> & {
+		record?: Simplify<Named<D, More> & Loose<D['fields']>>;
+	}
+>;
+type Misfit = Extract<ActionError, { name: 'Misfit' }>;
+type Missing = Extract<ActionError, { name: 'Missing' }>;
+type Refused = Extract<ActionError, { name: 'Refused' }>;
+type Changed = Extract<ActionError, { name: 'Changed' }>;
+type Single<D extends CollectionDef> = IsSingle<D['path']>;
+type SetError<D extends CollectionDef> =
+	| (Single<D> extends true ? never : Missing)
+	| MisfitOf<D>
+	| Refused
+	| Changed;
+type CallbackError = { name: string; message: string };
 
 /** The keys a caller gives when adding: every one but `{time}`, which `add` makes. */
 type AddKeys<D extends CollectionDef> = Exclude<
@@ -207,88 +185,97 @@ type Writable<D extends CollectionDef> = Exclude<
 /** What `set` and `update` write: the fields to change, `null` removing one a file may go without, and a new body if it changes. */
 type Change<F extends Fields> = Simplify<Patch<F> & { body?: string }>;
 
-/** What `set` takes after the keys: the change, or a function of the record that returns it. */
-type SetChange<D extends CollectionDef> =
-	| Change<D['fields']>
-	| ((record: RecordOf<D>) => Change<D['fields']>);
-
-/**
- * The function `update` calls with the record as it is, or `undefined` when
- * there is no file, returning what to change in it; when there was no file,
- * what it returns is the whole new record.
- */
-type Revise<D extends CollectionDef> = (
-	record: RecordOf<D> | undefined,
-) => Change<D['fields']>;
-
-/** A collection's methods, as an action uses them. */
+/** Methods return expected failures as Results. Callback faults and I/O failures throw. */
 export type Handle<D extends CollectionDef> = {
-	/** Every record, whole, as `get` gives it, sorted by path. */
-	list(): Promise<RecordOf<D>[]>;
-	/** The record the keys name, or `undefined` when there is no file. */
-	get(...keys: KeysArg<D>): Promise<RecordOf<D> | undefined>;
-	/**
-	 * The record the keys name, for code that cannot go on without it: every
-	 * field is there and fits, so a list is an array and a required field its
-	 * type. Throws `ActionError.Missing` when there is no file, and
-	 * `ActionError.Refused` listing its problems when a value does not fit,
-	 * as `get` refuses front matter that cannot be read. Code that hands a
-	 * record to a page, where a person can see and repair its problems,
-	 * calls `get` instead.
-	 *
-	 * ```ts
-	 * const { from, to } = await watches.need({ id });
-	 * ```
-	 */
-	need(...keys: KeysArg<D>): Promise<FittingRecordOf<D>>;
-	/** Make a file from the whole new record; throws when one is already at its path. */
-	add(record: AddInput<D, keyof D['fields']>): Promise<RecordOf<D>>;
-	/**
-	 * Change the fields given, and the body when `body` is given; `null`
-	 * removes a field a file may go without. Given a function, write what it
-	 * returns for the record as it is, only over that record, as `update`
-	 * does; it may not write a field whose value does not fit, which plain
-	 * data repairs. Throws `ActionError.Missing` when there is no file.
-	 *
-	 * ```ts
-	 * await words.set({ word }, { meaning });
-	 * await words.set({ word }, (now) => ({ reps: (now.reps ?? 0) + 1 }));
-	 * await words.set({ word }, (now) => ({ body: `${now.body}${line}\n` }));
-	 * ```
-	 */
-	set(...args: [...KeysArg<D>, change: SetChange<D>]): Promise<RecordOf<D>>;
-	/**
-	 * Change the file by what is in it, or make it. `change` gets the record
-	 * as `get` gives it, `undefined` when there is no file, and returns what
-	 * `set` takes; that is written only over the record it was given, and
-	 * makes the file, as `add` would, when there was none. When the file
-	 * changed meanwhile, `change` runs again on what is there now, so keep it
-	 * a pure function of the record; after 10 tries it throws
-	 * `ActionError.Changed`. A `change` that throws writes nothing, and one
-	 * that returns `{}` for a file leaves it as it is. Like `set` given a
-	 * function, it may not write a field whose value does not fit. Returns the
-	 * record written.
-	 *
-	 * ```ts
-	 * await words.update({ word }, (now) => ({ reps: (now?.reps ?? 0) + 1 }));
-	 * ```
-	 */
-	update(...args: [...KeysArg<D>, change: Revise<D>]): Promise<RecordOf<D>>;
-	/** Delete the file; `true` when there was one. */
+	/** One Result per existing file, sorted by path. */
+	list(): Promise<Result<RecordOf<D>, MisfitOf<D>>[]>;
+	/** Delete the file; true when it existed. Invalid keys throw. */
 	delete(...keys: KeysArg<D>): Promise<boolean>;
-	/** The path `add` makes for the keys, tidied: `pathOf({ word: '你好' })` is `data/words/你好.md`. */
+	/** The tidied path for these keys. Invalid keys throw. */
 	pathOf(...keys: KeysArg<D>): string;
-};
+} & (Single<D> extends true
+	? {
+			/** Read the fitting record, including the empty record before creation. */
+			get(): Promise<Result<RecordOf<D>, MisfitOf<D>>>;
+			/** Patch fields and body, validating the whole record before writing. */
+			set(
+				change: Change<D['fields']>,
+			): Promise<Result<RecordOf<D>, SetError<D>>>;
+			/** Compute a patch from the fitting record. Err leaves the file unchanged. */
+			set<
+				R extends Result<Change<D['fields']>, CallbackError> = Result<
+					Change<D['fields']>,
+					never
+				>,
+			>(
+				change: (record: RecordOf<D>) => R,
+			): Promise<Result<RecordOf<D>, SetError<D> | Exclude<R['error'], null>>>;
+			/** Update or create, retrying the callback when the file changes meanwhile. */
+			update<
+				R extends Result<Change<D['fields']>, CallbackError> = Result<
+					Change<D['fields']>,
+					never
+				>,
+			>(
+				change: (record: RecordOf<D>) => R,
+			): Promise<
+				Result<
+					RecordOf<D>,
+					MisfitOf<D> | Refused | Changed | Exclude<R['error'], null>
+				>
+			>;
+		}
+	: {
+			/** Read a fitting record, permitted absence, or Misfit. */
+			get(
+				keys: Keys<D>,
+			): Promise<Result<RecordOf<D> | undefined, MisfitOf<D> | Refused>>;
+			/** Make a file from a complete record. */
+			add(
+				record: AddInput<D, keyof D['fields']>,
+			): Promise<Result<RecordOf<D>, Refused | Changed>>;
+			/** Patch fields and body, validating the whole record before writing. */
+			set(
+				keys: Keys<D>,
+				change: Change<D['fields']>,
+			): Promise<Result<RecordOf<D>, SetError<D>>>;
+			/** Compute a patch from a fitting record. Err leaves the file unchanged. */
+			set<
+				R extends Result<Change<D['fields']>, CallbackError> = Result<
+					Change<D['fields']>,
+					never
+				>,
+			>(
+				keys: Keys<D>,
+				change: (record: RecordOf<D>) => R,
+			): Promise<Result<RecordOf<D>, SetError<D> | Exclude<R['error'], null>>>;
+			/** Update or create, retrying the callback when the file changes meanwhile. */
+			update<
+				R extends Result<Change<D['fields']>, CallbackError> = Result<
+					Change<D['fields']>,
+					never
+				>,
+			>(
+				keys: Keys<D>,
+				change: (record: RecordOf<D> | undefined) => R,
+			): Promise<
+				Result<
+					RecordOf<D>,
+					MisfitOf<D> | Refused | Changed | Exclude<R['error'], null>
+				>
+			>;
+		});
 
 /** The verbs a collection may expose. */
 export type Verb = 'list' | 'get' | 'add' | 'set' | 'delete';
 
 /** The verbs that fit a collection: all five, less `add` when a field `add` could never be given is required. */
-type VerbOf<D extends CollectionDef> = [UnaddableKeys<D['fields']>] extends [
-	never,
-]
-	? Verb
-	: Exclude<Verb, 'add'>;
+type VerbOf<D extends CollectionDef> =
+	Single<D> extends true
+		? Exclude<Verb, 'add'>
+		: [UnaddableKeys<D['fields']>] extends [never]
+			? Verb
+			: Exclude<Verb, 'add'>;
 
 /** The verbs `actions()` gives when none is named: every one that fits but `delete`. */
 type Given<D extends CollectionDef> = Exclude<VerbOf<D>, 'delete'>;
@@ -307,32 +294,44 @@ type Edit = { old: string; new: string };
 
 /** The action verb `V` gives: its keys flat beside the rest of its input. */
 type VerbAction<D extends CollectionDef, V extends Verb> = {
-	list: Action<Record<string, never>, Promise<Row<D>[]>, never>;
-	get: Action<KeysIn<D>, Promise<RecordOf<D>>, never>;
-	add: Action<AddInput<D, Writable<D>>, Promise<RecordOf<D>>, never>;
+	list: Action<
+		Record<string, never>,
+		Promise<Result<Result<Row<D>, MisfitOf<D, unknown>>[], never>>,
+		never
+	>;
+	get: Action<
+		KeysIn<D>,
+		Promise<
+			Result<
+				RecordOf<D>,
+				MisfitOf<D> | (Single<D> extends true ? never : Missing | Refused)
+			>
+		>,
+		never
+	>;
+	add: Action<
+		AddInput<D, Writable<D>>,
+		Promise<Result<RecordOf<D>, Refused | Changed>>,
+		never
+	>;
 	set: Action<
 		Simplify<
 			Keys<D> & Patch<D['fields'], Writable<D>> & { was?: Was<D>; edit?: Edit }
 		>,
-		Promise<RecordOf<D>>,
+		Promise<Result<RecordOf<D>, SetError<D>>>,
 		never
 	>;
-	delete: Action<KeysIn<D>, Promise<boolean>, never>;
+	delete: Action<
+		KeysIn<D>,
+		Promise<Result<boolean, Single<D> extends true ? never : Refused>>,
+		never
+	>;
 }[V];
 
 /** What `.actions(...)` returns: each verb's action under the verb. */
 export type CollectionActions<D extends CollectionDef, V extends Verb> = {
 	[P in V]: VerbAction<D, P>;
 };
-
-/**
- * One problem of a file that does not fit its fields: the `line` a read's
- * `problems` gives, and its `kind`, the line without the value it quotes, so
- * one problem on many files reads alike. `due: "next week" is not a day like
- * 2026-11-12` is of the kind `due is not a day like 2026-11-12`, which is how
- * a `.local` file's line reads already.
- */
-export type Problem = { line: string; kind: string };
 
 /** What every collection has, whatever its fields: what an app holds in `collections`. */
 export type AnyCollection = CollectionDef & {
@@ -418,13 +417,13 @@ export function defineCollection<const D extends CollectionDef>(
 	const unaddable = Object.entries(definition.fields)
 		.filter(([, schema]) => isReadOnly(schema) && !isOptional(schema))
 		.map(([key]) => key);
-	const fit = unaddable.length ? VERBS.filter((verb) => verb !== 'add') : VERBS;
+	const fit =
+		!keyed || unaddable.length ? VERBS.filter((verb) => verb !== 'add') : VERBS;
 	return {
 		...definition,
 		list: records.list,
-		add: records.add,
+		...(keyed ? { add: records.add } : {}),
 		get: named(records.get, 0),
-		need: named(records.need, 0),
 		set: named(records.set, 1),
 		update: named(records.update, 1),
 		delete: named(records.delete, 0),
@@ -440,6 +439,10 @@ export function defineCollection<const D extends CollectionDef>(
 				if ((verb as string) === 'edit')
 					throw new Error(
 						`${layout.text} has no "edit": set takes edit: { old, new } now, replacing a passage of the body in the same write as the fields`,
+					);
+				if (verb === 'add' && !keyed)
+					throw new Error(
+						`${layout.text} has no "add": it is one file, which set makes`,
 					);
 				if (verb === 'add')
 					throw new Error(
@@ -463,13 +466,12 @@ const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'delete'];
 
 /**
  * Names neither a field nor a placeholder may have, and why: a read gives
- * `path`, `body`, and `problems` itself, and the `set` verb takes `was` and
+ * `path` and `body` itself, and the `set` verb takes `was` and
  * `edit` beside the fields.
  */
 const RESERVED: ReadonlyMap<string, string> = new Map([
 	['path', "which is the file's address"],
 	['body', "which is the file's text after its front matter"],
-	['problems', 'which a read uses to say what does not fit'],
 	['was', 'which the set verb takes beside the fields'],
 	['edit', 'which the set verb takes beside the fields'],
 ]);
@@ -511,6 +513,10 @@ function collectionProblems(def: CollectionDef): string[] {
 			problems.push(`${at} has the placeholder {${key}}, ${reserved}`);
 	}
 	for (const [key, schema] of Object.entries(def.fields ?? {})) {
+		if (!keys.size && !isOptional(schema) && absentValue(schema) === undefined)
+			problems.push(
+				`The collection at ${path} is one file, read as empty before it exists, so the field "${key}" must be optional, a switch, or a list without min`,
+			);
 		if (containsFileMarker(schema))
 			problems.push(
 				`${at} has the file field "${key}", which a collection of one file per record cannot keep; it would store the host's temporary upload reference`,
@@ -608,28 +614,11 @@ type Write = { fields: Record<string, unknown>; body?: unknown };
 /** What a writer needs of the file before it writes: that it is not there, that it is, or either. */
 type Need = 'absent' | 'present' | 'either';
 
-/**
- * Where a write's change comes from. `data` is plain data a caller gave,
- * which may repair a value that does not fit. `computed` is what a function
- * returned from the record, which may not replace such a value, since the
- * function saw it as absent.
- */
-type Source = 'data' | 'computed';
-
 /** A collection's records, each named by its keys, read and written through the folder of the run they are called in. */
 type Records = ReturnType<typeof createRecords>;
 
 function createRecords(layout: Template, fields: Fields) {
 	const local = isLocalPath(layout.text);
-
-	/** The file `keys` name, read: its record and problems, or `undefined` when there is none; refuses front matter that cannot be read. */
-	async function read(keys: object) {
-		const { path, text } = await find(keys);
-		if (text === undefined) return undefined;
-		const found = readMarkdown(text);
-		if (!found.readable) throw unreadable(path);
-		return { path, ...project(path, found) };
-	}
 
 	/** Each placeholder's value from `keys`, and nothing else from it; throws for one that is not text. */
 	function valuesOf(keys: object): Record<string, string> {
@@ -660,31 +649,35 @@ function createRecords(layout: Template, fields: Fields) {
 	 */
 	async function find(
 		keys: object,
-	): Promise<{ path: string; text: string | undefined }> {
-		const exact = layout.fillExact(valuesOf(keys));
+	): Promise<Result<{ path: string; text: string | undefined }, Refused>> {
+		const values = valuesOf(keys);
+		const exact = layout.fillExact(values);
 		if (exact !== undefined) {
 			const text = await folder.read(exact);
-			if (text !== undefined) return { path: exact, text };
+			if (text !== undefined) return Ok({ path: exact, text });
 		}
-		const path = pathOf(keys);
-		return { path, text: path === exact ? undefined : await folder.read(path) };
+		let path: string;
+		try {
+			path = layout.fill(values);
+		} catch (error) {
+			return ActionError.Refused({ message: (error as Error).message });
+		}
+		return Ok({
+			path,
+			text: path === exact ? undefined : await folder.read(path),
+		});
 	}
 
-	function known(path: string, key: string) {
+	function unknownField(path: string, key: string) {
 		if (!Object.hasOwn(fields, key))
-			throw new Error(`${path} has no field "${key}"`);
+			return ActionError.Refused({ message: `${path} has no field "${key}"` });
 	}
-
-	const unreadable = (path: string) =>
-		ActionError.Refused({
-			message: `${path} cannot be read: ${UNREADABLE}; fix it by hand first`,
-		}).error;
 
 	/**
 	 * The file at `path` as a read gives it, with each problem and its kind,
-	 * and the fields whose values did not fit. Each field is its value if it
+	 * and the partial record for repair. Each field is its value if it
 	 * fits, else absent; an absent switch or list is `false` or `[]`.
-	 * `problems` names each value that did not fit, each line whose text is
+	 * Its diagnostics name each value that did not fit, each line whose text is
 	 * not JSON with what to write, and each required field that is missing.
 	 * `path`, the keys, and `body` come from the file, and no field can be
 	 * named as one of them. A field whose line is not JSON counts among the
@@ -693,7 +686,6 @@ function createRecords(layout: Template, fields: Fields) {
 	function project(path: string, found: Found) {
 		const values: Record<string, unknown> = {};
 		const problems: Problem[] = [];
-		const misfits = new Set<string>();
 		const problem = (line: string, kind = line) =>
 			problems.push({ line, kind });
 		if (!found.readable) problem(UNREADABLE);
@@ -702,7 +694,6 @@ function createRecords(layout: Template, fields: Fields) {
 			const value = found.fields[key];
 			const bare = notJson.get(key);
 			if (bare) {
-				misfits.add(key);
 				problem(
 					notJsonProblem(key, schema, bare, local),
 					notJsonProblem(key, schema, { text: bare.text }, true),
@@ -714,7 +705,6 @@ function createRecords(layout: Template, fields: Fields) {
 					problem(`${key} is missing`);
 			} else if (Value.Check(schema, value)) values[key] = value;
 			else {
-				misfits.add(key);
 				problem(
 					misfit(key, schema, value, local),
 					misfit(key, schema, value, true),
@@ -726,43 +716,54 @@ function createRecords(layout: Template, fields: Fields) {
 			...layout.match(path),
 			...values,
 			body: found.body,
-			...(problems.length
-				? { problems: problems.map(({ line }) => line) }
-				: {}),
 		};
-		return { record, problems, misfits };
+		const result: Result<AnyRecord, Misfit> = problems.length
+			? ActionError.Misfit({
+					path,
+					problems,
+					...(!local && found.readable ? { record } : {}),
+				})
+			: Ok(record);
+		return { record, result };
 	}
 
-	/** Throw naming each of `values` that does not fit, one a line. */
-	function refuse(path: string, values: FieldValues, whole: boolean) {
-		const problems: string[] = [];
-		for (const [key, schema] of Object.entries(fields)) {
-			if (!Object.hasOwn(values, key)) {
-				if (whole && !isOptional(schema)) problems.push(`${key} is missing`);
-			} else if (!Value.Check(schema, values[key]))
-				problems.push(misfit(key, schema, values[key], local));
-		}
-		if (problems.length)
-			throw new Error(
-				problems.map((problem) => `${path}: ${problem}`).join('\n'),
-			);
-	}
-
-	/** Split a patch into fields to set and fields to remove, refusing what does not fit. */
-	function patchOf(path: string, given: Record<string, unknown>) {
+	/** Split a patch into fields to set and remove, and check each supplied value. */
+	function patchOf(
+		path: string,
+		given: Record<string, unknown>,
+		creating: boolean,
+	) {
 		const removed: string[] = [];
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
-			known(path, key);
+			const unknown = unknownField(path, key);
+			if (unknown) return unknown;
 			if (value === undefined) continue;
-			if (value === null) {
-				if (!isOptional(fields[key] as TSchema))
-					throw new Error(`${key} is required, so it cannot be removed`);
+			if (value === null && isOptional(fields[key] as TSchema))
 				removed.push(key);
+			else if (value === null && !creating) {
+				return ActionError.Refused({
+					message: `${key} is required, so it cannot be removed`,
+				});
 			} else set[key] = value as JsonValue;
 		}
-		refuse(path, set, false);
-		return { set: inDeclaredOrder(set, fields), removed };
+		const problems: string[] = [];
+		for (const [key, schema] of Object.entries(fields)) {
+			if (Object.hasOwn(set, key)) {
+				if (!Value.Check(schema, set[key]))
+					problems.push(misfit(key, schema, set[key], local));
+			} else if (
+				creating &&
+				!isOptional(schema) &&
+				absentValue(schema) === undefined
+			)
+				problems.push(`${key} is missing`);
+		}
+		if (problems.length)
+			return ActionError.Refused({
+				message: problems.map((problem) => `${path}: ${problem}`).join('\n'),
+			});
+		return Ok({ set: inDeclaredOrder(set, fields), removed });
 	}
 
 	/** Each field that holds a `field.ref` or a list of them, with its target's template. */
@@ -822,96 +823,102 @@ function createRecords(layout: Template, fields: Fields) {
 			}
 		}
 		if (problems.length)
-			throw ActionError.Refused({ message: problems.join('\n') }).error;
+			return ActionError.Refused({ message: problems.join('\n') });
+		return Ok(undefined);
 	}
 
-	/**
-	 * The text of a new file at `path` from `given` and `body`, and nothing
-	 * else; throws when the fields do not fit. `null` for a field a file may go
-	 * without leaves it out, as it removes one from a file that is there, so one
-	 * change can make a record or change it.
-	 */
-	function made(path: string, given: Record<string, unknown>, body: string) {
-		const values: FieldValues = {};
-		for (const [key, value] of Object.entries(given)) {
-			known(path, key);
-			if (value === undefined) continue;
-			if (value === null && isOptional(fields[key] as TSchema)) continue;
-			values[key] = value as JsonValue;
-		}
-		refuse(path, values, true);
-		return markdownOf(inDeclaredOrder(values, fields), body);
-	}
-
-	/**
-	 * The one writer: change the file at `path` to what `change` makes of the
-	 * record there, through `folder.update`, so it is written only over the
-	 * record `change` was given. `need` says what the file must be first:
-	 * `absent` for `add`, `present` for `set`, `either` for `update`. When
-	 * there is no file, `change` gets `undefined` and what it returns makes
-	 * the file; front matter that cannot be read is refused before `change`
-	 * runs. A `computed` change that writes a field whose value does not fit
-	 * is refused, and writes nothing.
-	 */
-	async function write(
+	/** Decide a record and its replacement together, once per attempt at the current file. */
+	function write(
 		path: string,
 		need: Need,
-		source: Source,
-		change: (record: AnyRecord | undefined) => Write,
+		computed: boolean,
+		change: (record: AnyRecord | undefined) => Result<Write, CallbackError>,
 	) {
-		const text = await folder.update(path, (before) => {
-			if (before === undefined && need === 'present')
-				throw ActionError.Missing({ path }).error;
+		return folder.edit<AnyRecord, CallbackError>(path, (before) => {
+			const single = layout.placeholders.length === 0;
+			if (before === undefined && need === 'present' && !single)
+				return ActionError.Missing({ path });
 			if (before !== undefined && need === 'absent')
-				throw new Error(`${path} is already there`);
-			const found = before === undefined ? undefined : readMarkdown(before);
-			if (found && !found.readable) throw unreadable(path);
-			const now = found && project(path, found);
-			const { fields: given, body } = change(now?.record);
+				return ActionError.Refused({ message: `${path} is already there` });
+
+			const found = readMarkdown(before ?? '');
+			const current =
+				before !== undefined || single ? project(path, found) : undefined;
+			if (current?.result.error && (computed || !found.readable))
+				return current.result;
+			const changed = change(current?.record);
+			if (changed.error !== null) return changed;
+			const { fields: given, body } = changed.data;
 			if (body !== undefined && typeof body !== 'string')
-				throw new Error(`${path}: body must be text`);
-			if (before === undefined || !found) return made(path, given, body ?? '');
-			const replaced = Object.keys(given).filter(
-				(key) => given[key] !== undefined && now?.misfits.has(key),
-			);
-			if (source === 'computed' && replaced.length)
-				throw ActionError.Refused({
-					message: replaced
-						.map(
-							(key) =>
-								`${path}: ${key} holds a value that does not fit, which the change was given as absent, so it may not replace it; repair ${key} with plain data first`,
-						)
-						.join('\n'),
-				}).error;
-			const patch = patchOf(path, given);
-			const changesFields =
-				patch.removed.length > 0 || Object.keys(patch.set).length > 0;
-			if (!changesFields && body === undefined) return before;
-			const fielded = changesFields
-				? withFields(before, patch.set, patch.removed)
-				: before;
-			// Every write keeps the body as the end of the text, so the front matter is what comes before it.
-			return body === undefined
-				? fielded
-				: fielded.slice(0, fielded.length - found.body.length) + body;
+				return ActionError.Refused({ message: `${path}: body must be text` });
+			const patch = patchOf(path, given, before === undefined);
+			if (patch.error !== null) return patch;
+			const { set, removed } = patch.data;
+			if (
+				current &&
+				!removed.length &&
+				!Object.keys(set).length &&
+				body === undefined
+			)
+				return current.result.error
+					? current.result
+					: Ok({ value: current.record });
+
+			let after: string;
+			if (before === undefined) after = markdownOf(set, body ?? '');
+			else {
+				const fielded = withFields(before, set, removed);
+				after =
+					body === undefined
+						? fielded
+						: fielded.slice(0, fielded.length - found.body.length) + body;
+			}
+			if (after === before && current)
+				return current.result.error
+					? current.result
+					: Ok({ value: current.record });
+			const next = project(path, readMarkdown(after)).result;
+			if (next.error !== null)
+				return current?.result.error ? current.result : next;
+			// A keyless record already reads as its defaults while its file is absent.
+			if (
+				before === undefined &&
+				current &&
+				Value.Equal(current.record, next.data)
+			)
+				return Ok({ value: next.data });
+			return Ok({ value: next.data, text: after });
 		});
-		return project(path, readMarkdown(text)).record;
 	}
 
-	/** A change a function returned, split as `write` takes it. */
+	/** A computed change must explicitly return Ok(change) or Err(error). */
 	const computed =
-		(change: (record: unknown) => Record<string, unknown>) =>
-		(now: AnyRecord | undefined): Write => {
-			const { body, ...given } = change(now);
-			return { fields: given, body };
+		(change: (record: unknown) => unknown, method: 'set' | 'update') =>
+		(now: AnyRecord | undefined): Result<Write, CallbackError> => {
+			const result = change(structuredClone(now));
+			if (!isActionResult(result))
+				throw new Error(
+					`The change given to ${method} must return a Result: Ok(change) or Err(error)`,
+				);
+			if (result.error !== null) return result;
+			if (
+				typeof result.data !== 'object' ||
+				result.data === null ||
+				Array.isArray(result.data)
+			)
+				throw new Error(
+					`The change given to ${method} must return a record patch inside Ok`,
+				);
+			const { body, ...given } = result.data as Record<string, unknown>;
+			return Ok({ fields: given, body });
 		};
 
 	/** The paths that may be records, each read after: a template with no placeholder is its one path, so its folder is never walked. */
 	async function paths() {
 		if (!layout.placeholders.length) return [layout.text];
-		return (await folder.list(layout.dir || undefined)).filter(
-			(path) => layout.match(path) !== undefined,
-		);
+		return (await folder.list(layout.dir || undefined))
+			.filter((path) => layout.match(path) !== undefined)
+			.sort();
 	}
 
 	/** Each file that is there, read, with its path. */
@@ -931,8 +938,8 @@ function createRecords(layout: Template, fields: Fields) {
 	 * write before anything is written: `was` names fields and their values,
 	 * `null` for absent, refused as `Changed` with `why: 'was'` when one
 	 * differs; `edit` replaces `old` in the body with `new`, refused as
-	 * `edited` refuses it. `create` makes the file, as `add` would, when it is
-	 * absent; a passage needs a file to be in, so with none it is `Missing`.
+	 * `edited` refuses it. A missing keyed file gives Missing. A missing
+	 * keyless file is the empty record and may be created by fields or edit.
 	 */
 	async function put(
 		keys: object,
@@ -941,68 +948,66 @@ function createRecords(layout: Template, fields: Fields) {
 			body,
 			was,
 			edit,
-			create = false,
 		}: {
 			body?: unknown;
 			was?: Record<string, unknown>;
 			edit?: Edit;
-			create?: boolean;
 		},
 	) {
-		const { path } = await find(keys);
+		const location = await find(keys);
+		if (location.error !== null) return location;
+		const { path } = location.data;
 		if (
 			body === undefined &&
 			edit === undefined &&
 			Object.values(given).every((value) => value === undefined)
 		)
-			throw new Error(`Nothing to set in ${path}: give a field`);
-		for (const key of Object.keys(was ?? {})) known(path, key);
-		await checkReferences(path, given);
-		return write(path, create ? 'either' : 'present', 'data', (now) => {
+			return ActionError.Refused({
+				message: `Nothing to set in ${path}: give a field`,
+			});
+		for (const key of Object.keys(was ?? {})) {
+			const unknown = unknownField(path, key);
+			if (unknown) return unknown;
+		}
+		const checked = await checkReferences(path, given);
+		if (checked.error !== null) return checked;
+		return write(path, 'present', false, (now) => {
 			for (const [key, seen] of Object.entries(was ?? {}))
 				if (!Value.Equal(now?.[key] ?? null, seen ?? null))
-					throw ActionError.Changed({ path, why: 'was' }).error;
-			if (!edit) return { fields: given, body };
-			if (!now) throw ActionError.Missing({ path }).error;
-			return {
-				fields: given,
-				body: edited(path, now.body, edit.old, edit.new),
-			};
+					return ActionError.Changed({ path, why: 'was' });
+			if (!edit) return Ok({ fields: given, body });
+			if (!now) return ActionError.Missing({ path });
+			const editedBody = edited(path, now.body, edit.old, edit.new);
+			if (editedBody.error !== null) return editedBody;
+			return Ok({ fields: given, body: editedBody.data });
 		});
 	}
 
 	return {
 		pathOf,
+		find,
 		put,
 		async list() {
 			return (await readAll()).map(
-				({ path, found }) => project(path, found).record,
+				({ path, found }) => project(path, found).result,
 			);
 		},
 		async check() {
 			const read = await readAll();
 			const records: { path: string; problems: Problem[] }[] = [];
 			for (const { path, found } of read) {
-				const { problems } = project(path, found);
-				if (problems.length) records.push({ path, problems });
+				const { error } = project(path, found).result;
+				if (error) records.push({ path, problems: error.problems });
 			}
 			return { files: read.length, records };
 		},
 		async get(keys: object) {
-			return (await read(keys))?.record;
-		},
-		async need(keys: object) {
-			const found = await read(keys);
-			if (!found) throw ActionError.Missing({ path: pathOf(keys) }).error;
-			const { path, record, problems } = found;
-			if (problems.length)
-				throw ActionError.Refused({
-					message: [
-						`${path} has values that do not fit its fields; repair them with plain data first:`,
-						...problems.map(({ line }) => `${path}: ${line}`),
-					].join('\n'),
-				}).error;
-			return record;
+			const location = await find(keys);
+			if (location.error !== null) return location;
+			const { path, text } = location.data;
+			if (text === undefined && layout.placeholders.length)
+				return Ok(undefined);
+			return project(path, readMarkdown(text ?? '')).result;
 		},
 		async add(input: Record<string, unknown>) {
 			const { body, ...given } = input;
@@ -1017,49 +1022,61 @@ function createRecords(layout: Template, fields: Fields) {
 					);
 				values[key] = value;
 			}
-			const path = layout.fill(values);
-			await checkReferences(path, given);
-			return write(path, 'absent', 'data', () => ({ fields: given, body }));
+			let path: string;
+			try {
+				path = layout.fill(values);
+			} catch (error) {
+				return ActionError.Refused({ message: (error as Error).message });
+			}
+			const checked = await checkReferences(path, given);
+			if (checked.error !== null) return checked;
+			return write(path, 'absent', false, () => Ok({ fields: given, body }));
 		},
 		async set(keys: object, change: unknown) {
 			if (typeof change === 'function') {
-				const { path } = await find(keys);
+				const location = await find(keys);
+				if (location.error !== null) return location;
 				return write(
-					path,
+					location.data.path,
 					'present',
-					'computed',
-					computed(change as (record: unknown) => Record<string, unknown>),
+					true,
+					computed(change as (record: unknown) => unknown, 'set'),
 				);
 			}
 			const { body, ...given } = (change ?? {}) as Record<string, unknown>;
 			return put(keys, given, { body });
 		},
-		async update(
-			keys: object,
-			change: (record: unknown) => Record<string, unknown>,
-		) {
-			const { path } = await find(keys);
-			return write(path, 'either', 'computed', computed(change));
+		async update(keys: object, change: (record: unknown) => unknown) {
+			const location = await find(keys);
+			if (location.error !== null) return location;
+			return write(
+				location.data.path,
+				'either',
+				true,
+				computed(change, 'update'),
+			);
 		},
 		async delete(keys: object) {
-			const { path, text } = await find(keys);
+			const found = await find(keys);
+			if (found.error !== null) throw new Error(found.error.message);
+			const { path, text } = found.data;
 			await folder.delete(path);
 			return text !== undefined;
 		},
 	};
 }
 
-/** `body` with the passage `old` replaced by `replacement`; throws `Changed` unless `old` is there exactly once, or empty for an empty body. */
+/** `body` with the passage `old` replaced by `replacement`; returns `Changed` unless `old` is there exactly once, or empty for an empty body. */
 function edited(path: string, body: string, old: string, replacement: string) {
 	if (old === '') {
-		if (body !== '') throw ActionError.Changed({ path, why: 'empty' }).error;
-		return replacement;
+		if (body !== '') return ActionError.Changed({ path, why: 'empty' });
+		return Ok(replacement);
 	}
 	const at = body.indexOf(old);
-	if (at < 0) throw ActionError.Changed({ path, why: 'quote' }).error;
+	if (at < 0) return ActionError.Changed({ path, why: 'quote' });
 	if (body.indexOf(old, at + 1) >= 0)
-		throw ActionError.Changed({ path, why: 'twice' }).error;
-	return body.slice(0, at) + replacement + body.slice(at + old.length);
+		return ActionError.Changed({ path, why: 'twice' });
+	return Ok(body.slice(0, at) + replacement + body.slice(at + old.length));
 }
 
 /** Each verb as an action to expose, described by the collection's path; each takes the keys flat beside its input. */
@@ -1145,9 +1162,11 @@ function verbActions(
 	const outside = (input: Record<string, unknown>) => {
 		for (const key of Object.keys(input))
 			if (def.fields[key] && isReadOnly(def.fields[key]))
-				throw new Error(`${key} is written only by the app's own actions`);
-		return input;
+				return ActionError.Refused({
+					message: `${key} is written only by the app's own actions`,
+				});
 	};
+
 	/** `input` without its keys: what a verb changes. */
 	const rest = (input: Record<string, unknown>) =>
 		Object.fromEntries(
@@ -1163,9 +1182,21 @@ function verbActions(
 		);
 	return {
 		list: action(
-			async () => (await records.list()).map(({ body: _, ...row }) => row),
+			async () =>
+				Ok(
+					(await records.list()).map((result) => {
+						if (result.error !== null) {
+							const { record, ...error } = result.error as Misfit;
+							if (!record) return Err(error);
+							const { body: _, ...row } = record;
+							return Err({ ...error, record: row });
+						}
+						const { body: _, ...row } = result.data;
+						return Ok(row);
+					}),
+				),
 			{
-				description: `Every ${what}: its path and fields, and the problems of one that does not fit them`,
+				description: `Every ${what}: one result per file with its path and fields; a file that does not fit its fields is an error beside the rows`,
 				input: {},
 				annotations: { readOnlyHint: true, ...local },
 			},
@@ -1173,48 +1204,57 @@ function verbActions(
 		get: action(
 			async (input) => {
 				const found = await records.get(input);
-				if (!found)
-					throw ActionError.Missing({ path: records.pathOf(input) }).error;
+				if (found.error === null && found.data === undefined)
+					return ActionError.Missing({ path: records.pathOf(input) });
 				return found;
 			},
 			{
-				description: `Read one ${what}: its fields and body`,
+				description: `Read one ${what}: its fields and body; a file that does not fit its fields is an error`,
 				input: keysIn,
 				annotations: { readOnlyHint: true, ...local },
 			},
 		),
-		add: action((input) => records.add(outside(input)), {
+		add: action((input) => outside(input) ?? records.add(input), {
 			description: `Make a new ${what}${keys.includes(TIME) ? ', named by the time' : ''}; refused when one is already at its path`,
 			input: addIn,
 			annotations: { destructiveHint: false, ...local },
 		}),
 		set: action(
 			(input) => {
-				const { was, edit, ...given } = rest(outside(input));
+				const refused = outside(input);
+				if (refused) return refused;
+				const { was, edit, ...given } = rest(input);
 				const { old, new: replacement } = (edit ?? {}) as Partial<Edit>;
 				if (
 					edit !== undefined &&
 					(typeof old !== 'string' || typeof replacement !== 'string')
 				)
-					throw new Error(
-						`Edit the body of ${layout.text} with edit: { old, new }, each text: old as you last saw it, and new to put in its place`,
-					);
+					return ActionError.Refused({
+						message: `Edit the body of ${layout.text} with edit: { old, new }, each text: old as you last saw it, and new to put in its place`,
+					});
 				return records.put(input, given, {
 					was: was as Record<string, unknown> | undefined,
 					edit: edit as Edit | undefined,
-					create: !keyed,
 				});
 			},
 			{
-				description: `Change one ${what} in one write: the fields given, keeping the rest (null removes one that may be absent), and with edit, the passage edit.old of the body replaced by edit.new. Refused, writing nothing, when ${keyed ? `there is no such ${what}, or ` : 'edit is given and there is no file yet (with fields alone it makes the file), or '}when a value in was or edit.old is not what is there now`,
+				description: `Change one ${what} in one write: the fields given, keeping the rest (null removes one that may be absent), and with edit, the passage edit.old of the body replaced by edit.new. Refused, writing nothing, when ${keyed ? `there is no such ${what}, or ` : ''}when a value in was or edit.old is not what is there now`,
 				input: { ...keysIn, ...patchIn, was, edit: editIn },
 				annotations: local,
 			},
 		),
-		delete: action((input) => records.delete(input), {
-			description: `Delete one ${what}; true when there was one`,
-			input: keysIn,
-			annotations: { idempotentHint: true, ...local },
-		}),
+		delete: action(
+			async (input) => {
+				const found = await records.find(input);
+				if (found.error !== null) return found;
+				await folder.delete(found.data.path);
+				return Ok(found.data.text !== undefined);
+			},
+			{
+				description: `Delete one ${what}; true when there was one`,
+				input: keysIn,
+				annotations: { idempotentHint: true, ...local },
+			},
+		),
 	};
 }

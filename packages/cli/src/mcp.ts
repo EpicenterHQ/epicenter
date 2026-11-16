@@ -26,7 +26,7 @@ import { nameProblem } from './commands.ts';
 import { VERSION } from './engines.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, renderAnswer, writeErr } from './output.ts';
+import { type Answer, outcome, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { callAction } from './run.ts';
 
@@ -52,20 +52,20 @@ async function appTools(entry: string): Promise<Tool[]> {
 
 /**
  * An answer as an MCP result: the same value `--json` prints, as
- * `structuredContent`, and `isError` exactly when the action threw or did not
+ * `structuredContent`, and `isError` for a returned error, a fault, or a request that could not
  * run. A failure's text is what a person would read on stderr.
  */
 function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
-	const { code, stderr } = renderAnswer(answer);
-	if (code === 0)
+	const result = outcome(answer);
+	if (result.code === 0)
 		return {
 			content: [{ type: 'text' as const, text: JSON.stringify(answer) }],
 			structuredContent,
 		};
 	return {
 		isError: true,
-		content: [{ type: 'text' as const, text: stderr.trim() }],
+		content: [{ type: 'text' as const, text: result.stderr.trim() }],
 		structuredContent,
 	};
 }

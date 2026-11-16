@@ -6,7 +6,7 @@
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { defineAction, field } from '@epicenter/app';
+import { defineAction, field, Ok } from '@epicenter/app';
 import { Type } from 'typebox';
 import { checkInput, readInput, usageLine } from './input.js';
 import { actionHelp } from './listing.js';
@@ -23,7 +23,7 @@ const connect = defineAction({
 			token: field.text({ pattern: '^sk-' }),
 		}),
 	},
-	run: () => ({ connected: true }),
+	run: () => Ok({ connected: true }),
 });
 const input = { label: 'work', credentials: { token: SECRET } };
 
@@ -78,10 +78,10 @@ Example:
 
 const keysApp = `export default defineApp({ description: 'Keys', collections: {}, actions: {
 	connect: defineAction({ description: 'Connect', privateInput: true, input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ pattern: '^sk-' }) } } },
-		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
-	check: defineAction({ description: 'Optional token', privateInput: true, input: { token: field.text({ optional: true }) }, run: () => true }),
-	annotated: defineAction({ description: 'Ordinary raw annotation', input: { value: { type: 'string', writeOnly: true } }, run: ({ value }) => value }),
-	status: defineAction({ description: 'Status', privateInput: false, input: {}, run: () => true }),
+		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return Ok({ connected: true }); } }),
+	check: defineAction({ description: 'Optional token', privateInput: true, input: { token: field.text({ optional: true }) }, run: () => Ok(true) }),
+	annotated: defineAction({ description: 'Ordinary raw annotation', input: { value: { type: 'string', writeOnly: true } }, run: ({ value }) => Ok(value) }),
+	status: defineAction({ description: 'Status', privateInput: false, input: {}, run: () => Ok(true) }),
 } });`;
 
 test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still run them', async () => {
@@ -102,7 +102,9 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			name: 'keys_annotated',
 			arguments: { value: 'ordinary' },
 		});
-		expect(annotated.structuredContent).toEqual({ returned: 'ordinary' });
+		expect(annotated.structuredContent).toEqual({
+			result: { data: 'ordinary', error: null },
+		});
 		const listing = await f.run('keys', '--json');
 		const listed = JSON.parse(listing.stdout).actions.find(
 			(action: { name: string }) => action.name === 'keys_connect',
@@ -142,7 +144,7 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			.map((line) => JSON.parse(line));
 		expect(frames.at(-1)).toMatchObject({
 			type: 'finished',
-			answer: { returned: { connected: true } },
+			answer: { result: { data: { connected: true }, error: null } },
 		});
 		const child = Bun.spawn(
 			[process.execPath, f.bin, 'keys', 'connect', '-', '--json'],
@@ -162,7 +164,9 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			child.exited,
 		]);
 		expect({ code, stdout, stderr }).toMatchObject({ code: 0 });
-		expect(JSON.parse(stdout)).toEqual({ returned: { connected: true } });
+		expect(JSON.parse(stdout)).toEqual({
+			result: { data: { connected: true }, error: null },
+		});
 		expect(stderr).not.toContain(SECRET);
 	} finally {
 		await close();

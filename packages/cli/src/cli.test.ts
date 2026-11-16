@@ -33,7 +33,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
 	await f.app(
 		'spaced',
-		`export default defineApp({ description: 'The spaced app', collections: {}, actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => 1 }) } });`,
+		`export default defineApp({ description: 'The spaced app', collections: {}, actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } });`,
 	);
 	const linked = await f.app(
 		'linked',
@@ -137,7 +137,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
 	expect(JSON.parse(result.stdout)).toEqual({
-		returned: { minutes: 30, book: 'Dune' },
+		result: { data: { minutes: 30, book: 'Dune' }, error: null },
 	});
 	expect(
 		JSON.parse(
@@ -150,7 +150,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(
 		(await f.run('vault', 'calendar', 'show', '{"day":"2026-11-08"}', '--json'))
 			.stdout,
-	).toBe('{"returned":{"day":"2026-11-08"}}\n');
+	).toBe('{"result":{"data":{"day":"2026-11-08"},"error":null}}\n');
 });
 
 test('usage errors return exit 2 and exactly one JSON error', async () => {
@@ -220,7 +220,7 @@ test('a misused command answers its usage line, with its help as the next step',
 test('an absent switch is false and an absent list is empty', async () => {
 	const f = await setup();
 	const answer = async (...args: string[]) =>
-		JSON.parse((await f.run(...args, '--json')).stdout).returned;
+		JSON.parse((await f.run(...args, '--json')).stdout).result.data;
 	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
 	expect(await answer('reading', 'tag', '{"done":true}')).toEqual({
 		tags: [],
@@ -235,7 +235,7 @@ test('a throwing action returns exit 1 with its message', async () => {
 	const f = await setup();
 	expect(await f.run('reading', 'explode', '--json')).toEqual({
 		code: 1,
-		stdout: '{"threw":{"message":"action exploded"}}\n',
+		stdout: '{"fault":{"message":"action exploded"}}\n',
 		stderr: '',
 	});
 });
@@ -249,7 +249,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 		'--json',
 	);
 	expect(result.code).toBe(0);
-	const value = JSON.parse(result.stdout).returned;
+	const value = JSON.parse(result.stdout).result.data;
 	expect(value.folder).toBe(join(f.apps, 'reading'));
 	expect(
 		await Bun.file(join(f.apps, 'reading', 'data/index.local.json')).exists(),
@@ -265,7 +265,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	);
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
-	).returned;
+	).result.data;
 	expect(homeRun.folder).toBe(join(f.apps, 'reading'));
 	expect(
 		await Bun.file(join(f.apps, 'reading/data/index.local.json')).exists(),
@@ -285,7 +285,7 @@ test('app and action views include locations, schemas, field help and version', 
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
 	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });
 	expect(JSON.parse((await f.run('--version', '--json')).stdout)).toEqual({
-		version: '0.1.0',
+		version: VERSION,
 	});
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
 	expect((await f.run('--help')).stdout).toContain('epicenter install [<app>]');
@@ -320,5 +320,5 @@ test('an app is named by its folder in the home, whatever its description says',
 	);
 	const result = await f.run('other-name', 'log', '{"minutes":30}', '--json');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout).returned).toEqual({ minutes: 30 });
+	expect(JSON.parse(result.stdout).result.data).toEqual({ minutes: 30 });
 });

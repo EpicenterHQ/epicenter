@@ -51,18 +51,22 @@ async function load() {
 	message(
 		listStatus,
 		data.length
-			? `${data.length} ${data.length === 1 ? 'note' : 'notes'}`
+			? `${data.length} ${data.length === 1 ? 'result' : 'results'}`
 			: search.value
 				? 'No matching notes.'
 				: 'Your first note starts here. Save a thought or a source above.',
 	);
 	for (const note of data) {
+		if ('name' in note) {
+			list.append(paragraph('error', note.message));
+			continue;
+		}
 		const article = document.createElement('article');
 		article.className = 'note';
 		article.append(
 			paragraph(
 				'note-meta',
-				[note.kind ?? 'Needs repair', note.project].filter(Boolean).join(' · '),
+				[note.kind, note.project].filter(Boolean).join(' · '),
 			),
 		);
 		article.append(
@@ -73,8 +77,6 @@ async function load() {
 		);
 		if (note.source)
 			article.append(paragraph('note-source', `Source: ${note.source}`));
-		if (note.problems?.length)
-			article.append(paragraph('error', note.problems.join('; ')));
 		const button = document.createElement('button');
 		button.type = 'button';
 		button.className = 'secondary';

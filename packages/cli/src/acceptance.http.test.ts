@@ -9,6 +9,7 @@ import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action } from '@epicenter/app';
 import { connect, runs } from '@epicenter/app/client';
+import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { hold } from './lock.ts';
 import {
@@ -20,16 +21,16 @@ import {
 } from './runner.test-support.ts';
 
 /** Talk's `say` as its app types it: takes words, yields each word, returns them joined. */
-type TalkSay = Action<{ words: string }, Promise<string>, string>;
+type TalkSay = Action<{ words: string }, Promise<Ok<string>>, string>;
 
 /** Reading's actions as its UI calls them, for `connect`. */
 type Reading = {
 	actions: {
-		log: (input: { minutes: number; book?: string }) => {
+		log: (input: { minutes: number; book?: string }) => Ok<{
 			minutes: number;
 			book: string | null;
-		};
-		week: { show: () => number };
+		}>;
+		week: { show: () => Ok<number> };
 		explode: () => never;
 	};
 };
@@ -114,7 +115,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'outside',
-			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return true; } }) } });`,
+			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } });`,
 			f.root,
 		),
 	);
@@ -180,13 +181,13 @@ test('two calls at once on different files preserve both records', async () => {
 			'notes',
 			`export default defineApp({ description: 'Notes', collections: {}, actions: {
 		write: defineAction({ description: 'Write a page', input: { page: field.text() },
-			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return page; } }),
+			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return Ok(page); } }),
 	} });`,
 		),
 	);
 	const folder = f.made;
 	const client = connect<{
-		actions: { write: (input: { page: string }) => string };
+		actions: { write: (input: { page: string }) => Ok<string> };
 	}>({ app: 'notes', url: `${f.base}/` });
 	// Changes beside concurrent calls survive their writes.
 	expectOk(await client.write({ page: 'sunday' }));
@@ -325,15 +326,16 @@ export default defineApp({ description: 'Talk', collections: {}, actions: {
 			} finally {
 				await folder.write('data/waited.md', 'waited');
 			}
-			return 'waited';
+			return Ok('waited');
 		},
 	}),
+ refuse: defineAction({description:'Refuse after checking',input:{},async *run(){yield 'checked';return Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'});}}),
 	say: defineAction({
 		description: 'Say words one at a time',
 		input: { words: field.text() },
 		async *run({ words }) {
 			for (const word of words.split(' ')) yield word;
-			return words;
+			return Ok(words);
 		},
 	}),
 	drip: defineAction({
@@ -349,7 +351,7 @@ export default defineApp({ description: 'Talk', collections: {}, actions: {
 			} finally {
 				await folder.write('data/stopped.md', 'stopped');
 			}
-			return 'never stopped';
+			return Ok('never stopped');
 		},
 	}),
 } });
@@ -394,13 +396,17 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 	const body = (await answered.json()) as {
 		result: { structuredContent: unknown };
 	};
-	expect(body.result.structuredContent).toEqual({ returned: 'x y' });
+	expect(body.result.structuredContent).toEqual({
+		result: { data: 'x y', error: null },
+	});
 });
 
 test('an aborted observer leaves the action running to its finally', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const client = connect<{
-		actions: { drip: Action<Record<string, never>, Promise<string>, number> };
+		actions: {
+			drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
+		};
 	}>({ app: 'talk', url: `${f.base}/` });
 	const run = runs.start(client.drip, {});
 	const stop = new AbortController();
@@ -417,7 +423,9 @@ test('an aborted observer leaves the action running to its finally', async () =>
 test('a callback failure leaves the action running to finally and releases the lock', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const client = connect<{
-		actions: { drip: Action<Record<string, never>, Promise<string>, number> };
+		actions: {
+			drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
+		};
 	}>({
 		app: 'talk',
 		url: `${f.base}/`,
@@ -457,6 +465,7 @@ export default defineApp({ description: 'Failure', collections: {}, actions: {
 	fail: defineAction({ description: 'Write then throw', input: { kind: field.text() },
 		run: async ({ kind }) => {
 			await folder.write('data/' + kind + '.md', kind);
+			if (kind === 'returned') return Err({name:'Problem',message:'action failed',details:1n});
 			if (kind === 'array') throw [1n];
 			const thrown = { name: 'Problem', message: 'action failed', details: 1n };
 			if (kind === 'cycle') thrown.details = thrown;
@@ -474,15 +483,24 @@ export default defineApp({ description: 'Failure', collections: {}, actions: {
 		app: 'failure',
 		url: `${f.base}/`,
 	});
-	for (const kind of ['bigint', 'cycle', 'replacement', 'array', 'json']) {
+	for (const kind of [
+		'bigint',
+		'cycle',
+		'replacement',
+		'array',
+		'json',
+		'returned',
+	]) {
 		const error = expectErr(await client.fail({ kind }));
-		expect(error).toMatchObject({
-			name: 'Threw',
-			message:
-				kind === 'array'
-					? 'The action threw a value that could not be read'
-					: 'action failed',
-		});
+		expect(error.name).toBe('Threw');
+		if (kind !== 'returned')
+			expect(error).toMatchObject({
+				name: 'Threw',
+				message:
+					kind === 'array'
+						? 'The action threw a value that could not be read'
+						: 'action failed',
+			});
 		if (error.name === 'Threw')
 			expect(error.thrown).toEqual(
 				kind === 'json'
@@ -509,9 +527,9 @@ test('shared errors cross a real call after writes without claiming rollback or 
 			`
 import { ActionError } from '@epicenter/app';
 export default defineApp({ description: 'Shared failures', collections: {}, actions: {
-	fail: defineAction({ description: 'Write then fail', input: { kind: field.text() },
-		run: async ({ kind }) => {
-			await folder.write('data/' + kind + '.md', kind);
+	fail: defineAction({ description: 'Write then fail', input: { kind: field.text(), how: field.text() },
+		run: async ({ kind, how }) => {
+			await folder.write('data/' + how + '-' + kind + '.md', kind);
 			const custom = { name: 'ProposalChanged', message: 'Review again', proposal: 'p' };
 			const cases = {
 				Changed: ActionError.Changed({ path: 'data/a.md', why: 'quote' }).error,
@@ -522,6 +540,7 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 				Stopped: ActionError.Stopped({ message: 'The dependency stopped' }).error,
 				Custom: custom,
 			};
+			if(how==='return') return Err(cases[kind]);
 			throw cases[kind];
 		},
 	}),
@@ -529,53 +548,91 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 		),
 	);
 	const client = connect<{
-		actions: { fail: (input: { kind: string }) => never };
+		actions: {
+			fail: (input: {
+				kind: string;
+				how: string;
+			}) => Result<
+				never,
+				{ name: string; message: string; namespace?: string; proposal?: string }
+			>;
+		};
 	}>({ app: 'failures', url: `${f.base}/` });
-	for (const kind of [
-		'Changed',
-		'Missing',
-		'Threw',
-		'Refused',
-		'Unreachable',
-		'Stopped',
-		'Custom',
-	] as const) {
-		const error = expectErr(await client.fail({ kind }));
-		expect(error.name).toBe(kind === 'Custom' ? 'Threw' : kind);
-		expect(error.namespace).toBe('epicenter/action-error');
-		if (error.name === 'Threw')
-			expect(error.thrown?.name).toBe('ProposalChanged');
-		expect(
-			await readFile(join(f.apps, 'failures', 'data', `${kind}.md`), 'utf8'),
-		).toBe(kind);
-	}
-	const raw = await fetch(
-		`${f.base}/.runs/failures/fail/${crypto.randomUUID()}`,
-		{ method: 'POST', body: JSON.stringify({ kind: 'Missing' }) },
-	);
-	const frames = (await raw.text())
-		.trim()
-		.split('\n')
-		.map((line) => JSON.parse(line));
-	expect(frames.at(-1)).toMatchObject({
-		type: 'finished',
-		answer: {
-			threw: {
-				message: 'There is no data/a.md',
-				thrown: {
+	for (const how of ['return', 'throw']) {
+		for (const kind of [
+			'Changed',
+			'Missing',
+			'Threw',
+			'Refused',
+			'Unreachable',
+			'Stopped',
+			'Custom',
+		]) {
+			const error = expectErr(await client.fail({ kind, how }));
+			if (how === 'throw') {
+				expect(error).toMatchObject({
+					name: 'Threw',
 					namespace: 'epicenter/action-error',
-					name: 'Missing',
-					path: 'data/a.md',
-				},
-			},
-		},
-	});
+					thrown: { name: kind === 'Custom' ? 'ProposalChanged' : kind },
+				});
+			} else {
+				expect(error?.name).toBe(kind === 'Custom' ? 'ProposalChanged' : kind);
+				if (kind === 'Custom') {
+					expect(error).toHaveProperty('proposal', 'p');
+					expect(error).not.toHaveProperty('namespace');
+				} else
+					expect(error).toHaveProperty('namespace', 'epicenter/action-error');
+			}
+			expect(
+				await readFile(
+					join(f.apps, 'failures', 'data', `${how}-${kind}.md`),
+					'utf8',
+				),
+			).toBe(kind);
+		}
+		const raw = await fetch(
+			`${f.base}/.runs/failures/fail/${crypto.randomUUID()}`,
+			{ method: 'POST', body: JSON.stringify({ kind: 'Missing', how }) },
+		);
+		const frames = (await raw.text())
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line));
+		expect(frames.at(-1)).toMatchObject({
+			type: 'finished',
+			answer:
+				how === 'return'
+					? {
+							result: {
+								data: null,
+								error: {
+									namespace: 'epicenter/action-error',
+									name: 'Missing',
+									message: 'There is no data/a.md',
+									path: 'data/a.md',
+								},
+							},
+						}
+					: {
+							fault: {
+								message: 'There is no data/a.md',
+								thrown: {
+									namespace: 'epicenter/action-error',
+									name: 'Missing',
+									path: 'data/a.md',
+								},
+							},
+						},
+		});
+	}
 });
 
 test('run.cancel reaches callSignal and runs finally', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const client = connect<{
-		actions: { wait: Action<Record<string, never>, Promise<string>, string> };
+		actions: {
+			wait: Action<Record<string, never>, Promise<Ok<string>>, string>;
+		};
 	}>({ app: 'talk', url: `${f.base}/` });
 	const run = runs.start(client.wait, {});
 	for await (const event of run.events()) {
@@ -603,7 +660,7 @@ export default defineApp({ description: 'Restart', collections: {}, actions: {
   await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
   yield 'started';
   await new Promise((resolve) => { const timer = setTimeout(resolve, 60000); callSignal().addEventListener('abort', () => { clearTimeout(timer); resolve(undefined); }); });
-  return null;
+  return Ok(null);
  } }),
 } });`,
 	);
@@ -611,14 +668,18 @@ export default defineApp({ description: 'Restart', collections: {}, actions: {
 	try {
 		server = await startServe(f);
 		const client = connect<{
-			actions: { slow: Action<Record<string, never>, Promise<null>, string> };
+			actions: {
+				slow: Action<Record<string, never>, Promise<Ok<null>>, string>;
+			};
 		}>({ app: 'restart', url: `${server.base}/` });
 		const run = runs.start(client.slow, {});
 		for await (const event of run.events()) if (event.type === 'yielded') break;
 		await server.kill();
 		server = await startServe(f);
 		const restored = connect<{
-			actions: { slow: Action<Record<string, never>, Promise<null>, string> };
+			actions: {
+				slow: Action<Record<string, never>, Promise<Ok<null>>, string>;
+			};
 		}>({ app: 'restart', url: `${server.base}/` });
 		const frames = [];
 		for await (const event of runs.attach(restored.slow, run.id).events())
@@ -646,12 +707,12 @@ test('an edit to epicenter.ts, or to a file it imports, reaches the next call wi
 			'code/word.ts': "export const word = 'one';\n",
 			'code/epicenter.ts': `${header}import { word } from './word.ts';
 export default defineApp({ description: 'Echo', collections: {}, actions: {
-	hello: defineAction({ description: 'Say the word', input: {}, run: () => word }),
+	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok(word) }),
 } });
 `,
 		}),
 	);
-	const client = connect<{ actions: { hello: () => string } }>({
+	const client = connect<{ actions: { hello: () => Ok<string> } }>({
 		app: 'echo',
 		url: `${f.base}/`,
 	});
@@ -661,7 +722,7 @@ export default defineApp({ description: 'Echo', collections: {}, actions: {
 	await writeFile(
 		join(f.made, 'code/epicenter.ts'),
 		`${header}export default defineApp({ description: 'Echo', collections: {}, actions: {
-	hello: defineAction({ description: 'Say the word', input: {}, run: () => 'three' }),
+	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok('three') }),
 } });
 `,
 	);
@@ -717,4 +778,48 @@ test('cross-origin requests to run routes are refused before admission', async (
 		},
 	);
 	expect(response.status).toBe(403);
+});
+
+test('a yielded check precedes a returned app refusal for UI and raw HTTP callers', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const client = connect<{
+		actions: {
+			refuse: Action<
+				Record<string, never>,
+				Promise<
+					Result<never, { name: 'NoRoute'; message: string; airport: string }>
+				>,
+				string
+			>;
+		};
+	}>({ app: 'talk', url: `${f.base}/` });
+	const heard: string[] = [];
+	expect(
+		expectErr(
+			await client.refuse(
+				{},
+				{
+					onYield: (word) => {
+						heard.push(word);
+					},
+				},
+			),
+		),
+	).toEqual({ name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' });
+	expect(heard).toEqual(['checked']);
+	const raw = await fetch(
+		`${f.base}/.runs/talk/refuse/${crypto.randomUUID()}`,
+		{ method: 'POST', body: '{}' },
+	);
+	expect(raw.status).toBe(200);
+	const frames = (await raw.text())
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line));
+	expect(frames.at(-1)).toMatchObject({
+		type: 'finished',
+		answer: {
+			result: { data: null, error: { name: 'NoRoute', airport: 'LAX' } },
+		},
+	});
 });

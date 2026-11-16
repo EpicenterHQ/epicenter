@@ -18,6 +18,8 @@
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
+import { Ok } from 'wellcrafted/result';
+import { ActionError } from './errors.ts';
 import {
 	createMemoryContext,
 	defineAction,
@@ -42,14 +44,16 @@ function setup() {
 
 test('a list reads as empty when its line is absent', async () => {
 	const dune = await inRun(setup(), () => books.get({ book: 'dune' }));
-	expect(dune).toEqual({
-		path: 'data/books/dune.md',
-		book: 'dune',
-		tags: [],
-		platforms: [],
-		ratings: [],
-		body: 'A book\n',
-	});
+	expect(dune).toEqual(
+		Ok({
+			path: 'data/books/dune.md',
+			book: 'dune',
+			tags: [],
+			platforms: [],
+			ratings: [],
+			body: 'A book\n',
+		}),
+	);
 });
 
 test('lists of text, select, and number are written as JSON lines', async () => {
@@ -66,23 +70,29 @@ test('lists of text, select, and number are written as JSON lines', async () => 
 		'---\ntags: ["a", "b"]\nplatforms: ["threads"]\nratings: [4, 5]\n---\n',
 	);
 	const [, emma] = await inRun(context, () => books.list());
-	expect(emma).toEqual({
-		path: 'data/books/emma.md',
-		book: 'emma',
-		tags: ['a', 'b'],
-		platforms: ['threads'],
-		ratings: [4, 5],
-		body: '',
-	});
+	expect(emma).toEqual(
+		Ok({
+			path: 'data/books/emma.md',
+			book: 'emma',
+			tags: ['a', 'b'],
+			platforms: ['threads'],
+			ratings: [4, 5],
+			body: '',
+		}),
+	);
 });
 
 test('a list item that does not fit its field is refused, naming what each must be', async () => {
 	const refused = inRun(setup(), () =>
 		books.set({ book: 'dune' }, { platforms: ['mastodon'] as never }),
 	);
-	await expect(refused).rejects.toThrow(
-		'data/books/dune.md: platforms: ["mastodon"] is not a list, each one of x, threads',
-	);
+	await expect(refused).resolves.toMatchObject({
+		error: {
+			message: expect.stringContaining(
+				'data/books/dune.md: platforms: ["mastodon"] is not a list, each one of x, threads',
+			),
+		},
+	});
 });
 
 test('a list with min is required, with minItems in its schema; min 0 changes nothing', () => {
@@ -114,20 +124,29 @@ test('a list with min reads as missing when its line is absent, and refuses too 
 		fields: { airports: field.list(field.text(), { min: 2 }) },
 	});
 	const context = createMemoryContext({ 'data/trips/a.md': '---\n---\n' });
-	expect(await inRun(context, () => trips.get({ trip: 'a' }))).toEqual({
-		path: 'data/trips/a.md',
-		trip: 'a',
-		body: '',
-		problems: ['airports is missing'],
-	});
-	await expect(
-		inRun(context, () => trips.add({ trip: 'b', airports: ['SFO'] })),
-	).rejects.toThrow(
-		'data/trips/b.md: airports: ["SFO"] is not a list of text with at least 2 items',
+	expect<unknown>(await inRun(context, () => trips.get({ trip: 'a' }))).toEqual(
+		ActionError.Misfit({
+			path: 'data/trips/a.md',
+			problems: [{ line: 'airports is missing', kind: 'airports is missing' }],
+			record: { path: 'data/trips/a.md', trip: 'a', body: '' },
+		}),
 	);
 	await expect(
+		inRun(context, () => trips.add({ trip: 'b', airports: ['SFO'] })),
+	).resolves.toMatchObject({
+		error: {
+			message: expect.stringContaining(
+				'data/trips/b.md: airports: ["SFO"] is not a list of text with at least 2 items',
+			),
+		},
+	});
+	await expect(
 		inRun(context, () => trips.add({ trip: 'b' } as never)),
-	).rejects.toThrow('data/trips/b.md: airports is missing');
+	).resolves.toMatchObject({
+		error: {
+			message: expect.stringContaining('data/trips/b.md: airports is missing'),
+		},
+	});
 });
 
 test("an action's call does not fill a list with min", async () => {
@@ -140,7 +159,7 @@ test("an action's call does not fill a list with min", async () => {
 		},
 		run: (input) => {
 			given = input;
-			return null;
+			return Ok(null);
 		},
 	});
 	await save({ airports: ['SFO', 'NRT'] });

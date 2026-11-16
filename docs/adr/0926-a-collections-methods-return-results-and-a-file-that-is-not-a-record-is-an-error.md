@@ -4,7 +4,7 @@
 - **Date:** 2026-11-15
 - **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) on returned failures and the wire answer, and [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) on CLI rendering and exit codes.
 - **Relates:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) on collection methods and verbs, [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) on reading fields, and [ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) on observing a run.
-- **Unbuilt:** the collection Results, mandatory action return type, new wire answers and client decoding. Today actions can return plain values.
+- **Implementation:** CLI 0.2.0 and its bundled app package implement the decision. The [transport acceptance test](../../packages/cli/src/acceptance.result.test.ts) exercises a nested collection refusal and an app-defined error through HTTP, CLI and MCP.
 
 ## Context
 
@@ -89,9 +89,10 @@ and writes stand.
 | `delete(keys)` | A boolean indicating whether a file existed. Its action wraps the boolean in `Ok`. |
 
 A computed write can see only a fitting record or permitted absence. A
-malformed file gives `Misfit` before the callback runs. A callback can
-decline with its own Err, which the write forwards before replacing the
-file. Both writers return `Refused` for invalid supplied values and
+malformed file gives `Misfit` before the callback runs. Both `set` and
+`update` require a synchronous Result from the callback. `Ok(patch)` applies
+the patch. A tagged Err passes straight to the caller and leaves the file
+untouched. For a direct patch, pass the object itself to `set`. Both writers return `Refused` for invalid supplied values and
 `Changed` for a failed concurrency guard. A plain patch can repair a file
 with readable front matter. Validate the resulting record before replacing
 the file. If other fields still need repair, return a `Misfit` describing the

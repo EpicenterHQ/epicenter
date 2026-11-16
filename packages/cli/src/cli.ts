@@ -187,7 +187,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
 		// What the action prints goes to stderr, so stdout holds only the answer.
-		const { answer } = await printingToStderr(() =>
+		const answer = await printingToStderr(() =>
 			runAction(located, matched.key, action, given.input),
 		);
 		return presentAnswer(answer, json);

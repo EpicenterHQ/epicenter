@@ -3,6 +3,7 @@ import {
 	defineApp,
 	defineCollection,
 	field,
+	Ok,
 } from '@epicenter/app';
 
 const kinds = ['thought', 'quote', 'link'] as const;
@@ -47,17 +48,17 @@ const search = defineAction({
 	annotations: { readOnlyHint: true, openWorldHint: false },
 	run: async ({ query = '', project }) => {
 		const found = [];
-		for (const note of (await notes.list()).reverse()) {
-			if (project !== undefined && note.project !== project) continue;
-			if (
-				[note.body, note.source, note.project]
-					.join('\n')
-					.toLowerCase()
-					.includes(query.toLowerCase())
-			)
-				found.push(note);
+		const needle = query.toLowerCase();
+		for (const row of (await notes.list()).reverse()) {
+			const note = row.error === null ? row.data : row.error.record;
+			if (note) {
+				if (project !== undefined && note.project !== project) continue;
+				const text = [note.body, note.source, note.project].join('\n');
+				if (!text.toLowerCase().includes(needle)) continue;
+			}
+			found.push(row.error === null ? row.data : row.error);
 		}
-		return found;
+		return Ok(found);
 	},
 });
 

@@ -1,7 +1,7 @@
 /**
  * Acceptance, stage 2c: the final review's repairs that outlived ADR-0850's
  * rewrite. Black-box runs of the real `epicenter` against a temporary HOME.
- * A run's answer is `{ returned }`, `{ threw }`, or `{ error }`.
+ * A run's answer is `{ result }`, `{ fault }`, or `{ error }`.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -38,20 +38,20 @@ export default defineApp({
 			run: async ({ text }) => {
 				await folder.write('data/a.md', text);
 				await folder.write('data/b.md', text);
-				return text;
+				return Ok(text);
 			},
 		}),
 		flags: defineAction({
 			description: 'Report how this process was started',
 			input: {},
 			annotations: { readOnlyHint: true },
-			run: () => process.execArgv,
+			run: () => Ok(process.execArgv),
 		}),
 		optional: defineAction({
 			description: 'Take fields that may be absent',
 			input: { count: field.number({ optional: true }), day: field.date({ optional: true }) },
 			annotations: { readOnlyHint: true },
-			run: (input) => input,
+			run: (input) => Ok(input),
 		}),
 	},
 });
@@ -102,7 +102,7 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 	await f.app(
 		'loud',
 		`console.log('noise while importing');
-export default defineApp({ description: 'The loud app', collections: {}, actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => 'hello' }) } });
+export default defineApp({ description: 'The loud app', collections: {}, actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } });
 `,
 	);
 	const { client, close } = await connectMcp(f, ['--no-install']);
@@ -115,11 +115,13 @@ export default defineApp({ description: 'The loud app', collections: {}, actions
 
 		const flags = await client.callTool({ name: 'notes_flags', arguments: {} });
 		expect(flags.structuredContent).toMatchObject({
-			returned: expect.arrayContaining(['--no-install']),
+			result: { data: expect.arrayContaining(['--no-install']), error: null },
 		});
 		const hello = await client.callTool({ name: 'loud_hello', arguments: {} });
 		expect(hello.isError).toBeFalsy();
-		expect(hello.structuredContent).toEqual({ returned: 'hello' });
+		expect(hello.structuredContent).toEqual({
+			result: { data: 'hello', error: null },
+		});
 		const unknown = await client.callTool({
 			name: 'notes_nope',
 			arguments: {},
@@ -160,7 +162,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	const leading = await f.run('--json', 'notes', 'two', '{"text":"Ada"}');
 	expect(leading.code).toBe(0);
 	expect(JSON.parse(leading.stdout)).toEqual({
-		returned: 'Ada',
+		result: { data: 'Ada', error: null },
 	});
 	expect(JSON.parse((await f.run('--json', 'notes')).stdout).name).toBe(
 		'notes',
@@ -171,7 +173,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	);
 	expect(tool.inputSchema.required ?? []).not.toContain('count');
 	const ran = await f.json('notes', 'optional');
-	expect(ran.report.returned).toEqual({});
+	expect(ran.report.result.data).toEqual({});
 	expect((await f.run('notes', 'optional', '--help')).stdout).toContain(
 		'  count  optional  a number',
 	);
@@ -185,7 +187,7 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 	).toBe(gitignore);
 	await f.app(
 		'other',
-		`export default defineApp({ description: 'Another app', collections: {}, actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => 'hi' }) } });\n`,
+		`export default defineApp({ description: 'Another app', collections: {}, actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } });\n`,
 	);
 	const listed = await f.json('other');
 	expect(listed.code).toBe(0);
@@ -193,7 +195,9 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 	expect(JSON.stringify((await f.json()).report)).not.toContain(
 		'epicenter.d.json.ts',
 	);
-	expect((await f.json('other', 'hi')).report).toEqual({ returned: 'hi' });
+	expect((await f.json('other', 'hi')).report).toEqual({
+		result: { data: 'hi', error: null },
+	});
 	expect(existsSync(join(repo, 'packages/cli/src/types.ts'))).toBe(false);
 });
 

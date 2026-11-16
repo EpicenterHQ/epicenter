@@ -15,7 +15,14 @@ const runIdentity = Type.Object({
 	id: Type.String(),
 });
 
+const problem = Type.Object({ line: Type.String(), kind: Type.String() });
+export type Problem = Static<typeof problem>;
 const fields = {
+	Misfit: Type.Object({
+		path: Type.String(),
+		problems: Type.Array(problem),
+		record: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+	}),
 	Changed: Type.Object({
 		path: Type.String(),
 		why: Type.Union([
@@ -66,6 +73,17 @@ function marked<T extends { message: string }>(body: T) {
 }
 
 export const ActionError = defineErrors({
+	/** A file does not fit its declared fields. Local files omit the partial record. */
+	Misfit: ({ path, problems, record }: Static<typeof fields.Misfit>) =>
+		marked({
+			message: [
+				`${path} does not fit its fields:`,
+				...problems.map((problem) => `${path}: ${problem.line}`),
+			].join('\n'),
+			path,
+			problems,
+			...(record === undefined ? {} : { record }),
+		}),
 	/** The quoted passage, empty body, field values, or file a write depended on changed, or a quote is not one place. */
 	Changed: ({ path, why }: Static<typeof fields.Changed>) =>
 		marked({ message: `${path}${WHY[why]}`, path, why }),
@@ -73,11 +91,9 @@ export const ActionError = defineErrors({
 	Missing: ({ path }: Static<typeof fields.Missing>) =>
 		marked({ message: `There is no ${path}`, path }),
 	/** An unrecognized throw, with its JSON-safe tagged payload when available. */
-	Threw: ({ message, thrown }: Static<typeof fields.Threw>) =>
-		marked({ message, thrown }),
+	Threw: (body: Static<typeof fields.Threw>) => marked(body),
 	/** An operation declined the request. This does not imply the outer action wrote nothing. */
-	Refused: ({ message, next }: Static<typeof fields.Refused>) =>
-		marked({ message, next }),
+	Refused: (body: Static<typeof fields.Refused>) => marked(body),
 	/** A required operation returned no usable answer. The message identifies what failed. */
 	Unreachable: ({ message, run }: Static<typeof fields.Unreachable>) =>
 		marked({ message, ...(run ? { run } : {}) }),

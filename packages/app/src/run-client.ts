@@ -4,6 +4,7 @@
  * that id; it never resends admission or assumes which effects persisted.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { isActionResult, type PublicError } from './action-result.ts';
 import { ActionError, isActionError } from './errors.ts';
 
 export type PendingRun = {
@@ -14,7 +15,7 @@ export type PendingRun = {
 	files: { field: string; name: string; type: string; size: number }[];
 };
 
-export type RunEvent<TYield, TOut> =
+export type RunEvent<TYield, TOut, TError = never> =
 	| { type: 'uploading'; field: string; size: number }
 	| { type: 'uploaded'; field: string }
 	| { type: 'failed'; error: ActionError }
@@ -26,25 +27,25 @@ export type RunEvent<TYield, TOut> =
 			type: 'finished';
 			seq: number;
 			at: string;
-			result: Result<TOut, ActionError>;
+			result: Result<TOut, ActionError | TError>;
 	  }
 	| { type: 'interrupted'; seq: number; at: string; error: ActionError }
 	| { type: 'unknown'; error: ActionError }
 	| { type: 'disconnected'; error: ActionError };
 
-export type Run<TYield, TOut> = {
+export type Run<TYield, TOut, TError = never> = {
 	readonly id: string;
 	readonly app: string;
 	readonly action: string;
 	events(options?: {
 		after?: number;
 		signal?: AbortSignal;
-	}): AsyncIterable<RunEvent<TYield, TOut>>;
+	}): AsyncIterable<RunEvent<TYield, TOut, TError>>;
 	/** Wait for a terminal answer. Aborting stops observation, not the host run. */
 	result(options?: {
 		signal?: AbortSignal;
 		onYield?: (value: TYield) => unknown;
-	}): Promise<Result<TOut, ActionError>>;
+	}): Promise<Result<TOut, ActionError | TError>>;
 	isRemembered(): boolean;
 	cancel(): Promise<Result<null, ActionError>>;
 };
@@ -205,7 +206,7 @@ function isTaggedError(
 function answered(
 	answer: unknown,
 	run: { app: string; action: string; id: string },
-): Result<unknown, ActionError> {
+): Result<unknown, PublicError> {
 	const invalid = () =>
 		ActionError.Unreachable({
 			message: 'Epicenter sent an invalid answer',
@@ -213,18 +214,21 @@ function answered(
 		});
 	if (!isObject(answer)) return invalid();
 	if (
-		['returned', 'threw', 'error'].filter((key) => Object.hasOwn(answer, key))
-			.length !== 1
+		['result', 'fault', 'returned', 'threw', 'error'].filter((key) =>
+			Object.hasOwn(answer, key),
+		).length !== 1
 	)
 		return invalid();
+	if ('result' in answer)
+		return isActionResult(answer.result) ? answer.result : invalid();
 	if ('returned' in answer) return Ok(answer.returned);
-	if ('threw' in answer) {
-		const failure = answer.threw;
+	if ('threw' in answer || 'fault' in answer) {
+		const failure = 'fault' in answer ? answer.fault : answer.threw;
 		if (!isObject(failure) || typeof failure.message !== 'string')
 			return invalid();
 		const { thrown } = failure;
 		if (thrown !== undefined && !isTaggedError(thrown)) return invalid();
-		return isActionError(thrown)
+		return 'threw' in answer && isActionError(thrown)
 			? Err(thrown)
 			: ActionError.Threw({ message: failure.message, thrown });
 	}
@@ -239,26 +243,24 @@ function answered(
 }
 
 type Identity = { app: string; action: string; id: string };
-async function responseError(response: Response): Promise<ActionError> {
-	try {
-		const body: unknown = await response.json();
-		if (
-			isObject(body) &&
-			isObject(body.error) &&
-			typeof body.error.message === 'string'
-		)
-			return ActionError.Refused({
-				message: body.error.message,
-				next: typeof body.error.next === 'string' ? body.error.next : undefined,
-			}).error;
-	} catch {
-		/* The status still identifies a refusal. */
-	}
+function responseError(response: Response, body: unknown): ActionError {
+	if (
+		isObject(body) &&
+		isObject(body.error) &&
+		typeof body.error.message === 'string'
+	)
+		return ActionError.Refused({
+			message: body.error.message,
+			next: typeof body.error.next === 'string' ? body.error.next : undefined,
+		}).error;
 	return ActionError.Refused({
 		message: `Epicenter answered ${response.status} ${response.statusText}`,
 	}).error;
 }
-function hostEvent(value: unknown, run: Identity): RunEvent<unknown, unknown> {
+function hostEvent(
+	value: unknown,
+	run: Identity,
+): RunEvent<unknown, unknown, PublicError> {
 	if (
 		!isObject(value) ||
 		!Number.isSafeInteger(value.seq) ||
@@ -291,9 +293,12 @@ function hostEvent(value: unknown, run: Identity): RunEvent<unknown, unknown> {
 			throw new Error('Invalid event');
 	}
 }
-type Sequenced = Extract<RunEvent<unknown, unknown>, { seq: number }>;
+type Sequenced = Extract<
+	RunEvent<unknown, unknown, PublicError>,
+	{ seq: number }
+>;
 type Notice = Extract<
-	RunEvent<unknown, unknown>,
+	RunEvent<unknown, unknown, PublicError>,
 	{ type: 'unknown' | 'disconnected' }
 >;
 type Observer = { cursor: number; notice?: Notice };
@@ -323,17 +328,17 @@ export function createRun({
 	id: string;
 	input?: Record<string, unknown>;
 	remember: boolean;
-}): Run<unknown, unknown> {
+}): Run<unknown, unknown, PublicError> {
 	const run = { app, action, id };
 	const url = `${base}.runs/${encodeURIComponent(app)}/${action}/${encodeURIComponent(id)}`;
-	const local: RunEvent<unknown, unknown>[] = [];
+	const local: RunEvent<unknown, unknown, PublicError>[] = [];
 	const waiters = new Set<() => void>();
 	const observers = new Set<Observer>();
 	const uploads = new AbortController();
 	let settled = input === undefined,
 		postSent = input === undefined,
 		failed = false;
-	let terminal: Result<unknown, ActionError> | undefined;
+	let terminal: Result<unknown, PublicError> | undefined;
 	let terminalSeq = 0,
 		floor = 0;
 	let buffer: Sequenced[] = [];
@@ -409,7 +414,12 @@ export function createRun({
 					);
 					if (failed) return;
 					if (response.status !== 200) {
-						fail(await responseError(response));
+						fail(
+							responseError(
+								response,
+								await response.json().catch(() => undefined),
+							),
+						);
 						return;
 					}
 					const receipt: unknown = await response.json();
@@ -439,12 +449,9 @@ export function createRun({
 						source = response;
 						sourceController = controller;
 					} else {
-						let marker: unknown;
-						try {
-							marker = await response.clone().json();
-						} catch {
-							/* No admission marker. */
-						}
+						const marker: unknown = await response
+							.json()
+							.catch(() => undefined);
 						const admitted = isObject(marker) ? marker.admitted : undefined;
 						if (
 							admitted === false ||
@@ -452,7 +459,7 @@ export function createRun({
 								response.status >= 400 &&
 								response.status < 500)
 						)
-							fail(await responseError(response));
+							fail(responseError(response, marker));
 						void response.body?.cancel().catch(() => {});
 					}
 				} catch {
@@ -544,7 +551,7 @@ export function createRun({
 							const line = end >= 0 ? text.slice(0, end) : text;
 							text = end >= 0 ? text.slice(end + 1) : '';
 							if (line.trim()) {
-								let event: RunEvent<unknown, unknown>;
+								let event: RunEvent<unknown, unknown, PublicError>;
 								try {
 									event = hostEvent(JSON.parse(line), run);
 								} catch {
@@ -610,7 +617,7 @@ export function createRun({
 	}: {
 		after?: number;
 		signal?: AbortSignal;
-	} = {}): AsyncGenerator<RunEvent<unknown, unknown>> {
+	} = {}): AsyncGenerator<RunEvent<unknown, unknown, PublicError>> {
 		if (signal?.aborted) return;
 		const observer: Observer = { cursor: after ?? 0 };
 		if (!buffer.length && !observers.size) floor = observer.cursor;
@@ -666,13 +673,7 @@ export function createRun({
 			for await (const event of events({ signal })) {
 				if (event.type === 'yielded') await onYield?.(event.value);
 				if (event.type === 'finished') return event.result;
-				if (
-					event.type === 'failed' ||
-					event.type === 'interrupted' ||
-					event.type === 'unknown' ||
-					event.type === 'disconnected'
-				)
-					return Err(event.error);
+				if ('error' in event) return Err(event.error);
 			}
 			return (
 				(signal?.aborted ? undefined : terminal) ??

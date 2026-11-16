@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/app",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"private": true,
 	"description": "What an app's epicenter.ts imports to define its collections, actions, and the app itself, and the client its UI calls them through.",
 	"repository": {
@@ -12,7 +12,8 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./client": "./src/client.ts"
+		"./client": "./src/client.ts",
+		"./testing": "./src/testing.ts"
 	},
 	"files": [
 		"src",

@@ -5,7 +5,7 @@
  * Limits: 15 MiB/file, 1 MiB admission JSON, 256 KiB/yield, 4 MiB/log with
  * 1 KiB reserved for a terminal event, a 512 MiB admission threshold,
  * 32 active runs, and 64 observers. Admission and events stream from SQLite.
- * A finish with a returned answer deletes input bytes. Other outcomes retain
+ * A durably recorded Ok deletes input bytes. Other outcomes retain
  * them until the 24-hour terminal TTL. Orphan uploads and parts expire in 1 hour.
  */
 import {
@@ -36,7 +36,6 @@ import { type Answer, writeErr } from './output.ts';
 import { epicenterDir, folderPath } from './root.ts';
 import { runAction } from './run.ts';
 import {
-	LogFull,
 	openRunStore,
 	type RunStore,
 	type RunRecord as StoredRunRecord,
@@ -729,43 +728,27 @@ export function createRunHost(
 			await exclusive(run.key, async () => {
 				await append(run, { type: 'started' });
 			});
-			let answer: Answer;
-			try {
-				const result = await runAction(located, run.action, action, input, {
-					signal: controller.signal,
-					onYield: async (value) => {
-						const json = JSON.stringify(value);
-						if (json === undefined)
-							throw new Error('A run yield must be a JSON value');
-						if (Buffer.byteLength(json) > MAX_YIELD_BYTES)
-							throw new Error('A run yield exceeds 256 KiB');
-						await exclusive(run.key, () =>
-							append(
-								run,
-								{ type: 'yielded', value: JSON.parse(json) },
-								MAX_LOG_BYTES - TERMINAL_RESERVE_BYTES,
-							),
-						);
-					},
-				});
-				answer = result.answer;
-			} catch (cause) {
-				answer = { error: CliError.Internal({ cause }).error };
-			}
+			const answer = await runAction(located, run.action, action, input, {
+				signal: controller.signal,
+				onYield: async (value) => {
+					const json = JSON.stringify(value);
+					if (json === undefined)
+						throw new Error('A run yield must be a JSON value');
+					if (Buffer.byteLength(json) > MAX_YIELD_BYTES)
+						throw new Error('A run yield exceeds 256 KiB');
+					await exclusive(run.key, () =>
+						append(
+							run,
+							{ type: 'yielded', value: JSON.parse(json) },
+							MAX_LOG_BYTES - TERMINAL_RESERVE_BYTES,
+						),
+					);
+				},
+			});
 			await exclusive(run.key, async () => {
-				try {
-					await append(run, { type: 'finished', answer });
-				} catch (cause) {
-					if (!(cause instanceof LogFull)) throw cause;
-					// An oversized return value still leaves a bounded terminal envelope.
-					answer = {
-						error: CliError.Usage({
-							message: 'The run answer could not fit in its 4 MiB event log',
-						}).error,
-					};
-					await append(run, { type: 'finished', answer });
-				}
-				if ('returned' in answer) await deleteBins(run);
+				await append(run, { type: 'finished', answer });
+				if ('result' in answer && answer.result.error === null)
+					await deleteBins(run);
 			});
 		} catch (cause) {
 			try {

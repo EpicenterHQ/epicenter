@@ -17,7 +17,10 @@
  * called it, as it runs, and what it returns is the answer (ADR-0879). Called
  * as a function, such an action resolves with its return, its yields unread.
  */
+
 import type { Static, TObject, TSchema } from 'typebox';
+import type { Result } from 'wellcrafted/result';
+import { isActionResult, type PublicError } from './action-result.ts';
 import {
 	absentValue,
 	defaultIn,
@@ -90,6 +93,7 @@ type Returned =
 	| readonly Returned[]
 	| { readonly [key: string]: Returned };
 
+type Answer = Result<Returned, PublicError>;
 type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
 
 /** The value `run` receives for `input`: a switch or a list with no `min` is always there, `false` or `[]` when the caller left it out. */
@@ -105,7 +109,7 @@ type CallerInput<I extends Input> = Simplify<Static<TObject<I>>>;
 /** An action as an app writes it: `run` receives its input, typed by its fields. */
 export type ActionDef<
 	I extends Input,
-	Out extends Returned | Promise<Returned> = Returned | Promise<Returned>,
+	Out extends Answer | Promise<Answer> = Answer | Promise<Answer>,
 > = ActionMeta<I> & {
 	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
 	run(input: InputOf<I>): Out;
@@ -115,7 +119,7 @@ export type ActionDef<
 export type YieldingActionDef<
 	I extends Input,
 	Y extends Returned,
-	R extends Returned,
+	R extends Answer,
 > = ActionMeta<I> & {
 	run(input: InputOf<I>): AsyncGenerator<Y, R, undefined>;
 };
@@ -146,22 +150,47 @@ export async function runYielding(
 	action: Action,
 	input: unknown,
 	onYield: (value: unknown) => unknown,
-): Promise<unknown> {
+): Promise<Result<unknown, PublicError>> {
 	const run = (action as { [RUN]?: (input: unknown) => unknown })[RUN];
-	const result = run ? run(input) : action(input);
-	if (!isAsyncGenerator(result)) return result;
+	return settle(run ? run(input) : action(input), onYield, action.description);
+}
+
+function checked(value: unknown, description: string) {
+	if (!isActionResult(value))
+		throw new TypeError(
+			`The action "${description}" must return Ok(data) or Err(error)`,
+		);
+	return value;
+}
+
+function settle(
+	value: unknown,
+	onYield: (value: unknown) => unknown,
+	description: string,
+) {
+	if (isAsyncGenerator(value)) return drain(value, onYield, description);
+	if (value instanceof Promise)
+		return value.then((answer) => checked(answer, description));
+	return checked(value, description);
+}
+
+async function drain(
+	generator: AsyncGenerator<unknown, unknown, undefined>,
+	onYield: (value: unknown) => unknown,
+	description: string,
+) {
 	let finished = false;
 	try {
 		for (;;) {
-			const step = await result.next();
+			const step = await generator.next();
 			if (step.done) {
 				finished = true;
-				return step.value;
+				return checked(step.value, description);
 			}
 			await onYield(step.value);
 		}
 	} finally {
-		if (!finished) await result.return(undefined);
+		if (!finished) await generator.return(undefined);
 	}
 }
 
@@ -176,14 +205,14 @@ export async function runYielding(
 export function defineAction<
 	const I extends Input,
 	Y extends Returned,
-	R extends Returned,
+	R extends Answer,
 >(def: YieldingActionDef<I, Y, R>): Action<CallerInput<I>, Promise<R>, Y>;
 export function defineAction<
 	const I extends Input,
-	Out extends Returned | Promise<Returned>,
+	Out extends Answer | Promise<Answer>,
 >(def: ActionDef<I, Out>): Action<CallerInput<I>, Out, never>;
 export function defineAction(
-	def: ActionDef<Input> | YieldingActionDef<Input, Returned, Returned>,
+	def: ActionDef<Input> | YieldingActionDef<Input, Returned, Answer>,
 ): Action {
 	// Fail at declaration, before a non-JSON schema can break tool discovery.
 	JSON.stringify(def.input);
@@ -205,12 +234,8 @@ export function defineAction(
 			if (given[key] === undefined) given[key] = structuredClone(absent);
 		return (run as (input: unknown) => unknown)(given);
 	};
-	const action = (input: unknown) => {
-		const result = start(input);
-		return isAsyncGenerator(result)
-			? runYielding(action as Action, input, () => undefined)
-			: result;
-	};
+	const action = (input: unknown) =>
+		settle(start(input), () => undefined, meta.description);
 	return Object.assign(action, meta, { [RUN]: start });
 }
 

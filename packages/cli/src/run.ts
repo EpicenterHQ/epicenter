@@ -1,6 +1,12 @@
 /** Run actions with a lazy container write lock, released when the call ends. */
 
-import { type Action, type Folder, inRun, runYielding } from '@epicenter/app';
+import {
+	type Action,
+	encodeActionResult,
+	type Folder,
+	inRun,
+	runYielding,
+} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
@@ -21,14 +27,16 @@ function threwOf(cause: unknown): {
 } {
 	let message = 'The action threw a value that could not be read';
 	try {
-		message = extractErrorMessage(cause);
+		message = extractErrorMessage(cause).slice(0, 4096);
 	} catch {
 		// Even extracting a message can fail for a cyclic array or a getter.
 	}
 	try {
 		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
 			return { message };
-		const thrown: unknown = JSON.parse(JSON.stringify(cause));
+		const json = JSON.stringify(cause);
+		if (json.length > 4096) return { message };
+		const thrown: unknown = JSON.parse(json);
 		if (
 			typeof thrown === 'object' &&
 			thrown !== null &&
@@ -65,6 +73,7 @@ function forCall(
 		...folder,
 		write: writing(folder.write),
 		writeBytes: writing(folder.writeBytes),
+		edit: writing(folder.edit),
 		update: writing(folder.update),
 		delete: writing(folder.delete),
 	};
@@ -77,9 +86,7 @@ export async function runAction(
 	action: Action,
 	input: Record<string, unknown>,
 	{ onYield, signal }: Following = {},
-): Promise<{
-	answer: Exclude<Answer, { error: unknown }>;
-}> {
+): Promise<Exclude<Answer, { error: unknown }>> {
 	const readOnly = action.annotations?.readOnlyHint === true;
 	let owning: Promise<void> | undefined;
 	let held: Held | undefined;
@@ -111,19 +118,15 @@ export async function runAction(
 		...(readOnly ? { readOnly: { action: key } } : {}),
 	};
 	try {
-		let answer: Exclude<Answer, { error: unknown }>;
-		try {
-			const returned = await inRun(context, () =>
-				runYielding(action, input, async (value) => {
-					if (signal?.aborted) throw new Error('The caller stopped the call');
-					await onYield?.(value);
-				}),
-			);
-			answer = { returned: returned ?? null };
-		} catch (error) {
-			answer = { threw: threwOf(error) };
-		}
-		return { answer };
+		const result = await inRun(context, () =>
+			runYielding(action, input, async (value) => {
+				if (signal?.aborted) throw new Error('The caller stopped the call');
+				await onYield?.(value);
+			}),
+		);
+		return { result: encodeActionResult(result) };
+	} catch (cause) {
+		return { fault: threwOf(cause) };
 	} finally {
 		held?.release();
 	}
@@ -174,12 +177,5 @@ export async function callAction(
 	const checked = checkInput(action, raw);
 	if ('error' in checked)
 		return refused(checked.error, `epicenter ${name} ${key} --help`);
-	const { answer } = await runAction(
-		located,
-		key,
-		action,
-		checked.input,
-		following,
-	);
-	return answer;
+	return runAction(located, key, action, checked.input, following);
 }

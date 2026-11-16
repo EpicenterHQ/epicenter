@@ -16,7 +16,8 @@ network access. Using the copied app needs neither GitHub nor a provider key.
 
 Open the app at `/<app>/` while `epicenter serve` runs. Capture text, an optional
 source (a person, book, or URL), and an optional project. Search matches the text,
-source, and project. Open a note to edit its text. Saving quotes the original
+source, and project. A damaged note shows its file problem alongside matches.
+A note with unreadable front matter appears in every search until repaired. Open a note to edit its text. Saving quotes the original
 text; if it no longer matches, your draft stays in the editor so you can compare
 it with the saved file.
 Unsubmitted text is held only in the current page; keep the page open until saved.

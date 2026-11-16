@@ -46,7 +46,7 @@ try {
 	]);
 	if (code !== 0) throw new Error(`Could not read tasks: ${stderr || stdout}`);
 	const answer = JSON.parse(stdout);
-	if (!Array.isArray(answer.returned))
+	if (answer.result?.error !== null || !Array.isArray(answer.result.data))
 		throw new Error('tasks list did not return a task list');
 	const groups = {
 		Overdue: [] as string[],
@@ -54,12 +54,13 @@ try {
 		Upcoming: [] as string[],
 		'No due date': [] as string[],
 	};
-	for (const task of answer.returned) {
-		if (
-			typeof task.path !== 'string' ||
-			typeof task.title !== 'string' ||
-			(task.problems?.length ?? 0) > 0
-		)
+	for (const row of answer.result.data) {
+		if (row.error !== null)
+			throw new Error(
+				`Task needs attention before review: ${String(row.error?.path)}`,
+			);
+		const task = row.data;
+		if (typeof task.path !== 'string' || typeof task.title !== 'string')
 			throw new Error(
 				`Task needs attention before review: ${String(task.path)}`,
 			);

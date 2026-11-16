@@ -16,6 +16,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action, UploadedFile } from '@epicenter/app';
+import { ActionError } from '@epicenter/app';
 import {
 	connect,
 	pendingRuns,
@@ -24,8 +25,10 @@ import {
 } from '@epicenter/app/client';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { linkAppPackage } from './app-package.ts';
+import { openRunStore } from './run-store.ts';
 import { fixture } from './runner.test-support.ts';
 
 // The CLI selects its root once per process. Give this in-process suite a
@@ -43,7 +46,7 @@ type Receipt = { size: number; sha256: string; text: string };
 type Yield = { kind: string; size?: number; sha256?: string; index?: number };
 type UploadAction = Action<
 	{ audio: UploadedFile; chunks?: number; delayMs?: number; fail?: boolean },
-	Promise<Receipt>,
+	Promise<Ok<Receipt>>,
 	Yield
 >;
 const base = 'http://127.0.0.1:4747/';
@@ -160,16 +163,17 @@ export default defineApp({ description: 'Files', collections: {}, actions: {
   yield {kind:'received',size:audio.size,sha256};
   if(fail) throw new Error('File work failed');
   for(let index=0;index<chunks;index++){await sleep(delayMs);yield {kind:'chunk',index};}
-  return {size:bytes.length,sha256,text};
+  return Ok({size:bytes.length,sha256,text});
  }}),
- 'private-file': defineAction({description:'Private file',privateInput:true,input:{audio:field.file()},run:()=>null}),
- private: defineAction({description:'Private',privateInput:true,input:{token:field.text()},run:()=>null}),
- noop: defineAction({description:'No operation',input:{},run:()=>null}),
- 'big-yield': defineAction({description:'Oversized yield',input:{},async *run(){yield 'x'.repeat(256*1024+1); return null;}}),
- 'big-answer': defineAction({description:'Oversized answer',input:{},run:()=> 'x'.repeat(5*1024*1024)}),
- 'tiny-yields': defineAction({description:'Many tiny updates',input:{},async *run(){for(let i=0;i<15000;i++)yield i;return true;}}),
- wait: defineAction({description:'Wait',input:{},async run(){try {await sleep(120000);} finally {await folder.update('data/finally.local', () => 'yes');} return null;}}),
- plain: defineAction({description:'Plain',input:{},async run(){await folder.update('data/count.local', (text='0') => String(Number(text)+1)); return null;}}),
+ refuse: defineAction({description:'Decline a file',input:{audio:field.file({accept:['text/plain'],maxBytes:1024})},run:()=>Err({name:'NoRoute',message:'No route',airport:'LAX'})}),
+ 'private-file': defineAction({description:'Private file',privateInput:true,input:{audio:field.file()},run:()=>Ok(null)}),
+ private: defineAction({description:'Private',privateInput:true,input:{token:field.text()},run:()=>Ok(null)}),
+ noop: defineAction({description:'No operation',input:{},run:()=>Ok(null)}),
+ 'big-yield': defineAction({description:'Oversized yield',input:{},async *run(){yield 'x'.repeat(256*1024+1); return Ok(null);}}),
+ 'big-answer': defineAction({description:'Oversized answer',input:{},run:()=> Ok('x'.repeat(5*1024*1024))}),
+ 'tiny-yields': defineAction({description:'Many tiny updates',input:{},async *run(){for(let i=0;i<15000;i++)yield i;return Ok(true);}}),
+ wait: defineAction({description:'Wait',input:{},async run(){try {await sleep(120000);} finally {await folder.update('data/finally.local', () => 'yes');} return Ok(null);}}),
+ plain: defineAction({description:'Plain',input:{},async run(){await folder.update('data/count.local', (text='0') => String(Number(text)+1)); return Ok(null);}}),
 } });`,
 	);
 	await linkAppPackage(join(f.apps, 'files', 'code'));
@@ -247,9 +251,13 @@ export default defineApp({ description: 'Files', collections: {}, actions: {
 	const app = connect<{
 		actions: {
 			transcribe: UploadAction;
-			private: (input: { token: string }) => null;
+			refuse: Action<
+				{ audio: UploadedFile },
+				Result<never, { name: 'NoRoute'; message: string; airport: string }>
+			>;
+			private: (input: { token: string }) => Ok<null>;
 			noop: () => null;
-			wait: () => Promise<null>;
+			wait: () => Promise<Ok<null>>;
 		};
 	}>({ app: 'files', url: base });
 	const url = (id: string, suffix = '', action = 'transcribe') =>
@@ -881,7 +889,7 @@ test('terminal cursor replays the terminal frame and later observers replay the 
 	).toEqual(first);
 });
 
-test('oversized yields and answers finish with bounded errors', async () => {
+test('oversized yields finish with a fault and oversized answers interrupt within the log bound', async () => {
 	const f = await setup();
 	for (const action of ['big-yield', 'big-answer']) {
 		const id = crypto.randomUUID();
@@ -891,8 +899,15 @@ test('oversized yields and answers finish with bounded errors', async () => {
 			.split('\n')
 			.map((line) => JSON.parse(line));
 		expect(frames.some((event) => event.type === 'yielded')).toBe(false);
-		expect(frames.at(-1).type).toBe('finished');
-		expect(frames.at(-1).answer).not.toHaveProperty('returned');
+		if (action === 'big-yield') {
+			expect(frames.at(-1)).toMatchObject({
+				type: 'finished',
+				answer: { fault: { message: 'A run yield exceeds 256 KiB' } },
+			});
+		} else {
+			expect(frames.at(-1).type).toBe('interrupted');
+			expect(frames.some((frame) => frame.type === 'finished')).toBe(false);
+		}
 		const db = new Database(join(f.runtime, 'runs.sqlite'), { readonly: true });
 		expect(
 			db
@@ -976,7 +991,9 @@ test('the shared admission threshold refuses new work while preserving accepted 
 		expect(frames.filter((frame) => frame.type === 'yielded')).toHaveLength(
 			15000,
 		);
-		expect(frames.at(-1)?.answer).toEqual({ returned: true });
+		expect(frames.at(-1)?.answer).toEqual({
+			result: { data: true, error: null },
+		});
 		const sizes = await Promise.all(
 			['', '-wal', '-shm'].map(
 				async (suffix) =>
@@ -1018,7 +1035,9 @@ test('the shared admission threshold refuses new work while preserving accepted 
 			}),
 		);
 		expect(resumed.status).toBe(200);
-		expect(await resumed.text()).toContain('"returned":null');
+		expect(await resumed.text()).toContain(
+			'"result":{"data":null,"error":null}',
+		);
 	} finally {
 		host.stop();
 	}
@@ -1081,4 +1100,87 @@ test('runtime directories inside the Epicenter are refused before creation', asy
 	expect(response.status).toBe(503);
 	expect((await response.json()).error.message).toContain('inside');
 	expect(await Bun.file(join(inside, 'runs')).exists()).toBe(false);
+});
+
+test('returned file refusal retains uploaded bytes and persists the Err', async () => {
+	const f = await setup();
+	const run = runs.start(f.app.refuse, {
+		audio: new Blob(['hello'], { type: 'text/plain' }),
+	});
+	expect(expectErr(await run.result())).toMatchObject({
+		name: 'NoRoute',
+		airport: 'LAX',
+	});
+	expect(await bins(f.recordDir(run.id))).toHaveLength(1);
+	const response = await fetch(f.url(run.id, '/events', 'refuse'));
+	const frames = (await response.text())
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line));
+	expect(frames.at(-1)).toMatchObject({
+		type: 'finished',
+		answer: { result: { data: null, error: { name: 'NoRoute' } } },
+	});
+});
+
+test('legacy replay preserves stored answers and decodes legacy refusals without reinterpreting success data', async () => {
+	const f = await setup();
+	f.host.stop();
+	const store = openRunStore({ path: join(f.runtime, 'runs.sqlite') });
+	const missing = ActionError.Missing({ path: 'data/a.md' }).error;
+	const answers = [
+		{ returned: { data: null, error: 'old' } },
+		{ threw: { message: 'There is no data/a.md', thrown: missing } },
+		{ threw: { message: 'boom', thrown: { name: 'Custom', message: 'boom' } } },
+		{ fault: { message: 'There is no data/a.md', thrown: missing } },
+	];
+	const ids = answers.map(() => crypto.randomUUID());
+	const at = new Date().toISOString();
+	try {
+		for (const [i, answer] of answers.entries()) {
+			store.admit({ app: 'files', id: ids[i]!, action: 'noop', files: {}, at });
+			// The store accepts historical JSON unchanged; these envelopes predate Answer.
+			store.append(
+				'files',
+				ids[i]!,
+				{ type: 'finished', answer: JSON.parse(JSON.stringify(answer)), at },
+				{ limit: 4 * 1024 * 1024 },
+			);
+		}
+	} finally {
+		store.close();
+	}
+	const host = createRunHost();
+	await host.ready;
+	globalThis.fetch = (async (
+		input: string | URL | Request,
+		init?: RequestInit,
+	) => host.handle(new Request(input, init))) as typeof fetch;
+	try {
+		expect<unknown>(
+			expectOk(await runs.attach(f.app.noop, ids[0]!).result()),
+		).toEqual({ data: null, error: 'old' });
+		expect(
+			expectErr(await runs.attach(f.app.noop, ids[1]!).result()),
+		).toMatchObject({ name: 'Missing', path: 'data/a.md' });
+		expect(
+			expectErr(await runs.attach(f.app.noop, ids[2]!).result()),
+		).toMatchObject({ name: 'Threw', thrown: { name: 'Custom' } });
+		expect(
+			expectErr(await runs.attach(f.app.noop, ids[3]!).result()),
+		).toMatchObject({ name: 'Threw', thrown: { name: 'Missing' } });
+		const replay = await host.handle(
+			new Request(f.url(ids[0]!, '/events', 'noop')),
+		);
+		const frames = (await replay.text())
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line));
+		expect(frames.at(-1)).toMatchObject({
+			type: 'finished',
+			answer: answers[0],
+		});
+	} finally {
+		host.stop();
+	}
 });

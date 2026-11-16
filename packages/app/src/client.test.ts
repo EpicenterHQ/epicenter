@@ -1,5 +1,6 @@
 /** Ordinary calls use run admission, parse ordered events, and preserve action errors. */
 import { afterEach, expect, test } from 'bun:test';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineAction } from './action.ts';
 import { connect } from './client.ts';
@@ -29,7 +30,7 @@ const count = defineAction({
 	async *run() {
 		yield 1;
 		yield 2;
-		return 'done';
+		return Ok('done');
 	},
 });
 const app = connect<{ actions: { count: typeof count } }>({ app: 'counter' });
@@ -284,4 +285,32 @@ test('a terminal answer does not wait for EOF or failing stream cancellation', a
 			}),
 		)) as unknown as typeof fetch;
 	expect(expectOk(await app.count())).toBe('done');
+});
+
+test('new finishes keep returned errors distinct from faults and legacy data', async () => {
+	const missing = ActionError.Missing({ path: 'data/notes/a.md' }).error;
+	respond({ result: { error: missing, data: null } });
+	expect(expectErr(await app.count())).toEqual(missing);
+	respond({ fault: { message: missing.message, thrown: missing } });
+	expect(expectErr(await app.count())).toMatchObject({
+		name: 'Threw',
+		thrown: missing,
+	});
+	const data = { data: null, error: missing };
+	for (const answer of [
+		{ returned: data },
+		{ result: { data, error: null } },
+	]) {
+		respond(answer);
+		expect<unknown>(expectOk(await app.count())).toEqual(data);
+	}
+	for (const result of [
+		{ error: null },
+		{ data: 1, error: missing },
+		{ data: null, error: { ...missing, path: 1 } },
+		{ data: null, error: missing, extra: true },
+	]) {
+		respond({ result });
+		expect(expectErr(await app.count()).name).toBe('Unreachable');
+	}
 });

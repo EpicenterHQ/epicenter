@@ -10,7 +10,7 @@ and an MCP tool for their agent, and its UI calls the same actions.
 
 ```ts
 // <Epicenter>/apps/reading/code/epicenter.ts
-import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';
+import { defineAction, defineApp, defineCollection, field, folder, Ok } from '@epicenter/app';
 
 const books = defineCollection({
   path: 'data/books/{slug}.md',
@@ -24,7 +24,7 @@ const log = defineAction({
   annotations: { destructiveHint: false },
   run: async ({ minutes, book }) => {
     await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},${book ?? ''}\n`);
-    return { minutes };
+    return Ok({ minutes });
   },
 });
 
@@ -59,13 +59,12 @@ and does not run it.
   `run`'s input from `input`: an action written inline in `defineApp` would
   have an untyped input. However it is called, `run` gets an absent switch as
   `false` and an absent list as `[]` (unless the list has a `min`), and every
-  other field as the caller gave it. `run` returns a value that survives
-  JSON; anything else, such as a `Date`, is a type error where the action is
-  written. `run` may be an `async function*` whose yields also survive JSON:
-  each reaches only a UI that asked for it, as it runs, and called anywhere
-  else the action resolves with its return, its yields unread
-  ([ADR-0879](../../docs/adr/0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md)).
-  The return is the answer, so it must carry what the call produced.
+  other field as the caller gave it. Every action returns one Wellcrafted
+  Result. Return `Ok(value)`, return a tagged Err, or forward the Result of
+  another call. `@epicenter/app` exports `Ok`, `Err`, `Result`, and
+  `defineErrors`. Error factories already return Err. An async generator
+  yields progress and returns its final
+  Result. The UI, CLI and MCP receive its JSON form.
 - `defineApp` checks what it was given and returns that same object. It needs
   `description`, `collections`, and `actions`, with `{}` for none. Each
   collection's name is its key in `collections`; each action's words are its
@@ -119,11 +118,13 @@ is the text after it. Each line is read on its own, and no YAML is read
 A write replaces only the lines of the keys it names and keeps every other
 line byte for byte, so `due: 2026-11-20` typed by hand stays until a write
 names `due`. Plain data given for that key replaces the line, which is how
-it is repaired; a change computed by a function may not write it. A file that
+it can be repaired when the entire patched record fits. A computed write
+requires a fitting record before it runs. A file that
 does not open with `---` has no front matter and is all body. A file that
 opens with `---` and has any other line, a key twice, or no closing `---`,
 has front matter that cannot be read: `get` and every writer refuse it until
-it is fixed by hand, and `list` says so in its `problems`.
+it is fixed by hand. `list` returns a `Misfit` for that file beside the
+Results for the other files.
 
 ### Methods and verbs
 
@@ -133,49 +134,29 @@ the change second, because which record and what to change are two roles:
 
 | Method | What it does |
 | --- | --- |
-| `list()` | every record, whole, as `get` gives it, sorted by path |
-| `get(keys)` | the record, or `undefined` when there is no file |
-| `need(keys)` | the record when its file is there and every value fits; throws `ActionError.Missing` or `ActionError.Refused` otherwise; a method only |
-| `add({ ...keys, ...fields, body? })` | makes a file from the whole new record; throws when one is at its path |
-| `set(keys, { ...fields, body? })` | changes the fields given, and the body when it is given; `null` removes an optional field |
-| `set(keys, (record) => ({ ...fields, body? }))` | writes what a function computes from the record |
-| `update(keys, (record) => change)` | writes what a function computes from the record, or makes the file from `undefined`; a method only |
-| `delete(keys)` | deletes the file; `true` when there was one |
+| `get(keys)` | `Ok(record)`, `Ok(undefined)` for an absent keyed record, or an Err with the reason |
+| `list()` | one Result per file, sorted by path |
+| `add(record)` | creates a keyed record and returns its Result |
+| `set(keys, change)` | updates an existing keyed record from plain data or a function of the record |
+| `update(keys, fn)` | updates a record or creates it when absent |
+| `delete(keys)` | returns whether a file existed |
 | `pathOf(keys)` | the record's path |
-| `check()` | `{ files, records }`, the number of files and each file with problems; a method only |
+| `check()` | a report counting files and listing problems by path |
 
-A method reads only the placeholder names from its keys, so a row or a
-record passes as it is: `await checks.get(row)`. A collection with no
-placeholder has the same methods without the keys: `settings.get()`,
-`settings.add({ theme })`, `settings.set({ theme })`, `settings.delete()`.
+Writes return the fitting record in Ok. Check a write's Result before
+continuing work that depends on it. A malformed record produces `Misfit`.
+A plain patch can repair it when the front matter is readable and the
+resulting record fits. A computed write refuses before invoking its callback.
 
-Each writer differs in what it needs of the file:
+A keyless collection such as `settings` always represents one record.
+Its fields must allow an empty file. `get()` gives `Ok(record)` before
+the first write, and `set({ theme })` can create the file. It has no `add`.
 
-| The file | `get` | `need` | `add` | `set` | `update` | `delete` |
-| --- | --- | --- | --- | --- | --- | --- |
-| is absent | `undefined` | throws `ActionError.Missing` | writes it | throws `ActionError.Missing` | calls the function with `undefined`; what it returns is the whole record | `false` |
-| fits | the record | the record | refuses | writes | writes | `true` |
-| has a field that does not fit | the record, with `problems` | throws `ActionError.Refused`, listing them | refuses | given data, writes the fields given and leaves the rest; given a function, refuses to write a field that does not fit | refuses to write a field that does not fit | `true` |
-| has front matter that cannot be read | throws `ActionError.Refused` | throws `ActionError.Refused` | refuses | throws `ActionError.Refused` | throws `ActionError.Refused` | `true` |
-
-A collection with no placeholder follows the same table: it reads as
-`undefined` before its first write, so read it as
-`(await settings.get()) ?? {}`, and `add` or `update` makes it. The `set`
-method still refuses a missing file, so code that refreshes a sign-in cannot
-bring back a file a person deleted.
-
-`actions()` gives four verbs to expose: `list`, `get`, `add`, and `set`,
-every collection alike; `actions('delete')` gives `delete`, which
-`actions()` leaves out. The verbs are built on the methods for a caller that
-sends only plain data, and differ from them:
-
-| Verb | Input | Differs from the method |
-| --- | --- | --- |
-| `list` | none | its rows leave out `body` |
-| `get` | the keys | throws `ActionError.Missing` (`There is no <path>`) where the method answers `undefined` |
-| `add` | the record | no |
-| `set` | the keys, fields, and optionally `was` and `edit` | takes no `body`, but `edit: { old, new }` replaces the passage `old` of it with `new`; with no placeholder, makes the file from fields when there is none, as `add` would |
-| `delete` | the keys | only when named |
+Generated `get` returns `Missing` for an absent keyed file. Generated
+`list` returns `Ok(rows)`, one Result per file with bodies omitted.
+Generated `add` and `set` return write Results. The `set` verb accepts
+JSON guards `was` and `edit`. An explicitly exposed `delete` returns the
+boolean in Ok.
 
 A verb's input is flat: each key is an input field beside the rest of the
 input, so `epicenter vocab set '{"word":"serendipity","meaning":"a lucky find"}'`
@@ -184,7 +165,7 @@ sets one word.
 A key finds its file by its exact name first, then by the tidy name: NFC,
 trimmed, with each run of whitespace one space. So `"Tokyo "` finds
 `Tokyo.md`, and a row for `data/notes/Dune  Messiah.md`, named by hand with
-two spaces, finds that file. `get`, `need`, `set`, `delete`, and an `update` of a
+two spaces, finds that file. `get`, `set`, `delete`, and an `update` of a
 file that is there do this. `add` and an `update` that makes a file always
 write the tidy name, which `pathOf` gives. A key that is then empty, holds
 `/` or `\`, starts with `.`, or is over 200 bytes is refused. So an action
@@ -200,8 +181,8 @@ the field values the caller last saw, `null` for a field that was absent:
 `{ meaning: 'a lucky find' }`. `edit` is `{ old, new }`, both required:
 `old` names the passage of the body it last saw, and `new` is what replaces
 it. `old` must be in the body exactly once, or be the whole body, or be empty
-for an empty body. A passage needs a file, so with none the refusal is
-`ActionError.Missing`, even for a collection with no placeholder. Every guard
+for an empty body. An absent keyed file gives `Missing`. A keyless record
+starts with an empty body, so an edit quoting `old: ''` can create its file. Every guard
 is checked inside the write before anything is written: when a `was` value
 differs now, compared as JSON, the refusal is `{ name: 'Changed', why: 'was' }`,
 and when `old` is not there, is there twice, or is empty and the body is not,
@@ -218,43 +199,31 @@ last write wins. Two callers setting different fields both land, since a
 write changes only the lines it names. A collection whose fields are all
 `readOnly` still has `set`, for its body.
 
-The same goes for a value an action computes from `get` and writes with
-`set`: a change made between them is lost. Compute it inside the write
-instead, with a function. `set(keys, (record) => change)` gives the function
-the record as `get` gives it, `problems` and `body` included, and writes the
-fields and body it returns only over that record. When the file changed
-meanwhile, it calls the function again on what is there now, so keep the
-function pure. A function that throws writes nothing, and one that returns
-nothing to change (`{}`) leaves the file as it is. Vocab's `review` schedules
-a word this way, so two reviews at once both count, and a word that is not
-there is `ActionError.Missing`:
+A value computed from `get` and written later with `set` can overwrite a
+concurrent change. Compute it inside the write. A `set` or `update` callback
+must return a Result. Return `Ok(patch)` to apply fields or body, or a tagged
+Err to decline. The caller receives that Err and the file stays as it was.
+A plain patch remains valid as the second argument to `set`.
+
+`set` gives its callback a fitting record, including the body. When the file
+changes during the write, the callback runs again with the new contents.
+Keep it pure. `Ok({})` leaves an existing record alone. Vocab's review can
+therefore count two concurrent reviews:
 
 ```ts
-await words.set({ word }, (found) => schedule(found, grade, now));
-await notes.set({ title }, (note) => ({ body: `${note.body}${line}\n` }));
+return words.set({ word }, (found) => Ok(schedule(found, grade, now)));
 ```
 
-A function sees a value that does not fit as absent, so it may not write that
-field: `set` and `update` given a function throw `ActionError.Refused`,
-naming the path and the field, and write nothing. A file with `tags: a, b`
-reads with no `tags`, and appending to it from a function is refused rather
-than writing `["new"]` over the person's value. Plain data may write the
-field, which is how it is repaired.
-
-`update(keys, (record) => change)` does the same, and is the one writer that
-may make a file: its function gets `undefined` when there is none, and what it
-returns makes the file as `add` would, refusing a required field it leaves
-out. `null` for an optional field leaves it out of a file being made, as it
-removes it from one that is there, so one change serves both. It returns
-`body` too when the body changes. "Make it if it is not
-there, else change it" is one `update`, so two calls at once never both try to
-make the file. Reading's `start` is:
+For a keyed collection, `update` also gives its callback `undefined` when
+there is no file. The patch must then supply all required fields. For a
+keyless collection the callback always receives a record. Reading can
+create or start a book in one write:
 
 ```ts
-books.update({ title }, (book) =>
-  book?.started === undefined || book.finished !== undefined
+return books.update({ title }, (book) =>
+  Ok(book?.started === undefined || book.finished !== undefined
     ? { started: localDay(), finished: null }
-    : {},
+    : {}),
 );
 ```
 
@@ -277,66 +246,22 @@ throw, so loading an app never touches its files.
 
 ### What a read gives
 
-A read gives only what the file holds. `list`, `get`, and the record `add`,
-`set`, and `update` return check each declared field the same way. A field
-is its value when the value fits the field, and absent otherwise; nothing
-takes its place. When a field's key is not in the file, a switch
-(`field.boolean`) reads `false` and a list (`field.list`) reads `[]`; that is
-what those two helpers mean, and neither value is written unless a caller
-gives it. A list with a `min` is required instead, so an absent one is
-missing. Every other absent field is absent.
-
-`path`, each key from the path, and `body` come from the file itself, after
-the fields, so front matter never replaces them: `data/words/你好.md` reads as
-`{ path: 'data/words/你好.md', word: '你好', ... }`. A row of the `list` verb
-is the same without `body`.
-
-A file that does not fit has `problems`, one line per problem, quoting the
-value it dropped as JSON: `due: "next week" is not a day like 2026-11-12`,
-`due on line 3 is not JSON; write due: "2026-11-20"`, `title is missing`, or
-`its front matter is not key: value lines between two --- lines, each key
-once`. A line that is not JSON gets a suggestion only when its text in double
-quotes fits the field; otherwise the problem says what the field takes. A
-file that fits has no `problems` key. A record whose
-front matter cannot be read has its path, its keys, `false` and `[]` for its
-switches and lists, and its whole text as its body.
-
-Front matter no field declares is not part of a read, and every write keeps
-it byte for byte. Nothing reports it, whether or not its text is JSON: a
-caller that needs it reads the file's text. `check()` gives each file's
-problems as `{ line, kind }` (the `Problem` type), where `kind` is the
-line without the value it quotes or its line number, so `due: "next week"`
-and `due: "soon"` are one kind; `epicenter check` reports them for a whole app.
-An agent or action repairs these records after a code change; reads do not
-impose a global migration gate.
-
-The types say the same. A record is one of two shapes. One without
-`problems` has every required field, its switches, and its lists; an
-optional field may be absent. One with `problems: string[]` may lack any
-field, since a file written by hand may lack it or hold a value that does not
-fit. So `!record.problems` is the check that makes a required field safe to
-use, and `records.filter((record) => !record.problems)` narrows the type.
-Every key is there, since the path holds it. `RecordOf<D>` and `Row<D>` (the
-`list` verb's row) name them, `FittingRecordOf<D>` names one without
-`problems`, and `Keys<D>` names a record's keys. `D` may be the collection
-itself: `FittingRecordOf<typeof tasks>`.
-
-- Code that computes from a record calls `need`, which gives every field in
-  full or refuses: a list is an array, a switch a `boolean`, a required field
-  its type, and only an optional field may be absent.
-- Code that passes a record on to a page calls `get` or `list` and lets
-  `problems` through, so a person can see and repair them.
-
-Do not default a field with `?? []` or `?? false`, which puts back the silent
-replacement a read that gives only what the file holds exists to prevent.
+`RecordOf<typeof collection>` names a record that fits. A computed read
+forwards a refusal or handles it before using fields:
 
 ```ts
-const watch = await watches.need({ id }); // watch.from is string[]
+const read = await watches.get({ id });
+if (read.error !== null) return read;
+if (!read.data) return ActionError.Missing({ path: watches.pathOf({ id }) });
+return Ok(read.data.from);
 ```
 
-A path's case is its own: on a disk that ignores case, such as macOS's,
-`data/words/Hello.md` and `data/words/hello.md` name one file, and `get`
-answers under the path its keys make, while `list` gives the name on disk.
+`Misfit` carries the file path and its diagnostic lines and kinds. When
+front matter is readable, a non-local file's error includes the keys, body
+and fitting fields for a repair form. Local collections omit partial records
+and quoted field values. `partitionResults(await watches.list())` from
+`@epicenter/app` separates fitting records from files that need repair. UI code
+can import the same helper from `@epicenter/app/client`.
 
 ### What a definition may say
 
@@ -348,9 +273,9 @@ answers under the path its keys make, while `list` gives the name on disk.
   starting with `.`, has a placeholder twice, or a brace
   that is not a placeholder;
 - a list of paths: a second layout is a second collection;
-- a field or placeholder named `path`, `body`, or `problems`, which a read
-  gives itself, or `was` or `edit`, which the `set` verb takes beside the
-  fields; a field named as a placeholder, since a record holds both; a field name that a front matter
+- a field or placeholder named `path`, `body`, `was`, or `edit`. A record
+  supplies the first two and the `set` verb accepts the other two as guards;
+- a field with the same name as a placeholder, or a name that a front matter
   line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
   code where the value is read: `(record.limit ?? 50)`.
@@ -402,7 +327,7 @@ refuses a target whose path has no placeholder or more than one, and a
   a record by it, its exact name first and then its tidy name, and that
   record's key is the key: `"Dune  Messiah"` finds a file named by hand with
   two spaces, and `" essays "` is refused, naming `"essays"` to write. A key
-  whose record is not there is refused too. Each throws
+  whose record is not there is refused too. Each returns
   `ActionError.Refused`, one line per key, such as
   `data/books/dune.md: shelf: "poems" names no record in data/shelves/{shelf}.md`,
   and writes nothing. A `.local` collection's line leaves the key out.
@@ -476,7 +401,7 @@ same run
 `delete`, and `path` on a computer.
 
 An action changes files and makes no Git commit. Its writes remain pending,
-including when it throws or stops. A root checkpoint records included code
+including when it returns an Err, throws, or stops. A root checkpoint records included code
 and records together, from the CLI or serve's clock
 ([ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Reads tolerate records that no longer fit the declaration; repair follows a
@@ -501,9 +426,15 @@ two `update`s of one field each see the other's.
 await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
 ```
 
+Use `folder.edit(path, decide)` when a raw-text change can decline. The
+callback receives the current text on each attempt. Return `Err(reason)` to
+refuse the change, `Ok({ value })` to leave the file as it is, or
+`Ok({ value, text })` to replace it. The caller receives the value from the
+attempt that won. This also lets a check leave an absent file absent.
+
 A run of an action marked `readOnlyHint: true` takes no write lock. Its
 context carries `readOnly: { action }`, and in it `folder.write`,
-`folder.writeBytes`, `folder.update`, and `folder.delete` throw before doing
+`folder.writeBytes`, `folder.edit`, `folder.update`, and `folder.delete` throw before doing
 anything, unless the path is `.local` under `data/`: `The action "<words>" is read-only, so
 it cannot write <path>`. A raw `node:fs` write, or a change made through an
 outside service, is the action's own promise.
@@ -595,7 +526,7 @@ all runtime state and logs. It refuses an existing command targeting another
 app. Copying or importing code never enables a routine. Read-only actions and
 hosts without routine support refuse the call.
 
-The action must await its work, throwing on failure. Returning after starting
+The action must await its work and forward ordinary failures. Returning after starting
 detached work would record launch as completion. A new unpaused routine can
 catch up at the next check, even before today's configured time. Inspect and
 repair it with `epicenter routines` and `epicenter routines run <name>`.
@@ -630,17 +561,18 @@ const google = defineCollection({
   },
 });
 
-// in an action
-const { refreshToken } = (await google.get()) ?? {};
-await google.update(() => ({ refreshToken: fresh }));
+// Inside the action that needs the credential
+const read = await google.get();
+if (read.error !== null) return read;
+const { refreshToken } = read.data;
 ```
 
-`get` is `undefined` until the first write, and `update` makes the file on
-the first sign-in and changes it after.
+Before sign-in the record has no token. When refreshing, compare the
+credential being replaced inside the write so a concurrent sign-out wins.
 
 Its `actions()` throws `data/google.local.md never leaves this computer, so it
 offers no actions`, so no generated verb hands a token to an MCP client. A
-read's `problems` and a refused write name a field that does not fit without
+`Misfit` or write refusal names a field that does not fit without
 quoting its value: `refreshToken is not text`. A fresh clone of the app has no
 `.local` files: the person signs in again.
 
@@ -670,7 +602,9 @@ says what each layer defends).
 
 ## Testing an action
 
-Keep the test beside epicenter.ts under code/. Run it from that Bun project.
+Keep the test beside `epicenter.ts` under `code/`. Run it from that Bun project.
+Import `expectOk` and `expectErr` from `@epicenter/app/testing` when a test
+needs the typed value from one branch.
 
 ```ts
 import { createMemoryContext, inRun } from '@epicenter/app';
@@ -680,16 +614,18 @@ const context = createMemoryContext({
   'data/2026.csv': 'minutes,book\n',
   'data/books/dune.md': '---\ntitle: "Dune"\n---\n',
 });
-await inRun(context, () => reading.actions.log({ minutes: 30 }));
+expect(await inRun(context, () => reading.actions.log({ minutes: 30 }))).toEqual({
+  data: { minutes: 30 }, error: null,
+});
 expect(await context.folder.read('data/2026.csv')).toBe('minutes,book\n30,\n');
 
-await inRun(context, () =>
+const write = await inRun(context, () =>
   reading.actions.books.set({ slug: 'dune', finished: '2026-11-10' }),
 );
+expect(write.error).toBeNull();
 const { books } = reading.collections;
-expect((await inRun(context, () => books.get({ slug: 'dune' })))?.finished).toBe(
-  '2026-11-10',
-);
+const read = await inRun(context, () => books.get({ slug: 'dune' }));
+expect(read).toMatchObject({ data: { finished: '2026-11-10' }, error: null });
 ```
 
 The memory context has no Git, so a test checks the files an action wrote. A
@@ -712,11 +648,12 @@ type Book = ActionOutput<typeof reading.actions.books.get>;
 const { data: books, error } = await app.books.list();
 ```
 
-A call resolves to a Result: what the action returned, in its JSON form, or
-an `ActionError` saying why not, told apart by `name`. Producers import the
-same factories from `@epicenter/app` that the client uses:
+The client exposes the action's Result in JSON form. Its public error type
+includes the action's declared errors and the shared errors below. Producers
+import the shared `ActionError` factories from `@epicenter/app`:
 
 - `Changed` (`{ path, why }`): a quoted passage or empty body changed, or a file kept changing during an update.
+- `Misfit` carries diagnostics about a malformed record.
 - `Missing` (`{ path }`): the file is not there.
 - `Threw` (`{ message, thrown? }`): an unrecognized throw, with a JSON-safe tagged payload kept as `thrown`.
 - `Refused` (`{ message, next? }`): an operation declined the request.
@@ -725,12 +662,12 @@ same factories from `@epicenter/app` that the client uses:
 
 The shared errors carry a serializable namespace marker. The client validates
 all their fields and returns every recognized shared error whole, preserving
-its message and extra fields. An app's own unrelated tagged errors stay inside
-`Threw.thrown`, even when their names match a shared variant.
+its message and extra fields. App-defined returned errors keep their names and public fields. The client
+maps a new fault to `Threw`, including when the action threw a tagged value.
 
 A name gives the failure reason, not proof of what was saved, whether a stop
-has finished, or whether repeating an action is safe. The command's existing
-`returned` / `threw` / `error` envelope records the action's execution phase.
+has finished, or whether repeating an action is safe. The command's
+`result` / `fault` / `error` envelope records the action's execution phase.
 When a UI needs to know what persisted, it rereads the record. While the outcome
 is uncertain, it keeps the person's draft and reports the uncertainty. `Missing`
 and `Changed` identify their own `path`, which may belong to a dependency;

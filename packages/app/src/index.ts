@@ -1,3 +1,5 @@
+export { defineErrors } from 'wellcrafted/error';
+export { Err, Ok, partitionResults, type Result } from 'wellcrafted/result';
 export {
 	type Action,
 	type ActionYield,
@@ -6,6 +8,7 @@ export {
 	isAction,
 	runYielding,
 } from './action.ts';
+export { encodeActionResult, type PublicError } from './action-result.ts';
 export {
 	type Actions,
 	type App,
@@ -18,10 +21,8 @@ export {
 	type CollectionDef,
 	defineCollection,
 	type Fields,
-	type FittingRecordOf,
 	type Handle,
 	type Keys,
-	type Problem,
 	type RecordOf,
 	type Row,
 	type Verb,
@@ -36,8 +37,9 @@ export {
 	normalizePath,
 	type Routine,
 	routines,
+	textUpdate,
 } from './context.ts';
-export { ActionError } from './errors.ts';
+export { ActionError, type Problem } from './errors.ts';
 export {
 	FILE_REFERENCE_PREFIX,
 	field,
