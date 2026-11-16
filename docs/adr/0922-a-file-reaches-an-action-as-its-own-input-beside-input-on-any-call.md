@@ -1,4 +1,4 @@
-# 0921. A file reaches an action as its own input beside `input`, on any call
+# 0922. A file reaches an action as its own input beside `input`, on any call
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
@@ -39,7 +39,7 @@ const send = defineAction({
 
 An entry of `files` is `{ accept?, maxBytes?, optional? }`, the same shape as a
 collection's slot
-([ADR-0918](0918-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md)).
+([ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md)).
 `run` receives the files and the input in one object. A file may not share a
 name with an input field. `field.file`, `fileFieldOf`, `FILE_REFERENCE_PREFIX`,
 the `x-epicenter-file` marker, and the scans for it are removed.

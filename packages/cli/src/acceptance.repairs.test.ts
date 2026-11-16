@@ -48,9 +48,9 @@ export default defineApp({
 			annotations: { readOnlyHint: true },
 			run: () => process.execArgv,
 		}),
-		defaulted: defineAction({
-			description: 'Take a raw field with a default',
-			input: { count: { type: 'number', default: 3 } as never, day: field.date({ optional: true }) },
+		optional: defineAction({
+			description: 'Take fields that may be absent',
+			input: { count: field.number({ optional: true }), day: field.date({ optional: true }) },
 			annotations: { readOnlyHint: true },
 			run: (input) => input,
 		}),
@@ -139,7 +139,7 @@ export default defineApp({ description: 'The loud app', collections: {}, actions
 	}
 });
 
-test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields are not required', async () => {
+test('F9 one table owns the vocabulary; --json goes anywhere; optional fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
 	for (const word of ['open', 'types', 'setup', 'help']) {
@@ -168,13 +168,13 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	);
 
 	const tool = JSON.parse(
-		(await f.run('notes', 'defaulted', '--help', '--json')).stdout,
+		(await f.run('notes', 'optional', '--help', '--json')).stdout,
 	);
 	expect(tool.inputSchema.required ?? []).not.toContain('count');
-	const ran = await f.json('notes', 'defaulted');
-	expect(ran.report.returned).toEqual({ count: 3 });
-	expect((await f.run('notes', 'defaulted', '--help')).stdout).toContain(
-		'--count <number>  default 3.',
+	const ran = await f.json('notes', 'optional');
+	expect(ran.report.returned).toEqual({});
+	expect((await f.run('notes', 'optional', '--help')).stdout).toContain(
+		'--count <number>  optional.',
 	);
 });
 

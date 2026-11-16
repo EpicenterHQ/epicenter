@@ -1132,10 +1132,11 @@ When you add an ADR, add its row here.
 | [0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) | Action errors share one contract and the envelope records execution | Accepted |
 | [0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) | Serve owns a page's runs and a file input is a temporary upload | Accepted |
 | [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |
-| [0917](0917-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) | A collection selects a record by its keys, and a file that is not there reads as absent | Proposed |
-| [0918](0918-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) | A collection declares its files beside its fields, and they rest in the folder named by its key | Proposed |
-| [0919](0919-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) | A field can list values and can refer to another collection's record by its key | Proposed |
-| [0920](0920-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) | `epicenter check` reports every record that does not fit its collection | Proposed |
-| [0921](0921-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md) | A file reaches an action as its own input beside `input`, on any call | Proposed (amends 0915) |
-| [0922](0922-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) | A read gives only what the file holds, and no field has a default | Proposed |
-| [0923](0923-a-write-to-front-matter-replaces-only-the-lines-of-the-keys-it-changes.md) | A write to front matter replaces only the lines of the keys it changes | Proposed |
+| [0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) | A page's calls are serve-owned runs, and observing is not cancelling | Accepted (amends 0879 and 0915) |
+| [0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) | A collection selects a record by its keys, and a file that is not there reads as absent | Proposed |
+| [0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) | A collection declares its files beside its fields, and they rest in the folder named by its key | Proposed |
+| [0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) | A field can list values and can refer to another collection's record by its key | Proposed |
+| [0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) | `epicenter check` reports every record that does not fit its collection | Proposed |
+| [0922](0922-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md) | A file reaches an action as its own input beside `input`, on any call | Proposed (amends 0915) |
+| [0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) | A read gives only what the file holds, and no field has a default | Proposed |
+| [0924](0924-a-write-to-front-matter-replaces-only-the-lines-of-the-keys-it-changes.md) | A write to front matter replaces only the lines of the keys it changes | Proposed |

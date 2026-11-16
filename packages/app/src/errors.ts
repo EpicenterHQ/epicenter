@@ -9,12 +9,20 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 const NAMESPACE = 'epicenter/action-error' as const;
 
+const runIdentity = Type.Object({
+	app: Type.String(),
+	action: Type.String(),
+	id: Type.String(),
+});
+
 const fields = {
 	Changed: Type.Object({
 		path: Type.String(),
 		why: Type.Union([
 			Type.Literal('quote'),
+			Type.Literal('twice'),
 			Type.Literal('empty'),
+			Type.Literal('was'),
 			Type.Literal('kept'),
 		]),
 	}),
@@ -32,14 +40,23 @@ const fields = {
 		message: Type.String(),
 		next: Type.Optional(Type.String()),
 	}),
-	Unreachable: Type.Object({ message: Type.String() }),
-	Stopped: Type.Object({ message: Type.String() }),
+	Unreachable: Type.Object({
+		message: Type.String(),
+		run: Type.Optional(runIdentity),
+	}),
+	Stopped: Type.Object({
+		message: Type.String(),
+		run: Type.Optional(runIdentity),
+	}),
 };
 
 const WHY = {
 	quote:
 		"'s body does not have that text; it may have changed since it was read, so get it again",
+	twice:
+		"'s body has that text more than once; quote more around it, or the whole body",
 	empty: "'s body is no longer empty; get it again",
+	was: ' no longer holds a value named in was; it changed since it was read, so get it again',
 	kept: ' kept changing while it was updated',
 } satisfies Record<Static<typeof fields.Changed>['why'], string>;
 
@@ -49,7 +66,7 @@ function marked<T extends { message: string }>(body: T) {
 }
 
 export const ActionError = defineErrors({
-	/** The quoted passage, empty body, or file an update depended on changed. */
+	/** The quoted passage, empty body, field values, or file a write depended on changed, or a quote is not one place. */
 	Changed: ({ path, why }: Static<typeof fields.Changed>) =>
 		marked({ message: `${path}${WHY[why]}`, path, why }),
 	/** There is no file at this path. It may be a dependency of the requested action. */
@@ -62,10 +79,11 @@ export const ActionError = defineErrors({
 	Refused: ({ message, next }: Static<typeof fields.Refused>) =>
 		marked({ message, next }),
 	/** A required operation returned no usable answer. The message identifies what failed. */
-	Unreachable: ({ message }: Static<typeof fields.Unreachable>) =>
-		marked({ message }),
+	Unreachable: ({ message, run }: Static<typeof fields.Unreachable>) =>
+		marked({ message, ...(run ? { run } : {}) }),
 	/** Work was deliberately stopped. This does not confirm completed cleanup or rollback. */
-	Stopped: ({ message }: Static<typeof fields.Stopped>) => marked({ message }),
+	Stopped: ({ message, run }: Static<typeof fields.Stopped>) =>
+		marked({ message, ...(run ? { run } : {}) }),
 });
 export type ActionError = InferErrors<typeof ActionError>;
 

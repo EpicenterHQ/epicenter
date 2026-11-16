@@ -53,6 +53,14 @@ function isSegmentValue(value: string): boolean {
 	return value !== '' && !/[/\\]/.test(value) && !value.startsWith('.');
 }
 
+/** A value that names a file as it is: a segment, and short enough. */
+function isSegmentName(value: string): boolean {
+	return (
+		isSegmentValue(value) &&
+		new TextEncoder().encode(value).length <= MAX_SEGMENT_BYTES
+	);
+}
+
 /** One template, read: its placeholders, how to match a path, and how to fill it. */
 export type Template = {
 	readonly text: string;
@@ -66,8 +74,18 @@ export type Template = {
 	 * that stays on this computer.
 	 */
 	match(path: string): Record<string, string> | undefined;
-	/** The path for these values; throws when they make a `.local` path of a template that is not one. */
+	/**
+	 * The path for these values, each tidied as a file is named: NFC, trimmed,
+	 * single spaces. Throws when a value cannot name a file, or they make a
+	 * `.local` path of a template that is not one.
+	 */
 	fill(values: Record<string, string>): string;
+	/**
+	 * The path for these values exactly as given, or `undefined` when one is
+	 * not a safe file name as it is. A file a person named `Dune  Messiah.md`
+	 * is reached this way, where `fill` would tidy the name to another file.
+	 */
+	fillExact(values: Record<string, string>): string | undefined;
 };
 
 /**
@@ -144,6 +162,15 @@ export function template(text: string): Template {
 					`${path} would be a .local file, which stays on this computer; ${text} names files that are committed`,
 				);
 			return path;
+		},
+		fillExact(values) {
+			let safe = true;
+			const path = text.replace(PLACEHOLDER, (_, name: string) => {
+				const value = values[name];
+				if (value === undefined || !isSegmentName(value)) safe = false;
+				return value ?? '';
+			});
+			return safe && (local || !isLocalPath(path)) ? path : undefined;
 		},
 	};
 }

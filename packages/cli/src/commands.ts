@@ -21,20 +21,21 @@ The destination must be missing or empty. Epicenters cannot nest.`,
 	},
 	new: {
 		usage: 'epicenter new <name> [--from <git url|path>]',
-		help: `Makes apps/<name>/code/ from a template or committed source code and creates empty data/.
+		help: `Makes apps/<name>/code/ from blank code or committed source code and creates empty data/.
 With --from <path|url>[#<folder>], copy the selected app's code without its Git history or records.
+Copies the source commit, not its working files; local differences are reported and left out.
 serve builds code/ui/ when it is opened.`,
 	},
 	export: {
 		usage:
 			'epicenter export <app> <directory> | epicenter export --all <directory>',
-		help: `Regenerates one owned directory from committed app code. With --all, the directory
+		help: `Saves a local checkpoint, then regenerates one owned directory from that app code. With --all, the directory
 contains one child per app, including future committed apps; removed apps disappear.
 Keep Git, handwritten notes and other publication files outside this directory.
 Repeating the command replaces all generated contents, including local edits.
 Exports exclude records, local files, dependencies, builds, provenance, and private history.
-Uncommitted source changes are reported but not exported. Unrelated nonempty directories
-and any Git metadata inside the destination are refused. All code is prepared before
+The checkpoint saves included code and records across the private Epicenter without
+pushing its backup. Unrelated nonempty destinations and Git metadata inside them are refused. All code is prepared before
 refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
 	},
 	install: {
@@ -63,12 +64,13 @@ file has a problem or an app could not be checked.`,
 	},
 	checkpoint: {
 		usage: 'epicenter checkpoint [-m <message>] [--json]',
-		help: 'Commit pending code and records in the root repository, then push to origin when set.',
+		help: 'Save included code and records with a factual commit message, then push the saved commit to origin when set. Use -m to supply your own message.',
 	},
 	serve: {
 		usage: 'epicenter serve [--port <n>] [--host <address>]',
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
-action to its UI at POST /<app>/<action>, on 127.0.0.1 and the Epicenter's port
+action to its UI as a serve-owned run at POST /.runs/<app>/<action>/<id>, on
+127.0.0.1 and the Epicenter's port
 (default 4747) unless --port or --host says otherwise. It runs every call itself,
 from the app's code as it is on disk then. It backs up the root with checkpoint
 when it starts, every 5 minutes, and when it stops. It has no sign-in: only this

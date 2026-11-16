@@ -1,4 +1,4 @@
-# 0919. A field can list values and can refer to another collection's record by its key
+# 0920. A field can list values and can refer to another collection's record by its key
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
@@ -69,7 +69,7 @@ add meaning to a value but never stand for a value of another type.
   Such a field stays `field.text()` until an app needs it checked.
 - Renaming a record leaves the keys that named it pointing at nothing.
   `epicenter check` reports them
-  ([ADR-0920](0920-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md)).
+  ([ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md)).
   Nothing rewrites them.
 - A list of objects is `field.list(Type.Object({ ... }))`, with TypeBox's own
   `Type.Object`. It cannot be given as command-line flags and goes in as JSON.

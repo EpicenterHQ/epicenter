@@ -2,7 +2,7 @@
  * Which action a person meant, and its input (ADR-0841). The longest run of
  * words that names an action is the action, and the rest is its input; when
  * none does, the CLI lists the app's actions. An action's fields become CLI
- * arguments and MCP input alike: both use its schema for defaults and
+ * arguments and MCP input alike: both use its schema for
  * validation, so a command and a tool accept the same values and name the
  * field that needs attention. The action's `positional` list says which
  * fields the command line also reads by position, in order. An action that
@@ -37,13 +37,9 @@ export function matchAction(
 	return undefined;
 }
 
-/** The fields a caller must give: those TypeBox requires, less any with a default, which fills them. */
+/** The fields a caller must give: those TypeBox requires. */
 export function requiredKeys(input: Input): Set<string> {
-	return new Set(
-		(Type.Object(input).required ?? []).filter(
-			(key) => !Object.hasOwn(input[key] ?? {}, 'default'),
-		),
-	);
+	return new Set(Type.Object(input).required ?? []);
 }
 
 /** Turn a field key into the flag a person types. */
@@ -261,8 +257,9 @@ function inputFromArgs(
 }
 
 /**
- * Apply defaults and report the first schema error using the caller's field
- * names. An action with private input gets a fixed refusal for its whole input,
+ * Report the first schema error using the caller's field names. Nothing is
+ * filled: an action made by `defineAction` fills its absent switches and
+ * lists itself, and a collection's verb writes only what it was given. An action with private input gets a fixed refusal for its whole input,
  * so even undeclared property names and ordinary fields cannot echo a value.
  */
 export function checkInput(
@@ -281,7 +278,7 @@ export function checkInput(
 			};
 	}
 	const schema = Type.Object(action.input, { additionalProperties: false });
-	const value = Value.Default(schema, structuredClone(raw));
+	const value = structuredClone(raw);
 	if (Value.Check(schema, value))
 		return { ok: true, input: value as Record<string, unknown> };
 	if (action.privateInput === true)

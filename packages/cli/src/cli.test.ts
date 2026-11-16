@@ -223,6 +223,9 @@ test('a misused command answers its usage line, with its help as the next step',
 		stdout: '',
 		stderr: `--port must be a whole number from 0 to 65535\nUsage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
 	});
+	expect((await f.run('serve', '--help')).stdout).toContain(
+		'POST /.runs/<app>/<action>/<id>',
+	);
 	expect((await f.run('checkpoint', '--help')).stdout).toBe(
 		`${COMMANDS.checkpoint.usage}\n${COMMANDS.checkpoint.help}\n`,
 	);

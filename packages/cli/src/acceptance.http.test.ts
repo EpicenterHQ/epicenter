@@ -8,7 +8,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action } from '@epicenter/app';
-import { connect } from '@epicenter/app/client';
+import { connect, runs } from '@epicenter/app/client';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { hold } from './lock.ts';
 import {
@@ -104,7 +104,6 @@ test('HTTP tools/list offers app actions', async () => {
 		'reading_books_add',
 		'reading_books_set',
 		'reading_books_edit',
-		'reading_books_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
@@ -345,7 +344,7 @@ export default defineApp({ description: 'Talk', collections: {}, actions: {
 		async *run() {
 			await folder.write('data/started.md', 'started');
 			try {
-				for (let i = 0; i < 600; i++) {
+				for (let i = 0; i < 5; i++) {
 					yield i;
 					await Bun.sleep(50);
 				}
@@ -377,25 +376,12 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 		body: JSON.stringify({ words: 'a b' }),
 	});
 	expect(raw.headers.get('content-type')).toBe('application/x-ndjson');
-	expect(await raw.text()).toBe(
-		'{"yielded":"a"}\n{"yielded":"b"}\n{"answer":{"returned":"a b"}}\n',
+	expect(JSON.parse(await raw.text()).answer.error.message).toBe(
+		'This page is out of date. Reload it to keep using talk.',
 	);
-	const refused = await fetch(`${f.base}/talk/say`, {
-		method: 'POST',
-		body: JSON.stringify({}),
-	});
-	expect(JSON.parse(await refused.text())).toEqual({
-		answer: {
-			error: {
-				name: 'Usage',
-				message: 'words is needed',
-				next: 'epicenter talk say --help',
-			},
-		},
-	});
 	expect(
 		(
-			await fetch(`${f.base}/talk/say`, {
+			await fetch(`${f.base}/.runs/talk/say/${crypto.randomUUID()}`, {
 				method: 'POST',
 				headers: { origin: 'http://evil.example' },
 				body: JSON.stringify({ words: 'no' }),
@@ -413,26 +399,24 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 	expect(body.result.structuredContent).toEqual({ returned: 'x y' });
 });
 
-test('a caller that stops reading stops the action at its next yield; its finally writes its last record', async () => {
+test('an aborted observer leaves the action running to its finally', async () => {
 	const f = await setup((f) => f.app('talk', talk));
+	const client = connect<{
+		actions: { drip: Action<Record<string, never>, Promise<string>, number> };
+	}>({ app: 'talk', url: `${f.base}/` });
+	const run = runs.start(client.drip, {});
 	const stop = new AbortController();
-	const response = await fetch(`${f.base}/talk/drip`, {
-		method: 'POST',
-		body: '{}',
-		signal: stop.signal,
-	});
-	const reader = (response.body as ReadableStream<Uint8Array>).getReader();
-	const first = new TextDecoder().decode((await reader.read()).value);
-	expect(first).toStartWith('{"yielded":0}\n');
-	stop.abort();
-	const data = join(f.apps, 'talk', 'data');
-	const latest = () => Bun.file(join(data, 'stopped.md')).exists();
+	for await (const event of run.events({ signal: stop.signal }))
+		if (event.type === 'yielded') stop.abort();
+	const path = join(f.apps, 'talk', 'data', 'stopped.md');
 	const deadline = Date.now() + 10_000;
-	while (!(await latest()) && Date.now() < deadline) await Bun.sleep(50);
-	expect(await latest()).toBe(true);
+	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
+		await Bun.sleep(50);
+	expect(await Bun.file(path).exists()).toBe(true);
+	expectOk(await run.result());
 });
 
-test('a callback failure cancels the served action, runs its finally, and releases the lock', async () => {
+test('a callback failure leaves the action running to finally and releases the lock', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const client = connect<{
 		actions: { drip: Action<Record<string, never>, Promise<string>, number> };
@@ -567,12 +551,16 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 			await readFile(join(f.apps, 'failures', 'data', `${kind}.md`), 'utf8'),
 		).toBe(kind);
 	}
-	const raw = await fetch(`${f.base}/failures/fail`, {
-		method: 'POST',
-		body: JSON.stringify({ kind: 'Missing' }),
-	});
-	const frame = JSON.parse(await raw.text());
-	expect(frame).toMatchObject({
+	const raw = await fetch(
+		`${f.base}/.runs/failures/fail/${crypto.randomUUID()}`,
+		{ method: 'POST', body: JSON.stringify({ kind: 'Missing' }) },
+	);
+	const frames = (await raw.text())
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line));
+	expect(frames.at(-1)).toMatchObject({
+		type: 'finished',
 		answer: {
 			threw: {
 				message: 'There is no data/a.md',
@@ -586,30 +574,72 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 	});
 });
 
-test('a stop reaches an action waiting between yields through callSignal, at once', async () => {
+test('run.cancel reaches callSignal and runs finally', async () => {
 	const f = await setup((f) => f.app('talk', talk));
-	const stop = new AbortController();
-	const response = await fetch(`${f.base}/talk/wait`, {
-		method: 'POST',
-		body: '{}',
-		signal: stop.signal,
-	});
-	const reader = (response.body as ReadableStream<Uint8Array>).getReader();
-	expect(new TextDecoder().decode((await reader.read()).value)).toStartWith(
-		'{"yielded":"waiting"}\n',
-	);
-	stop.abort();
-	const data = join(f.apps, 'talk', 'data');
-	// Far less than the minute it would wait: the stop ended it.
+	const client = connect<{
+		actions: { wait: Action<Record<string, never>, Promise<string>, string> };
+	}>({ app: 'talk', url: `${f.base}/` });
+	const run = runs.start(client.wait, {});
+	for await (const event of run.events()) {
+		if (event.type === 'yielded') {
+			expectOk(await run.cancel());
+			break;
+		}
+	}
+	const path = join(f.apps, 'talk', 'data', 'waited.md');
 	const deadline = Date.now() + 10_000;
-	while (
-		!(await Bun.file(join(data, 'waited.md')).exists()) &&
-		Date.now() < deadline
-	)
+	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
 		await Bun.sleep(50);
-	// It returned once the wait ended, but its caller had stopped it.
-	expect(await Bun.file(join(data, 'waited.md')).exists()).toBe(true);
+	expect(await Bun.file(path).exists()).toBe(true);
+	await run.result();
 });
+
+test('a killed host interrupts an accepted run and never executes it again', async () => {
+	const f = await fixture();
+	f.env.EPICENTER_RUNTIME_DIR = join(f.root, 'runtime');
+	await f.app(
+		'restart',
+		`import { callSignal } from '@epicenter/app';
+export default defineApp({ description: 'Restart', collections: {}, actions: {
+ slow: defineAction({ description: 'Wait', input: {}, async *run() {
+  await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
+  yield 'started';
+  await new Promise((resolve) => { const timer = setTimeout(resolve, 60000); callSignal().addEventListener('abort', () => { clearTimeout(timer); resolve(undefined); }); });
+  return null;
+ } }),
+} });`,
+	);
+	let server: Awaited<ReturnType<typeof startServe>> | undefined;
+	try {
+		server = await startServe(f);
+		const client = connect<{
+			actions: { slow: Action<Record<string, never>, Promise<null>, string> };
+		}>({ app: 'restart', url: `${server.base}/` });
+		const run = runs.start(client.slow, {});
+		for await (const event of run.events()) if (event.type === 'yielded') break;
+		await server.kill();
+		server = await startServe(f);
+		const restored = connect<{
+			actions: { slow: Action<Record<string, never>, Promise<null>, string> };
+		}>({ app: 'restart', url: `${server.base}/` });
+		const frames = [];
+		for await (const event of runs.attach(restored.slow, run.id).events())
+			frames.push(event);
+		expect(frames.at(-1)?.type).toBe('interrupted');
+		const joined = await fetch(`${server.base}/.runs/restart/slow/${run.id}`, {
+			method: 'POST',
+			body: '{}',
+		});
+		expect(joined.status).toBe(200);
+		await joined.text();
+		expect(
+			await readFile(join(f.apps, 'restart', 'data', 'count.local'), 'utf8'),
+		).toBe('1');
+	} finally {
+		if (server) await server.stop();
+		await rm(f.root, { recursive: true, force: true });
+	}
+}, 20_000);
 
 test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
 	const f = await setup((f) =>

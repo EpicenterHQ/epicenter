@@ -1,4 +1,4 @@
-# 0922. A read gives only what the file holds, and no field has a default
+# 0923. A read gives only what the file holds, and no field has a default
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
@@ -65,7 +65,7 @@ So `!record.problems` is the check that makes a required field safe to use.
   until the default moves into the code that reads `limit`.
 - The types that told a field with a default from one without go, with the
   rule that a one-file collection's required field needs a default
-  ([ADR-0917](0917-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md)).
+  ([ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md)).
 - A function that reads a list it means to append to must first see a record
   with no problem in that field, or the write is refused.
 - A new file holds only what its maker gave. Two files made by the app and

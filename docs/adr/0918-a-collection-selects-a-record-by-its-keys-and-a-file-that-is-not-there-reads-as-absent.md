@@ -1,4 +1,4 @@
-# 0917. A collection selects a record by its keys, and a file that is not there reads as absent
+# 0918. A collection selects a record by its keys, and a file that is not there reads as absent
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
@@ -142,7 +142,7 @@ key, because a record holds both.
   hand-built check of each field's old value becomes `was`.
 - A change computed by a function is not checked the way plain data is: a
   `readOnly` field and a reference
-  ([ADR-0919](0919-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md))
+  ([ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md))
   are the app's own to get right there.
 - A page that routes by a record's path routes by its keys. An action that
   took `path` as input takes the key.

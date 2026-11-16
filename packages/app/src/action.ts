@@ -18,9 +18,13 @@
  * called it, as it runs, and what it returns is the answer (ADR-0879). Called
  * as a function, such an action resolves with its return, its yields unread.
  */
-import { type Static, type TObject, type TSchema, Type } from 'typebox';
-import { Value } from 'typebox/value';
-import { fileFieldOf } from './field.ts';
+import type { Static, TObject, TSchema } from 'typebox';
+import {
+	absentValue,
+	defaultIn,
+	type FilledKeys,
+	fileFieldOf,
+} from './field.ts';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -92,25 +96,17 @@ type Returned =
 	| readonly Returned[]
 	| { readonly [key: string]: Returned };
 
-type DefaultedKeys<I extends Input> = {
-	[K in keyof I]: I[K] extends { default: unknown } ? K : never;
-}[keyof I];
-
 type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
 
-/** The value `run` receives for `input`: a field with a default is always there. */
+/** The value `run` receives for `input`: a switch or a list is always there, `false` or `[]` when the caller left it out. */
 export type InputOf<I extends Input> = Simplify<
-	Omit<Static<TObject<I>>, DefaultedKeys<I>> & {
-		[K in DefaultedKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
+	Omit<Static<TObject<I>>, FilledKeys<I>> & {
+		[K in FilledKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
 	}
 >;
 
-/** What a caller gives for `input`: a field with a default may be left out. */
-type CallerInput<I extends Input> = Simplify<
-	Omit<Static<TObject<I>>, DefaultedKeys<I>> & {
-		[K in DefaultedKeys<I>]?: Exclude<Static<I[K]>, undefined>;
-	}
->;
+/** What a caller gives for `input`: a switch or a list may be left out. */
+type CallerInput<I extends Input> = Simplify<Static<TObject<I>>>;
 
 /** An action as an app writes it: `run` receives its input, typed by its fields. */
 export type ActionDef<
@@ -130,7 +126,7 @@ export type YieldingActionDef<
 	run(input: InputOf<I>): AsyncGenerator<Y, R, undefined>;
 };
 
-/** The undefaulted `run`, kept on the action for `runYielding`. */
+/** `run` as a call starts it, its input filled but its yields unread, kept on the action for `runYielding`. */
 const RUN = Symbol('run');
 
 function isAsyncGenerator(
@@ -177,10 +173,11 @@ export async function runYielding(
 
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
- * the fields. Calling it fills each field's default before `run`, as a call
- * through the CLI or MCP does. Inside `run`, the app's collections and
- * `folder` reach the folder of the run that called it, however deep. Throws
- * when the definition is wrong in a way its types cannot say.
+ * the fields. Calling it gives `run` an absent switch as `false` and an absent
+ * list as `[]`, as a read of a collection does, however it is called. Inside
+ * `run`, the app's collections and `folder` reach the folder of the run that
+ * called it, however deep. Throws when the definition is wrong in a way its
+ * types cannot say, such as a field with a `default`.
  */
 export function defineAction<
 	const I extends Input,
@@ -194,6 +191,8 @@ export function defineAction<
 export function defineAction(
 	def: ActionDef<Input> | YieldingActionDef<Input, Returned, Returned>,
 ): Action {
+	// Fail at declaration, before a non-JSON schema can break tool discovery.
+	JSON.stringify(def.input);
 	const problems = actionProblems(def);
 	if (problems.length)
 		throw new Error(
@@ -202,13 +201,16 @@ export function defineAction(
 				.join('\n'),
 		);
 	const { run, ...meta } = def;
-	// Fail at declaration, before a non-JSON schema can break tool discovery.
-	JSON.stringify(def.input);
-	const schema = Type.Object(def.input);
-	const start = (input: unknown) =>
-		(run as (input: unknown) => unknown)(
-			Value.Default(schema, { ...(input as object) }),
-		);
+	const filled = Object.entries(def.input).flatMap(([key, schema]) => {
+		const absent = absentValue(schema);
+		return absent === undefined ? [] : [[key, absent] as const];
+	});
+	const start = (input: unknown) => {
+		const given: Record<string, unknown> = { ...(input as object) };
+		for (const [key, absent] of filled)
+			if (given[key] === undefined) given[key] = structuredClone(absent);
+		return (run as (input: unknown) => unknown)(given);
+	};
 	const action = (input: unknown) => {
 		const result = start(input);
 		return isAsyncGenerator(result)
@@ -283,11 +285,16 @@ function actionProblems(def: object): string[] {
 	for (const key of Object.keys(fields))
 		if (RESERVED_FIELDS.has(key))
 			problems.push(`has a field named "${key}", which epicenter reads itself`);
-	for (const [key, schema] of Object.entries(fields))
+	for (const [key, schema] of Object.entries(fields)) {
 		if (!fileFieldOf(schema) && containsFileMarker(schema))
 			problems.push(
 				`has a nested file in "${key}"; files must be top-level action inputs`,
 			);
+		if (defaultIn(schema))
+			problems.push(
+				`has a default in "${key}"; no field has one, so write the default in run, where the value is read, such as \`limit ?? 50\``,
+			);
+	}
 	if (!Array.isArray(positional)) return problems;
 	positional.forEach((key: unknown, index) => {
 		if (typeof key !== 'string' || !Object.hasOwn(fields, key))

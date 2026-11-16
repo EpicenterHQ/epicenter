@@ -1,8 +1,8 @@
-# 0920. `epicenter check` reports every record that does not fit its collection
+# 0921. `epicenter check` reports every record that does not fit its collection
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
-- **Unbuilt:** the command is not on `main`. The checks across records wait for [ADR-0918](0918-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) and [ADR-0919](0919-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md).
+- **Unbuilt:** the command is not on `main`. The checks across records wait for [ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) and [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md).
 
 ## Context
 
@@ -89,7 +89,7 @@ needs other files: a `field.ref` key with no record behind it.
 
 - **`epicenter <app> check`.** It collides with an app's own `check` action.
 - **Check references on every read.** Each read would open other files. See
-  [ADR-0919](0919-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md).
+  [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md).
 - **Suggest a wider declaration when one kind dominates.** A guess presented as
   a finding. The counts carry the same information.
 - **Run the check before every action.** It would refuse work over a problem

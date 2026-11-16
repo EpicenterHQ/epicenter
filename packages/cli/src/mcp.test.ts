@@ -87,13 +87,13 @@ test('tools list plain schemas and annotations and return structured answers or 
 	}
 });
 
-test('discovery preserves tilde-prefixed properties and default values', async () => {
+test('discovery preserves tilde-prefixed properties', async () => {
 	const f = await fixture();
 	await f.app(
 		'shapes',
 		`export default defineApp({ description: 'Shapes', collections: {}, actions: {
   echo: defineAction({ description: 'Echo', input: {
-   value: { type: 'object', properties: { '~label': field.text() }, required: ['~label'], default: { '~label': 'kept' } },
+   value: { type: 'object', properties: { '~label': field.text() }, required: ['~label'] },
    note: field.text({ optional: true }),
   }, run: ({ value }) => value }),
  } });`,
@@ -111,16 +111,20 @@ test('discovery preserves tilde-prefixed properties and default values', async (
 					type: 'object',
 					properties: { '~label': { type: 'string' } },
 					required: ['~label'],
-					default: { '~label': 'kept' },
 				},
 				note: { type: 'string' },
 			},
+			required: ['value'],
 		});
 		const listed = JSON.parse((await f.run('shapes', '--json')).stdout);
 		expect(listed.actions[0].inputSchema).toEqual(tool?.inputSchema);
 		expect(
-			(await client.callTool({ name: 'shapes_echo', arguments: {} }))
-				.structuredContent,
+			(
+				await client.callTool({
+					name: 'shapes_echo',
+					arguments: { value: { '~label': 'kept' } },
+				})
+			).structuredContent,
 		).toEqual({ returned: { '~label': 'kept' } });
 	} finally {
 		await close();

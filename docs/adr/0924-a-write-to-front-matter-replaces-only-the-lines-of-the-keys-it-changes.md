@@ -1,4 +1,4 @@
-# 0923. A write to front matter replaces only the lines of the keys it changes
+# 0924. A write to front matter replaces only the lines of the keys it changes
 
 - **Status:** Proposed
 - **Date:** 2026-11-15

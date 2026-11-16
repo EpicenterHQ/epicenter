@@ -1,4 +1,4 @@
-# 0918. A collection declares its files beside its fields, and they rest in the folder named by its key
+# 0919. A collection declares its files beside its fields, and they rest in the folder named by its key
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
@@ -96,7 +96,7 @@ Renaming a record whose Markdown file is inside its folder is
   the Markdown file inside the folder, so a rename is one `folder.move`. A
   collection whose records rarely do keeps single files, and a rename there
   is two moves.
-- Until [ADR-0921](0921-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md)
+- Until [ADR-0922](0922-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md)
   is built, an `UploadedFile` exists only inside a run started with
   `runs.start`, so a page reaches a slot only that way.
 - This record gives a record no list of files and no file under the

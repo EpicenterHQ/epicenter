@@ -3,7 +3,7 @@
 **Date**: 2026-11-15
 **Status**: In Progress (waves 1 and 2 are built in their own worktrees; nothing is merged)
 **Owner**: Braden
-**Decisions**: ADR-0917, ADR-0918, ADR-0919, ADR-0920, ADR-0921, all Proposed
+**Decisions**: ADR-0918, ADR-0919, ADR-0920, ADR-0921, ADR-0922, all Proposed
 
 ## One sentence
 
@@ -41,7 +41,7 @@ Additive work first, the break after it, the largest piece last. Waves 2 to 4
 all edit `packages/app/src/collection.ts`, so they run one at a time, each on
 its own branch off `main`.
 
-### Wave 1: `epicenter check` (ADR-0920)
+### Wave 1: `epicenter check` (ADR-0921)
 
 - [ ] `epicenter check [<app>]`, human output with counts by kind, `--json`,
   read-only run, non-zero exit on any problem.
@@ -52,7 +52,7 @@ its own branch off `main`.
 Works on today's collections. It also shows how each real app's data fits its
 declaration before anything breaks.
 
-### Wave 2: `field.list` and `field.ref` (ADR-0919)
+### Wave 2: `field.list` and `field.ref` (ADR-0920)
 
 - [ ] `field.list(item)`. `field.tags()` keeps working until wave 3, so this
   wave breaks no app.
@@ -61,7 +61,7 @@ declaration before anything breaks.
 - [ ] The check reports a reference with no record behind it. This part waits
   for wave 1 to be on `main`.
 
-### Wave 3: selection by key (ADR-0917)
+### Wave 3: selection by key (ADR-0918)
 
 - [x] Every method takes keys where it took `path`: `get(keys)`,
   `set(keys, change)`, `edit(keys, change)`, `update(keys, change)`,
@@ -82,7 +82,7 @@ declaration before anything breaks.
   do not change. The trial's rewrite of Vocab, Flights, and Mail is the
   starting point.
 
-### Wave 3b: repairs from the design review (ADR-0917, ADR-0922)
+### Wave 3b: repairs from the design review (ADR-0918, ADR-0923)
 
 Three reviewers formed their own accounts, then worked through the design
 and each other's. These are the changes all three supported.
@@ -98,12 +98,12 @@ and each other's. These are the changes all three supported.
 - [ ] The `delete` verb exists only when named.
 - [ ] For a collection with no placeholder, the `set` verb makes the file.
 
-### Wave 3c: front matter (ADR-0923)
+### Wave 3c: front matter (ADR-0924)
 
 - [ ] A write to a YAML block replaces only the lines of the keys it changes,
   or refuses.
 
-### Wave 4: files (ADR-0918 and ADR-0921)
+### Wave 4: files (ADR-0919 and ADR-0922)
 
 - [ ] `files` on `defineAction`; `field.file` and its scans removed.
 - [ ] Ordinary calls and the command line carry files; input bytes are
@@ -114,7 +114,7 @@ and each other's. These are the changes all three supported.
   today, and no record decides this yet.
 - [ ] First real target: the interview example in `packages/cli/examples`.
 
-Needs ADR-0921 accepted first: it amends ADR-0915, which is Accepted.
+Needs ADR-0922 accepted first: it amends ADR-0915, which is Accepted.
 
 ### Wave 5: the Vault (under the Vault spec)
 
@@ -142,9 +142,9 @@ paths do move, which that spec says they would not.
 
 ## Open questions
 
-1. **YAML front matter.** Settled by ADR-0923: a write replaces only the
+1. **YAML front matter.** Settled by ADR-0924: a write replaces only the
    lines of the keys it changes. There is no conversion pass.
-2. **Deleting a record's folder.** ADR-0918 leaves the folder when the
+2. **Deleting a record's folder.** ADR-0919 leaves the folder when the
    Markdown file is deleted.
 3. **A reattached run.** Whether it needs every past yield or only the latest
    is outside these records.
@@ -176,12 +176,12 @@ paths do move, which that spec says they would not.
   2026-11-15: 12 apps, 27 collections, no problems, about one second, and no
   file under `apps/` changed.
 - A trial rewrote the collection calls of Vocab, Flights, and Mail against
-  the ADR-0917 signatures as types only. All three type-check, and its
+  the ADR-0918 signatures as types only. All three type-check, and its
   findings changed the record in six places.
 - Waves 1 and 2 are built and pass their tests in their own worktrees. They
   are not committed.
 - No runtime for key selection or `files` exists.
-- No independent review of ADR-0917 to ADR-0921 has been done.
+- No independent review of ADR-0918 to ADR-0922 has been done.
 
 ## Success criteria
 

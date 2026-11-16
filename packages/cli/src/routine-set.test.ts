@@ -22,14 +22,14 @@ afterEach(async () => {
 		await rm(root, { recursive: true, force: true });
 });
 
-test('setup infers a symlinked installed app and saved input uses current action defaults', async () => {
+test('setup infers a symlinked installed app and saved input meets the current action code', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	const original = await f.app(
 		'original',
 		`
 import { routines } from '@epicenter/app';
-const research = defineAction({description:'Research', input:{limit:{type:'number',default:3}}, run:({limit})=>({limit})});
+const research = defineAction({description:'Research', input:{limit:field.number({optional:true})}, run:({limit})=>({limit: limit ?? 3})});
 export default defineApp({description:'Flights',collections:{},actions:{daily:{run:research},setup:defineAction({description:'Enable',input:{},run:()=>routines.set('flight-research',{daily:'08:00',action:research,input:{}})})}});`,
 	);
 	await symlink(original, join(f.apps, 'travel'));
@@ -47,8 +47,8 @@ export default defineApp({description:'Flights',collections:{},actions:{daily:{r
 	await writeFile(
 		join(original, 'code/epicenter.ts'),
 		(await readFile(join(original, 'code/epicenter.ts'), 'utf8')).replace(
-			'default:3',
-			'default:7',
+			'limit ?? 3',
+			'limit ?? 7',
 		),
 	);
 	const run = await f.run('routines', 'run', 'flight-research', '--json');

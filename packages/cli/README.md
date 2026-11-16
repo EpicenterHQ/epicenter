@@ -220,11 +220,13 @@ perform no Git work.
 
 `epicenter service install` installs a macOS LaunchAgent for the current Epicenter, running the `epicenter` command found on `PATH` (or the compiled binary) at login. The job keeps the installing shell's `PATH` so actions can find the same programs. The person runs `install` and `uninstall`; agents may run `restart` and `status`. `status --json` reports whether it is installed and running, its pid when running, the serve port, and its log path.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. `--host <address>` and `--port <n>` override those settings. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. `--host <address>` and `--port <n>` override those settings. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI as serve-owned runs, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
-An app's UI runs an action at `POST /<app>/<action>`, its words joined by `.` (`/vocab/words.add`), with the whole input as the JSON body. The response is JSON lines ([ADR-0879](../../docs/adr/0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md)): `{"yielded": <value>}` for each value the action yields, as it yields it, then `{"answer": <answer>}`, the same answer `--json` prints. A caller that stops reading stops the action at its next yield, which runs the action's `finally` blocks; the action's file writes remain pending for a checkpoint. `@epicenter/app/client` speaks this for a UI.
+A page calls actions through `@epicenter/app/client`. Serve admits each call
+at `POST /.runs/<app>/<action>/<id>` and streams its events. An unreloaded
+page using the retired `POST /<app>/<action>` receives a reload message.
 
 Serve runs a root checkpoint at startup, five minutes after each scheduled
 pass completes, and when it receives SIGINT or SIGTERM. It uses the same
@@ -295,64 +297,71 @@ and the signalling error, so uncertain cleanup cannot advance completion.
 Deleting runtime state makes the latest occurrence due
 again. Commands must tolerate repetition; there is no exactly-once guarantee.
 
+The [daily task review example](examples/daily-task-review.md) runs
+[an ordinary script](examples/daily-task-review.ts) that reads `tasks list`
+and groups open tasks into a dated draft under `drafts/`. It changes no tasks,
+uses no model, and preserves an existing draft. Copy the declaration to
+<!-- doc-path-check: ignore-next-line -->
+`routines/daily-task-review.md` and the script to `scripts/daily-task-review.ts`
+in the home. The home's repository backs up the declaration, script, and drafts.
 See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md).
 
 ## Serve-owned runs
 
-A page starts a long action with `runs.start(app.action, input)`, observes it with
-`events()` or `result()`, and reattaches by id after a tab closes. The browser
-journals the id before sending a request. It uploads each `Blob` or `File` with
-a raw PUT before admitting the action. Ordinary calls, CLI, MCP, and routines
-refuse file inputs. The host decodes opaque references into temporary
-`UploadedFile` handles; collections cannot retain them.
+Ordinary page calls and `runs.start(app.action, input)` share admission,
+execution, and event replay. Both accept `Blob` or `File` inputs. The client
+uploads files by PUT and passes the action temporary `UploadedFile` handles.
+CLI, MCP, and routines refuse file inputs. All routes use the existing Host,
+Origin, and tunnel guards. Action words are joined with dots.
 
-The run routes pass through the same Host, Origin, and tunnel guards as other
-routes. `<action>` joins action words with dots:
-
-| Method | Route | Purpose |
+| Method | Route | Response |
 | --- | --- | --- |
-| PUT | `/.runs/<app>/<action>/<id>/files/<field>` | Upload bytes; `x-epicenter-file-name` contains the encoded name |
-| POST | `/.runs/<app>/<action>/<id>` | Admit once or join identical admission |
-| GET | `/.runs/<app>/<action>/<id>/events?after=<seq>` | Replay and observe events |
-| GET | `/.runs/<app>/<action>/<id>` | Read state |
-| POST | `/.runs/<app>/<action>/<id>/cancel` | Request cooperative cancellation |
+| PUT | `/.runs/<app>/<action>/<id>/files/<field>` | 200 `{ reference }`; refusal 400, 404, 409, 411, 413, 415, or 507 |
+| POST | `/.runs/<app>/<action>/<id>` | 200 NDJSON for a new run or identical join; refusal 400, 404, 409, 413, 429, 503, or 507 |
+| GET | `/.runs/<app>/<action>/<id>/events?after=<seq>` | 200 NDJSON replay; 404 unknown; 429 observer limit |
+| GET | `/.runs/<app>/<action>/<id>` | 200 state; 404 unknown |
+| POST | `/.runs/<app>/<action>/<id>/cancel` | 202 requested; 200 already terminal; 404 unknown |
+| POST | `/<app>/<action>` | 200 NDJSON reload message; executes nothing |
 
-One host process owns the runtime directory. It defaults to
-`~/.local/state/epicenter/prototype-runs/<hash>`, where `<hash>` is the first 16 hex
-characters of SHA-256 of the Epicenter root's real path. `EPICENTER_RUNTIME_DIR`
-overrides it. The host refuses a directory inside the Epicenter or any app,
-including through symlinks. Files are owner-only. On macOS, Time Machine
-exclusion is attempted on a best-effort basis. This is local storage, not Git
-history or a guarantee that another backup tool excludes it.
+A definitive admission refusal has `admitted: false`. A join refused at the
+observer limit has `admitted: true`: the run already exists. Without a marker,
+4xx is a refusal; another failure after POST is uncertain. Observe that id
+with GET instead of resending admission.
 
-Limits are 15 MiB per file, 1 MiB admission JSON, 256 KiB per yield, and 4 MiB
-per event log with 1 KiB reserved for a terminal event. Upload admission has a
-512 MiB storage budget. At most 8 runs execute, 64 observers connect, and 1000
-run directories remain. Each field may impose a smaller file limit and MIME
-accept list. These bounds can refuse uploads, admission, yields, or answers.
+One host owns `~/.local/state/epicenter/prototype-runs/<hash>`, where `<hash>`
+is the first 16 hex characters of SHA-256 of the root's real path.
+`EPICENTER_RUNTIME_DIR` overrides it outside the Epicenter and all apps. The
+runtime is owner-only; Time Machine exclusion is best effort. `runs.sqlite`
+uses WAL and synchronous FULL. It deduplicates payloads by hash and compresses
+when smaller. Startup imports the v1 directory records and marks unfinished
+runs `interrupted`; it never reruns them.
 
-A finish whose answer has `returned` deletes input `.bin` files. Other outcomes
-retain them until the 24-hour terminal TTL. Orphan uploads and partial files
-expire after one hour. Cleanup checks every ten minutes and under admission
-pressure. Recovery marks a non-terminal record `interrupted` at startup or on
-read. It never reruns the action. A missing or expired id remains unknown;
-creating another run is an explicit decision that may repeat effects.
+The 512 MiB admission threshold counts uploads, the database, WAL, and SHM,
+including in-flight upload reservations. Admission also reserves a 4 MiB
+serialized event-log allowance per active run, including 1 KiB for its terminal
+frame. This is a refusal threshold for new work, not a maximum disk footprint:
+accepted runs may finish above it, and SQLite rows, indexes, and WAL add space
+beyond serialized JSON. Disk-full errors can prevent a terminal commit. Limits are 32
+active runs, 64 observers, 256 KiB per yield, 1 MiB admission JSON, and 15 MiB
+per file. Accepted runs and published events remain for 24 hours after ending.
+Returned finishes delete input bytes; other outcomes retain them until expiry.
+Orphan uploads and partial files expire after one hour. Cleanup runs every ten
+minutes and under budget pressure.
 
-For `privateInput: true`, admission stores neither JSON input values nor a JSON
-input digest. A JSON digest could confirm guesses about input otherwise never
-written here. Duplicate admission matches the action alone. Ordinary actions
-compare a digest of their validated input. Uploaded file metadata, hashes, and
-bytes follow the ordinary retention rules. Actions control their own yielded
-and returned data, so private actions must avoid emitting secrets.
+Observation can stop without cancelling execution. `run.cancel()` records a
+request before aborting the cooperative `callSignal()`. It does not establish
+rollback. `runs.start` stores `epicenter.run:<id>` per receipt and imports the
+old `epicenter.runs.prototype.v1` array on read. Ordinary calls use no browser
+storage. For `privateInput: true`, admission stores neither JSON input values
+nor an input digest; file hashes and bytes follow ordinary retention.
 
-Closing an observer does not cancel execution. Explicit cancellation records
-`cancel-requested` and aborts the action's signal. The action must cooperate
-through `callSignal()` or yielding. No cancellation result establishes rollback.
-The client journal key is `epicenter.runs.prototype.v1`. Run controls are
-`runs.start(action, input)`, `runs.attach(action, id)`, and `runs.pending(action)`.
-These controls live outside the connected app's action tree and reserve no
-app action names.
-See [ADR-0915](../../docs/adr/0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md).
+Run the in-process workload with:
+
+```sh
+bun packages/cli/src/__benchmarks__/runs.bench.ts --polls 2000
+```
+
+See [ADR-0917](../../docs/adr/0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md).
 
 ## Coordinate writes
 
@@ -387,15 +396,13 @@ With `--json`, stdout is one JSON object, and MCP returns the same object as `st
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when there is one. A `set` or `edit` that throws `Missing`, when an `add` sits beside it, names that `add` as the next step, so a collection with no placeholder is made on a fresh install:
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when nothing ran and there is one. A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set --goal 20` works on a fresh install. The `set` verb's `was` guard is an object, given in `--input` JSON:
 
 ```txt
-$ epicenter vocab settings set --goal 20
-There is no data/settings.md
-Run: epicenter vocab settings add
+$ epicenter vocab set --input '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
 ```
 
-MCP's text for a thrown action is what the action threw, without that step. The returned value reads this way (`src/output.ts`):
+MCP's text for a thrown action is what the action threw. The returned value reads this way (`src/output.ts`):
 
 - An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values. A `problems` key stays on stdout like any other key.
 - An array of objects whose fields each fit on one line prints one row per object, with `key: value` pairs separated by two spaces. If a field takes more lines, a multiline string or a nested object, each object prints on its own lines, with a blank line between objects.
@@ -412,7 +419,7 @@ body: |
   The deck is in Drive.
 ```
 
-A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, `edit`, and `delete` take each key as a positional word, in path order, where `add` takes the keys it does not make.
+A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, `edit`, and `delete` (given only when the app names it) take each key as a positional word, in path order, where `add` takes the keys it does not make.
 
 ## Check records
 

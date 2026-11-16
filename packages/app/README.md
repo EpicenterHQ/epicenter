@@ -58,9 +58,9 @@ and does not run it.
 - `defineAction` returns the action as a function of its input, carrying its
   description, input, `positional`, and `annotations`. It exists to type
   `run`'s input from `input`: an action written inline in `defineApp` would
-  have an untyped input. Calling it fills each field's default before `run`,
-  as a call through the CLI or MCP does, so a caller may leave out a field
-  with a default and `run` always has it. `run` returns a value that survives
+  have an untyped input. However it is called, `run` gets an absent switch as
+  `false` and an absent list as `[]`, and every other field as the caller gave
+  it. `run` returns a value that survives
   JSON; anything else, such as a `Date`, is a type error where the action is
   written. `run` may be an `async function*` whose yields also survive JSON:
   each reaches only a UI that asked for it, as it runs, and called anywhere
@@ -71,7 +71,7 @@ and does not run it.
   `description`, `collections`, and `actions`, with `{}` for none. Each
   collection's name is its key in `collections`; each action's words are its
   keys in `actions`, so `{ books: books.actions(), log }` gives `books list`
-  through `books delete` and `log`. `app.actions.books.add(...)` in code,
+  through `books edit` and `log`. `app.actions.books.add(...)` in code,
   `epicenter reading books add` on the command line, and `reading_books_add`
   over MCP are one action. No key at any depth may be `then`, which a UI's
   client cannot call.
@@ -83,7 +83,8 @@ each under its name, as the example above does.
 
 A later key replaces an earlier one, as in any object:
 `{ ...words.actions(), add: learn }` gives every verb with `add` replaced.
-Name verbs to give fewer: `settings.actions('get', 'add', 'set')`. An action is a
+Name verbs to give fewer, or `delete`, which only a name gives:
+`settings.actions('get', 'set')`, `{ ...words.actions(), ...words.actions('delete') }`. An action is a
 function, so `{ ...learn, description: 'x' }` drops its call; `defineApp`
 refuses it and says to use `defineAction`.
 
@@ -122,12 +123,11 @@ the change second, because which record and what to change are two roles:
 
 | Method | What it does |
 | --- | --- |
-| `list()` | every record as a row, sorted by path |
+| `list()` | every record, whole, as `get` gives it, sorted by path |
 | `get(keys)` | the record, or `undefined` when there is no file |
 | `add({ ...keys, ...fields, body? })` | makes a file from the whole new record; throws when one is at its path |
-| `set(keys, fields)` | changes the fields given; `null` removes an optional one |
-| `set(keys, (record) => fields)` | writes the fields a function computes from the record |
-| `edit(keys, { old, new })` | replaces one passage of the body, quoted exactly as `get` returned it |
+| `set(keys, { ...fields, body? })` | changes the fields given, and the body when it is given; `null` removes an optional field |
+| `set(keys, (record) => ({ ...fields, body? }))` | writes what a function computes from the record |
 | `update(keys, (record) => change)` | writes what a function computes from the record, or makes the file from `undefined`; a method only |
 | `delete(keys)` | deletes the file; `true` when there was one |
 | `pathOf(keys)` | the record's path |
@@ -140,57 +140,83 @@ placeholder has the same methods without the keys: `settings.get()`,
 
 Each writer differs in what it needs of the file:
 
-| The file | `get` | `add` | `set`, `edit` | `update` | `delete` |
+| The file | `get` | `add` | `set` | `update` | `delete` |
 | --- | --- | --- | --- | --- | --- |
 | is absent | `undefined` | writes it | throws `ActionError.Missing` | calls the function with `undefined`; what it returns is the whole record | `false` |
 | fits | the record | refuses | writes | writes | `true` |
-| has a field that does not fit | the record, with `problems` | refuses | checks only the fields given, and leaves the rest | the same | `true` |
+| has a field that does not fit | the record, with `problems` | refuses | given data, writes the fields given and leaves the rest; given a function, refuses to write a field that does not fit | refuses to write a field that does not fit | `true` |
 | has front matter that cannot be read | throws `ActionError.Refused` | refuses | throws `ActionError.Refused` | throws `ActionError.Refused` | `true` |
 
 A collection with no placeholder follows the same table: it reads as
 `undefined` before its first write, so read it as
-`(await settings.get()) ?? {}`, and `add` or `update` makes it.
+`(await settings.get()) ?? {}`, and `add` or `update` makes it. The `set`
+method still refuses a missing file, so code that refreshes a sign-in cannot
+bring back a file a person deleted.
 
-`actions()` gives six verbs to expose: `list`, `get`, `add`, `set`, `edit`,
-and `delete`, every collection alike. A verb's input is flat, because a
-command line is: `get`, `set`, `edit`, and `delete` take each key as an input
-field, positional in path order, beside the rest of their input, so
-`epicenter vocab set serendipity --meaning "a lucky find"` sets one word. The
-exposed `get` throws `ActionError.Missing` (`There is no <path>`) where the
-method answers `undefined`. On the command line, a `set` or `edit` that finds
-no file names the `add` beside it: `Run: epicenter vocab settings add`.
+`actions()` gives five verbs to expose: `list`, `get`, `add`, `set`, and
+`edit`, every collection alike; `actions('delete')` gives `delete`, which
+`actions()` leaves out. The verbs are built on the methods for a caller that
+sends only plain data, and differ from them:
 
-Every method fills the path with each key as NFC, trimmed, with each run of
-whitespace one space, so `" 你好 "` and `"你好"` name one file, and a new
-record is always written under that form. It throws for a key that is then
-empty, holds `/` or `\`, starts with `.`, or is over 200 bytes. A file a
-person named otherwise, such as `data/words/Tokyo .md`, is still listed,
-under its name on disk, with a problem saying its name is not the one its key
-makes. So an action never writes `data/words/${word}.md` itself:
+| Verb | Input | Differs from the method |
+| --- | --- | --- |
+| `list` | none | its rows leave out `body` |
+| `get` | the keys | throws `ActionError.Missing` (`There is no <path>`) where the method answers `undefined` |
+| `add` | the record | no |
+| `set` | the keys, fields, and optionally `was` | takes no `body`; with no placeholder, makes the file when there is none, as `add` would |
+| `edit` | the keys, `old`, `new` | replaces the one place `old` is in the body; `old` may be the whole body |
+| `delete` | the keys | only when named |
+
+A verb's input is flat, because a command line is: each key is an input
+field, positional in path order, beside the rest of the input, so
+`epicenter vocab set serendipity --meaning "a lucky find"` sets one word.
+
+A key finds its file by its exact name first, then by the tidy name: NFC,
+trimmed, with each run of whitespace one space. So `"Tokyo "` finds
+`Tokyo.md`, and a row for `data/notes/Dune  Messiah.md`, named by hand with
+two spaces, finds that file. `get`, `set`, `delete`, and an `update` of a
+file that is there do this. `add` and an `update` that makes a file always
+write the tidy name, which `pathOf` gives. A key that is then empty, holds
+`/` or `\`, starts with `.`, or is over 200 bytes is refused. So an action
+never writes `data/words/${word}.md` itself:
 
 ```ts
 const found = await words.get({ word });
 ```
 
-`edit`'s quote is its own check: a passage someone changed since it was read
-is never overwritten, and the refusal is `{ name: 'Changed' }`. `set` given
-fields writes the values it is given, so two callers setting the same field
-from stale screens: the last write wins.
+A save from outside names what it replaces. `edit`'s `old` is its own check:
+when it is not in the body, or is there more than once, the refusal is
+`{ name: 'Changed' }`, so a passage someone changed since it was read is
+never overwritten. The `set` verb's `was` names the values the caller last
+saw, `null` for a field that was absent: `{ meaning: 'a lucky find' }`. When
+one of them differs now, compared as JSON inside the same write, the refusal
+is `{ name: 'Changed', why: 'was' }`. Without `was`, two callers setting the
+same field from stale screens: the last write wins. Two callers setting
+different fields both land, since a write changes only the lines it names.
+`was` is given as JSON with `--input`, not as a flag.
 
 The same goes for a value an action computes from `get` and writes with
 `set`: a change made between them is lost. Compute it inside the write
-instead, with a function. `set(keys, (record) => fields)` gives the function
+instead, with a function. `set(keys, (record) => change)` gives the function
 the record as `get` gives it, `problems` and `body` included, and writes the
-fields it returns only over that record. When the file changed meanwhile, it
-calls the function again on what is there now, so keep the function pure. A
-function that throws writes nothing, and one that returns nothing to change
-(`{}`) leaves the file as it is. Vocab's `review` schedules a word this way,
-so two reviews at once both count, and a word that is not there is
-`ActionError.Missing`:
+fields and body it returns only over that record. When the file changed
+meanwhile, it calls the function again on what is there now, so keep the
+function pure. A function that throws writes nothing, and one that returns
+nothing to change (`{}`) leaves the file as it is. Vocab's `review` schedules
+a word this way, so two reviews at once both count, and a word that is not
+there is `ActionError.Missing`:
 
 ```ts
 await words.set({ word }, (found) => schedule(found, grade, now));
+await notes.set({ title }, (note) => ({ body: `${note.body}${line}\n` }));
 ```
+
+A function sees a value that does not fit as absent, so it may not write that
+field: `set` and `update` given a function throw `ActionError.Refused`,
+naming the path and the field, and write nothing. A file with `tags: a, b`
+reads with no `tags`, and appending to it from a function is refused rather
+than writing `["new"]` over the person's value. Plain data may write the
+field, which is how it is repaired.
 
 `update(keys, (record) => change)` does the same, and is the one writer that
 may make a file: its function gets `undefined` when there is none, and what it
@@ -208,13 +234,14 @@ books.update({ title }, (book) =>
 ```
 
 `update` is not a verb, since a caller cannot send a function; neither is a
-`set` given one.
+`set` given one, or a `set` given a body, which would replace a person's text
+blindly from a stale page; `edit` is the verb for the body.
 
 A field marked `readOnly` is written only by the app's own actions, through
 the collection's methods; the exposed `add` and `set` leave it out, and
 refuse it from a caller. Vocab's schedule fields are `readOnly`, so only
-`review` changes them. When a `readOnly` field is required and has no
-default, no caller could give it, so `actions()` leaves out `add`, in its
+`review` changes them. When a `readOnly` field is required, no caller could
+give it, so `actions()` leaves out `add`, in its
 value and its type, and `actions('add')` throws saying why. Write the app's
 own `add` with `defineAction`, as Capture does for `capturedAt`.
 
@@ -224,24 +251,25 @@ throw, so loading an app never touches its files.
 
 ### What a read gives
 
-A read never trusts the file. `list`, `get`, and the record `add`, `set`,
-`edit`, and `update` return check each declared field the same way. A field
-is:
-
-- its value, when the value fits the field;
-- else the field's default, when it has one;
-- else absent.
+A read gives only what the file holds. `list`, `get`, and the record `add`,
+`set`, and `update` return check each declared field the same way. A field
+is its value when the value fits the field, and absent otherwise; nothing
+takes its place. When a field's key is not in the file, a switch
+(`field.boolean`) reads `false` and a list (`field.list`) reads `[]`; that is
+what those two helpers mean, and neither value is written unless a caller
+gives it. Every other absent field is absent.
 
 `path`, each key from the path, and `body` come from the file itself, after
 the fields, so front matter never replaces them: `data/words/你好.md` reads as
-`{ path: 'data/words/你好.md', word: '你好', ... }`. A row of `list` is the
-same without `body`.
+`{ path: 'data/words/你好.md', word: '你好', ... }`. A row of the `list` verb
+is the same without `body`.
 
 A file that does not fit has `problems`, one line per problem, quoting the
 value it dropped as JSON: `due: "next week" is not a day like 2026-11-12`,
 `title is missing`, or `its front matter is not key: <JSON> lines or YAML
-between two --- lines`. A file that fits has no `problems` key. A row whose
-front matter cannot be read has its path, its keys, and the fields' defaults.
+between two --- lines`. A file that fits has no `problems` key. A record whose
+front matter cannot be read has its path, its keys, `false` and `[]` for its
+switches and lists, and its whole text as its body.
 
 Front matter no field declares is not part of a read, and every write keeps
 it byte for byte. Nothing reports it: a caller that needs it reads the file's
@@ -251,12 +279,14 @@ text. `check()` gives each file's problems as `{ line, kind }` (the `Problem` ty
 An agent or action repairs these records after a code change; reads do not
 impose a global migration gate.
 
-The types say the same. A field with a default is always there; every other
-field is optional, a required one included, since a file written by hand may
-lack it. Every key is there, since the path holds it. Rows and records have
-`problems?: string[]`. `Row<D>` and `RecordOf<D>` name them, and `Keys<D>`
-names a record's keys. Read code handles an absent field rather than trusting
-the declaration.
+The types say the same. A record is one of two shapes. One without
+`problems` has every required field, its switches, and its lists; an
+optional field may be absent. One with `problems: string[]` may lack any
+field, since a file written by hand may lack it or hold a value that does not
+fit. So `!record.problems` is the check that makes a required field safe to
+use, and `records.filter((record) => !record.problems)` narrows the type.
+Every key is there, since the path holds it. `RecordOf<D>` and `Row<D>` (the
+`list` verb's row) name them, and `Keys<D>` names a record's keys.
 
 A path's case is its own: on a disk that ignores case, such as macOS's,
 `data/words/Hello.md` and `data/words/hello.md` name one file, and `get`
@@ -273,10 +303,13 @@ answers under the path its keys make, while `list` gives the name on disk.
   that is not a placeholder;
 - a list of paths: a second layout is a second collection;
 - a field or placeholder named `path`, `body`, or `problems`, which a read
-  gives itself, or `json`, `help`, or `input`, which `epicenter` reads
-  itself; a placeholder named `old` or `new`, which `edit` takes beside the
-  keys; a field named as a placeholder, since a record holds both; a field
-  name that a front matter line cannot hold.
+  gives itself, `was`, which the `set` verb takes beside the fields, or
+  `json`, `help`, or `input`, which `epicenter` reads itself; a placeholder
+  named `old` or `new`, which `edit` takes beside the keys; a field named as
+  a placeholder, since a record holds both; a field name that a front matter
+  line cannot hold;
+- a field whose schema has a `default` at any depth. Write the default in
+  code where the value is read: `(record.limit ?? 50)`.
 
 `field.ref` refuses, when it is called, a target it cannot name one record
 of by a key.
@@ -324,8 +357,8 @@ refuses a target whose path has no placeholder or more than one, and a
   throws `ActionError.Refused`, one line per key, such as
   `data/books/dune.md: shelf: "poems" names no record in data/shelves/{shelf}.md`,
   and writes nothing. A `.local` collection's line leaves the key out.
-- A function given to `set` or `update` is not checked: what it returns is the
-  app's own, as a `readOnly` field is.
+- A function given to `set` or `update` is not checked against the target:
+  what it returns is the app's own, as a `readOnly` field is.
 - A read returns the key and opens no other file, so a key whose record was
   deleted since still reads as that key.
 - In an action's `input`, a reference is checked as text. The action finds
@@ -337,7 +370,14 @@ listing prints with the rest of the schema:
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
-above, and every field helper keeps it in its type. Fields describe data;
+above, and every field helper keeps it in its type. A field helper given an
+option it does not declare, such as `field.integer({ default: 50 })`, is a
+type error and throws naming it. No field has a `default`: `defineCollection`
+and `defineAction` refuse a schema with one at any depth, so the default is
+written in code where the value is read. `field.boolean` and `field.list`
+mark their schema `"x-epicenter-field": "switch"` or `"list"`, which names
+their kind rather than a value; a read and an action's call give an absent
+one as `false` or `[]`. Fields describe data;
 `defineAction({ privateInput: true, ... })` declares private handling for the
 whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
 unchanged and have no effect on this policy. Schemas must serialize as
@@ -403,7 +443,7 @@ writes what `change` returns, nothing when that is what is there. A writer
 outside epicenter, such as an editor, may change the file between the read
 and the write; then `update` calls `change` again on what is there now, and
 after 10 tries it throws `ActionError.Changed`. A `change` that
-throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `edit`, `update`)
+throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `update`, and the verbs built on them)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
 
@@ -439,48 +479,42 @@ The browser supplies a `Blob` or `File` through separate run controls:
 ```ts
 import { runs } from '@epicenter/app/client';
 
+const ordinary = await app.transcribe({ audio: file }); // Blob or File
 const run = runs.start(app.transcribe, { audio: file });
-for await (const event of run.events()) {
-  if (event.type === 'yielded') show(event.value);
-}
-const result = await run.result();
+if (run.isRemembered()) showCanReturnLater();
+const answer = run.result({ onYield: (value) => show(value) });
+// A Stop button calls run.cancel().
+await run.cancel();
 ```
 
-The wire carries an opaque host-issued reference. The action receives an
-`UploadedFile` with `name`, `type`, `size`, `path()`, `bytes()`, and `text()`.
-Its methods are valid only while the run runs. CLI, MCP, routines, and ordinary
-POST calls cannot supply files. MCP omits file actions; CLI help directs the
-person to the app's page. Ordinary client calls refuse a `Blob`.
+Both forms upload each `Blob` or `File` before the same run admission. The
+host passes the action an `UploadedFile` with `name`, `type`, `size`, `path()`,
+`bytes()`, and `text()`, valid while the run executes. CLI, MCP, routines,
+nested schemas, and collections cannot supply files.
 
-`runs.start(action, input)` creates a journal entry under `epicenter.runs.prototype.v1` before any
-request. If browser storage fails, nothing is sent. Uploads happen sequentially,
-then admission has a 20-second timeout. An ambiguous acknowledgement is observed
-by id; admission is never resent. A definite 4xx refusal removes the journal
-entry. `runs.attach(action, id)` only observes. `runs.pending(action)` lists this action's entries;
-`pendingRuns({ app })` lists entries across actions. The journal keeps file
-metadata, not file bytes or other input values, and entries expire after 24 hours.
+`runs.start` saves `epicenter.run:<id>` before sending. Storage failure never
+blocks execution: `isRemembered()` is false, and pending runs remain in a
+bounded page-memory fallback. The client imports the old
+`epicenter.runs.prototype.v1` array into per-id receipts on read. Receipts
+older than seven days are pruned. `runs.pending(action)` lists this action's
+receipts; `pendingRuns({ app })` lists across actions. Ordinary calls keep the
+id in memory and do not write browser storage.
 
-`events({ after, signal })` replays sequence numbers after a cursor and
-reconnects with backoff. Closing the tab or aborting observation leaves the
-host running. `result({ signal })` waits for a terminal Result; aborting it
-stops waiting. `cancel()` aborts uploads before admission, or asks the host to
-cancel after admission. Cancellation is cooperative and confirms no rollback.
-A 404 emits `unknown` and retains the journal entry. Terminal observation removes
-it. An error or a lost connection does not establish which effects persisted.
+`events({ after, signal })` replays events after a cursor. `result({ onYield,
+signal })` waits for the answer and delivers yields in order. An aborted
+observer, a closed tab, or a throwing callback stops observation only.
+`run.cancel()` requests cooperative cancellation, which does not establish
+rollback. A terminal event removes the receipt; an unknown or disconnected
+run retains it. If an uncertain ordinary call returns `Unreachable` or
+`Stopped` with `error.run`, use `runs.attach(app.transcribe, error.run.id)` to
+observe the same id. Never resend admission to recover an answer.
 
-Run controls take a connected action as their first argument. They live
-outside the action tree, so names such as `daily.start`, `attach`, and
-`pending` remain ordinary app actions.
-
-Serve owns execution and keeps bounded local records outside the Epicenter.
-Recovery marks unfinished records `interrupted`; it never executes them again.
-For `privateInput: true`, admission persists neither JSON input values nor a
-JSON input digest: a digest could confirm guesses about input otherwise never
-written here. Uploaded file metadata, hashes, and bytes follow the ordinary
-retention rules. Actions still control their own yielded and returned data.
-
-See the [CLI run policy](../cli/README.md#serve-owned-runs) for limits, retention,
-and the one-process ownership rule.
+Run controls take a connected action and live outside the action tree, so
+`daily.start` and `practice.start` remain callable actions. Serve marks an
+unfinished run `interrupted` on recovery and never reruns it. For
+`privateInput: true`, admission stores neither input values nor an input
+digest. File metadata, hashes, and bytes follow the ordinary retention rules.
+See the [CLI run policy](../cli/README.md#serve-owned-runs) for limits and retention.
 
 ## Save recurring work from setup
 
@@ -500,7 +534,7 @@ await routines.set('flights-daily-research', {
 The host infers the installed app and resolves the action reference in that
 load's existing action table. The input follows the action's TypeScript type
 and is validated against its schema before saving. It must contain only JSON
-values. Omitted defaults stay omitted, so each invocation uses current code.
+values. Omitted fields stay omitted, so each invocation uses current code.
 Private-input and file-input actions cannot be saved.
 
 The name is home-wide: this call writes `routines/flights-daily-research.md`
@@ -669,40 +703,26 @@ export const writes = resultMutations(['reading'], { set: app.books.set });
 // In a component: createQuery(() => reads.list()), createMutation(() => writes.set)
 ```
 
-An action whose `run` yields takes `{ onYield }` after its input. Each value
-it yields reaches `onYield`, in order, while it runs, and the call resolves
-with the same Result as without it. No other caller sees a yield: not the
-command line, not a connector, not another page. Closing the page mid-call
-cancels the response; the host stops the action at its next yield and runs
-its `finally` blocks. A page requests the same stop with `{ signal }`.
-An aborted response read resolves as `Stopped`; receiving it does not confirm
-that cleanup finished or say which writes persisted. An action that waits
-between yields, as on a model, passes `callSignal()` to that wait so it can
-stop before the next yield:
+An action whose `run` yields accepts `onYield` after its input. The client
+awaits each callback before delivering the next value. A callback failure
+rejects the call and stops observation; the action continues. For a Stop
+button, start a run and request cancellation explicitly:
 
 ```ts
-const response = await fetch(endpoint, { body, signal: callSignal() });
+import { runs } from '@epicenter/app/client';
+
+const run = runs.start(vocab.chat.say, { message });
+const said = run.result({ onYield: (token) => (draft += token) });
+// On Stop:
+await run.cancel();
 ```
 
-`onYield` may return a promise; the client waits for it before delivering
-the next yield. If it throws or rejects, the call rejects with that error
-and cancels its response, stopping the action the same way as closing the
-page. Recognize a local Stop from the AbortController captured for that
-request; an action can also report `Stopped` for a dependency. A received
-answer completes the call without waiting for the connection to close.
-
-```ts
-let draft = $state('');
-const stop = new AbortController();
-const said = await vocab.chat.say(
-  { message },
-  { onYield: (token) => (draft += token), signal: stop.signal },
-);
-```
+An action that waits between yields can pass `callSignal()` to that wait.
+Closing the page or aborting an observer does not cancel execution.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionYield<A>` name what action
 `A` takes from a caller, returns to a client, and yields while it runs:
-`ActionInput<typeof app.actions.set>`. A field with a default is optional in
+`ActionInput<typeof app.actions.set>`. A switch and a list are optional in
 `ActionInput`; an action that only returns yields `never`.
 
 A UI routes to a record by its keys, which every row carries, each
