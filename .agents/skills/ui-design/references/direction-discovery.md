@@ -35,7 +35,9 @@ data model.
    or refused.
 3. Choose one primary direction. When uncertainty is visual rather than verbal,
    use [prototype](../../prototype/SKILL.md) to create two or three throwaway
-   variants before choosing.
+   variants before choosing. Match the comparison to the uncertainty: keep the
+   same layout and content when comparing palettes; keep the palette when
+   comparing hierarchy. Change structure when the workflow is the question.
 4. Translate the direction into concrete controls, states, density, layout, and
    copy.
 5. Return to the parent `ui-design` workflow for implementation and browser

@@ -8,11 +8,6 @@ description: Shape a complex idea, workflow, design, or report on work into the 
 Show the person the part of a model they need now. Keep the model true, but do
 not make them carry its history, machinery, or every possible consequence.
 
-Use this after thinking, research, or design when the answer risks becoming
-larger than the judgment it is meant to support. It pairs with `dialectic`:
-dialectic helps work through the unsettled idea; abstraction helps present
-what the person needs to understand or judge.
-
 ## Start with the conversation
 
 Treat the actual chat—not just the topic—as the material to abstract. Read for
@@ -41,23 +36,35 @@ pretending the model has already settled.
 > judge the thing itself? Make that presentation as simple as possible while
 > preserving the evidence their judgment depends on.
 
-When discussing a concrete change, show the relevant change alongside the
-explanation. Brevity should remove incidental details, not the material the
-person is trying to inspect. A summary, file link, or description of an effect
-may help orient them; include the actual code, wording, or visible result when
-that is what they are judging. Let the scope of their judgment determine how
-much to show, including the complete change when requested.
+Show the material the person is judging, drawn from the work itself rather
+than an account of it: the actual code, wording, visible result, or comparison.
+Draw on sources such as the diff or the tests.
+Brevity should remove incidental details, not the material the person is trying
+to inspect. Let the scope of their judgment determine how much to show,
+including the complete change when requested.
+
+For a revision, show current and proposed material together when their
+differences are what the person needs to judge. Show the rendered result
+when appearance or movement matters.
+
+A summary, file link, or description of an effect may orient them. Choose
+further concrete material for the relationship it reveals or the judgment
+it makes possible.
 
 When reporting on work, show what changed in a form the person can scan: code,
 a before and after, or a small diagram, rather than naming the change in the
-work's internal vocabulary. Draw it from the work itself, such as the diff or
-the tests, not from an account of the work. Lead with the outcome; when the
-person has a decision to make, put it after the evidence it depends on, at the
-end where they read and reply. For each decision, give the options that
-matter, what each costs, and which you recommend, so they can answer in a word.
+work's internal vocabulary. Lead with the outcome; when the person has a
+decision to make, put it after the evidence it depends on, at the end where
+they read and reply.
+
+For each decision, give the options that matter, what each costs, and which
+you recommend, so they can respond without having to assemble the comparison
+themselves.
+
 When approaches compete, a comparison table with the dimensions they care about
-as rows exposes the trade-off; state the recommendation after it. A report that
-only restates what was done leaves the person to reconstruct what it means.
+as rows can expose the trade-off; state the recommendation after the comparison.
+A report that only restates what was done leaves the person to reconstruct
+what it means.
 
 ## Keep the load-bearing parts
 
@@ -72,29 +79,29 @@ Preserve:
 When viewpoints differ, show them separately. A compact `reader / author`,
 `user / system`, or `caller / owner` view is often clearer than an object graph.
 
+Keep separate owners visible, and distinguish an open or deferred decision
+from one that has been made.
+
 ## Reveal progressively
 
-Lead with the governing relationship. Then add only the context, example, or
-qualification needed to make it recognizable. Defer background and machinery
-that do not affect the current judgment. Include the requested material in the
-current response, with enough context to understand it.
+Lead with the outcome, if there is one, and the relationship or distinction
+that makes it understandable. Then add only the context, example, or qualification
+needed to make it recognizable. Defer background and machinery that do not
+affect the current judgment. Connect the relevant facts to what they
+establish for the person. Explain what an uncertainty could change for them.
+Include the requested material in the current response, with enough context
+to understand it.
 
-If an omission could make something look absent, automatic, or settled, name
-that boundary briefly. Do not hide uncertainty just to make the surface clean.
+Make that progression visible in the presentation. Use paragraph breaks
+where the thought turns and selective emphasis where a distinction needs
+to stand out. A proposed articulation can sit apart from its explanation
+so the person can examine it directly.
 
-## A short pass
-
-1. Read the conversation for the person's immediate aim, current model, and
-   point of uncertainty or leverage.
-2. Find the next judgment, insight, expression, or action the person needs.
-3. Keep the actors, decisions, handoff, and consequence required for that
-   moment.
-4. Choose the clearest surface: a short sequence, small diagram, example,
-   restatement, contrast, or paired viewpoint.
-5. Check that separate owners have not been collapsed and deferred decisions
-   have not been presented as settled.
-6. Remove incidental detail while preserving the requested material and the
-   evidence needed to learn, recognize, correct, express, or act.
+Let the form follow the thought. Keep qualifications beside the claims they
+qualify, so readability does not imply more certainty than we have. If an
+omission could make something look absent, automatic, or settled, name that
+boundary briefly.
+Do not hide uncertainty just to make the surface clean.
 
 ## With dialectic
 
@@ -124,6 +131,7 @@ or other side effect.
 
 ## Watch for
 
+- A response that has grown larger than the judgment it is meant to support.
 - **Inventory:** nouns without the relationship between them.
 - **Shortening:** fewer words but the same conceptual burden.
 - **Premature simplicity:** a distinction that mattered to the decision has
