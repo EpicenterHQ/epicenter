@@ -126,9 +126,20 @@ test('the compiled binary copies and builds a writing app from Git without Bun o
 			).code,
 		).toBe(0);
 		expect(
-			(await run('writing', 'add', 'A note from the compiled starter')).code,
+			(
+				await run(
+					'writing',
+					'add',
+					'{"body":"A note from the compiled starter"}',
+				)
+			).code,
 		).toBe(0);
-		const found = await run('writing', 'search', 'compiled starter', '--json');
+		const found = await run(
+			'writing',
+			'search',
+			'{"query":"compiled starter"}',
+			'--json',
+		);
 		expect(found.code).toBe(0);
 		expect(JSON.parse(found.stdout).returned).toMatchObject([
 			{ body: 'A note from the compiled starter', kind: 'thought' },

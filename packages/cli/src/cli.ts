@@ -40,7 +40,7 @@ import { serviceCommand } from './service.ts';
 
 const HELP = `epicenter                              your apps
 epicenter <app>                        what an app can do
-epicenter <app> <action> [<positionals>] [--flags]
+epicenter <app> <action> [<input>]
 ${Object.values(COMMANDS)
 	.map(({ usage }) => usage)
 	.join('\n')}
@@ -48,8 +48,8 @@ epicenter --version
 
 Uses the nearest Epicenter above the current folder, then EPICENTER_ROOT,
 then ~/Epicenter. An Epicenter has EPICENTER.md.
-A flag's value is read as its field's type; null removes a field that takes it.
---input <json> gives an action's whole input as one JSON object; - reads it from stdin.
+An action's input is one JSON object, such as '{"title":"Call the bank"}',
+or - to read it from stdin; null removes a field that takes it.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
 Exit codes: 0 done, 1 ran with a failure or an unfinished export or checkpoint, 2 did not run.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
@@ -102,7 +102,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
-	// --version is read only on its own, so an action's --version stays its own flag.
+	// --version is read only on its own; anywhere else it is a word the command refuses.
 	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
 	const tokens: string[] = [];
 	let json = false;
@@ -159,7 +159,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		const matched = matchAction(located.actions, words);
 		const action = matched && located.actions[matched.key];
 		if (!matched || !action) {
-			// The words that could name an action: those before the first value or flag.
+			// The words that could name an action: those before the input.
 			const end = words.findIndex((word) => !isName(word));
 			const asked = words.slice(0, end < 0 ? undefined : end).join(' ');
 			return fail(
@@ -167,7 +167,7 @@ export async function runCli(argv: string[]): Promise<number> {
 					message: `${name} has no action ${JSON.stringify(asked || words[0])}. Its actions:\n${Object.entries(
 						located.actions,
 					)
-						.map(([key, each]) => usageLine(name, key, each, { short: true }))
+						.map(([key, each]) => usageLine(name, key, each))
 						.join('\n')}`,
 					next: `epicenter ${name}`,
 				}).error,

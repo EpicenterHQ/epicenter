@@ -31,7 +31,6 @@ export default defineApp({
 		write: defineAction({
 			description: 'Write a page and a second data file',
 			input: { page: field.text() },
-			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write('data/' + page + '.md', page);
 				await folder.write('data/node_modules/seen.txt', page);
@@ -55,7 +54,6 @@ export default defineApp({
 		half: defineAction({
 			description: 'Write a page, then throw',
 			input: { page: field.text() },
-			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write('data/' + page + '.md', page);
 				throw new Error('stopped halfway');
@@ -143,7 +141,7 @@ test('C7 exit codes: 0 returned, 1 threw, 2 did not run; an action that exits th
 	const unknown = await f.json('notes', 'nope');
 	expect(unknown.code).toBe(2);
 	expect(unknown.answer.error).toMatchObject({ name: 'Usage' });
-	const human = await f.run('notes', 'write', 'monday');
+	const human = await f.run('notes', 'write', '{"page":"monday"}');
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
@@ -185,7 +183,7 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 	});
 	const runs = await Promise.all(
 		fields.map((key, i) =>
-			f.run('many', 'items', 'set', 'one', `--${key}`, String(i)),
+			f.run('many', 'items', 'set', JSON.stringify({ id: 'one', [key]: i })),
 		),
 	);
 	// Calls serialize read-modify-write operations across processes.
@@ -211,9 +209,9 @@ test('C12 runs leave no temporary file and no lock file, and hold no lock once t
 			stderr: 'ignore',
 		}).exited;
 	const exits = await Promise.all([
-		run('notes', 'write', 'monday'),
-		run('notes', 'write', 'tuesday'),
-		run('notes', 'half', 'wednesday'),
+		run('notes', 'write', '{"page":"monday"}'),
+		run('notes', 'write', '{"page":"tuesday"}'),
+		run('notes', 'half', '{"page":"wednesday"}'),
 	]);
 	expect(exits).toEqual([0, 0, 1]);
 	// macOS Git's launcher keeps its own cache in TMPDIR.

@@ -36,14 +36,7 @@ export default defineApp({description:'Flights',collections:{},actions:{daily:{r
 	expect(await f.run('travel', 'setup', '--json')).toMatchObject({ code: 0 });
 	const path = join(f.home, 'routines/flight-research.md');
 	const fields = readMarkdown(await readFile(path, 'utf8')).fields;
-	expect(fields.run).toEqual([
-		'epicenter',
-		'travel',
-		'daily',
-		'run',
-		'--input',
-		'{}',
-	]);
+	expect(fields.run).toEqual(['epicenter', 'travel', 'daily', 'run', '{}']);
 	await writeFile(
 		join(original, 'code/epicenter.ts'),
 		(await readFile(join(original, 'code/epicenter.ts'), 'utf8')).replace(

@@ -35,7 +35,6 @@ export default defineApp({
 		two: defineAction({
 			description: 'Write two files',
 			input: { text: field.text() },
-			positional: ['text'],
 			run: async ({ text }) => {
 				await folder.write('data/a.md', text);
 				await folder.write('data/b.md', text);
@@ -158,7 +157,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	for (const gone of ['epicenter types', 'setup', 'epicenter help'])
 		expect(help).not.toContain(gone);
 
-	const leading = await f.run('--json', 'notes', 'two', 'Ada');
+	const leading = await f.run('--json', 'notes', 'two', '{"text":"Ada"}');
 	expect(leading.code).toBe(0);
 	expect(JSON.parse(leading.stdout)).toEqual({
 		returned: 'Ada',
@@ -174,7 +173,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	const ran = await f.json('notes', 'optional');
 	expect(ran.report.returned).toEqual({});
 	expect((await f.run('notes', 'optional', '--help')).stdout).toContain(
-		'--count <number>  optional.',
+		'  count  optional  a number',
 	);
 });
 
@@ -209,9 +208,13 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 		format: 'date',
 	});
 	expect((await f.run('reading', 'between', '-h')).stdout).toContain(
-		'<from>, --from <date>  required.',
+		'  from  required  a day like 2026-11-12',
 	);
-	const bad = await f.json('reading', 'between', '2026-13-45', '2026-11-08');
+	const bad = await f.json(
+		'reading',
+		'between',
+		'{"from":"2026-13-45","to":"2026-11-08"}',
+	);
 	expect(bad.code).toBe(2);
-	expect(bad.report.error.message).toContain('<from>');
+	expect(bad.report.error.message).toBe('from must be a day like 2026-11-12');
 });

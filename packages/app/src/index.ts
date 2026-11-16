@@ -46,6 +46,7 @@ export {
 	type TSwitch,
 	type UploadedFile,
 	whatFits,
+	whatTakes,
 } from './field.ts';
 export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';

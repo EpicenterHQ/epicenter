@@ -203,7 +203,6 @@ export default defineApp({
 		log: defineAction({
 			description: 'Record minutes read today',
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
-			positional: ['minutes'],
 			run: async ({ minutes, book }) => {
 				await folder.update('data/2026.csv', (before = 'minutes,book\\n') => \`\${before}\${minutes},\${book ?? ''}\\n\`);
 				return { minutes, book: book ?? null };
@@ -212,7 +211,6 @@ export default defineApp({
 		between: defineAction({
 			description: 'Minutes read between two days',
 			input: { from: field.date(), to: field.date() },
-			positional: ['from', 'to'],
 			annotations: { readOnlyHint: true },
 			run: ({ from, to }) => ({ from, to }),
 		}),
@@ -239,16 +237,16 @@ export default defineApp({
 
 /** The source of an app with many kinds of input, for `fixture().app`. */
 export const reading = `export default defineApp({ description: 'The reading app', collections: {}, actions: {
-	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return input; } }),
+	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return input; } }),
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text()), done: field.boolean() }, run: (input) => input }),
-	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text()) }, positional: ['tags'], run: (input) => input }),
+	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text()) }, run: (input) => input }),
 	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('data/index.local.json', '{}'); return {folder:folder.path}; } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } });`;
 
 /** The source of an app whose actions share the word `calendar`. */
 export const vault = `export default defineApp({ description: 'The vault app', collections: {}, actions: { calendar: {
-	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
-	add: defineAction({description:'Add a day',input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
+	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},run:({day})=>({day})}),
+	add: defineAction({description:'Add a day',input:{day:field.date()},run:({day})=>({day})}),
 } } });`;

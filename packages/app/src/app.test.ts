@@ -25,7 +25,6 @@ const books = defineCollection({
 const log = defineAction({
 	description: 'Record minutes read today',
 	input: { minutes: field.number() },
-	positional: ['minutes'],
 	run: async ({ minutes }) => {
 		const before = (await folder.read('data/2026.csv')) ?? 'minutes\n';
 		await folder.write('data/2026.csv', `${before}${minutes}\n`);
@@ -450,7 +449,6 @@ describe('defineCollection', () => {
 						body: field.text(),
 						path: field.text(),
 						problems: field.text(),
-						json: field.text(),
 						'two words': field.text(),
 					},
 				}),
@@ -460,19 +458,17 @@ describe('defineCollection', () => {
 			'The collection at data/words/{word}.md has a field "body", which is the file\'s text after its front matter',
 			'The collection at data/words/{word}.md has a field "path", which is the file\'s address',
 			'The collection at data/words/{word}.md has a field "problems", which a read uses to say what does not fit',
-			'The collection at data/words/{word}.md has a field "json", which epicenter reads itself',
 			'The collection at data/words/{word}.md has a field "two words", which a front matter line cannot name',
 		]);
 	});
 
-	test('names placeholders a read, edit, or epicenter takes itself', () => {
+	test('names placeholders a read or edit takes itself', () => {
 		const path = 'data/notes/{body}/{path}/{problems}/{old}/{input}.md';
 		expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([
 			`The collection at ${path} has the placeholder {body}, which is the file's text after its front matter`,
 			`The collection at ${path} has the placeholder {path}, which is the file's address`,
 			`The collection at ${path} has the placeholder {problems}, which a read uses to say what does not fit`,
 			`The collection at ${path} has the placeholder {old}, which edit takes beside the keys`,
-			`The collection at ${path} has the placeholder {input}, which epicenter reads itself`,
 		]);
 	});
 
@@ -654,24 +650,21 @@ describe('defineAction', () => {
 					description: 'Show',
 					input: {
 						a: field.text(),
-						b: field.list(field.text()),
+						// No name is reserved: the command line reads the input as one JSON object.
 						json: field.boolean(),
-						// Not reserved: `--version` is read only on its own.
-						version: field.text(),
+						help: field.text(),
+						input: field.text(),
 					},
-					positional: ['b', 'a', 'a', 'nope' as 'a'],
+					positional: ['a'],
 					annotations: { readOnlyHint: true, dangerous: true } as never,
 					readonly: true,
 					run() {},
 				} as never),
 			),
 		).toEqual([
+			'The action "Show" has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line',
 			'The action "Show" has "readonly", which an action does not take',
 			'The action "Show" has the annotation "dangerous", which MCP does not define',
-			'The action "Show" has a field named "json", which epicenter reads itself',
-			'The action "Show" has the list "b" as a positional before the last, so the ones after it could never be given',
-			'The action "Show" lists the positional "a" twice',
-			'The action "Show" has the positional "nope", which is not one of its fields',
 		]);
 	});
 });

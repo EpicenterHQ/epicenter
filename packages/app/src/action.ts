@@ -1,13 +1,12 @@
 /**
  * An action: a function an app exposes, carrying what the CLI, MCP, and a UI
- * need to call it: a description, its input's fields, and how the command
- * line reads them. Call it as any function, inside a run:
+ * need to call it: a description and its input's fields. Call it as any
+ * function, inside a run:
  *
  * ```ts
  * const learn = defineAction({
  *   description: 'Learn a word, due now',
  *   input: { word: field.text(), meaning: field.text({ optional: true }) },
- *   positional: ['word', 'meaning'],
  *   run: ({ word, meaning }) => words.add({ word, meaning }),
  * });
  *
@@ -53,11 +52,6 @@ export type ActionMeta<I extends Input = Input> = {
 	 * HTTP JSON remains available. The app owns its outputs and storage.
 	 */
 	readonly privateInput?: boolean;
-	/**
-	 * The inputs the command line also reads by position, in order:
-	 * `positional: ['from', 'to']` reads `epicenter reading between 2026-11-01 2026-11-08`.
-	 */
-	readonly positional?: readonly (keyof I & string)[];
 	readonly annotations?: Annotations;
 };
 
@@ -220,23 +214,11 @@ export function defineAction(
 	return Object.assign(action, meta, { [RUN]: start });
 }
 
-/**
- * Flags the `epicenter` command reads anywhere among an action's words: no
- * field is named one. `--version` is read only on its own, so a field may be
- * named `version`.
- */
-export const RESERVED_FIELDS: ReadonlySet<string> = new Set([
-	'json',
-	'help',
-	'input',
-]);
-
 /** What an action is made of; anything else, such as `readonly`, is a typo the types let through. */
 const ACTION_KEYS = new Set([
 	'description',
 	'input',
 	'privateInput',
-	'positional',
 	'annotations',
 	'run',
 ]);
@@ -264,11 +246,17 @@ function containsFileMarker(
 
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, privateInput, positional, annotations, run } =
-		def as Record<string, unknown>;
+	const { description, input, privateInput, annotations, run } = def as Record<
+		string,
+		unknown
+	>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
-		if (!ACTION_KEYS.has(key))
+		if (key === 'positional')
+			problems.push(
+				`has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line`,
+			);
+		else if (!ACTION_KEYS.has(key))
 			problems.push(`has "${key}", which an action does not take`);
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
@@ -281,11 +269,7 @@ function actionProblems(def: object): string[] {
 				problems.push(`has the annotation "${key}", which MCP does not define`);
 	if (typeof input !== 'object' || input === null)
 		return [...problems, 'has no input'];
-	const fields = input as Input;
-	for (const key of Object.keys(fields))
-		if (RESERVED_FIELDS.has(key))
-			problems.push(`has a field named "${key}", which epicenter reads itself`);
-	for (const [key, schema] of Object.entries(fields)) {
+	for (const [key, schema] of Object.entries(input as Input)) {
 		if (!fileFieldOf(schema) && containsFileMarker(schema))
 			problems.push(
 				`has a nested file in "${key}"; files must be top-level action inputs`,
@@ -295,26 +279,6 @@ function actionProblems(def: object): string[] {
 				`has a default in "${key}"; no field has one, so write the default in run, where the value is read, such as \`limit ?? 50\``,
 			);
 	}
-	if (!Array.isArray(positional)) return problems;
-	positional.forEach((key: unknown, index) => {
-		if (typeof key !== 'string' || !Object.hasOwn(fields, key))
-			problems.push(
-				`has the positional ${JSON.stringify(key)}, which is not one of its fields`,
-			);
-		else if (positional.indexOf(key) !== index)
-			problems.push(`lists the positional "${key}" twice`);
-		else if (fileFieldOf(fields[key]))
-			problems.push(
-				`has the file "${key}" as a positional, which the command line cannot give`,
-			);
-		else if (
-			(fields[key] as { type?: unknown }).type === 'array' &&
-			index !== positional.length - 1
-		)
-			problems.push(
-				`has the list "${key}" as a positional before the last, so the ones after it could never be given`,
-			);
-	});
 	return problems;
 }
 

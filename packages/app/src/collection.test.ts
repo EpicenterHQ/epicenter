@@ -61,7 +61,7 @@ function run(words: string, input: object, context: Context): Promise<unknown> {
 }
 
 describe('the verbs', () => {
-	test('are five unless delete is named, each taking the keys flat and positional where it names one record', () => {
+	test('are five unless delete is named, each taking the keys flat where it names one record', () => {
 		expect(Object.keys(items.actions())).toEqual([
 			'list',
 			'get',
@@ -88,7 +88,7 @@ describe('the verbs', () => {
 			'delete',
 		]);
 		for (const verb of ['get', 'add', 'set', 'edit', 'delete'] as const)
-			expect(app.actions.items[verb].positional).toEqual(['id']);
+			expect(Object.keys(app.actions.items[verb].input)).toContain('id');
 		expect(Object.keys(app.actions.items.edit.input)).toEqual([
 			'id',
 			'old',

@@ -57,7 +57,7 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	collections: { words },
 	actions: {
 		...words.actions(),
-		set: defineAction({ description: 'Save a word my way', input: { stem: field.text() }, positional: ['stem'], run: ({ stem }) => \`mine: \${stem}\` }),
+		set: defineAction({ description: 'Save a word my way', input: { stem: field.text() }, run: ({ stem }) => \`mine: \${stem}\` }),
 	},
 });
 `,
@@ -122,7 +122,7 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 			'code/epicenter.ts: The collection at data/words/{word}.md has a field "path", which is the file\'s address',
 		],
 		misplaced: [
-			'code/epicenter.ts: The action "Show" has the positional "nope", which is not one of its fields',
+			'code/epicenter.ts: The action "Show" has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line',
 		],
 		nodefault: ['code/epicenter.ts does not export defineApp(...) by default'],
 		nullactions: [
@@ -137,7 +137,7 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 		],
 	});
 	// A later key replaces an earlier one: the written set replaces the collection's.
-	const clash = await f.run('clash', 'set', 'serendipity');
+	const clash = await f.run('clash', 'set', '{"stem":"serendipity"}');
 	expect(clash.stdout).toBe('mine: serendipity\n');
 	expect(JSON.stringify(listing)).not.toContain('readme-only');
 	expect(JSON.stringify(listing)).not.toContain('json-only');
@@ -232,52 +232,93 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	expect(one.actions).toEqual(reading.actions);
 });
 
-test("D3 positionals come from the action's ordered list; flags always work", async () => {
+test("D3 the input is one JSON object after the action's words, or - to read it from stdin", async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
-	const logged = await f.run('reading', 'log', '30', '--book', 'Dune');
-	expect(logged.code).toBe(0);
-	expect(logged.stdout).toBe('minutes: 30\nbook: Dune\n');
+	/** Run with stdin open: `text` is written to it, and it is closed only when `close` is true. */
+	const piped = async (text: string, close: boolean, ...args: string[]) => {
+		const child = Bun.spawn([process.execPath, f.bin, ...args], {
+			cwd: f.root,
+			env: f.env,
+			stdin: 'pipe',
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		child.stdin.write(text);
+		if (close) child.stdin.end();
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		if (!close) child.stdin.end();
+		return { stdout, stderr, code };
+	};
+
+	const logged = await f.run('reading', 'log', '{"minutes":30,"book":"Dune"}');
+	expect(logged).toEqual({
+		code: 0,
+		stdout: 'minutes: 30\nbook: Dune\n',
+		stderr: '',
+	});
 	expect(await readFile(join(f.apps, 'reading/data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,Dune\n',
 	);
-	const both = await f.run('reading', 'between', '2026-11-01', '2026-11-08');
+	// `--json` and `--help` are the command's own, before or after the input.
+	const between = '{"from":"2026-11-01","to":"2026-11-08"}';
+	const both = await f.run('reading', 'between', between);
 	expect(both.stdout).toBe('from: 2026-11-01\nto: 2026-11-08\n');
-	const flags = await f.run(
-		'reading',
-		'between',
-		'--to',
-		'2026-11-08',
-		'--from',
-		'2026-11-01',
+	expect((await f.run('reading', '--json', 'between', between)).stdout).toBe(
+		(await f.run('reading', 'between', between, '--json')).stdout,
 	);
-	expect(flags.stdout).toBe(both.stdout);
-	const mixed = await f.run(
-		'reading',
-		'between',
-		'--from',
-		'2026-11-01',
-		'2026-11-08',
-	);
-	expect(mixed.stdout).toBe(both.stdout);
-	const extra = await f.run(
-		'reading',
-		'between',
-		'2026-11-01',
-		'2026-11-08',
-		'2026-11-09',
-	);
-	expect(extra.code).toBe(2);
-	expect(extra.stderr).toContain('2026-11-09');
+
+	// `-` reads all of stdin as the JSON text.
+	expect(
+		await piped(`${between}\n`, true, 'reading', 'between', '-'),
+	).toMatchObject({ code: 0, stdout: both.stdout });
+	// Stdin is read only for `-`: held open, it neither hangs nor is read.
+	expect(
+		await piped('{"from":"2000-01-01"}', false, 'reading', 'between', between),
+	).toMatchObject({ code: 0, stdout: both.stdout });
+	expect(
+		await piped('{"minutes":5}', false, 'reading', 'week', 'show'),
+	).toMatchObject({ code: 0, stdout: '210\n' });
+
+	for (const [args, message] of [
+		[['between', '2026-11-01', '2026-11-08'], 'The input is one argument'],
+		[['between', '--from', '2026-11-01'], 'The input is one argument'],
+		[['between', '--input', between], 'The input is one argument'],
+		[['between', '2026-11-01'], 'The input is not JSON'],
+		[['between', '[]'], 'The input is not a JSON object'],
+		[['between', '{"from":"2026-11-01"}'], 'to is needed'],
+		[['week', 'show', '{"day":1}'], '"day" is not a key this action takes'],
+	] as const) {
+		const refused = await f.run('reading', ...args, '--json');
+		expect(refused.code).toBe(2);
+		expect(JSON.parse(refused.stdout).error.message).toContain(message);
+	}
+
 	const help = await f.run('reading', 'between', '--help');
-	expect(help.stdout).toContain('epicenter reading between <from> <to>');
+	expect(help.stdout).toBe(`epicenter reading between <input>
+Minutes read between two days
+
+Input, one JSON object, or - to read it from stdin:
+  from  required  a day like 2026-11-12
+  to    required  a day like 2026-11-12
+
+Example:
+  epicenter reading between '{"from":"2026-11-12","to":"2026-11-12"}'
+`);
+	expect((await f.run('reading', 'week', 'show', '--help')).stdout).toBe(
+		'epicenter reading week show\nMinutes read this week\n',
+	);
 });
 
 test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no node_modules', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	expect(existsSync(join(folder, 'node_modules'))).toBe(false);
-	const result = await f.runIn(folder, 'reading', 'log', '12');
+	const result = await f.runIn(folder, 'reading', 'log', '{"minutes":12}');
 	expect(result.code).toBe(0);
 	expect(result.stdout).toBe('minutes: 12\nbook: null\n');
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
@@ -355,20 +396,23 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	};
 
 	const help = await f.run('capture', 'add', '--help');
+	expect(help.stdout).toContain('epicenter capture add <input>');
 	expect(help.stdout).toContain(
-		'epicenter capture add <id> --kind <thought|link|quote> [--url <text>] --added <date> [--body <text>]',
+		'  kind   required  one of thought, link, quote',
+	);
+	expect(help.stdout).toContain(
+		`epicenter capture add '{"id":"text","kind":"thought","added":"2026-11-12"}'`,
 	);
 
 	expect(
 		await json(
 			'add',
-			'dune',
-			'--kind',
-			'quote',
-			'--added',
-			'2026-11-09',
-			'--body',
-			'Fear is the mind-killer.\n',
+			JSON.stringify({
+				id: 'dune',
+				kind: 'quote',
+				added: '2026-11-09',
+				body: 'Fear is the mind-killer.\n',
+			}),
 		),
 	).toEqual({
 		code: 0,
@@ -389,37 +433,38 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	// Refused before anything is written: by the command line (2) or by the collection (1).
 	const refused = [
 		[
-			['set', 'dune', '--kind', 'poem'],
+			['set', { id: 'dune', kind: 'poem' }],
 			2,
-			'--kind must be one of thought, link, quote',
+			'kind must be one of thought, link, quote',
 		],
 		[
-			['set', 'dune', '--added', '2026-13-45'],
+			['set', { id: 'dune', added: '2026-13-45' }],
 			2,
-			'--added must be a day like 2026-11-12',
+			'added must be a day like 2026-11-12',
 		],
-		[['add', 'new-one', '--kind', 'link'], 2, '--added is needed'],
+		[['add', { id: 'new-one', kind: 'link' }], 2, 'added is needed'],
 		[
-			['add', 'dune', '--kind', 'link', '--added', '2026-11-09'],
+			['add', { id: 'dune', kind: 'link', added: '2026-11-09' }],
 			1,
 			'data/items/dune.md is already there',
 		],
 		[
-			['add', '..', '--kind', 'link', '--added', '2026-11-09'],
+			['add', { id: '..', kind: 'link', added: '2026-11-09' }],
 			2,
-			"<id> must be a file's name for {id} in data/items/{id}.md: no / or \\\\, and not starting with .",
+			"id must be a file's name for {id} in data/items/{id}.md: no / or \\\\, and not starting with .",
 		],
 		[
-			['set', 'new-one', '--kind', 'link'],
+			['set', { id: 'new-one', kind: 'link' }],
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[['set', 'a\\b', '--kind', 'link'], 1, 'cannot name a file'],
-		[['set', 'dune', '--kind', 'null'], 2, '--kind does not take null'],
-		[['set', '--input', '{"id":"dune","added":null}'], 2, 'added'],
+		[['set', { id: 'a\\b', kind: 'link' }], 1, 'cannot name a file'],
+		[['set', { id: 'dune', kind: null }], 2, 'kind'],
+		[['set', { id: 'dune', added: null }], 2, 'added'],
+		[['set', { id: 'dune', knd: 'link' }], 2, 'is not a key this action takes'],
 	] as const;
-	for (const [args, code, message] of refused) {
-		const result = await json(...args);
+	for (const [[verb, input], code, message] of refused) {
+		const result = await json(verb, JSON.stringify(input));
 		expect(result.code).toBe(code);
 		expect(JSON.stringify(result.answer)).toContain(message);
 	}
@@ -428,7 +473,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	);
 	// An edit names the record it did not find.
 	expect(
-		await f.run('capture', 'edit', 'new-one', '--old', '', '--new', 'x'),
+		await f.run('capture', 'edit', '{"id":"new-one","old":"","new":"x"}'),
 	).toEqual({
 		code: 1,
 		stdout: '',
@@ -436,17 +481,13 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	});
 
 	expect(
-		(await json('set', 'dune', '--url', 'https://example.com/dune')).code,
+		(await json('set', '{"id":"dune","url":"https://example.com/dune"}')).code,
 	).toBe(0);
 	expect(
 		(
 			await json(
 				'edit',
-				'dune',
-				'--old',
-				'mind-killer',
-				'--new',
-				'little-death',
+				'{"id":"dune","old":"mind-killer","new":"little-death"}',
 			)
 		).code,
 	).toBe(0);
@@ -464,7 +505,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			],
 		},
 	});
-	expect((await f.run('capture', 'get', 'dune')).stdout).toBe(
+	expect((await f.run('capture', 'get', '{"id":"dune"}')).stdout).toBe(
 		'path: data/items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',
 	);
 
@@ -529,13 +570,13 @@ export default defineApp({ description: 'Preferences', collections: { settings }
 `,
 	);
 	expect((await f.run('prefs', 'settings', 'get')).code).toBe(1);
-	expect(await f.run('prefs', 'settings', 'set', '--goal', '4')).toEqual({
+	expect(await f.run('prefs', 'settings', 'set', '{"goal":4}')).toEqual({
 		code: 0,
 		stdout: 'path: data/settings.md\ngoal: 4\nbody: ""\n',
 		stderr: '',
 	});
-	expect((await f.run('prefs', 'settings', 'add', '--goal', '3')).code).toBe(1);
-	expect((await f.run('prefs', 'settings', 'set', '--goal', '5')).code).toBe(0);
+	expect((await f.run('prefs', 'settings', 'add', '{"goal":3}')).code).toBe(1);
+	expect((await f.run('prefs', 'settings', 'set', '{"goal":5}')).code).toBe(0);
 	expect((await f.run('prefs', 'settings', 'get')).stdout).toBe(
 		'path: data/settings.md\ngoal: 5\nbody: ""\n',
 	);

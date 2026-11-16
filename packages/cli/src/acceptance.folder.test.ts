@@ -27,7 +27,6 @@ export default defineApp({
 		write: defineAction({
 			description: 'Write a page',
 			input: { page: field.text() },
-			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write('data/' + page + '.md', page);
 			},

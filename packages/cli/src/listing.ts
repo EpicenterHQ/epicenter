@@ -7,15 +7,14 @@
  */
 
 import { basename } from 'node:path';
-import { type Action, fileFieldOf } from '@epicenter/app';
+import { type Action, whatTakes } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
-	fieldKind,
-	flagOf,
+	exampleCommand,
 	jsonSchema,
-	listSpelling,
 	requiredKeys,
+	takesFile,
 	usageLine,
 } from './input.ts';
 
@@ -74,10 +73,10 @@ function readOnly(action: Action) {
 		: '';
 }
 
-/** Each action as one short usage line and its description; `--help` on an action gives every flag. */
+/** Each action as its usage line and its description; `--help` on an action lists its input's keys. */
 function actionLines(located: Runnable) {
 	return Object.entries(located.actions).flatMap(([key, action]) => [
-		`  ${usageLine(located.name, key, action, { short: true })}`,
+		`  ${usageLine(located.name, key, action)}`,
 		`    ${action.description}${readOnly(action)}`,
 	]);
 }
@@ -128,42 +127,42 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 }
 
 /**
- * Explain each field: how it is spelled, whether it is needed, and its
- * description. Actions with private input show JSON keys; other actions show
- * their flags and positionals.
+ * Explain an action's input: each key, whether it is needed, what it takes,
+ * and its description, then one command to copy.
  */
 export function actionHelp(name: string, key: string, action: Action): string {
-	if (Object.values(action.input).some((schema) => fileFieldOf(schema)))
-		return `${usageLine(name, key, action)}\n${action.description}\n\nThis action takes a file. Start it from its page; the command line cannot supply it.`;
-	const privateInput = action.privateInput === true;
-	const positional = new Set<string>(action.positional ?? []);
+	const usage = [usageLine(name, key, action), action.description];
+	if (takesFile(action))
+		return [
+			...usage,
+			'',
+			'This action takes a file. Start it from its page; the command line cannot supply it.',
+		].join('\n');
+	const keys = Object.keys(action.input);
+	if (!keys.length) return usage.join('\n');
 	const required = requiredKeys(action.input);
 	const rows = Object.entries(action.input).map(([key, field]) => {
-		const schema = field as TSchemaOptions;
-		const kind = fieldKind(schema);
-		const flag = `--${flagOf(key)}`;
-		const asFlag =
-			kind === 'switch'
-				? flag
-				: kind === 'list'
-					? listSpelling(flag, schema)
-					: `${flag} <${kind}>`;
-		const spelling = privateInput
-			? key
-			: positional.has(key)
-				? `<${key}>, ${asFlag}`
-				: asFlag;
-		const status = required.has(key) ? 'required' : 'optional';
+		const { description } = field as TSchemaOptions;
 		return [
-			spelling,
-			`${status}.${schema.description ? ` ${schema.description}` : ''}`,
+			key,
+			required.has(key) ? 'required' : 'optional',
+			`${whatTakes(field)}${description ? `. ${description}` : ''}`,
 		] as const;
 	});
-	const width = Math.max(0, ...rows.map(([spelling]) => spelling.length));
+	const width = Math.max(...keys.map((key) => key.length));
 	return [
-		usageLine(name, key, action),
-		action.description,
+		...usage,
 		'',
-		...rows.map(([spelling, text]) => `  ${spelling.padEnd(width)}  ${text}`),
+		action.privateInput === true
+			? 'Input, one JSON object read from stdin with -, never an argument:'
+			: 'Input, one JSON object, or - to read it from stdin:',
+		...rows.map(
+			([key, status, text]) => `  ${key.padEnd(width)}  ${status}  ${text}`,
+		),
+		'',
+		'Example:',
+		...exampleCommand(name, key, action)
+			.split('\n')
+			.map((line) => `  ${line}`),
 	].join('\n');
 }

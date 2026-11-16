@@ -44,7 +44,6 @@ const settings = defineCollection({
 const learn = defineAction({
 	description: 'Learn a word, due now',
 	input: { word: field.text(), meaning: field.text({ optional: true }) },
-	positional: ['word', 'meaning'],
 	run: async ({ word, meaning }) => {
 		assertType<Equal<typeof word, string>>();
 		assertType<Equal<typeof meaning, string | undefined>>();
@@ -359,7 +358,6 @@ describe('an app author', () => {
 			description: 'Say',
 			privateInput: true,
 			input: { message: field.text() },
-			positional: ['message'],
 			async *run({ message }) {
 				yield message;
 				yield { step: 1 };
@@ -542,20 +540,20 @@ describe('an app author', () => {
 });
 
 describe('type errors', () => {
-	test('ordinary and yielding actions reject positionals outside their input fields', () => {
+	test('ordinary and yielding actions take no positional', () => {
 		() => {
+			// @ts-expect-error the command line takes the input as one JSON object
 			defineAction({
 				description: 'Read',
 				input: { value: field.text() },
-				// @ts-expect-error a positional must name an input field
-				positional: ['missing'],
+				positional: ['value'],
 				run: () => true,
 			});
+			// @ts-expect-error a yielding action takes no positional either
 			defineAction({
 				description: 'Read',
 				input: { value: field.text() },
-				// @ts-expect-error a yielding action has the same positional constraint
-				positional: ['missing'],
+				positional: ['value'],
 				async *run() {
 					yield true;
 					return true;
