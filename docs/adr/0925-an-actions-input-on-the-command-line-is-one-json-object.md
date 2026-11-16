@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-11-15
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md), its rule that every field is a flag, at most one is positional, and `json`, `help`, and `version` are not field names; and [ADR-0907](0907-private-input-is-a-whole-call-handling-policy.md), only the spelling `--input -`, which becomes `-`.
-- **Unbuilt:** all of it. `inputFromArgs` in `packages/cli/src/input.ts` still reads flags and positional words, `defineAction` still takes `positional`, and `RESERVED_FIELDS` is still enforced.
 
 ## Context
 

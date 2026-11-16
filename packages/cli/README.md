@@ -55,8 +55,8 @@ With `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, c
 epicenter init ~/Epicenter
 cd ~/Epicenter
 epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
-epicenter writing add 'An observation I want to return to' --source 'My notebook' --project 'Essay'
-epicenter writing search observation
+epicenter writing add '{"body":"An observation I want to return to","source":"My notebook","project":"Essay"}'
+epicenter writing search '{"query":"observation"}'
 epicenter serve
 ```
 
@@ -131,9 +131,9 @@ marker is valid. Epicenters cannot nest.
 ```sh
 epicenter
 epicenter reading
-epicenter reading log 30 --book Dune
-epicenter reading log 30 --json
-epicenter reading books set dune --finished null
+epicenter reading log '{"minutes":30,"book":"Dune"}'
+epicenter reading log '{"minutes":30}' --json
+epicenter reading books set '{"slug":"dune","finished":null}'
 epicenter init <folder>
 epicenter init --from <private-origin> <folder>
 epicenter new notes
@@ -187,19 +187,24 @@ Bun removed that link. Calls and listings never install dependencies.
 An unmet range is a listed problem and prevents running or building that app.
 Install and build report malformed layout entries without stopping other apps.
 
-A flag's value follows its field: numbers, repeated list values, switches
-such as `--done=false`, and `null` for a field that accepts it. `--no-done`
-is refused with `--done=false` as the next step. `--input <json>` supplies the
-whole input object; `--input -` reads it from stdin. Positionals and ordinary
-flags are unavailable beside whole-object input. A listing or action help
-with `--json` exposes each action as an MCP tool definition, with all four
-annotations explicit and private-input metadata kept separately.
+An action's input is one argument after its words, `epicenter <app> <action>
+[<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
+stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
+closed and an agent whose shell holds it open both run. Text that is not a
+JSON object, or more than one word, is refused with exit 2 and an example
+object. The command line checks the object as HTTP and MCP do, with the same
+messages; a key the action does not take is refused, naming the keys it does.
+`null` removes a field that accepts it. For text a person wrote, `- <<'EOF'`
+avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
+and prints an example to copy. A listing or action help with `--json` exposes
+each action as an MCP tool definition, with all four annotations explicit and
+private-input metadata kept separately.
 
 An action declares private input handling with `privateInput: true`. The flag
 appears in JSON discovery as action metadata, separately from MCP annotations.
-The CLI accepts it only as `epicenter <app> <action> --input -`, with the whole
-JSON object piped on stdin. It offers no interactive secret prompt and refuses
-flags, positionals, and inline JSON before parsing them. The same action stays
+The CLI accepts it only as `epicenter <app> <action> -`, with the whole JSON
+object piped on stdin. It offers no interactive secret prompt and refuses any
+other argument before parsing it. The same action stays
 available over HTTP and is neither listed nor callable over MCP. Its validation
 refusals contain no supplied input values.
 This is an input-handling policy: HTTP access follows the server's existing
@@ -396,10 +401,10 @@ With `--json`, stdout is one JSON object, and MCP returns the same object as `st
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when nothing ran and there is one. A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set --goal 20` works on a fresh install. The `set` verb's `was` guard is an object, given in `--input` JSON:
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when nothing ran and there is one. A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb's `was` guard is an object beside the fields:
 
 ```txt
-$ epicenter vocab set --input '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
+$ epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
 ```
 
 MCP's text for a thrown action is what the action threw. The returned value reads this way (`src/output.ts`):
@@ -409,7 +414,7 @@ MCP's text for a thrown action is what the action threw. The returned value read
 - An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and single values print as JSON.
 
 ```txt
-$ epicenter tasks get 2026-11-10T09-30-00-000Z-k3x9a2f8
+$ epicenter tasks get '{"time":"2026-11-10T09-30-00-000Z-k3x9a2f8"}'
 path: data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
 time: 2026-11-10T09-30-00-000Z-k3x9a2f8
 title: Email Sam the slides
@@ -419,7 +424,7 @@ body: |
   The deck is in Drive.
 ```
 
-A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, `edit`, and `delete` (given only when the app names it) take each key as a positional word, in path order, where `add` takes the keys it does not make.
+A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, `edit`, and `delete` (given only when the app names it) take each key flat in the input object, where `add` takes the keys it does not make.
 
 ## Check records
 
