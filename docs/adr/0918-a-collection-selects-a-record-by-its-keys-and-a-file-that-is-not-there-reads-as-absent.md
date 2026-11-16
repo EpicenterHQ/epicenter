@@ -2,7 +2,6 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
-- **Unbuilt:** `set` carrying `body`, `list()` returning whole records, `edit` as a verb only, the exact-name lookup, `was` on the `set` verb, the `delete` verb only when named, and a `set` verb that makes a collection's one file. Keys in place of paths, the three writers, and one handle are built.
 
 ## Context
 
@@ -40,14 +39,15 @@ which record first, then the change.
 A key is a placeholder's value, named as the path names it: for
 `data/words/{word}.md` the key is `word`, and for
 `data/checks/{name}/{day}.md` the keys are `name` and `day`. A path may not
-use `{old}`, `{new}`, or `{was}` as a placeholder, which the verbs take
-beside the keys.
+use `{was}` or `{edit}` as a placeholder, and no field may have those names:
+the `set` verb takes them beside the keys and fields.
 
 **The methods are a small core for code.**
 
 ```ts
 await words.list();                                       // every record, whole
 await words.get({ word });                                // one record, or undefined
+await words.need({ word });                               // one record that fits, or it throws
 await words.add({ word, meaning, body });                 // the whole new record
 await words.set({ word }, { meaning });                   // fields, the body, or both
 await words.set({ word }, (now) => ({ body: now.body + line }));
@@ -64,8 +64,15 @@ words.pathOf({ word });
 | `update(keys, change)` | either | a function of the record, or of `undefined` |
 
 - `set` throws `ActionError.Missing` itself. `update` is the one writer that
-  may make a file. `add` and a creating `update` refuse `null` for a field.
+  may make a file. `null` for a field a file may go without leaves it out of
+  a file being made, as it removes it from one that is there.
 - `list` takes nothing and returns what `get` returns.
+- `get` and `list` are the reads for code that hands a record on: they
+  return a record whose values do not all fit, with `problems`. `need` is the
+  read for code that computes from the record. It throws
+  `ActionError.Missing` when there is no file and `ActionError.Refused`,
+  listing the problems, when a value does not fit, and what it returns has
+  every field in full. Five of the twelve apps had written that by hand.
 - Only the placeholder names are read from the keys, so a record can be
   passed as it is.
 - A collection with no placeholder has the same methods without the keys
@@ -79,22 +86,36 @@ words.pathOf({ word });
 | `list` | none | its rows leave out `body` |
 | `get` | the keys | throws `Missing` where the method answers `undefined` |
 | `add` | the record | no |
-| `set` | the keys, fields, and optionally `was` | no `body`; refuses when a field named in `was` no longer holds that value |
-| `edit` | the keys, `old`, `new` | replaces the one place `old` is in the body; `old` may be the whole body |
+| `set` | the keys, fields, and optionally `was` and `edit` | no `body` and no function; it names what it last saw instead |
 | `delete` | the keys | given only when the app names it: `actions('delete')` |
 
-Keys are flat and positional, in path order:
-`epicenter vocab set serendipity --meaning "a lucky find"`. An app may take
-some verbs, or replace any with an action of its own.
+An app may take some verbs, or replace any with an action of its own.
 
-A save from outside is a change from one thing to another. `edit` says which
-text it replaces, and `set` may say which values it replaces. Either is
-refused with `ActionError.Changed` when what it names is no longer there. A
-write changes only the lines it names, so two callers changing different
-fields both land with no guard.
+**The `set` verb is the `set` method for a caller that cannot send a function, so it sends what it last saw.**
+
+```sh
+epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":"luck"},"edit":{"old":"first draft","new":"second draft"}}'
+```
+
+- `was` names the values of fields the caller last saw, `null` for one that
+  was absent.
+- `edit` is `{ old, new }`: the passage of the body the caller last saw, and
+  the text to put in its place. `old` is in the body exactly once, or is the
+  whole body, or is empty for an empty body.
+- Every guard is checked before anything is written. When one does not hold,
+  the call is refused with `ActionError.Changed` and nothing is written, not
+  the fields and not the body.
+- A write changes only the lines it names, so two callers changing different
+  fields both land with no guard.
+
+There is no `edit` verb. It was one until twelve apps were moved: three of
+them save a record's fields and notes together, and did it as `set` then
+`edit`, two writes, with words on the page for when the second was refused
+after the first had landed.
 
 For a collection with no placeholder, the `set` verb makes the file when
-there is none, as `add` would. The `set` method still refuses, so code that
+there is none, as `add` would. An `edit` needs a file to be in, so with none
+it is refused as `Missing`. The `set` method still refuses, so code that
 refreshes a sign-in cannot bring back a file a person deleted.
 
 **A key finds its file by its exact name first.**
@@ -137,9 +158,12 @@ key, because a record holds both.
 - A method and its verb no longer take the same object. The rule that they
   do is given up: the methods serve code, and the verbs serve callers that
   can send only plain data.
-- The three hand-written "replace the body" actions in Tasks, Reading, and
-  Capture become the `edit` verb with the whole body as `old`. Vocab's
-  hand-built check of each field's old value becomes `was`.
+- The hand-written "replace the body" actions in Tasks, Reading, and Capture
+  become `set` with `edit`, the whole body as `old`. Vocab's `amend`, which
+  checked each field's old value by hand, becomes `set` with `was` and
+  `edit` in one call.
+- The `set` verb is not marked idempotent: when `edit.new` holds `edit.old`,
+  a second call replaces again.
 - A change computed by a function is not checked the way plain data is: a
   `readOnly` field and a reference
   ([ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md))
@@ -157,7 +181,18 @@ key, because a record holds both.
   read. The owner chose the change that names what it replaces.
 - **`set` as a verb takes `body`.** A blind replacement of a person's text
   from a stale page.
-- **`edit` as a method.** No app calls it; code uses `set` with a function.
+- **A separate `edit` verb.** Built, then removed: a page could not save
+  fields and a passage in one write.
+- **`old` and `new` beside the fields, not inside `edit`.** JSON Schema
+  cannot say that two keys come together, so a caller would learn it from a
+  refusal.
+- **`body` under `was`, with `body` as its replacement.** One guard word. A
+  caller that sent a whole new body against one quoted passage would
+  duplicate the rest.
+- **Always-there records for a collection with no placeholder.** It would
+  remove the difference between the `set` verb and the `set` method there.
+  That difference is what stops code that refreshes a sign-in from bringing
+  back a file a person deleted.
 - **`collection.at(keys)`, returning a record with `get`, `set`, and the
   rest.** It adds a selector and a record type to separate the keys from the
   change, and would rename `add` in about 59 places.

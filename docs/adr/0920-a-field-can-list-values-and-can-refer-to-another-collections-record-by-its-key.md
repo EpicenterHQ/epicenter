@@ -2,7 +2,6 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
-- **Unbuilt:** all of it. `field` in `packages/app/src/field.ts` has `tags` and no `list` or `ref`.
 
 ## Context
 
@@ -19,8 +18,9 @@ value is checked as text and never against the collection it names.
 
 **`field.list(item)` is a list of any field.**
 
-It is optional, reads as `[]` when the line is absent, and takes a repeated
-flag on the command line. `item` is any field:
+It is never required and reads as `[]` when the line is absent. Its schema is
+an array with one annotation, `"x-epicenter-field": "list"`, which is what
+says so. `item` is any field:
 
 | Written | Means | On disk |
 | --- | --- | --- |
@@ -29,6 +29,12 @@ flag on the command line. `item` is any field:
 | `field.list(field.ref(collections))` | several records | `collections: ["essays"]` |
 
 `field.tags()` is removed. `field.list(field.text())` is the same field.
+
+`field.list(item, { min: 1 })` is a list that needs at least that many. It
+is required like any other field, its schema carries `minItems`, and an
+absent one is a missing field, since `[]` would not fit. Most lists take no
+`min`: in a record, having none is the usual state. An action that cannot
+run without one says so in its schema, where an agent reads it.
 
 **`field.ref(collection)` is the key of a record in another collection, stored as that key.**
 
@@ -43,10 +49,12 @@ const pages = defineCollection({
   `"essays"`, never a path and never `collections/essays`.
 - The target has exactly one placeholder, is not a `.local` collection, and is
   declared before the collection that refers to it.
-- `add` and `set` refuse a key that has no record in the target, and a key
-  that is not exactly the one the target's file carries, so `" essays "` is
-  refused. `update` does not check: its value comes from the app's own
-  function, as a `readOnly` field's does.
+- `add` and `set` given plain data accept a key when the target's `get`
+  finds a record and that record's key is exactly the value given. So a file
+  named by hand `Dune  Messiah.md` can be referred to by that name, and
+  `" essays "` is refused, saying to write `"essays"`. A change computed by a
+  function is not checked: its value is the app's own, as a `readOnly`
+  field's is.
 - A read returns the key and reads no other file. The target's own `get`
   follows it.
 - In an action's `input`, `field.ref(pages)` checks the key's form. The action
@@ -72,8 +80,9 @@ add meaning to a value but never stand for a value of another type.
   ([ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md)).
   Nothing rewrites them.
 - A list of objects is `field.list(Type.Object({ ... }))`, with TypeBox's own
-  `Type.Object`. It cannot be given as command-line flags and goes in as JSON.
-- 13 `field.tags()` calls in the apps become `field.list(field.text())`.
+  `Type.Object`. The apps do not have TypeBox installed, so none declares one.
+- The `field.tags()` calls in the apps became `field.list(field.text())`.
+  Finance names its accounts, institutions, and sources with `field.ref`.
 
 ## Considered alternatives
 
