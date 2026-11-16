@@ -15,6 +15,7 @@
 	},
 	"dependencies": {
 		"@epicenter/app": "workspace:*",
+		"@epicenter/theme": "workspace:*",
 		"@modelcontextprotocol/sdk": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"

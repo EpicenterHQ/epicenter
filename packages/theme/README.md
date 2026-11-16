@@ -29,3 +29,26 @@ properties.
 
 Components keep using classes such as `bg-background`, `text-foreground`,
 `bg-primary`, and `border-border`.
+
+## In an Epicenter
+
+A fresh `epicenter init` seeds the root `theme.css` when it is absent. The
+person owns that file. A UI can import it or keep its own colors. Restoring
+a home brings back its committed palette.
+
+```text
+<Epicenter>/
+  theme.css
+  apps/tasks/code/ui/src/
+    theme.css -> ../../../../../theme.css
+    app.css
+```
+
+Tasks imports the link and maps its variables to local Tailwind utilities.
+Finance imports the same link from `code/ui/style.css` and uses the variables
+directly. Each app keeps its fonts, components, and layout in `code/`.
+
+Copying committed code with `new --from` preserves the link, so it resolves
+against the receiving home's palette. Exporting writes the committed palette
+into the exported code as a regular file. Copying that export carries the
+snapshot. See the [CLI guide](../cli/README.md) for both commands.

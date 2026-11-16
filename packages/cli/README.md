@@ -6,7 +6,7 @@ all apps' code and records. Each folder in `apps/` is a stable app container:
 
 ```txt
 <Epicenter>/
-  .git/  EPICENTER.md  AGENTS.md  .gitignore  .gitattributes
+  .git/  EPICENTER.md  AGENTS.md  theme.css  .gitignore  .gitattributes
   apps/<app>/
     code/                       one Bun project
       epicenter.ts  package.json  bun.lock  README.md
@@ -462,9 +462,9 @@ Text output uses the same result. No fetch refreshes the ahead count.
 
 ## Initialize or restore an Epicenter
 
-`epicenter init [<folder>] [--port <n>]` writes `EPICENTER.md`, writes starter
-`AGENTS.md` only when absent, creates `apps/`, and makes the root a repository
-if needed. It commits only files it wrote. Existing unrelated files and index
+`epicenter init [<folder>] [--port <n>]` writes `EPICENTER.md`, seeds missing
+`theme.css` (the plain Graphite + blue palette) and starter `AGENTS.md`, creates
+`apps/`, and makes the root a repository if needed. It commits only files it wrote. Existing unrelated files and index
 entries are left for another commit.
 
 When absent, the root `.gitignore` excludes local files, node_modules,
