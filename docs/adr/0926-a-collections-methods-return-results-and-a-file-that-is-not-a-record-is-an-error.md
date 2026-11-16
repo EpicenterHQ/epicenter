@@ -1,10 +1,10 @@
 # 0926. An action returns one Result from its collections to its callers
 
-- **Status:** Accepted (2026-11-15)
+- **Status:** Accepted (2026-11-15), amended 2026-11-16
 - **Date:** 2026-11-15
 - **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) on returned failures and the wire answer, and [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) on CLI rendering and exit codes.
 - **Relates:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) on collection methods and verbs, [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) on reading fields, and [ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) on observing a run.
-- **Implementation:** CLI 0.2.0 and its bundled app package implement the decision. The [transport acceptance test](../../packages/cli/src/acceptance.result.test.ts) exercises a nested collection refusal and an app-defined error through HTTP, CLI and MCP.
+- **Releases:** 0.2.0 introduced action Results. 0.2.1 reads both host formats. 0.3.0 writes the flat host Result. The [transport acceptance test](../../packages/cli/src/acceptance.result.test.ts) compares a saved draft with a call refused before its first write.
 
 ## Context
 
@@ -125,88 +125,76 @@ Local-only collections still expose no generated verbs.
 
 ### The host answer on the wire
 
-CLI `--json` prints one host answer. MCP puts the same object in
-`structuredContent` for a tool call. For an admitted HTTP run the host
-puts the result or fault in the terminal event's `answer` field.
+The runner owns the distinction between invoking an action and declining to
+invoke it. CLI JSON prints its answer, MCP puts it in `structuredContent`,
+and HTTP puts it in the terminal event's `answer` field. Each host answer
+has exactly two own fields, `data` and `error`.
 
-| What happened | Host answer | CLI exit | MCP `isError` |
+| What the runner observed | Host answer | CLI exit | MCP `isError` |
 | --- | --- | --- | --- |
-| Action returned Ok | `{"result":{"data":["LAX"],"error":null}}` | 0 | omitted |
-| Action returned Err | `{"result":{"data":null,"error":{"name":"NoRoute","message":"No route from LAX","airport":"LAX"}}}` | 1 | true |
-| Action threw or broke its return contract | `{"fault":{"message":"Unexpected end of input"}}` (optional tagged `thrown` details) | 1 | true |
-| Host refused the call before execution | `{"error":{"name":"Usage","message":"...","next":"..."}}` (`next` optional) | 2 | true |
+| The action returned Ok | `{"data":["LAX"],"error":null}` | 0 | omitted |
+| The action returned Err | `{"data":null,"error":{"kind":"returned","reason":{"name":"NoRoute","message":"No route from LAX","airport":"LAX"}}}` | 1 | true |
+| The action threw or produced an invalid answer | `{"data":null,"error":{"kind":"fault","message":"Unexpected end of input"}}` | 1 | true |
+| The host refused to invoke the action | `{"data":null,"error":{"kind":"refused","reason":{"name":"Usage","message":"title is needed"}}}` | 2 | true |
 
-For a person the CLI renders Ok data on stdout and a failure's message and
-available next step on stderr. MCP uses that diagnostic for its failure text.
-The host catches an unexpected throw once and safely extracts its message
-and serializable tagged details. Even a thrown tagged object is a fault.
-Only an explicit returned Err represents an action's ordinary refusal.
+Only the host assigns the outer `kind`. An action can save a draft and
+forward a child's refusal. The runner labels that answer `returned` and
+preserves the entire reason, including any application-defined `kind`.
+If the caller omits required input, the host can return that same reason
+under `refused` before the draft action executes. The reason alone cannot
+tell a caller whether a write occurred.
 
-The encoder writes both `data` and `error`. At the top level `Ok(undefined)`
-becomes `{"data":null,"error":null}`. Optional object fields with undefined
-values are omitted and undefined array entries become null as in existing
-action outputs. Public errors have string `name` and `message` fields and
-JSON data chosen for the caller. Raw exceptions, cycles, bigint, and other
-values outside the JSON contract cannot be forwarded as public error fields.
-A plain return or invalid payload is an action contract fault. Use a bounded
-diagnostic that can itself be written to the wire.
-
-The decoder requires exactly one host alternative. A Result has exactly the
-two own fields `data` and `error`. Ok requires a null error. An Err
-requires null data and a tagged error object. A platform error carrying the
-Epicenter namespace must pass its variant's field checks. An app's
-`defineErrors` variant keeps its own name and JSON fields. The client checks
-the common tagged shape. As with Ok data, app-specific field types come from
-the paired action declaration. A consumer of an unknown app validates any
-extra fields it uses. A value such as `Ok({ data: null, error: "old" })`
-remains ordinary success data. Only the action's outer Result is interpreted.
+A fault can carry a JSON-safe tagged exception in `thrown`. Returned
+errors preserve the public `name`, `message` and JSON fields. The CLI
+prints success data on stdout or a diagnostic and available next step
+on stderr. Top-level `Ok(undefined)` and `Ok(null)` both encode as
+`{"data":null,"error":null}`. An object inside `data` keeps its own shape.
+An invalid action Result or an unserializable payload produces a bounded fault.
 
 ### HTTP and replay
 
-`POST /.runs/<app>/<action>/<id>` admits the run or joins it. An admitted run
-streams HTTP 200 NDJSON, including when the action declines. A finished
-event looks like this:
+`POST /.runs/<app>/<action>/<id>` admits or joins a run. A successful
+admission streams HTTP 200 NDJSON. For example, the action can decline
+after yielding progress:
 
 ```json
-{"seq":3,"at":"2026-11-15T12:00:00Z","type":"finished","answer":{"result":{"data":null,"error":{"name":"NoRoute","message":"No route from LAX","airport":"LAX"}}}}
+{"seq":3,"at":"2026-11-16T12:00:00Z","type":"finished","answer":{"data":null,"error":{"kind":"returned","reason":{"name":"NoRoute","message":"No route from LAX","airport":"LAX"}}}}
 ```
 
-`connect()` and `runs.start(...).result()` expose that Result directly. For
-an action returning `Result<T, E>`, the browser sees the JSON form of `T`
-on success and the JSON form of `E` or a platform error on failure. The
-client maps `fault` to `Threw` and a definitive admission refusal to
-`Refused`. A rejected admission keeps its existing HTTP status and body with
-`admitted: false`. A refusal to attach another observer to an existing run
-can carry `admitted: true`. A malformed
-answer or a lost connection can give the observer `Unreachable`. Stopping
-observation can give it `Stopped` while the action continues. The envelope
-and run events establish what happened to this call. A reason forwarded
-from a dependency says nothing about which writes persisted.
+A definitive admission refusal returns the flat Result as the HTTP body,
+keeps the HTTP error status and sets `X-Epicenter-Admitted: false`.
+A refused observer attachment can carry `X-Epicenter-Admitted: true`:
+the run already exists. An observer failing to attach receives a transport
+diagnostic. Losing the response after submission leaves the outcome unknown.
+Observe the same run ID to learn what happened. Stopping observation can
+leave the action running.
 
-Replay by run ID delivers the recorded terminal event without invoking the
-action again. When an executing host cannot store an answer, including one
-that exceeds the event log limit, record a bounded `interrupted` event where
-possible. The observer then has no action answer. Delete uploaded input bytes
-after a durable Ok. Retain them after an Err, fault or interruption until
-the existing expiry.
+`connect()` and `runs.start(...).result()` expose the action's Result.
+They unwrap `returned.reason`, map faults to `Threw` and definitive
+admission refusals to `Refused`. A malformed answer or lost connection can
+give the observer `Unreachable`. Inspect the host answer to distinguish a
+returned platform refusal from one issued by this host.
+
+Replay delivers recorded events without invoking the action again. If
+the executing host cannot store an answer, it records a bounded
+`interrupted` event where possible. Delete uploaded input bytes after a
+durable Ok. Retain them after a returned Err, fault or interruption until
+expiry.
 
 ### Cutover
 
-New writers emit `result`, `fault` or the existing pre-run `error`. A new
-reader also understands answers already in the run store. An old
-`{ returned: value }` decodes as `Ok(value)`, even when the saved value has
-`data` and `error` keys. An old `{ threw: ... }` keeps ADR-0914's handling
-of marked errors and tagged throws. The distinct `fault` key lets a new
-throw of a marked error be reported as a crash without reclassifying past
-runs. Keep historical events as written.
+Deploy dual-format readers before enabling flat writers. Rebuild the app
+pages with the new client and update raw CLI consumers, including routines.
+Readers accept the 0.2.0 `{result}`, `{fault}` and `{error}` shapes, including
+the HTTP admission marker in old response bodies. They also accept the
+earlier `{returned: value}` and `{threw: ...}` events with ADR-0914's original
+meaning. A historical returned value that resembles a Result remains success
+data. Keep stored events as written.
 
-Ship the Result-aware runner, carried app package, generated actions and
-migrated app declarations together. Migrated apps declare the first
-Result-aware runtime in `engines.epicenter`. Rebuild the page clients and update
-consumers of CLI JSON and MCP structured output. An already-open old client
-reports an unfamiliar answer as invalid. Reload the updated page and
-observe the existing run ID when available. Reconcile persisted state before
-repeating an action whose effects are uncertain.
+A page already open before the reader release still executes the code it
+loaded. Reload that page and observe its existing run ID after a wire
+upgrade. Check persisted state before repeating work with an uncertain
+outcome.
 
 ## Consequences
 

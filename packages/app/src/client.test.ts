@@ -314,3 +314,120 @@ test('new finishes keep returned errors distinct from faults and legacy data', a
 		expect(expectErr(await app.count()).name).toBe('Unreachable');
 	}
 });
+
+test('flat answers preserve data and distinguish returned reasons, faults, and refusals', async () => {
+	const missing = ActionError.Missing({ path: 'data/notes/a.md' }).error;
+	for (const data of [null, { data: null, error: missing }]) {
+		respond({ data, error: null });
+		expect<unknown>(expectOk(await app.count())).toEqual(data);
+	}
+	for (const reason of [
+		missing,
+		{ name: 'Unavailable', message: 'offline', retry: 5 },
+	]) {
+		respond({ data: null, error: { kind: 'returned', reason } });
+		expect<unknown>(expectErr(await app.count())).toEqual(reason);
+	}
+	respond({
+		data: null,
+		error: { kind: 'fault', message: 'failed', thrown: missing },
+	});
+	expect(expectErr(await app.count())).toMatchObject({
+		name: 'Threw',
+		message: 'failed',
+		thrown: missing,
+	});
+	respond({
+		data: null,
+		error: {
+			kind: 'refused',
+			reason: {
+				name: 'Usage',
+				message: 'unknown action',
+				next: 'list actions',
+				detail: 7,
+			},
+		},
+	});
+	expect(expectErr(await app.count())).toMatchObject({
+		name: 'Refused',
+		message: 'unknown action',
+		next: 'list actions',
+	});
+});
+
+test('malformed flat answers preserve the run identity', async () => {
+	const reason = { name: 'Blocked', message: 'blocked' };
+	for (const answer of [
+		{ data: null },
+		{ error: { kind: 'returned', reason } },
+		{ data: 1, error: { kind: 'returned', reason } },
+		{ data: 1, error: null, returned: 1 },
+		{ data: null, error: { kind: 'returned', reason: null } },
+		{
+			data: null,
+			error: {
+				kind: 'returned',
+				reason: {
+					namespace: 'epicenter/action-error',
+					name: 'Missing',
+					message: 'missing',
+				},
+			},
+		},
+		{ data: null, error: { kind: 'fault', message: 'failure', thrown: 7 } },
+		{ data: null, error: { kind: 'refused', reason: { ...reason, next: 1 } } },
+		{ data: null, error: { kind: 'refused', reason, extra: 1 } },
+		{ data: null, error: { kind: 'unknown', reason } },
+	]) {
+		respond(answer);
+		expect(expectErr(await app.count())).toMatchObject({
+			name: 'Unreachable',
+			run: { action: 'count' },
+		});
+	}
+});
+
+test('admission headers distinguish a denied run from a denied observer', async () => {
+	const reason = { name: 'Busy', message: 'try later', next: 'retry' };
+	const refused = { data: null, error: { kind: 'refused', reason } };
+	for (const admitted of ['true', 'false']) {
+		const urls: string[] = [];
+		globalThis.fetch = (async (
+			url: string | URL | Request,
+			init?: RequestInit,
+		) => {
+			urls.push(String(url));
+			if (init?.method === 'POST')
+				return Response.json(refused, {
+					status: 429,
+					headers: { 'x-epicenter-admitted': admitted },
+				});
+			return new Response(
+				line(1, { type: 'finished', answer: { data: 'done', error: null } }),
+			);
+		}) as unknown as typeof fetch;
+		const result = await app.count();
+		if (admitted === 'false') {
+			expect(expectErr(result)).toMatchObject({
+				name: 'Refused',
+				message: reason.message,
+				next: reason.next,
+			});
+			expect(urls).toHaveLength(1);
+		} else {
+			expect(expectOk(result)).toBe('done');
+			expect(urls).toHaveLength(2);
+			expect(urls[1]).toBe(`${urls[0]}/events?after=0`);
+		}
+	}
+	globalThis.fetch = (async () =>
+		Response.json(
+			{ ...refused, admitted: false },
+			{ status: 503, headers: { 'x-epicenter-admitted': 'false' } },
+		)) as unknown as typeof fetch;
+	expect(expectErr(await app.count())).toMatchObject({
+		name: 'Unreachable',
+		run: { action: 'count' },
+	});
+});

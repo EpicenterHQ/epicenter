@@ -202,32 +202,100 @@ function isTaggedError(
 	);
 }
 
+type Identity = { app: string; action: string; id: string };
+
+function invalidAnswer(run: Identity) {
+	return ActionError.Unreachable({
+		message: 'Epicenter sent an invalid answer',
+		run,
+	});
+}
+
+/** The host refused to run an action or to attach an observer. */
+function flatRefusal(reason: unknown, run: Identity) {
+	if (!isTaggedError(reason)) return invalidAnswer(run);
+	const { message, next } = reason;
+	if (
+		(next !== undefined && typeof next !== 'string') ||
+		(reason.namespace === 'epicenter/action-error' && !isActionError(reason))
+	)
+		return invalidAnswer(run);
+	return ActionError.Refused({ message, next });
+}
+
+function flatAnswer(
+	answer: Record<string, unknown>,
+	run: Identity,
+): Result<unknown, PublicError> {
+	if (
+		Object.keys(answer).length !== 2 ||
+		!Object.hasOwn(answer, 'data') ||
+		!Object.hasOwn(answer, 'error')
+	)
+		return invalidAnswer(run);
+	const failure = answer.error;
+	if (failure === null) return Ok(answer.data);
+	if (answer.data !== null || !isObject(failure)) return invalidAnswer(run);
+	switch (failure.kind) {
+		case 'returned': {
+			if (
+				Object.keys(failure).length !== 2 ||
+				!Object.hasOwn(failure, 'reason')
+			)
+				return invalidAnswer(run);
+			const result = { data: null, error: failure.reason };
+			return isActionResult(result) && result.error !== null
+				? result
+				: invalidAnswer(run);
+		}
+		case 'fault': {
+			const { message, thrown } = failure;
+			if (
+				typeof message !== 'string' ||
+				(thrown !== undefined && !isTaggedError(thrown)) ||
+				Object.keys(failure).some(
+					(key) => key !== 'kind' && key !== 'message' && key !== 'thrown',
+				)
+			)
+				return invalidAnswer(run);
+			return ActionError.Threw({ message, thrown });
+		}
+		case 'refused':
+			return Object.keys(failure).length === 2
+				? flatRefusal(failure.reason, run)
+				: invalidAnswer(run);
+		default:
+			return invalidAnswer(run);
+	}
+}
+
 /** Validate serve's terminal answer; the action owns the shape of its returned value. */
 function answered(
 	answer: unknown,
 	run: { app: string; action: string; id: string },
 ): Result<unknown, PublicError> {
-	const invalid = () =>
-		ActionError.Unreachable({
-			message: 'Epicenter sent an invalid answer',
-			run,
-		});
-	if (!isObject(answer)) return invalid();
+	if (!isObject(answer)) return invalidAnswer(run);
+	if (
+		Object.hasOwn(answer, 'data') ||
+		(isObject(answer.error) && Object.hasOwn(answer.error, 'kind'))
+	)
+		return flatAnswer(answer, run);
 	if (
 		['result', 'fault', 'returned', 'threw', 'error'].filter((key) =>
 			Object.hasOwn(answer, key),
 		).length !== 1
 	)
-		return invalid();
+		return invalidAnswer(run);
 	if ('result' in answer)
-		return isActionResult(answer.result) ? answer.result : invalid();
+		return isActionResult(answer.result) ? answer.result : invalidAnswer(run);
 	if ('returned' in answer) return Ok(answer.returned);
 	if ('threw' in answer || 'fault' in answer) {
 		const failure = 'fault' in answer ? answer.fault : answer.threw;
 		if (!isObject(failure) || typeof failure.message !== 'string')
-			return invalid();
+			return invalidAnswer(run);
 		const { thrown } = failure;
-		if (thrown !== undefined && !isTaggedError(thrown)) return invalid();
+		if (thrown !== undefined && !isTaggedError(thrown))
+			return invalidAnswer(run);
 		return 'threw' in answer && isActionError(thrown)
 			? Err(thrown)
 			: ActionError.Threw({ message: failure.message, thrown });
@@ -238,12 +306,30 @@ function answered(
 		typeof failure.message !== 'string' ||
 		(failure.next !== undefined && typeof failure.next !== 'string')
 	)
-		return invalid();
+		return invalidAnswer(run);
 	return ActionError.Refused({ message: failure.message, next: failure.next });
 }
 
-type Identity = { app: string; action: string; id: string };
-function responseError(response: Response, body: unknown): ActionError {
+function responseError(
+	response: Response,
+	body: unknown,
+	run: Identity,
+): ActionError {
+	if (
+		isObject(body) &&
+		(Object.hasOwn(body, 'data') ||
+			(isObject(body.error) && Object.hasOwn(body.error, 'kind')))
+	) {
+		if (
+			Object.keys(body).length !== 2 ||
+			body.data !== null ||
+			!isObject(body.error) ||
+			body.error.kind !== 'refused' ||
+			Object.keys(body.error).length !== 2
+		)
+			return invalidAnswer(run).error;
+		return flatRefusal(body.error.reason, run).error;
+	}
 	if (
 		isObject(body) &&
 		isObject(body.error) &&
@@ -418,6 +504,7 @@ export function createRun({
 							responseError(
 								response,
 								await response.json().catch(() => undefined),
+								run,
 							),
 						);
 						return;
@@ -452,14 +539,17 @@ export function createRun({
 						const marker: unknown = await response
 							.json()
 							.catch(() => undefined);
-						const admitted = isObject(marker) ? marker.admitted : undefined;
+						const header = response.headers.get('x-epicenter-admitted');
+						const legacy = isObject(marker) ? marker.admitted : undefined;
 						if (
-							admitted === false ||
-							(admitted !== true &&
+							header === 'false' ||
+							(header === null && legacy === false) ||
+							(header === null &&
+								legacy === undefined &&
 								response.status >= 400 &&
 								response.status < 500)
 						)
-							fail(responseError(response, marker));
+							fail(responseError(response, marker, run));
 						void response.body?.cancel().catch(() => {});
 					}
 				} catch {

@@ -97,9 +97,10 @@ try {
 			folder,
 		),
 	);
-	if (answer.result?.error !== null)
+	const result = answer.result ?? answer;
+	if (result.error !== null)
 		throw new Error('writing add did not return Ok');
-	const added = answer.result.data;
+	const added = result.data;
 	const record = join(folder, 'apps/writing', added.path);
 	const before = await readFile(record, 'utf8');
 	await run(['sh', '-c', 'curl -fsSL "$EPICENTER_INSTALLER_URL" | sh']);
