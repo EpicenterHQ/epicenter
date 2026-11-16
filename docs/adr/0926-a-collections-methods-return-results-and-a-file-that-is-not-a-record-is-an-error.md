@@ -1,9 +1,10 @@
-# 0926. A collection's methods return Results, and a file that is not a record is an error
+# 0926. An action returns one Result from its collections to its callers
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-15)
 - **Date:** 2026-11-15
-- **Amends:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md): what each method returns, `need`, and a collection with no placeholder; [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md): `problems` on a record, and the rule for a change a function computes; [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md): one more variant, and what a returned error is on the wire.
-- **Unbuilt:** all of it. Every collection method throws, `get` returns a record with `problems`, and `need` is on the branch.
+- **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) on returned failures and the wire answer, and [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) on CLI rendering and exit codes.
+- **Relates:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) on collection methods and verbs, [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) on reading fields, and [ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) on observing a run.
+- **Unbuilt:** the collection Results, mandatory action return type, new wire answers and client decoding. Today actions can return plain values.
 
 ## Context
 
@@ -26,120 +27,197 @@ Twelve apps were moved to the package, and their code makes 21 single reads:
 The apps also refuse ordinary requests with `throw new Error(...)`, about
 200 times. A caller receives each as `Threw`, the same name a crash gets.
 
-The rest of the monorepo already carries an ordinary failure as a
-wellcrafted `Result`. A page receives one from every action it calls. The
-collection's methods are the part that throws.
+A test against the current runner made an action return
+`ActionError.Changed({ path: 'notes/a.md', why: 'quote' })`. Its fields survived
+JSON. The [runner](../../packages/cli/src/run.ts) put the Err in
+`{ returned: ... }`, the [browser client](../../packages/app/src/run-client.ts)
+produced `Ok(Err(Changed))`, the CLI exited 0, and MCP reported success.
 
 ## Decision
 
-**A read returns a `Result`. Its value is the record, or `undefined` when there is no file. Its error is a file that is not a record.**
+### One Result per action call
+
+Every action's `run` returns a Wellcrafted `Result<T, E>`, directly or through
+a promise. A generator yields progress values and returns one final Result.
+An action that succeeds with no value returns `Ok(undefined)`. This contract
+covers handwritten actions, generated verbs and calls from one action to
+another. The action declaration checks the return type. At runtime a direct
+call and the runner both check the final Result shape. JSON encoding happens
+only when an answer crosses a transport. Plain helpers keep the return type
+their work requires.
+
+A Flights action can pass a collection read straight through. A second action
+that needs departure airports adds the one refusal that belongs to it:
 
 ```ts
-const { data: watch, error } = await watches.get({ name });
-if (error) return Err(error);      // or show error.problems, or recover
-if (!watch) return ActionError.Missing({ path: watches.pathOf({ name }) });
-watch.from;                        // string[]
+const lookup = defineAction({
+  description: 'Look up a watch',
+  input: { name: field.text() },
+  run: ({ name }) => watches.get({ name }),
+});
+
+const departures = defineAction({
+  description: 'List the departure airports for a watch',
+  input: { name: field.text() },
+  async run({ name }) {
+    const read = await lookup({ name });
+    if (read.error !== null) return read;
+    if (read.data === undefined)
+      return ActionError.Missing({ path: watches.pathOf({ name }) });
+    return Ok(read.data.from);
+  },
+});
 ```
 
-| The file | `get` returns |
+A malformed watch reaches both callers as the original `Err(Misfit)`. Direct
+calls share the enclosing run's folder, lock and cancellation signal. Only
+the outer call creates a host answer. A caller that depends on a write must
+check or forward its Result before continuing. An ignored `await set(...)`
+can now continue after a refusal that previously threw. An async generator
+can likewise `return read` on failure after yielding progress. Earlier yields
+and writes stand.
+
+### Collections
+
+| Operation | Outcome |
 | --- | --- |
-| is not there | `Ok(undefined)` |
-| is a record | `Ok(record)`, with every field its type |
-| has a value that does not fit, or front matter that cannot be read | `Err(ActionError.Misfit)` |
+| `get(keys)` | `Ok(record)` with every field of its declared type, `Ok(undefined)` for an absent keyed file, or `Err(Misfit)` for a file that cannot be read as a record. |
+| `list()` | One Result per file in path order. `partitionResults` separates records from files to repair. |
+| `add(record)` | `Ok(record)` after creation. `Refused` if the file exists or the supplied record does not fit. |
+| `set(keys, change)` | `Ok(record)` after the change. A missing keyed file gives `Missing`. |
+| `update(keys, fn)` | `Ok(record)` after updating or creating. An absent keyed file passes `undefined` to the function. |
+| `delete(keys)` | A boolean indicating whether a file existed. Its action wraps the boolean in `Ok`. |
 
-A record no longer has `problems`. Code cannot read a field of a file that
-did not parse, because it does not have one until it has looked at the
-error. `need` and `FittingRecordOf` are removed.
+A computed write can see only a fitting record or permitted absence. A
+malformed file gives `Misfit` before the callback runs. A callback can
+decline with its own Err, which the write forwards before replacing the
+file. Both writers return `Refused` for invalid supplied values and
+`Changed` for a failed concurrency guard. A plain patch can repair a file
+with readable front matter. Validate the resulting record before replacing
+the file. If other fields still need repair, return a `Misfit` describing the
+stored file so the caller can submit the complete patch. Unreadable front matter requires a file
+edit. This removes `need`, `FittingRecordOf`, `problems` on valid records,
+and per-field tracking for computed writes.
 
-**`ActionError.Misfit` carries what a person needs to repair the file.**
+A keyless collection represents one record, even before its file exists.
+Its fields must permit an empty file. `get()` then returns `Ok(record)`,
+`set` can create its file, and it has no `add`. A sign-in refresh that
+depends on the old token must compare it at the write, including when the
+file has since been deleted.
 
-Its fields are `path`, `problems` (each with its line number and its words,
-as `epicenter check` prints them), and `record`: the keys, the body, and each
-field that did fit, absent when the front matter could not be read. A page
-draws its repair form from that.
+`ActionError.Misfit` carries the path and the problems reported by
+`epicenter check` (the diagnostic text and its kind, with a source line
+when known). For a non-local file with readable front matter it includes `record`,
+the keys, body and fields that fit, for a repair form. For a `.local` path the collection
+omits `record` and constructs all messages and problems without quoting file
+values or body text. Write refusals follow the same rule. This applies when the error is created, so forwarding
+it to an enclosing action, a saved run or MCP cannot disclose a valid token
+beside a malformed field. Unreadable front matter also has no partial record.
 
-**`list()` returns one `Result` per file.**
+The generated `get` verb requests a specific record. It forwards `Misfit`
+and turns an absent keyed record into `Missing`. The `list` verb returns
+`Ok(rows)`, with one Result per file and bodies omitted from both successful
+rows and partial records. The outer Ok means enumeration completed. One bad
+file remains visible beside the good rows. `add` and `set` forward their
+write Results. The `set` verb keeps its JSON `was` and `edit` guards.
+Local-only collections still expose no generated verbs.
 
-`partitionResults` from wellcrafted splits them into the records and the
-files that are not records. One bad file does not fail the list, and code
-that drops the bad ones has written that it did.
+### The host answer on the wire
 
-**A write returns a `Result`.**
+CLI `--json` prints one host answer. MCP puts the same object in
+`structuredContent` for a tool call. For an admitted HTTP run the host
+puts the result or fault in the terminal event's `answer` field.
 
-| Method | Errors |
-| --- | --- |
-| `add(record)` | `Refused` when a file is already there, or what was given does not fit |
-| `set(keys, change)` | `Missing`, `Misfit` when given a function, `Refused` when what was given does not fit, `Changed` |
-| `update(keys, fn)` | `Misfit`, `Refused`, `Changed` |
-| `delete(keys)` | none; it returns `true` or `false` |
+| What happened | Host answer | CLI exit | MCP `isError` |
+| --- | --- | --- | --- |
+| Action returned Ok | `{"result":{"data":["LAX"],"error":null}}` | 0 | omitted |
+| Action returned Err | `{"result":{"data":null,"error":{"name":"NoRoute","message":"No route from LAX","airport":"LAX"}}}` | 1 | true |
+| Action threw or broke its return contract | `{"fault":{"message":"Unexpected end of input"}}` (optional tagged `thrown` details) | 1 | true |
+| Host refused the call before execution | `{"error":{"name":"Usage","message":"...","next":"..."}}` (`next` optional) | 2 | true |
 
-A function given to `set` or `update` is only ever given a record, so a file
-that is not one returns `Misfit` before the function runs. Plain data may
-still be written to such a file, which is how it is repaired. The function
-may return an `Err` of its own to refuse, and the write returns it having
-written nothing. The rule that a function may not write a field that did not
-fit is removed, with the tracking behind it.
+For a person the CLI renders Ok data on stdout and a failure's message and
+available next step on stderr. MCP uses that diagnostic for its failure text.
+The host catches an unexpected throw once and safely extracts its message
+and serializable tagged details. Even a thrown tagged object is a fault.
+Only an explicit returned Err represents an action's ordinary refusal.
 
-**A collection with no placeholder is one record that is always there.**
+The encoder writes both `data` and `error`. At the top level `Ok(undefined)`
+becomes `{"data":null,"error":null}`. Optional object fields with undefined
+values are omitted and undefined array entries become null as in existing
+action outputs. Public errors have string `name` and `message` fields and
+JSON data chosen for the caller. Raw exceptions, cycles, bigint, and other
+values outside the JSON contract cannot be forwarded as public error fields.
+A plain return or invalid payload is an action contract fault. Use a bounded
+diagnostic that can itself be written to the wire.
 
-A missing `data/settings.md` is that record with nothing in it. `get()`
-returns `Ok(record)` whether or not the file exists, and `set` writes the
-file. It has no `add`, and none of its fields may be required. The `set`
-verb and the `set` method no longer differ there.
+The decoder requires exactly one host alternative. A Result has exactly the
+two own fields `data` and `error`. Ok requires a null error. An Err
+requires null data and a tagged error object. A platform error carrying the
+Epicenter namespace must pass its variant's field checks. An app's
+`defineErrors` variant keeps its own name and JSON fields. The client checks
+the common tagged shape. As with Ok data, app-specific field types come from
+the paired action declaration. A consumer of an unknown app validates any
+extra fields it uses. A value such as `Ok({ data: null, error: "old" })`
+remains ordinary success data. Only the action's outer Result is interpreted.
 
-**An action's `run` may return a `Result`, and an `Err` is how it declines.**
+### HTTP and replay
 
-`Ok(value)` answers with the value. `Err(error)` is carried as a thrown
-tagged error is today, so the wire envelope does not change. An
-`ActionError` reaches the caller as itself. An error an app defines with
-`defineErrors` reaches it as `Refused`, with its name and fields kept, where
-a thrown one stays `Threw`. So `Threw` means the action broke, and `Refused`
-means it said no.
+`POST /.runs/<app>/<action>/<id>` admits the run or joins it. An admitted run
+streams HTTP 200 NDJSON, including when the action declines. A finished
+event looks like this:
 
-**App code does not call `unwrap` on these.** It destructures, and the branch
-on `error` is where it says what it does about the failure.
+```json
+{"seq":3,"at":"2026-11-15T12:00:00Z","type":"finished","answer":{"result":{"data":null,"error":{"name":"NoRoute","message":"No route from LAX","airport":"LAX"}}}}
+```
 
-## What still throws
+`connect()` and `runs.start(...).result()` expose that Result directly. For
+an action returning `Result<T, E>`, the browser sees the JSON form of `T`
+on success and the JSON form of `E` or a platform error on failure. The
+client maps `fault` to `Threw` and a definitive admission refusal to
+`Refused`. A rejected admission keeps its existing HTTP status and body with
+`admitted: false`. A refusal to attach another observer to an existing run
+can carry `admitted: true`. A malformed
+answer or a lost connection can give the observer `Unreachable`. Stopping
+observation can give it `Stopped` while the action continues. The envelope
+and run events establish what happened to this call. A reason forwarded
+from a dependency says nothing about which writes persisted.
 
-- A definition that is wrong: `defineCollection`, `defineAction`, and
-  `defineApp` throw when loaded, as they do now. That is a mistake in the
-  app's code, found before anything runs.
-- A bug. An unexpected throw is not turned into an `Err`.
-- `try` with `finally` stays where it owns cleanup. Of about 310 `try`
-  blocks in the package, the command, and the apps, about 96 have one.
+Replay by run ID delivers the recorded terminal event without invoking the
+action again. When an executing host cannot store an answer, including one
+that exceeds the event log limit, record a bounded `interrupted` event where
+possible. The observer then has no action answer. Delete uploaded input bytes
+after a durable Ok. Retain them after an Err, fault or interruption until
+the existing expiry.
+
+### Cutover
+
+New writers emit `result`, `fault` or the existing pre-run `error`. A new
+reader also understands answers already in the run store. An old
+`{ returned: value }` decodes as `Ok(value)`, even when the saved value has
+`data` and `error` keys. An old `{ threw: ... }` keeps ADR-0914's handling
+of marked errors and tagged throws. The distinct `fault` key lets a new
+throw of a marked error be reported as a crash without reclassifying past
+runs. Keep historical events as written.
+
+Ship the Result-aware runner, carried app package, generated actions and
+migrated app declarations together. Migrated apps declare the first
+Result-aware runtime in `engines.epicenter`. Rebuild the page clients and update
+consumers of CLI JSON and MCP structured output. An already-open old client
+reports an unfamiliar answer as invalid. Reload the updated page and
+observe the existing run ID when available. Reconcile persisted state before
+repeating an action whose effects are uncertain.
 
 ## Consequences
 
-- One read serves code that computes, code that hands a record to a page,
-  and a survey. Before, each had its own: `need`, `get`, and a filter on
-  `problems`.
-- Every read and write in the 12 apps changes shape, and each gains a branch
-  on `error`. That is the same pass that moves their pages to one `set` call.
-- A function write is refused when any value in the file does not fit, not
-  only the values it writes. A hand-written action over a collection with
-  many such files refuses them until they are repaired.
-- An app's own refusals become defined errors it returns. This is done one
-  app at a time, after the package: Mail has 97 such throws, Flights 59,
-  Zhongwen 25.
-- `packages/cli/src` is not converted here. Most of its 109 `try` blocks
-  guard processes, locks, and sockets.
-- Not decided here: whether the `get` and `list` verbs answer a file that is
-  not a record as `Misfit` too. Until then they answer as they do now, a
-  record with `problems`, built from the error.
+A caller that needs the same answer can return the callee's Result. Branches
+belong where a caller recovers, changes the meaning of absence, or presents
+a failure. Infallible actions now write `Ok(value)`. Audit nested calls that
+discard a Result, including writes in generator actions. Definition errors
+still throw at app load. Filesystem adaptation, retry loops, lock release
+and generator cleanup keep the exception handling their dependencies require.
 
 ## Considered alternatives
 
-- **A `get` that throws on a file that does not fit.** One line for code
-  that computes. Code that shows the file to a person then needs a second,
-  tolerant read, and the choice between them is made by which name was typed.
-- **Keep `need` beside a tolerant `get`.** It protects the 7 reads that
-  require the record and leaves the 14 that do not.
-- **`unwrap` in each action.** It is the same as throwing, written shorter.
-  The branch it hides is the one place the action says what it does about a
-  bad file.
-- **`Missing` as an error from `get`.** 13 of 21 reads treat an absent file
-  as ordinary.
-- **Convert every `try` and `throw`.** A wrong definition and a bug are not
-  ordinary failures, and cleanup needs `finally`.
-- **A separate error family for collections.** ADR-0914 gave producers and
-  clients one. `Misfit` joins it.
+- Allowing both plain values and Results would give a valid business object with `data` and `error` keys two meanings.
+- Sending refusals through `threw` would require the client to reconstruct the distinction the runner already observed. Wrapping every app error in `Refused` would also hide the error name callers use to recover.
+- Keeping a tolerant `get` beside a strict `need` would protect only callers that require a record. Both optional and required reads need to distinguish a missing file from a malformed one.

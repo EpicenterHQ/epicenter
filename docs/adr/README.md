@@ -1141,4 +1141,4 @@ When you add an ADR, add its row here.
 | [0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) | A read gives only what the file holds, and no field has a default | Proposed |
 | [0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) | Front matter is `key: <JSON>` lines, each read on its own, and no YAML is read | Proposed |
 | [0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) | An action's input on the command line is one JSON object | Proposed (amends 0841 and 0907) |
-| [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | A collection's methods return Results, and a file that is not a record is an error | Proposed (amends 0914, 0918, and 0923) |
+| [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | An action returns one Result from its collections to its callers | Accepted (amends 0850 and 0914) |
