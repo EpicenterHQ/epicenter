@@ -49,11 +49,9 @@ const search = defineAction({
 	annotations: { readOnlyHint: true, openWorldHint: false },
 	run: async ({ query = '', project }) => {
 		const found = [];
-		for (const row of (await notes.list()).reverse()) {
-			if (project !== undefined && row.project !== project) continue;
-			const note = await notes.get(row);
+		for (const note of (await notes.list()).reverse()) {
+			if (project !== undefined && note.project !== project) continue;
 			if (
-				note &&
 				[note.body, note.source, note.project]
 					.join('\n')
 					.toLowerCase()
