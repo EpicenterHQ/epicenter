@@ -481,7 +481,8 @@ older than seven days are pruned. `runs.pending(action)` lists this action's
 receipts; `pendingRuns({ app })` lists across actions. Ordinary calls keep the
 id in memory and do not write browser storage.
 
-`events({ after, signal })` replays events after a cursor. `result({ onYield,
+`events({ signal })` replays the run from the beginning. The SDK manages
+reconnect offsets internally. `result({ onYield,
 signal })` waits for the answer and delivers yields in order. An aborted
 observer, a closed tab, or a throwing callback stops observation only.
 `run.cancel()` requests cooperative cancellation, which does not establish
