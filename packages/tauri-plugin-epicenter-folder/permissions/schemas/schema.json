@@ -295,18 +295,6 @@
       "type": "string",
       "oneOf": [
         {
-          "description": "Enables the data_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-data-record",
-          "markdownDescription": "Enables the data_record command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the data_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-data-record",
-          "markdownDescription": "Denies the data_record command without any pre-configured scope."
-        },
-        {
           "description": "Enables the list_epicenter command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-epicenter",
@@ -403,10 +391,10 @@
           "markdownDescription": "Denies the root_identity command without any pre-configured scope."
         },
         {
-          "description": "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-root-identity`\n- `allow-data-record`",
+          "description": "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, and read an open root's identity.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-root-identity`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-root-identity`\n- `allow-data-record`"
+          "markdownDescription": "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, and read an open root's identity.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-root-identity`"
         },
         {
           "description": "List the Epicenter folder the shell named, and make a folder in it.\n#### This permission set includes:\n\n- `allow-list-epicenter`\n- `allow-make-epicenter-folder`",

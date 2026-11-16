@@ -3,7 +3,7 @@
 # Granting this to a window lets it call the plugin. It names no folder: a
 # page reaches the roots the shell named at startup, by name.
 [default]
-description = "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root."
+description = "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, and read an open root's identity."
 permissions = [
   "allow-open-root",
   "allow-reveal-root",
@@ -11,7 +11,6 @@ permissions = [
   "allow-read-folder-file",
   "allow-put-folder-file",
   "allow-root-identity",
-  "allow-data-record",
 ]
 
 # The Epicenter app's own: list the Epicenter folder, whose directories open

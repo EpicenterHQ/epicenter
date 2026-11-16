@@ -57,22 +57,6 @@ export const commands = {
 	 */
 	birthtime: string | null,
 } | null, FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|root_identity", { root })),
-	/**
-	 *  The record Epicenter keeps for the open Data root, read from the
-	 *  Epicenter folder's `.epicenter/synced/` (`records::proving`): the one
-	 *  whose inode and birth time prove the folder's, when both have a real
-	 *  birth time. Null when there is none, as for a folder Epicenter does not
-	 *  sync. Nothing is written.
-	 */
-	dataRecord: () => typedError<{
-	folder: string,
-	name: string,
-	inode: string,
-	birthtime: string | null,
-	cursor: string | null,
-	/**  Folder-relative path to version: the SHA-256 of its bytes. */
-	files: { [key in string]: string },
-} | null, FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|data_record")),
 };
 
 /* Types */
@@ -141,21 +125,6 @@ export type FolderIdentity = {
 	 *  absent where the file system records none.
 	 */
 	birthtime: string | null,
-};
-
-/**
- *  What Epicenter last agreed with the server for one folder: which server
- *  folder it is, its name, the identity of the directory that agreed it,
- *  the point of its log agreed, and each file's version then.
- */
-export type FolderRecord = {
-	folder: string,
-	name: string,
-	inode: string,
-	birthtime: string | null,
-	cursor: string | null,
-	/**  Folder-relative path to version: the SHA-256 of its bytes. */
-	files: { [key in string]: string },
 };
 
 /**

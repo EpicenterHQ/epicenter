@@ -150,12 +150,8 @@ test('the capabilities are made once, in app.ts', () => {
 		expect(callers(name)).toEqual(['lib/app.ts']);
 });
 
-/** What only the views of a folder on this computer use of `@epicenter/svelte`: its sync and onboarding. */
-const FOLDER_SVELTE = [
-	'@epicenter/svelte/folder-onboarding',
-	'@epicenter/svelte/folder-sync',
-	'@epicenter/svelte/folder-sync-actions',
-];
+/** What only the views of a folder on this computer use of `@epicenter/svelte`: its onboarding. */
+const FOLDER_SVELTE = ['@epicenter/svelte/folder-onboarding'];
 
 test('the page imports no Yjs store, sync, history, or store module', () => {
 	expect(

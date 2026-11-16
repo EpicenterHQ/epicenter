@@ -232,12 +232,11 @@ microphone, is this computer's settings (`settings` from `@epicenter/local`:
 files in AppData, written only by the shell), which the page connects to
 beside the folder. A failed open shows the shared recovery screen with
 Retry. The
-status details and Settings show the shell's folder path, and whether
-Epicenter syncs the folder, with where to get Epicenter until it does.
-Whispering never syncs it
+status details and Settings show the shell's folder path. Whispering never
+syncs it
 ([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)),
-and nothing else does while the folder sync product waits
-([ADR-0840](../../docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
+and the folder sync product that once did is retired
+([ADR-0899](../../docs/adr/0899-the-folder-sync-product-is-retired.md)).
 
 The page is the web's own build (`build/`, the dev server in development).
 One build serves both
@@ -258,7 +257,7 @@ page's life, with no branch of its own:
 The root renders the pages once the folder and the settings are open
 (`<WhenOpen>` from `@epicenter/svelte`), or the recovery screen when one
 cannot open. The views branch on what the capabilities offer: the header
-shows `FolderChrome` (the folder's status and whether Epicenter syncs it) where
+shows `FolderChrome` (where the folder is on this computer) where
 `folder.reveal` is there and `RepositoryChrome` (the repository's status
 and Sign in again) otherwise, and Settings shows `FolderSettings`,
 `SpeechSettings` and `ShortcutSettings` (in `src/lib/components/`) only

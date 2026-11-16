@@ -7,13 +7,12 @@
 //! each real directory directly in it is a root of its own,
 //! `Root::Folder(name)`; a link there is listed as outside the Epicenter
 //! folder and never opened as one of its folders (ADR-0825). Its own records
-//! are `Root::Epicenter` (ADR-0822). A standalone app names the Epicenter
-//! folder only to read its Data root's record (`Roots::name_library`). A
-//! page names a root, never a path. Opening a named root opens whatever is
-//! at its path, following a link there, and makes the folder when nothing is
-//! there (ADR-0726); a link whose target is gone is `Disconnected`, and
-//! nothing is made. Every storage command names an open root; the shared
-//! path rule keeps its relative path inside it.
+//! are `Root::Epicenter` (ADR-0822). A page names a root, never a path.
+//! Opening a named root opens whatever is at its path, following a link
+//! there, and makes the folder when nothing is there (ADR-0726); a link
+//! whose target is gone is `Disconnected`, and nothing is made. Every
+//! storage command names an open root; the shared path rule keeps its
+//! relative path inside it.
 //!
 //! Each open root has one recursive native watch. Its changes are app events;
 //! pages subscribe before opening a root.
@@ -224,9 +223,6 @@ struct State {
     named: HashMap<Root, Named>,
     /// The Epicenter folder, whose directories are `Root::Folder` roots.
     epicenter: Option<Named>,
-    /// The Epicenter folder a standalone app reads its record in
-    /// (`Roots::name_library`), whose directories are not roots.
-    library: Option<PathBuf>,
     /// Told each time a root opens (`Roots::on_open`).
     listeners: Vec<OnOpen>,
     opened: HashMap<Root, Opened>,
@@ -386,26 +382,6 @@ impl Roots {
                 .collect()
         };
         drop(replaced);
-    }
-
-    /// Name the Epicenter folder at `path` for a standalone app, which reads
-    /// the record matching its Data root there (`data_record`) and nothing
-    /// else: its directories are not roots, and it has no `Root::Epicenter`.
-    pub fn name_library(&self, path: PathBuf) {
-        self.state().library = Some(path);
-    }
-
-    /// The Epicenter folder whose records this app reads: the one it named
-    /// (`name_epicenter`), or a standalone app's (`name_library`).
-    pub fn library(&self) -> Result<PathBuf, RootError> {
-        let state = self.state();
-        state.running()?;
-        let named = state.epicenter.as_ref().map(|named| named.path.clone());
-        named
-            .or_else(|| state.library.clone())
-            .ok_or(RootError::NotNamed {
-                root: Root::Epicenter,
-            })
     }
 
     /// Tell `listener` each time a root opens, with the folder it reached,
@@ -953,10 +929,9 @@ mod tests {
                 Err(RootError::Refused { .. })
             ));
         }
-        // A standalone app's Epicenter folder is no root.
+        // A shell that names no Epicenter folder, as a standalone app's, has
+        // neither its records nor its folders as roots.
         let standalone = Roots::default();
-        standalone.name_library(epicenter.clone());
-        assert_eq!(standalone.library().unwrap(), epicenter);
         assert!(matches!(
             standalone.open(&Root::Epicenter),
             Err(RootError::NotNamed { .. })

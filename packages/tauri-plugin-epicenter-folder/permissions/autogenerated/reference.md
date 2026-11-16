@@ -1,6 +1,6 @@
 ## Default Permission
 
-Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root.
+Open and reveal the roots the shell named, show their paths, read and change their files through the shell, and read an open root's identity.
 
 #### This default permission set includes the following:
 
@@ -10,7 +10,6 @@ Open and reveal the roots the shell named, show their paths, read and change the
 - `allow-read-folder-file`
 - `allow-put-folder-file`
 - `allow-root-identity`
-- `allow-data-record`
 
 ## Permission Table
 
@@ -20,32 +19,6 @@ Open and reveal the roots the shell named, show their paths, read and change the
 <th>Description</th>
 </tr>
 
-
-<tr>
-<td>
-
-`epicenter-folder:allow-data-record`
-
-</td>
-<td>
-
-Enables the data_record command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-data-record`
-
-</td>
-<td>
-
-Denies the data_record command without any pre-configured scope.
-
-</td>
-</tr>
 
 <tr>
 <td>

@@ -9,5 +9,4 @@ pub const COMMANDS: &[&str] = &[
     "read_folder_file",
     "put_folder_file",
     "root_identity",
-    "data_record",
 ];
