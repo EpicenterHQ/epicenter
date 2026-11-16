@@ -37,9 +37,10 @@ await pages.list();
 
 ## Waves
 
-Additive work first, the break after it, the largest piece last. Waves 2 to 4
-all edit `packages/app/src/collection.ts`, so they run one at a time, each on
-its own branch off `main`.
+Additive work first, the break after it, the largest piece last. Waves that
+edit `packages/app/src/collection.ts` run one at a time. Each wave is built
+on its own branch and merged into `worktree-collection-decisions`, which
+lands on `main` as one branch.
 
 ### Wave 1: `epicenter check` (ADR-0921)
 
@@ -87,27 +88,51 @@ declaration before anything breaks.
 Three reviewers formed their own accounts, then worked through the design
 and each other's. These are the changes all three supported.
 
-- [ ] A value that does not fit reads as absent; a switch reads `false` and a
+- [x] A value that does not fit reads as absent; a switch reads `false` and a
   list `[]` only when the key is missing; no schema carries `default`.
-- [ ] A change computed by a function may not write a field whose value did
+- [x] A change computed by a function may not write a field whose value did
   not fit.
-- [ ] `set` carries `body` in code; the `set` verb takes fields and `was`;
+- [x] `set` carries `body` in code; the `set` verb takes fields and `was`;
   `edit` is a verb only.
-- [ ] `list()` returns whole records; the `list` verb leaves out `body`.
-- [ ] A key finds its file by its exact name first.
-- [ ] The `delete` verb exists only when named.
-- [ ] For a collection with no placeholder, the `set` verb makes the file.
+- [x] `list()` returns whole records; the `list` verb leaves out `body`.
+- [x] A key finds its file by its exact name first.
+- [x] The `delete` verb exists only when named.
+- [x] For a collection with no placeholder, the `set` verb makes the file.
 
-### Wave 3c: front matter (ADR-0924)
+### Wave 4a: one JSON object on the command line (ADR-0925)
 
-- [ ] A write to a YAML block replaces only the lines of the keys it changes,
-  or refuses.
+- [ ] `epicenter <app> <action> [<json> | -]`; `positional`,
+  `RESERVED_FIELDS`, and `--input` removed; help lists keys and an example.
+- [ ] Every written command in the repository's READMEs, vision, skill, and
+  examples.
 
-### Wave 4: files (ADR-0919 and ADR-0922)
+Built before the apps move, so they move once.
+
+### Wave 4b: front matter (ADR-0924)
+
+- [ ] `split` reads each line on its own; a `key: <text>` line that is not
+  JSON is that key's problem and is kept.
+- [ ] The `Bun.YAML` branch and the whole-block rewrite are deleted.
+- [ ] `epicenter check` lists each such line with the JSON to write.
+
+Touches `packages/app/src/front-matter.ts` and `collection.ts`, not the
+command line's input, so it can be built beside wave 4a.
+
+### Wave 4c: the apps under `~/Epicenter/apps`
+
+One pass over all 12, on the owner's go-ahead, with the command that has
+waves 3 to 4b:
+
+- [ ] Calls that pass `path` take keys; `field.tags()` becomes
+  `field.list(field.text())`; defaults move to where the value is read.
+- [ ] 49 `positional` lines are deleted; each README's commands take JSON.
+- [ ] Hand-written actions that the default verbs now cover are deleted.
+- [ ] `epicenter check` exits zero on the home afterward.
+
+### Wave 5: files (ADR-0919 and ADR-0922)
 
 - [ ] `files` on `defineAction`; `field.file` and its scans removed.
-- [ ] Ordinary calls and the command line carry files; input bytes are
-  deleted at the end of every call and run.
+- [ ] Input bytes are deleted at the end of every run.
 - [ ] `files` on `defineCollection`, the record's folder, `dirOf`,
   `folder.move`.
 - [ ] A route that serves a kept file to a page. No page can show kept media
@@ -115,11 +140,29 @@ and each other's. These are the changes all three supported.
 - [ ] First real target: the interview example in `packages/cli/examples`.
 
 Needs ADR-0922 accepted first: it amends ADR-0915, which is Accepted.
+ADR-0917 already lets every page call carry a file, so this wave adds no
+transport.
 
-### Wave 5: the Vault (under the Vault spec)
+### Wave 6: the Vault (under the Vault spec)
 
+- [ ] Convert each page's front matter to `key: <JSON>` lines with a script
+  in the Vault's own code, on the terms in ADR-0924.
 - [ ] Declare pages, journal, and collections with the new API.
 - [ ] Move each page to `data/pages/<page>/page.md` and rewrite links.
+
+## What the agents-first rulings removed
+
+| Removed | By | What a person loses |
+| --- | --- | --- |
+| Flags and positional words, `positional`, reserved field names, `--input` | ADR-0925 | short calls typed by hand |
+| Reading YAML, the whole-block rewrite, the one-key YAML patch that was never built | ADR-0924 | YAML styles in front matter |
+| A file given on the command line, and a second way for a page to send one | ADR-0922, ADR-0917 | nothing in use |
+| Defaults in schemas | ADR-0923 | nothing; the default is written where it is read |
+
+Kept, though an agent is the main caller, because a person still reviews the
+files: unchanged lines stay byte for byte, undeclared keys stay, reads report
+problems instead of throwing, a key finds its exact file name first, and a
+save from outside names what it replaces (`was`, `edit`).
 
 ## How this meets "The vault as an Epicenter app"
 
@@ -142,8 +185,10 @@ paths do move, which that spec says they would not.
 
 ## Open questions
 
-1. **YAML front matter.** Settled by ADR-0924: a write replaces only the
-   lines of the keys it changes. There is no conversion pass.
+1. **YAML front matter.** ADR-0924 proposes: no YAML is read, each line is
+   read on its own, and a folder of YAML is converted once by its own script.
+   All three reviewers support it on one condition, that no tool in use
+   saves front matter as YAML.
 2. **Deleting a record's folder.** ADR-0919 leaves the folder when the
    Markdown file is deleted.
 3. **A reattached run.** Whether it needs every past yield or only the latest
@@ -178,10 +223,17 @@ paths do move, which that spec says they would not.
 - A trial rewrote the collection calls of Vocab, Flights, and Mail against
   the ADR-0918 signatures as types only. All three type-check, and its
   findings changed the record in six places.
-- Waves 1 and 2 are built and pass their tests in their own worktrees. They
-  are not committed.
-- No runtime for key selection or `files` exists.
-- No independent review of ADR-0918 to ADR-0922 has been done.
+- Waves 1 to 3b are built and merged with `main` at `04f87cb235`: 182 tests
+  pass in `packages/app` and 238 in `packages/cli`, and both type check.
+- Three reviewers ran five rounds on ADR-0918 to ADR-0925. The two defects
+  they reproduced in wave 3 (a misfit list read as `[]` and then overwritten;
+  a file with two spaces in its name listed but out of reach) no longer
+  reproduce on the merged code.
+- A count on 2026-11-15, values unread: all 554 front matter lines in the
+  apps' 111 files are `key: <JSON>`; none of the Vault's 3,329 pages is.
+- With the merged command, an app that calls `field.tags()` or declares a
+  default fails to load until wave 4c.
+- No runtime for `files` exists.
 
 ## Success criteria
 
@@ -189,6 +241,6 @@ paths do move, which that spec says they would not.
   one a person chose to leave.
 - [ ] No app builds a path under `data/` by hand to reach a declared record or
   its file.
-- [ ] A page saves a file with one ordinary call and shows it afterward.
+- [ ] A page saves a file with one call and shows it afterward.
 - [ ] `grep -r "path: .*pathOf\|field.file\|field.tags"` over the apps finds
   nothing.

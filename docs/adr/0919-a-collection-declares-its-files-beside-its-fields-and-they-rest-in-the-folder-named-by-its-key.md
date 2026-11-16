@@ -96,9 +96,10 @@ Renaming a record whose Markdown file is inside its folder is
   the Markdown file inside the folder, so a rename is one `folder.move`. A
   collection whose records rarely do keeps single files, and a rename there
   is two moves.
-- Until [ADR-0922](0922-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md)
-  is built, an `UploadedFile` exists only inside a run started with
-  `runs.start`, so a page reaches a slot only that way.
+- An `UploadedFile` comes only from a page's call
+  ([ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md),
+  [ADR-0922](0922-a-file-reaches-an-action-as-its-own-input-beside-input-and-only-a-page-sends-one.md)).
+  A caller on the home's own computer writes the slot's file in the folder.
 - This record gives a record no list of files and no file under the
   uploader's own name.
 
