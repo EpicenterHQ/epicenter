@@ -7,8 +7,8 @@
  *
  * Key behaviors:
  * - a reference is stored as the target's key, and `add` and a `set` given
- *   fields refuse a key with no record, or not exactly a key, before writing
- *   anything
+ *   fields refuse it before writing anything unless `get` on the target would
+ *   find a record by it whose key it is
  * - a function given to `update` or `set` has what it returns stored
  *   unchecked, as the app's own
  * - a target without exactly one placeholder, or a `.local` one, is refused
@@ -97,7 +97,21 @@ test('add and set refuse a key with no record, writing nothing', async () => {
 	expect(await context.folder.read('data/books/dune.md')).toBe(before);
 });
 
-test('a key is refused unless it is exactly the key its file would carry', async () => {
+test('a key finds its record as get does, by its exact name first', async () => {
+	const context = setup();
+	await context.folder.write('data/shelves/Dune  Messiah.md', '---\n---\n');
+	expect(
+		await inRun(context, () => shelves.get({ shelf: 'Dune  Messiah' })),
+	).toMatchObject({ shelf: 'Dune  Messiah' });
+	await inRun(context, () =>
+		books.set({ book: 'dune' }, { shelf: 'Dune  Messiah' }),
+	);
+	expect((await inRun(context, () => books.get({ book: 'dune' })))?.shelf).toBe(
+		'Dune  Messiah',
+	);
+});
+
+test('a key that finds a record only by its tidy name is refused, naming the key to write', async () => {
 	const context = setup();
 	expect(
 		await refusal(
@@ -106,7 +120,7 @@ test('a key is refused unless it is exactly the key its file would carry', async
 	).toEqual({
 		name: 'Refused',
 		message:
-			'data/books/dune.md: shelf: " essays " is not a key data/shelves/{shelf}.md can name a file by',
+			'data/books/dune.md: shelf: " essays " is not exactly the key of its record in data/shelves/{shelf}.md; write "essays"',
 	});
 });
 

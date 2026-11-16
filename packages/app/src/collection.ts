@@ -741,11 +741,13 @@ function createRecords(layout: Template, fields: Fields) {
 
 	/**
 	 * Refuse, with `ActionError.Refused`, each key `given` would store in a
-	 * reference that is not exactly the key of a record in its target: one the
-	 * target's path would change, or with no file. It reads those files and
-	 * writes nothing; `add` and a `set` given plain data call it before they
-	 * write. A change a function computes does not: what it returns is the
-	 * app's own, as a `readOnly` field is.
+	 * reference that is not the key of a record in its target. A key is good
+	 * when `get` on the target would find a record by it, by its exact name
+	 * first and then its tidy name, and that record's key is the key given, so
+	 * `" essays "` is refused where `essays.md` is the record it finds. It
+	 * reads those files and writes nothing; `add` and a `set` given plain data
+	 * call it before they write. A change a function computes does not: what
+	 * it returns is the app's own, as a `readOnly` field is.
 	 */
 	async function checkReferences(path: string, given: Record<string, unknown>) {
 		const problems: string[] = [];
@@ -755,18 +757,33 @@ function createRecords(layout: Template, fields: Fields) {
 			for (const each of many ? (Array.isArray(value) ? value : []) : [value]) {
 				if (typeof each !== 'string') continue;
 				const quoted = `${path}: ${quote(key, each, local)}`;
-				let file: string | undefined;
+				const exact = target.fillExact({ [placeholder]: each });
+				let tidy: string | undefined;
 				try {
-					file = target.fill({ [placeholder]: each });
+					tidy = target.fill({ [placeholder]: each });
 				} catch {
-					file = undefined;
+					tidy = undefined;
 				}
-				if (file === undefined || target.match(file)?.[placeholder] !== each)
+				if (exact === undefined && tidy === undefined) {
 					problems.push(
 						`${quoted} is not a key ${target.text} can name a file by`,
 					);
-				else if ((await folder.read(file)) === undefined)
+					continue;
+				}
+				if (exact !== undefined && (await folder.read(exact)) !== undefined)
+					continue;
+				if (
+					tidy === undefined ||
+					tidy === exact ||
+					(await folder.read(tidy)) === undefined
+				) {
 					problems.push(`${quoted} names no record in ${target.text}`);
+					continue;
+				}
+				const found = target.match(tidy)?.[placeholder] ?? '';
+				problems.push(
+					`${quoted} is not exactly the key of its record in ${target.text}; write ${local ? 'its key as the file names it' : JSON.stringify(found)}`,
+				);
 			}
 		}
 		if (problems.length)

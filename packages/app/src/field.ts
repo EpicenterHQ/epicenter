@@ -413,9 +413,9 @@ export const field = {
 	 * The key of a record in `collection`: the value of the one placeholder in
 	 * its path, so `field.ref(essays)` for `data/essays/{slug}.md` holds a slug
 	 * such as `"dune"`. `collection` is declared before the field that names
-	 * it. A collection's `add` and `set` refuse a key with no record, or one
-	 * that is not exactly the key its file would carry; a read returns the key
-	 * and opens no other file.
+	 * it. A collection's `add` and `set` refuse a key unless `get` on
+	 * `collection` would find a record by it whose key it is; a read returns
+	 * the key and opens no other file.
 	 */
 	ref: <const O extends MaybeOptional>(
 		collection: AnyCollection,

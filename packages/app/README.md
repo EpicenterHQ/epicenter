@@ -389,9 +389,12 @@ refuses a target whose path has no placeholder or more than one, and a
 `.local` target.
 
 - A collection's `add`, and its `set` given fields, read the record each key
-  names before they write. They refuse a key that is not exactly the one its file would carry
-  (`" essays "` is not `essays`), and a key whose record is not there. Each
-  throws `ActionError.Refused`, one line per key, such as
+  names before they write. A key is good when `get` on the target would find
+  a record by it, its exact name first and then its tidy name, and that
+  record's key is the key: `"Dune  Messiah"` finds a file named by hand with
+  two spaces, and `" essays "` is refused, naming `"essays"` to write. A key
+  whose record is not there is refused too. Each throws
+  `ActionError.Refused`, one line per key, such as
   `data/books/dune.md: shelf: "poems" names no record in data/shelves/{shelf}.md`,
   and writes nothing. A `.local` collection's line leaves the key out.
 - A function given to `set` or `update` is not checked against the target:
