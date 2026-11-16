@@ -62,8 +62,7 @@ source, then find and edit it. Keep the terminal open while the server runs.
 Your notes are Markdown files in `apps/writing/data/notes/`. You own the app's
 copy in `apps/writing/code/` and can change it with your editor or coding agent.
 
-For a task list, copy [Tasks](examples/tasks/README.md) into an Epicenter
-running CLI 0.4.0 or later:
+For a task list, copy [Tasks](examples/tasks/README.md) into your Epicenter.
 
 ```sh
 epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'

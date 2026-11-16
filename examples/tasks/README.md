@@ -5,8 +5,8 @@ the software; sibling `data/` holds the tasks. The home’s private Git
 repository checkpoints both, separately from actions. `epicenter serve`
 serves its UI at `/tasks/`.
 
-This app runs on Epicenter 0.2.0 or later. The shared example currently
-declares a minimum of 0.4.0. To install that copy, run
+Use the latest Epicenter CLI for a new home. Tasks runs on 0.2.0 or later.
+To add Tasks to your home, run
 
 ```sh
 epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
