@@ -49,9 +49,9 @@ if (target.startsWith('darwin-')) {
 const bytes = await readFile(executable);
 const checksum = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 await writeFile(`${executable}.sha256`, `${checksum}\n`);
-const installer = (await readFile(join(cli, 'install.sh'), 'utf8')).replaceAll(
-	'__EPICENTER_VERSION__',
-	manifest.version,
+const installer = (await readFile(join(cli, 'install.sh'), 'utf8')).replace(
+	'epicenter-cli-v__EPICENTER_VERSION__',
+	`epicenter-cli-v${manifest.version}`,
 );
 await writeFile(join(outdir, 'install.sh'), installer, { mode: 0o755 });
 console.log(

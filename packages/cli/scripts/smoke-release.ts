@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import manifest from '../package.json' with { type: 'json' };
 
 const [assets, source, downloadBase] = Bun.argv.slice(2);
 if (!assets || !source)
@@ -24,11 +25,15 @@ const env: Record<string, string | undefined> = {
 for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key];
 env.GIT_CONFIG_NOSYSTEM = '1';
 env.GIT_CONFIG_GLOBAL = join(home, '.gitconfig');
+const releasePath = `/releases/download/epicenter-cli-v${manifest.version}/`;
 const server = Bun.serve({
 	hostname: '127.0.0.1',
 	port: 0,
 	fetch(request) {
-		const name = new URL(request.url).pathname.slice(1);
+		const path = new URL(request.url).pathname;
+		if (!path.startsWith(releasePath))
+			return new Response('Not found', { status: 404 });
+		const name = path.slice(releasePath.length);
 		if (
 			!/^(install\.sh|epicenter-(darwin|linux)-(arm64|x64)(\.sha256)?)$/.test(
 				name,
@@ -38,10 +43,12 @@ const server = Bun.serve({
 		return new Response(Bun.file(join(directory, name)));
 	},
 });
-env.EPICENTER_DOWNLOAD_BASE = downloadBase ?? server.url.href;
+const localBase = new URL(releasePath, server.url).href;
+// The published installer must find its assets using the URL it ships with.
+env.EPICENTER_DOWNLOAD_BASE = downloadBase ? undefined : localBase;
 env.EPICENTER_INSTALLER_URL = new URL(
 	'install.sh',
-	`${env.EPICENTER_DOWNLOAD_BASE.replace(/\/$/, '')}/`,
+	`${(downloadBase ?? localBase).replace(/\/$/, '')}/`,
 ).href;
 const folder = join(home, 'Epicenter');
 const executable = join(home, '.local/bin/epicenter');
