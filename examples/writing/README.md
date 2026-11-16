@@ -4,7 +4,8 @@ Save thoughts, quotes, and links. Find them when you sit down to write.
 The browser, terminal, and your agent use the same actions and Markdown files.
 No AI account or external service is needed.
 
-With Epicenter installed and initialized, copy this app's committed files:
+Use the latest Epicenter CLI for a new home. Writing runs on 0.2.0 or later.
+To add Writing to your home, run
 
 ```sh
 epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
