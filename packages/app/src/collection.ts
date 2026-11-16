@@ -31,9 +31,11 @@
  * cannot be read is refused by every writer, and by `get`.
  *
  * A read gives only what the file holds: each field is its value when it
- * fits, else absent, and a file that does not fit says why in `problems`. An
- * absent switch reads `false` and an absent list `[]` (`absentValue`). A
- * change a function computes may not write over a value that does not fit.
+ * fits, else absent, and a file that does not fit says why in `problems`. A
+ * field whose line is not JSON is absent the same way, and its problem gives
+ * the line number and what to write (ADR-0924). An absent switch reads
+ * `false` and an absent list `[]` (`absentValue`). A change a function
+ * computes may not write over a value that does not fit, or that is not JSON.
  * `path`, the keys, and `body` always come from the file itself. Front matter
  * no field declares is kept by every write, and nothing reports it.
  *
@@ -533,6 +535,28 @@ function misfit(
 	return `${quoted} ${error?.message ?? 'does not fit'}`;
 }
 
+/**
+ * What a read says of a field whose line is not JSON, and what to write: the
+ * text in double quotes when that fits the field, else what the field takes.
+ * Without `line` and with `local`, it quotes nothing: the problem's kind.
+ */
+function notJsonProblem(
+	key: string,
+	schema: TSchema,
+	{ line, text }: { line?: number; text: string },
+	local: boolean,
+): string {
+	const which = `${key}${line === undefined ? '' : ` on line ${line}`} is not JSON`;
+	if (text.trim() === '')
+		return `${which}: it has no value; give it one as JSON, or remove the line`;
+	if (Value.Check(schema, text))
+		return `${which}; write ${local ? 'its text in double quotes' : `${key}: ${JSON.stringify(text)}`}`;
+	const words = whatFits(schema, text);
+	return words
+		? `${which}; ${key} takes ${words}, written as JSON`
+		: `${which}; write its value as JSON`;
+}
+
 /** `values` in the order the collection declares its fields, then the rest. */
 function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 	const order = Object.keys(fields);
@@ -544,7 +568,7 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 
 /** What a read says of front matter it cannot read. */
 const UNREADABLE =
-	'its front matter is not key: <JSON> lines or YAML between two --- lines';
+	'its front matter is not key: value lines between two --- lines, each key once';
 
 /** A read's front matter: its fields, its body, and whether the front matter could be read. */
 type Found = ReturnType<typeof readMarkdown>;
@@ -625,9 +649,11 @@ function createRecords(layout: Template, fields: Fields) {
 	 * The file at `path` as a read gives it, with each problem and its kind,
 	 * and the fields whose values did not fit. Each field is its value if it
 	 * fits, else absent; an absent switch or list is `false` or `[]`.
-	 * `problems` names each value that did not fit and each required field
-	 * that is missing. `path`, the keys, and `body` come from the file, and no
-	 * field can be named as one of them.
+	 * `problems` names each value that did not fit, each line whose text is
+	 * not JSON with what to write, and each required field that is missing.
+	 * `path`, the keys, and `body` come from the file, and no field can be
+	 * named as one of them. A field whose line is not JSON counts among the
+	 * values that did not fit.
 	 */
 	function project(path: string, found: Found) {
 		const values: Record<string, unknown> = {};
@@ -636,9 +662,17 @@ function createRecords(layout: Template, fields: Fields) {
 		const problem = (line: string, kind = line) =>
 			problems.push({ line, kind });
 		if (!found.readable) problem(UNREADABLE);
+		const notJson = new Map(found.notJson.map((each) => [each.key, each]));
 		for (const [key, schema] of Object.entries(fields)) {
 			const value = found.fields[key];
-			if (!Object.hasOwn(found.fields, key)) {
+			const bare = notJson.get(key);
+			if (bare) {
+				misfits.add(key);
+				problem(
+					notJsonProblem(key, schema, bare, local),
+					notJsonProblem(key, schema, { text: bare.text }, true),
+				);
+			} else if (!Object.hasOwn(found.fields, key)) {
 				const absent = absentValue(schema);
 				if (absent !== undefined) values[key] = structuredClone(absent);
 				else if (found.readable && !isOptional(schema))
@@ -795,7 +829,7 @@ function createRecords(layout: Template, fields: Fields) {
 				patch.removed.length > 0 || Object.keys(patch.set).length > 0;
 			if (!changesFields && body === undefined) return before;
 			const fielded = changesFields
-				? withFields(before, found, patch.set, patch.removed)
+				? withFields(before, patch.set, patch.removed)
 				: before;
 			// Every write keeps the body as the end of the text, so the front matter is what comes before it.
 			return body === undefined

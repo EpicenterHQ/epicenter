@@ -140,6 +140,7 @@ export function readRoutine(name: string, text: string): Routine {
 	const { daily, run, paused, timeout = '30m', ...other } = parsed.fields;
 	if (
 		!parsed.readable ||
+		parsed.notJson.length ||
 		Object.keys(other).length ||
 		typeof daily !== 'string' ||
 		!DAILY.test(daily) ||
