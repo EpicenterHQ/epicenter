@@ -40,7 +40,7 @@ data model.
    comparing hierarchy. Change structure when the workflow is the question.
 4. Translate the direction into concrete controls, states, density, layout, and
    copy.
-5. Return to the parent `ui-design` workflow for implementation and browser
+5. Return to the parent `ui-design` workflow for implementation and
    verification.
 
 ## Output Shape

@@ -105,7 +105,8 @@ refused, so write the default where the value is read (`limit ?? 50`).
   task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
-  required field takes no `null`. A generated `set` with no change returns `Refused`.
+  required field takes no `null`. A generated `set` requires at least one
+  submitted field or body edit.
 - Mark a field `readOnly` when only the app's own actions may write it (Vocab's
   schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
   A `readOnly` field that is required removes the exposed `add`, so write
@@ -156,10 +157,9 @@ refused, so write the default where the value is read (`limit ?? 50`).
 
 ## Write actions only for what the verbs cannot do
 
-For Mail (ADR-0882), agents prepare and revise proposals; the person runs
-`epicenter mail apply`. Never apply a proposal or call Gmail's mutation
-endpoints on the person's mail as an agent. Exercise the apply path only
-against fake Gmail.
+For Mail (ADR-0882), agents prepare and revise proposals. The person chooses
+`apply` to approve a proposal or `change` to act on the messages displayed
+in the reader. Exercise either write path only against fake Gmail as an agent.
 
 `code/epicenter.ts` default-exports `defineApp({ description, collections,
 actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
@@ -204,14 +204,12 @@ Resolve that path from `folder.path`, which is the container. Change another
 app's data through its actions so its rules check the write; this is guidance,
 not enforced.
 
-Make `run` an `async function*` only when a person watches it work, such as a
-chat reply from a model: each yield reaches the page that called it, and no
-one else. Return one final Result, as any action does, since the
-command line, Claude, and tests see only the return. Save at the end, before
-returning, so a page closed mid-reply leaves nothing half-saved (ADR-0879).
-To offer Stop, pass `callSignal()` from `@epicenter/app` to the wait, such as
-the model's `fetch`, so a stop ends it at once; what must survive a stop, such
-as the person's message, is saved in a `finally`.
+Make `run` an `async function*` when a person watches it work, such as a
+chat reply from a model. The host records each yield for observers of that
+run and the action returns one final Result. Save completed output before
+returning. Pass `callSignal()` from `@epicenter/app` to cancellable work,
+such as the model's `fetch`. Decide which writes must survive cancellation,
+including any input the person has already submitted.
 
 Actions run inside `epicenter serve` itself, from the files as they are when
 the call arrives, so an edit takes effect on the next call. Never call
@@ -304,14 +302,13 @@ whole app. History retained only in archive refs is outside `main`; fetch it
 explicitly into a separate recovery checkout. Keep the live home on its
 current branch.
 
-
 When recovering a bad write, inspect history and restore the relevant known
 version rather than retype its previous content, then record the repair in a
 named checkpoint so history says what happened. A field change and its record
 repair belong together. Restoring only code or only data can leave the
-declaration and records disagreeing; read the records' `other` and `problems`
-afterward. Keep the named checkpoint before risky work, without requiring
-separate code and data commits for every repair.
+declaration and records disagreeing. Run `epicenter check <app>` and inspect
+the diagnostics for the affected paths. Keep the named checkpoint before
+risky work so the original files remain recoverable.
 
 ## Build the UI as a client
 
@@ -350,8 +347,8 @@ Actions own stored records; the UI shows what serve answers and sends what the
 person submits.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
-`connect<typeof app>()` from `@epicenter/app/client`, importing the app
-as a type (`import type app from '../../../epicenter.js'`), and lists what the
+`connect<typeof tasksApp>()` from `@epicenter/app/client`, importing the app
+as a type (`import type tasksApp from '../../../epicenter.js'`), and lists what the
 pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts
@@ -360,45 +357,46 @@ export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
 ```
 
-For a run that should continue after the page closes, use
-import `runs` from `@epicenter/app/client` and use
-`runs.start(app.action, input)`, `runs.attach(app.action, id)`, and
-`runs.pending(app.action)`. These controls preserve every app action name.
-`field.file()` accepts a temporary browser upload through these run controls;
-it does not store a collection attachment. See the app package README for the
+When the page needs to return to a run after reopening, import `runs` from
+`@epicenter/app/client`. Start it with `runs.start(app.action, input)`.
+On return, use `runs.pending(app.action)` to find its receipt and
+`runs.attach(app.action, id)` to observe it again.
+`field.file()` accepts a temporary browser upload with either form of call.
+See the app package README for the
 run events, cancellation, and retention contract.
 
-Each call gives the action's Result in JSON form. The client also reports
-shared platform errors such as `Changed`, `Misfit`, `Missing`, `Threw`,
-`Refused`, `Unreachable`, and `Stopped`. On the wire, an admitted action's
-finished answer is `{ result: { data, error } }` or `{ fault: { message, ... } }`
-for an unexpected throw. CLI JSON and MCP structured output carry the same
-answer. Check the name and its subject, never
-the message. A `Missing` may describe a dependency rather than the record being
-shown. An error does not establish what was saved or rolled back; reread the
-record when the outcome is uncertain and retain unsent writing. The layout creates one
-QueryClient from the UI's own `@tanstack/svelte-query`, with the invalidation
-rule from `query-layer`, and puts it
-in `<QueryClientProvider>`; pages read with
-`createQuery(() => reads.get({ word }))` and write with
-`createMutation(() => writes.set)`. That client refreshes every read after
-each write, before the write counts as done, and when the UI is shown
-again, so a page never refreshes by hand or on a timer. Name
-types with `ActionInput<typeof app.actions.set>` and
-`ActionOutput<typeof app.actions.get>`.
+On the wire, the host answers with `{ data, error }`. For a failure,
+`error.kind` records what happened to this invocation (ADR-0926).
+The browser client unwraps a `returned` reason with its public fields intact.
+A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
+A `refused` admission becomes `Refused` before the action runs. Actions can use the
+shared `ActionError` factories from `@epicenter/app`.
 
-Keep the QueryClient factory in the UI's own `src/lib/query-client.ts`, built
-on its own `@tanstack/svelte-query`, so the bundle carries one TanStack Query.
-Copy a suitable existing app's implementation and apply the current
-invalidation rule. Verify the helper's export in that app.
+Match a browser error by its name and subject. A `Missing` for a dependency
+cannot tell the page whether its displayed record still exists. An action
+can make a write and then return an error. When saving is uncertain, keep
+the submitted text and reread the record before clearing the draft.
+
+Build the layout's QueryClient in the UI's own `src/lib/query-client.ts`
+using its own `@tanstack/svelte-query` so the bundle carries one copy.
+Check the helper's export in the app you copy. Provide the client through
+`<QueryClientProvider>` and apply the invalidation rule from `query-layer`.
+Pages read with `createQuery(() => reads.get({ time }))` and write with
+`createMutation(() => writes.set)`. Use the server app's action types, for
+example `ActionInput<typeof tasksApp.actions.set>` and
+`ActionOutput<typeof tasksApp.actions.get>`.
 
 An action that yields takes `onYield` after its input, to show its work as it
 comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
-still refreshes once it returns. A Stop button passes `{ signal }` too and
-aborts it; the call then resolves as the `Stopped` error, which is not a
-failure to show.
+still refreshes once it returns. For a Stop button, start the action with
+`runs.start` and call `run.cancel()` to request cancellation. For a view
+that only stops listening, pass its signal to `run.events({ signal })` or
+`run.result({ signal, onYield })`. Each new observer replays from the
+beginning, and the client resumes dropped connections at its last sequence.
+Use the view's own controller to recognize its aborted observation. A
+dependency can also return `Stopped`. Confirm any cleanup or save separately.
 
 - Route a record by its keys, which every row carries: the page is at
   `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the
@@ -413,8 +411,9 @@ failure to show.
   Do not spread an entire cached record into a field update. Comparing with
   cached data can avoid a request; it cannot establish what is currently saved.
   Submitting a title must not also write back a stale completion status from
-  the cached record. Skip `set` when there are no submitted fields; a `set`
-  with no field throws. An unchanged-looking value may still be an intentional
+  the cached record. Skip `set` when there are no submitted fields or body
+  edits. The generated action returns `Refused` for an empty change.
+  An unchanged-looking value may still be an intentional
   submission.
 - When draft, recovery, or workflow promises are unsettled, use
   [product-collapse](../product-collapse/SKILL.md) to choose the behavior.
@@ -438,12 +437,12 @@ failure to show.
 
 For an explicit-save form whose live preview reads unfinished input, keep the
 draft over the query's data so a refresh never overwrites typing. This view is
-keyed by the record's path and receives a successfully read file; `Textarea`
+keyed by the record's collection keys and receives a successfully read file; `Textarea`
 and `Preview` are the app's components:
 
 ```svelte
 <script lang="ts">
-  let { file }: { file: { path: string; body: string } } = $props();
+  let { file }: { file: { body: string } } = $props();
   let draft = $state<string>();
 </script>
 
@@ -471,12 +470,12 @@ An immediate editor that already owns accepted typing needs no second draft.
 
 ### Fields, body, and conflict responses
 
-A form that submits fields and body through separate calls can save fields
-with `set` first, then save the body with `edit({ path, old: base, new: draft })`.
-This is a sequence, not a transaction: the fields can save while the body
-conflicts. Show that partial result and keep the submitted body available.
-Other workflows can choose another order; make their partial-success behavior
-explicit.
+For a form that saves fields and a body together, send one generated `set`
+with the record's keys, submitted fields, their `was` values, and
+`edit: { old: base, new: draft }`. The collection checks every guard before
+writing the file. If another writer changed the passage, the entire edit
+returns `Changed`. A workflow that deliberately makes separate writes
+must account for each completed write when a later one fails.
 
 Two earlier app designs illustrate different responses to a body conflict:
 

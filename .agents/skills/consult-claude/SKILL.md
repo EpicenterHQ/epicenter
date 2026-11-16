@@ -1,6 +1,6 @@
 ---
 name: consult-claude
-description: Give Claude Opus 5.5 responsibility for reasoning, design judgment, read-only investigations, recommendations, or finished text drafts. Use when the result benefits from thoughtful reasoning or taste, when asked to consult Claude, or when supplying the Claude seat of an independent review. Completed edits and executable experiments belong to delegate-claude.
+description: Give Claude responsibility for reasoning, design judgment, read-only investigations, recommendations, or finished text drafts. Use when the result benefits from thoughtful reasoning or taste, when asked to consult Claude, or when supplying the Claude seat of an independent review. Use delegate-claude when Claude should own edits or executable experiments.
 ---
 
 # Consult Claude
@@ -8,11 +8,14 @@ description: Give Claude Opus 5.5 responsibility for reasoning, design judgment,
 Claude owns a bounded answer and the strategy for finding it: an investigation,
 recommendation, caller map, API example, migration assessment, or finished text
 draft. The coordinating Codex owns overall continuity, acceptance of the answer,
-and any execution it leads to. Use
-[delegate-claude](../delegate-claude/SKILL.md) when Claude should own edits or
-run an experiment. If the user already authorizes a delivered change, assign
-the investigation and implementation together through that route; do not add
-an initial consultation merely because the approach is unresolved.
+and any execution it leads to. Choose the route by what Claude should own,
+not by whether the larger task includes implementation. Codex can own delivery
+while Claude owns a bounded reasoning question; resume the same session with
+consequential implementation evidence, such as the diff or a failed check.
+When Claude should own the delivered changes or experiment, use
+[delegate-claude](../delegate-claude/SKILL.md) and assign investigation and
+implementation together, without a redundant consultation before handing off
+the same work.
 
 Use Claude early when the result depends on reasoning, design judgment, taste,
 or choosing between competing interpretations. Codex need not solve the question
@@ -67,8 +70,9 @@ question; keeping the design is valid when its guarantees earn their cost.
 Requires Bun, Git, and authenticated Claude Code 2.1.280 or later with access to
 the selected model. New and resumed consultations default to `claude-opus-5-5`
 at high effort. Sonnet is an explicit choice for routine bounded work, not the
-default reasoning lead. Adversarial architecture reviews use Opus high, including
-follow-ups. Use `xhigh` only for a
+default reasoning lead. For adversarial architecture reviews, use the reviewer
+model selected by [adversarial-review](../adversarial-review/SKILL.md) at high
+effort, passing it explicitly on initial launches and follow-ups. Use `xhigh` only for a
 focused unresolved decision, then return to high. Run from the checkout
 containing the evidence; supply the brief directly on stdin:
 
@@ -115,12 +119,13 @@ IDs. The coordinating Codex owns these notes for every Claude assignment. Native
 history owns the full conversation; do not build another session database.
 Update the same record as work proceeds.
 
-For an architecture-review follow-up, repeat high effort:
+For an adversarial-review seat follow-up, repeat its selected model and high
+effort. For the current Fable seat:
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
   --account personal --account-email claude@example.com \
-  --effort high --resume <session_id> <<'EVIDENCE'
+  --model claude-fable-5-2 --effort high --resume <session_id> <<'EVIDENCE'
 [Requested evidence, commands and relevant raw output, changed source, next question.]
 EVIDENCE
 ```

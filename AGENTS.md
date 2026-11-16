@@ -168,6 +168,6 @@ Keep procedures in skills; keep `AGENTS.md` to routing.
 
 | When | Load |
 | --- | --- |
-| substantial implementations, public API changes, refactors, multi-file changes, or a request to challenge, simplify, clean up, greenfield, or make a clean break | `post-implementation-review`, before final handoff or staging |
+| substantial implemented changes, or changes with caller or contract consequences, including refactors, public API changes, and clean breaks | `post-implementation-review`, before final handoff or staging |
 | continuous indirection-reduction work | `collapse-pass` directly |
-| during review: ownership, lifecycle, API, package-boundary, clean-break, compatibility-refusal, or asymmetric-win decisions | escalate to `rethink` |
+| during review: an unresolved ownership, lifecycle, API, package-boundary, clean-break, compatibility-refusal, or asymmetric-win question | borrow `rethink`'s reasoning |

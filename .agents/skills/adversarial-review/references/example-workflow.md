@@ -14,8 +14,9 @@ it does not require every review to find a reload or deletion.
 ## Initial accounts
 
 Three fresh reviewers inspect the same evidence: two Codex subagents and a
-Claude Opus reviewer. Each uses a distinct starting question from
-[the skill](../SKILL.md#establish-independence) and forms its account before
+Claude Fable reviewer. Each uses a distinct starting question from
+[the coordinator protocol](coordinator.md#supply-the-evidence-and-starting-questions)
+and forms its account before
 seeing the others.
 
 Codex reviewer one, asked what the system should be from the desired
@@ -101,6 +102,36 @@ it, the reviewers check whether links or other devices depend on the current
 workspace identity, and whether keeping two copies is acceptable. If that
 check defeats the new process, they return to the merge dispute with its cause
 and cost understood.
+
+## When reframing clarifies a disagreement without settling it
+
+In another hypothetical import review, the group tests importing into a new
+workspace instead of merging into the current one. The new workspace preserves
+both sets of edits, but existing links and offline devices still refer to the
+original workspace. A read-only preview helps someone inspect the import; it
+does not decide which workspace should become their continuing copy.
+
+One reviewer supports preserving the original identity and accepting merge
+rules. Another supports a new workspace with explicit provenance and the cost
+of updating links and devices. They examine an alias between the two and find
+that it restores the identity coordination they hoped to remove. The evidence
+clarifies the bargain but cannot establish which experience the person wants.
+
+The coordinator gives the group's developed account:
+
+> We have not converged on the import behavior. Importing separately removes
+> merge and rollback machinery, but moves the decision to which workspace you
+> continue using. Preserving the original identity keeps links and devices
+> working and retains the merge problem.
+>
+> We tested a preview and an identity alias. The preview makes inspection
+> easier; the alias brings back coordination. Neither settles whether keeping
+> the current workspace identity is worth the merge rules. That is the choice
+> we need you to make before pursuing either replacement.
+
+The review ends with a clearer decision, not manufactured assent. The
+coordinator does not report agreement on the design or implement the disputed
+replacement. Further work can resume from this shared understanding.
 
 ## When the current design wins
 
