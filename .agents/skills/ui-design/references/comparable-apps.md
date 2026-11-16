@@ -30,8 +30,9 @@ IDE                    identity supports authoring and sync, then disappears
 LOCAL-FIRST WORKSPACE  the workspace is primary; identity is configuration
 ```
 
-Epicenter is a local-first workspace. Start from that row. When a design imports
-a communication-first or infrastructure pattern, name why.
+Start with the app the person is using. An app served from their Epicenter
+runs on their home. An outside app such as Whispering has its own account
+and storage choices. Pick comparisons that fit that app's task.
 
 ## Method
 

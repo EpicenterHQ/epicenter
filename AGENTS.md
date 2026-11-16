@@ -1,6 +1,10 @@
 # Epicenter
 
-Where one person's software lives: small apps the person and their agents make and change, each a folder of files in `~/Epicenter`; the `epicenter` CLI runs their actions, and `epicenter serve` on the person's always-on computer offers them to every device they own and to their agents (ADR-0840, ADR-0864). Most code in this monorepo is still the earlier folder sync product, which waits.
+Epicenter runs personal apps on a computer their owner controls. Each app
+keeps its code and records together in the home's private Git repository.
+The CLI runs app actions, and `epicenter serve` makes them available to
+the owner's devices and agents. The earlier folder sync product is retired.
+Some of its packages still have callers in Whispering and the hosted API.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` lists the apps in this repository; package
@@ -84,10 +88,10 @@ READMEs and decision records, where they can be checked with the implementation.
 
 `docs/adr/`, `docs/CONTEXT.md`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
-`docs/vision.md` describes the intended direction. Check a change to apps, the
-CLI, storage, or sync against
-[ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)
-and the records it relates.
+Check changes to apps, the CLI, or storage against [the vision](docs/vision.md)
+and [the home layout](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md).
+For changes to the old sync code, start with its current callers and
+[the retirement decision](docs/adr/0899-the-folder-sync-product-is-retired.md).
 
 Verify API names, exports, and file layouts against current source and callers,
 not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
