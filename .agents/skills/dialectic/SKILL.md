@@ -26,6 +26,9 @@ a shared understanding from which to develop the vision.
 Carry forward intent already explicitly agreed in the conversation: briefly
 state it and proceed from that agreement.
 
+A shared understanding can be a complete result when it fulfills
+the user's purpose.
+
 ## Clarify the intent
 
 When the user brings a suggested solution, explore what they want it
