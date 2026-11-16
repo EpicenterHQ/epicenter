@@ -39,7 +39,7 @@ Git, curl, and either shasum or sha256sum. Supported build targets are macOS and
 Linux on arm64 and x64. Install the developer preview with:
 
 ```sh
-curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.1.0/install.sh | sh
+curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.0/install.sh | sh
 ```
 
 `EPICENTER_DOWNLOAD_BASE` overrides the asset URL, for example when
@@ -605,6 +605,9 @@ links remain links. A link such as
 `code/ui/src/theme.css -> ../../../../../theme.css` needs the destination's
 root theme. A dangling link produces a stderr line naming its stored target
 and an optional JSON `links: [{ path, target }]`, with paths relative to code/.
+
+When the app has a browser UI, `new` prints how to start `serve` and open the app.
+For an action-only app it prints the command that lists its actions.
 
 Install failure leaves the created app for repair. Copy or load failure removes
 only the container this command created. Opening a page triggers its first UI
