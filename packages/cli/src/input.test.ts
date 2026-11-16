@@ -179,6 +179,28 @@ Example:
   epicenter tasks add '{"title":"text"}'`);
 });
 
+test('a list with min is required: help says its minimum, its example has an item, and too few is refused', () => {
+	const save = defineAction({
+		description: 'Save a route',
+		input: { airports: field.list(field.text(), { min: 1 }) },
+		run: ({ airports }) => airports.length,
+	});
+	expect(
+		actionHelp('flights', 'save', save),
+	).toBe(`epicenter flights save <input>
+Save a route
+
+Input, one JSON object, or - to read it from stdin:
+  airports  required  a list of text with at least 1 item
+
+Example:
+  epicenter flights save '{"airports":["text"]}'`);
+	expect(checkInput(save, {})).toEqual({ error: 'airports is needed' });
+	expect(checkInput(save, { airports: [] })).toEqual({
+		error: 'airports must be a list of text with at least 1 item',
+	});
+});
+
 test('help without required keys shows the input as optional and an example of its first key', () => {
 	const list = defineAction({
 		description: 'List tasks',

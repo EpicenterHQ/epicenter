@@ -58,8 +58,8 @@ and does not run it.
   description, input, and `annotations`. It exists to type
   `run`'s input from `input`: an action written inline in `defineApp` would
   have an untyped input. However it is called, `run` gets an absent switch as
-  `false` and an absent list as `[]`, and every other field as the caller gave
-  it. `run` returns a value that survives
+  `false` and an absent list as `[]` (unless the list has a `min`), and every
+  other field as the caller gave it. `run` returns a value that survives
   JSON; anything else, such as a `Date`, is a type error where the action is
   written. `run` may be an `async function*` whose yields also survive JSON:
   each reaches only a UI that asked for it, as it runs, and called anywhere
@@ -282,7 +282,8 @@ is its value when the value fits the field, and absent otherwise; nothing
 takes its place. When a field's key is not in the file, a switch
 (`field.boolean`) reads `false` and a list (`field.list`) reads `[]`; that is
 what those two helpers mean, and neither value is written unless a caller
-gives it. Every other absent field is absent.
+gives it. A list with a `min` is required instead, so an absent one is
+missing. Every other absent field is absent.
 
 `path`, each key from the path, and `body` come from the file itself, after
 the fields, so front matter never replaces them: `data/words/你好.md` reads as
@@ -314,6 +315,13 @@ optional field may be absent. One with `problems: string[]` may lack any
 field, since a file written by hand may lack it or hold a value that does not
 fit. So `!record.problems` is the check that makes a required field safe to
 use, and `records.filter((record) => !record.problems)` narrows the type.
+
+Where code needs a record's values, check `problems` once and refuse or skip
+that record; after that check the types give every field in full: a list is
+an array, a switch a `boolean`, a required field its type, and only an
+optional field may be absent. Do not default a field with `?? []` or
+`?? false`, which puts back the silent replacement a read that gives only
+what the file holds exists to prevent.
 Every key is there, since the path holds it. `RecordOf<D>` and `Row<D>` (the
 `list` verb's row) name them, and `Keys<D>` names a record's keys.
 
@@ -359,13 +367,17 @@ should take what they know. Vocab's `review` takes `{ word, grade }` and calls
 | `field.datetime()` | `string`, RFC 3339 | `"name": "2026-11-10T22:41:05+08:00"` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `"name": "a"` |
 | `field.boolean()` | `boolean`, `false` unless given | `"name": true` |
-| `field.list(item)` | an array of `item`'s value, empty unless given | `"name": ["a", "b"]` |
+| `field.list(item, { min })` | an array of `item`'s value, empty unless given, or required with at least `min` items | `"name": ["a", "b"]` |
 | `field.ref(collection)` | `string`, the key of a record in `collection` | `"name": "essays"` |
 
 `field.list(item)` is a list of any field: `field.list(field.select(['x', 'threads']))`
 is several of a fixed set, and `field.list(Type.Object({ name: Type.String() }))`
-is several objects. It is never required, reads as `[]` when its line is
-absent, and a write may leave it out.
+is several objects. It is not required, reads as `[]` when its line is
+absent, and a write may leave it out. `field.list(item, { min: 1 })` needs at
+least one item: its schema has `minItems`, it is required like any other
+field, and an absent one is missing rather than `[]`, which would not fit.
+An action that cannot run without an item says so this way, so `--help` and
+the schema an agent receives call it required. `min: 0` is the same as none.
 
 `field.ref(collection)` holds the key of a record in `collection`: the value
 of the one placeholder in its path. `field.ref(shelves)` for
@@ -402,7 +414,7 @@ and `defineAction` refuse a schema with one at any depth, so the default is
 written in code where the value is read. `field.boolean` and `field.list`
 mark their schema `"x-epicenter-field": "switch"` or `"list"`, which names
 their kind rather than a value; a read and an action's call give an absent
-one as `false` or `[]`. Fields describe data;
+one as `false` or `[]`, except a list with `minItems`, which is required. Fields describe data;
 `defineAction({ privateInput: true, ... })` declares private handling for the
 whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
 unchanged and have no effect on this policy. Schemas must serialize as
@@ -749,8 +761,8 @@ Closing the page or aborting an observer does not cancel execution.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionYield<A>` name what action
 `A` takes from a caller, returns to a client, and yields while it runs:
-`ActionInput<typeof app.actions.set>`. A switch and a list are optional in
-`ActionInput`; an action that only returns yields `never`.
+`ActionInput<typeof app.actions.set>`. A switch and a list without `min` are
+optional in `ActionInput`; an action that only returns yields `never`.
 
 A UI routes to a record by its keys, which every row carries, each
 URL-encoded: `#/words/<word>`. The page calls `get` with the keys from its

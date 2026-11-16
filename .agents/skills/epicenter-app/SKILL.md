@@ -110,8 +110,17 @@ refused, so write the default where the value is read (`limit ?? 50`).
 - A read gives only what the file holds: a field that does not fit reads as
   absent, and the file carries `problems` quoting what was dropped. An absent
   switch reads `false` and an absent list `[]`; nothing else is filled. A
-  record without `problems` has its required fields, so check
-  `!record.problems` before relying on one. A function given to `set` or
+  record without `problems` has its required fields.
+- Where code needs a record's values, check `problems` once and refuse or
+  skip that record; after that check the types give every field in full (a
+  list is an array, a switch a `boolean`, a required field its type; only an
+  optional field may be absent). Do not default a field with `?? []` or
+  `?? false`: that puts back the silent replacement a read that gives only
+  what the file holds exists to prevent.
+- `field.list(item)` reads as `[]` when absent and is never needed from a
+  caller. An action that cannot run without an item declares
+  `field.list(item, { min: 1 })`: it is required, `--help` and the schema an
+  agent receives say so, and an empty list is refused before `run`. A function given to `set` or
   `update` may not write a field whose value does not fit; plain data repairs
   it. Front matter that cannot be read, or opens with `---` and never closes,
   is refused by `get` and every writer, and listed with `problems`.

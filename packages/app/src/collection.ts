@@ -36,8 +36,9 @@
  * fits, else absent, and a file that does not fit says why in `problems`. A
  * field whose line is not JSON is absent the same way, and its problem gives
  * the line number and what to write (ADR-0924). An absent switch reads
- * `false` and an absent list `[]` (`absentValue`). A change a function
- * computes may not write over a value that does not fit, or that is not JSON.
+ * `false` and an absent list with no `min` `[]` (`absentValue`). A change a
+ * function computes may not write over a value that does not fit, or that is
+ * not JSON.
  * `path`, the keys, and `body` always come from the file itself. Front matter
  * no field declares is kept by every write, and nothing reports it.
  *

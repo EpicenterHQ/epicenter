@@ -348,6 +348,56 @@ describe('an app author', () => {
 		>();
 	});
 
+	test('a list with min is required, to give and in a read, and never always filled', () => {
+		const route = defineAction({
+			description: 'Save a route',
+			input: {
+				airports: field.list(field.text(), { min: 1 }),
+				stops: field.list(field.text(), { min: 0 }),
+			},
+			run: ({ airports, stops }) => {
+				assertType<Equal<typeof airports, string[]>>();
+				assertType<Equal<typeof stops, string[]>>();
+				return airports.length + stops.length;
+			},
+		});
+		assertType<
+			Equal<ActionInput<typeof route>, { airports: string[]; stops?: string[] }>
+		>();
+		const trips = defineCollection({
+			path: 'data/trips/{trip}.md',
+			fields: { airports: field.list(field.text(), { min: 1 }) },
+		});
+		type Found = Awaited<ReturnType<typeof trips.list>>[number];
+		(record: Found) => {
+			if (!record.problems)
+				assertType<Equal<typeof record.airports, string[]>>();
+			// @ts-expect-error a record with problems may lack it
+			return record.airports.length;
+		};
+		type AddIn = In<ReturnType<typeof trips.actions<'add'>>['add']>;
+		assertType<
+			Equal<AddIn, { trip: string; airports: string[]; body?: string }>
+		>();
+		type SetIn = Extract<
+			In<ReturnType<typeof trips.actions<'set'>>['set']>,
+			{ old?: never }
+		>;
+		// A required list cannot be removed with null.
+		assertType<
+			Equal<
+				SetIn,
+				{
+					trip: string;
+					airports?: string[];
+					was?: { airports?: string[] | null };
+					old?: never;
+					new?: never;
+				}
+			>
+		>();
+	});
+
 	test('a caller may leave out a defaulted field, and run receives it', () => {
 		const tag = defineAction({
 			description: 'Tag',
