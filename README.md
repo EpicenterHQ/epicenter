@@ -38,8 +38,9 @@
 
 ## Try the CLI
 
-Install the developer preview on macOS or Linux, arm64 or x64. Git, curl, and
-shasum or sha256sum are required. Bun and an AI account are not required.
+Use the [latest Epicenter CLI](https://github.com/EpicenterHQ/epicenter/releases?q=Epicenter+CLI)
+for a new home. The developer preview runs on macOS or Linux, arm64 or x64.
+It requires Git, curl, and shasum or sha256sum. Bun and an AI account are not required.
 
 ```sh
 curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.0/install.sh | sh
@@ -62,7 +63,8 @@ source, then find and edit it. Keep the terminal open while the server runs.
 Your notes are Markdown files in `apps/writing/data/notes/`. You own the app's
 copy in `apps/writing/code/` and can change it with your editor or coding agent.
 
-For a task list, copy [Tasks](examples/tasks/README.md) into your Epicenter.
+Writing and Tasks both run on Epicenter 0.2.0 or later. To add
+[Tasks](examples/tasks/README.md) to your home, run
 
 ```sh
 epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
@@ -99,7 +101,7 @@ The `epicenter` command runs an app's actions on the home. Actions change files;
 checkpoints record their state in Git:
 
 ```sh
-epicenter tasks add --title 'Call the bank'
+epicenter tasks add '{"title":"Call the bank"}'
 epicenter tasks list --json
 epicenter serve
 ```
