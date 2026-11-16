@@ -129,7 +129,7 @@ test('run controls preserve ordinary action names at every depth', async () => {
 	expectOk(await hosted.cancel());
 });
 
-test('file declarations validate MIME types, bounds, and positional use', () => {
+test('file declarations validate MIME types and bounds', () => {
 	for (const maxBytes of [0, -1, 1.5, MAX_FILE_BYTES + 1])
 		expect(() => field.file({ maxBytes })).toThrow('maxBytes');
 	for (const accept of [['audio'], ['*/*'], ['text/plain; charset=utf-8']])
@@ -137,14 +137,6 @@ test('file declarations validate MIME types, bounds, and positional use', () => 
 	expect(() =>
 		field.file({ accept: ['audio/*', 'text/plain'], maxBytes: 1 }),
 	).not.toThrow();
-	expect(() =>
-		defineAction({
-			description: 'Bad',
-			input: { file: field.file() },
-			positional: ['file'],
-			run: () => null,
-		}),
-	).toThrow('as a positional');
 });
 
 for (const schema of [

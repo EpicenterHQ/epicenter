@@ -1,8 +1,8 @@
 /**
  * The fields a collection's files and an action's input are made of. Each is
- * a TypeBox schema, which is JSON Schema, so raw TypeBox sits beside them. The
- * CLI reads a field as a flag named for its key, and as a positional when the
- * action lists it; MCP shows it as a property of the tool's input.
+ * a TypeBox schema, which is JSON Schema, so raw TypeBox sits beside them.
+ * Every caller gives an action's input as one JSON object whose keys are its
+ * fields; MCP shows each as a property of the tool's input.
  *
  * A field is required unless it says `optional`. A switch (`boolean`) and a
  * list (`list`) is never required: an absent switch is `false`, an
@@ -159,10 +159,10 @@ export type FilledKeys<F> = {
 	[K in keyof F]: F[K] extends { [KIND]: 'switch' | 'list' } ? K : never;
 }[keyof F];
 
-/** A switch: `false` unless its flag is given, or its key is in the file. */
+/** A switch: `false` unless its key is given, or is in the file. */
 export type TSwitch = TOptional<TBoolean> & { [KIND]: 'switch' };
 
-/** A list of `T`: every time its flag is given, or every word left when it is the last positional; empty unless given. */
+/** A list of `T`: empty unless given. */
 export type TList<T extends TSchema> = TOptional<TArray<T>> & {
 	[KIND]: 'list';
 };
@@ -374,9 +374,7 @@ export const field = {
 
 	/**
 	 * A list of any field: `field.list(field.select(['x', 'threads']))`. It is
-	 * never required, reads as `[]` when absent, and takes a repeated flag on
-	 * the command line. A list of an item the command line cannot spell, such
-	 * as a `Type.Object`, is given as JSON.
+	 * never required, and reads as `[]` when absent.
 	 */
 	list,
 
@@ -480,11 +478,24 @@ function wanted(schema: Described): string | undefined {
 }
 
 /**
+ * What a field takes, in the words `whatFits` refuses with, such as `text` or
+ * `a day like 2026-11-12`, ending `, or null` for one that takes `null`. The
+ * command line's `--help` says it of each key.
+ */
+export function whatTakes(field: TSchema): string {
+	const nonNull = withoutNull(field);
+	// A pattern's words are the field's description, which help prints beside these.
+	const { pattern: _, ...schema } = nonNull as Described;
+	const words = wanted(schema) ?? 'any JSON value';
+	return nonNull === field ? words : `${words}, or null`;
+}
+
+/**
  * What a field takes, in words such as `a day like 2026-11-12` or `a whole
  * number from 1 to 5`, when `value` does not fit it for a reason those words
  * say; `undefined` when it fits, or when they would not say why (a text too
- * long). The CLI says it of a flag and a collection of a file's front matter,
- * so both say it alike.
+ * long). A call says it of an input's key and a collection of a file's front
+ * matter, so both say it alike.
  */
 export function whatFits(field: TSchema, value: unknown): string | undefined {
 	if (Value.Check(field, value)) return undefined;

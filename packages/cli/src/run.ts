@@ -166,12 +166,12 @@ export async function callAction(
 		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
 	if (following.overMcp && action.privateInput === true)
 		return refused(
-			`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page or pipe JSON to --input -`,
+			`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page, or pipe JSON to epicenter ${name} ${key} -`,
 			`epicenter ${name} ${key}`,
 		);
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 		return refused('The input is not a JSON object');
-	const checked = checkInput(action, raw, (field) => field);
+	const checked = checkInput(action, raw);
 	if ('error' in checked)
 		return refused(checked.error, `epicenter ${name} ${key} --help`);
 	const { answer } = await runAction(

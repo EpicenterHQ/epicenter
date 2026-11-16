@@ -810,9 +810,7 @@ export function createRunHost(
 			? located.actions[run.action]
 			: undefined;
 		if (!action) return missing();
-		const checked = checkInput(action, body.input, (key) => key, {
-			fileReferences: true,
-		});
+		const checked = checkInput(action, body.input, { fileReferences: true });
 		if ('error' in checked)
 			return usage(
 				400,

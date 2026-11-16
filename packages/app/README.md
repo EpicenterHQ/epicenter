@@ -21,7 +21,6 @@ const books = defineCollection({
 const log = defineAction({
   description: 'Record minutes read today',
   input: { minutes: field.number(), book: field.text({ optional: true }) },
-  positional: ['minutes'],
   annotations: { destructiveHint: false },
   run: async ({ minutes, book }) => {
     await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},${book ?? ''}\n`);
@@ -36,9 +35,9 @@ export default defineApp({
 });
 ```
 
-`epicenter reading log 30 --book Dune` runs `log`;
-`epicenter reading books set dune --finished 2026-11-10` runs a verb
-the collection gives. `@epicenter/app` is the API of the `epicenter` that runs
+`epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
+`epicenter reading books set '{"slug":"dune","finished":"2026-11-10"}'`
+runs a verb the collection gives. `@epicenter/app` is the API of the `epicenter` that runs
 the app, so the command supplies it: to `epicenter.ts` when it loads the file,
 and to the editor, `bun test`, and the UI's build by linking
 `code/node_modules/@epicenter/app` to its own copy (ADR-0873). The code project's
@@ -56,7 +55,7 @@ and does not run it.
 - `defineCollection` returns what it was given, plus methods an action calls
   (`books.get({ slug })`) and `actions()`, which gives its verbs to expose.
 - `defineAction` returns the action as a function of its input, carrying its
-  description, input, `positional`, and `annotations`. It exists to type
+  description, input, and `annotations`. It exists to type
   `run`'s input from `input`: an action written inline in `defineApp` would
   have an untyped input. However it is called, `run` gets an absent switch as
   `false` and an absent list as `[]`, and every other field as the caller gave
@@ -178,9 +177,9 @@ sends only plain data, and differ from them:
 | `edit` | the keys, `old`, `new` | replaces the one place `old` is in the body; `old` may be the whole body |
 | `delete` | the keys | only when named |
 
-A verb's input is flat, because a command line is: each key is an input
-field, positional in path order, beside the rest of the input, so
-`epicenter vocab set serendipity --meaning "a lucky find"` sets one word.
+A verb's input is flat: each key is an input field beside the rest of the
+input, so `epicenter vocab set '{"word":"serendipity","meaning":"a lucky find"}'`
+sets one word.
 
 A key finds its file by its exact name first, then by the tidy name: NFC,
 trimmed, with each run of whitespace one space. So `"Tokyo "` finds
@@ -204,7 +203,6 @@ one of them differs now, compared as JSON inside the same write, the refusal
 is `{ name: 'Changed', why: 'was' }`. Without `was`, two callers setting the
 same field from stale screens: the last write wins. Two callers setting
 different fields both land, since a write changes only the lines it names.
-`was` is given as JSON with `--input`, not as a flag.
 
 The same goes for a value an action computes from `get` and writes with
 `set`: a change made between them is lost. Compute it inside the write
@@ -318,9 +316,8 @@ answers under the path its keys make, while `list` gives the name on disk.
   that is not a placeholder;
 - a list of paths: a second layout is a second collection;
 - a field or placeholder named `path`, `body`, or `problems`, which a read
-  gives itself, `was`, which the `set` verb takes beside the fields, or
-  `json`, `help`, or `input`, which `epicenter` reads itself; a placeholder
-  named `old` or `new`, which `edit` takes beside the keys; a field named as
+  gives itself, or `was`, which the `set` verb takes beside the fields; a
+  placeholder named `old` or `new`, which `edit` takes beside the keys; a field named as
   a placeholder, since a record holds both; a field name that a front matter
   line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
@@ -331,31 +328,29 @@ of by a key.
 
 ### Naming a record
 
-The generated verbs take the keys a person types:
-`epicenter vocab get 你好`. An action you write chooses its own input, and
-one people type should take what they type. Vocab's `review` takes
-`{ word, grade }` and calls `words.set({ word }, ...)`, so a person types
-`epicenter vocab review 你好 good`.
+The generated verbs take a record's keys: `epicenter vocab get '{"word":"你好"}'`.
+An action you write chooses its own input, and one people or agents call
+should take what they know. Vocab's `review` takes `{ word, grade }` and calls
+`words.set({ word }, ...)`, so a caller gives
+`epicenter vocab review '{"word":"你好","grade":"good"}'`.
 
 ## Fields
 
-| Field | Value | On the command line |
+| Field | Value | In the input object |
 | --- | --- | --- |
-| `field.text()` | `string` | `--name <text>` |
-| `field.number({ min, max })`, `field.integer({ min, max })` | `number` | `--name <number>` |
-| `field.date()` | `string`, `2026-11-08` | `--name <day>` |
-| `field.datetime()` | `string`, RFC 3339 | `--name <date and time>` |
-| `field.select(['a', 'b'])` | `'a' \| 'b'` | `--name a` |
-| `field.boolean()` | `boolean`, `false` unless given | `--name`, `--name=false` |
-| `field.list(item)` | an array of `item`'s value, empty unless given | `--name a --name b`, each read as `item` |
-| `field.ref(collection)` | `string`, the key of a record in `collection` | `--name <text>` |
+| `field.text()` | `string` | `"name": "text"` |
+| `field.number({ min, max })`, `field.integer({ min, max })` | `number` | `"name": 4` |
+| `field.date()` | `string`, `2026-11-08` | `"name": "2026-11-08"` |
+| `field.datetime()` | `string`, RFC 3339 | `"name": "2026-11-10T22:41:05+08:00"` |
+| `field.select(['a', 'b'])` | `'a' \| 'b'` | `"name": "a"` |
+| `field.boolean()` | `boolean`, `false` unless given | `"name": true` |
+| `field.list(item)` | an array of `item`'s value, empty unless given | `"name": ["a", "b"]` |
+| `field.ref(collection)` | `string`, the key of a record in `collection` | `"name": "essays"` |
 
 `field.list(item)` is a list of any field: `field.list(field.select(['x', 'threads']))`
-is several of a fixed set, and `field.list(field.integer())` reads each
-`--name 4` as a number. It is never required, reads as `[]` when its line is
-absent, and a write may leave it out. A list of an item the command line
-cannot spell, such as `field.list(Type.Object({ name: Type.String() }))`, is
-given as one JSON object with `--input`, and its flag is refused.
+is several of a fixed set, and `field.list(Type.Object({ name: Type.String() }))`
+is several objects. It is never required, reads as `[]` when its line is
+absent, and a write may leave it out.
 
 `field.ref(collection)` holds the key of a record in `collection`: the value
 of the one placeholder in its path. `field.ref(shelves)` for
@@ -397,12 +392,12 @@ one as `false` or `[]`. Fields describe data;
 whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
 unchanged and have no effect on this policy. Schemas must serialize as
 finite JSON; recursive schemas use references rather than cyclic JavaScript
-objects. A field may not be named `json`, `help`, or `input`, which `epicenter`
-reads itself.
+objects. No field name is reserved: the command line reads the input as one
+JSON object, so `json`, `help`, and `input` are keys like any other.
 
-An action with `privateInput: true` accepts HTTP or exactly `--input -` at the
-CLI. Its whole input is one JSON object from stdin: flags, positionals, inline
-JSON, and terminal prompts are unavailable. MCP neither lists nor runs it.
+An action with `privateInput: true` accepts HTTP or exactly `-` at the CLI.
+Its whole input is one JSON object from stdin: an argument and a terminal
+prompt are unavailable. MCP neither lists nor runs it.
 Validation refuses its whole input without echoing values or undeclared
 property names. Actions make no commits.
 The flag governs input handling. It does not authenticate HTTP callers or
@@ -415,15 +410,16 @@ that runs the action: `2026-11-10` and `2026-11-10T22:41:05+08:00`. Reading's
 
 `field.text({ pattern, description })` takes a regular expression the whole
 value must match. Write the `description` to read after "must be", since the
-command line's refusal reads `--title must be <description>` and a read's
+command line's refusal reads `title must be <description>` and a read's
 problem reads `title: "…" is not <description>`. Tasks' title is
 `{ pattern: '^[^\\r\\n]*\\S[^\\r\\n]*$', description: 'one line, not blank, saying what to do' }`.
 
-An action's `positional` lists, in order, the fields the command line also
-reads by position: `positional: ['from', 'to']` reads
-`epicenter reading between 2026-11-01 2026-11-08`. A list field may be last,
-and takes every word left. Flags always work, except for a list of an item
-the command line cannot spell.
+On the command line an action's whole input is one argument, the JSON object,
+or `-` to read it from stdin (ADR-0925):
+`epicenter reading between '{"from":"2026-11-01","to":"2026-11-08"}'`.
+HTTP, MCP, and the command line check it alike, and a key the action does not
+take is refused. `defineAction` throws on a definition that still has
+`positional`.
 
 An action's `annotations` are MCP's tool annotations, verbatim:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, with
@@ -486,8 +482,8 @@ is refused at any depth. Reads may reach code files.
 
 A top-level action input can use `field.file({ accept: ['audio/*'], maxBytes })`.
 `accept` contains MIME types or `type/*`; `maxBytes` is a positive integer up
-to 15 MiB, the default. A file cannot be positional, nested in another schema,
-or stored by a collection. Persistent attachments are undecided.
+to 15 MiB, the default. A file cannot be nested in another schema, or stored
+by a collection. Persistent attachments are undecided.
 
 The browser supplies a `Blob` or `File` through separate run controls:
 
@@ -553,7 +549,8 @@ values. Omitted fields stay omitted, so each invocation uses current code.
 Private-input and file-input actions cannot be saved.
 
 The name is home-wide: this call writes `routines/flights-daily-research.md`
-using the existing `daily` and command-argv format. It atomically updates the
+using the existing `daily` and command-argv format: the action's words, then
+the input as one JSON argument. It atomically updates the
 requested fields, preserving notes, unspecified `paused` and `timeout`, and
 all runtime state and logs. It refuses an existing command targeting another
 app. Copying or importing code never enables a routine. Read-only actions and
@@ -619,10 +616,10 @@ transcript:
   writes the `.local` file; the action runs a flow that brings it back to this
   computer itself, as Mail's `connect` does with only a `port` and a loopback
   listener; or an action declaring `privateInput: true`, whose input the app's
-  UI posts over HTTP or the CLI reads as JSON through `--input -`. The flag
+  UI posts over HTTP or the CLI reads as JSON through `-`. The flag
   governs the whole input, independently of its fields. MCP neither lists
-  nor runs it, and validation returns a fixed refusal. The CLI refuses every other input spelling before parsing its
-  arguments. The app still owns what its actions return, throw, yield, and
+  nor runs it, and validation returns a fixed refusal. The CLI refuses any other argument before parsing
+  it. The app still owns what its actions return, throw, yield, and
   write. Discovery through `epicenter <app> --json` and `<action> --help --json`
   preserves the flag at the top level, separately from MCP's `annotations`.
 

@@ -28,11 +28,11 @@ test('an exported writing app copied as journal captures and finds text, sources
 		const added = await f.run(
 			'journal',
 			'add',
-			'An observation about attention',
-			'--source',
-			'My notebook',
-			'--project',
-			'Essay',
+			JSON.stringify({
+				body: 'An observation about attention',
+				source: 'My notebook',
+				project: 'Essay',
+			}),
 			'--json',
 		);
 		expect(added.code).toBe(0);
@@ -47,7 +47,12 @@ test('an exported writing app copied as journal captures and finds text, sources
 			await readFile(join(f.apps, 'journal', note.path), 'utf8'),
 		).toContain('An observation about attention');
 		for (const query of ['ATTENTION', 'notebook', 'essay']) {
-			const found = await f.run('journal', 'search', query, '--json');
+			const found = await f.run(
+				'journal',
+				'search',
+				JSON.stringify({ query }),
+				'--json',
+			);
 			expect(
 				JSON.parse(found.stdout).returned.map(
 					(note: { path: string }) => note.path,
@@ -56,11 +61,11 @@ test('an exported writing app copied as journal captures and finds text, sources
 		}
 		expect(
 			JSON.parse(
-				(await f.run('journal', 'search', '--project', 'Other', '--json'))
+				(await f.run('journal', 'search', '{"project":"Other"}', '--json'))
 					.stdout,
 			).returned,
 		).toEqual([]);
-		expect((await f.run('journal', 'add', '   ')).code).toBe(2);
+		expect((await f.run('journal', 'add', '{"body":"   "}')).code).toBe(2);
 		expect((await f.run('build', 'journal')).code).toBe(0);
 		expect(
 			await readFile(join(f.apps, 'journal/code/SOURCE.md'), 'utf8'),
@@ -106,11 +111,11 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 					await f.run(
 						'writing',
 						'edit',
-						time,
-						'--old',
-						'The original quote',
-						'--new',
-						'The corrected quote',
+						JSON.stringify({
+							time,
+							old: 'The original quote',
+							new: 'The corrected quote',
+						}),
 					)
 				).code,
 			).toBe(0);

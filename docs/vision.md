@@ -142,11 +142,12 @@ later source changes in place ([ADR-0910]).
 ## What it is like
 
 - **Receipts.** You ask Claude Code to find last month's receipts for a
-  friend. It runs `epicenter mail search 'receipt after:2026/09/01'` and reads
-  a few with `epicenter mail show --attachments`. Gmail is unchanged.
+  friend. It runs `epicenter mail search '{"query":"receipt after:2026/09/01"}'`
+  and reads a few, with their attachments, through `epicenter mail show`.
+  Gmail is unchanged.
 - **The inbox.** An agent searches the cached mailbox and writes a proposal
   to archive 600 newsletters, one line per message. You delete the lines for
-  mail you want to keep and run `epicenter mail apply <proposal>`. If Gmail
+  mail you want to keep and run `epicenter mail apply '{"proposal":"<proposal>"}'`. If Gmail
   fails partway, the next apply retries what failed.
 - **A vault script becomes an action.** The calendar script in your vault
   becomes `epicenter vault calendar show`. Later Claude Code changes how it
@@ -243,7 +244,6 @@ const tasks = defineCollection({
 const add = defineAction({
   description: 'Add a task to do',
   input: { title: field.text({ description: 'What to do' }) },
-  positional: ['title'],
   annotations: { destructiveHint: false },
   run: ({ title }) => tasks.add({ title }),
 });
@@ -258,9 +258,9 @@ export default defineApp({
 Tasks' actions are the collection's six, `tasks list`, `get`, `add`, `set`,
 `edit`, and `delete`, with `add` replaced by the one written here. A verb names
 a record by its keys, the values of its path's placeholders:
-`epicenter tasks set 2026-11-10T09-30-00-000Z-k3x9a2f8 --done`. On
-the command line an action's `positional` fields are read by position:
-`epicenter tasks add 'Call the bank'`. An action reads and writes through its
+`epicenter tasks set '{"time":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
+On the command line an action's input is one JSON object, as an agent gives
+it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action reads and writes through its
 collections, or through the `folder` it imports; whatever runs it supplies the
 container. `code/epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies
 when it runs. Install other dependencies in code/.

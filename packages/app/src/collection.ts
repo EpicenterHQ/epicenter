@@ -54,7 +54,7 @@
 
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
-import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
+import type { Action, ActionMeta } from './action.ts';
 import { folder, isLocalPath } from './context.ts';
 import { ActionError } from './errors.ts';
 import {
@@ -429,18 +429,14 @@ const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'edit', 'delete'];
 
 /**
  * Names neither a field nor a placeholder may have, and why: a read gives
- * `path`, `body`, and `problems` itself, the `set` verb takes `was` beside
- * the fields, and the `epicenter` command reads the rest anywhere among an
- * action's words.
+ * `path`, `body`, and `problems` itself, and the `set` verb takes `was`
+ * beside the fields.
  */
 const RESERVED: ReadonlyMap<string, string> = new Map([
 	['path', "which is the file's address"],
 	['body', "which is the file's text after its front matter"],
 	['problems', 'which a read uses to say what does not fit'],
 	['was', 'which the set verb takes beside the fields'],
-	...[...RESERVED_FIELDS].map(
-		(name) => [name, 'which epicenter reads itself'] as const,
-	),
 ]);
 
 /** Names a placeholder may not have because `edit` takes them beside the keys. */
@@ -1090,14 +1086,12 @@ function verbActions(
 			{
 				description: `Read one ${what}: its fields and body`,
 				input: keysIn,
-				positional: keys,
 				annotations: { readOnlyHint: true, ...local },
 			},
 		),
 		add: action((input) => records.add(outside(input)), {
 			description: `Make a new ${what}${keys.includes(TIME) ? ', named by the time' : ''}; refused when one is already at its path`,
 			input: addIn,
-			positional: addKeys,
 			annotations: { destructiveHint: false, ...local },
 		}),
 		set: action(
@@ -1109,7 +1103,6 @@ function verbActions(
 			{
 				description: `Change the fields given in one ${what}, keeping the rest and the body; null removes a field that may be absent; ${keyed ? 'refused when there is none' : 'makes the file when there is none'}; refused when a value named in was has changed since`,
 				input: { ...keysIn, ...patchIn, was },
-				positional: keys,
 				annotations: { idempotentHint: true, ...local },
 			},
 		),
@@ -1125,14 +1118,12 @@ function verbActions(
 			{
 				description: `Replace one passage of a ${what}'s body: old must appear in it exactly once, or be the whole body, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
 				input: { ...keysIn, ...quoted },
-				positional: keys,
 				annotations: local,
 			},
 		),
 		delete: action((input) => records.delete(input), {
 			description: `Delete one ${what}; true when there was one`,
 			input: keysIn,
-			positional: keys,
 			annotations: { idempotentHint: true, ...local },
 		}),
 	};

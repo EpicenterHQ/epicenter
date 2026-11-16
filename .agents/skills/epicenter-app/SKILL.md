@@ -115,13 +115,13 @@ refused, so write the default where the value is read (`limit ?? 50`).
   `update` may not write a field whose value does not fit; plain data repairs
   it. Front matter that cannot be read, or opens with `---` and never closes,
   is refused by `get` and every writer, and listed with `problems`.
-- A body changes through the `edit` verb (`--old <text> --new <text>`), which
+- A body changes through the `edit` verb (`{ old, new }` beside the keys), which
   is refused with `Changed` unless `old` occurs exactly once; `old` may be the
   whole body, so a body read before someone else changed it is never written
   back over theirs (ADR-0869). An empty `old` fills an empty body. In code,
   `set` carries `body`, as data or from a function of the record.
 - The `set` verb takes fields only, and an optional `was` naming the values
-  the caller last saw (`null` for absent), given in `--input` JSON; it is
+  the caller last saw (`null` for absent); it is
   refused with `Changed` when one has changed since.
 - A secret, such as a sign-in token, is a collection with no placeholder at a
   `.local.md` path (`data/google.local.md`), its fields declared like any other
@@ -233,10 +233,15 @@ Every collection write goes through `folder.update`. `set` given fields writes
 the values it is given, and `folder.write` is for a file whose whole content
 the action decides: for both, the last write wins.
 
-The generated verbs take a record's keys, flat and positional in path order:
-`epicenter vocab set serendipity --meaning "a lucky find"`. An action you
-write chooses its own input, and one people type should take what they type:
-Vocab's `review` takes `{ word, grade }`, giving `epicenter vocab review 你好 good`.
+The generated verbs take a record's keys flat, beside the other fields. On the
+command line an action's input is one JSON object, the same one MCP takes:
+`epicenter vocab set '{"word":"serendipity","meaning":"a lucky find"}'`.
+For text a person wrote, pipe it with `- <<'EOF'`, which has no quoting to get
+wrong; `epicenter <app> <action> --help` lists the keys. An action you write
+chooses its own input, and should take what its caller knows: Vocab's `review`
+takes `{ word, grade }`, giving
+`epicenter vocab review '{"word":"你好","grade":"good"}'`. An action has no
+`positional`; `defineAction` throws on one.
 
 Annotate honestly. A read-only run takes no lock. Its folder writes throw
 except to `.local` paths under data/, so an action that only reads can refresh

@@ -24,13 +24,14 @@ Unsubmitted text is held only in the current page; keep the page open until save
 For an app named writing:
 
 ```sh
-epicenter writing add 'A small observation worth returning to'
-epicenter writing add 'A quote from my reading' --kind quote --source 'Book, page 42' --project 'My essay'
-epicenter writing search reading
-epicenter writing search --project 'My essay'
+epicenter writing add '{"body":"A small observation worth returning to"}'
+epicenter writing add '{"body":"A quote from my reading","kind":"quote","source":"Book, page 42","project":"My essay"}'
+epicenter writing search '{"query":"reading"}'
+epicenter writing search '{"project":"My essay"}'
 ```
 
-Use a returned time with `epicenter writing get TIME` to read one note.
+Use a returned time with `epicenter writing get '{"time":"TIME"}'` to read one
+note. `epicenter writing add --help` lists the keys an action takes.
 The CLI lists every action with `epicenter writing`. `set` changes fields;
 `edit` changes an exact passage in the body. The UI edits only the body.
 MCP offers the same actions at the server root. Start by asking an assistant

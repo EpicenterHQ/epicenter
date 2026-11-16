@@ -131,9 +131,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	const result = await f.run(
 		'reading',
 		'log',
-		'30',
-		'--book',
-		'Dune',
+		'{"minutes":30,"book":"Dune"}',
 		'--json',
 	);
 	expect(result.code).toBe(0);
@@ -146,22 +144,13 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 			await readFile(join(f.apps, 'reading/data/records/log.json'), 'utf8'),
 		),
 	).toEqual({ minutes: 30, book: 'Dune' });
-	const human = await f.run('reading', 'log', '15');
+	const human = await f.run('reading', 'log', '{"minutes":15}');
 	expect(human.stdout).toContain('minutes: 15');
 	expect(human.stderr).toBe('');
 	expect(
-		(await f.run('vault', 'calendar', 'show', '2026-11-08', '--json')).stdout,
+		(await f.run('vault', 'calendar', 'show', '{"day":"2026-11-08"}', '--json'))
+			.stdout,
 	).toBe('{"returned":{"day":"2026-11-08"}}\n');
-});
-
-test('negative numbers work as positional, separate flag and inline flag values', async () => {
-	const f = await setup();
-	for (const args of [['-3'], ['--minutes', '-3'], ['--minutes=-3']]) {
-		const result = await f.run('reading', 'log', ...args, '--json');
-		expect(result.code).toBe(0);
-		expect(result.stderr).toBe('');
-		expect(JSON.parse(result.stdout).returned).toEqual({ minutes: -3 });
-	}
 });
 
 test('usage errors return exit 2 and exactly one JSON error', async () => {
@@ -170,18 +159,15 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['nope'], 'nope'],
 		[['reading', 'nope'], 'reading has no action "nope". Its actions:'],
 		[
-			['reading', 'lgo', '3'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <minutes> [--flags]\nepicenter reading week summary\n',
+			['reading', 'lgo', '{"minutes":3}'],
+			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week summary\n',
 		],
-		[['reading', 'log', '3', '--nope'], '--nope'],
-		[['reading', 'log'], '<minutes> is needed'],
-		[['reading', 'log', 'oops'], 'number'],
-		[['reading', 'log', '3', '4'], 'positional'],
-		[['reading', 'log', '3', '--book', 'a', '--book', 'b'], '--book'],
-		[['reading', 'log', '3', '--minutes', '4'], '--minutes'],
-		[['reading', 'log', '3', '--book'], 'needs a value'],
-		[['reading', 'tag', '--done=maybe'], 'takes no value, or =true or =false'],
-		[['reading', 'log', '3', '--version'], '--version'],
+		[['reading', 'log', '{"minutes":3,"nope":1}'], '"nope" is not a key'],
+		[['reading', 'log'], 'minutes is needed'],
+		[['reading', 'log', '{"minutes":"oops"}'], 'minutes must be a number'],
+		[['reading', 'log', '{"minutes":3}', '{}'], 'one argument'],
+		[['reading', 'tag', '{"done":"maybe"}'], 'done must be true or false'],
+		[['reading', 'log', '{"minutes":3}', '--version'], 'one argument'],
 		[['setup'], 'Unknown app "setup"'],
 	];
 	for (const [args, message] of cases) {
@@ -231,26 +217,18 @@ test('a misused command answers its usage line, with its help as the next step',
 	);
 });
 
-test('lists repeat, switches default and literal positionals append to flagged values', async () => {
+test('an absent switch is false and an absent list is empty', async () => {
 	const f = await setup();
 	const answer = async (...args: string[]) =>
 		JSON.parse((await f.run(...args, '--json')).stdout).returned;
 	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
-	expect(await answer('reading', 'tag', '--done=true')).toEqual({
+	expect(await answer('reading', 'tag', '{"done":true}')).toEqual({
 		tags: [],
 		done: true,
 	});
-	expect(await answer('reading', 'tag', '--done=false')).toEqual({
-		tags: [],
-		done: false,
-	});
 	expect(
-		await answer('reading', 'tag', '--tags', 'a', '--tags=b', '--done'),
-	).toEqual({ tags: ['a', 'b'], done: true });
-	expect(
-		(await f.run('reading', 'collect', '--tags', 'a', 'b', '--', '--literal'))
-			.stdout,
-	).toBe('tags: ["a","b","--literal"]\n');
+		await answer('reading', 'tag', '{"tags":["a","--b"],"done":true}'),
+	).toEqual({ tags: ['a', '--b'], done: true });
 });
 
 test('a throwing action returns exit 1 with its message', async () => {
@@ -301,7 +279,7 @@ test('app and action views include locations, schemas, field help and version', 
 	expect(view).not.toHaveProperty('keychain');
 	expect((await f.run('reading')).stdout).toContain('folder:');
 	expect((await f.run('reading', 'log', '-h')).stdout).toContain(
-		'<minutes>, --minutes <number>  required.',
+		'  minutes  required  a number',
 	);
 	expect(
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
@@ -340,7 +318,7 @@ test('an app is named by its folder in the home, whatever its description says',
 	expect(listed.apps.map((app: { name: string }) => app.name)).toContain(
 		'other-name',
 	);
-	const result = await f.run('other-name', 'log', '30', '--json');
+	const result = await f.run('other-name', 'log', '{"minutes":30}', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout).returned).toEqual({ minutes: 30 });
 });

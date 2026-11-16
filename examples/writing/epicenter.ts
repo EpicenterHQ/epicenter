@@ -32,7 +32,6 @@ const add = defineAction({
 		source: field.text({ optional: true }),
 		project: field.text({ optional: true }),
 	},
-	positional: ['body'],
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: ({ body, kind = 'thought', source, project }) =>
 		notes.add({ body, kind, source, project }),
@@ -45,7 +44,6 @@ const search = defineAction({
 		query: field.text({ optional: true }),
 		project: field.text({ optional: true }),
 	},
-	positional: ['query'],
 	annotations: { readOnlyHint: true, openWorldHint: false },
 	run: async ({ query = '', project }) => {
 		const found = [];

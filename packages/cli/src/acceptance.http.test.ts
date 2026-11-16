@@ -180,7 +180,7 @@ test('two calls at once on different files preserve both records', async () => {
 		f.app(
 			'notes',
 			`export default defineApp({ description: 'Notes', collections: {}, actions: {
-		write: defineAction({ description: 'Write a page', input: { page: field.text() }, positional: ['page'],
+		write: defineAction({ description: 'Write a page', input: { page: field.text() },
 			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return page; } }),
 	} });`,
 		),
@@ -332,7 +332,6 @@ export default defineApp({ description: 'Talk', collections: {}, actions: {
 	say: defineAction({
 		description: 'Say words one at a time',
 		input: { words: field.text() },
-		positional: ['words'],
 		async *run({ words }) {
 			for (const word of words.split(' ')) yield word;
 			return words;
