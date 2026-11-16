@@ -131,8 +131,10 @@ waves 3 to 4b:
   `tasks note`, `reading note`, `capture replace`, and `amend` in Vocab and
   Zhongwen.
 - [x] `epicenter check` exits zero on a staged copy of the home.
-- [ ] The home switches: the patches are applied in `~/Epicenter` in the same
-  step as installing the new command and restarting `serve`.
+- [x] The home switched on 2026-11-15: the five patches applied in
+  `~/Epicenter`, the command compiled from this branch replaced
+  `~/.local/bin/epicenter`, and `serve` restarted. `epicenter check` exits
+  zero there, and all 11 pages rebuilt and answer 200.
 
 Done on a copy, because `epicenter serve` runs on the home from the installed
 command, which supplies the old package to every app. All 12 apps load, and
