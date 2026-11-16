@@ -25,7 +25,8 @@ import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
 import { installApp } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { appsDir, epicenterDir, folderPath } from './root.ts';
+import { appsDir, epicenterDir, epicenterRoot, folderPath } from './root.ts';
+import { uiSource } from './ui.ts';
 
 type CopiedSource = { commit: string; notCopied?: string[] | null };
 
@@ -140,7 +141,15 @@ async function made(name: string, json: boolean, source?: CopiedSource) {
 	else {
 		writeOut(folder);
 		writeSourceWarning(name, source);
-		writeErr(`Run: epicenter ${name}`);
+		if (await uiSource(join(folder, 'code'))) {
+			const { port } = epicenterRoot();
+			writeErr('Run: epicenter serve');
+			writeErr(
+				port
+					? `Open http://127.0.0.1:${port}/${name}/ in your browser.`
+					: `Open /${name}/ at the address printed by serve.`,
+			);
+		} else writeErr(`Run: epicenter ${name}`);
 	}
 	return 0;
 }

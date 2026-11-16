@@ -85,7 +85,7 @@ async function manifestOf(folder: string): Promise<
  * How the app's UI builds: by its `build` script, by bundling
  * `ui/index.html`, or not at all, when it has no `ui/` or neither.
  */
-async function uiSource(
+export async function uiSource(
 	folder: string,
 ): Promise<'script' | 'index' | undefined> {
 	if (!(await exists(join(folder, 'ui')))) return undefined;

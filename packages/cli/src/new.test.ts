@@ -33,6 +33,27 @@ async function noNestedGit(folder: string): Promise<void> {
 	}
 }
 
+test('new shows how to open a browser app on the home port', async () => {
+	const f = await setup();
+	const source = await f.folder(
+		join(f.root, 'source'),
+		{
+			'epicenter.ts': `${header}export default defineApp({description:'Garden',collections:{},actions:{}});`,
+			'ui/index.html': '<h1>Garden</h1>',
+		},
+		{ git: true },
+	);
+	for (const [name, port, hint] of [
+		['garden', 4861, 'Open http://127.0.0.1:4861/garden/ in your browser.'],
+		['flowers', 0, 'Open /flowers/ at the address printed by serve.'],
+	] as const) {
+		await writeFile(join(f.home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
+		const made = await f.run('new', name, '--from', source);
+		expect(made.code).toBe(0);
+		expect(made.stderr).toBe(`Run: epicenter serve\n${hint}\n`);
+	}
+});
+
 test('new creates code and empty data without repositories and refuses taken and reserved names', async () => {
 	const f = await setup();
 	await gitIn(f.home, 'init', '-q');

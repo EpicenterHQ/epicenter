@@ -611,6 +611,9 @@ links remain links. A link such as
 root theme. A dangling link produces a stderr line naming its stored target
 and an optional JSON `links: [{ path, target }]`, with paths relative to code/.
 
+When the app has a browser UI, `new` prints how to start `serve` and open the app.
+For an action-only app it prints the command that lists its actions.
+
 Install failure leaves the created app for repair. Copy or load failure removes
 only the container this command created. Opening a page triggers its first UI
 build; new does not build it.
