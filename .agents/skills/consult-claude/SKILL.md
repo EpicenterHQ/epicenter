@@ -120,12 +120,12 @@ history owns the full conversation; do not build another session database.
 Update the same record as work proceeds.
 
 For an adversarial-review seat follow-up, repeat its selected model and high
-effort. For the current Fable seat:
+effort. For the default Opus 5.5 seat:
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
   --account personal --account-email claude@example.com \
-  --model claude-fable-5-2 --effort high --resume <session_id> <<'EVIDENCE'
+  --model claude-opus-5-5 --effort high --resume <session_id> <<'EVIDENCE'
 [Requested evidence, commands and relevant raw output, changed source, next question.]
 EVIDENCE
 ```

@@ -13,21 +13,20 @@ it does not require every review to find a reload or deletion.
 
 ## Initial accounts
 
-Three fresh reviewers inspect the same evidence: two Codex subagents and a
-Claude Fable reviewer. Each uses a distinct starting question from
+Three fresh reviewers inspect the same evidence: two Sol subagents and an
+Opus 5.5 reviewer, all at high effort. Each uses a distinct starting question from
 [the coordinator protocol](coordinator.md#supply-the-evidence-and-starting-questions)
-and forms its account before
-seeing the others.
+and forms its account before seeing the others. The perspective assignments
+below are illustrative; any model can take any starting perspective.
 
-Codex reviewer one, asked what the system should be from the desired
-experience, proposes reloading on account change: one page lifetime belongs to
-one account.
+Reviewer one, asked what the system should be from the desired experience,
+proposes reloading on account change: one page lifetime belongs to one account.
 
-Codex reviewer two follows people through their work and identifies pending
+Reviewer two follows people through their work and identifies pending
 edits as the guarantee that matters. Rebinding every subscription may be
 unnecessary, but preserving someone's work is essential.
 
-The Claude reviewer, looking for premises the design shares with its obvious
+Reviewer three, looking for premises the design shares with its obvious
 alternatives, challenges the premise that a pending save belongs to whichever
 account is current. If each edit records its owning account when it is created,
 a reload cannot send it to the wrong account.
@@ -35,12 +34,12 @@ a reload cannot send it to the wrong account.
 ## Working toward a direction
 
 The coordinator shares the three accounts with every reviewer and relays their
-replies; Claude receives each exchange in a resumed turn.
+replies; reviewer three receives each exchange in a resumed turn.
 
-Codex reviewer two objects to the reload: an edit still waiting in the upload
-queue would be lost. Claude asks whether pending edits are already persisted
-under their owning account before they enter the queue. The three agree that
-this fact decides whether a reload loses them.
+Reviewer two objects to the reload: an edit still waiting in the upload
+queue would be lost. Reviewer three asks whether pending edits are already
+persisted under their owning account before they enter the queue. The three
+agree that this fact decides whether a reload loses them.
 
 The coordinator traces persistence and runs a focused recovery check. In this
 imagined case, edits are persisted locally under their original account, and

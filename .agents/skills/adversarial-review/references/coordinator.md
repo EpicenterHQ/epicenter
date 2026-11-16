@@ -5,23 +5,18 @@ Read this before staffing or coordinating an adversarial review. The
 
 ## Staff the review
 
-Normally launch two fresh Codex subagents with `fork_turns: "none"` and
-`reasoning_effort: "high"`, explicitly selecting the latest Codex model
-exposed by the host. At this update, that is GPT-6.1 Terra
-(`gpt-6.1-terra`), verified against the host's model catalog and
-[OpenAI's release notes](https://help.openai.com/en/articles/9624314-model-release-notes).
-Check current host availability when launching; do not inherit an older parent
-model or substitute a generic GPT-6 family label.
+Normally staff three fresh, read-only seats at high reasoning effort:
 
-The third seat is a fresh, read-only Claude Fable reviewer through
-[consult-claude](../../consult-claude/SKILL.md), at high effort. The current
-model is [Claude Fable 5.2](https://www.anthropic.com/claude/fable),
-`claude-fable-5-2`. Pass `--model claude-fable-5-2 --effort high` explicitly
-on its initial launch and every resume; the consultation launcher's general
-Opus default does not select this review seat. Preserve the session ID,
-verified account, source checkout, and selected model for follow-ups as
-consult-claude requires. Check the returned model and permission denials before
-attributing a review. Report unavailability or substitution explicitly.
+| Seats | Model and launch settings |
+|---|---|
+| Two Codex subagents | `gpt-6.1-sol`; `fork_turns: "none"`, `reasoning_effort: "high"` |
+| One Claude Opus reviewer | Fresh [consult-claude](../../consult-claude/SKILL.md) session with `--model claude-opus-5-5 --effort high` on launch and every resume |
+
+Check current host availability and select these models explicitly on launch
+and follow-ups. Verify the model that actually ran from execution metadata;
+a reviewer's self-identification is insufficient. Use consult-claude's account,
+session, and returned-model/permission checks. Report unavailability or
+substitution.
 
 Explicit user choices override these defaults. Run the seats in parallel when
 possible. Keep initial conclusions private until all initial accounts arrive.
@@ -41,14 +36,19 @@ and existing system before the proposed API or rationale. Preserve the initial
 accounts, then supply the proposal. Describe limits from an already visible
 implementation honestly.
 
-Codex reviewer one starts with:
+Assign one of the following starting perspectives to each reviewer independently
+of model choice. No perspective belongs to a particular model. Each reviewer
+develops a complete recommendation and tests alternatives; the perspective
+determines where the investigation starts, not what it may examine.
+
+Greenfield design:
 
 > From the desired experience and actual use, what should this system be? Develop
 > your own account of its natural operations and responsibilities, then compare
 > it with the design under review. Which problems disappear under that account,
 > and what work, guarantees, or costs remain?
 
-Codex reviewer two starts with:
+Use and consequences:
 
 > Follow actual or intended users through the work this system must support.
 > Read existing callers as evidence of need rather than of the right operations.
@@ -57,7 +57,7 @@ Codex reviewer two starts with:
 > sequences. Which requirements reflect necessary outcomes, and which reflect
 > an assumed solution? Show the bargain behind your recommendation.
 
-The Claude reviewer starts with:
+Shared premises:
 
 > Find the premises the design under review shares with its obvious
 > alternatives: about ownership, lifetime, representation, or what is promised
