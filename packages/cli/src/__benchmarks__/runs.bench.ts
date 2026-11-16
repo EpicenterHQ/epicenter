@@ -291,11 +291,14 @@ try {
 	await log(
 		`day 2 replay: status=${replay.status} terminal=${frames.at(-1)?.type}`,
 	);
+	const terminal = frames.at(-1);
+	const answer = terminal?.answer;
+	const result = answer?.result ?? answer;
 	if (
 		gone.status !== 404 ||
 		replay.status !== 200 ||
-		frames.at(-1)?.type !== 'finished' ||
-		frames.at(-1)?.answer?.result?.error !== null ||
+		terminal?.type !== 'finished' ||
+		result?.error !== null ||
 		refusals
 	)
 		throw new Error('Benchmark verification failed');

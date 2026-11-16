@@ -36,7 +36,7 @@ test('an exported writing app copied as journal captures and finds text, sources
 			'--json',
 		);
 		expect(added.code).toBe(0);
-		const note = JSON.parse(added.stdout).result.data;
+		const note = JSON.parse(added.stdout).data;
 		expect(note).toMatchObject({
 			kind: 'thought',
 			body: 'An observation about attention',
@@ -54,7 +54,7 @@ test('an exported writing app copied as journal captures and finds text, sources
 				'--json',
 			);
 			expect(
-				JSON.parse(found.stdout).result.data.map(
+				JSON.parse(found.stdout).data.map(
 					(note: { path: string }) => note.path,
 				),
 			).toEqual([note.path]);
@@ -63,7 +63,7 @@ test('an exported writing app copied as journal captures and finds text, sources
 			JSON.parse(
 				(await f.run('journal', 'search', '{"project":"Other"}', '--json'))
 					.stdout,
-			).result.data,
+			).data,
 		).toEqual([]);
 		expect((await f.run('journal', 'add', '{"body":"   "}')).code).toBe(2);
 		expect((await f.run('build', 'journal')).code).toBe(0);
@@ -103,9 +103,10 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 			});
 			const { path, time } = (
 				captured.structuredContent as {
-					result: { data: { path: string; time: string }; error: null };
+					data: { path: string; time: string };
+					error: null;
 				}
-			).result.data;
+			).data;
 			expect(
 				(
 					await f.run(
@@ -134,7 +135,8 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 				arguments: { query: 'corrected' },
 			});
 			expect(found.structuredContent).toMatchObject({
-				result: { data: [{ path, body: 'The corrected quote' }], error: null },
+				data: [{ path, body: 'The corrected quote' }],
+				error: null,
 			});
 		} finally {
 			await close();

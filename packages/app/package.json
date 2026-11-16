@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/app",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"private": true,
 	"description": "What an app's epicenter.ts imports to define its collections, actions, and the app itself, and the client its UI calls them through.",
 	"repository": {

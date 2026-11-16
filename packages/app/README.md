@@ -666,8 +666,9 @@ its message and extra fields. App-defined returned errors keep their names and p
 maps a new fault to `Threw`, including when the action threw a tagged value.
 
 A name gives the failure reason, not proof of what was saved, whether a stop
-has finished, or whether repeating an action is safe. The command's
-`result` / `fault` / `error` envelope records the action's execution phase.
+has finished, or whether repeating an action is safe. On the wire, the host sets `error.kind` to `returned`,
+`fault` or `refused` for this invocation. A returned reason keeps all its own
+fields under `error.reason`. The browser client unwraps it for action callers.
 When a UI needs to know what persisted, it rereads the record. While the outcome
 is uncertain, it keeps the person's draft and reports the uncertainty. `Missing`
 and `Changed` identify their own `path`, which may belong to a dependency;

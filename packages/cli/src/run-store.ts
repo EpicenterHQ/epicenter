@@ -5,7 +5,6 @@
  */
 import { Database } from 'bun:sqlite';
 import { chmodSync, closeSync, openSync, statSync } from 'node:fs';
-import type { Answer } from './output.ts';
 
 export type RunFiles = Record<
 	string,
@@ -25,10 +24,11 @@ export type RunRecord = {
 	logBytes: number;
 	files: RunFiles;
 };
-export type EventFields =
+/** Stored answers retain the wire format of the release that wrote them. */
+export type EventFields<A = unknown> =
 	| { type: 'accepted' | 'started' | 'cancel-requested' }
 	| { type: 'yielded'; value: unknown }
-	| { type: 'finished'; answer: Answer }
+	| { type: 'finished'; answer: A }
 	| { type: 'interrupted'; message: string };
 export type HostEvent = EventFields & { seq: number; at: string };
 export class LogFull extends Error {

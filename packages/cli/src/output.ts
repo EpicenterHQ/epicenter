@@ -1,30 +1,26 @@
 /**
  * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850).
  * With `--json`, stdout is one JSON value: a run's answer, a listing, a
- * sync's report, or `{ error }` when nothing ran; MCP gets the same value.
+ * sync's report, or an operational error. MCP gets the action's JSON answer.
  * Without it, stdout renders the returned value by its structure. Stderr
  * carries what went wrong, with a `Run: <next step>` line where there is one.
  */
 import type { PublicError } from '@epicenter/app';
-import type { Result } from 'wellcrafted/result';
+import { Err, type Result } from 'wellcrafted/result';
 import type { CliError } from './errors.ts';
 
-/**
- * What a command that runs an action answers (ADR-0850): the one value
- * `--json` prints and MCP returns as `structuredContent`.
- * Whether it returned or threw, what the action wrote stays in the folder
- * until a checkpoint records it in the root history.
- */
-export type Answer =
-	/** The action returned one Result. An empty success carries null on the wire. */
-	| { result: Result<unknown, PublicError> }
-	/**
-	 * The action threw. A thrown tagged
-	 * error (`{ name, message, ...fields }`) is kept whole as `thrown`.
-	 */
-	| { fault: { message: string; thrown?: Record<string, unknown> } }
-	/** Nothing ran: the words, the input, or the app was wrong. */
-	| { error: { name: string; message: string; next?: string } };
+/** The action returned an app error or threw after it started. */
+type RunFailure =
+	| { kind: 'returned'; reason: PublicError & Record<string, unknown> }
+	| { kind: 'fault'; message: string; thrown?: Record<string, unknown> };
+export type RunAnswer = Result<unknown, RunFailure>;
+
+/** The action answer shared by CLI, MCP, and HTTP, including an invocation refused before it started. */
+export type Answer = RunAnswer | ReturnType<typeof refused>;
+
+export function refused(reason: CliError) {
+	return Err({ kind: 'refused' as const, reason });
+}
 
 /**
  * Run `work` with whatever it prints to stdout, through `console` or
@@ -74,13 +70,13 @@ export function outcome(
 		typeof error.next === 'string' && error.next
 			? `${error.message}\nRun: ${error.next}\n`
 			: `${error.message}\n`;
-	if ('error' in answer) return { code: 2, stderr: diagnostic(answer.error) };
-	if ('fault' in answer)
-		return { code: 1, stderr: `${answer.fault.message}\n` };
-	const { data, error } = answer.result;
-	return error === null
-		? { code: 0, data }
-		: { code: 1, stderr: diagnostic(error) };
+	const { data, error } = answer;
+	if (error === null) return { code: 0, data };
+	if (error.kind === 'fault') return { code: 1, stderr: diagnostic(error) };
+	return {
+		code: error.kind === 'refused' ? 2 : 1,
+		stderr: diagnostic(error.reason),
+	};
 }
 
 /** Render a successful value or a failure diagnostic for the terminal. */
@@ -200,5 +196,7 @@ export function presentAnswer(answer: Answer, json: boolean): number {
 
 /** Present a command that did not run, exit 2. */
 export function fail(error: CliError, json: boolean): number {
-	return presentAnswer({ error }, json);
+	if (!json) return presentAnswer(refused(error), false);
+	writeJson({ error });
+	return 2;
 }

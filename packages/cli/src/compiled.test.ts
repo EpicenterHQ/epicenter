@@ -141,7 +141,7 @@ test('the compiled binary copies and builds a writing app from Git without Bun o
 			'--json',
 		);
 		expect(found.code).toBe(0);
-		expect(JSON.parse(found.stdout).result.data).toMatchObject([
+		expect(JSON.parse(found.stdout).data).toMatchObject([
 			{ body: 'A note from the compiled starter', kind: 'thought' },
 		]);
 		const built = await run('build', 'writing');
@@ -211,7 +211,7 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 			stderr: 'pipe',
 		});
 		expect(await new Response(hello.stdout).text()).toBe(
-			'{"result":{"data":"hi","error":null}}\n',
+			'{"data":"hi","error":null}\n',
 		);
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
@@ -242,7 +242,7 @@ test("a compiled epicenter runs an app whose package names its entry only in pac
 		]);
 		expect({ code, stdout, stderr }).toEqual({
 			code: 0,
-			stdout: '{"result":{"data":"hi","error":null}}\n',
+			stdout: '{"data":"hi","error":null}\n',
 			stderr: '',
 		});
 	} finally {

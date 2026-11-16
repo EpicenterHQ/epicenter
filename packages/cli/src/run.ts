@@ -8,11 +8,12 @@ import {
 	runYielding,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { Err } from 'wellcrafted/result';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
-import type { Answer } from './output.ts';
+import { type Answer, type RunAnswer, refused } from './output.ts';
 import { setRoutine } from './routine-set.ts';
 
 /**
@@ -86,7 +87,7 @@ export async function runAction(
 	action: Action,
 	input: Record<string, unknown>,
 	{ onYield, signal }: Following = {},
-): Promise<Exclude<Answer, { error: unknown }>> {
+): Promise<RunAnswer> {
 	const readOnly = action.annotations?.readOnlyHint === true;
 	let owning: Promise<void> | undefined;
 	let held: Held | undefined;
@@ -124,9 +125,12 @@ export async function runAction(
 				await onYield?.(value);
 			}),
 		);
-		return { result: encodeActionResult(result) };
+		const encoded = encodeActionResult(result);
+		return encoded.error === null
+			? encoded
+			: Err({ kind: 'returned', reason: encoded.error });
 	} catch (cause) {
-		return { fault: threwOf(cause) };
+		return Err({ kind: 'fault', ...threwOf(cause) });
 	} finally {
 		held?.release();
 	}
@@ -152,30 +156,32 @@ export async function callAction(
 	raw: unknown,
 	following: Following = {},
 ): Promise<Answer> {
-	const refused = (message: string, next?: string): Answer => ({
-		error: CliError.Usage({ message, next }).error,
-	});
-	const { data: located, error: notFound } = await loadHomeApp(name);
-	if (notFound) return { error: notFound };
-	if (!located.ok)
-		return {
-			error: CliError.AppProblems({ app: name, problems: located.problems })
-				.error,
-		};
-	const action = Object.hasOwn(located.actions, key)
-		? located.actions[key]
-		: undefined;
-	if (!action)
-		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
-	if (following.overMcp && action.privateInput === true)
-		return refused(
-			`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page, or pipe JSON to epicenter ${name} ${key} -`,
-			`epicenter ${name} ${key}`,
-		);
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
-		return refused('The input is not a JSON object');
-	const checked = checkInput(action, raw);
-	if ('error' in checked)
-		return refused(checked.error, `epicenter ${name} ${key} --help`);
-	return runAction(located, key, action, checked.input, following);
+	const usage = (message: string, next?: string) =>
+		refused(CliError.Usage({ message, next }).error);
+	try {
+		const { data: located, error: notFound } = await loadHomeApp(name);
+		if (notFound) return refused(notFound);
+		if (!located.ok)
+			return refused(
+				CliError.AppProblems({ app: name, problems: located.problems }).error,
+			);
+		const action = Object.hasOwn(located.actions, key)
+			? located.actions[key]
+			: undefined;
+		if (!action)
+			return usage(`${name} has no action "${key}"`, `epicenter ${name}`);
+		if (following.overMcp && action.privateInput === true)
+			return usage(
+				`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page, or pipe JSON to epicenter ${name} ${key} -`,
+				`epicenter ${name} ${key}`,
+			);
+		if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+			return usage('The input is not a JSON object');
+		const checked = checkInput(action, raw);
+		if ('error' in checked)
+			return usage(checked.error, `epicenter ${name} ${key} --help`);
+		return runAction(located, key, action, checked.input, following);
+	} catch (cause) {
+		return refused(CliError.Internal({ cause }).error);
+	}
 }

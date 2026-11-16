@@ -413,9 +413,10 @@ test('the runner first takes its lock on a collection edit and releases it after
 	);
 	expect(locks).toEqual([true, false]);
 	expect(answer).toMatchObject({
-		result: {
-			data: null,
-			error: { name: 'Refused', message: 'stop after the first write' },
+		data: null,
+		error: {
+			kind: 'returned',
+			reason: { name: 'Refused', message: 'stop after the first write' },
 		},
 	});
 	expect(await canTakeLock()).toBe(true);

@@ -47,6 +47,23 @@ const folder = join(home, 'Epicenter');
 const executable = join(home, '.local/bin/epicenter');
 let serving: Bun.Subprocess<'ignore', 'ignore', 'pipe'> | undefined;
 
+/** Read a successful action answer from either release in the reader-first rollout. */
+function okData(answer: unknown): unknown {
+	const result =
+		answer && typeof answer === 'object' && 'result' in answer
+			? answer.result
+			: answer;
+	if (
+		!result ||
+		typeof result !== 'object' ||
+		!('error' in result) ||
+		result.error !== null ||
+		!('data' in result)
+	)
+		throw new Error('Expected a successful action answer');
+	return result.data;
+}
+
 async function run(args: string[], cwd = home) {
 	const child = Bun.spawn(args, { cwd, env, stdout: 'pipe', stderr: 'pipe' });
 	const [code, stdout, stderr] = await Promise.all([
@@ -97,10 +114,14 @@ try {
 			folder,
 		),
 	);
-	const result = answer.result ?? answer;
-	if (result.error !== null)
-		throw new Error('writing add did not return Ok');
-	const added = result.data;
+	const added = okData(answer);
+	if (
+		!added ||
+		typeof added !== 'object' ||
+		!('path' in added) ||
+		typeof added.path !== 'string'
+	)
+		throw new Error('writing add did not return the saved path');
 	const record = join(folder, 'apps/writing', added.path);
 	const before = await readFile(record, 'utf8');
 	await run(['sh', '-c', 'curl -fsSL "$EPICENTER_INSTALLER_URL" | sh']);
@@ -152,9 +173,13 @@ try {
 			name: 'writing_search',
 			arguments: { query: 'first writing session' },
 		});
+		const notes = okData(found.structuredContent);
 		if (
 			found.isError ||
-			!JSON.stringify(found.structuredContent).includes('My notebook')
+			!Array.isArray(notes) ||
+			!notes.some(
+				(note) => note?.source === 'My notebook' && note.path === added.path,
+			)
 		)
 			throw new Error('MCP did not find the captured note with its source');
 	} finally {

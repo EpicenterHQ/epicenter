@@ -396,9 +396,7 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 	const body = (await answered.json()) as {
 		result: { structuredContent: unknown };
 	};
-	expect(body.result.structuredContent).toEqual({
-		result: { data: 'x y', error: null },
-	});
+	expect(body.result.structuredContent).toEqual({ data: 'x y', error: null });
 });
 
 test('an aborted observer leaves the action running to its finally', async () => {
@@ -603,9 +601,10 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 			answer:
 				how === 'return'
 					? {
-							result: {
-								data: null,
-								error: {
+							data: null,
+							error: {
+								kind: 'returned',
+								reason: {
 									namespace: 'epicenter/action-error',
 									name: 'Missing',
 									message: 'There is no data/a.md',
@@ -614,7 +613,9 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 							},
 						}
 					: {
-							fault: {
+							data: null,
+							error: {
+								kind: 'fault',
 								message: 'There is no data/a.md',
 								thrown: {
 									namespace: 'epicenter/action-error',
@@ -819,7 +820,8 @@ test('a yielded check precedes a returned app refusal for UI and raw HTTP caller
 	expect(frames.at(-1)).toMatchObject({
 		type: 'finished',
 		answer: {
-			result: { data: null, error: { name: 'NoRoute', airport: 'LAX' } },
+			data: null,
+			error: { kind: 'returned', reason: { name: 'NoRoute', airport: 'LAX' } },
 		},
 	});
 });

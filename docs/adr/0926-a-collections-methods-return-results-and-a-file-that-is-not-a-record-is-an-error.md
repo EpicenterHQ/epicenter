@@ -192,7 +192,8 @@ meaning. A historical returned value that resembles a Result remains success
 data. Keep stored events as written.
 
 A page already open before the reader release still executes the code it
-loaded. Reload that page and observe its existing run ID after a wire
+loaded. The 0.2.0 decoder can display a flat fault as `Refused` and a flat
+success as an invalid answer. Reload that page and observe its existing run ID after a wire
 upgrade. Check persisted state before repeating work with an uncertain
 outcome.
 

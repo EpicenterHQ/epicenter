@@ -37,7 +37,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 			name: 'vault_calendar_show',
 			arguments: { day: '2026-11-08' },
 		});
-		const shown = { result: { data: { day: '2026-11-08' }, error: null } };
+		const shown = { data: { day: '2026-11-08' }, error: null };
 		expect(answer.structuredContent).toEqual(shown);
 		expect(answer.content).toEqual([
 			{ type: 'text', text: JSON.stringify(shown) },
@@ -69,7 +69,10 @@ test('tools list plain schemas and annotations and return structured answers or 
 		expect(await client.callTool({ name: 'reading_explode' })).toMatchObject({
 			isError: true,
 			content: [{ type: 'text', text: 'action exploded' }],
-			structuredContent: { fault: { message: 'action exploded' } },
+			structuredContent: {
+				data: null,
+				error: { kind: 'fault', message: 'action exploded' },
+			},
 		});
 		expect((await client.callTool({ name: 'unknown' })).isError).toBe(true);
 		const logged = await client.callTool({
@@ -77,11 +80,12 @@ test('tools list plain schemas and annotations and return structured answers or 
 			arguments: { minutes: 30 },
 		});
 		expect(logged.structuredContent).toEqual({
-			result: { data: { minutes: 30 }, error: null },
+			data: { minutes: 30 },
+			error: null,
 		});
 		expect(
 			(await client.callTool({ name: 'reading_tag' })).structuredContent,
-		).toEqual({ result: { data: { tags: [], done: false }, error: null } });
+		).toEqual({ data: { tags: [], done: false }, error: null });
 	} finally {
 		await close();
 		await rm(f.root, { recursive: true, force: true });
@@ -126,7 +130,7 @@ test('discovery preserves tilde-prefixed properties', async () => {
 					arguments: { value: { '~label': 'kept' } },
 				})
 			).structuredContent,
-		).toEqual({ result: { data: { '~label': 'kept' }, error: null } });
+		).toEqual({ data: { '~label': 'kept' }, error: null });
 	} finally {
 		await close();
 		await rm(f.root, { recursive: true, force: true });

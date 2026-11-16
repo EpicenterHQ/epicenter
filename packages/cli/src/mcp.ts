@@ -23,10 +23,11 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { nameProblem } from './commands.ts';
+import { CliError } from './errors.ts';
 import { VERSION } from './engines.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, outcome, writeErr } from './output.ts';
+import { type Answer, outcome, refused, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { callAction } from './run.ts';
 
@@ -100,9 +101,9 @@ export async function createMcpServer() {
 			words.length === 0 ||
 			!words.every(isName)
 		)
-			return toolResult({
-				error: { name: 'Usage', message: `Unknown tool ${name}` },
-			});
+			return toolResult(
+				refused(CliError.Usage({ message: `Unknown tool ${name}` }).error),
+			);
 		return toolResult(
 			await callAction(app, words.join(' '), args ?? {}, { overMcp: true }),
 		);

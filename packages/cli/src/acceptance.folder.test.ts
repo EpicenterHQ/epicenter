@@ -57,9 +57,7 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	const folder = await f.folder(join(f.apps, 'journal'), journal);
 	const result = await f.run('journal', 'context', '--json');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout)).toEqual({
-		result: { data: folder, error: null },
-	});
+	expect(JSON.parse(result.stdout)).toEqual({ data: folder, error: null });
 	expect(existsSync(join(folder, 'data/index.local.sqlite'))).toBe(true);
 
 	// Bun keeps its own transpiler cache under ~/Library/Caches/bun; epicenter keeps none there.

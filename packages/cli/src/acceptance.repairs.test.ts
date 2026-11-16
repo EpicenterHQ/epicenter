@@ -115,25 +115,26 @@ export default defineApp({ description: 'The loud app', collections: {}, actions
 
 		const flags = await client.callTool({ name: 'notes_flags', arguments: {} });
 		expect(flags.structuredContent).toMatchObject({
-			result: { data: expect.arrayContaining(['--no-install']), error: null },
+			data: expect.arrayContaining(['--no-install']),
+			error: null,
 		});
 		const hello = await client.callTool({ name: 'loud_hello', arguments: {} });
 		expect(hello.isError).toBeFalsy();
-		expect(hello.structuredContent).toEqual({
-			result: { data: 'hello', error: null },
-		});
+		expect(hello.structuredContent).toEqual({ data: 'hello', error: null });
 		const unknown = await client.callTool({
 			name: 'notes_nope',
 			arguments: {},
 		});
 		expect(unknown.isError).toBe(true);
 		expect(unknown.structuredContent).toMatchObject({
-			error: { name: 'Usage' },
+			data: null,
+			error: { kind: 'refused', reason: { name: 'Usage' } },
 		});
 		const broken = await client.callTool({ name: 'broken_x', arguments: {} });
 		expect(broken.isError).toBe(true);
 		expect(broken.structuredContent).toMatchObject({
-			error: { name: 'AppProblems' },
+			data: null,
+			error: { kind: 'refused', reason: { name: 'AppProblems' } },
 		});
 	} finally {
 		await close();
@@ -161,9 +162,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 
 	const leading = await f.run('--json', 'notes', 'two', '{"text":"Ada"}');
 	expect(leading.code).toBe(0);
-	expect(JSON.parse(leading.stdout)).toEqual({
-		result: { data: 'Ada', error: null },
-	});
+	expect(JSON.parse(leading.stdout)).toEqual({ data: 'Ada', error: null });
 	expect(JSON.parse((await f.run('--json', 'notes')).stdout).name).toBe(
 		'notes',
 	);
@@ -173,7 +172,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	);
 	expect(tool.inputSchema.required ?? []).not.toContain('count');
 	const ran = await f.json('notes', 'optional');
-	expect(ran.report.result.data).toEqual({});
+	expect(ran.report.data).toEqual({});
 	expect((await f.run('notes', 'optional', '--help')).stdout).toContain(
 		'  count  optional  a number',
 	);
@@ -196,7 +195,8 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 		'epicenter.d.json.ts',
 	);
 	expect((await f.json('other', 'hi')).report).toEqual({
-		result: { data: 'hi', error: null },
+		data: 'hi',
+		error: null,
 	});
 	expect(existsSync(join(repo, 'packages/cli/src/types.ts'))).toBe(false);
 });
@@ -220,5 +220,7 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 		'{"from":"2026-13-45","to":"2026-11-08"}',
 	);
 	expect(bad.code).toBe(2);
-	expect(bad.report.error.message).toBe('from must be a day like 2026-11-12');
+	expect(bad.report.error.reason.message).toBe(
+		'from must be a day like 2026-11-12',
+	);
 });

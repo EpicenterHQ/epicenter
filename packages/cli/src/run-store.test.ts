@@ -49,7 +49,7 @@ test('admission and append are durable, bounded, and deduplicate payloads across
 		store.append(
 			'app',
 			'first',
-			{ type: 'finished', answer: { result: { data: null, error: null } }, at },
+			{ type: 'finished', answer: { data: null, error: null }, at },
 			{ limit: 4096 },
 		);
 		store.admit({ app: 'app', id: 'second', action: 'go', files: {}, at });
@@ -65,7 +65,6 @@ test('admission and append are durable, bounded, and deduplicate payloads across
 			{
 				type: 'finished',
 				// The store keeps answers as written, including legacy envelopes.
-				// @ts-expect-error: legacy persisted answers predate the current Answer type.
 				answer: { returned: null },
 				at: '2025-01-01T00:00:00.000Z',
 			},

@@ -294,7 +294,7 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	] as const) {
 		const refused = await f.run('reading', ...args, '--json');
 		expect(refused.code).toBe(2);
-		expect(JSON.parse(refused.stdout).error.message).toContain(message);
+		expect(JSON.parse(refused.stdout).error.reason.message).toContain(message);
 	}
 
 	const help = await f.run('reading', 'between', '--help');
@@ -416,16 +416,14 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	).toEqual({
 		code: 0,
 		answer: {
-			result: {
-				data: {
-					path: 'data/items/dune.md',
-					id: 'dune',
-					kind: 'quote',
-					added: '2026-11-09',
-					body: 'Fear is the mind-killer.\n',
-				},
-				error: null,
+			data: {
+				path: 'data/items/dune.md',
+				id: 'dune',
+				kind: 'quote',
+				added: '2026-11-09',
+				body: 'Fear is the mind-killer.\n',
 			},
+			error: null,
 		},
 	});
 	expect(await readFile(join(folder, 'data/items/dune.md'), 'utf8')).toBe(
@@ -500,21 +498,19 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	expect(await json('list')).toEqual({
 		code: 0,
 		answer: {
-			result: {
-				data: [
-					{
-						data: {
-							path: 'data/items/dune.md',
-							id: 'dune',
-							kind: 'quote',
-							url: 'https://example.com/dune',
-							added: '2026-11-09',
-						},
-						error: null,
+			data: [
+				{
+					data: {
+						path: 'data/items/dune.md',
+						id: 'dune',
+						kind: 'quote',
+						url: 'https://example.com/dune',
+						added: '2026-11-09',
 					},
-				],
-				error: null,
-			},
+					error: null,
+				},
+			],
+			error: null,
 		},
 	});
 	await writeFile(
@@ -523,8 +519,8 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	);
 	const mixed = await json('list');
 	expect(mixed.code).toBe(0);
-	expect(mixed.answer.result.error).toBeNull();
-	const rows = mixed.answer.result.data;
+	expect(mixed.answer.error).toBeNull();
+	const rows = mixed.answer.data;
 	expect(rows).toHaveLength(2);
 	expect(rows[0]).toMatchObject({
 		data: null,
@@ -544,10 +540,10 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	expect(JSON.stringify(mixed)).not.toContain('secret body');
 	const misfit = await json('get', '{"id":"broken"}');
 	expect(misfit.code).toBe(1);
-	expect(misfit.answer.result.error.name).toBe('Misfit');
+	expect(misfit.answer.error.reason.name).toBe('Misfit');
 	const missing = await json('get', '{"id":"nope"}');
 	expect(missing.code).toBe(1);
-	expect(missing.answer.result.error.name).toBe('Missing');
+	expect(missing.answer.error.reason.name).toBe('Missing');
 	await rm(join(folder, 'data/items/broken.md'));
 	expect((await f.run('capture', 'get', '{"id":"dune"}')).stdout).toBe(
 		'path: data/items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',
@@ -583,29 +579,25 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			name: 'capture_delete',
 			arguments: { id: 'dune' },
 		});
-		expect(deleted.structuredContent).toEqual({
-			result: { data: true, error: null },
-		});
+		expect(deleted.structuredContent).toEqual({ data: true, error: null });
 	} finally {
 		await close();
 	}
 	expect(await json('list')).toEqual({
 		code: 0,
 		answer: {
-			result: {
-				data: [
-					{
-						data: {
-							path: 'data/items/petrichor.md',
-							id: 'petrichor',
-							kind: 'thought',
-							added: '2026-11-09',
-						},
-						error: null,
+			data: [
+				{
+					data: {
+						path: 'data/items/petrichor.md',
+						id: 'petrichor',
+						kind: 'thought',
+						added: '2026-11-09',
 					},
-				],
-				error: null,
-			},
+					error: null,
+				},
+			],
+			error: null,
 		},
 	});
 });
@@ -621,9 +613,9 @@ export default defineApp({ description: 'Preferences', collections: { settings }
 	const before = await f.run('prefs', 'settings', 'get', '--json');
 	expect(before.code).toBe(0);
 	const answer = JSON.parse(before.stdout);
-	expect(answer.result.error).toBeNull();
-	expect(answer.result.data.path).toBe('data/settings.md');
-	expect(answer.result.data).not.toHaveProperty('goal');
+	expect(answer.error).toBeNull();
+	expect(answer.data.path).toBe('data/settings.md');
+	expect(answer.data).not.toHaveProperty('goal');
 	expect((await f.run('prefs', 'settings', 'add', '{"goal":3}')).code).toBe(2);
 	await f.app(
 		'badprefs',

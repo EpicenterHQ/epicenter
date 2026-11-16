@@ -328,8 +328,8 @@ Origin, and tunnel guards. Action words are joined with dots.
 | POST | `/.runs/<app>/<action>/<id>/cancel` | 202 requested; 200 already terminal; 404 unknown |
 | POST | `/<app>/<action>` | 200 NDJSON reload message; executes nothing |
 
-A definitive admission refusal has `admitted: false`. A join refused at the
-observer limit has `admitted: true`: the run already exists. Without a marker,
+A definitive admission refusal carries `X-Epicenter-Admitted: false` in its HTTP headers. A join refused at the
+observer limit carries `X-Epicenter-Admitted: true` because the run already exists. Without a marker,
 4xx is a refusal; another failure after POST is uncertain. Observe that id
 with GET instead of resending admission.
 
@@ -396,15 +396,17 @@ ignore rules keep them out of checkpoints. `folder` is not a sandbox.
 With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`. MCP sets `isError: true` for an Err, a fault, or a refusal before execution. The CLI uses the following exit codes:
 
 ```txt
-{ "result": { "data": <value>, "error": null } }            exit 0
-{ "result": { "data": null, "error": { "name", "message", ... } } }  exit 1
-{ "fault": { "message", "thrown"? } }                       exit 1
-{ "error": { "name", "message", "next"? } }                 exit 2, nothing ran
+{ "data": <value>, "error": null }                                 exit 0
+{ "data": null, "error": { "kind": "returned", "reason": <error> } }  exit 1
+{ "data": null, "error": { "kind": "fault", "message": <text> } }     exit 1
+{ "data": null, "error": { "kind": "refused", "reason": <error> } }   exit 2
 ```
 
 `Ok(undefined)` arrives with null data. An action can decline with its own
-tagged Err, or an unexpected throw can end the call with a fault. Human
-output puts success data on stdout and failures on stderr. The HTTP event
+tagged Err, or an unexpected throw can end the call with a fault. A fault may include a tagged exception in `thrown`. The host assigns
+`kind` for this invocation. An action that saved a draft and forwarded a
+child’s refusal has kind `returned`. Invalid input refused before the action
+ran has kind `refused`. Human output puts success data on stdout and failures on stderr. The HTTP event
 stream carries the same answer inside `finished.answer`. A reconnect can
 replay a saved run's earlier answer format without executing it again.
 

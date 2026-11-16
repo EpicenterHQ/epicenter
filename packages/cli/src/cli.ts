@@ -1,5 +1,6 @@
 /** Dispatch commands and run checked app actions; actions leave their writes pending. */
 import { isName } from '@epicenter/app';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { buildCommand } from './build.ts';
 import { checkCommand } from './check.ts';
 import { checkpoint, renderCheckpoint } from './checkpoint.ts';
@@ -30,6 +31,8 @@ import {
 	fail,
 	presentAnswer,
 	printingToStderr,
+	refused,
+	writeErr,
 	writeJson,
 	writeOut,
 } from './output.ts';
@@ -120,10 +123,15 @@ export async function runCli(argv: string[]): Promise<number> {
 			version = true;
 		else tokens.push(token);
 	}
+	const actionRequest =
+		tokens.length > 1 && !help && !Object.hasOwn(HANDLERS, tokens[0]!);
+	const reject = (error: CliError) =>
+		actionRequest ? presentAnswer(refused(error), json) : fail(error, json);
 	const print = (value: unknown) => {
 		if (json) writeJson(value);
 		else writeOut(String(value));
 	};
+	let invoked = false;
 	try {
 		if (!tokens.length) {
 			if (version) print(json ? { version: VERSION } : `epicenter ${VERSION}`);
@@ -146,11 +154,10 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		epicenterRoot();
 		const { data: located, error: notFound } = await loadHomeApp(name);
-		if (notFound) return fail(notFound, json);
+		if (notFound) return reject(notFound);
 		if (!located.ok)
-			return fail(
+			return reject(
 				CliError.AppProblems({ app: name, problems: located.problems }).error,
-				json,
 			);
 		if (!words.length) {
 			print(oneAppListing(located, json));
@@ -162,7 +169,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			// The words that could name an action: those before the input.
 			const end = words.findIndex((word) => !isName(word));
 			const asked = words.slice(0, end < 0 ? undefined : end).join(' ');
-			return fail(
+			return reject(
 				CliError.Usage({
 					message: `${name} has no action ${JSON.stringify(asked || words[0])}. Its actions:\n${Object.entries(
 						located.actions,
@@ -171,7 +178,6 @@ export async function runCli(argv: string[]): Promise<number> {
 						.join('\n')}`,
 					next: `epicenter ${name}`,
 				}).error,
-				json,
 			);
 		}
 		if (help) {
@@ -185,18 +191,24 @@ export async function runCli(argv: string[]): Promise<number> {
 		const next = `epicenter ${name} ${matched.key} --help`;
 		const given = await readInput(action, matched.rest);
 		if ('error' in given)
-			return fail(CliError.Usage({ message: given.error, next }).error, json);
+			return reject(CliError.Usage({ message: given.error, next }).error);
 		// What the action prints goes to stderr, so stdout holds only the answer.
+		invoked = true;
 		const answer = await printingToStderr(() =>
 			runAction(located, matched.key, action, given.input),
 		);
 		return presentAnswer(answer, json);
 	} catch (error) {
-		if (error instanceof RootUsageError)
-			return fail(
-				CliError.Usage({ message: error.message, next: error.next }).error,
-				json,
+		if (invoked) {
+			writeErr(
+				`Epicenter invoked the action but could not report its outcome: ${extractErrorMessage(error)}`,
 			);
-		return fail(CliError.Internal({ cause: error }).error, json);
+			return 1;
+		}
+		if (error instanceof RootUsageError)
+			return reject(
+				CliError.Usage({ message: error.message, next: error.next }).error,
+			);
+		return reject(CliError.Internal({ cause: error }).error);
 	}
 }

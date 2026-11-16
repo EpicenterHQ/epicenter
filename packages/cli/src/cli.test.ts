@@ -137,7 +137,8 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
 	expect(JSON.parse(result.stdout)).toEqual({
-		result: { data: { minutes: 30, book: 'Dune' }, error: null },
+		data: { minutes: 30, book: 'Dune' },
+		error: null,
 	});
 	expect(
 		JSON.parse(
@@ -150,7 +151,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(
 		(await f.run('vault', 'calendar', 'show', '{"day":"2026-11-08"}', '--json'))
 			.stdout,
-	).toBe('{"result":{"data":{"day":"2026-11-08"},"error":null}}\n');
+	).toBe('{"data":{"day":"2026-11-08"},"error":null}\n');
 });
 
 test('usage errors return exit 2 and exactly one JSON error', async () => {
@@ -175,10 +176,12 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		expect(result.code).toBe(2);
 		expect(result.stderr).toBe('');
 		expect(result.stdout.trim().split('\n')).toHaveLength(1);
-		expect(JSON.parse(result.stdout).error).toMatchObject({
-			name: 'Usage',
-			message: expect.stringContaining(message),
-		});
+		const reason = { name: 'Usage', message: expect.stringContaining(message) };
+		expect(JSON.parse(result.stdout)).toMatchObject(
+			args.length > 1
+				? { data: null, error: { kind: 'refused', reason } }
+				: { error: reason },
+		);
 	}
 	expect((await f.run('mcp', 'nope')).code).toBe(2);
 });
@@ -220,7 +223,7 @@ test('a misused command answers its usage line, with its help as the next step',
 test('an absent switch is false and an absent list is empty', async () => {
 	const f = await setup();
 	const answer = async (...args: string[]) =>
-		JSON.parse((await f.run(...args, '--json')).stdout).result.data;
+		JSON.parse((await f.run(...args, '--json')).stdout).data;
 	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
 	expect(await answer('reading', 'tag', '{"done":true}')).toEqual({
 		tags: [],
@@ -233,11 +236,68 @@ test('an absent switch is false and an absent list is empty', async () => {
 
 test('a throwing action returns exit 1 with its message', async () => {
 	const f = await setup();
-	expect(await f.run('reading', 'explode', '--json')).toEqual({
-		code: 1,
-		stdout: '{"fault":{"message":"action exploded"}}\n',
-		stderr: '',
+	const { code, stdout, stderr } = await f.run('reading', 'explode', '--json');
+	expect({ code, stderr }).toEqual({ code: 1, stderr: '' });
+	expect(JSON.parse(stdout)).toEqual({
+		data: null,
+		error: { kind: 'fault', message: 'action exploded' },
 	});
+});
+
+test('a failed stdout write after the action runs never emits a refusal or retries its effects', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	await f.app(
+		'counts',
+		`export default defineApp({description:'Counts',collections:{},actions:{
+		increment:defineAction({description:'Increment',input:{}, async run(){
+			await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
+			return Ok('done');
+		}}),
+	}});`,
+	);
+	const preload = join(f.root, 'fail-first-output.ts');
+	await writeFile(
+		preload,
+		`
+		const write = process.stdout.write.bind(process.stdout);
+		process.stdout.write = (...args) => {
+			process.stdout.write = write;
+			throw new Error('simulated output failure');
+		};
+	`,
+	);
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			'--preload',
+			preload,
+			f.bin,
+			'counts',
+			'increment',
+			'--json',
+		],
+		{
+			cwd: f.root,
+			env: f.env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	);
+	const [stdout, stderr, code] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	expect({ stdout, stderr, code }).toEqual({
+		stdout: '',
+		code: 1,
+		stderr:
+			'Epicenter invoked the action but could not report its outcome: simulated output failure\n',
+	});
+	expect(await readFile(join(f.apps, 'counts/data/count.local'), 'utf8')).toBe(
+		'1',
+	);
 });
 
 test('runs use the selected Epicenter and their own local files', async () => {
@@ -249,7 +309,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 		'--json',
 	);
 	expect(result.code).toBe(0);
-	const value = JSON.parse(result.stdout).result.data;
+	const value = JSON.parse(result.stdout).data;
 	expect(value.folder).toBe(join(f.apps, 'reading'));
 	expect(
 		await Bun.file(join(f.apps, 'reading', 'data/index.local.json')).exists(),
@@ -265,7 +325,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	);
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
-	).result.data;
+	).data;
 	expect(homeRun.folder).toBe(join(f.apps, 'reading'));
 	expect(
 		await Bun.file(join(f.apps, 'reading/data/index.local.json')).exists(),
@@ -320,5 +380,5 @@ test('an app is named by its folder in the home, whatever its description says',
 	);
 	const result = await f.run('other-name', 'log', '{"minutes":30}', '--json');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout).result.data).toEqual({ minutes: 30 });
+	expect(JSON.parse(result.stdout).data).toEqual({ minutes: 30 });
 });

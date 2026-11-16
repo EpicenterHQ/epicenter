@@ -32,11 +32,13 @@ import {
 import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
-import { type Answer, writeErr } from './output.ts';
+import { type RunAnswer, refused, writeErr } from './output.ts';
 import { epicenterDir, folderPath } from './root.ts';
 import { runAction } from './run.ts';
 import {
 	openRunStore,
+	type EventFields,
+	type HostEvent,
 	type RunStore,
 	type RunRecord as StoredRunRecord,
 } from './run-store.ts';
@@ -74,12 +76,6 @@ type LegacyRecord = {
 	files: Record<string, Pick<FileMeta, 'name' | 'type' | 'size' | 'sha256'>>;
 };
 type RunRecord = StoredRunRecord;
-type EventFields =
-	| { type: 'accepted' | 'started' | 'cancel-requested' }
-	| { type: 'yielded'; value: unknown }
-	| { type: 'finished'; answer: Answer }
-	| { type: 'interrupted'; message: string };
-type HostEvent = EventFields & { seq: number; at: string };
 type RunLocation = {
 	app: string;
 	id: string;
@@ -95,12 +91,18 @@ const hash = (value: string) =>
 const hexField = (field: string) => Buffer.from(field, 'utf8').toString('hex');
 const object = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
-const usage = (status: number, message: string, next?: string) =>
-	Response.json(
-		{ error: CliError.Usage({ message, next }).error, admitted: false },
-		{ status },
-	);
+const usage = (status: number, message: string) =>
+	Response.json({ error: CliError.Usage({ message }).error }, { status });
 const missing = () => usage(404, 'Unknown run route or run');
+
+function refusedResponse(status: number, reason: CliError) {
+	return Response.json(refused(reason), {
+		status,
+		headers: { 'x-epicenter-admitted': 'false' },
+	});
+}
+const rejectSubmission = (status: number, message: string, next?: string) =>
+	refusedResponse(status, CliError.Usage({ message, next }).error);
 
 function withinRoot(path: string, root: string) {
 	const rel = relative(root, path);
@@ -345,7 +347,7 @@ export function createRunHost(
 	/** Publish only after the SQLite transaction commits. */
 	async function append(
 		run: RunLocation,
-		fields: EventFields,
+		fields: EventFields<RunAnswer>,
 		limit = MAX_LOG_BYTES,
 	) {
 		const event = store.append(
@@ -353,7 +355,7 @@ export function createRunHost(
 			run.id,
 			{ ...fields, at: new Date(now()).toISOString() },
 			{ limit },
-		) as HostEvent;
+		);
 		for (const publish of subscribers.get(run.key) ?? []) publish(event);
 		return event;
 	}
@@ -671,9 +673,9 @@ export function createRunHost(
 			length !== null &&
 			(!/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)))
 		)
-			return { response: usage(400, 'Invalid content-length') };
+			return { response: rejectSubmission(400, 'Invalid content-length') };
 		if (length !== null && Number(length) > MAX_INPUT_BYTES)
-			return { response: usage(413, 'The run input exceeds 1 MiB') };
+			return { response: rejectSubmission(413, 'The run input exceeds 1 MiB') };
 		const chunks: Uint8Array[] = [];
 		let size = 0;
 		const reader = request.body?.getReader();
@@ -684,7 +686,9 @@ export function createRunHost(
 					if (done) break;
 					size += value.byteLength;
 					if (size > MAX_INPUT_BYTES)
-						return { response: usage(413, 'The run input exceeds 1 MiB') };
+						return {
+							response: rejectSubmission(413, 'The run input exceeds 1 MiB'),
+						};
 					chunks.push(value);
 				}
 		} finally {
@@ -695,7 +699,7 @@ export function createRunHost(
 		}
 		if (length !== null && Number(length) !== size)
 			return {
-				response: usage(
+				response: rejectSubmission(
 					400,
 					'The run input length does not match content-length',
 				),
@@ -710,9 +714,9 @@ export function createRunHost(
 			const input: unknown = JSON.parse(new TextDecoder().decode(bytes));
 			return object(input)
 				? { input }
-				: { response: usage(400, 'The input is not a JSON object') };
+				: { response: rejectSubmission(400, 'The input is not a JSON object') };
 		} catch {
-			return { response: usage(400, 'The input is not valid JSON') };
+			return { response: rejectSubmission(400, 'The input is not valid JSON') };
 		}
 	}
 
@@ -747,8 +751,7 @@ export function createRunHost(
 			});
 			await exclusive(run.key, async () => {
 				await append(run, { type: 'finished', answer });
-				if ('result' in answer && answer.result.error === null)
-					await deleteBins(run);
+				if (answer.error === null) await deleteBins(run);
 			});
 		} catch (cause) {
 			try {
@@ -776,26 +779,23 @@ export function createRunHost(
 		const body = await admissionBody(request);
 		if ('response' in body) return body.response;
 		const loaded = await loadHomeApp(run.app);
-		if (loaded.error) return missing();
+		if (loaded.error) return refusedResponse(404, loaded.error);
 		const located = loaded.data;
 		if (!located.ok)
-			return Response.json(
-				{
-					admitted: false,
-					error: CliError.AppProblems({
-						app: run.app,
-						problems: located.problems,
-					}).error,
-				},
-				{ status: 400 },
+			return refusedResponse(
+				400,
+				CliError.AppProblems({
+					app: run.app,
+					problems: located.problems,
+				}).error,
 			);
 		const action = Object.hasOwn(located.actions, run.action)
 			? located.actions[run.action]
 			: undefined;
-		if (!action) return missing();
+		if (!action) return rejectSubmission(404, 'Unknown run route or run');
 		const checked = checkInput(action, body.input, { fileReferences: true });
 		if ('error' in checked)
-			return usage(
+			return rejectSubmission(
 				400,
 				checked.error,
 				`epicenter ${run.app} ${run.action} --help`,
@@ -818,11 +818,11 @@ export function createRunHost(
 					existing.action !== run.action ||
 					(!action.privateInput && existing.inputDigest !== inputDigest)
 				)
-					return usage(
+					return rejectSubmission(
 						409,
 						'This run id was already admitted with different input or action',
 					);
-				// A join was already admitted; its observer limit response has no refusal marker.
+				// A failed observer connection leaves the admitted run intact.
 				return events(request, run, existing, true, 0);
 			}
 			const files = Object.create(null) as RunRecord['files'];
@@ -840,7 +840,7 @@ export function createRunHost(
 					checked.input[field] !== meta.reference ||
 					!(await exists(binPath))
 				)
-					return usage(
+					return rejectSubmission(
 						400,
 						`The file for ${field} was not uploaded for this run`,
 					);
@@ -869,7 +869,10 @@ export function createRunHost(
 				await sweep();
 			// No await between the capacity checks, commit, and claiming the run.
 			if (claimed.size >= 32)
-				return usage(429, 'Thirty-two runs are already active on this host');
+				return rejectSubmission(
+					429,
+					'Thirty-two runs are already active on this host',
+				);
 			if (
 				runtimeBytes +
 					store.sizes() +
@@ -877,7 +880,7 @@ export function createRunHost(
 					(claimed.size + 1) * MAX_LOG_BYTES >
 				runtimeLimit
 			)
-				return usage(507, 'The run runtime directory is full');
+				return rejectSubmission(507, 'The run runtime directory is full');
 			const admitted = store.admit({
 				app: run.app,
 				id: run.id,
@@ -924,7 +927,7 @@ export function createRunHost(
 				{
 					error: CliError.Usage({ message: 'The run host has stopped' }).error,
 				},
-				{ status: 503 },
+				{ status: 503, headers: { 'x-epicenter-admitted': 'true' } },
 			);
 		const after = String(
 			initialAfter ?? new URL(request.url).searchParams.get('after') ?? '0',
@@ -934,12 +937,11 @@ export function createRunHost(
 		if (counted && streams >= 64)
 			return Response.json(
 				{
-					...(initialAfter === 0 ? { admitted: true } : {}),
 					error: CliError.Usage({
 						message: 'Too many run observers are connected',
 					}).error,
 				},
-				{ status: 429 },
+				{ status: 429, headers: { 'x-epicenter-admitted': 'true' } },
 			);
 		if (counted) streams++;
 		let cursor = Number(after);
@@ -1000,7 +1002,7 @@ export function createRunHost(
 				replay.push(
 					...store.events(run.app, run.id, Math.max(0, record.lastSeq - 1)),
 				);
-			for (const event of replay) send(event as HostEvent);
+			for (const event of replay) send(event);
 			replaying = false;
 			for (const event of queued.sort((a, b) => a.seq - b.seq)) send(event);
 			if (terminal(record) || request.signal.aborted) close();
@@ -1023,15 +1025,19 @@ export function createRunHost(
 		},
 		async handle(request: Request): Promise<Response> {
 			await ready;
-			if (unavailable) return usage(503, unavailable);
-			if (stopped) return usage(503, 'The run host has stopped');
+			const parts = new URL(request.url).pathname.split('/');
+			const submitting =
+				request.method === 'POST' && parts[1] === '.runs' && parts.length === 5;
+			const routeError = submitting ? rejectSubmission : usage;
+			const unknownRoute = () => routeError(404, 'Unknown run route or run');
+			if (unavailable) return routeError(503, unavailable);
+			if (stopped) return routeError(503, 'The run host has stopped');
 			let run: RunLocation;
 			let suffix: string | undefined;
 			let field: string | undefined;
 			try {
-				const parts = new URL(request.url).pathname.split('/');
 				if (parts[1] !== '.runs' || ![5, 6, 7].includes(parts.length))
-					return missing();
+					return unknownRoute();
 				const app = decodeURIComponent(parts[2] ?? '');
 				const action = decodeURIComponent(parts[3] ?? '').split('.');
 				const id = decodeURIComponent(parts[4] ?? '');
@@ -1041,17 +1047,17 @@ export function createRunHost(
 					!action.every(isName) ||
 					!ID.test(id)
 				)
-					return missing();
+					return unknownRoute();
 				suffix = parts[5];
 				if (parts.length === 6 && suffix !== 'events' && suffix !== 'cancel')
-					return missing();
+					return unknownRoute();
 				if (parts.length === 7) {
-					if (suffix !== 'files') return missing();
+					if (suffix !== 'files') return unknownRoute();
 					field = decodeURIComponent(parts[6] ?? '');
 				}
 				run = location(app, action.join(' '), id);
 			} catch {
-				return missing();
+				return unknownRoute();
 			}
 			requests++;
 			busy.set(run.key, (busy.get(run.key) ?? 0) + 1);
@@ -1092,10 +1098,16 @@ export function createRunHost(
 					});
 				return missing();
 			} catch (cause) {
-				return Response.json(
-					{ error: CliError.Internal({ cause }).error },
-					{ status: 500 },
-				);
+				const error = CliError.Internal({ cause }).error;
+				if (submitting) {
+					try {
+						if (!store.record(run.app, run.id))
+							return refusedResponse(500, error);
+					} catch {
+						// The store could not establish whether admission committed.
+					}
+				}
+				return Response.json({ error }, { status: 500 });
 			} finally {
 				const count = (busy.get(run.key) ?? 1) - 1;
 				if (count) busy.set(run.key, count);

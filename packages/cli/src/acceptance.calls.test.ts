@@ -136,7 +136,9 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	const tagged = await f.json('notes', 'tagged');
 	expect(tagged.code).toBe(1);
 	expect(tagged.answer).toEqual({
-		fault: {
+		data: null,
+		error: {
+			kind: 'fault',
 			message: 'no such page',
 			thrown: { name: 'NotFound', message: 'no such page', page: 'x' },
 		},
@@ -145,9 +147,10 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	const noRoute = await f.json('notes', 'no-route');
 	expect(noRoute.code).toBe(1);
 	expect(noRoute.answer).toEqual({
-		result: {
-			data: null,
-			error: { name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' },
+		data: null,
+		error: {
+			kind: 'returned',
+			reason: { name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' },
 		},
 	});
 	expect(await f.run('notes', 'no-route')).toEqual({
@@ -162,22 +165,28 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	});
 	const declined = await f.json('notes', 'declined');
 	expect(declined.code).toBe(1);
-	expect(declined.answer.result.error).toMatchObject({
+	expect(declined.answer.error.reason).toMatchObject({
 		name: 'Refused',
 		namespace: 'epicenter/action-error',
 	});
 	const thrown = await f.json('notes', 'thrown-refusal');
 	expect(thrown.code).toBe(1);
-	expect(thrown.answer.fault.thrown.name).toBe('Refused');
+	expect(thrown.answer.error.thrown.name).toBe('Refused');
 	expect(thrown.answer).not.toHaveProperty('result');
 	const plain = await f.json('notes', 'plain');
 	expect(plain.code).toBe(1);
-	expect(plain.answer).toEqual({ fault: { message: expect.any(String) } });
+	expect(plain.answer).toEqual({
+		data: null,
+		error: { kind: 'fault', message: expect.any(String) },
+	});
 	const exited = await f.run('notes', 'exit', '--json');
 	expect(exited).toMatchObject({ code: 7, stdout: '' });
 	const unknown = await f.json('notes', 'nope');
 	expect(unknown.code).toBe(2);
-	expect(unknown.answer.error).toMatchObject({ name: 'Usage' });
+	expect(unknown.answer).toMatchObject({
+		data: null,
+		error: { kind: 'refused', reason: { name: 'Usage' } },
+	});
 	const human = await f.run('notes', 'write', '{"page":"monday"}');
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
@@ -191,7 +200,9 @@ test('C10 a read-only action cannot write through folder, except a .local file, 
 	held?.release();
 	expect(peek.code).toBe(1);
 	expect(peek.answer).toEqual({
-		fault: {
+		data: null,
+		error: {
+			kind: 'fault',
 			message:
 				'The action "peek" is read-only, so it cannot write data/peek.md',
 		},
@@ -200,7 +211,7 @@ test('C10 a read-only action cannot write through folder, except a .local file, 
 	const refresh = await f.json('notes', 'refresh');
 	expect(refresh).toMatchObject({
 		code: 0,
-		answer: { result: { data: null, error: null } },
+		answer: { data: null, error: null },
 	});
 	expect(await readFile(join(f.dir, 'data/token.local.md'), 'utf8')).toBe(
 		'kept',
@@ -273,7 +284,7 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 	const f = await setup();
 	const json = await f.json('notes', 'chatty');
 	expect(json.code).toBe(0);
-	expect(json.answer).toEqual({ result: { data: 'answer', error: null } });
+	expect(json.answer).toEqual({ data: 'answer', error: null });
 	for (const line of ['hello from log', 'hello from info', 'raw stdout'])
 		expect(json.stderr).toContain(line);
 	const { client, close } = await connectMcp(f);
@@ -283,9 +294,7 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 			arguments: {},
 		});
 		expect(called.isError).toBeFalsy();
-		expect(called.structuredContent).toEqual({
-			result: { data: 'answer', error: null },
-		});
+		expect(called.structuredContent).toEqual({ data: 'answer', error: null });
 	} finally {
 		await close();
 	}

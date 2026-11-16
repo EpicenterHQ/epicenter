@@ -3,10 +3,10 @@
  * to keys such as path, body, problems, or added. JSON mode keeps the answer.
  */
 import { expect, test } from 'bun:test';
-import { Err, Ok } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { renderAnswer } from './output.ts';
 
-const ok = (value: unknown) => renderAnswer({ result: Ok(value) });
+const ok = (value: unknown) => renderAnswer(Ok(value));
 
 test('objects keep every defined key in order; a nested object renders beneath its key, and other values as compact JSON', () => {
 	expect(
@@ -149,20 +149,28 @@ test('strings print as is, empty arrays print nothing, and other values use JSON
 test('Err, fault, and pre-run errors render diagnostics with their exit codes', () => {
 	expect(
 		renderAnswer({
-			result: Err({
-				name: 'NoRoute',
-				message: 'No route from LAX',
-				airport: 'LAX',
-			}),
+			data: null,
+			error: {
+				kind: 'returned',
+				reason: {
+					name: 'NoRoute',
+					message: 'No route from LAX',
+					airport: 'LAX',
+				},
+			},
 		}),
 	).toEqual({ stdout: '', stderr: 'No route from LAX\n', code: 1 });
 	expect(
 		renderAnswer({
-			result: Err({
-				name: 'Refused',
-				message: 'Declined',
-				next: 'epicenter flights add',
-			}),
+			data: null,
+			error: {
+				kind: 'returned',
+				reason: {
+					name: 'Refused',
+					message: 'Declined',
+					next: 'epicenter flights add',
+				},
+			},
 		}),
 	).toEqual({
 		stdout: '',
@@ -170,9 +178,18 @@ test('Err, fault, and pre-run errors render diagnostics with their exit codes', 
 		code: 1,
 	});
 	expect(
-		renderAnswer({ fault: { message: 'Unexpected end of input' } }),
+		renderAnswer({
+			data: null,
+			error: { kind: 'fault', message: 'Unexpected end of input' },
+		}),
 	).toEqual({ stdout: '', stderr: 'Unexpected end of input\n', code: 1 });
 	expect(
-		renderAnswer({ error: { name: 'Usage', message: 'm', next: 'n' } }),
+		renderAnswer({
+			data: null,
+			error: {
+				kind: 'refused',
+				reason: { name: 'Usage', message: 'm', next: 'n' },
+			},
+		}),
 	).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
 });

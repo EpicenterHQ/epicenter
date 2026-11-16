@@ -103,7 +103,8 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			arguments: { value: 'ordinary' },
 		});
 		expect(annotated.structuredContent).toEqual({
-			result: { data: 'ordinary', error: null },
+			data: 'ordinary',
+			error: null,
 		});
 		const listing = await f.run('keys', '--json');
 		const listed = JSON.parse(listing.stdout).actions.find(
@@ -144,7 +145,7 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			.map((line) => JSON.parse(line));
 		expect(frames.at(-1)).toMatchObject({
 			type: 'finished',
-			answer: { result: { data: { connected: true }, error: null } },
+			answer: { data: { connected: true }, error: null },
 		});
 		const child = Bun.spawn(
 			[process.execPath, f.bin, 'keys', 'connect', '-', '--json'],
@@ -165,7 +166,8 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 		]);
 		expect({ code, stdout, stderr }).toMatchObject({ code: 0 });
 		expect(JSON.parse(stdout)).toEqual({
-			result: { data: { connected: true }, error: null },
+			data: { connected: true },
+			error: null,
 		});
 		expect(stderr).not.toContain(SECRET);
 	} finally {

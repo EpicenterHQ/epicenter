@@ -39,9 +39,7 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 	const before = await gitIn(f.home, 'rev-parse', 'HEAD');
 	const cli = await f.run('x', 'put', '--json');
 	expect(cli.code).toBe(0);
-	expect(JSON.parse(cli.stdout)).toEqual({
-		result: { data: app, error: null },
-	});
+	expect(JSON.parse(cli.stdout)).toEqual({ data: app, error: null });
 	expect(await readFile(join(app, 'data/record.md'), 'utf8')).toBe('record');
 	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(before);
 	await assertNoGit(f.apps);
@@ -95,9 +93,7 @@ test('a waiting action keeps locking the container when code is replaced', async
 	const result = await call;
 	expect(result.code).toBe(0);
 	expect(Date.now() - start).toBeGreaterThanOrEqual(400);
-	expect(JSON.parse(result.stdout)).toEqual({
-		result: { data: app, error: null },
-	});
+	expect(JSON.parse(result.stdout)).toEqual({ data: app, error: null });
 	expect(await readFile(join(app, 'data/record.md'), 'utf8')).toBe('record');
 });
 

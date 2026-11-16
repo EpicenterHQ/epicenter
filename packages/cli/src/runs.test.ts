@@ -371,7 +371,20 @@ test('identical admission joins once; changed inputs and bytes conflict', async 
 			.split('\n')
 			.map((line) => JSON.parse(line)),
 	).toEqual(frames);
-	expect((await f.admit(id, { ...input, chunks: 4 })).status).toBe(409);
+	const conflict = await f.admit(id, { ...input, chunks: 4 });
+	expect(conflict.status).toBe(409);
+	expect(conflict.headers.get('x-epicenter-admitted')).toBe('false');
+	expect(await conflict.json()).toEqual({
+		data: null,
+		error: {
+			kind: 'refused',
+			reason: {
+				name: 'Usage',
+				message:
+					'This run id was already admitted with different input or action',
+			},
+		},
+	});
 	expect((await f.upload(id, 'changed')).status).toBe(409);
 	expectOk(await runs.attach(f.app.transcribe, id).result());
 	expect(await readFile(join(f.apps, 'files/data/count.local'), 'utf8')).toBe(
@@ -379,7 +392,46 @@ test('identical admission joins once; changed inputs and bytes conflict', async 
 	);
 });
 
-test('observer abort leaves execution alive and cursor replay has no gaps', async () => {
+test('an observer limit on an admitted run leaves it running', async () => {
+	const f = await setup();
+	const id = crypto.randomUUID();
+	const url = f.url(id, '', 'wait');
+	const stop = new AbortController();
+	const admission = await f.host.handle(
+		new Request(url, { method: 'POST', body: '{}' }),
+	);
+	expect(admission.ok).toBe(true);
+	try {
+		for (let i = 0; i < 64; i++) {
+			const stream = await f.host.handle(
+				new Request(url + '/events', { signal: stop.signal }),
+			);
+			expect(stream.ok).toBe(true);
+		}
+		for (const request of [
+			new Request(url, { method: 'POST', body: '{}' }),
+			new Request(url + '/events'),
+		]) {
+			const limit = await f.host.handle(request);
+			expect(limit.status).toBe(429);
+			expect(limit.headers.get('x-epicenter-admitted')).toBe('true');
+			expect(await limit.json()).toEqual({
+				error: {
+					name: 'Usage',
+					message: 'Too many run observers are connected',
+				},
+			});
+		}
+		const status = await f.host.handle(new Request(url));
+		expect((await status.json()).state).toBe('running');
+	} finally {
+		stop.abort();
+		await f.host.handle(new Request(url + '/cancel', { method: 'POST' }));
+		await admission.text();
+	}
+});
+
+test('observer abort leaves execution alive and attaching replays the whole run', async () => {
 	const f = await setup();
 	const run = runs.start(f.app.transcribe, {
 		audio: new Blob(['hello'], { type: 'text/plain' }),
@@ -392,16 +444,12 @@ test('observer abort leaves execution alive and cursor replay has no gaps', asyn
 		first.push(event);
 		if (event.type === 'yielded') stop.abort();
 	}
-	const cursor = Math.max(
-		...first.map((event) => ('seq' in event ? event.seq : 0)),
-	);
-	const replay = await collect(
-		runs.attach(f.app.transcribe, run.id).events({ after: cursor }),
-	);
-	const seqs = [...first, ...replay].flatMap((event) =>
-		'seq' in event ? [event.seq] : [],
-	);
+	const replay = await collect(runs.attach(f.app.transcribe, run.id).events());
+	const seqs = replay.flatMap((event) => ('seq' in event ? [event.seq] : []));
 	expect(seqs).toEqual(Array.from({ length: seqs.length }, (_, i) => i + 1));
+	expect(
+		replay.slice(0, first.filter((event) => 'seq' in event).length),
+	).toEqual(first.filter((event) => 'seq' in event));
 	expect(replay.at(-1)?.type).toBe('finished');
 	expectOk(await run.result());
 });
@@ -526,8 +574,12 @@ test('size and MIME refusals send no admission; ordinary calls upload files', as
 	);
 	const answer = await callAction('files', 'transcribe', {});
 	expect(answer).toMatchObject({
+		data: null,
 		error: {
-			message: expect.stringContaining('only a run started from its page'),
+			kind: 'refused',
+			reason: {
+				message: expect.stringContaining('only a run started from its page'),
+			},
 		},
 	});
 	const help = await f.run('files', 'transcribe', '--help');
@@ -902,7 +954,10 @@ test('oversized yields finish with a fault and oversized answers interrupt withi
 		if (action === 'big-yield') {
 			expect(frames.at(-1)).toMatchObject({
 				type: 'finished',
-				answer: { fault: { message: 'A run yield exceeds 256 KiB' } },
+				answer: {
+					data: null,
+					error: { kind: 'fault', message: 'A run yield exceeds 256 KiB' },
+				},
 			});
 		} else {
 			expect(frames.at(-1).type).toBe('interrupted');
@@ -930,7 +985,14 @@ test('capacity refuses the thirty-third active run and cancellation reaches fina
 	}
 	const rejected = await f.admit(crypto.randomUUID(), {}, 'wait');
 	expect(rejected.status).toBe(429);
-	expect((await rejected.json()).admitted).toBe(false);
+	expect(rejected.headers.get('x-epicenter-admitted')).toBe('false');
+	expect(await rejected.json()).toEqual({
+		data: null,
+		error: {
+			kind: 'refused',
+			reason: { name: 'Usage', message: expect.any(String) },
+		},
+	});
 	expect(
 		(
 			await fetch(f.url(crypto.randomUUID(), '/cancel', 'wait'), {
@@ -963,7 +1025,14 @@ test('budget refusal is definitive', async () => {
 		}),
 	);
 	expect(response.status).toBe(507);
-	expect((await response.json()).admitted).toBe(false);
+	expect(response.headers.get('x-epicenter-admitted')).toBe('false');
+	expect(await response.json()).toEqual({
+		data: null,
+		error: {
+			kind: 'refused',
+			reason: { name: 'Usage', message: expect.any(String) },
+		},
+	});
 	host.stop();
 });
 
@@ -991,9 +1060,7 @@ test('the shared admission threshold refuses new work while preserving accepted 
 		expect(frames.filter((frame) => frame.type === 'yielded')).toHaveLength(
 			15000,
 		);
-		expect(frames.at(-1)?.answer).toEqual({
-			result: { data: true, error: null },
-		});
+		expect(frames.at(-1)?.answer).toEqual({ data: true, error: null });
 		const sizes = await Promise.all(
 			['', '-wal', '-shm'].map(
 				async (suffix) =>
@@ -1010,7 +1077,14 @@ test('the shared admission threshold refuses new work while preserving accepted 
 			}),
 		);
 		expect(refused.status).toBe(507);
-		expect((await refused.json()).admitted).toBe(false);
+		expect(refused.headers.get('x-epicenter-admitted')).toBe('false');
+		expect(await refused.json()).toEqual({
+			data: null,
+			error: {
+				kind: 'refused',
+				reason: { name: 'Usage', message: expect.any(String) },
+			},
+		});
 		const upload = await host.handle(
 			new Request(f.url(crypto.randomUUID(), '/files/audio'), {
 				method: 'PUT',
@@ -1036,7 +1110,7 @@ test('the shared admission threshold refuses new work while preserving accepted 
 		);
 		expect(resumed.status).toBe(200);
 		expect(await resumed.text()).toContain(
-			'"result":{"data":null,"error":null}',
+			'"answer":{"data":null,"error":null}',
 		);
 	} finally {
 		host.stop();
@@ -1119,7 +1193,10 @@ test('returned file refusal retains uploaded bytes and persists the Err', async 
 		.map((line) => JSON.parse(line));
 	expect(frames.at(-1)).toMatchObject({
 		type: 'finished',
-		answer: { result: { data: null, error: { name: 'NoRoute' } } },
+		answer: {
+			data: null,
+			error: { kind: 'returned', reason: { name: 'NoRoute' } },
+		},
 	});
 });
 
@@ -1133,6 +1210,7 @@ test('legacy replay preserves stored answers and decodes legacy refusals without
 		{ threw: { message: 'There is no data/a.md', thrown: missing } },
 		{ threw: { message: 'boom', thrown: { name: 'Custom', message: 'boom' } } },
 		{ fault: { message: 'There is no data/a.md', thrown: missing } },
+		{ result: { data: null, error: missing } },
 	];
 	const ids = answers.map(() => crypto.randomUUID());
 	const at = new Date().toISOString();
@@ -1143,7 +1221,7 @@ test('legacy replay preserves stored answers and decodes legacy refusals without
 			store.append(
 				'files',
 				ids[i]!,
-				{ type: 'finished', answer: JSON.parse(JSON.stringify(answer)), at },
+				{ type: 'finished', answer, at },
 				{ limit: 4 * 1024 * 1024 },
 			);
 		}
@@ -1169,6 +1247,9 @@ test('legacy replay preserves stored answers and decodes legacy refusals without
 		expect(
 			expectErr(await runs.attach(f.app.noop, ids[3]!).result()),
 		).toMatchObject({ name: 'Threw', thrown: { name: 'Missing' } });
+		expect(expectErr(await runs.attach(f.app.noop, ids[4]!).result())).toEqual(
+			missing,
+		);
 		const replay = await host.handle(
 			new Request(f.url(ids[0]!, '/events', 'noop')),
 		);
