@@ -3,10 +3,11 @@
  *
  * `field.list(item)` is a list of any field. These tests run lists through a
  * collection's methods over a memory folder, since that is where a list's
- * default and its items' checks take effect.
+ * absent value and its items' checks take effect.
  *
  * Key behaviors:
- * - a list reads as `[]` when its line is absent and is written as JSON
+ * - a list reads as `[]` when its line is absent, as absent when its value
+ *   does not fit, and is written as JSON
  * - an item that does not fit is refused by what each item must be
  *
  * See also:
@@ -67,6 +68,7 @@ test('lists of text, select, and number are written as JSON lines', async () => 
 		tags: ['a', 'b'],
 		platforms: ['threads'],
 		ratings: [4, 5],
+		body: '',
 	});
 });
 

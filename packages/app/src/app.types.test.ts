@@ -94,21 +94,23 @@ describe('an app author', () => {
 	test('gets every action under its words, with exact inputs and outputs', () => {
 		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
 		assertType<
-			Equal<
-				keyof Actions['words'],
-				'list' | 'get' | 'add' | 'set' | 'edit' | 'delete'
-			>
+			Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set' | 'edit'>
 		>();
 		assertType<
-			Equal<
-				keyof Actions['settings'],
-				'list' | 'get' | 'add' | 'set' | 'edit' | 'delete'
-			>
+			Equal<keyof Actions['settings'], 'list' | 'get' | 'add' | 'set' | 'edit'>
 		>();
 		assertType<
 			Equal<
 				In<Actions['words']['set']>,
-				{ word: string; meaning?: string | null | undefined }
+				{
+					word: string;
+					meaning?: string | null | undefined;
+					was?: {
+						meaning?: string | null;
+						createdAt?: string | null;
+						due?: string | null;
+					};
+				}
 			>
 		>();
 		assertType<Equal<In<Actions['words']['get']>, { word: string }>>();
@@ -125,20 +127,31 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				Out<Actions['words']['list']>[number],
-				{
-					path: string;
-					word: string;
-					meaning?: string;
-					createdAt?: string;
-					due?: string;
-					problems?: string[];
-				}
+				| {
+						path: string;
+						word: string;
+						meaning?: string;
+						createdAt: string;
+						due?: string;
+						problems?: undefined;
+				  }
+				| {
+						path: string;
+						word: string;
+						meaning?: string;
+						createdAt?: string;
+						due?: string;
+						problems: string[];
+				  }
 			>
 		>();
 		assertType<
 			Equal<
 				In<Actions['settings']['set']>,
-				{ dailyGoal?: number | null | undefined }
+				{
+					dailyGoal?: number | null | undefined;
+					was?: { dailyGoal?: number | null };
+				}
 			>
 		>();
 		assertType<
@@ -160,62 +173,79 @@ describe('an app author', () => {
 		assertType<Equal<Parameters<typeof settings.pathOf>, []>>();
 	});
 
-	test('a read has a defaulted field always, every other field maybe, and every placeholder', () => {
+	test('a record without problems has its required fields, a switch, and a list; one with problems may lack any field', () => {
 		const tasks = defineCollection({
 			path: 'data/tasks/{year}/{id}.md',
 			fields: {
 				title: field.text(),
+				note: field.text({ optional: true }),
 				done: field.boolean(),
 				tags: field.list(field.text()),
 			},
 		});
-		type Read = Awaited<ReturnType<typeof tasks.list>>[number];
+		// A read gives no `other`: front matter no field declares is kept, not read.
+		type Found = Awaited<ReturnType<typeof tasks.list>>[number];
 		assertType<
 			Equal<
-				Read,
-				{
-					path: string;
-					year: string;
-					id: string;
-					title?: string;
-					done: boolean;
-					tags: string[];
-					problems?: string[];
-				}
+				Found,
+				| {
+						path: string;
+						year: string;
+						id: string;
+						title: string;
+						note?: string;
+						done: boolean;
+						tags: string[];
+						body: string;
+						problems?: undefined;
+				  }
+				| {
+						path: string;
+						year: string;
+						id: string;
+						title?: string;
+						note?: string;
+						done?: boolean;
+						tags?: string[];
+						body: string;
+						problems: string[];
+				  }
 			>
 		>();
 		assertType<
 			Equal<Parameters<typeof tasks.pathOf>[0], { year: string; id: string }>
 		>();
 		assertType<Equal<Parameters<typeof words.pathOf>[0], { word: string }>>();
-		// A read gives no `other`: front matter no field declares is kept, not read.
-		type Found = NonNullable<Awaited<ReturnType<typeof tasks.get>>>;
-		assertType<
-			Equal<
-				Found,
-				{
-					path: string;
-					year: string;
-					id: string;
-					title?: string;
-					done: boolean;
-					tags: string[];
-					body: string;
-					problems?: string[];
-				}
-			>
-		>();
+		const titles = (records: Found[]) =>
+			records
+				.filter((record) => !record.problems)
+				.map((record) => record.title);
+		assertType<Equal<ReturnType<typeof titles>, string[]>>();
+		(record: Found) => {
+			if (!record.problems) assertType<Equal<typeof record.tags, string[]>>();
+			// @ts-expect-error a record with problems may lack its list
+			return record.tags.length;
+		};
+		// A set function sees the record as get does, so it must handle a missing list.
+		() =>
+			tasks.set({ year: '2026', id: 'a' }, (now) => ({
+				tags: [...(now.tags ?? []), 'new'],
+				body: `${now.body}More.\n`,
+			}));
 	});
 
-	test('a required readOnly field without a default leaves add out', () => {
+	test('a required readOnly field leaves add out, and delete comes only when named', () => {
+		const given = () => words.actions();
 		assertType<
-			Equal<
-				keyof ReturnType<typeof words.actions>,
-				'list' | 'get' | 'set' | 'edit' | 'delete'
-			>
+			Equal<keyof ReturnType<typeof given>, 'list' | 'get' | 'set' | 'edit'>
+		>();
+		assertType<
+			Equal<keyof ReturnType<typeof words.actions<'delete'>>, 'delete'>
 		>();
 		// @ts-expect-error words has a required readOnly createdAt, so no add
 		() => words.actions('add');
+		// @ts-expect-error edit is a verb only, not a method
+		() => words.edit;
 		const flags = defineCollection({
 			path: 'data/flags/{id}.md',
 			fields: {
@@ -224,7 +254,15 @@ describe('an app author', () => {
 			},
 		});
 		type SetIn = In<ReturnType<typeof flags.actions<'set'>>['set']>;
-		assertType<Equal<SetIn, { id: string }>>();
+		assertType<
+			Equal<
+				SetIn,
+				{
+					id: string;
+					was?: { pinned?: boolean | null; labels?: string[] | null };
+				}
+			>
+		>();
 	});
 
 	test('a list reads as an array, is optional to write, and a reference is text', () => {
@@ -242,19 +280,23 @@ describe('an app author', () => {
 				people: field.list(Type.Object({ name: Type.String() })),
 			},
 		});
-		type Read = Awaited<ReturnType<typeof books.list>>[number];
+		type Fits = Exclude<
+			Awaited<ReturnType<typeof books.list>>[number],
+			{ problems: string[] }
+		>;
 		assertType<
 			Equal<
-				Read,
+				Fits,
 				{
 					path: string;
 					book: string;
 					platforms: ('x' | 'threads')[];
 					ratings: number[];
-					shelf?: string;
+					shelf: string;
 					shelves: string[];
 					people: { name: string }[];
-					problems?: string[];
+					body: string;
+					problems?: undefined;
 				}
 			>
 		>();
@@ -412,7 +454,13 @@ describe('an app author', () => {
 						path: string;
 						dailyGoal?: number;
 						body: string;
-						problems?: string[];
+						problems?: undefined;
+				  }
+				| {
+						path: string;
+						dailyGoal?: number;
+						body: string;
+						problems: string[];
 				  }
 				| undefined
 			>
@@ -459,15 +507,24 @@ describe('an app author', () => {
 			Equal<
 				Awaited<ReturnType<typeof call>>,
 				Result<
-					{
-						path: string;
-						word: string;
-						meaning?: string;
-						createdAt?: string;
-						due?: string;
-						body: string;
-						problems?: string[];
-					},
+					| {
+							path: string;
+							word: string;
+							meaning?: string;
+							createdAt: string;
+							due?: string;
+							body: string;
+							problems?: undefined;
+					  }
+					| {
+							path: string;
+							word: string;
+							meaning?: string;
+							createdAt?: string;
+							due?: string;
+							body: string;
+							problems: string[];
+					  },
 					ActionError
 				>
 			>

@@ -6,12 +6,14 @@
  *
  * A field is required unless it says `optional`. A switch (`boolean`) and a
  * list (`list`) is never required: an absent switch is `false`, an
- * absent list is empty. A collection's field that says `readOnly` is written
- * only by the app's own actions: the exposed `add` and `set` leave it out.
- * Fields describe data; an action declares private input handling separately.
+ * absent list is empty. That is a rule of these two helpers, which mark their
+ * schema with its kind (`absentValue`); no field carries a JSON Schema
+ * `default`, and a definition that has one is refused (`defaultIn`). A
+ * collection's field that says `readOnly` is written only by the app's own
+ * actions: the exposed `add` and `set` leave it out. Fields describe data; an
+ * action declares private input handling separately.
  */
 import {
-	type Static,
 	type TArray,
 	type TBoolean,
 	type TLiteral,
@@ -68,6 +70,80 @@ type Options = {
 
 type MaybeOptional = Options & { optional?: boolean };
 
+/** `O`, with each option `Allowed` does not declare typed `never`, so `field.integer({ default: 50 })` is a type error. */
+type Only<O, Allowed> = O & { [K in Exclude<keyof O, keyof Allowed>]: never };
+
+/**
+ * Throw when `options` names one `helper` does not declare, so it is never
+ * dropped without a word. A `default` gets its own sentence: no field has one.
+ */
+function only(
+	helper: string,
+	options: object | undefined,
+	declared: readonly string[],
+): void {
+	for (const key of Object.keys(options ?? {})) {
+		if (declared.includes(key)) continue;
+		throw new Error(
+			key === 'default'
+				? `field.${helper} takes no default: no field has one, so write the default in code where the value is read, such as \`limit ?? 50\``
+				: `field.${helper} takes no option "${key}"; it takes ${declared.join(', ')}`,
+		);
+	}
+}
+
+const OPTIONS = ['description', 'readOnly'] as const;
+const MAYBE_OPTIONAL = [...OPTIONS, 'optional'] as const;
+const BOUNDED = [...MAYBE_OPTIONAL, 'min', 'max'] as const;
+
+/**
+ * The JSON Schema keyword `field.boolean` and `field.list` mark their schema
+ * with: `"x-epicenter-field": "switch"` or `"list"`. It names the field's
+ * kind, not a value; `absentValue` holds what that kind means when absent.
+ */
+const KIND = 'x-epicenter-field';
+
+/**
+ * What a field reads as when its key is absent: `false` for `field.boolean`,
+ * `[]` for `field.list`, and `undefined` for every other field. A read of a
+ * file and a call of an action both use it, so the two agree.
+ */
+export function absentValue(schema: unknown): false | [] | undefined {
+	const kind =
+		typeof schema === 'object' && schema !== null
+			? (schema as Record<string, unknown>)[KIND]
+			: undefined;
+	if (kind === 'switch') return false;
+	if (kind === 'list') return [];
+	return undefined;
+}
+
+/** Keywords whose value is data, not a schema, so a `default` key inside it is a value. */
+const DATA_KEYWORDS = new Set(['const', 'enum', 'examples']);
+
+/** Keywords whose value maps names to schemas, so a key `default` there is a name. */
+const NAMED_SCHEMAS = new Set([
+	'properties',
+	'patternProperties',
+	'$defs',
+	'definitions',
+	'dependentSchemas',
+]);
+
+/** Whether `schema` has a JSON Schema `default` at any depth. */
+export function defaultIn(schema: unknown): boolean {
+	if (Array.isArray(schema)) return schema.some(defaultIn);
+	if (typeof schema !== 'object' || schema === null) return false;
+	if (Object.hasOwn(schema, 'default')) return true;
+	return Object.entries(schema).some(([key, value]) =>
+		DATA_KEYWORDS.has(key)
+			? false
+			: NAMED_SCHEMAS.has(key) && typeof value === 'object' && value !== null
+				? Object.values(value).some(defaultIn)
+				: defaultIn(value),
+	);
+}
+
 /** `T` marked as JSON Schema's `readOnly` when the options say so, so types can read the mark. */
 type Marked<T extends TSchema, O> = O extends { readOnly: true }
 	? T & { readOnly: true }
@@ -78,12 +154,17 @@ type Optionally<T extends TSchema, O> = Marked<
 	O
 >;
 
-/** A switch: `false` unless its flag is given. */
-export type TSwitch = TOptional<TBoolean> & { default: false };
+/** The keys of `F` that are a switch or a list, which a read and an action's `run` always have. */
+export type FilledKeys<F> = {
+	[K in keyof F]: F[K] extends { [KIND]: 'switch' | 'list' } ? K : never;
+}[keyof F];
+
+/** A switch: `false` unless its flag is given, or its key is in the file. */
+export type TSwitch = TOptional<TBoolean> & { [KIND]: 'switch' };
 
 /** A list of `T`: every time its flag is given, or every word left when it is the last positional; empty unless given. */
 export type TList<T extends TSchema> = TOptional<TArray<T>> & {
-	default: Static<T>[];
+	[KIND]: 'list';
 };
 
 /** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "path": "<the target's path>" } }`. */
@@ -119,10 +200,11 @@ export function refPathOf(schema: unknown): string | undefined {
 /** A list of `item`, optional and empty unless given. */
 function list<const T extends TSchema, const O extends Options>(
 	item: T,
-	options?: O,
+	options?: Only<O, Options>,
 ) {
+	only('list', options, OPTIONS);
 	return Type.Optional(
-		Type.Array(item, { ...schemaOptions(options), default: [] }),
+		Type.Array(item, { ...schemaOptions(options), [KIND]: 'list' }),
 	) as unknown as Marked<TList<T>, O>;
 }
 
@@ -209,42 +291,60 @@ export const field = {
 	 * a `description` that reads after "must be", since that is how a refusal
 	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
 	 */
-	text: <const O extends MaybeOptional & { pattern?: string }>(options?: O) =>
-		maybeOptional(
+	text: <const O extends MaybeOptional & { pattern?: string }>(
+		options?: Only<O, MaybeOptional & { pattern?: string }>,
+	) => {
+		only('text', options, [...MAYBE_OPTIONAL, 'pattern']);
+		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
 				...(options?.pattern === undefined ? {} : { pattern: options.pattern }),
 			}),
 			options,
-		),
+		);
+	},
 
 	/** A number, at least `min` and at most `max` when they are given. */
-	number: <const O extends MaybeOptional & Bounds>(options?: O) =>
-		maybeOptional(
+	number: <const O extends MaybeOptional & Bounds>(
+		options?: Only<O, MaybeOptional & Bounds>,
+	) => {
+		only('number', options, BOUNDED);
+		return maybeOptional(
 			Type.Number({ ...schemaOptions(options), ...bounds(options) }),
 			options,
-		),
+		);
+	},
 
 	/** A whole number, at least `min` and at most `max` when they are given. */
-	integer: <const O extends MaybeOptional & Bounds>(options?: O) =>
-		maybeOptional(
+	integer: <const O extends MaybeOptional & Bounds>(
+		options?: Only<O, MaybeOptional & Bounds>,
+	) => {
+		only('integer', options, BOUNDED);
+		return maybeOptional(
 			Type.Integer({ ...schemaOptions(options), ...bounds(options) }),
 			options,
-		),
+		);
+	},
 
 	/** A moment, written RFC 3339 with an offset (`2026-11-10T22:41:05+08:00`): JSON Schema's `format: 'date-time'`. */
-	datetime: <const O extends MaybeOptional>(options?: O) =>
-		maybeOptional(
+	datetime: <const O extends MaybeOptional>(
+		options?: Only<O, MaybeOptional>,
+	) => {
+		only('datetime', options, MAYBE_OPTIONAL);
+		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date-time' }),
 			options,
-		),
+		);
+	},
 
 	/** A day, written `2026-11-08`: JSON Schema's `format: 'date'`, which TypeBox checks, so `2026-13-45` is refused. */
-	date: <const O extends MaybeOptional>(options?: O) =>
-		maybeOptional(
+	date: <const O extends MaybeOptional>(options?: Only<O, MaybeOptional>) => {
+		only('date', options, MAYBE_OPTIONAL);
+		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date' }),
 			options,
-		),
+		);
+	},
 
 	/** One of `values`, as `field.select(['archive', 'trash'])`. */
 	select: <
@@ -252,20 +352,25 @@ export const field = {
 		const O extends MaybeOptional,
 	>(
 		values: V,
-		options?: O,
-	) =>
-		maybeOptional(
+		options?: Only<O, MaybeOptional>,
+	) => {
+		only('select', options, MAYBE_OPTIONAL);
+		return maybeOptional(
 			Type.Union(
 				values.map((value) => Type.Literal(value)),
 				schemaOptions(options),
 			) as unknown as TUnion<{ -readonly [K in keyof V]: TLiteral<V[K]> }>,
 			options,
-		),
+		);
+	},
 
-	boolean: <const O extends Options>(options?: O) =>
-		Type.Optional(
-			Type.Boolean({ ...schemaOptions(options), default: false }),
-		) as Marked<TSwitch, O>,
+	/** A switch: `false` unless given, and never required. */
+	boolean: <const O extends Options>(options?: Only<O, Options>) => {
+		only('boolean', options, OPTIONS);
+		return Type.Optional(
+			Type.Boolean({ ...schemaOptions(options), [KIND]: 'switch' }),
+		) as unknown as Marked<TSwitch, O>;
+	},
 
 	/**
 	 * A list of any field: `field.list(field.select(['x', 'threads']))`. It is
@@ -285,15 +390,17 @@ export const field = {
 	 */
 	ref: <const O extends MaybeOptional>(
 		collection: AnyCollection,
-		options?: O,
-	) =>
-		maybeOptional(
+		options?: Only<O, MaybeOptional>,
+	) => {
+		only('ref', options, MAYBE_OPTIONAL);
+		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
 				[REF]: { path: refPath(collection) },
 			}) as TString,
 			options,
-		),
+		);
+	},
 };
 
 type Described = {

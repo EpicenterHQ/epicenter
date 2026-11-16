@@ -3,7 +3,7 @@
  * Declarations reject malformed metadata and cyclic schemas before discovery.
  */
 import { describe, expect, test } from 'bun:test';
-import type { TSchema } from 'typebox';
+import { type TSchema, Type } from 'typebox';
 import {
 	createMemoryContext,
 	defineAction,
@@ -238,7 +238,6 @@ describe('defineApp', () => {
 			'add',
 			'set',
 			'edit',
-			'delete',
 		]);
 	});
 
@@ -477,7 +476,7 @@ describe('defineCollection', () => {
 		]);
 	});
 
-	test('a collection with no placeholder may have a required field without a default', () => {
+	test('a collection with no placeholder may have a required field', () => {
 		expect(
 			problems(() =>
 				defineCollection({
@@ -601,7 +600,7 @@ describe('defineAction', () => {
 		expect(await context.folder.read('data/said.md')).toBe('猫');
 	});
 
-	test('a direct call fills the defaults a call through the CLI or MCP would', async () => {
+	test('a call fills an absent switch and list, and nothing else', async () => {
 		const tag = defineAction({
 			description: 'Tag',
 			input: {
@@ -615,6 +614,37 @@ describe('defineAction', () => {
 		expect(tag(given)).toEqual({ tags: [], done: false });
 		expect(given).toEqual({});
 		expect(tag({ done: true })).toEqual({ tags: [], done: true });
+	});
+
+	test('refuses a field with a default at any depth, and a field helper an option it does not declare', () => {
+		expect(
+			problems(() =>
+				defineAction({
+					description: 'Research',
+					input: {
+						limit: { type: 'number', default: 50 } as never,
+						filter: Type.Object({ on: Type.Boolean({ default: true }) }),
+						named: Type.Object({ default: Type.String() }),
+					},
+					run() {},
+				}),
+			),
+		).toEqual([
+			'The action "Research" has a default in "limit"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
+			'The action "Research" has a default in "filter"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
+		]);
+		expect(() =>
+			// @ts-expect-error no field helper takes a default
+			field.integer({ default: 50, min: 1 }),
+		).toThrow(
+			'field.integer takes no default: no field has one, so write the default in code where the value is read',
+		);
+		expect(() =>
+			// @ts-expect-error a switch takes no optional: it is never required
+			field.boolean({ optional: true }),
+		).toThrow(
+			'field.boolean takes no option "optional"; it takes description, readOnly',
+		);
 	});
 
 	test('names each problem its types cannot', () => {

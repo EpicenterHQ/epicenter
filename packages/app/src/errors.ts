@@ -20,7 +20,9 @@ const fields = {
 		path: Type.String(),
 		why: Type.Union([
 			Type.Literal('quote'),
+			Type.Literal('twice'),
 			Type.Literal('empty'),
+			Type.Literal('was'),
 			Type.Literal('kept'),
 		]),
 	}),
@@ -51,7 +53,10 @@ const fields = {
 const WHY = {
 	quote:
 		"'s body does not have that text; it may have changed since it was read, so get it again",
+	twice:
+		"'s body has that text more than once; quote more around it, or the whole body",
 	empty: "'s body is no longer empty; get it again",
+	was: ' no longer holds a value named in was; it changed since it was read, so get it again',
 	kept: ' kept changing while it was updated',
 } satisfies Record<Static<typeof fields.Changed>['why'], string>;
 
@@ -61,7 +66,7 @@ function marked<T extends { message: string }>(body: T) {
 }
 
 export const ActionError = defineErrors({
-	/** The quoted passage, empty body, or file an update depended on changed. */
+	/** The quoted passage, empty body, field values, or file a write depended on changed, or a quote is not one place. */
 	Changed: ({ path, why }: Static<typeof fields.Changed>) =>
 		marked({ message: `${path}${WHY[why]}`, path, why }),
 	/** There is no file at this path. It may be a dependency of the requested action. */
