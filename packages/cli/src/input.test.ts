@@ -108,7 +108,7 @@ test('a list takes each item from a repeated flag, read as its item, and every w
 	});
 	expect(await readInput(shelve, [])).toEqual({
 		ok: true,
-		input: { ratings: [], platforms: [], days: [], shelves: [], tags: [] },
+		input: {},
 	});
 });
 
@@ -148,13 +148,6 @@ test('a list the command line cannot spell is refused as flags and taken in --in
 test('a reference in an action input is checked as text only', async () => {
 	expect(await readInput(shelve, ['--shelf', 'no-such-shelf'])).toEqual({
 		ok: true,
-		input: {
-			shelf: 'no-such-shelf',
-			ratings: [],
-			platforms: [],
-			days: [],
-			shelves: [],
-			tags: [],
-		},
+		input: { shelf: 'no-such-shelf' },
 	});
 });

@@ -179,13 +179,12 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		'reading_books_add',
 		'reading_books_set',
 		'reading_books_edit',
-		'reading_books_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
 		'reading_explode',
 	]);
-	expect(reading.actions[6]).toEqual({
+	expect(reading.actions[5]).toEqual({
 		name: 'reading_log',
 		description: 'Record minutes read today',
 		inputSchema: {
@@ -196,7 +195,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		},
 		annotations: MCP_DEFAULTS,
 	});
-	expect(reading.actions[8].annotations).toEqual({
+	expect(reading.actions[7].annotations).toEqual({
 		...MCP_DEFAULTS,
 		readOnlyHint: true,
 		openWorldHint: false,
@@ -343,7 +342,7 @@ const capture = `const items = defineCollection({
 export default defineApp({
 	description: 'Things I want to keep',
 	collections: { items },
-	actions: items.actions(),
+	actions: { ...items.actions(), ...items.actions('delete') },
 });
 `;
 
@@ -427,13 +426,13 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	expect(await readFile(join(folder, 'data/items/dune.md'), 'utf8')).toContain(
 		'kind: "quote"',
 	);
-	// A person is told how to make the record a set or edit did not find.
+	// An edit names the record it did not find.
 	expect(
 		await f.run('capture', 'edit', 'new-one', '--old', '', '--new', 'x'),
 	).toEqual({
 		code: 1,
 		stdout: '',
-		stderr: 'There is no data/items/new-one.md\nRun: epicenter capture add\n',
+		stderr: 'There is no data/items/new-one.md\n',
 	});
 
 	expect(
@@ -521,7 +520,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	});
 });
 
-test('D9 a collection with no placeholder is made by add on a fresh install, and a set before then names add', async () => {
+test('D9 a collection with no placeholder is made by its set verb, or by add on a fresh install', async () => {
 	const f = await setup();
 	await f.app(
 		'prefs',
@@ -529,15 +528,15 @@ test('D9 a collection with no placeholder is made by add on a fresh install, and
 export default defineApp({ description: 'Preferences', collections: { settings }, actions: { settings: settings.actions() } });
 `,
 	);
-	expect(await f.run('prefs', 'settings', 'set', '--goal', '4')).toEqual({
-		code: 1,
-		stdout: '',
-		stderr: 'There is no data/settings.md\nRun: epicenter prefs settings add\n',
-	});
 	expect((await f.run('prefs', 'settings', 'get')).code).toBe(1);
-	expect((await f.run('prefs', 'settings', 'add', '--goal', '3')).code).toBe(0);
-	expect((await f.run('prefs', 'settings', 'set', '--goal', '4')).code).toBe(0);
+	expect(await f.run('prefs', 'settings', 'set', '--goal', '4')).toEqual({
+		code: 0,
+		stdout: 'path: data/settings.md\ngoal: 4\nbody: ""\n',
+		stderr: '',
+	});
+	expect((await f.run('prefs', 'settings', 'add', '--goal', '3')).code).toBe(1);
+	expect((await f.run('prefs', 'settings', 'set', '--goal', '5')).code).toBe(0);
 	expect((await f.run('prefs', 'settings', 'get')).stdout).toBe(
-		'path: data/settings.md\ngoal: 4\nbody: ""\n',
+		'path: data/settings.md\ngoal: 5\nbody: ""\n',
 	);
 });

@@ -153,11 +153,7 @@ export function actionHelp(name: string, key: string, action: Action): string {
 			: positional.has(key)
 				? `<${key}>, ${asFlag}`
 				: asFlag;
-		const status = Object.hasOwn(schema, 'default')
-			? `default ${JSON.stringify(schema.default)}`
-			: required.has(key)
-				? 'required'
-				: 'optional';
+		const status = required.has(key) ? 'required' : 'optional';
 		return [
 			spelling,
 			`${status}.${schema.description ? ` ${schema.description}` : ''}`,

@@ -60,7 +60,7 @@ test("a reference's schema names its target's path in the listing", () => {
 	expect(listed.actions[0]?.inputSchema.properties).toEqual({
 		shelves: {
 			type: 'array',
-			default: [],
+			'x-epicenter-field': 'list',
 			items: { type: 'string', ...ref },
 		},
 	});
