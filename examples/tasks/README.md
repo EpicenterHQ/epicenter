@@ -5,7 +5,8 @@ the software; sibling `data/` holds the tasks. The home’s private Git
 repository checkpoints both, separately from actions. `epicenter serve`
 serves its UI at `/tasks/`.
 
-From an Epicenter running CLI 0.4.0 or later, take a copy with:
+This app runs on Epicenter 0.2.0 or later. The shared example currently
+declares a minimum of 0.4.0. To install that copy, run
 
 ```sh
 epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
@@ -83,7 +84,8 @@ or a blank one, as `add` does. `set` with `was`, such as
 
 ## The UI
 
-To change the colors, edit `apps/tasks/code/ui/src/theme.css` in your Epicenter.
+To change the colors, open [ui/src/theme.css](ui/src/theme.css) beside this
+README in the app's `code/` folder.
 Set `--primary` under `:root` for the light-mode Add button and under `.dark`
 for dark mode. Run `epicenter build tasks` and reload the page. The exported
 app includes its own copy of the palette.
