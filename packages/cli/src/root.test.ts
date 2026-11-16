@@ -23,6 +23,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	const folder = join(f.root, 'other');
 	await mkdir(folder);
 	await writeFile(join(folder, 'AGENTS.md'), 'Keep this guidance.\n');
+	await writeFile(join(folder, 'theme.css'), '/* personal palette */');
 	const result = await f.run('init', folder, '--port', '4748', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ folder, port: 4748 });
@@ -33,6 +34,10 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 		'Keep this guidance.\n',
 	);
 	expect((await f.run('init', folder, '--json')).code).toBe(2);
+	expect(await readFile(join(folder, 'theme.css'), 'utf8')).toBe(
+		'/* personal palette */',
+	);
+	expect(await gitIn(folder, 'ls-files', '--', 'theme.css')).toBe('');
 	expect((await f.run('init', join(folder, 'nested'), '--json')).code).toBe(2);
 	expect((await f.runIn(folder, 'init', 'nested', '--json')).code).toBe(2);
 	const alias = join(f.root, 'alias');
@@ -46,6 +51,10 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(await readFile(join(fresh, 'EPICENTER.md'), 'utf8')).toStartWith(
 		'---\nport: 4747\n---\n',
 	);
+	const seeded = await readFile(join(fresh, 'theme.css'), 'utf8');
+	expect(seeded).toContain('--primary:');
+	expect(seeded).toContain('.dark {');
+	expect(await gitIn(fresh, 'show', 'HEAD:theme.css')).toBe(seeded.trimEnd());
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('one private Git repository');
 	expect(starter).toContain('Actions make no commits.');
@@ -273,7 +282,8 @@ test('init --from clones one root and installs code packages without nested repo
 		'data/a.md': 'record',
 	});
 	const { gitIn } = await import('./runner.test-support.ts');
-	await gitIn(source, 'add', 'apps/x');
+	await writeFile(join(source, 'theme.css'), '/* restored palette */');
+	await gitIn(source, 'add', '--', 'theme.css', 'apps/x');
 	await gitIn(source, 'commit', '-qm', 'app');
 	const restored = join(f.root, 'restored');
 	const result = await f.run('init', restored, '--from', source, '--json');
@@ -284,6 +294,9 @@ test('init --from clones one root and installs code packages without nested repo
 		failed: [],
 	});
 	expect(result.stderr).toContain('*.local must be recreated');
+	expect(await readFile(join(restored, 'theme.css'), 'utf8')).toBe(
+		'/* restored palette */',
+	);
 	expect(
 		await Bun.file(join(restored, 'apps/x/code/epicenter.ts')).exists(),
 	).toBe(true);

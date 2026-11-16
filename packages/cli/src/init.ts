@@ -9,6 +9,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
+import defaultTheme from '@epicenter/theme/theme.css' with { type: 'text' };
 import { extractErrorMessage } from 'wellcrafted/error';
 import { isRepositoryTop } from './checkpoint.ts';
 import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
@@ -43,6 +44,10 @@ epicenter.ts and ui/ import, except @epicenter/app, which epicenter supplies.
 After \`bun add\` in code/, run \`epicenter install <app>\`. Never put records in
 code/. An action writes only under data/, and names a record by its path from
 the app's folder, such as data/tasks/<time>.md.
+
+The home owns theme.css. A UI can import it through the relative link
+apps/<app>/code/ui/src/theme.css -> ../../../../../theme.css. Fonts,
+Tailwind mappings, and components stay in the app.
 
 Change records with \`epicenter <app> <action>\` when an action fits;
 \`epicenter <app>\` lists them. You may also edit code and records directly.
@@ -153,6 +158,12 @@ export async function initCommand(
 	if (!existsSync(join(folder, 'AGENTS.md'))) {
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
 		wrote.push('AGENTS.md');
+	}
+	try {
+		await writeFile(join(folder, 'theme.css'), defaultTheme, { flag: 'wx' });
+		wrote.push('theme.css');
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 	}
 	await startEpicenterRepository(folder, wrote);
 	if (json) writeJson({ folder, port });

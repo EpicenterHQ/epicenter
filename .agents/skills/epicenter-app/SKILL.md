@@ -39,8 +39,9 @@ such as one per person. `epicenter serve` offers MCP at `/` and each UI at
 root, a subfolder, or an app container's code subtree. Provenance is in
 `code/SOURCE.md`. Later source changes are work for the app's owner; there is
 no merge-based updater. A copied symlink stays a link. For example,
-`code/ui/src/theme.css -> ../../../../../theme.css` needs a root theme in the
-destination Epicenter; new reports links that do not resolve.
+`code/ui/src/theme.css -> ../../../../../theme.css` uses the destination's palette.
+Fresh homes get that file from `init`. `new` reports a missing target if the
+receiving home lacks that file.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
 the smallest whole example. Keep private records out of code publication;
@@ -321,8 +322,9 @@ the Svelte plugin beside it (`ui/svelte-plugin.ts`), the hash router in
 shadowing Bun. The app's `code/package.json` names every package the UI imports,
 from npm, never `workspace:` or `catalog:`. The UI imports Epicenter only
 through `@epicenter/app/client`. It owns its components, copied into
-`src/lib/components/ui/` with `components.json`, `src/lib/utils.ts`, and the
-theme in `src/app.css` (ADR-0874). Add a component by copying it whole,
+`src/lib/components/ui/` with `components.json` and `src/lib/utils.ts`.
+Tasks maps the home palette to Tailwind utilities in `src/app.css`. Finance
+uses the same variables in plain CSS. Add a component by copying it whole,
 dependencies and tests included, and change it in place.
 
 Build paths are relative to code/. Component paths starting with src/ or
