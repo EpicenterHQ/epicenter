@@ -17,6 +17,7 @@ import {
 	defineAction,
 	defineApp,
 	defineCollection,
+	type FittingRecordOf,
 	field,
 	inRun,
 } from './index.ts';
@@ -320,6 +321,30 @@ describe('an app author', () => {
 		assertType<
 			Equal<ActionInput<typeof shelve>, { shelves?: string[]; shelf?: string }>
 		>();
+	});
+
+	test('need gives a record with every field, named by FittingRecordOf', () => {
+		const tasks = defineCollection({
+			path: 'data/tasks/{id}.md',
+			fields: {
+				title: field.text(),
+				note: field.text({ optional: true }),
+				tags: field.list(field.text()),
+			},
+		});
+		type Task = FittingRecordOf<typeof tasks>;
+		const titled = (task: Task) => task.title;
+		() =>
+			inRun(createMemoryContext(), async () => {
+				const task = await tasks.need({ id: 'a' });
+				assertType<Equal<typeof task.tags, string[]>>();
+				assertType<Equal<typeof task.title, string>>();
+				assertType<Equal<typeof task.note, string | undefined>>();
+				// A fitting record from list passes where one from need does.
+				for (const each of await tasks.list()) if (!each.problems) titled(each);
+				return titled(task);
+			});
+		assertType<Equal<Parameters<typeof settings.need>, []>>();
 	});
 
 	test('a list with min is required, to give and in a read, and never always filled', () => {

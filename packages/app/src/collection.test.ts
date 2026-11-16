@@ -374,6 +374,74 @@ describe('set', () => {
 	});
 });
 
+describe('need', () => {
+	test('gives a record whose values all fit, as get does', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md': '---\nkind: "link"\nadded: "2026-11-01"\n---\nA\n',
+		});
+		const found = await inRun(context, () => items.need({ id: 'a' }));
+		expect(found).toEqual({
+			path: 'data/items/a.md',
+			id: 'a',
+			kind: 'link',
+			added: '2026-11-01',
+			done: false,
+			body: 'A\n',
+		});
+		expect(found).toEqual(
+			(await inRun(context, () => items.get({ id: 'a' }))) as never,
+		);
+	});
+
+	test('throws Missing when there is no file', async () => {
+		await expect(
+			inRun(createMemoryContext(), () => items.need({ id: 'nope' })),
+		).rejects.toMatchObject({ name: 'Missing', path: 'data/items/nope.md' });
+	});
+
+	test('refuses a record with a value that does not fit, or a line that is not JSON, listing its problems', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md': '---\nkind: "song"\nadded: 2026-11-01\n---\n',
+		});
+		await expect(
+			inRun(context, () => items.need({ id: 'a' })),
+		).rejects.toMatchObject({
+			name: 'Refused',
+			message: [
+				'data/items/a.md has values that do not fit its fields; repair them with plain data first:',
+				'data/items/a.md: kind: "song" is not one of thought, link, quote',
+				'data/items/a.md: added on line 3 is not JSON; write added: "2026-11-01"',
+			].join('\n'),
+		});
+	});
+
+	test('refuses front matter that cannot be read, as get does', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md': '---\nkind: "thought"\n# a comment\n---\n',
+		});
+		await expect(
+			inRun(context, () => items.need({ id: 'a' })),
+		).rejects.toMatchObject({
+			name: 'Refused',
+			message: expect.stringContaining('data/items/a.md cannot be read'),
+		});
+	});
+
+	test('takes no keys for a collection with no placeholder', async () => {
+		await expect(
+			inRun(createMemoryContext(), () => settings.need()),
+		).rejects.toMatchObject({ name: 'Missing', path: 'data/settings.md' });
+		const context = createMemoryContext({
+			'data/settings.md': '---\ndailyGoal: 20\n---\n',
+		});
+		expect(await inRun(context, () => settings.need())).toEqual({
+			path: 'data/settings.md',
+			dailyGoal: 20,
+			body: '',
+		});
+	});
+});
+
 describe('set with a passage', () => {
 	test('there is no edit verb: actions names set instead', () => {
 		expect('edit' in items).toBe(false);

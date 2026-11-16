@@ -18,6 +18,7 @@ export {
 	type CollectionDef,
 	defineCollection,
 	type Fields,
+	type FittingRecordOf,
 	type Handle,
 	type Keys,
 	type Problem,

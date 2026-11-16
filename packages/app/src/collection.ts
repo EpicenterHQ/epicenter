@@ -39,9 +39,11 @@
  * the line number and what to write (ADR-0924). An absent switch reads
  * `false` and an absent list with no `min` `[]` (`absentValue`). A change a
  * function computes may not write over a value that does not fit, or that is
- * not JSON.
- * `path`, the keys, and `body` always come from the file itself. Front matter
- * no field declares is kept by every write, and nothing reports it.
+ * not JSON. `path`, the keys, and `body` always come from the file itself.
+ * Front matter no field declares is kept by every write, and nothing reports
+ * it. `get` gives a record with its `problems`, for a page where a person can
+ * repair them; `need` gives only a record that fits, for code that computes
+ * from it, and refuses any other.
  *
  * A field marked `readOnly` is left out of the exposed `add` and `set`, so only
  * the app's own actions write it, through the methods. When such a field is
@@ -172,6 +174,15 @@ export type Row<D extends CollectionDef> = Read<D, unknown>;
 /** One record as `get` and `list` read it: a row and its body. */
 export type RecordOf<D extends CollectionDef> = Read<D, { body: string }>;
 
+/**
+ * A record whose every value fits, as `need` gives it: what `RecordOf`
+ * narrows to after `!record.problems`, named for a function that takes one.
+ */
+export type FittingRecordOf<D extends CollectionDef> = Extract<
+	RecordOf<D>,
+	{ problems?: undefined }
+>;
+
 /** The keys a caller gives when adding: every one but `{time}`, which `add` makes. */
 type AddKeys<D extends CollectionDef> = Exclude<
 	Placeholders<D['path']>,
@@ -216,6 +227,20 @@ export type Handle<D extends CollectionDef> = {
 	list(): Promise<RecordOf<D>[]>;
 	/** The record the keys name, or `undefined` when there is no file. */
 	get(...keys: KeysArg<D>): Promise<RecordOf<D> | undefined>;
+	/**
+	 * The record the keys name, for code that cannot go on without it: every
+	 * field is there and fits, so a list is an array and a required field its
+	 * type. Throws `ActionError.Missing` when there is no file, and
+	 * `ActionError.Refused` listing its problems when a value does not fit,
+	 * as `get` refuses front matter that cannot be read. Code that hands a
+	 * record to a page, where a person can see and repair its problems,
+	 * calls `get` instead.
+	 *
+	 * ```ts
+	 * const { from, to } = await watches.need({ id });
+	 * ```
+	 */
+	need(...keys: KeysArg<D>): Promise<FittingRecordOf<D>>;
 	/** Make a file from the whole new record; throws when one is already at its path. */
 	add(record: AddInput<D, keyof D['fields']>): Promise<RecordOf<D>>;
 	/**
@@ -399,6 +424,7 @@ export function defineCollection<const D extends CollectionDef>(
 		list: records.list,
 		add: records.add,
 		get: named(records.get, 0),
+		need: named(records.need, 0),
 		set: named(records.set, 1),
 		update: named(records.update, 1),
 		delete: named(records.delete, 0),
@@ -595,6 +621,15 @@ type Records = ReturnType<typeof createRecords>;
 
 function createRecords(layout: Template, fields: Fields) {
 	const local = isLocalPath(layout.text);
+
+	/** The file `keys` name, read: its record and problems, or `undefined` when there is none; refuses front matter that cannot be read. */
+	async function read(keys: object) {
+		const { path, text } = await find(keys);
+		if (text === undefined) return undefined;
+		const found = readMarkdown(text);
+		if (!found.readable) throw unreadable(path);
+		return { path, ...project(path, found) };
+	}
 
 	/** Each placeholder's value from `keys`, and nothing else from it; throws for one that is not text. */
 	function valuesOf(keys: object): Record<string, string> {
@@ -954,11 +989,20 @@ function createRecords(layout: Template, fields: Fields) {
 			return { files: read.length, records };
 		},
 		async get(keys: object) {
-			const { path, text } = await find(keys);
-			if (text === undefined) return undefined;
-			const found = readMarkdown(text);
-			if (!found.readable) throw unreadable(path);
-			return project(path, found).record;
+			return (await read(keys))?.record;
+		},
+		async need(keys: object) {
+			const found = await read(keys);
+			if (!found) throw ActionError.Missing({ path: pathOf(keys) }).error;
+			const { path, record, problems } = found;
+			if (problems.length)
+				throw ActionError.Refused({
+					message: [
+						`${path} has values that do not fit its fields; repair them with plain data first:`,
+						...problems.map(({ line }) => `${path}: ${line}`),
+					].join('\n'),
+				}).error;
+			return record;
 		},
 		async add(input: Record<string, unknown>) {
 			const { body, ...given } = input;

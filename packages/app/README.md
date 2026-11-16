@@ -135,6 +135,7 @@ the change second, because which record and what to change are two roles:
 | --- | --- |
 | `list()` | every record, whole, as `get` gives it, sorted by path |
 | `get(keys)` | the record, or `undefined` when there is no file |
+| `need(keys)` | the record when its file is there and every value fits; throws `ActionError.Missing` or `ActionError.Refused` otherwise; a method only |
 | `add({ ...keys, ...fields, body? })` | makes a file from the whole new record; throws when one is at its path |
 | `set(keys, { ...fields, body? })` | changes the fields given, and the body when it is given; `null` removes an optional field |
 | `set(keys, (record) => ({ ...fields, body? }))` | writes what a function computes from the record |
@@ -150,12 +151,12 @@ placeholder has the same methods without the keys: `settings.get()`,
 
 Each writer differs in what it needs of the file:
 
-| The file | `get` | `add` | `set` | `update` | `delete` |
-| --- | --- | --- | --- | --- | --- |
-| is absent | `undefined` | writes it | throws `ActionError.Missing` | calls the function with `undefined`; what it returns is the whole record | `false` |
-| fits | the record | refuses | writes | writes | `true` |
-| has a field that does not fit | the record, with `problems` | refuses | given data, writes the fields given and leaves the rest; given a function, refuses to write a field that does not fit | refuses to write a field that does not fit | `true` |
-| has front matter that cannot be read | throws `ActionError.Refused` | refuses | throws `ActionError.Refused` | throws `ActionError.Refused` | `true` |
+| The file | `get` | `need` | `add` | `set` | `update` | `delete` |
+| --- | --- | --- | --- | --- | --- | --- |
+| is absent | `undefined` | throws `ActionError.Missing` | writes it | throws `ActionError.Missing` | calls the function with `undefined`; what it returns is the whole record | `false` |
+| fits | the record | the record | refuses | writes | writes | `true` |
+| has a field that does not fit | the record, with `problems` | throws `ActionError.Refused`, listing them | refuses | given data, writes the fields given and leaves the rest; given a function, refuses to write a field that does not fit | refuses to write a field that does not fit | `true` |
+| has front matter that cannot be read | throws `ActionError.Refused` | throws `ActionError.Refused` | refuses | throws `ActionError.Refused` | throws `ActionError.Refused` | `true` |
 
 A collection with no placeholder follows the same table: it reads as
 `undefined` before its first write, so read it as
@@ -183,7 +184,7 @@ sets one word.
 A key finds its file by its exact name first, then by the tidy name: NFC,
 trimmed, with each run of whitespace one space. So `"Tokyo "` finds
 `Tokyo.md`, and a row for `data/notes/Dune  Messiah.md`, named by hand with
-two spaces, finds that file. `get`, `set`, `delete`, and an `update` of a
+two spaces, finds that file. `get`, `need`, `set`, `delete`, and an `update` of a
 file that is there do this. `add` and an `update` that makes a file always
 write the tidy name, which `pathOf` gives. A key that is then empty, holds
 `/` or `\`, starts with `.`, or is over 200 bytes is refused. So an action
@@ -315,15 +316,23 @@ optional field may be absent. One with `problems: string[]` may lack any
 field, since a file written by hand may lack it or hold a value that does not
 fit. So `!record.problems` is the check that makes a required field safe to
 use, and `records.filter((record) => !record.problems)` narrows the type.
-
-Where code needs a record's values, check `problems` once and refuse or skip
-that record; after that check the types give every field in full: a list is
-an array, a switch a `boolean`, a required field its type, and only an
-optional field may be absent. Do not default a field with `?? []` or
-`?? false`, which puts back the silent replacement a read that gives only
-what the file holds exists to prevent.
 Every key is there, since the path holds it. `RecordOf<D>` and `Row<D>` (the
-`list` verb's row) name them, and `Keys<D>` names a record's keys.
+`list` verb's row) name them, `FittingRecordOf<D>` names one without
+`problems`, and `Keys<D>` names a record's keys. `D` may be the collection
+itself: `FittingRecordOf<typeof tasks>`.
+
+- Code that computes from a record calls `need`, which gives every field in
+  full or refuses: a list is an array, a switch a `boolean`, a required field
+  its type, and only an optional field may be absent.
+- Code that passes a record on to a page calls `get` or `list` and lets
+  `problems` through, so a person can see and repair them.
+
+Do not default a field with `?? []` or `?? false`, which puts back the silent
+replacement a read that gives only what the file holds exists to prevent.
+
+```ts
+const watch = await watches.need({ id }); // watch.from is string[]
+```
 
 A path's case is its own: on a disk that ignores case, such as macOS's,
 `data/words/Hello.md` and `data/words/hello.md` name one file, and `get`
