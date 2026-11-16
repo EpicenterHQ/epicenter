@@ -132,7 +132,11 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	]);
 	await writeFile(marker, '---\nport: [unclosed\n---\n');
 	expect(JSON.parse((await listed()).stdout).error.message).toBe(
-		`${marker}: its front matter is not key: <JSON> lines or YAML between two --- lines`,
+		`${marker}: port on line 2 is not JSON`,
+	);
+	await writeFile(marker, '---\n# the port\nport: 4800\n---\n');
+	expect(JSON.parse((await listed()).stdout).error.message).toBe(
+		`${marker}: its front matter is not key: value lines between two --- lines, each key once`,
 	);
 });
 

@@ -253,6 +253,11 @@ test('invalid definitions and corrupted state block execution without stopping v
 		join(f.directory, 'invalid.md'),
 		'---\ndaily: "25:00"\nrun: ["bun", "--version"]\n---\n',
 	);
+	// A line that is not JSON is not read as absent here: paused: yes must not run.
+	await writeFile(
+		join(f.directory, 'bare.md'),
+		'---\ndaily: "08:00"\nrun: ["bun", "--version"]\npaused: yes\n---\n',
+	);
 	await mkdir(join(f.directory, 'review.local'));
 	await writeFile(
 		join(f.directory, 'review.local/state.json'),
@@ -272,7 +277,7 @@ test('invalid definitions and corrupted state block execution without stopping v
 	const rows = await f.routines.list();
 	expect(
 		rows.filter((row) => row.status === 'invalid').map((row) => row.name),
-	).toEqual(['invalid', 'review']);
+	).toEqual(['bare', 'invalid', 'review']);
 	expect(
 		await readFile(join(f.directory, 'review.local/state.json'), 'utf8'),
 	).toBe('{"completed":"yesterday"}');

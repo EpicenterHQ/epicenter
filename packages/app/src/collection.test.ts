@@ -308,25 +308,6 @@ describe('set', () => {
 		);
 	});
 
-	test('rewrites YAML front matter as key: <JSON> lines, keeping the body and the keys no field declares', async () => {
-		const context = createMemoryContext({
-			'data/items/a.md':
-				'---\nkind: thought # a comment\nadded: 2026-11-01\ntags: [x, y]\n---\nBody\n',
-		});
-		expect(await run('items get', { id: 'a' }, context)).toEqual({
-			path: 'data/items/a.md',
-			id: 'a',
-			kind: 'thought',
-			added: '2026-11-01',
-			done: false,
-			body: 'Body\n',
-		});
-		await run('items set', { id: 'a', kind: 'quote' }, context);
-		expect(await context.folder.read('data/items/a.md')).toBe(
-			'---\nkind: "quote"\nadded: "2026-11-01"\ntags: ["x", "y"]\n---\nBody\n',
-		);
-	});
-
 	test('adds front matter above a file that has none, which is all body', async () => {
 		const context = createMemoryContext({ 'data/items/a.md': '# Just text\n' });
 		expect(await run('items get', { id: 'a' }, context)).toEqual({
@@ -459,7 +440,7 @@ describe('edit', () => {
 		).toMatchObject({ body: 'Rest.\n' });
 	});
 
-	test('with an empty old fills an empty body, in YAML front matter too', async () => {
+	test('with an empty old fills an empty body, keeping lines that are not JSON', async () => {
 		const context = createMemoryContext({
 			'data/items/a.md': '---\nkind: thought\nadded: 2026-11-01\n---\n',
 		});
@@ -474,11 +455,108 @@ describe('edit', () => {
 	});
 });
 
+describe('front matter read line by line', () => {
+	test('a line that is not JSON reads as absent with a problem, and the other keys read and write', async () => {
+		const text =
+			'---\nkind: "thought"\nadded: 2026-11-01\nkept: by hand # a note\n---\nBody\n';
+		const context = createMemoryContext({ 'data/items/a.md': text });
+		expect(await run('items get', { id: 'a' }, context)).toEqual({
+			path: 'data/items/a.md',
+			id: 'a',
+			kind: 'thought',
+			done: false,
+			body: 'Body\n',
+			problems: ['added on line 3 is not JSON; write added: "2026-11-01"'],
+		});
+		await run('items set', { id: 'a', kind: 'quote' }, context);
+		expect(await context.folder.read('data/items/a.md')).toBe(
+			'---\nkind: "quote"\nadded: 2026-11-01\nkept: by hand # a note\n---\nBody\n',
+		);
+	});
+
+	test('a computed change may not write that key, and plain data repairs it', async () => {
+		const text = '---\nkind: "thought"\nadded: 2026-11-01\n---\n';
+		const context = createMemoryContext({ 'data/items/a.md': text });
+		for (const write of [
+			() => items.set({ id: 'a' }, () => ({ added: '2026-11-02' })),
+			() => items.update({ id: 'a' }, () => ({ added: '2026-11-02' })),
+		])
+			await expect(inRun(context, write)).rejects.toMatchObject({
+				name: 'Refused',
+				message: expect.stringContaining('data/items/a.md: added'),
+			});
+		expect(await context.folder.read('data/items/a.md')).toBe(text);
+		await inRun(context, () => items.set({ id: 'a' }, { added: '2026-11-01' }));
+		expect(await context.folder.read('data/items/a.md')).toBe(
+			'---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
+		);
+		expect(
+			(await inRun(context, () => items.get({ id: 'a' })))?.problems,
+		).toBeUndefined();
+	});
+
+	test('a write to another key leaves each line it does not name byte for byte', async () => {
+		const lines =
+			'serial: 12345678901234567890\nversion: 1.10\nzip: 01234\nlarge: 1e400\n';
+		const context = createMemoryContext({
+			'data/items/a.md': `---\nkind: "thought"\nadded: "2026-11-01"\n${lines}---\n`,
+		});
+		await run('items set', { id: 'a', kind: 'quote' }, context);
+		expect(await context.folder.read('data/items/a.md')).toBe(
+			`---\nkind: "quote"\nadded: "2026-11-01"\n${lines}---\n`,
+		);
+	});
+
+	test('a key with nothing after it, or only spaces, has no value', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md': '---\nkind: "thought"\nadded:\nurl:   \n---\n',
+		});
+		expect(
+			(await inRun(context, () => items.get({ id: 'a' })))?.problems,
+		).toEqual([
+			'url on line 4 is not JSON: it has no value; give it one as JSON, or remove the line',
+			'added on line 3 is not JSON: it has no value; give it one as JSON, or remove the line',
+		]);
+	});
+
+	test('a value that is not JSON says what the field takes when quoting would not fit', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md':
+				'---\nkind: thought\nadded: "2026-11-01"\ndone: yes\n---\n',
+		});
+		expect(
+			(await inRun(context, () => items.get({ id: 'a' })))?.problems,
+		).toEqual([
+			'kind on line 2 is not JSON; write kind: "thought"',
+			'done on line 4 is not JSON; done takes true or false, written as JSON',
+		]);
+	});
+
+	test('keeps CRLF line endings, on a changed line and a new one', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md':
+				'---\r\nkind: "thought"\r\nadded: 2026-11-01\r\n---\r\nBody\r\n',
+		});
+		await run(
+			'items set',
+			{ id: 'a', kind: 'quote', url: 'https://example.com' },
+			context,
+		);
+		expect(await context.folder.read('data/items/a.md')).toBe(
+			'---\r\nkind: "quote"\r\nadded: 2026-11-01\r\nurl: "https://example.com"\r\n---\r\nBody\r\n',
+		);
+	});
+});
+
 describe('front matter that cannot be read', () => {
 	for (const [what, text] of [
 		[
-			'is neither grammar nor YAML',
-			'---\nkind: [unclosed\n---\nWater the plant.\n',
+			'has a line that is not key: value',
+			'---\nkind: "thought"\n# a comment\n---\nWater the plant.\n',
+		],
+		[
+			'names a key twice',
+			'---\nkind: "thought"\nkind: "quote"\n---\nWater the plant.\n',
 		],
 		[
 			'opens with --- and never closes it',
@@ -489,7 +567,7 @@ describe('front matter that cannot be read', () => {
 			const context = createMemoryContext({ 'data/items/a.md': text });
 			const refused = {
 				name: 'Refused',
-				message: `data/items/a.md cannot be read: its front matter is not key: <JSON> lines or YAML between two --- lines; fix it by hand first`,
+				message: `data/items/a.md cannot be read: its front matter is not key: value lines between two --- lines, each key once; fix it by hand first`,
 			};
 			const at = { id: 'a' };
 			for (const attempt of [
@@ -515,7 +593,7 @@ describe('front matter that cannot be read', () => {
 					done: false,
 					body: text,
 					problems: [
-						'its front matter is not key: <JSON> lines or YAML between two --- lines',
+						'its front matter is not key: value lines between two --- lines, each key once',
 					],
 				},
 			]);
@@ -978,20 +1056,21 @@ describe('check', () => {
 			'data/items/a.md': '---\nkind: "song"\nadded: "next week"\n---\n',
 			'data/items/b.md': '---\nkind: "thought"\nadded: "soon"\n---\n',
 			'data/items/c.md': '---\nkind: "thought"\n---\n',
-			'data/items/d.md': '---\nkind: [unclosed\n---\n',
+			'data/items/d.md': '---\nkind: "thought"\n# a comment\n---\n',
 			'data/items/e.md': '---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
 			'data/items/f .md': '---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
 			'data/items/g.md':
-				'---\nkind: "thought"\nadded: "2026-11-01"\nsecret: "s3cr3t"\n---\n',
+				'---\nkind: "thought"\nadded: "2026-11-01"\nsecret: "s3cr3t"\nnote: by hand\n---\n',
+			'data/items/h.md': '---\nkind: "thought"\nadded: 2026-11-01\n---\n',
 		});
 		const added = {
 			line: 'added: "soon" is not a day like 2026-11-12',
 			kind: 'added is not a day like 2026-11-12',
 		};
 		const unreadable =
-			'its front matter is not key: <JSON> lines or YAML between two --- lines';
+			'its front matter is not key: value lines between two --- lines, each key once';
 		expect(await inRun(context, () => items.check())).toEqual({
-			files: 7,
+			files: 8,
 			records: [
 				{
 					path: 'data/items/a.md',
@@ -1013,7 +1092,16 @@ describe('check', () => {
 					problems: [{ line: unreadable, kind: unreadable }],
 				},
 				// f .md fits: a name a person typed is its key as it is.
-				// g.md fits: front matter no field declares is kept, not reported.
+				// g.md fits: front matter no field declares is kept, not reported, JSON or not.
+				{
+					path: 'data/items/h.md',
+					problems: [
+						{
+							line: 'added on line 3 is not JSON; write added: "2026-11-01"',
+							kind: 'added is not JSON; write its text in double quotes',
+						},
+					],
+				},
 			],
 		});
 		// The rows of the same files keep problems as lines.
@@ -1062,7 +1150,9 @@ describe('the design review defects', () => {
 		const context = createMemoryContext({ 'data/notes/a.md': text });
 		const before = await inRun(context, () => notes.get({ title: 'a' }));
 		expect(before?.tags).toBeUndefined();
-		expect(before?.problems).toEqual(['tags: "a, b" is not a list of text']);
+		expect(before?.problems).toEqual([
+			'tags on line 2 is not JSON; tags takes a list of text, written as JSON',
+		]);
 		await expect(
 			inRun(context, () =>
 				notes.set({ title: 'a' }, (now) => ({

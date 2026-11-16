@@ -106,9 +106,14 @@ function readRoot(folder: string): EpicenterRoot {
 	// Decoded as an app's files are, which drops a byte order mark an editor saved.
 	const read = readMarkdown(new TextDecoder().decode(readFileSync(marker)));
 	const problems = read.readable
-		? markerProblems(read.fields)
+		? [
+				...read.notJson.map(
+					({ key, line }) => `${key} on line ${line} is not JSON`,
+				),
+				...markerProblems(read.fields),
+			]
 		: [
-				'its front matter is not key: <JSON> lines or YAML between two --- lines',
+				'its front matter is not key: value lines between two --- lines, each key once',
 			];
 	if (problems.length)
 		throw new RootUsageError(

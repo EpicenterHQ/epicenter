@@ -1,20 +1,24 @@
 /**
- * A collection's file as fields and body (ADR-0796, ADR-0797). The grammar
+ * A collection's file as fields and body (ADR-0796, ADR-0924). The grammar
  * is copied from the waiting product's front matter without its merge
  * (ADR-0843: new code copies from it, never imports it).
  *
- * A file has front matter when its first line is `---`, a later line is
- * `---`, and every line between them is `key: <JSON>`, each key once. A
- * key is a letter or `_`, then letters, digits, `_` or `-`; a value is a
- * JSON text on that one line, which YAML 1.2 reads as the same value. A
- * line ends at `\n`, and a `\r` before it belongs to the ending.
+ * A file has front matter when its first line is `---` and a later line is
+ * `---`. Each line between them is `key: <text>`, each key once: a key is a
+ * letter or `_`, then letters, digits, `_` or `-`, and the text is the rest
+ * of the line after `: `, or nothing after a bare `key:`. A line ends at
+ * `\n`, and a `\r` before it belongs to the ending.
  *
- * Front matter in that grammar is patched line by line, keeping every line a
- * write does not change. Other YAML front matter is read too, so Zhongwen's
- * or Obsidian's `text: 银行` is a field, not body, and the first write
- * rewrites it in the grammar, keeping the body (ADR-0862). A file that opens
- * with `---` and is neither, or never closes it, has front matter that cannot
- * be read: its whole text is body, and it is never rewritten.
+ * Each line is read on its own, and no YAML is read. Text that is JSON is
+ * the key's value. Text that is not leaves the key absent, and the read lists
+ * the line so a caller can say how to repair it. A file that opens with `---`
+ * and has any other line before its closing fence, a key twice, or no
+ * closing fence has front matter that cannot be read: its whole text is
+ * body, and it is never rewritten.
+ *
+ * A write replaces only the lines of the keys it names, adds a new key before
+ * the closing fence, and removes a deleted key's line. Every other line stays
+ * byte for byte, a line whose text is not JSON included.
  */
 /** A JSON value. */
 export type JsonValue =
@@ -25,25 +29,28 @@ export type JsonValue =
 	| JsonValue[]
 	| { [key: string]: JsonValue };
 
-/** The change a patch applies: fields to set, and keys to delete. A key in both is set. */
-type FieldPatch = {
-	set?: Record<string, JsonValue>;
-	delete?: readonly string[];
-};
-
 const KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+
+/** A front matter line: a key, then `:`, then nothing or a space and its text. */
+const LINE = /^([A-Za-z_][A-Za-z0-9_-]*):(?: (.*))?$/s;
 
 /** Whether `key` can name a field line. */
 export const isFieldKey = (key: string) => KEY.test(key);
 
-/** One field line as the file holds it. */
-type Field = { key: string; value: JsonValue; line: string };
+/** One `key: <text>` line as the file holds it, its number in the file, and its value when its text is JSON. */
+type Field = {
+	key: string;
+	line: string;
+	number: number;
+	text: string;
+	value: JsonValue | undefined;
+};
 
 /** A note split at its fences, each piece verbatim. */
 type Parts = { open: string; fields: Field[]; close: string; body: string };
 
-/** The note's pieces, or null when it is outside the grammar. */
-function split(text: string): Parts | null {
+/** The note's pieces; `'none'` when it does not open with `---`, `'unreadable'` when its front matter cannot be read. */
+function split(text: string): Parts | 'none' | 'unreadable' {
 	const ending = (from: number) => {
 		const lf = text.indexOf('\n', from);
 		return lf < 0 ? text.length : lf + 1;
@@ -51,30 +58,32 @@ function split(text: string): Parts | null {
 	const content = (line: string) => line.replace(/\r?\n$/, '');
 	const openEnd = ending(0);
 	const open = text.slice(0, openEnd);
-	if (content(open) !== '---' || !open.endsWith('\n')) return null;
+	if (content(open) !== '---' || !open.endsWith('\n')) return 'none';
 	const fields: Field[] = [];
 	const seen = new Set<string>();
+	let number = 1;
 	for (let at = openEnd; at < text.length; ) {
+		number++;
 		const end = ending(at);
 		const line = text.slice(at, end);
 		const raw = content(line);
 		if (raw === '---')
 			return { open, fields, close: line, body: text.slice(end) };
-		const colon = raw.indexOf(': ');
-		if (colon < 0 || !line.endsWith('\n')) return null;
-		const key = raw.slice(0, colon);
-		if (!KEY.test(key) || seen.has(key)) return null;
-		let value: JsonValue;
-		try {
-			value = JSON.parse(raw.slice(colon + 2)) as JsonValue;
-		} catch {
-			return null;
-		}
+		const match = LINE.exec(raw);
+		if (!match || !line.endsWith('\n')) return 'unreadable';
+		const [, key = '', rest = ''] = match;
+		if (seen.has(key)) return 'unreadable';
 		seen.add(key);
-		fields.push({ key, value, line });
+		let value: JsonValue | undefined;
+		try {
+			value = JSON.parse(rest) as JsonValue;
+		} catch {
+			value = undefined;
+		}
+		fields.push({ key, line, number, text: rest, value });
 		at = end;
 	}
-	return null;
+	return 'unreadable';
 }
 
 /**
@@ -114,85 +123,42 @@ function sameValue(a: JsonValue, b: JsonValue): boolean {
 	);
 }
 
-/**
- * Apply `patch` to the note `text` as it is: replace the line of each field
- * it sets (kept as typed when the value is already that), add each new one
- * before the closing fence in the order given, and remove the line of each
- * field it deletes. Every other line stays byte for byte. `'outside'` when
- * the note is outside the grammar, and nothing is changed: a patch never
- * normalizes. It takes text, so it never creates a file.
- */
-function patchFrontMatter(
-	text: string,
-	{ set = {}, delete: deleted = [] }: FieldPatch,
-): string | 'outside' {
-	for (const key of [...Object.keys(set), ...deleted])
-		if (!KEY.test(key)) throw new TypeError(`'${key}' cannot name a field`);
-	const parts = split(text);
-	if (parts === null) return 'outside';
-	const eol = parts.open.endsWith('\r\n') ? '\r\n' : '\n';
-	const gone = new Set(deleted.filter((key) => !Object.hasOwn(set, key)));
-	const lines: string[] = [];
-	const present = new Set<string>();
-	for (const field of parts.fields) {
-		present.add(field.key);
-		if (gone.has(field.key)) continue;
-		if (
-			!Object.hasOwn(set, field.key) ||
-			sameValue(field.value, set[field.key] as JsonValue)
-		) {
-			lines.push(field.line);
-			continue;
-		}
-		const ending = field.line.endsWith('\r\n') ? '\r\n' : '\n';
-		lines.push(
-			`${field.key}: ${stringifyValue(set[field.key] as JsonValue)}${ending}`,
-		);
-	}
-	for (const [key, value] of Object.entries(set))
-		if (!present.has(key)) lines.push(`${key}: ${stringifyValue(value)}${eol}`);
-	return parts.open + lines.join('') + parts.close + parts.body;
-}
-
 export type FieldValues = Record<string, JsonValue>;
 
-/** A file's fields and body as read, and whether its front matter could be read, so may be rewritten. */
-type Read = { fields: FieldValues; body: string; readable: boolean };
-
-function isRecord(value: unknown): value is FieldValues {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+/**
+ * A file's fields and body as read, each line whose text is not JSON (its
+ * key, its line number in the file, and its text), and whether its front
+ * matter could be read, so may be rewritten.
+ */
+type Read = {
+	fields: FieldValues;
+	notJson: { key: string; line: number; text: string }[];
+	body: string;
+	readable: boolean;
+};
 
 /**
- * A Markdown file's fields: `key: <JSON>` lines, else YAML. A file that does
- * not open with `---` has none, and its whole text is body; one that opens
- * with `---` and is neither, or has no closing `---`, is not `readable`.
+ * A Markdown file's fields: each `key: <text>` line whose text is JSON. A
+ * line whose text is not JSON is in `notJson`, and its key is not a field. A
+ * file that does not open with `---` has none, and its whole text is body;
+ * one whose front matter cannot be read is not `readable`.
  */
 export function readMarkdown(text: string): Read {
 	const parts = split(text);
-	if (parts)
-		return {
-			fields: Object.fromEntries(
-				parts.fields.map(({ key, value }) => [key, value]),
+	if (typeof parts === 'string')
+		return { fields: {}, notJson: [], body: text, readable: parts === 'none' };
+	return {
+		fields: Object.fromEntries(
+			parts.fields.flatMap(({ key, value }) =>
+				value === undefined ? [] : [[key, value]],
 			),
-			body: parts.body,
-			readable: true,
-		};
-	const open = /^---\r?\n/.exec(text);
-	if (!open) return { fields: {}, body: text, readable: true };
-	const rest = text.slice(open[0].length);
-	const close = /^---[ \t]*(\r?\n|$)/m.exec(rest);
-	if (!close) return { fields: {}, body: text, readable: false };
-	try {
-		const value = Bun.YAML.parse(rest.slice(0, close.index));
-		if (value === null || isRecord(value))
-			return {
-				fields: value ?? {},
-				body: rest.slice(close.index + close[0].length),
-				readable: true,
-			};
-	} catch {}
-	return { fields: {}, body: text, readable: false };
+		),
+		notJson: parts.fields.flatMap(({ key, number, text, value }) =>
+			value === undefined ? [{ key, line: number, text }] : [],
+		),
+		body: parts.body,
+		readable: true,
+	};
 }
 
 /** A Markdown file of `fields` as `key: <JSON>` lines, then `body`. */
@@ -204,18 +170,45 @@ export function markdownOf(fields: FieldValues, body: string): string {
 }
 
 /**
- * `text` with `given` set and `removed` gone, keeping its body and the lines
- * of every other field; YAML front matter is rewritten as `key: <JSON>` lines.
+ * `text` with `given` set and `removed` gone. It replaces the line of each
+ * key it sets (kept as typed when the value is already that), adds each new
+ * key before the closing fence in the order given, and removes the line of
+ * each key removed; a key in both is set. Every other line stays byte for
+ * byte. A file with no front matter gets it before its text. Front matter
+ * that cannot be read is never rewritten, so it throws.
  */
 export function withFields(
 	text: string,
-	read: Read,
 	given: FieldValues,
-	removed: string[],
+	removed: readonly string[],
 ): string {
-	const patched = patchFrontMatter(text, { set: given, delete: removed });
-	if (patched !== 'outside') return patched;
-	const fields = { ...read.fields, ...given };
-	for (const key of removed) delete fields[key];
-	return markdownOf(fields, read.body);
+	for (const key of [...Object.keys(given), ...removed])
+		if (!KEY.test(key)) throw new TypeError(`'${key}' cannot name a field`);
+	const parts = split(text);
+	if (parts === 'none') return markdownOf(given, text);
+	if (parts === 'unreadable')
+		throw new TypeError('Front matter that cannot be read is not rewritten');
+	const eol = parts.open.endsWith('\r\n') ? '\r\n' : '\n';
+	const gone = new Set(removed.filter((key) => !Object.hasOwn(given, key)));
+	const lines: string[] = [];
+	const present = new Set<string>();
+	for (const field of parts.fields) {
+		present.add(field.key);
+		if (gone.has(field.key)) continue;
+		const next = Object.hasOwn(given, field.key)
+			? (given[field.key] as JsonValue)
+			: undefined;
+		if (
+			next === undefined ||
+			(field.value !== undefined && sameValue(field.value, next))
+		) {
+			lines.push(field.line);
+			continue;
+		}
+		const ending = field.line.endsWith('\r\n') ? '\r\n' : '\n';
+		lines.push(`${field.key}: ${stringifyValue(next)}${ending}`);
+	}
+	for (const [key, value] of Object.entries(given))
+		if (!present.has(key)) lines.push(`${key}: ${stringifyValue(value)}${eol}`);
+	return parts.open + lines.join('') + parts.close + parts.body;
 }

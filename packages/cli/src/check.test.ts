@@ -6,7 +6,8 @@
  *
  * Key behaviors:
  * - An app whose records all fit exits 0
- * - Misfit values, missing fields, and unreadable front matter are counted by
+ * - Misfit values, lines that are not JSON (with their line number and the
+ *   fix), missing fields, and unreadable front matter are counted by
  *   kind, most frequent first, with the same kind on two files counted once
  *   per file, and exit 1
  * - A collection that matches no file says "0 files"; a one-file collection
@@ -34,7 +35,7 @@ const tasks = `
 const items = defineCollection({ path: 'data/items/{id}.md', fields: { title: field.text(), due: field.date({ optional: true }) } });
 const notes = defineCollection({ path: 'data/notes/{slug}.md', fields: { title: field.text() } });
 const settings = defineCollection({ path: 'data/settings.md', fields: { goal: field.integer({ optional: true }) } });
-const google = defineCollection({ path: 'data/google.local.md', fields: { refreshToken: field.text({ optional: true }) } });
+const google = defineCollection({ path: 'data/google.local.md', fields: { refreshToken: field.text({ optional: true }), accessToken: field.text({ optional: true }) } });
 export default defineApp({ description: 'Tasks', collections: { items, notes, settings, google }, actions: {} });
 `;
 
@@ -51,10 +52,11 @@ async function setup() {
 		'items/a.md': '---\ntitle: "A"\ndue: "next week"\n---\n',
 		'items/b.md': '---\ntitle: "B"\ndue: "soon"\n---\n',
 		'items/c.md': '---\ndue: "2026-11-12"\n---\n',
-		'items/d.md': '---\ntitle: [unclosed\n---\nBody\n',
+		'items/d.md': '---\ntitle: "D"\n# a comment\n---\nBody\n',
 		'items/e.md': '---\ntitle: "E"\n---\n',
+		'items/f.md': '---\ntitle: "F"\ndue: 2026-11-20\n---\n',
 		'settings.md': '---\ngoal: "lots"\n---\n',
-		'google.local.md': '---\nrefreshToken: 12345\n---\n',
+		'google.local.md': '---\nrefreshToken: 12345\naccessToken: s3cr3t\n---\n',
 	});
 	const booksFolder = await f.app('books', books);
 	await f.folder(join(booksFolder, 'data'), {
@@ -82,9 +84,10 @@ test('problems are counted by kind, most frequent first, then listed by file, an
 		[
 			'tasks',
 			'  items  data/items/{id}.md',
-			'    5 files, 4 with problems',
+			'    6 files, 5 with problems',
 			'    2  due is not a day like 2026-11-12',
-			'    1  its front matter is not key: <JSON> lines or YAML between two --- lines',
+			'    1  due is not JSON; write its text in double quotes',
+			'    1  its front matter is not key: value lines between two --- lines, each key once',
 			'    1  title is missing',
 			'    data/items/a.md',
 			'      due: "next week" is not a day like 2026-11-12',
@@ -93,7 +96,9 @@ test('problems are counted by kind, most frequent first, then listed by file, an
 			'    data/items/c.md',
 			'      title is missing',
 			'    data/items/d.md',
-			'      its front matter is not key: <JSON> lines or YAML between two --- lines',
+			'      its front matter is not key: value lines between two --- lines, each key once',
+			'    data/items/f.md',
+			'      due on line 3 is not JSON; write due: "2026-11-20"',
 			'  notes  data/notes/{slug}.md',
 			'    0 files',
 			'  settings  data/settings.md',
@@ -103,13 +108,16 @@ test('problems are counted by kind, most frequent first, then listed by file, an
 			'      goal: "lots" is not a whole number',
 			'  google  data/google.local.md',
 			'    1 file, 1 with problems',
+			'    1  accessToken is not JSON; write its text in double quotes',
 			'    1  refreshToken is not text',
 			'    data/google.local.md',
 			'      refreshToken is not text',
+			'      accessToken on line 3 is not JSON; write its text in double quotes',
 			'',
 		].join('\n'),
 	);
 	expect(result.stdout).not.toContain('12345');
+	expect(result.stdout).not.toContain('s3cr3t');
 });
 
 test('--json keys each collection by app and name, with its counts, kinds, and records', async () => {
@@ -117,17 +125,22 @@ test('--json keys each collection by app and name, with its counts, kinds, and r
 	const result = await f.run('check', 'tasks', '--json');
 	expect(result.code).toBe(1);
 	expect(result.stdout).not.toContain('12345');
+	expect(result.stdout).not.toContain('s3cr3t');
 	expect(JSON.parse(result.stdout)).toEqual({
 		apps: {
 			tasks: {
 				items: {
 					path: 'data/items/{id}.md',
-					files: 5,
-					withProblems: 4,
+					files: 6,
+					withProblems: 5,
 					kinds: [
 						{ kind: 'due is not a day like 2026-11-12', count: 2 },
 						{
-							kind: 'its front matter is not key: <JSON> lines or YAML between two --- lines',
+							kind: 'due is not JSON; write its text in double quotes',
+							count: 1,
+						},
+						{
+							kind: 'its front matter is not key: value lines between two --- lines, each key once',
 							count: 1,
 						},
 						{ kind: 'title is missing', count: 1 },
@@ -145,8 +158,12 @@ test('--json keys each collection by app and name, with its counts, kinds, and r
 						{
 							path: 'data/items/d.md',
 							problems: [
-								'its front matter is not key: <JSON> lines or YAML between two --- lines',
+								'its front matter is not key: value lines between two --- lines, each key once',
 							],
+						},
+						{
+							path: 'data/items/f.md',
+							problems: ['due on line 3 is not JSON; write due: "2026-11-20"'],
 						},
 					],
 				},
@@ -173,11 +190,20 @@ test('--json keys each collection by app and name, with its counts, kinds, and r
 					path: 'data/google.local.md',
 					files: 1,
 					withProblems: 1,
-					kinds: [{ kind: 'refreshToken is not text', count: 1 }],
+					kinds: [
+						{
+							kind: 'accessToken is not JSON; write its text in double quotes',
+							count: 1,
+						},
+						{ kind: 'refreshToken is not text', count: 1 },
+					],
 					records: [
 						{
 							path: 'data/google.local.md',
-							problems: ['refreshToken is not text'],
+							problems: [
+								'refreshToken is not text',
+								'accessToken on line 3 is not JSON; write its text in double quotes',
+							],
 						},
 					],
 				},
@@ -195,7 +221,7 @@ test('with no app named, checks every app and lists one that does not load under
 	const report = JSON.parse(result.stdout);
 	expect(Object.keys(report.apps)).toEqual(['books', 'tasks']);
 	expect(report.apps.books.books.withProblems).toBe(0);
-	expect(report.apps.tasks.items.withProblems).toBe(4);
+	expect(report.apps.tasks.items.withProblems).toBe(5);
 	expect(report.problems).toEqual([
 		{
 			entry: 'broken',
