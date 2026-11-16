@@ -47,8 +47,14 @@ declares.
 | A line | Reads as |
 | --- | --- |
 | `key: <text>`, and the text is JSON | that key's value |
-| `key: <text>`, and the text is not JSON | that key is absent, with a problem that gives the line number and the JSON to write |
+| `key: <text>`, and the text is not JSON | that key is absent, with a problem that gives the line number and what to write |
+| `key:` with nothing after it | the same: the key is absent, with a problem |
 | anything else, or a key a second time | the front matter cannot be read ([ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md)) |
+
+The problem gives the line to write when the text in double quotes fits the
+field, as in `due: "2026-11-20"`. Otherwise it says what the field takes. It
+never puts a guessed value in the file. A line that is not JSON under a key
+no field declares is kept and not reported, as every undeclared key is.
 
 A line whose text is not JSON is kept until a write names its key. Plain data
 given for that key replaces the line, which is how it is repaired. A change
@@ -69,6 +75,8 @@ file back and compares, and lands as one named commit.
   in the file reads and writes as before.
 - `title: 1984` reads as the number, which does not fit a text field, so it
   is reported, not guessed.
+- A routine's file or the home's `EPICENTER.md` with a line that is not JSON
+  is refused. `paused: yes` no longer reads as not paused.
 - A tool that saves the whole block as YAML makes the record unreadable until
   its lines are fixed. No such tool is used on these folders today. If one is
   adopted, this record is decided again.

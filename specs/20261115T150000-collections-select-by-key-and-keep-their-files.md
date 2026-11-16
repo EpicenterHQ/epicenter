@@ -110,10 +110,11 @@ Built before the apps move, so they move once.
 
 ### Wave 4b: front matter (ADR-0924)
 
-- [ ] `split` reads each line on its own; a `key: <text>` line that is not
+- [x] `split` reads each line on its own; a `key: <text>` line that is not
   JSON is that key's problem and is kept.
-- [ ] The `Bun.YAML` branch and the whole-block rewrite are deleted.
-- [ ] `epicenter check` lists each such line with the JSON to write.
+- [x] The `Bun.YAML` branch and the whole-block rewrite are deleted.
+- [x] `epicenter check` lists each such line with what to write.
+- [x] A routine's file and `EPICENTER.md` refuse a line that is not JSON.
 
 Touches `packages/app/src/front-matter.ts` and `collection.ts`, not the
 command line's input, so it can be built beside wave 4a.
