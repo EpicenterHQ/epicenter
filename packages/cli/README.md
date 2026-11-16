@@ -89,6 +89,12 @@ its existing run ID. Both use capabilities already installed. Raise an
 app's `engines.epicenter` minimum only when it starts relying on behavior
 an older runtime cannot supply.
 
+Test routine app changes on the current Epicenter release. Recheck the
+minimum when you change `engines.epicenter`, use a runtime feature that
+might be newer, or investigate a failure on an older release. On the
+declared minimum, exercise the affected action or UI. For a shared app,
+use `epicenter new <app> --from <source>` to check the copy people install.
+
 When a change needs a different executable or bundled `@epicenter/app`,
 ship those together under one new version. Commits can accumulate before
 that release. Ship separately when an installed consumer needs the fix now
