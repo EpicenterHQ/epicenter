@@ -36,7 +36,10 @@ from GitHub into your Epicenter. No app is bundled in the executable.
 The release installer downloads a platform executable, verifies its SHA-256
 checksum, checks that it runs, and installs it in `~/.local/bin`. It requires
 Git, curl, and either shasum or sha256sum. Supported build targets are macOS and
-Linux on arm64 and x64. Install the developer preview with:
+Linux on arm64 and x64. For a new home, install the
+[latest Epicenter CLI](https://github.com/EpicenterHQ/epicenter/releases?q=Epicenter+CLI)
+with the command below. Existing homes can run Writing and Tasks on Epicenter
+0.2.0 or later.
 
 ```sh
 curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.0/install.sh | sh
@@ -221,7 +224,8 @@ Replacing `code/` leaves the container lock and record paths intact.
 only its own dependencies. After `bun add` in `code/`, run install again if
 Bun removed that link. Calls and listings never install dependencies.
 
-`code/package.json` may declare `engines.epicenter`, such as `>=0.0.2`.
+`code/package.json` may declare `engines.epicenter`. The shared Writing and
+Tasks examples both declare `>=0.2.0`.
 An unmet range is a listed problem and prevents running or building that app.
 Install and build report malformed layout entries without stopping other apps.
 
