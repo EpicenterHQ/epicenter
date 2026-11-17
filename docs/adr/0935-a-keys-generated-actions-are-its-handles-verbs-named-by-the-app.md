@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on the generated `get` of a one-file key whose file is absent: it answers `Ok(undefined)`.
-- **Unbuilt:** all of it. The generated actions are `collection.actions()` in `packages/app/src/collection.ts`.
+- **Unbuilt:** no app calls `data.<key>.actions(...verbs)` yet; the apps still use `collection.actions()`.
 - **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (the handle these are built from); [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (a caller whose answer was lost reads the record); [ADR-0936](0936-serve-runs-every-action-while-it-is-running.md) (one writer).
 
 ## Context
@@ -32,8 +32,8 @@ import { data } from './data';
 export default defineApp({
 	data,
 	actions: {
-		...data.words.actions('list', 'get', 'add', 'set'),
-		...data['settings.md'].actions('get', 'set'),
+		words: data.words.actions('list', 'get', 'add', 'set'),
+		settings: data['settings.md'].actions('get', 'set'),
 		practice,
 	},
 });
@@ -57,6 +57,9 @@ export default defineApp({
   handle's Result, except that the generated `get` of an absent record in a
   folder key answers `Missing`, as today, because a page asked for one record
   by its id.
+- Each key's verbs sit under a name the app chooses (`words.get`,
+  `settings.get`), because two keys offer the same verbs.
+- `list` answers `Ok` of the handle's array, one Result per record.
 
 **What an action adds to its verb is its input:**
 
@@ -70,6 +73,12 @@ export default defineApp({
   the one passage of the body equal to `old`: `Changed` (`quote`) when no
   passage is, `Changed` (`twice`) when more than one is. It is the handle's
   `update`, so it needs a record that fits.
+  Fields may accompany `edit` in the same update. `body` and `edit` together
+  answer `Refused`: both replace the body, and neither takes precedence.
+  An absent folder record answers `Missing`; an absent one-file record has no
+  passage to match and answers `Changed` (`quote`).
+
+`add` describes its id as "The name of the new <description>".
 
 Everything else is the handle: every declared field is in `add`'s and
 `set`'s input, fields are last write wins, a ref is written
