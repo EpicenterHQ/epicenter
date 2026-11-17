@@ -29,27 +29,22 @@ import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Action, ActionMeta } from './action.ts';
-import { isActionResult } from './action-result.ts';
 import { folder, isLocalPath } from './context.ts';
 import { ActionError, type Problem } from './errors.ts';
 
 export type { Problem } from './errors.ts';
 
+import { absentValue, defaultIn, refPathOf } from './field.ts';
+import { isFieldKey, readMarkdown } from './front-matter.ts';
 import {
-	absentValue,
-	defaultIn,
-	type FilledKeys,
-	refPathOf,
-	whatFits,
-} from './field.ts';
-import {
-	type FieldValues,
-	isFieldKey,
-	type JsonValue,
-	markdownOf,
-	readMarkdown,
-	withFields,
-} from './front-matter.ts';
+	type Fields,
+	type Fitting,
+	isOptional,
+	type Loose,
+	quote,
+	type ValueOf,
+} from './markdown-fields.ts';
+import { createMarkdownRecords } from './markdown-records.ts';
 import {
 	type IsSingle,
 	type Placeholders,
@@ -58,9 +53,9 @@ import {
 	template,
 	templateProblem,
 } from './path.ts';
+import { edited } from './text-edit.ts';
 
-/** A collection's fields: each a TypeBox schema, such as `field.text()`. */
-export type Fields = Record<string, TSchema>;
+export type { Fields } from './markdown-fields.ts';
 
 /** What `defineCollection` takes. */
 export type CollectionDef = {
@@ -76,12 +71,6 @@ type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
 
 type Values<F extends Fields> = Static<TObject<F>>;
 
-/** A field's value as a read gives it. */
-type ValueOf<F extends Fields, K extends keyof F> = Exclude<
-	Static<F[K]>,
-	undefined
->;
-
 type KeysWhere<F, Mark> = {
 	[K in keyof F]: F[K] extends Mark ? K : never;
 }[keyof F];
@@ -95,26 +84,12 @@ type OptionalKeys<F> = KeysWhere<F, { '~optional': true }>;
 /** Fields `add` could never be given: written only by the app's own actions, and required. */
 type UnaddableKeys<F> = Exclude<ReadOnlyKeys<F>, OptionalKeys<F>>;
 
-/** Fields a record that fits may lack: the optional ones, less a switch or a list, which reads `false` or `[]`. */
-type MayLack<F> = Exclude<OptionalKeys<F>, FilledKeys<F>>;
-
 /** The fields given to `set`: any of them, and `null` for one a file may go without. */
 type Patch<F extends Fields, K extends keyof F = keyof F> = {
 	-readonly [P in K]?:
 		| Values<F>[P & keyof Values<F>]
 		| (P extends OptionalKeys<F> ? null : never);
 };
-
-/**
- * The fields of a fitting record: every required field, a switch,
- * and a list are there, and an optional field may be absent.
- */
-type Fitting<F extends Fields> = {
-	-readonly [K in Exclude<keyof F, MayLack<F>>]-?: ValueOf<F, K>;
-} & { -readonly [K in MayLack<F>]?: ValueOf<F, K> };
-
-/** The partial fields carried by a Misfit: any of them may be absent, since a value that does not fit reads as absent. */
-type Loose<F extends Fields> = { -readonly [K in keyof F]?: ValueOf<F, K> };
 
 /**
  * A record's keys: each placeholder's value, named as the path names it.
@@ -522,86 +497,23 @@ function collectionProblems(def: CollectionDef): string[] {
 	return problems;
 }
 
-const isOptional = (schema: TSchema) =>
-	(schema as { '~optional'?: boolean })['~optional'] === true;
 const isReadOnly = (schema: TSchema) =>
 	(schema as { readOnly?: boolean }).readOnly === true;
 
-/**
- * A field and its value as a refusal names them: `due: "next week"`. A
- * `.local` file's value is not quoted (`refreshToken`), so a problem or a
- * refused write cannot carry a secret to whoever reads the message.
- */
-function quote(key: string, value: unknown, local: boolean): string {
-	return local ? key : `${key}: ${JSON.stringify(value)}`;
-}
-
-/** Why `value` does not fit `schema`, quoted: `due: "next week" is not a day like 2026-11-12`. */
-function misfit(
-	key: string,
-	schema: TSchema,
-	value: unknown,
-	local: boolean,
-): string {
-	const quoted = quote(key, value, local);
-	const words = whatFits(schema, value);
-	if (words) return `${quoted} is not ${words}`;
-	const [error] = Value.Errors(schema, value);
-	return `${quoted} ${error?.message ?? 'does not fit'}`;
-}
-
-/**
- * What a read says of a field whose line is not JSON, and what to write: the
- * text in double quotes when that fits the field, else what the field takes.
- * Without `line` and with `local`, it quotes nothing: the problem's kind.
- */
-function notJsonProblem(
-	key: string,
-	schema: TSchema,
-	{ line, text }: { line?: number; text: string },
-	local: boolean,
-): string {
-	const which = `${key}${line === undefined ? '' : ` on line ${line}`} is not JSON`;
-	if (text.trim() === '')
-		return `${which}: it has no value; give it one as JSON, or remove the line`;
-	if (Value.Check(schema, text))
-		return `${which}; write ${local ? 'its text in double quotes' : `${key}: ${JSON.stringify(text)}`}`;
-	const words = whatFits(schema, text);
-	return words
-		? `${which}; ${key} takes ${words}, written as JSON`
-		: `${which}; write its value as JSON`;
-}
-
-/** `values` in the order the collection declares its fields, then the rest. */
-function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
-	const order = Object.keys(fields);
-	const rank = (key: string) => order.indexOf(key) + 1 || order.length + 1;
-	return Object.fromEntries(
-		Object.entries(values).sort(([a], [b]) => rank(a) - rank(b)),
-	);
-}
-
-/** What a read says of front matter it cannot read. */
-const UNREADABLE =
-	'its front matter is not key: value lines between two --- lines, each key once';
-
 /** A read's front matter: its fields, its body, and whether the front matter could be read. */
 type Found = ReturnType<typeof readMarkdown>;
-
-/** A record as a read gives it, before its types are laid over. */
-type AnyRecord = Record<string, unknown> & { path: string; body: string };
-
-/** What a write changes: the fields to set or remove, as `set` takes them, and a new body if it changes. */
-type Write = { fields: Record<string, unknown>; body?: unknown };
-
-/** What a writer needs of the file before it writes: that it is not there, that it is, or either. */
-type Need = 'absent' | 'present' | 'either';
 
 /** A collection's records, each named by its keys, read and written through the folder of the run they are called in. */
 type Records = ReturnType<typeof createRecords>;
 
 function createRecords(layout: Template, fields: Fields) {
 	const local = isLocalPath(layout.text);
+	const { project, write, computed, unknownField } = createMarkdownRecords({
+		fields,
+		local,
+		keysOf: layout.match,
+		single: layout.placeholders.length === 0,
+	});
 
 	/** Each placeholder's value from `keys`, and nothing else from it; throws for one that is not text. */
 	function valuesOf(keys: object): Record<string, string> {
@@ -649,104 +561,6 @@ function createRecords(layout: Template, fields: Fields) {
 			path,
 			text: path === exact ? undefined : await folder.read(path),
 		});
-	}
-
-	function unknownField(path: string, key: string) {
-		if (!Object.hasOwn(fields, key))
-			return ActionError.Refused({ message: `${path} has no field "${key}"` });
-	}
-
-	/**
-	 * The file at `path` as a read gives it, with each problem and its kind,
-	 * and the partial record for repair. Each field is its value if it
-	 * fits, else absent; an absent switch or list is `false` or `[]`.
-	 * Its diagnostics name each value that did not fit, each line whose text is
-	 * not JSON with what to write, and each required field that is missing.
-	 * `path`, the keys, and `body` come from the file, and no field can be
-	 * named as one of them. A field whose line is not JSON counts among the
-	 * values that did not fit.
-	 */
-	function project(path: string, found: Found) {
-		const values: Record<string, unknown> = {};
-		const problems: Problem[] = [];
-		const problem = (line: string, kind = line) =>
-			problems.push({ line, kind });
-		if (!found.readable) problem(UNREADABLE);
-		const notJson = new Map(found.notJson.map((each) => [each.key, each]));
-		for (const [key, schema] of Object.entries(fields)) {
-			const value = found.fields[key];
-			const bare = notJson.get(key);
-			if (bare) {
-				problem(
-					notJsonProblem(key, schema, bare, local),
-					notJsonProblem(key, schema, { text: bare.text }, true),
-				);
-			} else if (!Object.hasOwn(found.fields, key)) {
-				const absent = absentValue(schema);
-				if (absent !== undefined) values[key] = structuredClone(absent);
-				else if (found.readable && !isOptional(schema))
-					problem(`${key} is missing`);
-			} else if (Value.Check(schema, value)) values[key] = value;
-			else {
-				problem(
-					misfit(key, schema, value, local),
-					misfit(key, schema, value, true),
-				);
-			}
-		}
-		const record: AnyRecord = {
-			path,
-			...layout.match(path),
-			...values,
-			body: found.body,
-		};
-		const result: Result<AnyRecord, Misfit> = problems.length
-			? ActionError.Misfit({
-					path,
-					problems,
-					...(!local && found.readable ? { record } : {}),
-				})
-			: Ok(record);
-		return { record, result };
-	}
-
-	/** Split a patch into fields to set and remove, and check each supplied value. */
-	function patchOf(
-		path: string,
-		given: Record<string, unknown>,
-		creating: boolean,
-	) {
-		const removed: string[] = [];
-		const set: FieldValues = {};
-		for (const [key, value] of Object.entries(given)) {
-			const unknown = unknownField(path, key);
-			if (unknown) return unknown;
-			if (value === undefined) continue;
-			if (value === null && isOptional(fields[key] as TSchema))
-				removed.push(key);
-			else if (value === null && !creating) {
-				return ActionError.Refused({
-					message: `${key} is required, so it cannot be removed`,
-				});
-			} else set[key] = value as JsonValue;
-		}
-		const problems: string[] = [];
-		for (const [key, schema] of Object.entries(fields)) {
-			if (Object.hasOwn(set, key)) {
-				if (!Value.Check(schema, set[key]))
-					problems.push(misfit(key, schema, set[key], local));
-			} else if (
-				creating &&
-				!isOptional(schema) &&
-				absentValue(schema) === undefined
-			)
-				problems.push(`${key} is missing`);
-		}
-		if (problems.length)
-			return ActionError.Refused({
-				message: problems.map((problem) => `${path}: ${problem}`).join('\n'),
-			});
-		return Ok({ set: inDeclaredOrder(set, fields), removed });
 	}
 
 	/** Each field that holds a `field.ref` or a list of them, with its target's template. */
@@ -809,92 +623,6 @@ function createRecords(layout: Template, fields: Fields) {
 			return ActionError.Refused({ message: problems.join('\n') });
 		return Ok(undefined);
 	}
-
-	/** Decide a record and its replacement together, once per attempt at the current file. */
-	function write(
-		path: string,
-		need: Need,
-		computed: boolean,
-		change: (record: AnyRecord | undefined) => Result<Write, CallbackError>,
-	) {
-		return folder.edit<AnyRecord, CallbackError>(path, (before) => {
-			const single = layout.placeholders.length === 0;
-			if (before === undefined && need === 'present' && !single)
-				return ActionError.Missing({ path });
-			if (before !== undefined && need === 'absent')
-				return ActionError.Refused({ message: `${path} is already there` });
-
-			const found = readMarkdown(before ?? '');
-			const current =
-				before !== undefined || single ? project(path, found) : undefined;
-			if (current?.result.error && (computed || !found.readable))
-				return current.result;
-			const changed = change(current?.record);
-			if (changed.error !== null) return changed;
-			const { fields: given, body } = changed.data;
-			if (body !== undefined && typeof body !== 'string')
-				return ActionError.Refused({ message: `${path}: body must be text` });
-			const patch = patchOf(path, given, before === undefined);
-			if (patch.error !== null) return patch;
-			const { set, removed } = patch.data;
-			if (
-				current &&
-				!removed.length &&
-				!Object.keys(set).length &&
-				body === undefined
-			)
-				return current.result.error
-					? current.result
-					: Ok({ value: current.record });
-
-			let after: string;
-			if (before === undefined) after = markdownOf(set, body ?? '');
-			else {
-				const fielded = withFields(before, set, removed);
-				after =
-					body === undefined
-						? fielded
-						: fielded.slice(0, fielded.length - found.body.length) + body;
-			}
-			if (after === before && current)
-				return current.result.error
-					? current.result
-					: Ok({ value: current.record });
-			const next = project(path, readMarkdown(after)).result;
-			if (next.error !== null)
-				return current?.result.error ? current.result : next;
-			// A keyless record already reads as its defaults while its file is absent.
-			if (
-				before === undefined &&
-				current &&
-				Value.Equal(current.record, next.data)
-			)
-				return Ok({ value: next.data });
-			return Ok({ value: next.data, text: after });
-		});
-	}
-
-	/** A computed change must explicitly return Ok(change) or Err(error). */
-	const computed =
-		(change: (record: unknown) => unknown, method: 'set' | 'update') =>
-		(now: AnyRecord | undefined): Result<Write, CallbackError> => {
-			const result = change(structuredClone(now));
-			if (!isActionResult(result))
-				throw new Error(
-					`The change given to ${method} must return a Result: Ok(change) or Err(error)`,
-				);
-			if (result.error !== null) return result;
-			if (
-				typeof result.data !== 'object' ||
-				result.data === null ||
-				Array.isArray(result.data)
-			)
-				throw new Error(
-					`The change given to ${method} must return a record patch inside Ok`,
-				);
-			const { body, ...given } = result.data as Record<string, unknown>;
-			return Ok({ fields: given, body });
-		};
 
 	/** The paths that may be records, each read after: a template with no placeholder is its one path, so its folder is never walked. */
 	async function paths() {
@@ -1047,19 +775,6 @@ function createRecords(layout: Template, fields: Fields) {
 			return text !== undefined;
 		},
 	};
-}
-
-/** `body` with the passage `old` replaced by `replacement`; returns `Changed` unless `old` is there exactly once, or empty for an empty body. */
-function edited(path: string, body: string, old: string, replacement: string) {
-	if (old === '') {
-		if (body !== '') return ActionError.Changed({ path, why: 'empty' });
-		return Ok(replacement);
-	}
-	const at = body.indexOf(old);
-	if (at < 0) return ActionError.Changed({ path, why: 'quote' });
-	if (body.indexOf(old, at + 1) >= 0)
-		return ActionError.Changed({ path, why: 'twice' });
-	return Ok(body.slice(0, at) + replacement + body.slice(at + old.length));
 }
 
 /** Each verb as an action to expose, described by the collection's path; each takes the keys flat beside its input. */

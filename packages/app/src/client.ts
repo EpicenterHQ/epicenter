@@ -36,6 +36,7 @@ import type { JsonValue } from './front-matter.ts';
 
 export { partitionResults } from 'wellcrafted/result';
 export type { ActionError } from './errors.ts';
+export { timeId } from './time.ts';
 
 /** `T` flattened into one object type. */
 type Flat<T> = { [K in keyof T]: T[K] } & {};
