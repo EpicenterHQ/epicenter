@@ -25,6 +25,34 @@ async function setup() {
 }
 const head = (dir: string) => gitIn(dir, 'rev-parse', 'HEAD');
 
+test('checkpoint saves an invalid serving port while serve refuses it before listening', async () => {
+	const f = await setup();
+	const marker = '---\nport: 70000\n---\n';
+	await writeFile(join(f.home, 'EPICENTER.md'), marker);
+	await writeFile(join(f.home, 'note.md'), 'Keep this note.');
+	const saved = await f.run('checkpoint', '--json');
+	expect(saved.code).toBe(0);
+	expect(JSON.parse(saved.stdout).committed.files).toBe(2);
+	expect(await gitIn(f.home, 'show', 'HEAD:EPICENTER.md')).toBe(marker.trim());
+	expect(await gitIn(f.home, 'show', 'HEAD:note.md')).toBe('Keep this note.');
+	const before = await head(f.home);
+	const refused = await f.run('serve');
+	expect(refused.code).toBe(2);
+	expect(refused.stderr).toContain('port: 70000');
+	expect(refused.stderr).not.toContain('Serving');
+	expect(await head(f.home)).toBe(before);
+});
+
+test('checkpoint requires a marker and suggests initializing the selected folder', async () => {
+	const f = await setup();
+	await rm(join(f.home, 'EPICENTER.md'));
+	const refused = await f.run('checkpoint', '--json');
+	expect(refused.code).toBe(2);
+	expect(JSON.parse(refused.stdout).error.next).toBe(
+		`epicenter init ${f.home}`,
+	);
+});
+
 test('actions leave HEAD unchanged and checkpoint commits pending code and data with the requested subject', async () => {
 	const f = await setup();
 	const app = await f.app('x', reading);
