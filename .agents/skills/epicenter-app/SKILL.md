@@ -12,9 +12,11 @@ holds records and settings. The source and live Epicenter use this layout
 Epicenter needs a separately authorized history and directory migration.
 
 `epicenter` selects the nearest marked ancestor of the current folder, then
-`EPICENTER_ROOT`, then `~/Epicenter`. A computer may hold several Epicenters,
-such as one per person. `epicenter serve` offers MCP at `/` and each UI at
-`/<app>/`, on the marker's `port` or 4747 when absent.
+`EPICENTER_ROOT`, then `~/Epicenter`; a temporary Epicenter for testing stays
+apart from the person's own this way. `epicenter serve` listens only on this
+computer and offers MCP at `/` and each UI at `/<app>/`, on the marker's `port`
+or 4747 when absent. Other devices reach it through the owner's private network,
+such as `tailscale serve`.
 
 ```txt
 <Epicenter>/                    one private Git repository
@@ -522,7 +524,7 @@ The temporary Git configuration isolates identity and signing settings.
 Run `bun run typecheck` and action tests from code/, where package.json lives.
 Run tests one file or package at a time.
 
-## Put an app on the server
+## Put an app in the person's Epicenter
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
