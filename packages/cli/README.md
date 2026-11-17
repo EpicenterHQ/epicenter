@@ -576,6 +576,7 @@ run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkp
 Commit everything pending and push to the backup.
 ```
 
+<!-- doc-path-check: ignore-next-line -->
 `scripts/checkpoint.sh`, mode `755`:
 
 ```sh
@@ -610,6 +611,7 @@ committed.
 
 `epicenter init [<folder>] [--port <n>]` writes `EPICENTER.md`, seeds missing
 `theme.css` (the plain Graphite + blue palette), starter `AGENTS.md`,
+<!-- doc-path-check: ignore-next-line -->
 `routines/checkpoint.md` and an executable `scripts/checkpoint.sh`, creates
 `apps/`, and makes the root a repository if needed. It commits only files it wrote. Existing unrelated files and index
 entries are left for another commit.

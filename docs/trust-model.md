@@ -65,10 +65,11 @@ would any program you install.
 
 An app keeps a sign-in, such as Mail's Google token, in a `.local` file in its
 own folder ([ADR-0870](adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
-The home's `.gitignore` keeps `*.local` and `*.local.*` out of
-checkpoints, and a checkpoint that would include one refuses
-(`packages/cli/src/checkpoint.ts`). A new `.local` file written through `folder`
-is `0600`. So a `.local` file never reaches a backup or a clone. It is a plain
+The home's `.gitignore` keeps each app's `local/` folder, and files named
+`*.local` or `*.local.*`, out of every commit. That file is the only guard:
+Epicenter has no command that commits (ADR-0940). A new file written under
+`local/` through `folder` is `0600`. So a local file reaches a backup or a clone
+only if that ignore line is removed or the file is added by force. It is a plain
 file, though: anyone who can read the home can read it, the provider of a
 rented home included.
 

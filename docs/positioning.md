@@ -93,10 +93,10 @@ Every public claim must be provable by inspecting the repository:
 | Claim | Proof |
 | --- | --- |
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Plain files" | A collection's records are Markdown files under the app's `data/`, at the path its template names (`packages/app/src/collection.ts`), and a root checkpoint records included pending code and records (`packages/cli/src/checkpoint.ts`). |
+| "Plain files" | A collection's records are Markdown files under the app's `data/`, at the path its template names (`packages/app/src/collection.ts`), and the home's own checkpoint script commits pending code and records with Git (`packages/cli/src/init.ts` writes it). |
 | "On one computer you control" | A command runs on the computer it is typed on, and `serve` listens on `127.0.0.1` unless told otherwise (`packages/cli/src/http.ts`). Nothing in this repository runs a person's Epicenter for them (ADR-0903). |
 | "Every device you own, and your agents, reach them" | `serve` answers MCP at `/` and each app's UI at `/<app>/` (`packages/cli/src/http.ts`, `mcp.ts`); a reverse proxy such as `tailscale serve` puts it on the tailnet. |
-| "Any tool can edit them" | Direct edits and action writes remain pending until a named or periodic root checkpoint (`packages/cli/src/checkpoint.ts`). |
+| "Any tool can edit them" | Direct edits and action writes remain pending until a named commit or the home's periodic checkpoint script (`packages/cli/src/init.ts` writes it). |
 | "Bring your own model" | AI features accept user-provided API keys. |
 
 Not yet true, so not yet in public copy: installing `epicenter` from npm

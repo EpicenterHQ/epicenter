@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md): one home removes note merging between devices.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md): checkpoints record pending root files and push without pulling or rebasing.
 - **Relates:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): one private root repository and its checkpoint operation.
-- **Built:** root checkpoints in `packages/cli/src/checkpoint.ts`, the manual command, and serve's existing clock.
+- **Built:** root checkpoints (the `checkpoint` command, since removed by ADR-0940), the manual command, and serve's existing clock.
 - **Unbuilt:** a program's offline clone protocol under [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md).
 
 ## Context
