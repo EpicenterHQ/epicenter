@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app` to every app), once accepted.
 - **Amends:** [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) on package installs and the engines check. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on an app that is a link to code outside the home: it no longer loads.
 - **Relates:** [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the person keeps serve running; Epicenter writes no job), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) (Epicenter does not wrap tools the owner has), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve per home).
-- **Unbuilt:** publishing. `@epicenter/app`, `@epicenter/cli` and `@epicenter/theme` are publishable and not yet on a registry, and the owner's home still runs the earlier program with a package folder per app.
+- **Unbuilt:** publishing. `@epicenter/app` and `@epicenter/cli` are publishable and not yet on a registry, and the owner's home still runs the earlier program with a package folder per app.
 
 ## Context
 
@@ -50,10 +50,17 @@ it.**
 - **The command runs from the home's install, with Bun.** There is no
   single-file program. Whatever keeps serve running (ADR-0941) runs Bun and
   `<home>/node_modules/.bin/epicenter serve`.
-- **The packages are published.** `@epicenter/app`, `@epicenter/cli` and
-  `@epicenter/theme` ship their TypeScript source under AGPL-3.0-or-later.
-  An app that imports the library and is shared is AGPL as well, which is
-  the point of the license.
+- **Two packages are published, at one version.** `@epicenter/app` and
+  `@epicenter/cli` ship their TypeScript source under AGPL-3.0-or-later, are
+  bumped by one command, and refuse to pack when their versions differ. The
+  command names the library as a peer at its own exact version, so an
+  install gives a home one copy, the one its `package.json` asks for; when
+  that copy is another version, Bun warns and the command refuses to run an
+  app on it. An app that imports the library and is shared is AGPL as well,
+  which is the point of the license.
+- **There is no theme package.** Its two stylesheets live with the shared
+  components that use them, and the command carries the starter palette it
+  writes into a new home. A test keeps the two identical.
 - **A package nested inside an app is a workspace member the owner adds.**
   `init` writes `apps/*/code`; a second package inside an app is listed by
   hand.
@@ -85,6 +92,17 @@ it.**
 
 ## Considered alternatives
 
+- **One package holding the command and the library.** A version mismatch
+  could not exist. Every app's import line would change, across eleven apps,
+  right after two migrations; one version for two packages gets nearly all
+  of it.
+- **The library as an ordinary dependency of the command.** Tried in a
+  scratch home: a home that asks for another library version gets two copies
+  installed silently, and every app is then refused with advice that does
+  not fix it. As a peer there is one copy and a warning at install.
+- **Publishing the theme as a third package.** No home imports it. The
+  command only copied one file out of it, and it brought an optional
+  Tailwind peer into every home.
 - **Keep the separate program and its link.** It works, and it is three
   things outside the home that the home's history knows nothing about.
 - **One link at the top of the home, with everything else as it was.** It

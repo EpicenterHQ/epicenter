@@ -138,7 +138,7 @@ Test routine app changes on the current Epicenter release. For a shared app,
 use `epicenter new <app> --from <source>` to check the copy people install.
 
 `@epicenter/cli` and `@epicenter/app` ship together under one version, and
-`@epicenter/cli` depends on that exact `@epicenter/app`. Commits can
+`@epicenter/cli` names that exact `@epicenter/app` as a peer. Commits can
 accumulate before a release. Ship separately when an installed consumer needs
 the fix now or when the next change depends on readers having upgraded first.
 Changes that can reach the same consumers together can share a release.
@@ -155,48 +155,74 @@ number for the whole batch when it ships. Once distributed, a version
 identifies that build. The [Result cutover](../../docs/adr/0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md#cutover)
 records the wire behavior behind these examples.
 
-### Pack the packages, and try an unreleased change
+### Release
 
-Three packages ship: `@epicenter/app`, `@epicenter/theme`, which the command
-depends on for the palette `init` writes, and `@epicenter/cli`. Each ships its
-TypeScript source and runs under Bun. From the repository root:
+Two packages are published, always at the same version: `@epicenter/app`
+and `@epicenter/cli`. Each ships its TypeScript source and runs under Bun.
+The command names the library as a peer dependency at its own exact
+version, so a home installs one copy of the library: the one its
+`package.json` names. When a home names another version, `bun install`
+warns and `epicenter` refuses to load its apps until the two match. A home
+upgrades both at once with `bun update --latest @epicenter/cli @epicenter/app`.
+
+Nothing in this repository publishes by itself: no script or workflow runs
+`bun publish`. The owner releases by hand, from the repository root:
 
 ```sh
+bun run --cwd packages/cli set-version 0.6.0
 bun run --cwd packages/cli pack
 ```
 
-This writes the three tarballs, as a registry would receive them, into
-`packages/cli/dist/pack/<hash>/`, and prints the lines below with their paths.
-It publishes nothing. `bun pm pack` rewrites `catalog:` and `workspace:*` to
-real versions, and the script refuses a tarball where one is left. `--outdir`
+`set-version` writes the version into `packages/app/package.json` and
+`packages/cli/package.json`, changes nothing else, and prints what it
+changed. It accepts three numbers and nothing else. `pack` refuses while the
+two versions differ, and so does `bun run check:versions`, which
+`check:structure` runs.
+
+`pack` writes the two tarballs, as a registry would receive them, into
+`packages/cli/dist/pack/<hash>/`, and prints their paths. It publishes
+nothing. `bun pm pack` rewrites `catalog:` and `workspace:*` to real
+versions, and the script refuses a tarball where one is left. `--outdir`
 selects another folder.
 
-To run a home on an unreleased change, pack, then point the home's
-dependencies at the tarballs with `overrides` in its `package.json`:
+Publish from that folder, the library first, so the registry never holds a
+command whose library it lacks. Run each with `--dry-run` before the real
+publish:
+
+```sh
+cd packages/cli/dist/pack/<hash>
+bun publish epicenter-app-0.6.0.tgz --dry-run
+bun publish epicenter-app-0.6.0.tgz
+bun publish epicenter-cli-0.6.0.tgz --dry-run
+bun publish epicenter-cli-0.6.0.tgz
+```
+
+### Try an unreleased change
+
+Pack, then point the home's two dependencies at the tarballs with
+`overrides` in its `package.json`. `pack` prints these lines with their
+paths:
 
 ```json
 {
   "overrides": {
     "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.5.0.tgz",
-    "@epicenter/theme": "file:/path/to/pack/<hash>/epicenter-theme-0.0.1.tgz",
     "@epicenter/cli": "file:/path/to/pack/<hash>/epicenter-cli-0.5.0.tgz"
   }
 }
 ```
 
-Run `bun install` in the home and restart `serve`. `overrides` is needed, not
-only `dependencies`, because `@epicenter/cli` itself depends on the other two
-by version. Bun caches a tarball by its path, so a file changed in place keeps
-installing its old content: the file's path must change when its content
-does. The `<hash>` folder is named for the tarballs' content, so each pack of
-changed source is a new path. Rehearse on a clone of the home, not the home.
-An app's pages may link to the home's root `theme.css`, so the clone must
-include that file. Remove `overrides` and install again to return to the
-released version.
+Run `bun install` in the home and restart `serve`. `overrides` replaces a
+package wherever it is named, including the command's peer on the library,
+so the home still installs one copy. Bun caches a tarball by its path, so a
+file changed in place keeps installing its old content: the file's path must
+change when its content does. The `<hash>` folder is named for the
+tarballs' content, so each pack of changed source is a new path. Rehearse on
+a clone of the home, not the home. An app's pages may link to the home's
+root `theme.css`, so the clone must include that file. Remove `overrides`
+and install again to return to the released version.
 
-To publish, the owner publishes each tarball from that folder, `@epicenter/app`
-and `@epicenter/theme` before `@epicenter/cli`. No script or workflow in this
-repository publishes.
+## The commands
 
 Your Epicenter lives on a computer you control and keep on. `epicenter serve`
 offers its apps to devices on a private connection. An older laptop with

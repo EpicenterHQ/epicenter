@@ -19,15 +19,17 @@
 	],
 	"scripts": {
 		"pack": "bun scripts/pack.ts",
+		"set-version": "bun scripts/version.ts",
 		"typecheck": "tsc --noEmit",
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@epicenter/app": "workspace:*",
-		"@epicenter/theme": "workspace:*",
 		"@modelcontextprotocol/sdk": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
+	},
+	"peerDependencies": {
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
