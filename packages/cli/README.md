@@ -188,7 +188,6 @@ epicenter checkpoint
 epicenter checkpoint -m "Repair the book fields"
 epicenter serve
 epicenter routines
-epicenter routines run daily-task-review
 epicenter --version
 ```
 
@@ -286,7 +285,8 @@ running.
 
 The home opts into recurring work with `routines/<name>.md`, outside `apps/`.
 A routine is an instruction to this computer, so sharing an app schedules
-nothing. `serve` checks on startup and once a minute:
+nothing. Once a minute, `serve` reads `routines/` and starts each routine
+whose schedule had an occurrence since its last check:
 
 ```yaml
 ---
@@ -297,52 +297,43 @@ Prepare my morning review.
 ```
 
 `cron` is a five-field expression or nickname such as `@hourly`, read in the
-computer's local time by `Bun.cron.parse`. A routine is due when it has never
-run, or when its schedule has had an occurrence since its last start. After several days offline it runs once, not once per missed
-occurrence. Timing is approximate while the service is awake and available.
-A skipped clock time moves forward through the gap.
+computer's local time by `Bun.cron.parse`. A skipped clock time moves forward
+through the gap. Occurrences missed while the computer sleeps run once on
+wake. An occurrence that passes while `serve` is not running does not run; a
+routine that must not miss a day uses a wider schedule, such as
+`0 8-22 * * *`, and a command that exits when today's work is done.
 
 `run` is executable and arguments, with no shell. The working directory is the
 Epicenter folder. `epicenter` and `bun` use the running CLI and its runtime;
 other executables use the service's PATH. `EPICENTER_COMMAND` holds the CLI argv
-as JSON for scripts calling back into it, and `EPICENTER_ROUTINE_NAME` is the
-routine's name.
+as JSON for scripts calling back into it.
 `EPICENTER_SERVICE_URL` names this serve listener's loopback URL, including an
 overridden port. A script
 calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
 Unknown fields and malformed declarations are refused. To stop a
 routine, remove its file; the home's history keeps it.
 
-`epicenter routines` lists declarations and last outcomes, even while the
-server is stopped; `--json` includes the last start, finish, exit code, and log.
-`epicenter routines run <name>` explicitly runs one now and can repeat effects.
+`epicenter routines` lists each routine's schedule and next occurrence, or why
+its file is refused, whether or not `serve` is running.
 
 A person or their agent writes the file. Installing or importing an app
 schedules nothing.
 
-`routines/<name>.local/state.json` records the latest `started`, then
-`finished` and `exitCode` when that run ends. Each start empties
-`routines/<name>.local/output.log`, and every run appends to it. Both stay
-local and owner-only.
-
-The runner starts a routine at each occurrence, even while an earlier run is
-still going, and keeps no lock, timeout, or kill path. A command that needs a
-deadline sets its own; one that must not overlap itself takes a lock, for
-example with `/usr/bin/lockf -t 0 <file> <command>`. An earlier run that ends
-after a later start leaves the later record in place. Commands share
-`serve`'s process group, so stopping the service stops them. A start with no
-finish shows as running until the next occurrence makes it due.
-
-A run that fails waits for the schedule's next occurrence or an explicit run;
-nothing blocks a routine until a person repairs it. Corrupted state blocks
-execution without overwriting it. Deleting runtime state makes the routine due
-again. Commands must tolerate repetition;
+`serve` records nothing about a routine. It starts the command and does not
+wait for it, time it, stop it, or note how it ended. Runs may overlap. A
+command that needs a deadline sets its own; one that must not overlap itself
+takes a lock, for example with `/usr/bin/lockf -t 0 <file> <command>`. A
+command's output goes where `serve`'s does, the service log, and its result is
+whatever it leaves in the home. `serve` writes to that log only a routine file
+it cannot read and a command it cannot start. Commands share `serve`'s process
+group, so stopping the service stops them. Commands must tolerate repetition;
 there is no exactly-once guarantee.
 
 The [daily task review example](examples/daily-task-review.md) runs
 [an ordinary script](examples/daily-task-review.ts) that reads `tasks list`
 and groups open tasks into a dated draft under `drafts/`. It changes no tasks,
-uses no model, and preserves an existing draft. Copy the declaration to
+uses no model, and preserves an existing draft, so it can run more than once a
+day. Copy the declaration to
 <!-- doc-path-check: ignore-next-line -->
 `routines/daily-task-review.md` and the script to `scripts/daily-task-review.ts`
 in the home. The home's repository backs up the declaration, script, and drafts.

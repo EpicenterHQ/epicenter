@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-16
-- **Amends:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) on the schedule (`daily` becomes `cron`), what makes a routine due, interrupted attempts, `paused`, `timeout`, the routine lock and process-group supervision, and `routines.set`. Its folder, command argv, and local state stand. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the checkpoint clock: `serve` keeps none, and a home checkpoints only if it has a routine that does.
+- **Amends:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) on the schedule (`daily` becomes `cron`), what makes a routine due, interrupted attempts, `paused`, `timeout`, the routine lock and process-group supervision, local state and logs, `routines run`, and `routines.set`. Its folder and command argv stand. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the checkpoint clock: `serve` keeps none, and a home checkpoints only if it has a routine that does.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (actions make no commits).
 
 ## Context
@@ -47,32 +47,35 @@ time, as `Bun.cron.parse` reads it. It replaces `daily`; `daily: "08:00"`
 becomes `cron: "0 8 * * *"`. `run` is unchanged. `paused` and `timeout` are
 removed: to stop a routine, remove its file. The home's history keeps it.
 
-A routine is due when it has never started, or when
-`Bun.cron.parse(cron, lastStart)` is at or before now. Missed occurrences
-collapse into one run. A run that did not succeed waits for the next
-occurrence; nothing blocks a routine until a person repairs it.
-`routines/<name>.local/state.json` holds `started`, and `finished` and
-`exitCode` once the command ends. `output.log` holds the latest run only.
-`epicenter routines run <name>` still runs one now.
+**`serve` keeps one moment in memory and writes nothing about routines.**
+Once a minute it reads `routines/` and starts each routine whose schedule had
+an occurrence since its previous check: `Bun.cron.parse(cron, previousCheck)`
+is at or before now. Missed occurrences collapse into one run, and a
+computer that slept runs them on wake. An occurrence that passes while
+`serve` is not running does not run, because nothing remembers it; a routine
+that must not miss a day widens its schedule and makes its command exit when
+the day's work is done. There is no `.local` folder, state file, routine log,
+or `epicenter routines run`: running a routine by hand is running its
+command.
 
-**The runner starts commands and records how they end; it does not police
-them.** It starts a routine at each occurrence, even while an earlier run is
-still going, as cron does. A command that must not overlap itself takes its
-own lock, for example `/usr/bin/lockf -t 0 <file> <command>`; `epicenter
-checkpoint` already holds its own. The runner keeps no timeout and no kill
-path: a command that needs a deadline sets its own, as Flights' agent run
-already does. This holds for actions too.
-With `serve` running, `epicenter <app> <action>` hands the call to `serve`
-(ADR-0936), and ending that command does not stop the action (ADR-0930), so an
-action that can run long sets its own deadline. Commands share `serve`'s
-process group, so the service manager that stops `serve` stops them. A
-start with no finish reads as running until the next occurrence makes it due.
-An earlier run that ends after a later one started leaves the later record in
-place, and every run appends to a log that each start empties.
+**`serve` starts commands and does not police or record them.** It does not
+wait for a command, time it, stop it, or note how it ended. Runs may overlap,
+as in cron. A command that must not overlap itself takes its own lock, for
+example `/usr/bin/lockf -t 0 <file> <command>`. A command that needs a
+deadline sets its own, as Flights' agent run does. This holds for actions
+too. With `serve` running, `epicenter <app> <action>` hands the call to
+`serve` (ADR-0936), and ending that command does not stop the action
+(ADR-0930), so an action that can run long sets its own deadline. A
+command's output goes where `serve`'s does, the service log, and its result
+is what it leaves in the home. `serve` writes there only a routine file it
+cannot read and a command it cannot start. Commands share `serve`'s process
+group, so the service manager that stops `serve` stops them.
+`epicenter routines` lists each routine's schedule and next occurrence, or
+why its file is refused.
 
 `serve` keeps a one-minute timer that calls the routine check, and no
 checkpoint clock. It runs no checkpoint at startup or on stop. A new
-checkpoint routine has no attempt, so it runs at the first check.
+checkpoint routine first runs at its next occurrence.
 
 A home with no checkpoint routine makes no commits except the ones a person
 or agent names, and pushes nothing. `init` writes no routine. The
@@ -83,8 +86,10 @@ for an agent to add when the person wants history and backup.
 
 ## Consequences
 
-- One rule decides when anything periodic runs, and `epicenter routines`
-  shows backup status beside every other routine.
+- One rule decides when anything periodic runs.
+- Whether a routine succeeded is read from what it leaves: checkpoint's
+  commits and push, a draft, a research file. A checkpoint that fails every
+  five minutes shows only as its own errors in the service log.
 - A home can run any checkpoint command, for example a script that writes a
   message and calls `epicenter checkpoint -m`.
 - A home whose agent never adds the routine has no record history, no undo
@@ -100,8 +105,10 @@ for an agent to add when the person wants history and backup.
   that runs every minute adds a process every minute until someone stops
   it; this is cron's behavior, and the command's deadline or lock prevents
   it.
-- Scheduled runs, foreground `epicenter routines run`, and a `serve`
-  restarted mid-run follow one rule, with no exception for any of them.
+- A daily occurrence passes unrun when the computer is off or logged out
+  across it, or in the seconds a `serve` restart takes.
+- A refused routine file is reported to the service log at every check
+  until it is fixed.
 
 ## Considered alternatives
 
@@ -118,6 +125,11 @@ for an agent to add when the person wants history and backup.
   and a second off switch for one rule.
 - **In-process `Bun.cron(expression, handler)` per routine.** It must be
   registered again whenever a file changes and has no catch-up after sleep.
+- **Keep a start time per routine, in `routines/<name>.local/`.** It catches
+  up an occurrence missed while `serve` was down. Refused: it brings back a
+  folder, a schema, atomic writes, and a corrupted-state path for a case the
+  routine's own schedule can cover. A home-wide heartbeat file can be added
+  later if missed days prove annoying.
 - **Keep the kernel lock, passed to the command on fd 3.** It guards a
   `serve` restart during a run and a foreground run during a scheduled one.
   The service has restarted only on installs, and the due rule already waits

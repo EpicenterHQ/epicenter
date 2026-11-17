@@ -86,12 +86,11 @@ The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
 	},
 	routines: {
-		usage: 'epicenter routines [run <name>]',
-		help: `Lists the home's routines and their last outcomes, even while serve is stopped.
-A routines/<name>.md declares cron: "0 8 * * *" and run: [executable, ...arguments].
-serve checks at startup and once a minute and runs a routine once when its schedule
-has had an occurrence since its last attempt. run explicitly runs one now; it may
-repeat effects. State and the latest output stay in routines/<name>.local/.`,
+		usage: 'epicenter routines',
+		help: `Lists the home's routines with each schedule and next occurrence, or why a file
+is refused. A routines/<name>.md declares cron: "0 8 * * *" and run: [executable,
+...arguments]. Once a minute serve starts each routine whose schedule had an
+occurrence since its last check. It records nothing; the command owns its output.`,
 	},
 } as const;
 

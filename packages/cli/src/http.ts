@@ -321,8 +321,7 @@ export function startHttpServer(port: number) {
 					`Checking routines failed: ${error instanceof Error ? error.message : String(error)}`,
 				),
 			);
-	void checkRoutines();
-	// Only the check is periodic. Commands and network backups never block it.
+	// Routines start without being awaited, so a long one never delays a check.
 	const routineClock = setInterval(() => {
 		void checkRoutines();
 	}, 60_000);
