@@ -17,7 +17,7 @@ Nothing syncs and no one signs in: your other devices are thin clients of the
 one copy, and `origin` is a push-only backup. [ADR-0910] records this layout, implemented in the source
 and live Epicenter.
 
-This page is the front door. [ADR-0940] records Epicenter's core invariants
+This page is the front door. [ADR-0943] records Epicenter's core invariants
 and their tradeoffs. [ADR-0896] and [ADR-0898] describe how collections meet;
 [ADR-0840] records why the direction changed from the folder sync product, and
 [ADR-0897] why hosted Notes waits. [Architecture](architecture.md),
@@ -454,4 +454,4 @@ fields are written one `key: <JSON>` line each.
 [ADR-0930]: adr/0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md
 [ADR-0936]: adr/0936-one-serve-per-home-runs-every-action.md
 [ADR-0939]: adr/0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md
-[ADR-0940]: adr/0940-epicenters-core-invariants.md
+[ADR-0943]: adr/0943-epicenters-core-invariants.md

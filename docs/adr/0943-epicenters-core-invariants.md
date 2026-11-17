@@ -1,4 +1,4 @@
-# 0940. Epicenter’s core invariants
+# 0943. Epicenter’s core invariants
 
 - **Status:** Proposed
 - **Date:** 2026-11-17

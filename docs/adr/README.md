@@ -1151,6 +1151,6 @@ When you add an ADR, add its row here.
 | [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Proposed (amends 0850, 0910, 0937 and 0939) |
 | [0941](0941-epicenter-serve-is-a-program-you-keep-running.md) | `epicenter serve` is a program you keep running | Accepted (amends 0878) |
 | [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Accepted (supersedes 0873; amends 0880 and 0910; amended by 0944) |
+| [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
 | [0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) | An app builds its own UI, and serve only serves it | Proposed (amends 0904, 0910, and 0942) |
 | [0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) | An app may answer HTTP and WebSocket requests under its address | Proposed |
-| [0940](0940-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
