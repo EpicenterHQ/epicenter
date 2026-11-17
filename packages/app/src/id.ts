@@ -1,7 +1,5 @@
-import { isLocalPath } from './context.ts';
-
 /** Why an id cannot name one Markdown file, without changing its bytes. */
-export function idProblem(value: unknown, local = false): string | undefined {
+export function idProblem(value: unknown): string | undefined {
 	if (typeof value !== 'string' || value === '')
 		return 'an id must be non-empty text';
 	if (new TextEncoder().encode(value).length > 200)
@@ -12,7 +10,5 @@ export function idProblem(value: unknown, local = false): string | undefined {
 	if (value.startsWith(' ') || value.endsWith(' '))
 		return 'an id cannot start or end with a space';
 	if (value.normalize('NFC') !== value) return 'an id must be Unicode NFC';
-	if (!local && isLocalPath(`${value}.md`))
-		return 'an id cannot name a .local file in a key that is not .local';
 	return undefined;
 }
