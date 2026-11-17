@@ -20,8 +20,9 @@ actions as an agent does.
 **An app's interfaces are views, and a view is a web client of its app's
 actions.** A view is static files with hash routes (`#/c/<id>`) built into the
 app's `ui/dist/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
-MCP at `/`. It reads and changes the app only by calling the app's actions
-through `connect<typeof app>()` (ADR-0853). The server routes nothing and runs
+MCP at `/`. It reads and changes the app by calling the app's actions
+through `connect<typeof app>()` (ADR-0853), or, for a protocol an action
+cannot carry, the app's own routes under `/<app>/.http/` (ADR-0945). The server routes nothing and runs
 nothing for a view.
 
 ```txt
