@@ -116,9 +116,18 @@ export function createRoutines({
 				...(serviceUrl ? { EPICENTER_SERVICE_URL: serviceUrl } : {}),
 			},
 			stdio: 'inherit',
-		}).once('error', (error) =>
-			writeErr(`Routine ${name} could not start: ${messageOf(error)}`),
-		);
+		})
+			.once('error', (error) =>
+				writeErr(`Routine ${name} could not start: ${messageOf(error)}`),
+			)
+			// Nothing is stored about a run, so a failure is said once, here. A
+			// routine such as the home's checkpoint may be its only backup.
+			.once('exit', (code, signal) => {
+				if (code !== 0)
+					writeErr(
+						`Routine ${name} failed: ${signal ? `ended by ${signal}` : `exit code ${code}`}`,
+					);
+			});
 	}
 
 	return {

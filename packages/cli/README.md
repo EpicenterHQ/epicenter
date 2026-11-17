@@ -364,12 +364,13 @@ A person or their agent writes the file. Installing or importing an app
 schedules nothing.
 
 `serve` records nothing about a routine. It starts the command and does not
-wait for it, time it, stop it, or note how it ended. Runs may overlap. A
+wait for it, time it or stop it. When the command exits with an error it
+writes one line, `Routine <name> failed: exit code <n>`, and keeps nothing. Runs may overlap. A
 command that needs a deadline sets its own; one that must not overlap itself
 takes a lock, for example with `/usr/bin/lockf -t 0 <file> <command>`. A
 command's output goes where `serve`'s does, the service log, and its result is
 whatever it leaves in the home. `serve` writes to that log only a routine file
-it cannot read and a command it cannot start. Commands share `serve`'s process
+it cannot read, a command it cannot start, and a command that failed. Commands share `serve`'s process
 group, so stopping the service stops them. Commands must tolerate repetition;
 there is no exactly-once guarantee.
 

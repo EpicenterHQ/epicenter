@@ -192,3 +192,28 @@ test('occurrences follow local calendar days and daylight-saving gaps', async ()
 		'2026-03-08T10:30:00.000Z',
 	);
 });
+
+test('a routine that exits with an error says so once on stderr, and one that succeeds says nothing', async () => {
+	const f = await setup(['sh', '-c', 'exit 3']);
+	await writeFile(
+		join(f.directory, 'fine.md'),
+		'---\ncron: "0 8 * * *"\nrun: ["sh", "-c", "exit 0"]\n---\n',
+	);
+	const modulePath = join(import.meta.dir, 'routines.ts');
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			'-e',
+			`
+    import { createRoutines } from ${JSON.stringify(modulePath)};
+    const routines = createRoutines({ folder: ${JSON.stringify(f.home)} });
+    await routines.check(new Date(Date.now() + 86_400_000));
+    await Bun.sleep(1500);
+  `,
+		],
+		{ stdout: 'pipe', stderr: 'pipe' },
+	);
+	const stderr = await new Response(child.stderr).text();
+	await child.exited;
+	expect(stderr.trim()).toBe('Routine review failed: exit code 3');
+}, 30_000);

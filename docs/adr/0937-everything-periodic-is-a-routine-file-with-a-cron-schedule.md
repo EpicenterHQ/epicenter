@@ -89,8 +89,11 @@ for an agent to add when the person wants history and backup.
 
 - One rule decides when anything periodic runs.
 - Whether a routine succeeded is read from what it leaves: checkpoint's
-  commits and push, a draft, a research file. A checkpoint that fails every
-  five minutes shows only as its own errors in the service log.
+  commits and push, a draft, a research file. `serve` stores
+  nothing about a run, and says one thing when a command exits with an
+  error: a line in the service log naming the routine and its exit code. A
+  checkpoint that fails every five minutes is that line every five minutes,
+  beside its own errors.
 - A home can run any checkpoint command. The one `init` writes is a short
   script of the home's own that calls Git (ADR-0940).
 - A home whose agent never adds the routine has no record history, no undo
