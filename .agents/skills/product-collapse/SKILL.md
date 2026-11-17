@@ -1,51 +1,89 @@
 ---
 name: product-collapse
-description: Find simpler product behavior by questioning assumed requirements and working backward from a shared vision. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment.
+description: Develop simpler product behavior with the person by questioning assumed requirements and working backward from what they need. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment.
 ---
 
 # Product collapse
 
-Use [dialectic](../dialectic/SKILL.md) as the method: clarify the intent, develop
-the greenfield vision, then work backward from that vision. Dialectic owns the
-conversation and how agreed intent and vision develop through reactions. This
-skill contributes the product lens: question assumed requirements and find
-simpler behavior that makes implementation unnecessary.
+Look for a simpler way for the product to do what the person needs.
+Ask which requirements serve that purpose and which ones the current
+design brought with it.
 
-## The product lens
+Use [dialectic](../dialectic/SKILL.md) to develop the direction together.
+Offer something specific the person can recognize, correct, or extend.
+Carry forward what they have already decided.
 
-Establish the job in the person's terms, including what they must be able to
-rely on. Treat existing workflows and guarantees as evidence of earlier choices.
-Ask which requirements serve that job and which the current design introduced.
-Keep a change to the job itself explicit.
+Removing features, steps, or state is a consequence, not the goal.
 
-Develop a greenfield vision of the experience that would fulfill the intent.
-A recurring choice might be resolved once, a mode or degree of fidelity might
-be unnecessary, or actions might belong together or deserve separate decisions.
-A native primitive may already do the work. Compare concrete experiences when
-their differences help the person judge the direction.
+## Start from what the person needs
 
-Show what the person does, what becomes easier, what they lose, and what
-obligations remain. Account for mechanisms added as well as removed, including
-work shifted to the person or a later step. Include interruption and failure
-when they change the choice. Distinguish possible deletions from claims traced
-against the code. Keeping a capability is a valid outcome when it earns its
-complexity. Removing features, steps, or state is a consequence, not the goal.
+Describe what they are trying to accomplish, including what they need
+to be able to rely on. Treat existing workflows and guarantees as
+evidence of earlier choices. Find out which still matter and why.
 
-## Work backward from the vision
+If the proposed direction changes what the product is for, say so
+plainly.
 
-Derive the owners and mechanisms from the recognized behavior, using what
-already does the job before adding an owner. Before calling state redundant,
-identify the information it carries and establish that the replacement has it
-whenever needed. Preserve work, evidence, and decisions with no other owner.
-Check that complexity disappears rather than moving into another store,
-service, or implicit user obligation.
+## Imagine the experience afresh
 
-Use [collapse-pass](../collapse-pass/SKILL.md) to carry an authorized change
-through its callers, remove what it made unnecessary, and verify the result.
-Use disposable data for app experiments. Use
-[asymmetric-wins](../asymmetric-wins/SKILL.md) to judge a particular small
-promise whose refusal could delete disproportionate complexity.
+Ask how you would design this today for that purpose. Look beyond
+adjusting the existing screens and settings.
 
-Read [the examples](references/examples.md) for product decisions developed
-through this method. They illustrate questions to examine, not transformations
-to apply by keyword or a required number of alternatives.
+A recurring choice might be resolved once. A mode or degree of fidelity
+might be unnecessary. Actions might belong together, or a combined action
+might work better as separate decisions. Something the browser or
+operating system already does may be enough.
+
+For example, someone who wants to review their week might need one
+useful report with a date-range choice. They may have no use for a report
+builder with configurable columns, grouping, and saved layouts. That
+simpler experience could make the builder unnecessary. But if exploring
+the data is the job, the builder may earn its place.
+
+Develop a concrete direction and explain why you favor it. Compare
+alternatives when their differences help the person judge the choice.
+Use their response to improve the proposal.
+
+## Show what changes
+
+Show what the person does, what gets easier, what they give up, and
+what still needs doing. Include interruptions and failures when they
+would change the choice.
+
+Account for work added as well as removed. An extra step may make the
+whole experience simpler. Removing a step may leave the person with more
+to remember, check, or repair later.
+
+Check the code when a claim about what could disappear affects the
+decision. Distinguish confirmed removals from possibilities that still
+need investigation.
+
+Keeping a capability is a good outcome when it is worth what it costs.
+
+## Work backward from the chosen experience
+
+Once the direction is understood, work out what needs to exist to
+support it. Use what already does the job before adding something new.
+
+Before calling something redundant, find out what it remembers.
+Unfinished work, the only copy of someone's input, a reviewed decision,
+or an action whose outcome is still uncertain may need to survive.
+
+Keep that information until something else reliably holds it or the
+chosen experience makes it unnecessary. Check that complexity disappears
+rather than moving elsewhere or becoming work the person must do.
+
+Carry settled choices forward without reconfirming each detail. Bring
+back consequential choices that remain unresolved. Agreement on a
+direction does not by itself authorize implementation.
+
+Use [collapse-pass](../collapse-pass/SKILL.md) to carry an authorized
+change through its callers, remove what it made unnecessary, and verify
+the result. Use disposable data for app experiments.
+
+Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when weighing whether
+giving up one small promise could remove much larger complexity.
+
+Read [the examples](references/examples.md) for illustrations of this
+judgment. They show questions worth examining, not changes to apply by
+keyword or a required number of alternatives.
