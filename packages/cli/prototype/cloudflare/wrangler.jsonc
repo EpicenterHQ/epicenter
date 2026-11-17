@@ -1,0 +1,15 @@
+{
+	"name": "epicenter-tasks-workers-prototype",
+	"account_id": "bd11bbdb06b934edf736ce3c23ab8a7a",
+	"main": "src/worker.ts",
+	"compatibility_date": "2026-11-15",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"vars": {"API_ORIGIN":"https://api.epicenter.so"},
+	"limits": { "cpu_ms": 300000 },
+	"worker_loaders": [{ "binding": "LOADER" }],
+	"durable_objects": {
+		"bindings": [{ "name": "OWNER", "class_name": "TasksOwner" }]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["TasksOwner"] }]
+}

@@ -1,0 +1,6 @@
+{
+	"name": "tasks-prototype-compiler-artifact",
+	"main": "src/compiler.ts",
+	"compatibility_date": "2026-11-15",
+	"compatibility_flags": ["nodejs_compat"]
+}

@@ -1,0 +1,36 @@
+{
+	"name": "@epicenter/app",
+	"version": "0.4.0",
+	"private": true,
+	"description": "What an app's epicenter.ts imports to define its collections, actions, and the app itself, and the client its UI calls them through.",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/EpicenterHQ/epicenter.git",
+		"directory": "packages/app"
+	},
+	"homepage": "https://epicenter.so",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./client": "./src/client.ts",
+		"./testing": "./src/testing.ts"
+	},
+	"files": [
+		"src",
+		"!src/**/*.test.ts"
+	],
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"nanoid": "catalog:",
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

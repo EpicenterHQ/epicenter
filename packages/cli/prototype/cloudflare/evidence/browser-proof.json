@@ -1,0 +1,29 @@
+{
+  "origin": "https://epicenter-tasks-workers-prototype.epicenter.workers.dev",
+  "apiVersion": "0.4.0",
+  "completed": "2026-11-16T09:53:44.016Z",
+  "checks": [
+    "Prototype browser session established",
+    "The current Tasks Svelte UI creates and opens a record through 0.4 Results",
+    "Task completion survives a browser reload",
+    "The real 0.4 client admits the browser review",
+    "The run survives page closure beyond ordinary Worker background grace",
+    "Reopening replays from the beginning without another admission",
+    "The closed-page run has one start and all 40 persisted progress events",
+    "Stop review records cancellation and renders the action Result",
+    "The Activity interface recovers and displays a real host interruption",
+    "A broken build from the code editor leaves the published revision selected",
+    "The published Tasks app remains usable after the editor build fails",
+    "No browser JavaScript exceptions during the complete journey"
+  ],
+  "errors": [],
+  "closedId": "f5bdf8b8-0ac5-4294-af6f-1b5ff552a9ce",
+  "cancelledId": "62c87835-940c-4ba1-9286-7a624363c66f",
+  "interruptedId": "334e5e4f-d76c-4767-86ec-9a2f334cc9bf",
+  "admissions": [
+    "f5bdf8b8-0ac5-4294-af6f-1b5ff552a9ce",
+    "62c87835-940c-4ba1-9286-7a624363c66f",
+    "334e5e4f-d76c-4767-86ec-9a2f334cc9bf"
+  ],
+  "pageClosedMinimumMs": 33000
+}

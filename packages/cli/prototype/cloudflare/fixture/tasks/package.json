@@ -1,0 +1,39 @@
+{
+	"name": "tasks",
+	"description": "Tasks as an app in ~/Epicenter: its declaration, its actions, and its UI in ui/",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"build": "bun ui/build.ts",
+		"test": "bun test",
+		"typecheck": "tsc -p tsconfig.json && svelte-check --tsconfig ui/tsconfig.json"
+	},
+	"dependencies": {
+		"@fontsource-variable/geist": "^5.2.9",
+		"@fontsource-variable/geist-mono": "^5.2.8",
+		"@internationalized/date": "^3",
+		"@lucide/svelte": "^0.561.0",
+		"@tanstack/svelte-query": "^6.4.1",
+		"bits-ui": "~2.21.0",
+		"clsx": "^2.1.1",
+		"mode-watcher": "^1.1.0",
+		"svelte": "^5.56.3",
+		"svelte-sonner": "^1.0.6",
+		"tailwind-merge": "^3.4.0",
+		"tailwind-variants": "^3.2.2",
+		"tailwindcss": "^4.1.17",
+		"tw-animate-css": "^1.3.5",
+		"wellcrafted": "^0.47.0"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.14",
+		"bun-plugin-tailwind": "^0.1.2",
+		"svelte-check": "^4.3.4",
+		"typescript": "^5.9.3"
+	},
+	"license": "AGPL-3.0-or-later",
+	"engines": {
+		"epicenter": ">=0.2.0"
+	}
+}
