@@ -1,6 +1,6 @@
 /**
  * Data declaration types retain field inference and select handles by the key suffix.
- * Negative cases keep ids mandatory for folders and refs confined to public folder keys.
+ * Negative cases keep ids mandatory for folders and refs confined to folder keys.
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -41,7 +41,6 @@ const data = defineData({
 			maybe: field.ref('watches', { optional: true }),
 		},
 	},
-	'secret.local': { fields: {} },
 });
 type Note = NonNullable<Awaited<ReturnType<typeof data.notes.get>>['data']>;
 type Settings = NonNullable<
@@ -118,7 +117,7 @@ describe('type errors', () => {
 		// @ts-expect-error undeclared fields cannot be written
 		() => data.notes.set('a', { missing: 'x' });
 	});
-	test('refs reject missing, one-file, and local targets on the field', () => {
+	test('refs reject missing and one-file targets on the field', () => {
 		() =>
 			defineData({
 				notes: {
@@ -135,16 +134,6 @@ describe('type errors', () => {
 					fields: {
 						// @ts-expect-error a one-file key is not a ref target
 						target: field.ref('settings.md'),
-					},
-				},
-			});
-		() =>
-			defineData({
-				'secret.local': { fields: {} },
-				notes: {
-					fields: {
-						// @ts-expect-error a local key is not a ref target
-						target: field.ref('secret.local'),
 					},
 				},
 			});

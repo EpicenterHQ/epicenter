@@ -1,6 +1,6 @@
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import { folder, isLocalPath } from './context.ts';
+import { folder } from './context.ts';
 import type { AnyData } from './data.ts';
 import type { Problem } from './errors.ts';
 import { refKeyOf } from './field.ts';
@@ -39,7 +39,6 @@ export async function checkData(data: AnyData) {
 	}
 	for (const [key, handle] of Object.entries(data)) {
 		const single = !('list' in handle);
-		const local = isLocalPath(key);
 		const base = `data/${key}`;
 		checked[key] = {
 			path: single ? base : `${base}/`,
@@ -57,9 +56,8 @@ export async function checkData(data: AnyData) {
 				if (!path.startsWith(`${base}/`) || !path.endsWith('.md')) continue;
 				const name = path.slice(base.length + 1);
 				if (name.includes('/') || name.startsWith('.')) continue;
-				if (!local && isLocalPath(name)) continue;
 				each.files++;
-				const problem = idProblem(name.slice(0, -3), local);
+				const problem = idProblem(name.slice(0, -3));
 				if (problem) report(key, [path], [{ line: problem, kind: problem }]);
 				// Lowercasing NFC is close enough to how a Mac folds names; a pair it misses is rare.
 				const folded = name.normalize('NFC').toLowerCase();
@@ -100,7 +98,6 @@ export async function checkData(data: AnyData) {
 		schema: TSchema,
 		value: unknown,
 		field: string,
-		local: boolean,
 	): Problem[] {
 		const { items, properties, anyOf } = schema as TSchema & {
 			items?: TSchema;
@@ -113,16 +110,14 @@ export async function checkData(data: AnyData) {
 			const kind = `${field} names no file in ${target}/`;
 			return [
 				{
-					line: local
-						? kind
-						: `${field} ${JSON.stringify(value)} names no file in ${target}/`,
+					line: `${field} ${JSON.stringify(value)} names no file in ${target}/`,
 					kind,
 				},
 			];
 		}
 		if (Array.isArray(value) && items)
 			return value.flatMap((item, index) =>
-				references(items, item, `${field}[${index}]`, local),
+				references(items, item, `${field}[${index}]`),
 			);
 		if (typeof value === 'object' && value !== null && properties)
 			return Object.entries(properties).flatMap(([key, child]) =>
@@ -130,13 +125,12 @@ export async function checkData(data: AnyData) {
 					child,
 					(value as Record<string, unknown>)[key],
 					`${field}.${key}`,
-					local,
 				),
 			);
 		if (anyOf) {
 			const choices = anyOf
 				.filter((child) => Value.Check(child, value))
-				.map((child) => references(child, value, field, local));
+				.map((child) => references(child, value, field));
 			return (
 				choices.find((problems) => problems.length === 0) ?? choices[0] ?? []
 			);
@@ -145,11 +139,7 @@ export async function checkData(data: AnyData) {
 	}
 	for (const { key, record } of reads) {
 		for (const [field, schema] of Object.entries(data[key]?.fields ?? {}))
-			report(
-				key,
-				[record.path],
-				references(schema, record[field], field, isLocalPath(key)),
-			);
+			report(key, [record.path], references(schema, record[field], field));
 	}
 	for (const [key, each] of Object.entries(checked)) {
 		each.withProblems = affected.get(key)?.size ?? 0;

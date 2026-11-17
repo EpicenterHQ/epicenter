@@ -1,7 +1,7 @@
 /**
  * Generated data actions expose only named handle verbs with their input schemas.
  * Verifies both key shapes, Result answers, atomic passage edits, patch omission,
- * local-key refusals, and MCP annotations without collection guards.
+ * verb refusals, and MCP annotations without collection guards.
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -27,8 +27,6 @@ function setup(files: Record<string, string> = {}) {
 	const data = defineData({
 		notes: { description: 'a note', fields },
 		'settings.md': { description: 'settings', fields },
-		'secrets.local': { fields: {} },
-		'account.local.md': { fields: {} },
 	});
 	return {
 		context: createMemoryContext(files),
@@ -348,7 +346,7 @@ test('only named verbs are returned, every action is callable, and annotations m
 	);
 });
 
-test('local keys, unnamed verbs, and unavailable verbs throw at declaration naming the key', () => {
+test('unnamed verbs and unavailable verbs throw at declaration naming the key', () => {
 	const { data } = setup();
 	// @ts-expect-error verbs must be named
 	expect(() => data.notes.actions()).toThrow('notes');
@@ -360,10 +358,4 @@ test('local keys, unnamed verbs, and unavailable verbs throw at declaration nami
 	expect(() => data['settings.md'].actions('add')).toThrow('settings.md');
 	// @ts-expect-error unknown verbs are bugs
 	expect(() => data.notes.actions('dance')).toThrow('notes');
-	// @ts-expect-error local folder keys offer no actions
-	expect(() => data['secrets.local'].actions('get')).toThrow('secrets.local');
-	// @ts-expect-error local one-file keys offer no actions
-	expect(() => data['account.local.md'].actions('get')).toThrow(
-		'account.local.md',
-	);
 });
