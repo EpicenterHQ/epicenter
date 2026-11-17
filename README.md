@@ -177,8 +177,7 @@ Applications under `apps/` are outside apps
 | Package | What it is |
 | --- | --- |
 | [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools and serves UIs. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
-| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineData`, `defineAction`, fields, `folder`, and the client a UI calls actions with. A home depends on it beside the command, at the same version. Published. |
-| [`@epicenter/theme`](packages/theme) | The Graphite + blue CSS variables, and the palette `epicenter init` writes into a new home as `theme.css`. Published, because the command depends on it. |
+| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineData`, `defineAction`, fields, `folder`, and the client a UI calls actions with. A home depends on it beside the command. Published with the command, always at the same version. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |
 | [`@epicenter/server`](packages/server) | The Hono library `apps/api` composes. |

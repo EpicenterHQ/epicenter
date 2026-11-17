@@ -4,8 +4,8 @@
 @import "@fontsource-variable/geist-mono/wght.css";
 
 @import "tw-animate-css";
-@import "@epicenter/theme/theme.css";
-@import "@epicenter/theme/tailwind.css";
+@import "./styles/theme.css";
+@import "./styles/tailwind.css";
 
 @import "./prose.css";
 

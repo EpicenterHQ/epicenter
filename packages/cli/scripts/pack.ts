@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /**
- * Pack `@epicenter/app`, `@epicenter/theme` and `@epicenter/cli` as the
- * registry would receive them, into one folder. For trying an unreleased
- * change against a home, and for the owner to publish from. It publishes
- * nothing.
+ * Pack `@epicenter/app` and `@epicenter/cli` as the registry would receive
+ * them, into one folder. For trying an unreleased change against a home, and
+ * for the owner to publish from. It publishes nothing, and it refuses to pack
+ * while the two packages are at different versions.
  *
  * `bun pm pack` rewrites `catalog:` and `workspace:*` to real versions, so
  * the tarballs resolve outside this repository; this script refuses a
@@ -23,12 +23,14 @@
 import { mkdir, mkdtemp, readdir, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { sharedVersion } from './version.ts';
 
 const cli = join(import.meta.dir, '..');
 const { values } = parseArgs({
 	args: Bun.argv.slice(2),
 	options: { outdir: { type: 'string' } },
 });
+const version = await sharedVersion();
 const outdir = resolve(values.outdir ?? join(cli, 'dist', 'pack'));
 await mkdir(outdir, { recursive: true });
 const staging = await mkdtemp(join(outdir, '.packing-'));
@@ -49,7 +51,7 @@ try {
 	const hasher = new Bun.CryptoHasher('sha256');
 	const packed: { name: string; file: string }[] = [];
 	// Dependencies first, so the list reads in the order a home needs them.
-	for (const folder of ['app', 'theme', 'cli']) {
+	for (const folder of ['app', 'cli']) {
 		const before = new Set(await readdir(staging));
 		await run(
 			[process.execPath, 'pm', 'pack', '--destination', staging, '--quiet'],
@@ -76,7 +78,7 @@ try {
 		packed.map(({ name, file }) => [name, `file:${join(folder, file)}`]),
 	);
 	console.log(
-		`Packed ${packed.length} packages into ${folder}. Nothing was published.\n\nTo run a home on them, add this to the home's package.json, run bun install there, and restart serve:\n\n${JSON.stringify({ overrides }, null, 2)}`,
+		`Packed ${packed.map(({ name }) => name).join(' and ')} ${version} into ${folder}. Nothing was published.\n\nTo run a home on them, add this to the home's package.json, run bun install there, and restart serve:\n\n${JSON.stringify({ overrides }, null, 2)}`,
 	);
 } finally {
 	await rm(staging, { recursive: true, force: true });

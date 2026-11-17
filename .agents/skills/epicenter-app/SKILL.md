@@ -186,7 +186,9 @@ packages only once its path is added by hand to `workspaces` in the home's
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter with
-`bun update --latest @epicenter/cli @epicenter/app`. Write each action with `defineAction`, which types its
+`bun update --latest @epicenter/cli @epicenter/app`: the two are released at
+one version, and `epicenter` refuses to load apps while the home names two.
+Write each action with `defineAction`, which types its
 `run` from its `input`. Every action returns one Result. Return `Ok(value)`,
 `Ok(undefined)` for no value, or the Result of another action or data
 method. A tagged factory such as `ActionError.Missing({ path })` already

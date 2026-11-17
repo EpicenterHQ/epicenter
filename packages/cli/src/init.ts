@@ -2,7 +2,6 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
-import defaultTheme from '@epicenter/theme/theme.css' with { type: 'text' };
 import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
@@ -17,6 +16,7 @@ import {
 	isMarked,
 	MARKER,
 } from './root.ts';
+import defaultTheme from './starter/theme.css' with { type: 'text' };
 
 /** The marker for an Epicenter served on `port`: a note for people, its port in the front matter. */
 const marker = (port: number) => `---
