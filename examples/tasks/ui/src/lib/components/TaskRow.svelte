@@ -27,7 +27,7 @@
 
 <li
 	class="flex items-center gap-3 border-b border-border/60 last:border-b-0"
-	data-time={task.time}
+	data-id={task.id}
 	transition:slide={{ duration: 150 }}
 >
 	<Checkbox

@@ -1,24 +1,27 @@
 import {
 	defineAction,
 	defineApp,
-	defineCollection,
+	defineData,
 	field,
 	Ok,
+	timeId,
 } from '@epicenter/app';
 
 const kinds = ['thought', 'quote', 'link'] as const;
-const notes = defineCollection({
-	path: 'data/notes/{time}.md',
-	fields: {
-		kind: field.select(kinds),
-		source: field.text({
-			optional: true,
-			description: 'Where this came from: a person, book, or URL',
-		}),
-		project: field.text({
-			optional: true,
-			description: 'The piece of writing this might belong to',
-		}),
+const data = defineData({
+	notes: {
+		description: 'writing note',
+		fields: {
+			kind: field.select(kinds),
+			source: field.text({
+				optional: true,
+				description: 'Where this came from: a person, book, or URL',
+			}),
+			project: field.text({
+				optional: true,
+				description: 'The piece of writing this might belong to',
+			}),
+		},
 	},
 });
 
@@ -35,7 +38,7 @@ const add = defineAction({
 	},
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: ({ body, kind = 'thought', source, project }) =>
-		notes.add({ body, kind, source, project }),
+		data.notes.add(timeId(), { body, kind, source, project }),
 });
 
 const search = defineAction({
@@ -49,7 +52,7 @@ const search = defineAction({
 	run: async ({ query = '', project }) => {
 		const found = [];
 		const needle = query.toLowerCase();
-		for (const row of (await notes.list()).reverse()) {
+		for (const row of (await data.notes.list()).reverse()) {
 			const note = row.error === null ? row.data : row.error.record;
 			if (note) {
 				if (project !== undefined && note.project !== project) continue;
@@ -65,6 +68,10 @@ const search = defineAction({
 export default defineApp({
 	description:
 		'A writing inbox: save thoughts and sources, then find them when you write',
-	collections: { notes },
-	actions: { ...notes.actions(), add, search },
+	data,
+	actions: {
+		...data.notes.actions('list', 'get', 'set'),
+		add,
+		search,
+	},
 });

@@ -132,7 +132,6 @@ function blank(name: string) {
 
 export default defineApp({
 	description: 'Describe ${name}',
-	collections: {},
 	actions: {},
 });
 `,

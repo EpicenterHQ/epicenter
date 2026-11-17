@@ -1,5 +1,5 @@
 /**
- * A collection's file as fields and body (ADR-0796, ADR-0924). The grammar
+ * A data file as fields and body (ADR-0796, ADR-0924). The grammar
  * is copied from the waiting product's front matter without its merge
  * (ADR-0843: new code copies from it, never imports it).
  *

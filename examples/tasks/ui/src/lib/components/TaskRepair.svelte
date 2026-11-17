@@ -9,8 +9,8 @@
 	import { Spinner } from '$lib/components/ui/spinner';
 	import { writes } from '$lib/app.js';
 
-	let { time, error, onSaved }: {
-		time: string;
+	let { id, error, onSaved }: {
+		id: string;
 		error: Extract<ActionError, { name: 'Misfit' }>;
 		onSaved: () => unknown;
 	} = $props();
@@ -31,15 +31,11 @@
 		<form class="mt-6" onsubmit={(event) => {
 			event.preventDefault();
 			const values = new FormData(event.currentTarget);
-			const was = Object.fromEntries(
-				Object.entries(error.record ?? {}).filter(([key]) => ['title', 'done', 'due'].includes(key)),
-			);
 			repair.mutate({
-				time,
+				id,
 				title: String(values.get('title') ?? ''),
 				done: values.has('done'),
 				due: String(values.get('due') ?? '') || null,
-				was,
 			}, { onSuccess: () => { onSaved(); } });
 		}}>
 			<fieldset disabled={repair.isPending} class="min-w-0 space-y-6">

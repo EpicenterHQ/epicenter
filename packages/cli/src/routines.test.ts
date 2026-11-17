@@ -82,7 +82,7 @@ test('a routine runs an app action', async () => {
 	const f = await setup(['epicenter', 'counter', 'add']);
 	const app = await f.app(
 		'counter',
-		`export default defineApp({ description: 'Counter', collections: {}, actions: {
+		`export default defineApp({ description: 'Counter', actions: {
     add: defineAction({ description: 'Count', input: {}, run: async () => {
       const count = Number(await folder.read('data/count.txt') ?? 0) + 1;
       await folder.write('data/count.txt', String(count)); return Ok(count);
@@ -147,7 +147,7 @@ test('the daily task review writes a draft and excludes completed tasks', async 
 	);
 	await f.app(
 		'tasks',
-		`export default defineApp({ description: 'Tasks', collections: {}, actions: {
+		`export default defineApp({ description: 'Tasks', actions: {
     list: defineAction({ description: 'Tasks', input: {}, run: () => Ok([
       Ok({ path: 'data/tasks/one.md', title: 'An overdue task', done: false, due: '2000-01-01' }),
       Ok({ path: 'data/tasks/two.md', title: 'Already completed', done: true }),

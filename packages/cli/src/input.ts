@@ -36,8 +36,8 @@ export function requiredKeys(input: Input): Set<string> {
 /**
  * Check an input against its action's schema, the one check a page, an agent,
  * and the command line share. Nothing is filled: an action made by
- * `defineAction` fills its absent switches and lists itself, and a
- * collection's verb writes only what it was given. A key the action does not
+ * `defineAction` fills its absent switches and lists itself, and a data
+ * verb writes only what it was given. A key the action does not
  * take is refused, naming the keys it does.
  */
 export function checkInput(

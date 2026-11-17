@@ -23,19 +23,19 @@ async function setup() {
 	return f;
 }
 
-/** Vocab's words collection, as epicenter.ts source. */
-const words = `const words = defineCollection({ path: 'data/words/{stem}.md', fields: { stage: field.select(['new', 'known']) } });\n`;
+/** Vocab's words data key, as epicenter.ts source. */
+const words = `const data = defineData({ words: { fields: { stage: field.select(['new', 'known']) } } });\n`;
 
 test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and names each problem', async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await f.app(
 		'vocab',
-		`${words}export default defineApp({ description: 'The vocab app', collections: { words }, actions: {} });\n`,
+		`${words}export default defineApp({ description: 'The vocab app', data, actions: {} });\n`,
 	);
 	const linked = await f.app(
 		'journal',
-		`export default defineApp({ description: 'The journal app', collections: {}, actions: {} });\n`,
+		`export default defineApp({ description: 'The journal app', actions: {} });\n`,
 		join(f.root, 'elsewhere'),
 	);
 	await symlink(linked, join(f.apps, 'journal'));
@@ -47,9 +47,9 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 		'clash',
 		`${words}export default defineApp({
 	description: 'The clash app',
-	collections: { words },
+	data,
 	actions: {
-		...words.actions(),
+		...data.words.actions('list', 'get', 'set'),
 		set: defineAction({ description: 'Save a word my way', input: { stem: field.text() }, run: ({ stem }) => Ok(\`mine: \${stem}\`) }),
 	},
 });
@@ -57,33 +57,30 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	);
 	await f.app(
 		'malformed',
-		`const words = defineCollection({ path: 'data/words/{word}.md', fields: { word: field.text(), path: field.text() } });
-export default defineApp({ description: 'The malformed app', collections: { words }, actions: {} });
+		`const data = defineData({ words: { fields: { path: field.text() } } });
+export default defineApp({ description: 'The malformed app', data, actions: {} });
 `,
 	);
 	await f.app(
 		'misplaced',
 		`const show = defineAction({ description: 'Show', input: {}, positional: ['nope'], run: () => Ok(1) });
-export default defineApp({ description: 'The misplaced app', collections: {}, actions: { show } });
+export default defineApp({ description: 'The misplaced app', actions: { show } });
 `,
 	);
-	await f.app(
-		'badpath',
-		`defineCollection({ path: 'data/words/', fields: {} });\n`,
-	);
+	await f.app('badkey', `defineData({ Words: { fields: {} } });\n`);
 	await f.app(
 		'unchecked',
-		`export default defineApp({ description: 'The unchecked app', collections: {}, actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
+		`export default defineApp({ description: 'The unchecked app', actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
 	);
 	await f.app('nodefault', `export const actions = {};\n`);
 	// Exported without defineApp, so nothing checked it while importing.
 	await f.app(
 		'nullactions',
-		`export default { description: 'Unchecked', collections: {}, actions: null };\n`,
+		`export default { description: 'Unchecked', actions: null };\n`,
 	);
 	await f.app(
 		'shapeless',
-		`export default { description: 'Unchecked', collections: { words: {} }, actions: { show: 5 } };\n`,
+		`export default { description: 'Unchecked', data: { words: {} }, actions: { show: 5 } };\n`,
 	);
 
 	const result = await f.run('--json');
@@ -107,12 +104,11 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	);
 	expect(problems).toEqual({
 		// Each line of what a define call throws is one problem.
-		badpath: [
-			'code/epicenter.ts: The collection path data/words/ is not a .md path',
+		badkey: [
+			'code/epicenter.ts: The data key "Words" must be a name, optionally followed by .md',
 		],
 		malformed: [
-			'code/epicenter.ts: The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
-			'code/epicenter.ts: The collection at data/words/{word}.md has a field "path", which is the file\'s address',
+			'code/epicenter.ts: The data key words reserves the field "path"',
 		],
 		misplaced: [
 			'code/epicenter.ts: The action "Show" has "positional", which an action does not take',
@@ -122,14 +118,14 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 			'code/epicenter.ts: An app needs actions: an object of defineAction(...) and groups of them, {} for none',
 		],
 		shapeless: [
-			'code/epicenter.ts: collections.words is not defineCollection(...)',
+			'code/epicenter.ts: data.words is not a handle from defineData(...)',
 			'code/epicenter.ts: actions.show is neither an action nor a group of them',
 		],
 		unchecked: [
 			'code/epicenter.ts: actions.show is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
 		],
 	});
-	// A later key replaces an earlier one: the written set replaces the collection's.
+	// A later key replaces an earlier one: the written set replaces the data key's.
 	const clash = await f.run('clash', 'set', '{"stem":"serendipity"}');
 	expect(clash.stdout).toBe('mine: serendipity\n');
 	expect(JSON.stringify(listing)).not.toContain('readme-only');
@@ -140,7 +136,7 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain(
-		'    code/epicenter.ts: The collection path data/words/ is not a .md path',
+		'    code/epicenter.ts: The data key "Words" must be a name, optionally followed by .md',
 	);
 });
 
@@ -149,7 +145,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await f.app(
 		'vocab',
-		`${words}export default defineApp({ description: 'The vocab app', collections: { words }, actions: {} });\n`,
+		`${words}export default defineApp({ description: 'The vocab app', data, actions: {} });\n`,
 	);
 	const listing = JSON.parse((await f.run('--json')).stdout);
 	const reading = listing.apps.find(
@@ -159,9 +155,9 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		name: 'reading',
 		description: 'How much I read each week',
 		folder: join(f.apps, 'reading'),
-		collections: {
+		data: {
 			books: {
-				path: 'data/books/{slug}.md',
+				path: 'data/books/',
 				fields: { properties: { title: { type: 'string' } } },
 			},
 		},
@@ -191,15 +187,15 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		openWorldHint: false,
 	});
 	expect(reading.actions[0].description).toBe(
-		'Every data/books/{slug}.md file: one result per file with its path and fields; a file that does not fit its fields is an error beside the rows',
+		'Every books file: one result per file with its path, fields, and body; a file that does not fit its fields is an error beside the records',
 	);
 	expect(JSON.stringify(listing)).not.toContain('positional');
 	const vocab = listing.apps.find(
 		(app: { name: string }) => app.name === 'vocab',
 	);
-	expect(vocab.collections).toEqual({
+	expect(vocab.data).toEqual({
 		words: {
-			path: 'data/words/{stem}.md',
+			path: 'data/words/',
 			fields: {
 				type: 'object',
 				properties: {
@@ -226,7 +222,7 @@ test('a listing marks an action that declares mcp: false', async () => {
 	const f = await setup();
 	await f.app(
 		'messages',
-		`export default defineApp({ description: 'Messages', collections: {}, actions: {
+		`export default defineApp({ description: 'Messages', actions: {
   read: defineAction({ description: 'Read messages', input: {}, run: () => Ok([]) }),
   send: defineAction({ description: 'Send a message as me', mcp: false, input: {}, run: () => Ok(null) }),
  } });`,
@@ -367,7 +363,7 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 	const decoy = join(f.root, 'decoy-home');
 	await f.app(
 		'decoy',
-		`export default defineApp({ description: 'The decoy app', collections: {}, actions: {} });\n`,
+		`export default defineApp({ description: 'The decoy app', actions: {} });\n`,
 		decoy,
 	);
 	f.env.EPICENTER_HOME = decoy;
@@ -379,24 +375,25 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_HOME');
 });
 
-/** Capture: an app whose actions are only its one collection's verbs. */
-const capture = `const items = defineCollection({
-	path: 'data/items/{id}.md',
-	fields: {
-		kind: field.select(['thought', 'link', 'quote']),
-		url: field.text({ optional: true }),
-		added: field.date(),
+/** Capture: an app whose actions are only its one data key's verbs. */
+const capture = `const data = defineData({
+	items: {
+		fields: {
+			kind: field.select(['thought', 'link', 'quote']),
+			url: field.text({ optional: true }),
+			added: field.date(),
+		},
 	},
 });
 
 export default defineApp({
 	description: 'Things I want to keep',
-	collections: { items },
-	actions: { ...items.actions(), ...items.actions('delete') },
+	data,
+	actions: data.items.actions('list', 'get', 'add', 'set', 'delete'),
 });
 `;
 
-test("D8 an app of one collection's verbs adds, reads, changes, and deletes its files from the terminal and MCP", async () => {
+test("D8 an app of one data key's verbs adds, reads, changes, and deletes its files from the terminal and MCP", async () => {
 	const f = await setup();
 	const folder = await f.app('capture', capture);
 	const json = async (...args: string[]) => {
@@ -440,7 +437,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		'---\nkind: "quote"\nadded: "2026-11-09"\n---\nFear is the mind-killer.\n',
 	);
 
-	// Refused before anything is written: by the command line (2) or by the collection (1).
+	// Refused before anything is written: by the command line (2) or by the data key (1).
 	const refused = [
 		[
 			['set', { id: 'dune', kind: 'poem' }],
@@ -461,14 +458,14 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		[
 			['add', { id: '..', kind: 'link', added: '2026-11-09' }],
 			2,
-			"id must be a file's name for {id} in data/items/{id}.md: no / or \\\\, and not starting with .",
+			'id must be a record id',
 		],
 		[
 			['set', { id: 'new-one', kind: 'link' }],
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[['set', { id: 'a\\b', kind: 'link' }], 1, 'cannot name a file'],
+		[['set', { id: 'a\\b', kind: 'link' }], 2, 'id must be a record id'],
 		[['set', { id: 'dune', kind: null }], 2, 'kind'],
 		[['set', { id: 'dune', added: null }], 2, 'added'],
 		[['set', { id: 'dune', knd: 'link' }], 2, 'is not a key this action takes'],
@@ -486,7 +483,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		await f.run(
 			'capture',
 			'set',
-			'{"id":"new-one","edit":{"old":"","new":"x"}}',
+			'{"id":"new-one","edit":{"old":"x","new":"y"}}',
 		),
 	).toEqual({
 		code: 1,
@@ -516,6 +513,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 						kind: 'quote',
 						url: 'https://example.com/dune',
 						added: '2026-11-09',
+						body: 'Fear is the little-death.\n',
 					},
 					error: null,
 				},
@@ -525,7 +523,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	});
 	await writeFile(
 		join(folder, 'data/items/broken.md'),
-		'---\nkind: "poem"\nadded: "2026-11-09"\n---\nsecret body\n',
+		'---\nkind: "poem"\nadded: "2026-11-09"\n---\nbroken body\n',
 	);
 	const mixed = await json('list');
 	expect(mixed.code).toBe(0);
@@ -542,12 +540,12 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	});
 	expect(Array.isArray(rows[0].error.problems)).toBe(true);
 	expect(rows[0].error.problems.length).toBeGreaterThan(0);
-	expect(rows[0].error.record).not.toHaveProperty('body');
+	// A misfit carries the fields that fit and its body, for a repair form.
+	expect(rows[0].error.record).toHaveProperty('body', 'broken body\n');
 	expect(rows[1]).toMatchObject({
 		data: { path: 'data/items/dune.md' },
 		error: null,
 	});
-	expect(JSON.stringify(mixed)).not.toContain('secret body');
 	const misfit = await json('get', '{"id":"broken"}');
 	expect(misfit.code).toBe(1);
 	expect(misfit.answer.error.reason.name).toBe('Misfit');
@@ -570,6 +568,8 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			'capture_delete',
 		]);
 		expect(tools[4]?.annotations).toEqual({
+			readOnlyHint: false,
+			destructiveHint: true,
 			idempotentHint: true,
 			openWorldHint: false,
 		});
@@ -601,6 +601,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 						id: 'petrichor',
 						kind: 'thought',
 						added: '2026-11-09',
+						body: '',
 					},
 					error: null,
 				},
@@ -608,36 +609,4 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			error: null,
 		},
 	});
-});
-
-test('D9 keyless collection is one record even before its file exists', async () => {
-	const f = await setup();
-	await f.app(
-		'prefs',
-		`const settings = defineCollection({ path: 'data/settings.md', fields: { goal: field.integer({optional:true}) } });
-export default defineApp({ description: 'Preferences', collections: { settings }, actions: { settings: settings.actions() } });
-`,
-	);
-	const before = await f.run('prefs', 'settings', 'get', '--json');
-	expect(before.code).toBe(0);
-	const answer = JSON.parse(before.stdout);
-	expect(answer.error).toBeNull();
-	expect(answer.data.path).toBe('data/settings.md');
-	expect(answer.data).not.toHaveProperty('goal');
-	expect((await f.run('prefs', 'settings', 'add', '{"goal":3}')).code).toBe(2);
-	await f.app(
-		'badprefs',
-		`const settings=defineCollection({path:'data/settings.md',fields:{goal:field.integer()}});export default defineApp({description:'Bad preferences',collections:{settings},actions:{settings:settings.actions()}});`,
-	);
-	expect((await f.run('badprefs', 'settings', 'get', '--json')).code).toBe(2);
-	expect(await f.run('prefs', 'settings', 'set', '{"goal":4}')).toEqual({
-		code: 0,
-		stdout: 'path: data/settings.md\ngoal: 4\nbody: ""\n',
-		stderr: '',
-	});
-	expect((await f.run('prefs', 'settings', 'add', '{"goal":3}')).code).toBe(2);
-	expect((await f.run('prefs', 'settings', 'set', '{"goal":5}')).code).toBe(0);
-	expect((await f.run('prefs', 'settings', 'get')).stdout).toBe(
-		'path: data/settings.md\ngoal: 5\nbody: ""\n',
-	);
 });

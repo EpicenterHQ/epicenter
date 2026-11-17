@@ -32,7 +32,6 @@ const notesCode = `${header}
 import { ActionError } from '@epicenter/app';
 export default defineApp({
 	description: 'The notes app',
-	collections: {},
 	actions: {
   declined: defineAction({description:'Decline',input:{},run:()=>ActionError.Refused({message:'Nothing to write',next:'epicenter notes write'})}),
   'no-route': defineAction({description:'No route',input:{},run:()=>Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'})}),
@@ -226,8 +225,8 @@ test('C11 concurrent sets of different fields on one file all land', async () =>
 	await f.folder(join(f.apps, 'many'), {
 		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `${header}
-const items = defineCollection({ path: 'data/items/{id}.md', fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } });
-export default defineApp({ description: 'Many fields', collections: { items }, actions: { items: items.actions() } });
+const data = defineData({ items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
+export default defineApp({ description: 'Many fields', data, actions: { items: data.items.actions('set') } });
 `,
 		'data/items/one.md': '---\n---\n',
 	});
@@ -252,7 +251,7 @@ test('a command sends its action to serve, and is refused and runs nothing while
 	const where = await f.folder(join(f.apps, 'where'), {
 		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `${header}
-export default defineApp({ description: 'Where', collections: {}, actions: {
+export default defineApp({ description: 'Where', actions: {
 	am: defineAction({ description: 'Say which process ran this', input: {}, run: async (_input, update) => {
 		await folder.update('data/ran.txt', (before = '') => before + 'x');
 		update('here');

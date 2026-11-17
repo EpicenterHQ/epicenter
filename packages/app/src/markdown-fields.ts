@@ -7,7 +7,7 @@ import type { readMarkdown } from './front-matter.ts';
 /** Declared front matter fields, each a TypeBox schema. */
 export type Fields = Record<string, TSchema>;
 
-export type ValueOf<F extends Fields, K extends keyof F> = Exclude<
+type ValueOf<F extends Fields, K extends keyof F> = Exclude<
 	Static<F[K]>,
 	undefined
 >;
@@ -29,19 +29,17 @@ export type Loose<F extends Fields> = {
 export const isOptional = (schema: TSchema) =>
 	(schema as { '~optional'?: boolean })['~optional'] === true;
 
-/** Quote a field, omitting local file values from diagnostics. */
-export function quote(key: string, value: unknown, local: boolean): string {
-	return local ? key : `${key}: ${JSON.stringify(value)}`;
-}
-
-/** Why a supplied field value does not fit its schema. */
+/**
+ * Why a supplied field value does not fit its schema. `withoutValue` leaves the value
+ * out, giving the kind of problem that many files can share.
+ */
 export function misfit(
 	key: string,
 	schema: TSchema,
 	value: unknown,
-	local: boolean,
+	withoutValue = false,
 ): string {
-	const quoted = quote(key, value, local);
+	const quoted = withoutValue ? key : `${key}: ${JSON.stringify(value)}`;
 	const words = whatFits(schema, value);
 	if (words) return `${quoted} is not ${words}`;
 	const [error] = Value.Errors(schema, value);
@@ -52,13 +50,13 @@ function notJsonProblem(
 	key: string,
 	schema: TSchema,
 	{ line, text }: { line?: number; text: string },
-	local: boolean,
+	withoutValue: boolean,
 ): string {
 	const which = `${key}${line === undefined ? '' : ` on line ${line}`} is not JSON`;
 	if (text.trim() === '')
 		return `${which}: it has no value; give it one as JSON, or remove the line`;
 	if (Value.Check(schema, text))
-		return `${which}; write ${local ? 'its text in double quotes' : `${key}: ${JSON.stringify(text)}`}`;
+		return `${which}; write ${withoutValue ? 'its text in double quotes' : `${key}: ${JSON.stringify(text)}`}`;
 	const words = whatFits(schema, text);
 	return words
 		? `${which}; ${key} takes ${words}, written as JSON`
@@ -68,11 +66,13 @@ function notJsonProblem(
 const UNREADABLE =
 	'its front matter is not key: value lines between two --- lines, each key once';
 
-/** Project one file's declared fields, retaining every diagnostic for repair. */
+/**
+ * Project one file's declared fields, retaining every diagnostic for repair.
+ * Each problem's `kind` is its line without the file's values.
+ */
 export function projectFields(
 	fields: Fields,
 	found: ReturnType<typeof readMarkdown>,
-	local: boolean,
 ) {
 	const values: Record<string, unknown> = {};
 	const problems: Problem[] = [];
@@ -84,7 +84,7 @@ export function projectFields(
 		const bare = notJson.get(key);
 		if (bare) {
 			problem(
-				notJsonProblem(key, schema, bare, local),
+				notJsonProblem(key, schema, bare, false),
 				notJsonProblem(key, schema, { text: bare.text }, true),
 			);
 		} else if (!Object.hasOwn(found.fields, key)) {
@@ -93,11 +93,7 @@ export function projectFields(
 			else if (found.readable && !isOptional(schema))
 				problem(`${key} is missing`);
 		} else if (Value.Check(schema, value)) values[key] = value;
-		else
-			problem(
-				misfit(key, schema, value, local),
-				misfit(key, schema, value, true),
-			);
+		else problem(misfit(key, schema, value), misfit(key, schema, value, true));
 	}
 	return { fields: values, problems };
 }

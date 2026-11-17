@@ -48,7 +48,7 @@ Arktype-validated IDs (auth user IDs, persisted-state schemas, HTTP route
 inputs) use type-first + validator + `as*` helper. The branded type and the
 arktype `Type` share one PascalCase name.
 
-Inside an Epicenter, a collection names records by the placeholders in its `path`. For example, the [writing app](../../../../examples/writing/epicenter.ts) defines `data/notes/{time}.md` and its actions use `time` to identify a note. Whispering’s outside-app [file contract](../../../../apps/whispering/src/lib/contract.ts) still uses `defineContract`.
+Inside an Epicenter, a `defineData` folder key names each record by its id, the file's name. For example, the [writing app](../../../../examples/writing/epicenter.ts) declares a `notes` key, so a note lives at `data/notes/<id>.md` and its actions use `id` to identify it. Whispering’s outside-app [file contract](../../../../apps/whispering/src/lib/contract.ts) still uses `defineContract`.
 
 ## Arktype-Validated IDs: Type First, Validator Annotated, Optional `as*` Helper
 

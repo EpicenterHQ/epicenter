@@ -2,7 +2,7 @@
  * The context a run has (ADR-0841, ADR-0854): its folder. Whatever runs an
  * action opens the run, as `inRun(context, () => action(input))`: the
  * `epicenter` CLI on a computer, memory in a test. For the length of that
- * run, the app's collections and `folder` reach it, however deep the call,
+ * run, the app's data handles and `folder` reach it, however deep the call,
  * and an action that calls another stays in the same run; outside any run
  * they throw. What an app can rebuild lives in files it gitignores inside the
  * folder, such as `code/ui/dist/`, and is never committed. A run writes only under
@@ -11,7 +11,7 @@
  *
  * An action changes files and never commits: Git stores the home, and the
  * home's own commits record pending code and records together. A change that depends on what it
- * read goes through a collection's `update`, or `folder.update` for any other
+ * read goes through a data handle's `update`, or `folder.update` for any other
  * file. Nothing here knows whether an action says it is read-only: that is a
  * hint the action gives MCP clients, and no write is refused for it.
  */
@@ -86,7 +86,7 @@ export type Context = {
 const runs = new AsyncLocalStorage<Context>();
 
 /**
- * Run `work` with `context` as its run's, so collections and `folder` reach
+ * Run `work` with `context` as its run's, so data handles and `folder` reach
  * it. Only a runner opens a run; an action never does.
  */
 export function inRun<T>(context: Context, work: () => T): T {
@@ -98,7 +98,7 @@ function currentRun(): Context {
 	const context = runs.getStore();
 	if (!context)
 		throw new Error(
-			"An app's collections and folder are read only inside an action's run",
+			"An app's data and folder are read only inside an action's run",
 		);
 	return context;
 }
@@ -141,22 +141,6 @@ export const folder: Folder = {
  */
 export function isUnderLocal(path: string): boolean {
 	return path.startsWith('local/');
-}
-
-/**
- * A file or folder name matching `*.local` or `*.local.*`, in any case, so a
- * name the ignore file keeps out on a case-insensitive disk is local anywhere.
- */
-const LOCAL = /\.local(\.|$)/i;
-
-/**
- * Whether one of `path`'s parts matches `*.local` or `*.local.*`. This is
- * the old way to say a file stays on this computer, by its name; the place,
- * `local/`, says it now (`isUnderLocal`). It is kept for the data layer
- * until every app has moved its files to `local/`.
- */
-export function isLocalPath(path: string): boolean {
-	return path.split('/').some((part) => LOCAL.test(part));
 }
 
 /**

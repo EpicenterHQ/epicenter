@@ -1,25 +1,27 @@
 /**
- * An app: what its `epicenter.ts` default-exports. Collections and actions
- * are values, defined on their own and composed by `defineApp`:
+ * An app: what its `epicenter.ts` default-exports. Its data and actions are
+ * values, defined on their own and composed by `defineApp`:
  *
  * ```ts
- * import { defineAction, defineApp, defineCollection, field } from '@epicenter/app';
+ * import { defineAction, defineApp, defineData, field } from '@epicenter/app';
  *
- * const words = defineCollection({ path: 'data/words/{word}.md', fields: { meaning: field.text() } });
- * const settings = defineCollection({ path: 'data/settings.md', fields: { dailyGoal: field.integer({ optional: true }) } });
+ * const data = defineData({
+ *   words: { fields: { meaning: field.text() } },
+ *   'settings.md': { fields: { dailyGoal: field.integer({ optional: true }) } },
+ * });
  *
  * const learn = defineAction({
  *   description: 'Learn a word',
- *   input: { word: field.text(), meaning: field.text() },
- *   run: ({ word, meaning }) => words.add({ word, meaning }),
+ *   input: { word: field.id(), meaning: field.text() },
+ *   run: ({ word, meaning }) => data.words.add(word, { meaning }),
  * });
  *
  * export default defineApp({
  *   description: 'Words I am learning',
- *   collections: { words, settings },
+ *   data,
  *   actions: {
- *     words: { ...words.actions(), add: learn },
- *     settings: settings.actions('get', 'set'),
+ *     words: { ...data.words.actions('list', 'get', 'set'), add: learn },
+ *     settings: data['settings.md'].actions('get', 'set'),
  *   },
  * });
  * ```
@@ -29,33 +31,28 @@
  * over MCP. An app's name is its folder's.
  */
 import { type Action, isAction } from './action.ts';
-import { type AnyCollection, isCollection } from './collection.ts';
 import type { AnyData } from './data.ts';
-import { template } from './path.ts';
 
 /** An app's actions, nested: a key holds an action, or a group of them under that word. */
 export type Actions = { readonly [word: string]: Action | Actions };
 
 /** An app as `defineApp` returns it: what it was given, checked. */
-export type App<
-	C extends Record<string, AnyCollection> = Record<string, AnyCollection>,
-	A extends Actions = Actions,
-	D extends AnyData = AnyData,
-> = {
+export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
 	readonly description: string;
+	/** What `defineData` returned, when the app keeps records. */
+	readonly data?: D;
 	/** Each action, nested under its words. */
 	readonly actions: A;
-} & ({ collections: C; data?: never } | { data: D; collections?: never });
+};
 
 /**
- * Define an app: its description, its data or collections, and its actions, each
- * given, `{}` for none. Each collection's name is its key in `collections`;
- * each action's words are its keys in `actions`, so
- * `words: { ...words.actions(), add: learn }` gives `words list` through
- * `words set`, with `words add` replaced by `learn`. A later key replaces
- * an earlier one, as in any object. Returns `app` itself; throws when it is
- * wrong in a way its types cannot say, so `epicenter` checks an app it loads
- * by calling this again.
+ * Define an app: its description, its data when it keeps records, and its
+ * actions, `{}` for none. Each action's words are its keys in `actions`, so
+ * `words: { ...data.words.actions('list', 'get', 'add'), add: learn }` gives
+ * `words list` and `words get`, with `words add` replaced by `learn`. A later
+ * key replaces an earlier one, as in any object. Returns `app` itself; throws
+ * when it is wrong in a way its types cannot say, so `epicenter` checks an
+ * app it loads by calling this again.
  */
 export function defineApp<const TApp extends App>(app: TApp): TApp {
 	const problems = appProblems(app);
@@ -65,7 +62,7 @@ export function defineApp<const TApp extends App>(app: TApp): TApp {
 
 /**
  * Whether `value` is a name: lowercase letters, digits, and dashes, starting
- * with a letter. An app's folder, a collection, and each of an action's words
+ * with a letter. An app's folder, a data key, and each of an action's words
  * are named so.
  */
 export function isName(value: unknown): value is string {
@@ -81,15 +78,11 @@ const isObject = (value: unknown): value is object =>
 /** What is wrong with `app` beyond its types, one sentence each. */
 function appProblems(app: unknown): string[] {
 	if (!isObject(app))
-		return [
-			'An app is an object: defineApp({ description, collections, actions })',
-		];
-	const { description, collections, data, actions } = app as Partial<App>;
+		return ['An app is an object: defineApp({ description, data, actions })'];
+	const { description, data, actions } = app as Partial<App>;
 	const problems: string[] = [];
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('An app needs a description');
-	if (data !== undefined && collections !== undefined)
-		problems.push('An app declares data or collections, not both');
 	if (data !== undefined && !isObject(data))
 		problems.push('An app needs data: the value returned by defineData(...)');
 	if (isObject(data)) {
@@ -111,33 +104,10 @@ function appProblems(app: unknown): string[] {
 				problems.push(`data.${key} is not a handle from defineData(...)`);
 		}
 	}
-	if (data === undefined && !isObject(collections))
-		problems.push(
-			'An app needs collections: an object of defineCollection(...), {} for none',
-		);
 	if (!isObject(actions))
 		problems.push(
 			'An app needs actions: an object of defineAction(...) and groups of them, {} for none',
 		);
-	const entries = Object.entries(isObject(collections) ? collections : {});
-	for (const [name, collection] of entries) {
-		if (!isName(name))
-			problems.push(
-				`collections has the key ${JSON.stringify(name)}, ${notName}`,
-			);
-		if (!isCollection(collection))
-			problems.push(`collections.${name} is not defineCollection(...)`);
-	}
-	// Overlaps are read only from collections that are all defineCollection(...).
-	if (problems.length === 0)
-		for (const [at, [a, first]] of entries.entries())
-			for (const [b, second] of entries.slice(at + 1)) {
-				const shared = clash(first, second) ?? clash(second, first);
-				if (shared)
-					problems.push(
-						`collections "${a}" and "${b}" would both hold ${shared}`,
-					);
-			}
 	const walk = (group: object, words: string[]) => {
 		for (const [word, entry] of Object.entries(group)) {
 			const at = `actions.${[...words, word].join('.')}`;
@@ -164,18 +134,4 @@ function appProblems(app: unknown): string[] {
 	};
 	if (isObject(actions)) walk(actions, []);
 	return problems;
-}
-
-/**
- * A file both collections would hold: the same template, or one's one-file
- * path that the other's template matches. Two different templates with
- * placeholders that can match one file are not caught.
- */
-function clash(a: AnyCollection, b: AnyCollection): string | undefined {
-	if (
-		a.path === b.path ||
-		(!a.path.includes('{') && template(b.path).match(a.path) !== undefined)
-	)
-		return a.path;
-	return undefined;
 }

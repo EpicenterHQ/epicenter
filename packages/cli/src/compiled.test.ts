@@ -173,7 +173,7 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 	try {
 		const app = await f.folder(join(f.apps, 'vocab'), {
 			'code/.gitignore': `${gitignore}ui/dist/\n`,
-			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => Ok('hi') }) } });\n`,
+			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => Ok('hi') }) } });\n`,
 			'code/ui/index.html':
 				'<!doctype html><html><body><script type="module" src="./main.ts"></script></body></html>\n',
 			'code/ui/main.ts':
@@ -240,7 +240,7 @@ test("a compiled epicenter runs an app whose package names its entry only in pac
 		// No `index.js` at the package's root, as with any package built into
 		// `dist/`: only its `package.json` says where the entry is.
 		await f.folder(join(f.apps, 'vocab'), {
-			'code/epicenter.ts': `${header}import { greeting } from 'greeting';\nexport default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => Ok(greeting) }) } });\n`,
+			'code/epicenter.ts': `${header}import { greeting } from 'greeting';\nexport default defineApp({ description: 'Words', actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => Ok(greeting) }) } });\n`,
 			'code/node_modules/greeting/package.json': `${JSON.stringify({ name: 'greeting', type: 'module', exports: { '.': './dist/main.js' } })}\n`,
 			'code/node_modules/greeting/dist/main.js':
 				"export const greeting = 'hi';\n",
@@ -277,7 +277,7 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 	try {
 		const app = await f.folder(join(f.apps, 'vocab'), {
 			'code/.gitignore': `${gitignore}ui/dist/\n`,
-			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
+			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', actions: {} });\n`,
 			'code/package.json': `${JSON.stringify({ scripts: { build: `mkdir -p "$EPICENTER_OUT" && bun -e "console.log(Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client')))" > "$EPICENTER_OUT/index.html"` } })}\n`,
 			'code/ui/.keep': '',
 		});
@@ -345,7 +345,7 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 	try {
 		await f.app(
 			'hello',
-			`export default defineApp({ description: 'Hello', collections: {}, actions: {
+			`export default defineApp({ description: 'Hello', actions: {
 			greet: defineAction({ description: 'Hello', input: {}, run: () => Ok('compiled action') })
 		} });`,
 		);

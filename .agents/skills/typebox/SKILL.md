@@ -57,7 +57,7 @@ representation.
 
 ## Repo Policy
 
-Inside apps declare collection fields and action inputs with `defineCollection`, `defineAction`, and `field` from `@epicenter/app`. The [writing app](../../../examples/writing/epicenter.ts) uses those declarations for the same actions the CLI and MCP expose. The [field helpers](../../../packages/app/src/field.ts) produce TypeBox schemas. Raw TypeBox fits alongside them when a field needs another JSON Schema shape. Use Arktype for local runtime
+Inside apps declare data fields and action inputs with `defineData`, `defineAction`, and `field` from `@epicenter/app`. The [writing app](../../../examples/writing/epicenter.ts) uses those declarations for the same actions the CLI and MCP expose. The [field helpers](../../../packages/app/src/field.ts) produce TypeBox schemas. Raw TypeBox fits alongside them when a field needs another JSON Schema shape. Use Arktype for local runtime
 validation, request parsing, env/config parsing, persisted UI state, transforms,
 and branded domain values.
 

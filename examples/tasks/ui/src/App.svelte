@@ -42,7 +42,7 @@
 <Tooltip.Provider>
 	<QueryClientProvider client={queryClient}>
 		{#if route.length === 2 && route[0] === 'tasks'}
-			{#key route[1]}<TaskEditor time={route[1]} />{/key}
+			{#key route[1]}<TaskEditor id={route[1]} />{/key}
 		{:else}
 			<List />
 		{/if}

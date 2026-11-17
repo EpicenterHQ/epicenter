@@ -101,7 +101,7 @@ try {
 		)
 		.join('\n')}`;
 	await mkdir(directory, { recursive: true });
-	const temporary = join(directory, `${randomUUID()}.local.md`);
+	const temporary = join(directory, `.${randomUUID()}.tmp`);
 	try {
 		await writeFile(temporary, body, { mode: 0o600, flag: 'wx' });
 		// Publishing via link is atomic and refuses to replace an edited draft.

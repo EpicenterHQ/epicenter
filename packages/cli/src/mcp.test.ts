@@ -97,7 +97,7 @@ test('discovery preserves tilde-prefixed properties', async () => {
 	const f = await fixture();
 	await f.app(
 		'shapes',
-		`export default defineApp({ description: 'Shapes', collections: {}, actions: {
+		`export default defineApp({ description: 'Shapes', actions: {
   echo: defineAction({ description: 'Echo', input: {
    value: { type: 'object', properties: { '~label': field.text() }, required: ['~label'] },
    note: field.text({ optional: true }),
@@ -142,7 +142,7 @@ test('MCP preserves a returned app error and matches the CLI host answer', async
 	const f = await fixture();
 	await f.app(
 		'routes',
-		`export default defineApp({description:'Routes',collections:{},actions:{find:defineAction({description:'Find',input:{},run:()=>Err({name:'NoRoute',message:'No route from LAX',airport:'LAX',next:'epicenter routes add'})})}});`,
+		`export default defineApp({description:'Routes',actions:{find:defineAction({description:'Find',input:{},run:()=>Err({name:'NoRoute',message:'No route from LAX',airport:'LAX',next:'epicenter routes add'})})}});`,
 	);
 	const { client, close } = await connectMcp(f);
 	try {
@@ -167,7 +167,7 @@ test('an action with mcp: false is not offered or run over MCP, and still runs f
 	const f = await fixture();
 	const app = await f.app(
 		'messages',
-		`export default defineApp({ description: 'Messages', collections: {}, actions: {
+		`export default defineApp({ description: 'Messages', actions: {
   read: defineAction({ description: 'Read messages', input: {}, run: () => Ok([]) }),
   send: defineAction({ description: 'Send a message as me', mcp: false, input: { text: field.text() },
    run: async ({ text }) => { await folder.write('data/sent.txt', text); return Ok(text); } }),

@@ -73,7 +73,7 @@ test('install without bun.lock only links the supplied package', async () => {
 	roots.push(f.root);
 	const app = await f.app(
 		'notes',
-		"export default defineApp({ description: 'Notes', collections: {}, actions: {} });",
+		"export default defineApp({ description: 'Notes', actions: {} });",
 	);
 	const result = await f.run('install', '--json');
 	expect(result.code).toBe(0);
@@ -126,7 +126,7 @@ test('a frozen mismatch fails with a repair command and does not stop the other 
 	);
 	const other = await f.app(
 		'other',
-		"export default defineApp({ description: 'Other', collections: {}, actions: {} });",
+		"export default defineApp({ description: 'Other', actions: {} });",
 	);
 	const result = await f.run('install', '--json');
 	expect(result.code).toBe(1);

@@ -114,7 +114,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'outside',
-			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } });`,
+			`export default defineApp({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } });`,
 			f.root,
 		),
 	);
@@ -178,7 +178,7 @@ test('two calls at once on different files preserve both records', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'notes',
-			`export default defineApp({ description: 'Notes', collections: {}, actions: {
+			`export default defineApp({ description: 'Notes', actions: {
 		write: defineAction({ description: 'Write a page', input: { page: field.text() },
 			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return Ok(page); } }),
 	} });`,
@@ -207,7 +207,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		folder: await f.folder(join(f.apps, 'reading'), readingApp),
 		linked: await f.app(
 			'linked',
-			`export default defineApp({ description: 'Linked UI', collections: {}, actions: {} });\n`,
+			`export default defineApp({ description: 'Linked UI', actions: {} });\n`,
 		),
 	}));
 	const { folder, linked } = f.made;
@@ -306,7 +306,7 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
  * Talk: `say` sends each word as an update and returns them joined; `drip`
  * writes, sends five updates slowly, and writes again in its `finally`.
  */
-const talk = `export default defineApp({ description: 'Talk', collections: {}, actions: {
+const talk = `export default defineApp({ description: 'Talk', actions: {
  refuse: defineAction({description:'Refuse after checking',input:{},async run(_input, update){update('checked');return Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'});}}),
 	say: defineAction({
 		description: 'Say words one at a time',
@@ -474,7 +474,7 @@ test('unserializable action throws still answer Threw, and preserve writes', asy
 		f.app(
 			'failure',
 			`
-export default defineApp({ description: 'Failure', collections: {}, actions: {
+export default defineApp({ description: 'Failure', actions: {
 	fail: defineAction({ description: 'Write then throw', input: { kind: field.text() },
 		run: async ({ kind }) => {
 			await folder.write('data/' + kind + '.md', kind);
@@ -533,7 +533,7 @@ test('shared errors cross a real call after writes without claiming rollback or 
 			'failures',
 			`
 import { ActionError } from '@epicenter/app';
-export default defineApp({ description: 'Shared failures', collections: {}, actions: {
+export default defineApp({ description: 'Shared failures', actions: {
 	fail: defineAction({ description: 'Write then fail', input: { kind: field.text(), how: field.text() },
 		run: async ({ kind, how }) => {
 			await folder.write('data/' + how + '-' + kind + '.md', kind);
@@ -634,7 +634,7 @@ test('serve keeps nothing about a call: a second call runs the action again', as
 	const f = await setup((f) =>
 		f.app(
 			'counter',
-			`export default defineApp({ description: 'Counter', collections: {}, actions: {
+			`export default defineApp({ description: 'Counter', actions: {
  bump: defineAction({ description: 'Count one more', input: {}, async run() {
   await folder.update('local/count', (value = '0') => String(Number(value) + 1));
   return Ok(null);
@@ -663,7 +663,7 @@ test('an edit to epicenter.ts, or to a file it imports, reaches the next call wi
 			'code/.gitignore': gitignore,
 			'code/word.ts': "export const word = 'one';\n",
 			'code/epicenter.ts': `${header}import { word } from './word.ts';
-export default defineApp({ description: 'Echo', collections: {}, actions: {
+export default defineApp({ description: 'Echo', actions: {
 	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok(word) }),
 } });
 `,
@@ -678,7 +678,7 @@ export default defineApp({ description: 'Echo', collections: {}, actions: {
 	expect(expectOk(await client.hello())).toBe('two');
 	await writeFile(
 		join(f.made, 'code/epicenter.ts'),
-		`${header}export default defineApp({ description: 'Echo', collections: {}, actions: {
+		`${header}export default defineApp({ description: 'Echo', actions: {
 	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok('three') }),
 } });
 `,

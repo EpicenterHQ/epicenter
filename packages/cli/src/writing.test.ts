@@ -101,9 +101,9 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 					source: 'Book, page 12',
 				},
 			});
-			const { path, time } = (
+			const { path, id } = (
 				captured.structuredContent as {
-					data: { path: string; time: string };
+					data: { path: string; id: string };
 					error: null;
 				}
 			).data;
@@ -113,7 +113,7 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 						'writing',
 						'set',
 						JSON.stringify({
-							time,
+							id,
 							edit: { old: 'The original quote', new: 'The corrected quote' },
 						}),
 					)
@@ -122,7 +122,7 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 			const stale = await client.callTool({
 				name: 'writing_set',
 				arguments: {
-					time,
+					id,
 					edit: { old: 'The original quote', new: 'A stale replacement' },
 				},
 			});

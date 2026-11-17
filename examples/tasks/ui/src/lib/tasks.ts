@@ -7,10 +7,10 @@ import { partitionResults } from '@epicenter/app/client';
 import type { TaskRowResult, Task } from './app.js';
 
 /**
- * The page of a task, routed by its key: `#/tasks/<time>`, encoded so any
+ * The page of a task, routed by its key: `#/tasks/<id>`, encoded so any
  * file name survives.
  */
-export const hrefOf = (task: Pick<Task, 'time'>) => `#/tasks/${encodeURIComponent(task.time)}`;
+export const hrefOf = (task: Pick<Task, 'id'>) => `#/tasks/${encodeURIComponent(task.id)}`;
 
 /** `at` as a local day, `2026-11-10`. */
 export function dayOf(at: Date): string {
@@ -68,7 +68,7 @@ export type Group = {
 	tasks: Task[];
 };
 
-const byTime = (a: Task, b: Task) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
+const byTime = (a: Task, b: Task) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const byDue = (a: Task, b: Task) =>
 	(a.due ?? '') < (b.due ?? '') ? -1 : (a.due ?? '') > (b.due ?? '') ? 1 : byTime(a, b);
 
@@ -113,10 +113,10 @@ export function splitTasks(rows: TaskRowResult[]) {
 }
 
 /** A malformed file can still carry its key and a fitting title. */
-type MisfitRow = { path: string; record?: { time?: string; title?: string } };
+type MisfitRow = { path: string; record?: { id?: string; title?: string } };
 
 export const misfitKeyOf = (error: MisfitRow) =>
-	error.record?.time ?? error.path.slice(error.path.lastIndexOf('/') + 1).replace(/\.md$/, '');
+	error.record?.id ?? error.path.slice(error.path.lastIndexOf('/') + 1).replace(/\.md$/, '');
 
 export const misfitLabelOf = (error: MisfitRow) =>
 	error.record?.title?.trim() ? error.record.title : error.path.slice(error.path.lastIndexOf('/') + 1);

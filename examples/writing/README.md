@@ -32,7 +32,7 @@ epicenter writing search '{"query":"reading"}'
 epicenter writing search '{"project":"My essay"}'
 ```
 
-Use a returned time with `epicenter writing get '{"time":"TIME"}'` to read one
+Use a returned id with `epicenter writing get '{"id":"ID"}'` to read one
 note. `epicenter writing add --help` lists the keys an action takes.
 The CLI lists every action with `epicenter writing`. `set` changes fields,
 and with `edit: { old, new }` it replaces an exact passage in the body, both
