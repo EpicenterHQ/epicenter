@@ -1,12 +1,12 @@
 /**
  * Data handles read and patch top-level Markdown records through the current run.
- * Covers both key shapes, tidied and refused ids, create-only adds, repairs, diagnostics,
+ * Covers both key shapes, exact and refused ids, create-only adds, repairs, diagnostics,
  * list membership, and the separation between app writes and reference checks.
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { idProblem } from './id.ts';
 import {
 	ActionError,
 	createMemoryContext,
@@ -283,36 +283,55 @@ test.each(invalidIds)(
 			])
 				expect(expectErr(result).name).toBe('Refused');
 		});
-		expect(Value.Check(field.id(), id)).toBe(false);
+		expect(idProblem(id)).toBeDefined();
 	},
 );
 
-test('an id with surrounding whitespace or a decomposed accent reaches the same record through every verb', async () => {
-	const {
-		context,
-		data: { notes },
-	} = setup();
-	const typed = '  Cafe\u0301  au lait\n';
-	const id = 'Caf\u00e9  au lait';
-	const path = `data/notes/${id}.md`;
-	await inRun(context, async () => {
-		expect(notes.pathOf(typed)).toBe(path);
-		expect(expectOk(await notes.add(typed, { title: 'first' }))).toMatchObject({
-			path,
-			id,
+test.each([
+	[
+		' Dune',
+		'notes: " Dune": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'Dune ',
+		'notes: "Dune ": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'Dune\u00a0',
+		'notes: "Dune\u00a0": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'\u3000Dune',
+		'notes: "\u3000Dune": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'Cafe\u0301',
+		'notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
+	],
+])(
+	'an id is never tidied: %j is refused by every verb with the reason',
+	async (id, message) => {
+		const {
+			context,
+			data: { notes },
+		} = setup({ 'data/notes/Dune.md': '', 'data/notes/Caf\u00e9.md': '' });
+		expect(notes.pathOf(id)).toBe(`data/notes/${id}.md`);
+		await inRun(context, async () => {
+			for (const result of [
+				await notes.get(id),
+				await notes.add(id, { title: 'x' }),
+				await notes.set(id, { title: 'x' }),
+				await notes.update(id, () => Ok({ title: 'x' })),
+				await notes.delete(id),
+			])
+				expect(expectErr(result)).toMatchObject({ name: 'Refused', message });
+			expect((await folder.list('data/notes')).sort()).toEqual(
+				['data/notes/Caf\u00e9.md', 'data/notes/Dune.md'].sort(),
+			);
 		});
-		expect(await folder.list('data/notes')).toEqual([path]);
-		expect(expectOk(await notes.get(typed))?.id).toBe(id);
-		expect(expectOk(await notes.set(typed, { title: 'second' })).id).toBe(id);
-		expect(
-			expectOk(await notes.update(typed, () => Ok({ count: 1 }))).title,
-		).toBe('second');
-		// One inner space is another id.
-		expect(expectOk(await notes.get('Caf\u00e9 au lait'))).toBeUndefined();
-		expect(expectOk(await notes.delete(typed))).toBe(true);
-		expect(await folder.list('data/notes')).toEqual([]);
-	});
-});
+		expect(idProblem(id)).toBeDefined();
+	},
+);
 
 test('a Misfit carries the id of a folder record and none for a one-file key', async () => {
 	const text = '---\ntitle: 123\n---\nbody';
@@ -340,7 +359,7 @@ test('ids retain internal spaces, case, NFC accents, and the byte limit', async 
 	} = setup();
 	await inRun(context, async () => {
 		for (const id of ['Dune  Messiah', 'é', 'a'.repeat(200), '界'.repeat(66)]) {
-			expect(Value.Check(field.id(), id)).toBe(true);
+			expect(idProblem(id)).toBeUndefined();
 			expect(expectOk(await notes.add(id, { title: id })).id).toBe(id);
 			expect(expectOk(await notes.get(id))?.id).toBe(id);
 		}
@@ -353,7 +372,7 @@ test('token.local is a valid id in a folder key', async () => {
 		context,
 		data: { notes },
 	} = setup();
-	expect(Value.Check(field.id(), 'token.local')).toBe(true);
+	expect(idProblem('token.local')).toBeUndefined();
 	await inRun(context, async () => {
 		expect(
 			expectOk(await notes.add('token.local', { title: 'Token' })).id,

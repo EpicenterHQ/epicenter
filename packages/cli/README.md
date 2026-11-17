@@ -591,7 +591,7 @@ flights
   watches  2 files, none with problems
   checks  3 files, 1 with problems
     checks/bad.md
-      watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or boundary spaces
+      watch: 3 is not text
       day: "soon" is not a day like 2026-11-12
   settings.md  fits
 ```

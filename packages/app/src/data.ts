@@ -12,7 +12,7 @@ import { folder } from './context.ts';
 import { ActionError } from './errors.ts';
 import { defaultIn, field, refKeyOf } from './field.ts';
 import { isFieldKey, type JsonValue, readMarkdown } from './front-matter.ts';
-import { idProblem, tidyId } from './id.ts';
+import { idProblem } from './id.ts';
 import {
 	containsFileMarker,
 	type Fields,
@@ -97,7 +97,7 @@ type OneFile<TKey extends string, TDef extends DataDef> = {
 type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	/**
 	 * Read one id, or undefined when absent. Every method that takes an id
-	 * first tidies it: Unicode NFC, with surrounding whitespace removed.
+	 * uses it as the file name exactly, and refuses one that cannot be a name.
 	 */
 	get(
 		id: string,
@@ -120,7 +120,7 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	update: Update<TKey, TDef, [id: string]>;
 	/** Delete one id, returning whether its file existed. */
 	delete(id: string): Promise<Result<boolean, Refused>>;
-	/** The file path for this id, tidied, without checking it or the disk. */
+	/** The file path for this id as given, without checking it or the disk. */
 	pathOf(id: string): string;
 };
 /** Data metadata and reads; key names determine paths and file or folder shape. */
@@ -308,14 +308,24 @@ function createRecordHandle(key: string, def: DataDef) {
 		keysOf: (path): Record<string, string> =>
 			single ? {} : { id: path.slice(base.length + 1, -3) },
 	});
-	const pathOf = (id: string) => `${base}/${tidyId(id)}.md`;
-	/** The path for `id` once tidied, or Refused when it still breaks ADR-0933's rule. */
+	const pathOf = (id: string) => `${base}/${id}.md`;
+	/** The path for `id` as given, or Refused when it breaks ADR-0933's rule. */
 	function place(id?: string) {
 		if (single) return base;
-		const problem = idProblem(tidyId(id));
-		return problem
-			? ActionError.Refused({ message: `${key}: ${problem}` })
-			: pathOf(id as string);
+		const problem = idProblem(id);
+		if (!problem) return pathOf(id as string);
+		if (typeof id !== 'string')
+			return ActionError.Refused({ message: `${key}: ${problem}` });
+		// Whitespace is invisible, so quote the id, and name the tidy form the
+		// caller may send instead. The library itself never changes an id.
+		const tidy = id.normalize('NFC').trim();
+		const instead =
+			tidy !== id && idProblem(tidy) === undefined
+				? `; send ${JSON.stringify(tidy)}`
+				: '';
+		return ActionError.Refused({
+			message: `${key}: ${JSON.stringify(id)}: ${problem}${instead}`,
+		});
 	}
 	async function get(id?: string) {
 		const path = place(id);
@@ -415,7 +425,7 @@ function dataAction(
 		/^(?:a|an|the)\s+/i,
 		'',
 	);
-	// Text, not field.id: the handle tidies an id before it checks it.
+	// Text, not field.id: the handle's Refused names the problem with the key.
 	const id = field.text({ description: `The name of the ${what}` });
 	const keys: Record<string, typeof id> = keyed ? { id } : {};
 	const hints = { openWorldHint: false } as const;

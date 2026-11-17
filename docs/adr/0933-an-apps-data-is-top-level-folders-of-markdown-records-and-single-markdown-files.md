@@ -90,13 +90,14 @@ data/
 **A record's id is its file name without `.md`, one segment.**
 
 An id is not empty, is at most 200 UTF-8 bytes, has no `/`, `\`, or control
-character, does not start with `.`, does not start or end with a space, and is
-in Unicode NFC. A handle tidies an id before it checks it: surrounding
-whitespace is removed and the text is put in NFC, so ` Dune` reaches `Dune`
-and an accented word typed two ways is one file. It changes nothing else:
-inner spaces and case are the app's to decide. An id that still breaks a rule
-is refused. `field.id()` is the input field a hand-written action uses to
-refuse an untidy id at the door.
+character, does not start with `.`, does not start or end with whitespace, and
+is in Unicode NFC. An id is the file name exactly: a handle never
+changes it, and only refuses a name that cannot be a file, saying why. So
+` Dune` is refused, not read as `Dune`, and an accented word typed in
+decomposed form is refused rather than put in NFC. Trimming and normalising
+what a person typed is the app's to do, as are inner spaces and case.
+An action takes an id as plain text; the handle refuses a bad one when the
+action reads or writes it, so no separate id field or format exists.
 
 Whoever adds a record names it: a word by the word, a book by its title, a
 note by `timeId()`. A generated `add` given no id uses `timeId()`

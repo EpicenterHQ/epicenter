@@ -23,9 +23,7 @@ import {
 	type TUnion,
 	Type,
 } from 'typebox';
-import { Format } from 'typebox/format';
 import { Value } from 'typebox/value';
-import { idProblem } from './id.ts';
 
 type Options = {
 	description?: string;
@@ -132,8 +130,6 @@ export type TList<T extends TSchema> = TOptional<TArray<T>> & {
 /** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a folder key>" } }`. */
 const REF = 'x-epicenter-ref';
 
-Format.Set('epicenter-id', (value) => idProblem(value) === undefined);
-
 /** A data ref retains its target key for declaration-time checking. */
 type RefSchema<TTarget extends string> = TString & { [REF]: { key: TTarget } };
 
@@ -206,14 +202,6 @@ function bounds(options: Bounds | undefined) {
 }
 
 export const field = {
-	/** An id for one Markdown record, refused unless its bytes already fit. */
-	id: <const O extends MaybeOptional>(options?: Only<O, MaybeOptional>) => {
-		only('id', options, MAYBE_OPTIONAL);
-		return maybeOptional(
-			Type.String({ ...schemaOptions(options), format: 'epicenter-id' }),
-			options,
-		);
-	},
 	/**
 	 * Text. `pattern` is a regular expression the whole value must match; give
 	 * a `description` that reads after "must be", since that is how a refusal
@@ -307,7 +295,10 @@ export const field = {
 	 */
 	list,
 
-	/** One id in a folder key of the same `defineData`. Reads open no other file. */
+	/**
+	 * One id in a folder key of the same `defineData`: text that `check`
+	 * confirms names a file there. Reads open no other file.
+	 */
 	ref: <const TTarget extends string, const O extends MaybeOptional>(
 		target: TTarget,
 		options?: Only<O, MaybeOptional>,
@@ -316,7 +307,6 @@ export const field = {
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
-				format: 'epicenter-id',
 				[REF]: { key: target },
 			}) as RefSchema<TTarget>,
 			options,
@@ -339,8 +329,6 @@ type Described = {
 };
 
 const FORMATS: Record<string, string> = {
-	'epicenter-id':
-		'a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or boundary spaces',
 	date: 'a day like 2026-11-12',
 	'date-time': 'a date and time like 2026-11-12T09:30:00Z',
 	uri: 'a URL like https://example.com',

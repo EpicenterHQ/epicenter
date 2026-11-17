@@ -48,7 +48,6 @@ test("a reference's schema names its target key in the listing", () => {
 	};
 	const ref = {
 		type: 'string',
-		format: 'epicenter-id',
 		'x-epicenter-ref': { key: 'shelves' },
 	};
 	expect(listed.data.books?.fields.properties).toEqual({ shelf: ref });

@@ -102,7 +102,7 @@ test('misfit fields and malformed front matter reuse handle diagnostics and exit
 		{
 			path: 'checks/bad.md',
 			problems: [
-				'watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or boundary spaces',
+				'watch: 3 is not text',
 				'day: "soon" is not a day like 2026-11-12',
 			],
 		},
@@ -125,7 +125,7 @@ test('misfit fields and malformed front matter reuse handle diagnostics and exit
 	]);
 	const human = await f.run('check', 'flights');
 	expect(human.stdout).toContain(
-		'  checks  3 files, 3 with problems\n    checks/bad.md\n      watch: 3 is not a record id:',
+		'  checks  3 files, 3 with problems\n    checks/bad.md\n      watch: 3 is not text',
 	);
 	expect(human.stdout).not.toContain('data/');
 });
@@ -135,6 +135,7 @@ test('invalid reachable-looking names count as problems but their contents are n
 	await f.folder(f.dataPath, {
 		'watches/ bad.md': '---\nunreadable\n',
 		'watches/bad .md': '---\nunreadable\n',
+		'watches/nbsp\u00a0.md': '---\nunreadable\n',
 		'watches/back\\slash.md': '---\nunreadable\n',
 		'watches/control\u0001.md': '---\nunreadable\n',
 		'watches/cafe\u0301.md': '---\nunreadable\n',
@@ -143,7 +144,7 @@ test('invalid reachable-looking names count as problems but their contents are n
 	const result = await f.run('check', 'flights', '--json');
 	expect(result.code).toBe(1);
 	const watches = JSON.parse(result.stdout).apps.flights.watches;
-	expect(watches).toMatchObject({ files: 6, withProblems: 6 });
+	expect(watches).toMatchObject({ files: 7, withProblems: 7 });
 	expect(
 		watches.records
 			.map((record: { problems: string[] }) => record.problems[0])
@@ -152,8 +153,9 @@ test('invalid reachable-looking names count as problems but their contents are n
 		[
 			'an id cannot contain / or \\',
 			'an id cannot contain a control character',
-			'an id cannot start or end with a space',
-			'an id cannot start or end with a space',
+			'an id cannot start or end with whitespace',
+			'an id cannot start or end with whitespace',
+			'an id cannot start or end with whitespace',
 			'an id must be Unicode NFC',
 			'an id must be at most 200 UTF-8 bytes',
 		].sort(),

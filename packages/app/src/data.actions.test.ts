@@ -1,7 +1,7 @@
 /**
  * Generated data actions expose only named handle verbs with their input schemas.
  * Verifies both key shapes, Result answers, atomic passage edits, patch omission,
- * tidied ids, time-named adds, verb refusals, and MCP annotations.
+ * exact and refused ids, time-named adds, verb refusals, and MCP annotations.
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -294,7 +294,7 @@ test('add without an id names the record by the moment and returns that id; with
 		expect(named.id).toMatch(/^\d{4}-\d\d-\d\dT[\d-]+Z-[0-9a-z]{8}$/);
 		expect(named.path).toBe(`data/notes/${named.id}.md`);
 		expect(expectOk(await notes.get({ id: named.id })).title).toBe('untitled');
-		expect(expectOk(await notes.add({ id: ' Dune ', title: 'Dune' })).id).toBe(
+		expect(expectOk(await notes.add({ id: 'Dune', title: 'Dune' })).id).toBe(
 			'Dune',
 		);
 		expect((await folder.list('data/notes')).sort()).toEqual(
@@ -303,30 +303,38 @@ test('add without an id names the record by the moment and returns that id; with
 	});
 });
 
-test('generated get, set, and delete tidy the id and refuse one that still cannot name a file', async () => {
+test('generated verbs take the id as the file name and refuse one that cannot name a file, saying why', async () => {
 	const { context, notes } = setup({
 		'data/notes/Caf\u00e9.md': '---\ntitle: "x"\n---\none two',
 	});
-	const typed = ' Cafe\u0301 ';
 	await inRun(context, async () => {
-		expect(expectOk(await notes.get({ id: typed })).id).toBe('Caf\u00e9');
+		for (const [id, message] of [
+			[
+				' Caf\u00e9 ',
+				'notes: " Caf\u00e9 ": an id cannot start or end with whitespace; send "Caf\u00e9"',
+			],
+			[
+				'Cafe\u0301',
+				'notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
+			],
+			['../bad', 'notes: "../bad": an id cannot contain / or \\'],
+		] as const)
+			for (const result of [
+				await notes.get({ id }),
+				await notes.add({ id, title: 'x' }),
+				await notes.set({ id, title: 'x' }),
+				await notes.delete({ id }),
+			])
+				expect(expectErr(result)).toMatchObject({ name: 'Refused', message });
 		expect(
 			expectOk(
-				await notes.set({ id: typed, edit: { old: 'one', new: 'three' } }),
+				await notes.set({
+					id: 'Caf\u00e9',
+					edit: { old: 'one', new: 'three' },
+				}),
 			).body,
 		).toBe('three two');
-		expect(expectErr(await notes.get({ id: ' absent ' }))).toMatchObject({
-			name: 'Missing',
-			path: 'data/notes/absent.md',
-		});
-		expect(expectOk(await notes.delete({ id: typed }))).toBe(true);
-		for (const result of [
-			await notes.get({ id: '../bad' }),
-			await notes.add({ id: '../bad', title: 'x' }),
-			await notes.set({ id: '../bad', title: 'x' }),
-			await notes.delete({ id: '../bad' }),
-		])
-			expect(expectErr(result).name).toBe('Refused');
+		expect(expectOk(await notes.delete({ id: 'Caf\u00e9' }))).toBe(true);
 	});
 });
 
