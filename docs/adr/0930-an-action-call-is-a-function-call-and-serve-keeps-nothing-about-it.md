@@ -117,7 +117,7 @@ await sync({ account }, { onUpdate: (progress) => show(progress) });
   and an action files it there.
 
 The author's surface is `defineApp`, the app's data declaration
-(`defineCollection` today), `defineAction` (whose `run` may call `update`),
+(`defineData`), `defineAction` (whose `run` may call `update`),
 `Update`, `field.*` and `folder`. A routine runs a command on a schedule. When that command
 calls an action, it is one more caller (ADR-0936), and what the routine
 keeps about its attempts is scheduling, not a record of calls.
@@ -134,15 +134,15 @@ keeps about its attempts is scheduling, not a record of calls.
 - An outcome that today reaches the page only in the answer must move into a
   record, or a reload loses it. The trace of the apps found four: Flights'
   failed, stopped and stale searches; Mail's last sync error and quota wait;
-  a Vocab or Zhongwen turn in progress, and a new conversation's key; and
+  a Zhongwen turn in progress, and a new conversation's key; and
   Codex's "preparing" suggestions. Today a page gets them back by replaying
   the run, for 24 hours and only in the browser that started it.
 - Closing a page no longer stops the work. A suggestion or a tutor reply runs
   to its end and spends its tokens. No page has a Stop.
 - Codex replies have no Stop. Its only stoppable window was transcription,
   and a reply already queued in Codex could never be recalled.
-- Vocab and Zhongwen save the learner's message at once, stream the tutor's
-  text as updates, and add the tutor's turn when it finishes. After a reload
+- Zhongwen saves the learner's message at once, streams the tutor's text as
+  updates, and adds the tutor's turn when it finishes. After a reload
   the page shows the message, and shows that the tutor is replying only if
   the app wrote a status file saying so. `start` takes its conversation key in its input so a reload can
   find it. No in-progress file is needed.
@@ -165,8 +165,8 @@ keeps about its attempts is scheduling, not a record of calls.
 - The 17 `yield` statements and 19 `yield*` delegations in the apps become
   calls and plain awaits. Mail holds 10 and 9 of them: `syncAccount`,
   `changesSince` and `fill` in `lib/sync.ts` lose their hand-written
-  `AsyncGenerator<Progress, Result<…>, undefined>` types. Vocab's and
-  Zhongwen's `tutorSays` already takes a `delivered` callback beside its
+  `AsyncGenerator<Progress, Result<…>, undefined>` types. Zhongwen's
+  `tutorSays` already takes a `delivered` callback beside its
   `yield`; the two become one.
 - An agent building an app sees an action's updates from the CLI, without a
   browser.
@@ -224,7 +224,6 @@ keeps about its attempts is scheduling, not a record of calls.
   correct. Two ways to see the same progress.
 - **A cancel signal from the client.** A dropped connection and a deliberate
   stop look the same on the wire, so a phone losing signal would stop work.
-  `stop(name)` is explicit and works from any device.
 - **A file as its own input beside `input`, sent only by a page.** A draft of
   this (ADR-0922, deleted) kept uploads and gave files a second request
   shape. The CLI and MCP still could not send one.

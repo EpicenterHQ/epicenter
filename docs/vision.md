@@ -282,13 +282,13 @@ Claude Code on the home, and for a program writing there.
 action.** That is true for Claude Desktop, an agent on another computer, and a
 UI.
 
-**History comes from root checkpoints.** Actions make no commits, and nothing
-takes a lock: one serve runs every action ([ADR-0936], Proposed). The command
-`epicenter checkpoint -m "<what changed>"` records all included pending files.
-A home that wants automatic history adds a routine that runs it, for example
-every five minutes ([ADR-0937]); serve runs no checkpoint of its own. It
-pushes only the optional private root origin. Checkpoints can contain partial direct edits or part of a
-running call. Make a named commit before a risky change ([ADR-0910]).
+**History comes from Git, which the home runs itself.** Actions make no
+commits, nothing takes a lock, and one serve runs every action ([ADR-0936],
+Proposed). Epicenter has no command that commits: a home that wants automatic
+history has a routine that runs a short script of its own, for example every
+five minutes ([ADR-0937], [ADR-0940], Proposed). The script commits what is
+pending and pushes only to the optional private root origin. Its commits can
+contain partial direct edits or part of a running call. Make a named commit before a risky change ([ADR-0910]).
 Exit codes say what happened: 0 returned, 1 threw, 2 did not run ([ADR-0867]).
 
 ## Where code runs
@@ -411,6 +411,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0908]: adr/0908-serve-runs-the-homes-daily-routines.md
 [ADR-0936]: adr/0936-one-serve-per-home-runs-every-action.md
 [ADR-0937]: adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md
+[ADR-0940]: adr/0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md
 
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md
 [ADR-0927]: adr/0927-serve-listens-only-on-this-computer.md

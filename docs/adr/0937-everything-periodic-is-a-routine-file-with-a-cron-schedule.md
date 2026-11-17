@@ -70,8 +70,9 @@ command's output goes where `serve`'s does, the service log, and its result
 is what it leaves in the home. `serve` writes there only a routine file it
 cannot read and a command it cannot start. Commands share `serve`'s process
 group, so the service manager that stops `serve` stops them.
-`epicenter routines` lists each routine's schedule and next occurrence, or
-why its file is refused.
+Bare `epicenter` lists each routine's schedule and next occurrence, or why
+its file is refused
+([ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md)).
 
 `serve` keeps a one-minute timer that calls the routine check, and no
 checkpoint clock. It runs no checkpoint at startup or on stop. A new
@@ -90,8 +91,8 @@ for an agent to add when the person wants history and backup.
 - Whether a routine succeeded is read from what it leaves: checkpoint's
   commits and push, a draft, a research file. A checkpoint that fails every
   five minutes shows only as its own errors in the service log.
-- A home can run any checkpoint command, for example a script that writes a
-  message and calls `epicenter checkpoint -m`.
+- A home can run any checkpoint command. The one `init` writes is a short
+  script of the home's own that calls Git (ADR-0940).
 - A home whose agent never adds the routine has no record history, no undo
   for overwritten records, and no backup, and nothing announces it. This is
   accepted: the person decides through their agent, and the instructions

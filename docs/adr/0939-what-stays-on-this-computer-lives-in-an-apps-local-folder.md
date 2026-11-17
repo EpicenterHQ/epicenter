@@ -4,14 +4,14 @@
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) on how a file is marked as staying here: by its place, not its name. Its rule that such a file never leaves its computer stands. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on an app's layout: `local/` sits beside `code/` and `data/`.
 - **Relates:** [ADR-0938](0938-an-action-says-whether-agents-are-offered-it.md) (a secret is ordinary input the first time), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (where an action writes).
-- **Unbuilt:** removing the old names. `isLocalPath` still matches `*.local` and `*.local.*` for `collection.ts`, `path.ts`, `field.ts` and the checkpoint's refusal, and the root still ignores them, until Mail, Messages and Flights have moved their 14 such files from `data/` to `local/`.
+- **Unbuilt:** removing the old names. `isLocalPath` still matches `*.local` and `*.local.*` for `collection.ts`, `path.ts` and `field.ts`, and the root still ignores them, until Mail, Messages and Flights have moved their 14 such files from `data/` to `local/`.
 
 ## Context
 
 ADR-0870 said a file stays on this computer when a part of its path matches
 `*.local` or `*.local.*`. A name can sit anywhere, so every place that
 handles a path had to ask about it: file modes, temporary files, the
-checkpoint's refusal, path templates, references between records, generated
+path templates, references between records, generated
 actions, refusals that must not quote a value, and copied code.
 
 The one thing a name can do that a place cannot is mark a file that sits
@@ -30,17 +30,18 @@ computer.**
 - An action writes under `data/` or `local/` and nowhere else.
 - A new file under `local/` is readable by its owner alone, and so is a new
   directory there.
-- The root ignores `/apps/*/local/`. A checkpoint refuses to commit or push
-  a path under it.
+- The root ignores `/apps/*/local/`. That line is the guard: Epicenter has
+  no command that commits, so nothing of its own refuses a path
+  ([ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md)).
+  One line at the root covers every app, whoever makes the folder: an app
+  may fill `local/` with `node:fs` or SQLite and never call `folder`.
 - A write replaces a file by renaming a temporary file over it. The
   temporary file is made under `local/`, so nothing under `data/` needs a
   name that Git must ignore.
 
-**The old names are refused until they are gone.** The checkpoint keeps
-refusing a path that matches `*.local` or `*.local.*`, and the root keeps
-ignoring those names, until every such file in the home has moved to
-`local/`. The refusal is the only thing between a hand-run `git add` and a
-pushed token, and the home still holds tokens named the old way.
+**The old names stay ignored until they are gone.** The root keeps ignoring
+`*.local` and `*.local.*` until every such file in the home has moved to
+`local/`, because the home still holds tokens named the old way.
 
 ## Consequences
 
@@ -55,10 +56,10 @@ pushed token, and the home still holds tokens named the old way.
   files.
 - A home made before this needs `/apps/*/local/` added to its `.gitignore`
   before it runs this version. Nothing in the CLI edits an existing ignore
-  file, so until the line is there a checkpoint refuses the first file an
-  app writes under `local/`, which is the safe way to fail.
+  file, and without the line the home's own commit script would commit what
+  an app writes under `local/`.
 - `isLocalPath` stays exported until the last app has moved, for the old
-  collection code and the checkpoint's refusal.
+  collection code.
 
 ## Considered alternatives
 

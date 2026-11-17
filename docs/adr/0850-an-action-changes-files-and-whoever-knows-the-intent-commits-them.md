@@ -66,26 +66,16 @@ replace, so no second action can come between them. Epicenter gives an
 app no lock: two calls of one action both run, and an app for which that is
 wrong says so in its own records.
 
-**One checkpoint records pending code and records at the root.**
-`epicenter checkpoint [-m <message>]` stages included files and consumes the
-shared index in one commit. Its subject is `checkpoint` or the supplied
-message. A home runs it on a schedule through a routine
-([ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md)); `serve` runs none of its own. A scheduled
-checkpoint samples the working tree; it does not claim that an action or agent
-finished, so it can capture part of a running action. It takes no lock of its
-own: Git's index lock is the only one, and a checkpoint that loses that race
-reports nothing to commit.
-
-A checkpoint defers while Git is resolving a merge, rebase, revert, or
-cherry-pick. It retries `index.lock` briefly before deferring. It refuses
-local credentials Git would include, included embedded repositories,
-gitlinks, ignored records under `apps/*/data`, and LFS files without the
-filter. The root `.gitignore` is what every Git writer reads. Tracked local
-credentials must be removed from the index; an ignore rule cannot hide them.
-
-The optional private root `origin` receives ordinary pushes, with a
-ten-minute deadline and no pull, merge, rebase, or force. A pass with no new
-commit can retry an outstanding push. App listings carry no Git status.
+**The home commits itself, with Git.** Epicenter has no command that commits
+or pushes ([ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md)).
+A home that wants history adds a routine
+([ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md))
+that runs a short script of its own: `git add -A`, one commit named
+`checkpoint`, and a push when there is an origin. `init` writes both files.
+The commit samples the working tree; it does not claim that an action or
+agent finished, so it can capture part of a running action. The root
+`.gitignore` is what every Git writer reads, and it is the only thing that
+keeps a file out of a commit.
 
 **A change that depends on what it read uses `folder.update`.**
 `folder.update(path, change)` reads the text, calls `change` once, and replaces

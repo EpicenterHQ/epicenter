@@ -4,7 +4,7 @@
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on the generated `get` of a one-file key whose file is absent: it answers `Ok(undefined)`.
 - **Unbuilt:** no app calls `data.<key>.actions(...verbs)` yet; the apps still use `collection.actions()`.
-- **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (the handle these are built from); [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (a caller whose answer was lost reads the record); [ADR-0936](0936-serve-runs-every-action-while-it-is-running.md) (one writer).
+- **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (the handle these are built from); [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (a caller whose answer was lost reads the record); [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one writer).
 
 ## Context
 
@@ -15,7 +15,7 @@ read it, every write reads the record each ref names and refuses one that
 names nothing, and `edit` refuses an empty passage.
 
 Epicenter presumes one person, one writer, and one implementer
-([ADR-0936](0936-serve-runs-every-action-while-it-is-running.md)). A field
+([ADR-0936](0936-one-serve-per-home-runs-every-action.md)). A field
 written twice in a minute by that person is last write wins, and Git history
 keeps every version. A ref that names nothing is reported by
 `epicenter check`, which reads every record anyway.
