@@ -76,7 +76,8 @@ function nextAfter(routine: Routine, state: State) {
 function statusOf(routine: Routine, state: State, now: Date) {
 	const attempt = state.attempt;
 	if (attempt?.outcome === 'running') return 'running';
-	if (!attempt) return 'due';
+	// A last start in the future means the clock moved back; do not wait for it.
+	if (!attempt || Date.parse(attempt.started) > now.getTime()) return 'due';
 	const next = nextAfter(routine, state);
 	if (next && next <= now) return 'due';
 	return attempt.outcome;
@@ -97,7 +98,7 @@ async function readState(directory: string): Promise<State> {
 		)
 	)
 		throw new Error(
-			'state.json has invalid fields or timestamps; inspect it before running again',
+			`${join(directory, 'state.json')} has invalid fields or timestamps; delete it to start the routine fresh`,
 		);
 	return value;
 }

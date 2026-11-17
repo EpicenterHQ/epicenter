@@ -523,6 +523,22 @@ test('inspection reports an abandoned attempt coherently without rewriting its r
 	await f.routines.stop();
 });
 
+test('a last start later than now is due, so a corrected clock cannot stall a routine', async () => {
+	const f = await setup();
+	await mkdir(join(f.directory, 'review.local'));
+	await writeFile(
+		join(f.directory, 'review.local/state.json'),
+		JSON.stringify({
+			attempt: {
+				started: '2099-01-01T08:00:00.000Z',
+				finished: '2099-01-01T08:00:01.000Z',
+				outcome: 'succeeded',
+			},
+		}),
+	);
+	expect((await f.routines.list())[0]?.status).toBe('due');
+});
+
 test('unconfirmed descendant cleanup remains inspectable', async () => {
 	const f = await setup();
 	const kill = process.kill.bind(process);

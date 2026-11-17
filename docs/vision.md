@@ -338,7 +338,7 @@ Whispering is whole at rung 1.
 | Move data | Git | never |
 | Reach | MCP | never |
 | An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
-| Run something later | a routine runs a command at a time each day | never |
+| Run something later | a routine runs a command on a cron schedule | never |
 
 ## Next, not yet, and never
 
