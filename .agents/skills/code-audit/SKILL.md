@@ -14,21 +14,30 @@ Recurring smell categories worth hunting periodically. Each category has a grep 
 
 The categories below were validated against the actual codebase by repeated agent audits. They're not generic style nits: each one signals a specific kind of contract problem in a TypeScript-heavy framework codebase.
 
-## 1. Duck-Typing at System Boundaries
+## 1. Hunt for duck typing
 
-**Pattern**: `(x as { foo?: unknown }).foo` or `as Record<string, unknown>` accesses where the shape isn't statically known.
+Actively search the audited scope for runtime shape checks, casts to
+locally invented object shapes, and property access through
+`Record<string, unknown>`. Use the search recipes in
+[the duck-typing reference](references/duck-typing.md), then follow relevant
+producers and consumers.
 
-```bash
-grep -rn "as\s*{" packages apps --include="*.ts" -B2 -A2
-```
+For each candidate, establish what the caller needs to know and why
+the existing type does not provide it. Look for missing declarations,
+copied contracts, repeated capability checks, and casts that assume
+more than the code verifies.
 
-**Why it matters**: Each duck-type is a contract gap. The receiver doesn't know what it's getting; the producer doesn't know what's expected. Often justified at literal system boundaries (e.g., parsing user-provided configs, reading from third-party APIs), but unjustified inside the framework's own code.
+Prefer fixing the contract at its owner. Import or derive an existing
+type when it already expresses the agreement. For external input,
+validate what the consumer needs before relying on it.
 
-**Example (justified)**: a loader that duck-types fields off a user-authored module it imports at runtime, because the module's shape is arbitrary by design. What makes it justified is the comment block above the access explaining exactly why static typing is impossible there.
+Keep runtime checks that recognize a supported capability or validate
+input whose shape is not yet known. Verify that the check establishes
+what the following code assumes. A comment explains the decision;
+it does not establish correctness.
 
-**Historical folder-sync audit.** `if (entry.handle.whenReady)` was duck-typing `whenReady` until it became a typed optional on `Document`. The diagnostic told us the contract was incomplete; the fix was to declare the field.
-
-**How to triage a hit**: read the ~30 lines above the duck-type. If there's a comment explaining why static typing isn't possible at this boundary, leave it. If there's no explanation and the producer is an internal type, either widen the producer's type to include the field, or consolidate the access into a duck-typing helper that's itself well-documented.
+Explain concrete problems, their consequences, and the proposed repair.
+A search match alone is not a finding.
 
 ## 2. Promise-Shape Ceremony (`.then(() => {})`)
 
