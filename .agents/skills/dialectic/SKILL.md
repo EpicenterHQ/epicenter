@@ -18,13 +18,13 @@ put it into words. Offer something specific they can recognize, correct,
 or extend. Let their response shape the next proposal.
 
 Begin with an explicit articulation of the intent: what the user wants
-to accomplish and what a successful result would make possible. Offer
-your interpretation for them to examine, explain your reasoning, and
-invite correction. Develop that articulation together until you have
-a shared understanding from which to develop the vision.
+to accomplish and what a successful result would make possible.
+Explain your reasoning and invite correction. Develop that articulation
+together until you have a shared understanding from which to develop
+the vision.
 
-Carry forward intent already explicitly agreed in the conversation: briefly
-state it and proceed from that agreement.
+When you’ve already agreed on the intent, briefly state it and
+continue from there.
 
 A shared understanding can be a complete result when it fulfills
 the user's purpose.
@@ -38,8 +38,6 @@ whether the suggested solution fits.
 When something feels wrong before the user can explain why, take that
 reaction seriously. Use the concrete situation to offer an interpretation
 they can examine and develop.
-
-Show an example when it would help the user picture the idea.
 
 When the user asks the same question again, reconsider what they're
 trying to understand and whether your answer addresses it.
@@ -69,52 +67,32 @@ to reveal how it works, including whole versions when fragments would
 hide the idea. When revising, show current and proposed versions together.
 Let the vision guide the whole while reviewing pieces at the user's pace.
 
-Carry settled choices into the authorized work. Within a recognized
-direction, develop the work without reconfirming each piece; bring back
-consequential choices that need the user's judgment.
-
-Check facts and behavior you can establish, distinguish illustrative
-examples from actual results, and show rendered work when appearance
-or movement matters. Examine the assembled whole against the intent
-and vision.
+Follow through on agreed choices. Continue the agreed work without
+asking the user to confirm each step. Bring back important choices
+that still need their judgment.
 
 ## Develop understanding together
 
-Carry the user's phrases, distinctions, examples, and corrections into
-the next contribution. Follow the part they take up. Preserve selected
-wording exactly and carry recognized parts forward so the user need not
-identify them again. Compose the next attempt yourself.
+Preserve selected wording exactly. Compose the next attempt yourself.
 
 When we're unsure which way to go, show what different approaches would
 actually produce. Explain which you favor and why. Use the user's
 response to develop the next proposal, which may combine parts or take
 a different direction.
 
-Put articulations of intent and vision in blockquotes, with explanation and
-questions outside them, and show other work in the form that lets the user
-judge it directly. Give enough context for each proposal to be understood on
-its own, and bold the parts that need particular attention.
-
 Use [abstraction](../abstraction/SKILL.md) to make the idea easier
 for the user to understand and judge.
 
-Reopen an earlier understanding when a correction changes what success
-means or a later discovery changes its premise. Let the conversation
-change the understanding as well as the work.
-
-When drawing lessons from an experience, distinguish what happened from
-your explanation of why it helped. Examine the evidence before turning
-that explanation into a general rule.
+Revisit your earlier understanding when a correction changes what
+success means or new information changes an assumption you were
+working from. Let the conversation change your understanding as
+well as the work.
 
 ## References
 
-Read [the example conversations](references/conversations.md) when
-calibrating how understanding develops through intent, vision, and
-concrete form. The exchanges are illustrations, not measured results
-or records of the user's preferences.
+See [the example conversations](references/conversations.md) for
+illustrations of how intent, vision, and concrete form develop
+through conversation.
 
-When the user is authoring prose in their own voice, use their personal
-`writing-voice` skill if one is available. Otherwise, follow this skill
-and the destination's guidance. Page and journal workflows retain their
-authorship requirements, including the boundary against inventing
-personal events, motives, or beliefs.
+When helping the user write in their own voice, use their personal
+`writing-voice` skill if one is available.
