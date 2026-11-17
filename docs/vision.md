@@ -7,13 +7,14 @@ that computer fetches a copy. You reach all of it from your phone or laptop,
 and so do your agents.**
 
 Epicenter is where one person's software lives. `~/Epicenter` is on a computer
-you control and keep on, owned or rented: the home. Each home uses one private
-root Git repository. Each apps/<app>/ container holds a code/ Bun project and
-sibling data/ records, mostly Markdown. One command,
+you control and keep on: the home. Today that is a computer you own; a rented
+one you control is allowed ([ADR-0903]) and gets its own setup later. Each home
+uses one private root Git repository. Each apps/<app>/ container holds a code/
+Bun project and sibling data/ records, mostly Markdown. One command,
 `epicenter serve`, offers every app's actions over MCP, and each app's UI in a
-browser, to every device on your tailnet. Nothing syncs and no one signs in:
-your other devices are thin clients of the one copy, and `origin` is a
-push-only backup. [ADR-0910] records this layout, implemented in the source
+browser, on that computer; your private network brings your other devices in.
+Nothing syncs and no one signs in: your other devices are thin clients of the
+one copy, and `origin` is a push-only backup. [ADR-0910] records this layout, implemented in the source
 and live Epicenter.
 
 This page is the front door. [ADR-0896] and [ADR-0898] state the rules below;
@@ -27,11 +28,12 @@ which is mostly the earlier product described at the end.
 **Your Epicenter lives on a regular computer you keep on.**
 
 It uses that computer's normal filesystem. Your apps, files, and history
-live there, and `epicenter serve` makes them available to your other devices
-and agents. The computer can be a laptop you use, an older laptop you
-repurpose, a desktop, or a server you rent and control.
+live there, and `epicenter serve` makes them available to your agents and, with
+a private connection, to your other devices. The computer can be a laptop you
+use, an older laptop you repurpose, or a desktop.
 
-To reach it from other devices, add a private connection:
+`serve` listens only on that computer and signs no one in. Your private network
+decides which other devices reach it ([ADR-0927]):
 
 ```text
 Your phone -------------\
@@ -39,8 +41,9 @@ Your other computer ----+-- Private connection -- Computer running Epicenter
 Your connected agents --/                         Your apps, files, and history
 ```
 
-For example, an older laptop can stay plugged in and awake, with Tailscale
-connecting your other devices.
+For example, an older laptop can stay plugged in and awake, and
+`tailscale serve --bg 4747` gives your devices on your tailnet an HTTPS address
+for it. Never expose the port publicly; `serve` refuses Tailscale Funnel.
 
 Agents can run on the home itself or reach its actions from another
 connected computer. If the home sleeps or goes offline, your other devices
@@ -104,8 +107,10 @@ elsewhere: recordings, arrivals in an inbox, received mail.
 
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
-in a personal app. Scheduling belongs to the home: launchd, cron, or an
-agent's routine may call `epicenter <app> <action>`.
+in a personal app. Scheduling belongs to the home: a routine in `routines/`
+runs a command at a time each day while `serve` runs, and runs once to catch up
+after the home was off ([ADR-0908]). launchd or cron can call
+`epicenter <app> <action>` too.
 
 | You want | Reach for |
 | --- | --- |
@@ -113,8 +118,9 @@ agent's routine may call `epicenter <app> <action>`.
 | a new source, sign-in, or contract with its own lifetime | a new app |
 | something that crosses apps | an agent, then an action in a personal app |
 
-For an app's shape, copy the nearest example: Tasks for a kept collection,
-Mail for a cached one, Messages for a live one.
+For an app's shape, copy the nearest example: `examples/tasks` or
+`examples/writing` for kept collections. Mail (cached) and Messages (live) are
+the author's apps and are not published yet.
 
 ## Ways in
 
@@ -125,7 +131,7 @@ For the author, the home is the Mac Studio.
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
-| `epicenter serve` | MCP at `/`, the launcher for a browser, and each app's UI at `/<app>/` | Claude Code, Claude Desktop, any agent on your tailnet; UIs in a browser |
+| `epicenter serve` | MCP at `/`, the launcher for a browser, and each app's UI at `/<app>/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices; UIs in a browser |
 | the files | the folder itself | your editor, Claude Code on the home, a program that writes the contract |
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
@@ -136,8 +142,9 @@ a `.local` file in Mail's folder, on the computer that runs Mail's actions
 
 Agents make apps: you start Claude Code on the home, ask for an app, and it
 writes its code and records. An app can start with committed code copied by
-`epicenter new --from`, without a remote or later merge. The agent adapts any
-later source changes in place ([ADR-0910]).
+`epicenter new --from`, from a folder in Git or `owner/repo/folder` on GitHub,
+without a remote or later merge ([ADR-0929]). The agent adapts any later source
+changes in place ([ADR-0910]).
 
 ## What it is like
 
@@ -189,7 +196,7 @@ later source changes in place ([ADR-0910]).
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
 | a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's collections declare, in its own folder, and none has to |
-| the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal, as a job the OS keeps running ([ADR-0878]), or as Epicenter for Mac ([ADR-0865]); you own it or rent it, and a rented one puts your files and sign-ins in its provider's hands |
+| the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or as a job the OS keeps running ([ADR-0878]); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
 | Git | one private root history, sampled checkpoints, optional origin backup, LFS for binaries |
@@ -293,13 +300,13 @@ runs on the home.
 ```txt
 ssh studio                                   you, then `epicenter …` there
 ssh studio epicenter <app> <action>           an action from a remote shell
-epicenter serve, over your tailnet           your devices: UIs and MCP
+epicenter serve, through tailscale serve     your devices: UIs and MCP
 ```
 
 A command always means the computer it is typed on. `serve` runs each app as
 its files are on disk, so code you just changed is what runs ([ADR-0880]). It
-signs no one in; the home decides who reaches it, for the author the tailnet
-([ADR-0883]).
+signs no one in and listens only on the home; your private network decides
+which other devices reach it, for the author the tailnet ([ADR-0927]).
 
 ## UIs
 
@@ -314,10 +321,9 @@ keeps nothing of its own.
 | 1. Files | nothing | any software reads and writes it |
 | 2. History | Git, `git-lfs`, optional `origin` | root checkpoints, optional private backup |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
-| 4. Everywhere | `epicenter serve` on the home | every device on your tailnet reaches it; its UIs open in a browser |
+| 4. Everywhere | `epicenter serve` on the home, and a private network such as Tailscale | your devices reach it; its UIs open in a browser |
 
-Epicenter for Mac installs rungs 2 to 4 at once ([ADR-0865]). Whispering
-is whole at rung 1.
+Whispering is whole at rung 1.
 
 ## Each job, the least powerful form
 
@@ -332,14 +338,16 @@ is whole at rung 1.
 | Move data | Git | never |
 | Reach | MCP | never |
 | An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
-| Run something later | the home's scheduler runs an action | never |
+| Run something later | a routine runs a command at a time each day | never |
 
 ## Next, not yet, and never
 
 **Next, in order, each tied to its need** ([ADR-0898]):
 
-1. The vault as a folder app, served from the home and used from the phone for
-   a month ([ADR-0897]).
+1. The vault on the current engine: its records as collections and its
+   commands as actions, served from the home and used from the phone for a
+   month ([ADR-0897]). Its files moved in on 2026-11-15; its code still runs on
+   the retired engine.
 2. An `add` that answers done for the same id and content.
 3. Files beside a record, for audio and attachments.
 4. Freshness in each pull's status.
@@ -349,8 +357,8 @@ is whole at rung 1.
 **Not yet; each needs the owner's yes:** a program handing its new records
 over to a home, which then holds them ([ADR-0900], Proposed), and a phone
 queueing its adds the same way; moving a
-collection's truth; a published protocol for third parties; `serve` running
-pulls on a clock; Epicenter hosting anything new.
+collection's truth; a published protocol for third parties; a rented home's
+setup; Epicenter hosting anything new.
 
 **Never:** reconciling two writable copies or keeping two lists in step; a
 queue of edits made while the truth was unreachable; an event bus, triggers,
@@ -384,14 +392,12 @@ fields are written one `key: <JSON>` line each.
 [ADR-0850]: adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md
 [ADR-0851]: adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
-[ADR-0865]: adr/0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
 [ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
 [ADR-0878]: adr/0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md
 [ADR-0880]: adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md
 [ADR-0882]: adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md
-[ADR-0883]: adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md
 [ADR-0889]: adr/0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md
 [ADR-0893]: adr/0893-a-records-path-is-its-path-in-the-apps-data-repository.md
 [ADR-0894]: adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md
@@ -400,6 +406,10 @@ fields are written one `key: <JSON>` line each.
 [ADR-0898]: adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md
 [ADR-0900]: adr/0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md
 [ADR-0901]: adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md
+[ADR-0903]: adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md
 [ADR-0904]: adr/0904-copying-is-the-only-way-to-take-an-apps-code.md
+[ADR-0908]: adr/0908-serve-runs-the-homes-daily-routines.md
 
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md
+[ADR-0927]: adr/0927-serve-listens-only-on-this-computer.md
+[ADR-0929]: adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md

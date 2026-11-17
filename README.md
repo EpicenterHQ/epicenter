@@ -75,7 +75,7 @@ For CLI commands, MCP setup, and optional background service installation, see
 
 ## How it works
 
-`~/Epicenter` is on a computer you control and keep on, owned or rented: the
+`~/Epicenter` is on a computer you control and keep on: the
 home. It holds a folder per app in `apps/`. Each app has a `code/epicenter.ts`
 that declares its collections and actions, an optional UI under `code/ui/`,
 and a sibling `data/` folder of Markdown files you can read. One private Git
@@ -107,7 +107,8 @@ epicenter serve
 ```
 
 `epicenter serve` offers every app's actions over MCP, and each app's UI at
-`/<app>/`, to every device on your tailnet. Nothing syncs and no one signs in:
+`/<app>/`, on the home. It listens only there; your private network, such as
+Tailscale, brings your other devices in. Nothing syncs and no one signs in:
 your phone, your laptop, and your agents reach the one copy on the home, and
 keep nothing of their own. The home's optional `origin` is its backup remote.
 
@@ -125,7 +126,7 @@ The CLI developer preview installs as a standalone executable from
 Writing is an exported app copied separately from GitHub. The executable
 carries the runtime; each app remains ordinary editable source.
 `epicenter service install` keeps `serve` running as a macOS LaunchAgent; the
-Linux job for a rented home and Epicenter for Mac are not built yet.
+Linux job for a rented home is not built yet.
 
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Vocab)
 run on their home, outside this runtime source repository. Each app has
@@ -155,7 +156,8 @@ Your data is on the home, and whoever can read the home can read it.
 | A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a `.local` file in Mail's folder on the home, and never leaves it. |
 | Epicenter's hosted services | What you send them: a prompt or audio for a paid model, and your account. They hold no part of your Epicenter. |
 
-`serve` signs no one in, so who reaches it is the tailnet's decision. See the
+`serve` signs no one in and listens only on the home, so which other devices
+reach it is your private network's decision. See the
 [trust model](docs/trust-model.md) for the details.
 
 ## Repo map
