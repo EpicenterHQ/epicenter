@@ -288,11 +288,26 @@ test.each(invalidIds)(
 );
 
 test.each([
-	[' Dune', 'notes: an id cannot start or end with whitespace'],
-	['Dune ', 'notes: an id cannot start or end with whitespace'],
-	['Dune\u00a0', 'notes: an id cannot start or end with whitespace'],
-	['\u3000Dune', 'notes: an id cannot start or end with whitespace'],
-	['Cafe\u0301', 'notes: an id must be Unicode NFC'],
+	[
+		' Dune',
+		'notes: " Dune": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'Dune ',
+		'notes: "Dune ": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'Dune\u00a0',
+		'notes: "Dune\u00a0": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'\u3000Dune',
+		'notes: "\u3000Dune": an id cannot start or end with whitespace; send "Dune"',
+	],
+	[
+		'Cafe\u0301',
+		'notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
+	],
 ])(
 	'an id is never tidied: %j is refused by every verb with the reason',
 	async (id, message) => {

@@ -313,9 +313,19 @@ function createRecordHandle(key: string, def: DataDef) {
 	function place(id?: string) {
 		if (single) return base;
 		const problem = idProblem(id);
-		return problem
-			? ActionError.Refused({ message: `${key}: ${problem}` })
-			: pathOf(id as string);
+		if (!problem) return pathOf(id as string);
+		if (typeof id !== 'string')
+			return ActionError.Refused({ message: `${key}: ${problem}` });
+		// Whitespace is invisible, so quote the id, and name the tidy form the
+		// caller may send instead. The library itself never changes an id.
+		const tidy = id.normalize('NFC').trim();
+		const instead =
+			tidy !== id && idProblem(tidy) === undefined
+				? `; send ${JSON.stringify(tidy)}`
+				: '';
+		return ActionError.Refused({
+			message: `${key}: ${JSON.stringify(id)}: ${problem}${instead}`,
+		});
 	}
 	async function get(id?: string) {
 		const path = place(id);

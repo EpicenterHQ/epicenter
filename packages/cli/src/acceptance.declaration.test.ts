@@ -460,14 +460,14 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 		[
 			['add', { id: '..', kind: 'link', added: '2026-11-09' }],
 			1,
-			'items: an id cannot start with .',
+			'items: \\"..\\": an id cannot start with .',
 		],
 		[
 			['set', { id: 'new-one', kind: 'link' }],
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[['set', { id: 'a\\b', kind: 'link' }], 1, 'items: an id cannot contain'],
+		[['set', { id: 'a\\b', kind: 'link' }], 1, 'an id cannot contain / or'],
 		[['set', { id: 'dune', kind: null }], 2, 'kind'],
 		[['set', { id: 'dune', added: null }], 2, 'added'],
 		[['set', { id: 'dune', knd: 'link' }], 2, 'is not a key this action takes'],

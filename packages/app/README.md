@@ -110,12 +110,14 @@ letter), optionally followed by `.md`. Each key gives `fields`, and may give a
 An id is the file's name exactly as it is on disk: non-empty NFC text of at
 most 200 UTF-8 bytes, without `/`, `\`, control characters, a leading dot,
 or whitespace at either end (ADR-0933). No method or generated verb changes
-an id: one that does not fit returns `Refused` with the reason, so an app
-trims or normalises what a person typed before it passes it on. `list`
-skips a file whose name is not an id. `field.id()` is an input field that takes an id
-that already fits. A new record's id comes from the caller or the app. A
-generated `add` takes `id` optionally and names the record with `timeId()`
-when it is left out; the `add(id, record)` method always takes one.
+an id: one that does not fit returns `Refused`, quoting the id with the
+reason and, when trimming or NFC would fix it, the name to send instead.
+An app trims or normalises what a person typed before it passes it on.
+`list` skips a file whose name is not an id. `field.id()` is an input field
+that takes an id that already fits. A new record's id comes from the caller
+or the app. A generated `add` takes `id` optionally and names the record
+with `timeId()` when it is left out; the `add(id, record)` method always
+takes one.
 
 Each file's fields are its front matter, as `key: <JSON>` lines, and its body
 is the text after it. Each line is read on its own, and no YAML is read

@@ -309,9 +309,15 @@ test('generated verbs take the id as the file name and refuse one that cannot na
 	});
 	await inRun(context, async () => {
 		for (const [id, message] of [
-			[' Caf\u00e9 ', 'notes: an id cannot start or end with whitespace'],
-			['Cafe\u0301', 'notes: an id must be Unicode NFC'],
-			['../bad', 'notes: an id cannot contain / or \\'],
+			[
+				' Caf\u00e9 ',
+				'notes: " Caf\u00e9 ": an id cannot start or end with whitespace; send "Caf\u00e9"',
+			],
+			[
+				'Cafe\u0301',
+				'notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
+			],
+			['../bad', 'notes: "../bad": an id cannot contain / or \\'],
 		] as const)
 			for (const result of [
 				await notes.get({ id }),

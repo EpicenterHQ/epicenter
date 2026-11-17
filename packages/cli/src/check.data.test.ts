@@ -135,6 +135,7 @@ test('invalid reachable-looking names count as problems but their contents are n
 	await f.folder(f.dataPath, {
 		'watches/ bad.md': '---\nunreadable\n',
 		'watches/bad .md': '---\nunreadable\n',
+		'watches/nbsp\u00a0.md': '---\nunreadable\n',
 		'watches/back\\slash.md': '---\nunreadable\n',
 		'watches/control\u0001.md': '---\nunreadable\n',
 		'watches/cafe\u0301.md': '---\nunreadable\n',
@@ -143,7 +144,7 @@ test('invalid reachable-looking names count as problems but their contents are n
 	const result = await f.run('check', 'flights', '--json');
 	expect(result.code).toBe(1);
 	const watches = JSON.parse(result.stdout).apps.flights.watches;
-	expect(watches).toMatchObject({ files: 6, withProblems: 6 });
+	expect(watches).toMatchObject({ files: 7, withProblems: 7 });
 	expect(
 		watches.records
 			.map((record: { problems: string[] }) => record.problems[0])
@@ -152,6 +153,7 @@ test('invalid reachable-looking names count as problems but their contents are n
 		[
 			'an id cannot contain / or \\',
 			'an id cannot contain a control character',
+			'an id cannot start or end with whitespace',
 			'an id cannot start or end with whitespace',
 			'an id cannot start or end with whitespace',
 			'an id must be Unicode NFC',
