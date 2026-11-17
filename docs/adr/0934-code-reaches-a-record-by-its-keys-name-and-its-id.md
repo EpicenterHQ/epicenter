@@ -89,10 +89,8 @@ await data['settings.md'].set({ level: 'HSK 3' });       // creates the file whe
   ref checks on `add` and `set` (vocab's and zhongwen's
   `conversations.add({ words })`); after this, a ref is written as given and
   `epicenter check` reports one that names nothing.
-- A claim works without a second read. Messages' outbox claims a message id
-  with `add` before sending (`messages/code/lib/device-sync.ts`), and a replay
-  of the same message gets `Changed` (`there`) and does not
-  send twice.
+- An agent that adds a word it already has gets `Changed` (`there`) and
+  can read the record, instead of learning nothing or making a second file.
 - The one `set` with a function in the apps (`codex/code/lib/replies.ts`)
   becomes `update`; the thirteen `update` calls stay.
 - A page that reads a one-file key before it is written gets `undefined`
@@ -107,7 +105,7 @@ await data['settings.md'].set({ level: 'HSK 3' });       // creates the file whe
 
 ## Considered alternatives
 
-- **`add` answering `Ok` when the same content is there.** It made a repeated add look like success without the caller doing anything, but only the caller knows whether "already there" means its own earlier attempt or someone else's claim. Messages' replay would have answered `Ok` and sent twice.
+- **`add` answering `Ok` when the same content is there.** It made a repeated add look like success without the caller doing anything, but only the caller knows whether "already there" means its own earlier attempt or a record someone else made by that name.
 - **"Already there" as `Refused`.** A caller could not tell it from any other refusal without reading the message, and a typed `why` on `Refused` would change every refusal's shape.
 - **A `Folder.create` that links a finished temporary file to its name.** It made an add safe against a second writer; Epicenter presumes one.
 - **`set(id, fn)` beside `update(id, fn)`.** Two verbs computed a record from the current one, differing only in what an absent record meant; one app called the first, once.

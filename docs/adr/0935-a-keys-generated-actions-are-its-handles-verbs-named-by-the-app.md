@@ -113,6 +113,6 @@ a handle. A refusal returns an `Err`, and a throw means a bug.
 - **Guards on the handle (`set(id, change, { was })`, `edit(id, { old, new })`).** One write path for every caller, but code in the app carries options only pages send.
 - **Generated reads only; every write written by hand.** Each app would restate `edit` and id handling in its own actions.
 - **A default verb set when none is named.** It needed a rule per verb (`delete` only when named, `add` only for keys whose records a caller names) that a reader had to know.
-- **The generated `add` answering `Ok` when the same fields and body are there.** It decided for the caller what "already there" meant; Messages' outbox would have sent a claimed message twice.
+- **The generated `add` answering `Ok` when the same fields and body are there.** It decided for the caller what "already there" meant, and an agent adding a word it already had would not learn that.
 - **An optional `id` defaulting to `timeId()`, with an `id` option on a key to require it.** The default served one key (Mail's proposals), about ten keys named by a word, title, or slug would each have declared the option, and a caller that left the id out added twice when it sent the call again.
 - **One `effect: 'read' | 'add' | 'change' | 'delete'` on `defineAction` in place of the four hints.** It rules out contradictions such as read-only and destructive, but the four hints are MCP's own names, which agents already read.
