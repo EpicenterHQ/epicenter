@@ -37,14 +37,14 @@ The file existing is the switch. Epicenter writes none.**
 ```yaml
 ---
 cron: "*/5 * * * *"
-run: ["epicenter", "checkpoint"]
+run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
 ---
 Commit everything pending and push to the backup.
 ```
 
 `cron` is a five-field expression or nickname in the home computer's local
 time, as `Bun.cron.parse` reads it. It replaces `daily`; `daily: "08:00"`
-becomes `cron: "0 8 * * *"`. `run` is unchanged. `paused` and `timeout` are
+becomes `cron: "0 8 * * *"`. `run` stays a list of words: the program as text, then each argument as text or as any other JSON value, which the runner turns into one word of JSON text, so an action's input needs no quoting: `run: ["epicenter", "flights", "daily", "run", {"recheck": false}]`. `paused` and `timeout` are
 removed: to stop a routine, remove its file. The home's history keeps it.
 
 **`serve` keeps one moment in memory and writes nothing about routines.**
@@ -113,6 +113,13 @@ for an agent to add when the person wants history and backup.
 
 ## Considered alternatives
 
+- **`run` as one line of shell.** It is what a person would type, and it
+  gives `&&` and redirection. A routine's values are JSON on one line, so a
+  shell line inside one is quoted twice, and the common routine, an action
+  with a JSON input, is the case that breaks on a quote. A list of words
+  with a JSON value as a word needs no quoting; `["sh", "-c", "..."]` is
+  there for the rest, and the bare report prints each command as a line to
+  paste into a terminal.
 - **`init` writes the checkpoint routine; deleting it turns checkpoints off.**
   Safer for a home whose agent never reads its instructions, and it keeps
   history on by default. Refused: Epicenter would be writing the person's
