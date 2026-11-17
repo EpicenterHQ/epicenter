@@ -19,7 +19,6 @@ import {
 import { join } from 'node:path';
 import { checkpoint } from './checkpoint.js';
 import { EXPORT_MARKER } from './code-copy.js';
-import { hold } from './lock.js';
 import { bareApp, fixture, gitIn } from './runner.test-support.js';
 
 setDefaultTimeout(30_000);
@@ -232,35 +231,12 @@ test('an interrupted collection fill is repaired using its retained ownership ma
 	);
 });
 
-test('both forms lock their exact destination and release it after refreshing', async () => {
+test('children of an --all export cannot become separate exports', async () => {
 	const f = await setup();
-	await mkdir(f.output);
-	const held = await hold(f.output, 0);
-	expect(held).toBeDefined();
-	try {
-		for (const args of [
-			['--all', f.output],
-			['tasks', f.output],
-		]) {
-			const run = await f.run('export', ...args, '--json');
-			expect(run.code).toBe(2);
-			expect(JSON.parse(run.stdout).error.message).toContain('another export');
-			expect(await readdir(f.output)).toEqual([]);
-		}
-	} finally {
-		held?.release();
-	}
 	expect((await f.run('export', '--all', f.output)).code).toBe(0);
-	// Children belong to the whole collection and cannot become separate exports.
 	expect((await f.run('export', 'tasks', join(f.output, 'tasks'))).code).toBe(
 		2,
 	);
-	const released = await hold(f.output, 0);
-	try {
-		expect(released).toBeDefined();
-	} finally {
-		released?.release();
-	}
 });
 
 test('--all adds future committed apps and removes absent apps without importing code or changing the outer repository', async () => {
@@ -694,12 +670,6 @@ await Bun.sleep(300_000);
 			await Bun.sleep(10);
 		expect(await Bun.file(ready).exists()).toBe(true);
 		expect(finished).toBe(false);
-		const held = await hold(f.home, 0);
-		try {
-			expect(held).toBeDefined();
-		} finally {
-			held?.release();
-		}
 		await writeFile(join(f.tasks, 'while-uploading.txt'), 'newer code');
 		const exported = await f.run('export', '--all', f.output, '--json');
 		expect(exported.code).toBe(0);

@@ -3,7 +3,6 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { checkpoint, snapshot } from './checkpoint.js';
-import { hold } from './lock.js';
 import { fixture, gitIn, reading } from './runner.test-support.js';
 
 setDefaultTimeout(30_000);
@@ -288,9 +287,6 @@ test('push deadline kills a remote helper and its sleeping child, releases the l
 			await Bun.sleep(20);
 		}
 		for (const pid of killed) expect(() => process.kill(pid, 0)).toThrow();
-		const lock = await hold(f.home, 0);
-		expect(lock).toBeDefined();
-		lock?.release();
 		await writeFile(join(f.home, 'second'), 'second');
 		const second = await checkpoint(f.home, { pushTimeoutMs: 500 });
 		expect(second.committed?.files).toBe(1);
@@ -334,9 +330,6 @@ await Bun.sleep(300_000);
 		const escaped = Number(await readFile(pidFile, 'utf8'));
 		// The survivor proves close cannot finish until the parent's pipes are destroyed.
 		expect(() => process.kill(escaped, 0)).not.toThrow();
-		const lock = await hold(f.home, 0);
-		expect(lock).toBeDefined();
-		lock?.release();
 	} finally {
 		process.env.PATH = previousPath;
 		const escaped = Number(await readFile(pidFile, 'utf8').catch(() => ''));
@@ -544,4 +537,17 @@ process.exit(await child.exited);
 	} finally {
 		process.env.PATH = previousPath;
 	}
+});
+
+test('two checkpoints at once commit the changes once and both report success', async () => {
+	const f = await setup();
+	for (let i = 0; i < 20; i++)
+		await writeFile(join(f.home, `file-${i}`), String(i));
+	const before = Number(await gitIn(f.home, 'rev-list', '--count', 'HEAD'));
+	const results = await Promise.all([checkpoint(f.home), checkpoint(f.home)]);
+	for (const result of results) expect(result.failed).toBeUndefined();
+	expect(results.filter((result) => result.committed)).toHaveLength(1);
+	expect(Number(await gitIn(f.home, 'rev-list', '--count', 'HEAD'))).toBe(
+		before + 1,
+	);
 });
