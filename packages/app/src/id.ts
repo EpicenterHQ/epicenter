@@ -12,3 +12,8 @@ export function idProblem(value: unknown): string | undefined {
 	if (value.normalize('NFC') !== value) return 'an id must be Unicode NFC';
 	return undefined;
 }
+
+/** An id as the handle takes it: Unicode NFC, with surrounding whitespace removed. Inner spaces stay. */
+export function tidyId<T>(value: T): T | string {
+	return typeof value === 'string' ? value.normalize('NFC').trim() : value;
+}

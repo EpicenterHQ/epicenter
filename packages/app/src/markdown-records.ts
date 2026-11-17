@@ -62,15 +62,17 @@ export function createMarkdownRecords({
 	 */
 	function project(path: string, found: Found) {
 		const { fields: values, problems } = projectFields(fields, found);
+		const keys = keysOf(path);
 		const record: AnyRecord = {
 			path,
-			...keysOf(path),
+			...keys,
 			...values,
 			body: found.body,
 		};
 		const result: Result<AnyRecord, Misfit> = problems.length
 			? ActionError.Misfit({
 					path,
+					id: keys?.id,
 					problems,
 					...(found.readable ? { record } : {}),
 				})

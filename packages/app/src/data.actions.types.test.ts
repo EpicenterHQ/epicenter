@@ -52,7 +52,7 @@ test('action inputs retain required add fields and optional nullable patches', (
 		Equal<
 			Parameters<typeof actions.add>[0],
 			{
-				id: string;
+				id?: string;
 				meaning: string;
 				note?: string;
 				rank: number;
@@ -192,8 +192,6 @@ describe('type errors', () => {
 		() => actions.list({ id: 'a' });
 		// @ts-expect-error add requires all required fields
 		() => actions.add({ id: 'a', meaning: 'a' });
-		// @ts-expect-error add requires id even when every field is supplied
-		() => actions.add({ meaning: 'a', rank: 1, choice: 'yes', raw: 2 });
 		// @ts-expect-error required numbers stay numbers
 		() => actions.set({ id: 'a', rank: 'one' });
 		// @ts-expect-error required fields cannot be removed

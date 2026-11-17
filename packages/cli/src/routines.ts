@@ -14,15 +14,31 @@ import { isName, readMarkdown } from '@epicenter/app';
 import { COMPILED } from './commands.ts';
 import { writeErr } from './output.ts';
 
+/** `run` is the command's words: the program, then each argument as text. */
 type Routine = {
 	cron: string;
 	run: [string, ...string[]];
 };
 
+/** `words` as one line a POSIX shell reads back as the same words. */
+function shellLine(words: string[]): string {
+	return words
+		.map((word) =>
+			/^[\w@%+=:,./-]+$/.test(word)
+				? word
+				: `'${word.replaceAll("'", `'\\''`)}'`,
+		)
+		.join(' ');
+}
+
 const messageOf = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
 
-/** Read a routine file: a cron schedule and the command to run. */
+/**
+ * Read a routine file: a cron schedule and the command to run. The program
+ * is text; an argument is text, or any other JSON value, which becomes one
+ * word of JSON text.
+ */
 export function readRoutine(name: string, text: string): Routine {
 	if (!isName(name))
 		throw new Error(
@@ -36,12 +52,12 @@ export function readRoutine(name: string, text: string): Routine {
 		Object.keys(other).length ||
 		typeof cron !== 'string' ||
 		!Array.isArray(run) ||
-		!run.length ||
+		typeof run[0] !== 'string' ||
 		run[0] === '' ||
-		!run.every((word) => typeof word === 'string' && !word.includes('\0'))
+		run.some((word) => typeof word === 'string' && word.includes('\0'))
 	)
 		throw new Error(
-			`${name}.md needs exactly cron: "<minute hour day month weekday>" and run: [executable, ...arguments]`,
+			`${name}.md needs exactly cron: "<minute hour day month weekday>" and run: [program, ...arguments], where the program is text and an argument is text or a JSON value`,
 		);
 	let next: Date | null;
 	try {
@@ -53,20 +69,17 @@ export function readRoutine(name: string, text: string): Routine {
 		throw new Error(
 			`${name}.md cron must be a five-field cron expression such as "0 8 * * *" with a future occurrence`,
 		);
-	return { cron, run: run as [string, ...string[]] };
+	const words = run.map((word) =>
+		typeof word === 'string' ? word : JSON.stringify(word),
+	);
+	return { cron, run: words as [string, ...string[]] };
 }
 
 /**
  * Read and start one home's routines. `check` starts each routine with an
  * occurrence since the previous check, and never waits for it.
  */
-export function createRoutines({
-	folder,
-	serviceUrl,
-}: {
-	folder: string;
-	serviceUrl?: string;
-}) {
+export function createRoutines({ folder }: { folder: string }) {
 	const directory = join(folder, 'routines');
 	const epicenter: [string, ...string[]] = COMPILED
 		? [process.execPath]
@@ -113,7 +126,6 @@ export function createRoutines({
 				...(program === 'bun' ? { BUN_BE_BUN: '1' } : {}),
 				EPICENTER_ROOT: folder,
 				EPICENTER_COMMAND: JSON.stringify(epicenter),
-				...(serviceUrl ? { EPICENTER_SERVICE_URL: serviceUrl } : {}),
 			},
 			stdio: 'inherit',
 		}).once('error', (error) =>
@@ -122,16 +134,17 @@ export function createRoutines({
 	}
 
 	return {
-		/** Each routine's schedule and next occurrence, or why its file is refused. */
+		/** Each routine's schedule, next occurrence, and command as a shell line, or why its file is refused. */
 		async list(now = new Date()) {
 			return Promise.all(
 				(await names()).map(async (name) => {
 					try {
-						const { cron } = await read(name);
+						const { cron, run } = await read(name);
 						return {
 							name,
 							cron,
 							next: Bun.cron.parse(cron, now)?.toISOString(),
+							command: shellLine(run),
 						};
 					} catch (error) {
 						return { name, problem: messageOf(error) };

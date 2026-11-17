@@ -406,8 +406,9 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 	expect(help.stdout).toContain(
 		'  kind   required  one of thought, link, quote',
 	);
+	expect(help.stdout).toContain('  id     optional  text.');
 	expect(help.stdout).toContain(
-		`epicenter capture add '{"id":"text","kind":"thought","added":"2026-11-12"}'`,
+		`epicenter capture add '{"kind":"thought","added":"2026-11-12"}'`,
 	);
 
 	expect(
@@ -457,15 +458,15 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 		],
 		[
 			['add', { id: '..', kind: 'link', added: '2026-11-09' }],
-			2,
-			'id must be a record id',
+			1,
+			'items: an id cannot start with .',
 		],
 		[
 			['set', { id: 'new-one', kind: 'link' }],
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[['set', { id: 'a\\b', kind: 'link' }], 2, 'id must be a record id'],
+		[['set', { id: 'a\\b', kind: 'link' }], 1, 'items: an id cannot contain'],
 		[['set', { id: 'dune', kind: null }], 2, 'kind'],
 		[['set', { id: 'dune', added: null }], 2, 'added'],
 		[['set', { id: 'dune', knd: 'link' }], 2, 'is not a key this action takes'],

@@ -3,44 +3,11 @@
  * work failed, not which writes persisted. The wire envelope records whether
  * an action ran; a caller reconciles its records to learn what was saved.
  */
-import { type Static, Type } from 'typebox';
-import { Value } from 'typebox/value';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 const NAMESPACE = 'epicenter/action-error' as const;
 
-const problem = Type.Object({ line: Type.String(), kind: Type.String() });
-export type Problem = Static<typeof problem>;
-const fields = {
-	Misfit: Type.Object({
-		path: Type.String(),
-		problems: Type.Array(problem),
-		record: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-	}),
-	Changed: Type.Object({
-		path: Type.String(),
-		why: Type.Union([
-			Type.Literal('quote'),
-			Type.Literal('twice'),
-			Type.Literal('there'),
-		]),
-	}),
-	Missing: Type.Object({ path: Type.String() }),
-	Threw: Type.Object({
-		message: Type.String(),
-		thrown: Type.Optional(
-			Type.Intersect([
-				Type.Object({ name: Type.String(), message: Type.String() }),
-				Type.Record(Type.String(), Type.Unknown()),
-			]),
-		),
-	}),
-	Refused: Type.Object({
-		message: Type.String(),
-		next: Type.Optional(Type.String()),
-	}),
-	Unreachable: Type.Object({ message: Type.String() }),
-};
+export type Problem = { line: string; kind: string };
 
 const WHY = {
 	quote:
@@ -48,7 +15,7 @@ const WHY = {
 	twice:
 		"'s body has that text more than once; quote more around it, or the whole body",
 	there: ' is already there',
-} satisfies Record<Static<typeof fields.Changed>['why'], string>;
+};
 
 /** The enumerable marker survives the runner's JSON serialization. It is not proof of origin. */
 function marked<T extends { message: string }>(body: T) {
@@ -56,43 +23,63 @@ function marked<T extends { message: string }>(body: T) {
 }
 
 export const ActionError = defineErrors({
-	/** A file does not fit its declared fields. An unreadable file omits the partial record. */
-	Misfit: ({ path, problems, record }: Static<typeof fields.Misfit>) =>
+	/**
+	 * A file does not fit its declared fields. `id` is the file's name in a
+	 * folder key; a one-file key has none. An unreadable file omits the
+	 * partial record.
+	 */
+	Misfit: ({
+		path,
+		id,
+		problems,
+		record,
+	}: {
+		path: string;
+		id?: string;
+		problems: Problem[];
+		record?: Record<string, unknown>;
+	}) =>
 		marked({
 			message: [
 				`${path} does not fit its fields:`,
 				...problems.map((problem) => `${path}: ${problem.line}`),
 			].join('\n'),
 			path,
+			...(id === undefined ? {} : { id }),
 			problems,
 			...(record === undefined ? {} : { record }),
 		}),
 	/** The quoted passage changed or is not in one place, or a new file is already there. */
-	Changed: ({ path, why }: Static<typeof fields.Changed>) =>
+	Changed: ({ path, why }: { path: string; why: keyof typeof WHY }) =>
 		marked({ message: `${path}${WHY[why]}`, path, why }),
 	/** There is no file at this path. It may be a dependency of the requested action. */
-	Missing: ({ path }: Static<typeof fields.Missing>) =>
+	Missing: ({ path }: { path: string }) =>
 		marked({ message: `There is no ${path}`, path }),
 	/** An unrecognized throw, with its JSON-safe tagged payload when available. */
-	Threw: (body: Static<typeof fields.Threw>) => marked(body),
+	Threw: (body: {
+		message: string;
+		thrown?: { name: string; message: string } & Record<string, unknown>;
+	}) => marked(body),
 	/** An operation declined the request. This does not imply the outer action wrote nothing. */
-	Refused: (body: Static<typeof fields.Refused>) => marked(body),
+	Refused: (body: { message: string; next?: string }) => marked(body),
 	/** A required operation returned no usable answer. The message identifies what failed. */
-	Unreachable: (body: Static<typeof fields.Unreachable>) => marked(body),
+	Unreachable: (body: { message: string }) => marked(body),
 });
 export type ActionError = InferErrors<typeof ActionError>;
 
-/** Validate a shared error received through JSON, preserving its message and extra fields. */
+/**
+ * Whether a value received through JSON is a platform error: the platform's
+ * marker, a known name, and a text message. The page and serve are one
+ * version, so the other fields are not checked.
+ */
 export function isActionError(value: unknown): value is ActionError {
 	if (typeof value !== 'object' || value === null || Array.isArray(value))
 		return false;
 	const body = value as Record<string, unknown>;
-	if (
-		body.namespace !== NAMESPACE ||
-		typeof body.name !== 'string' ||
-		typeof body.message !== 'string' ||
-		!Object.hasOwn(ActionError, body.name)
-	)
-		return false;
-	return Value.Check(fields[body.name as ActionError['name']], body);
+	return (
+		body.namespace === NAMESPACE &&
+		typeof body.name === 'string' &&
+		Object.hasOwn(ActionError, body.name) &&
+		typeof body.message === 'string'
+	);
 }

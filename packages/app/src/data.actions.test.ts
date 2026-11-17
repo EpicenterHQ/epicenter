@@ -1,16 +1,18 @@
 /**
  * Generated data actions expose only named handle verbs with their input schemas.
  * Verifies both key shapes, Result answers, atomic passage edits, patch omission,
- * verb refusals, and MCP annotations without collection guards.
+ * tidied ids, time-named adds, verb refusals, and MCP annotations.
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { isActionError } from './errors.ts';
 import {
 	type ActionError,
 	createMemoryContext,
 	defineData,
+	encodeActionResult,
 	field,
 	folder,
 	inRun,
@@ -285,17 +287,75 @@ test('generated writes accept refs as given and expose a declared was field as o
 	});
 });
 
+test('add without an id names the record by the moment and returns that id; with one it uses it', async () => {
+	const { context, notes } = setup();
+	await inRun(context, async () => {
+		const named = expectOk(await notes.add({ title: 'untitled' }));
+		expect(named.id).toMatch(/^\d{4}-\d\d-\d\dT[\d-]+Z-[0-9a-z]{8}$/);
+		expect(named.path).toBe(`data/notes/${named.id}.md`);
+		expect(expectOk(await notes.get({ id: named.id })).title).toBe('untitled');
+		expect(expectOk(await notes.add({ id: ' Dune ', title: 'Dune' })).id).toBe(
+			'Dune',
+		);
+		expect((await folder.list('data/notes')).sort()).toEqual(
+			['data/notes/Dune.md', named.path].sort(),
+		);
+	});
+});
+
+test('generated get, set, and delete tidy the id and refuse one that still cannot name a file', async () => {
+	const { context, notes } = setup({
+		'data/notes/Caf\u00e9.md': '---\ntitle: "x"\n---\none two',
+	});
+	const typed = ' Cafe\u0301 ';
+	await inRun(context, async () => {
+		expect(expectOk(await notes.get({ id: typed })).id).toBe('Caf\u00e9');
+		expect(
+			expectOk(
+				await notes.set({ id: typed, edit: { old: 'one', new: 'three' } }),
+			).body,
+		).toBe('three two');
+		expect(expectErr(await notes.get({ id: ' absent ' }))).toMatchObject({
+			name: 'Missing',
+			path: 'data/notes/absent.md',
+		});
+		expect(expectOk(await notes.delete({ id: typed }))).toBe(true);
+		for (const result of [
+			await notes.get({ id: '../bad' }),
+			await notes.add({ id: '../bad', title: 'x' }),
+			await notes.set({ id: '../bad', title: 'x' }),
+			await notes.delete({ id: '../bad' }),
+		])
+			expect(expectErr(result).name).toBe('Refused');
+	});
+});
+
+test('an encoded Misfit answer keeps the id of a folder record and has none for a one-file key', async () => {
+	const text = '---\ntitle: 123\n---\nbody';
+	const { context, notes, settings } = setup({
+		'data/notes/a.md': text,
+		'data/settings.md': text,
+	});
+	await inRun(context, async () => {
+		const sent = (result: Parameters<typeof encodeActionResult>[0]) =>
+			JSON.parse(JSON.stringify(expectErr(encodeActionResult(result))));
+		const folderMisfit = sent(await notes.get({ id: 'a' }));
+		expect(folderMisfit).toMatchObject({ name: 'Misfit', id: 'a' });
+		expect(isActionError(folderMisfit)).toBe(true);
+		const single = sent(await settings.get({}));
+		expect(single).toMatchObject({ name: 'Misfit', path: 'data/settings.md' });
+		expect(single).not.toHaveProperty('id');
+	});
+});
+
 // Discovery metadata and schemas are the boundary used by CLI, HTTP, and MCP.
-test('schemas require add ids and fields, reject empty edit.old, and permit only optional-field removal', () => {
+test('schemas require add fields but not an id, reject empty edit.old, and permit only optional-field removal', () => {
 	const { notes, settings } = setup();
 	const add = Type.Object(notes.add.input, { additionalProperties: false });
 	const set = Type.Object(notes.set.input, { additionalProperties: false });
 	expect(Value.Check(add, { id: 'a', title: 'yes' })).toBe(true);
-	for (const input of [
-		{ title: 'yes' },
-		{ id: 'a' },
-		{ id: '../bad', title: 'yes' },
-	])
+	expect(Value.Check(add, { title: 'yes' })).toBe(true);
+	for (const input of [{ id: 'a' }, { id: 7, title: 'yes' }])
 		expect(Value.Check(add, input)).toBe(false);
 	for (const action of [notes.set, settings.set]) {
 		const schema = Type.Object(action.input, { additionalProperties: false });
@@ -313,8 +373,8 @@ test('schemas require add ids and fields, reject empty edit.old, and permit only
 	expect(Value.Check(set, { title: 'missing id' })).toBe(false);
 	expect(Value.Check(set, { id: 'a', was: {} })).toBe(false);
 	expect(notes.add.input.id).toMatchObject({
-		format: 'epicenter-id',
-		description: 'The name of the new note',
+		description:
+			'The name of the new note; left out, it is named by the moment it is made',
 	});
 	expect(Object.keys(settings.get.input)).toEqual([]);
 	expect(Object.keys(settings.delete.input)).toEqual([]);

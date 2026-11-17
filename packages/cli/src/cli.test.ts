@@ -193,7 +193,7 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 	await gitIn(f.home, 'commit', '-qm', 'start');
 	await f.folder(f.home, {
 		'routines/review.md':
-			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week", "summary"]\n---\n',
+			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week", "summary", {"note": "it\'s here"}, "two words"]\n---\n',
 		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
 	});
 	const vendor = 'apps/reading/code/vendor';
@@ -219,7 +219,12 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 			problem:
 				'broken.md cron must be a five-field cron expression such as "0 8 * * *" with a future occurrence',
 		},
-		{ name: 'review', cron: '0 8 * * *', next: expect.any(String) },
+		{
+			name: 'review',
+			cron: '0 8 * * *',
+			next: expect.any(String),
+			command: `epicenter reading week summary '{"note":"it'\\''s here"}' 'two words'`,
+		},
 	]);
 	expect(value.repository).toEqual({
 		lastCommit: expect.any(String),
@@ -239,6 +244,7 @@ Run: epicenter <app>
 Routines:
   broken: ${value.routines[0].problem}
   review: cron 0 8 * * *, next ${value.routines[1].next}
+    ${value.routines[1].command}
 
 Git: last commit less than a minute ago; 3 files uncommitted; no origin; ${vendor} is a nested Git repository: backups hold only a pointer
 `,
