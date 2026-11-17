@@ -15,8 +15,8 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
-import { type RepositoryStatus, repositoryLine } from './repository.ts';
 import { installNext } from './install.ts';
+import { type RepositoryStatus, repositoryLine } from './repository.ts';
 
 /**
  * An action as an MCP tool definition: its name, input schema, and the hints
