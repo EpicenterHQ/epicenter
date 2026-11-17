@@ -7,8 +7,7 @@
  * port: 4747
  * ```
  *
- * Commands validate the marker's settings before running. Checkpoint only
- * needs the marked folder, so it can save files while those settings need repair.
+ * Commands validate the marker's settings before running.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';

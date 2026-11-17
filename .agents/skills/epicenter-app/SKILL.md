@@ -144,8 +144,8 @@ refused, so write the default where the value is read (`limit ?? 50`).
   data or from a function of the record.
 - An app is `code/`, `data/` and `local/`. What is in `local/` stays on the
   computer that runs the app: the root `.gitignore` leaves it out of every
-  commit, a checkpoint refuses a file there that Git would commit, and
-  `folder` makes a new file there `0600`. It holds plain files, not
+  commit, and `folder` makes a new file there `0600`. Git's ignore rules are
+  the only guard, so never `git add -f` a file there. It holds plain files, not
   collections: a token, a cache, a database. Keep a secret, such as a sign-in
   token, with `folder.write('local/google.md', token)` and read it with
   `folder.read('local/google.md')`, which gives `undefined` before sign-in.
@@ -157,7 +157,7 @@ refused, so write the default where the value is read (`limit ?? 50`).
   read, and a missing optional field is no problem. Rename or tighten a field
   in two steps: change the code, then repair records with an action or agent.
   Run `epicenter check <app>` afterward to see any remaining file diagnostics.
-  A checkpoint records both code and repairs together.
+  Commit code and repairs together.
   There is no global migration gate. Explain any repair when sharing code;
   another person's records change only when they run it.
 
@@ -202,7 +202,7 @@ Make the first write through `folder` or a collection, so the call takes
 container's lock. It stays held until the call returns, throws, or stops.
 After that first write, a library or `node:fs` write shares the call's lock
 lifetime. All writes stay pending
-until a named commit or root checkpoint records them.
+until a commit records them.
 `folder` refuses a write outside `data/`.
 Reads may reach the whole Epicenter, including another app's records by a
 path like `../tasks/data/tasks/<time>.md`, using `node:fs` or a library.
@@ -269,8 +269,8 @@ Annotate honestly. Annotations are hints an MCP client reads to decide how
 careful to be, and nothing enforces them, so mark an action read-only only
 when it changes nothing. Declare `mcp: false` on an action an agent should not
 be offered as a tool, such as sending as the owner; the CLI and HTTP still run
-it, so it is not a wall. Actions make no commits. The root ignore rules keep local
-files out, and a checkpoint refuses local credentials Git would include.
+it, so it is not a wall. Actions make no commits, and the root ignore rules
+keep local files out.
 
 Write last. Nothing locks a call, so fetch from a service, call a model, or
 compute first, then write: a slow step then never leaves a file half done.
@@ -278,21 +278,54 @@ When the person's input must survive a failure, write it after the slow step fai
 it starts: Vocab's `practice reply` asks the model, then saves both turns, or
 saves the learner's turn alone and returns its provider error.
 
-After direct edits, `epicenter checkpoint -m "<what changed>"` records pending
-code and records in one root commit and pushes origin when set. A plain named
-Git commit works too. The branch and index are shared: checkpoints consume
-staged work along with other included files. Make a named commit before a
-risky change. Serve runs no checkpoint of its own: a home that wants history
-and backup has a routine that runs `epicenter checkpoint`, such as
-`routines/checkpoint.md` with `cron: "*/5 * * * *"` and
-`run: ["epicenter", "checkpoint"]`. Without one, nothing is committed or
-pushed automatically. A checkpoint samples files, not intent, and can capture
-a partial edit or part of a running action.
+Epicenter runs actions and serves pages. Git stores the home, and Epicenter
+does not wrap Git: no `epicenter` command commits or pushes. After direct
+edits, make a named commit with Git, such as
+`git add -A && git commit -m "<what changed>"`. A home commits itself between
+named commits with two files of its own, which `epicenter init` writes into a
+new home. `routines/checkpoint.md`:
 
-The root origin is optional and private. It receives all apps' records.
-Checkpoints never pull, merge, rebase, or force-push. A failed push leaves
-commits local for a later retry. Missing or broken code does not hide data
-from a checkpoint. Keep local credentials ignored and never force-add them.
+```yaml
+---
+cron: "*/5 * * * *"
+run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
+---
+Commit everything pending and push to the backup.
+```
+
+`scripts/checkpoint.sh`, executable:
+
+```sh
+#!/bin/sh
+set -eu
+for s in MERGE_HEAD REVERT_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD; do
+  [ -e ".git/$s" ] && { echo "merge or rebase underway" >&2; exit 0; }
+done
+git add -A
+if git ls-files -s | grep -q '^160000'; then
+  echo "a nested Git repository is staged; remove its .git" >&2; exit 1
+fi
+git diff --cached --quiet || git commit -qm "${1:-checkpoint}"
+git remote get-url origin >/dev/null 2>&1 || exit 0
+GIT_TERMINAL_PROMPT=0 git push -q origin HEAD
+```
+
+Serve starts the routine every five minutes, with the home as the working
+directory. `/usr/bin/lockf` is macOS; on Linux start `run` with
+`"flock", "-n", ".git/checkpoint.lock"` instead. Without the routine, nothing
+is committed or pushed on its own. The branch and index are shared: the script
+commits staged work along with everything else, and it samples files, not
+intent, so it can capture a partial edit or part of a running action. Make a
+named commit before a risky change.
+
+`epicenter` on its own shows each routine with its next occurrence, how long
+ago the last commit was, how many files are uncommitted, how many commits are
+not on origin, and any nested Git repository under `apps/`.
+
+The root origin is optional and private. It receives all apps' records. The
+script never pulls, merges, rebases, or force-pushes, and a failed push leaves
+commits local for the next run. Git's ignore rules alone keep local
+credentials out, so never force-add them.
 Never run `git clean -x` in the Epicenter: it deletes local credentials.
 
 To recover, inspect Git history, then restore selected paths from the root:
@@ -313,10 +346,10 @@ current branch.
 
 When recovering a bad write, inspect history and restore the relevant known
 version rather than retype its previous content, then record the repair in a
-named checkpoint so history says what happened. A field change and its record
+named commit so history says what happened. A field change and its record
 repair belong together. Restoring only code or only data can leave the
 declaration and records disagreeing. Run `epicenter check <app>` and inspect
-the diagnostics for the affected paths. Keep the named checkpoint before
+the diagnostics for the affected paths. Make a named commit before
 risky work so the original files remain recoverable.
 
 ## Build the UI as a client
@@ -435,7 +468,7 @@ reread the record before deciding what happened.
   write settles, the refreshed read takes over. Say a failed write in a toast
   with `error.message`.
 - Save on blur, on a pause, or on an explicit action, never on each keystroke.
-  Checkpoints sample those files later; a call is not a commit boundary.
+  The home's commits sample those files later; a call is not a commit boundary.
 
 ### A draft over query data
 
@@ -539,17 +572,17 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   repair records after changing fields. There is no automatic later merge.
   Inspect the source commit recorded in `code/SOURCE.md`, compare incoming
   code outside the live Epicenter, and test compatibility with the existing
-  records before a named checkpoint. A refreshed publication does not update
+  records before a named commit. A refreshed publication does not update
   apps people have already copied. Bring contributions back into the maintained
   app before refreshing an export, which would overwrite edits made in the
   generated directory.
-- Back up the root to one optional private origin. A checkpoint commits all
-  included pending files and pushes only there. Restore with one root clone
+- Back up the root to one optional private origin. The home's checkpoint
+  script commits all pending files and pushes only there. Restore with one root clone
   and `epicenter install`, then recreate what each app kept in `local/`.
 - Sharing code requires a separate code-only history, deliberately made and
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:
-  a Git repository inside it makes every checkpoint refuse.
+  a Git repository inside it makes the home's checkpoint script refuse.
   Use `epicenter export` for the generated code directory, then review, commit,
   and push the outer repository with Git. Recipients can read its history and
   notes as well as its code: keep private record content out of those messages,
@@ -580,10 +613,10 @@ shared-tasks/
     epicenter.ts
 ```
 
-Export first makes a local checkpoint of included pending code, records, and
-staged work across the private Epicenter, then copies code from that commit.
+Export copies code from the last commit and commits nothing. When an app's
+`code/` has uncommitted changes it refuses: commit them with Git, then export.
 It excludes records, local files, dependencies, builds, provenance, and private
-history. It does not upload the private backup or publish the exported code.
+history. It does not publish the exported code.
 
 The command owns and replaces the generated directory, including edits and
 extra files inside it. A destination must be new, empty, or carry the matching

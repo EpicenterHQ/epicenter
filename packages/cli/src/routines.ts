@@ -11,9 +11,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isName, readMarkdown } from '@epicenter/app';
-import { COMPILED, misuse, parseWords } from './commands.ts';
-import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { epicenterDir } from './root.ts';
+import { COMPILED } from './commands.ts';
+import { writeErr } from './output.ts';
 
 type Routine = {
 	cron: string;
@@ -157,25 +156,4 @@ export function createRoutines({
 			}
 		},
 	};
-}
-
-/** List the home's routines: each schedule and next occurrence, or its problem. */
-export async function routinesCommand(words: string[], json: boolean) {
-	const given = parseWords(words, {}, [0, 0]);
-	if (!given) return fail(misuse('routines'), json);
-	const rows = await createRoutines({ folder: epicenterDir() }).list();
-	if (json) writeJson(rows);
-	else
-		writeOut(
-			rows.length
-				? rows
-						.map((row) =>
-							'problem' in row
-								? `${row.name}: ${row.problem}`
-								: `${row.name}: cron ${row.cron}, next ${row.next ?? 'never'}`,
-						)
-						.join('\n')
-				: 'No routines. Add routines/<name>.md with cron and run.',
-		);
-	return rows.some((row) => 'problem' in row) ? 1 : 0;
 }

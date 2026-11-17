@@ -58,8 +58,8 @@ then `epicenter install writing` from your Epicenter. Changes in a shared copy
 do not replace your changes.
 
 History belongs to the Epicenter's private root repository. Make a named commit
-before experimenting, and experiment outside the live folder. `epicenter
-checkpoint -m 'Adapt my writing inbox'` records pending code and records together.
+before experimenting, and experiment outside the live folder. `git commit
+-am 'Adapt my writing inbox'` records pending code and records together.
 Keep the repository private: it contains your writing.
 
 ## Share your app

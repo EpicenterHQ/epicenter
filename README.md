@@ -177,7 +177,7 @@ Applications under `apps/` are outside apps
 
 | Package | What it is |
 | --- | --- |
-| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, serves UIs, and checkpoints included code and records in one private root repository. |
+| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools and serves UIs. Git stores the home, one private root repository, and the command does not wrap it. |
 | [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineCollection`, `defineAction`, fields, `folder`, and the client a UI calls actions with. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |

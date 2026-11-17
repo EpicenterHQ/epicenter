@@ -3,10 +3,9 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import defaultTheme from '@epicenter/theme/theme.css' with { type: 'text' };
-import { isRepositoryTop } from './checkpoint.ts';
 import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import { CliError } from './errors.ts';
-import { checkedGit, git } from './git.ts';
+import { checkedGit, git, isRepositoryTop } from './git.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	APPS,
@@ -23,6 +22,39 @@ port: ${port}
 ---
 This folder is an Epicenter. Each folder in its \`apps/\` is an app: its code in \`code/\`, its records in \`data/\`. Run \`epicenter\` here to list them.
 `;
+
+/** The routine a new home commits itself with: the script under a lock, every five minutes. */
+const CHECKPOINT_ROUTINE = `---
+cron: "*/5 * * * *"
+run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
+---
+Commit everything pending and push to the backup.
+`;
+
+/**
+ * What that routine runs, from the home. It is the home's own file: Git
+ * stores the home, and \`epicenter\` has no command that commits.
+ */
+const CHECKPOINT_SCRIPT = `#!/bin/sh
+set -eu
+for s in MERGE_HEAD REVERT_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD; do
+  [ -e ".git/$s" ] && { echo "merge or rebase underway" >&2; exit 0; }
+done
+git add -A
+if git ls-files -s | grep -q '^160000'; then
+  echo "a nested Git repository is staged; remove its .git" >&2; exit 1
+fi
+git diff --cached --quiet || git commit -qm "\${1:-checkpoint}"
+git remote get-url origin >/dev/null 2>&1 || exit 0
+GIT_TERMINAL_PROMPT=0 git push -q origin HEAD
+`;
+
+const indented = (text: string) =>
+	text
+		.trimEnd()
+		.split('\n')
+		.map((line) => `    ${line}`)
+		.join('\n');
 
 const STARTER_AGENTS = `This folder is an Epicenter: one private Git repository holding every app's
 code and records. Each folder in apps/ is an app:
@@ -50,22 +82,32 @@ shows a build's errors. A record that no longer fits the code still reads,
 with its problems listed: when you change a field, change the code, then
 repair the records that no longer fit.
 
-Actions make no commits. History comes from checkpoints: \`epicenter
-checkpoint\` commits everything pending as one commit and pushes to origin
-when one is set; \`-m "<what changed>"\` names it. Nothing runs it on its
-own. Without a checkpoint routine this folder keeps no history of records
-and backs up nothing. To checkpoint every five minutes, write
-routines/checkpoint.md:
+Epicenter runs actions and serves pages. Git stores this folder, and
+Epicenter does not wrap Git: actions make no commits, and no epicenter
+command commits or pushes. This folder commits itself with two files of its
+own, which you may change. routines/checkpoint.md runs every five minutes
+while \`epicenter serve\` is running:
 
-    ---
-    cron: "*/5 * * * *"
-    run: ["epicenter", "checkpoint"]
-    ---
-    Commit everything pending and push to the backup.
+${indented(CHECKPOINT_ROUTINE)}
 
-The branch and the index are shared: a checkpoint commits whatever is staged
-along with everything else. Make a named commit before a risky change. Keep
-origin private: it receives every app's records.
+It runs scripts/checkpoint.sh, one run at a time:
+
+${indented(CHECKPOINT_SCRIPT)}
+
+The script commits everything pending as one commit named "checkpoint", and
+pushes when there is an origin. It waits out a merge, rebase, revert or
+cherry-pick. It refuses while a Git repository is nested in this folder,
+because the commit would hold only a pointer to it and not its files.
+/usr/bin/lockf is on macOS. On Linux, start the routine's run with
+"flock", "-n", ".git/checkpoint.lock" instead. Remove the routine file and
+nothing is committed or pushed on its own.
+
+Run \`epicenter\` to see each routine, how long ago the last commit was, how
+many files are uncommitted, and how many commits are not on origin.
+
+The branch and the index are shared: the script commits whatever is staged
+along with everything else. Make a named commit with git before a risky
+change. Keep origin private: it receives every app's records.
 
 Do experiments outside this folder. Branches, checkouts, stashes, resets, and
 rebases here change the live code and records of every running app.
@@ -79,9 +121,11 @@ commit. A commit made before an app's repositories were combined holds only
 one of code/ or data/, so restoring apps/<app>/ from it deletes the other.
 
 An app is code/, data/ and local/. What is in apps/<app>/local/ stays on this
-computer: .gitignore keeps it out, and a checkpoint refuses a file there that
-Git would commit. The same holds for a file named *.local or *.local.*, the
-older way to say it. Never run git clean -x here: it deletes them.
+computer: the line /apps/*/local/ in .gitignore keeps it out of every commit,
+whoever makes the folder. A file named *.local or *.local.* is the older way
+to say it, and .gitignore keeps those out too. Git's ignore rules are the
+only guard: keep those lines, and never \`git add -f\` such a file. Never run
+git clean -x here: it deletes them.
 `;
 
 function actualFolder(path: string): string {
@@ -150,11 +194,18 @@ export async function initCommand(
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
 		wrote.push('AGENTS.md');
 	}
-	try {
-		await writeFile(join(folder, 'theme.css'), defaultTheme, { flag: 'wx' });
-		wrote.push('theme.css');
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+	for (const [path, text, mode] of [
+		['theme.css', defaultTheme, 0o644],
+		['routines/checkpoint.md', CHECKPOINT_ROUTINE, 0o644],
+		['scripts/checkpoint.sh', CHECKPOINT_SCRIPT, 0o755],
+	] as const) {
+		await mkdir(dirname(join(folder, path)), { recursive: true });
+		try {
+			await writeFile(join(folder, path), text, { flag: 'wx', mode });
+			wrote.push(path);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+		}
 	}
 	await startEpicenterRepository(folder, wrote);
 	if (json) writeJson({ folder, port });

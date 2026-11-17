@@ -68,7 +68,7 @@ export async function stopFixtureServes() {
 		[...fixtures].map(async (serving) => {
 			const own = serving.own;
 			serving.own = undefined;
-			// Killed, not asked to stop: nobody keeps this home's last checkpoint.
+			// Killed, not asked to stop: a test's home has nothing to finish.
 			await (await own?.catch(() => undefined))?.kill();
 		}),
 	);

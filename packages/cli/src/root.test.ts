@@ -58,8 +58,12 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(await gitIn(fresh, 'check-ignore', ...kept)).toBe(kept.join('\n'));
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('one private Git repository');
-	expect(starter).toContain('Actions make no commits.');
-	expect(starter).toContain('checkpoint');
+	// The guidance shows the two files as init wrote them.
+	for (const path of ['routines/checkpoint.md', 'scripts/checkpoint.sh'])
+		for (const line of (await readFile(join(fresh, path), 'utf8'))
+			.trimEnd()
+			.split('\n'))
+			expect(starter).toContain(`    ${line}\n`);
 	const shown = await f.run('init', join(f.root, 'shown'));
 	expect(shown.stdout).toContain(`Made Epicenter at ${join(f.root, 'shown')}`);
 	expect(shown.stderr).toBe(
@@ -293,4 +297,72 @@ test("serve reads the marker's port when no command port is given", async () => 
 		child.kill('SIGTERM');
 		await child.exited;
 	}
+});
+
+test('a new home commits itself: the script init writes commits, pushes, waits out a rebase and refuses a nested repository', async () => {
+	const f = await setup();
+	const home = join(f.root, 'home');
+	expect((await f.run('init', home)).code).toBe(0);
+	expect(await gitIn(home, 'status', '--porcelain')).toBe('');
+	expect(
+		await gitIn(home, 'ls-files', '-s', 'scripts/checkpoint.sh'),
+	).toStartWith('100755 ');
+	// The routine file init wrote is one serve accepts.
+	expect(JSON.parse((await f.runIn(home, '--json')).stdout).routines).toEqual([
+		{ name: 'checkpoint', cron: '*/5 * * * *', next: expect.any(String) },
+	]);
+	// As the routine runs it, without the lock: serve starts routines in the home.
+	const checkpoint = async () => {
+		const child = Bun.spawn(['sh', 'scripts/checkpoint.sh'], {
+			cwd: home,
+			env: process.env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		const [stderr, code] = await Promise.all([
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		return { code, stderr };
+	};
+	const head = () => gitIn(home, 'rev-parse', 'HEAD');
+
+	// No origin: it commits what is pending and pushes nowhere.
+	// What an app keeps in local/ is never staged: the root ignore line covers
+	// it whoever made the folder.
+	await f.folder(home, {
+		'apps/x/data/a.md': 'a',
+		'apps/x/local/google.md': 'token',
+	});
+	expect(await checkpoint()).toEqual({ code: 0, stderr: '' });
+	expect(await gitIn(home, 'log', '-1', '--format=%s')).toBe('checkpoint');
+	expect(await gitIn(home, 'ls-files', '--', 'apps')).toBe('apps/x/data/a.md');
+	const clean = await head();
+	expect(await checkpoint()).toEqual({ code: 0, stderr: '' });
+	expect(await head()).toBe(clean);
+
+	const origin = join(f.root, 'origin.git');
+	await gitIn(f.root, 'init', '-q', '--bare', origin);
+	await gitIn(home, 'remote', 'add', 'origin', origin);
+	await f.folder(home, { 'apps/x/data/b.md': 'b' });
+	expect((await checkpoint()).code).toBe(0);
+	expect(await gitIn(origin, 'rev-parse', 'main')).toBe(await head());
+
+	await mkdir(join(home, '.git/rebase-merge'));
+	await f.folder(home, { 'apps/x/data/c.md': 'c' });
+	const pushed = await head();
+	expect(await checkpoint()).toEqual({
+		code: 0,
+		stderr: 'merge or rebase underway\n',
+	});
+	expect(await head()).toBe(pushed);
+	await rm(join(home, '.git/rebase-merge'), { recursive: true });
+
+	await f.folder(join(home, 'apps/x/vendor'), { 'lib.ts': '' }, { git: true });
+	const refused = await checkpoint();
+	expect(refused.code).toBe(1);
+	expect(refused.stderr).toContain(
+		'a nested Git repository is staged; remove its .git',
+	);
+	expect(await head()).toBe(pushed);
 });

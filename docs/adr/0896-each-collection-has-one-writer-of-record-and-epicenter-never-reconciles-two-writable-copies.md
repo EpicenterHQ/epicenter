@@ -48,7 +48,7 @@ Epicenter.**
    `.local` when the source can send it again. Commit it as Markdown when
    the person would want it after the source is gone, as with Whispering's
    recordings and hosted Notes. A checkpoint records committable edits still on disk
-   (`packages/cli/src/checkpoint.ts`). A pull may replace a stray edit before
+   (the home's checkpoint routine). A pull may replace a stray edit before
    the next checkpoint. Checkpoint manually before a pull when that edit
    needs to be kept (ADR-0910).
 

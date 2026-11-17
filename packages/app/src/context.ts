@@ -9,8 +9,8 @@
  * `data/` and `local/`; reads may reach any app file. What is in `local/`
  * stays on this computer.
  *
- * An action changes files and never commits. Root checkpoints record pending
- * code and records together. A change that depends on what it
+ * An action changes files and never commits: Git stores the home, and the
+ * home's own commits record pending code and records together. A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
  * file. Nothing here knows whether an action says it is read-only: that is a
  * hint the action gives MCP clients, and no write is refused for it.
@@ -136,8 +136,8 @@ export const folder: Folder = {
 
 /**
  * Whether `path`, as `normalizePath` returns it, is in the app's `local/`.
- * What is there stays on this computer: it is never committed, and a new file
- * there is readable by its owner alone.
+ * What is there stays on this computer: the home's ignore file keeps it out of
+ * every commit, and a new file there is readable by its owner alone.
  */
 export function isUnderLocal(path: string): boolean {
 	return path.startsWith('local/');
@@ -152,8 +152,8 @@ const LOCAL = /\.local(\.|$)/i;
 /**
  * Whether one of `path`'s parts matches `*.local` or `*.local.*`. This is
  * the old way to say a file stays on this computer, by its name; the place,
- * `local/`, says it now (`isUnderLocal`). It is kept for the data layer and
- * the checkpoint refusal until every app has moved its files to `local/`.
+ * `local/`, says it now (`isUnderLocal`). It is kept for the data layer
+ * until every app has moved its files to `local/`.
  */
 export function isLocalPath(path: string): boolean {
 	return path.split('/').some((part) => LOCAL.test(part));

@@ -406,8 +406,8 @@ same run
 `delete`, and `path` on a computer.
 
 An action changes files and makes no Git commit. Its writes remain pending,
-including when it returns an Err, throws, or stops. A root checkpoint records included code
-and records together, from the CLI or serve's clock
+including when it returns an Err, throws, or stops. Git stores the home, and its
+commits record code and records together
 ([ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Reads tolerate records that no longer fit the declaration; repair follows a
 code change rather than blocking the whole app.

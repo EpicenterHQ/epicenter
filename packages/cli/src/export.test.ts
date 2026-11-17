@@ -1,7 +1,8 @@
 /**
  * App export tests.
- * Exercise the real CLI and Git boundary: a fresh local checkpoint becomes a flat,
- * owned directory without records or private history. Refreshes replace generated
+ * Exercise the real CLI and Git boundary: the last commit becomes a flat,
+ * owned directory without records or private history, and export commits
+ * nothing itself. Refreshes replace generated
  * contents, keep Git outside, and materialize shareable theme links.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
@@ -17,7 +18,6 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { checkpoint } from './checkpoint.js';
 import { EXPORT_MARKER } from './code-copy.js';
 import { bareApp, fixture, gitIn } from './runner.test-support.js';
 
@@ -56,7 +56,7 @@ async function commit(home: string) {
 	await gitIn(home, 'commit', '--no-verify', '-qm', 'app snapshot');
 }
 
-test('export checkpoints staged and untracked code before copying bytes and modes without private files', async () => {
+test('export refuses staged and untracked code, then copies committed bytes and modes without private files', async () => {
 	const f = await setup({
 		'apps/tasks/code/tool.sh': '#!/bin/sh\nprintf hello\n',
 		'apps/tasks/code/data/private.md': 'private record',
@@ -93,13 +93,27 @@ test('export checkpoints staged and untracked code before copying bytes and mode
 	await writeFile(join(f.tasks, 'epicenter.ts'), source);
 	await writeFile(join(f.tasks, 'fresh.txt'), 'untracked code');
 	await gitIn(f.home, 'add', '--', 'apps/tasks/code/epicenter.ts');
+	const staged = await gitIn(f.home, 'diff', '--cached', '--name-only');
+	for (const args of [['tasks'], ['--all']]) {
+		const refused = await f.run('export', ...args, f.output, '--json');
+		expect(refused.code).toBe(2);
+		expect(JSON.parse(refused.stdout).error).toMatchObject({
+			name: 'Refused',
+			message:
+				'apps/tasks/code has uncommitted changes; commit them, then export.',
+		});
+	}
+	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(sourceCommit);
+	expect(await gitIn(f.home, 'diff', '--cached', '--name-only')).toBe(staged);
+	expect(await Bun.file(f.output).exists()).toBe(false);
+	await commit(f.home);
 	const run = await f.run('export', 'tasks', f.output, '--json');
 	expect(run.code).toBe(0);
-	expect(JSON.parse(run.stdout)).toMatchObject({
+	expect(JSON.parse(run.stdout)).toEqual({
 		commit: await gitIn(f.home, 'rev-parse', 'HEAD'),
 		directory: f.output,
-		checkpoint: { commit: await gitIn(f.home, 'rev-parse', 'HEAD'), files: 2 },
-		apps: [{ app: 'tasks', uncommitted: false }],
+		apps: [{ app: 'tasks', materialized: [], uncommitted: false }],
+		omitted: [],
 	});
 	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(source);
 	expect(new Uint8Array(await readFile(join(f.output, 'binary.bin')))).toEqual(
@@ -116,8 +130,6 @@ test('export checkpoints staged and untracked code before copying bytes and mode
 		'.git',
 	])
 		expect(await Bun.file(join(f.output, path)).exists()).toBe(false);
-	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).not.toBe(sourceCommit);
-	expect(await gitIn(f.home, 'status', '--porcelain=v1')).toBe('');
 	expect(await readFile(join(f.output, 'fresh.txt'), 'utf8')).toBe(
 		'untracked code',
 	);
@@ -256,13 +268,11 @@ test('--all adds future committed apps and removes absent apps without importing
 		'reading',
 		'export default defineApp({ description: "Reading", collections: {}, actions: {} });',
 	);
+	// An app that was never committed is left out and named, not committed.
 	const pending = await f.run('export', '--all', output, '--json');
-	expect(pending.code).toBe(0);
-	expect(JSON.parse(pending.stdout).omitted).toEqual([]);
-	expect(JSON.parse(pending.stdout).apps).toContainEqual(
-		expect.objectContaining({ app: 'reading' }),
-	);
-	expect(JSON.parse(pending.stdout).checkpoint).not.toBeNull();
+	expect(pending.code).toBe(1);
+	expect(JSON.parse(pending.stdout).omitted).toEqual(['reading']);
+	await commit(f.home);
 	expect((await f.run('export', '--all', output)).code).toBe(0);
 	expect(await Bun.file(join(output, 'reading/epicenter.ts')).exists()).toBe(
 		true,
@@ -331,13 +341,7 @@ test('unowned directories, another app export, and symlinked targets are refused
 	const f = await setup();
 	await mkdir(f.output);
 	await writeFile(join(f.output, 'keep.txt'), 'precious');
-	const before = await gitIn(f.home, 'rev-parse', 'HEAD');
-	await writeFile(
-		join(f.tasks, 'new.txt'),
-		'not checkpointed for a refused destination',
-	);
 	expect((await f.run('export', 'tasks', f.output)).code).toBe(2);
-	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(before);
 	expect(await readFile(join(f.output, 'keep.txt'), 'utf8')).toBe('precious');
 	await rm(f.output, { recursive: true });
 	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
@@ -365,13 +369,14 @@ test('theme links copy committed shared bytes and internal links retain their ta
 	await writeFile(join(f.home, 'theme.css'), 'uncommitted shared theme');
 	const run = await f.run('export', 'tasks', f.output, '--json');
 	expect(run.code).toBe(0);
+	// The shared file is copied as committed, and its pending change is reported.
 	expect(JSON.parse(run.stdout).apps[0]).toMatchObject({
-		uncommitted: false,
+		uncommitted: true,
 		materialized: [{ path: 'ui/theme.css', from: 'theme.css' }],
 	});
 	expect((await lstat(join(f.output, 'ui/theme.css'))).isFile()).toBe(true);
 	expect(await readFile(join(f.output, 'ui/theme.css'), 'utf8')).toBe(
-		'uncommitted shared theme',
+		'body { color: red; }',
 	);
 	expect(await readlink(join(f.output, 'ui/internal.css'))).toBe(
 		'theme-copy.css',
@@ -395,7 +400,7 @@ test('theme links copy committed shared bytes and internal links retain their ta
 	]) {
 		expect((await lstat(join(collection, path))).isFile()).toBe(true);
 		expect(await readFile(join(collection, path), 'utf8')).toBe(
-			'uncommitted shared theme',
+			'body { color: red; }',
 		);
 	}
 });
@@ -524,8 +529,9 @@ for (const storage of [undefined, 'custom-lfs']) {
 		);
 		const oldMarker = await readFile(join(f.output, EXPORT_MARKER), 'utf8');
 		const oid = /oid sha256:([0-9a-f]+)/.exec(pointer)![1]!;
-		// A materialized working file lets the fresh snapshot recreate the object.
-		// Leave only its pointer so the payload is unavailable in both places.
+		// Git's status can run the LFS filter on a materialized working file,
+		// which stores the object again. Leave only its pointer, which is what
+		// the commit holds, so the payload is unavailable in both places.
 		await writeFile(join(f.tasks, 'asset.bin'), `${pointer}\n`);
 		await rm(
 			join(
@@ -580,109 +586,6 @@ test('export help and argument validation reserve the command and reject ambiguo
 	expect((await f.run('new', 'export', '--json')).code).toBe(2);
 });
 
-test('export saves locally without contacting the backup, which a later checkpoint can upload', async () => {
-	const f = await setup();
-	const bin = join(f.root, 'bin');
-	await mkdir(bin);
-	const touched = join(f.root, 'backup-contacted');
-	const helper = join(bin, 'git-remote-observe');
-	await writeFile(
-		helper,
-		`#!${process.execPath}
-await Bun.write(${JSON.stringify(touched)}, 'contacted');
-process.exit(1);
-`,
-	);
-	await chmod(helper, 0o755);
-	f.env.PATH = `${bin}:${f.env.PATH}`;
-	await gitIn(f.home, 'remote', 'add', 'origin', 'observe::backup');
-	await writeFile(join(f.tasks, 'latest.txt'), 'latest code');
-	const exported = await f.run('export', '--all', f.output, '--json');
-	expect(exported.code).toBe(0);
-	const report = JSON.parse(exported.stdout);
-	expect(report.commit).toBe(await gitIn(f.home, 'rev-parse', 'HEAD'));
-	expect(report.checkpoint.commit).toBe(report.commit);
-	expect(await Bun.file(touched).exists()).toBe(false);
-	expect(await readFile(join(f.output, 'tasks/latest.txt'), 'utf8')).toBe(
-		'latest code',
-	);
-	const remote = join(f.root, 'origin.git');
-	await gitIn(f.root, 'init', '--bare', '-q', remote);
-	await gitIn(f.home, 'remote', 'set-url', 'origin', remote);
-	const backedUp = await f.run('checkpoint', '--json');
-	expect(backedUp.code).toBe(0);
-	expect(JSON.parse(backedUp.stdout)).toMatchObject({
-		committed: null,
-		pushed: true,
-	});
-	expect(await gitIn(remote, 'rev-parse', 'HEAD')).toBe(report.commit);
-});
-
-test('a refused local checkpoint never replaces the previous export with stale code', async () => {
-	const f = await setup();
-	expect((await f.run('export', '--all', f.output)).code).toBe(0);
-	const before = await gitIn(f.home, 'rev-parse', 'HEAD');
-	const code = await readFile(join(f.output, 'tasks/epicenter.ts'), 'utf8');
-	await writeFile(join(f.tasks, 'fresh.txt'), 'pending code');
-	await writeFile(join(f.home, '.gitignore'), '');
-	await writeFile(join(f.home, 'secret.local'), 'do not checkpoint');
-	const refused = await f.run('export', '--all', f.output, '--json');
-	expect(refused.code).toBe(2);
-	expect(JSON.parse(refused.stdout).error.message).toContain('secret.local');
-	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(before);
-	await rm(join(f.home, 'secret.local'));
-	await writeFile(join(f.home, '.git/MERGE_HEAD'), `${before}\n`);
-	const deferred = await f.run('export', '--all', f.output, '--json');
-	expect(deferred.code).toBe(2);
-	expect(JSON.parse(deferred.stdout).error.message).toContain('merge');
-	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(before);
-	expect(await readFile(join(f.output, 'tasks/epicenter.ts'), 'utf8')).toBe(
-		code,
-	);
-	expect(await Bun.file(join(f.output, 'tasks/fresh.txt')).exists()).toBe(
-		false,
-	);
-});
-
-test('a slow backup releases the local snapshot lock so export can save newer code', async () => {
-	const f = await setup();
-	const bin = join(f.root, 'bin');
-	await mkdir(bin);
-	const ready = join(f.root, 'upload-started');
-	const helper = join(bin, 'git-remote-slow');
-	await writeFile(
-		helper,
-		`#!${process.execPath}
-await Bun.write(${JSON.stringify(ready)}, 'uploading');
-await Bun.sleep(300_000);
-`,
-	);
-	await chmod(helper, 0o755);
-	await gitIn(f.home, 'remote', 'add', 'origin', 'slow::backup');
-	const previousPath = process.env.PATH;
-	process.env.PATH = `${bin}:${previousPath}`;
-	let finished = false;
-	const upload = checkpoint(f.home, { pushTimeoutMs: 5000 }).finally(() => {
-		finished = true;
-	});
-	try {
-		for (let i = 0; i < 200 && !(await Bun.file(ready).exists()); i++)
-			await Bun.sleep(10);
-		expect(await Bun.file(ready).exists()).toBe(true);
-		expect(finished).toBe(false);
-		await writeFile(join(f.tasks, 'while-uploading.txt'), 'newer code');
-		const exported = await f.run('export', '--all', f.output, '--json');
-		expect(exported.code).toBe(0);
-		expect(
-			await readFile(join(f.output, 'tasks/while-uploading.txt'), 'utf8'),
-		).toBe('newer code');
-		expect(finished).toBe(false);
-	} finally {
-		await upload;
-		process.env.PATH = previousPath;
-	}
-});
-
 test('export refuses a private Epicenter nested inside another repository without changing its previous output', async () => {
 	const f = await setup();
 	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
@@ -695,7 +598,6 @@ test('export refuses a private Epicenter nested inside another repository withou
 	expect(JSON.parse(result.stdout).error).toMatchObject({
 		name: 'Refused',
 		message: `${f.home} is not a Git repository`,
-		next: `git -C ${f.home} init`,
 	});
 	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(previous);
 	expect(await Bun.file(join(f.output, 'fresh.txt')).exists()).toBe(false);

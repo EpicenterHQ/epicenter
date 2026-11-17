@@ -4,7 +4,7 @@
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on two answers: a file already there when adding is `Changed` (`there`), not `Refused`, and an absent one-file key reads as `Ok(undefined)`, not as an empty record.
 - **Unbuilt:** all of it. No runtime has `defineData`.
-- **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md) (what a caller outside the app gets); [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (no app lock; `folder.update`); [ADR-0936](0936-serve-runs-every-action-while-it-is-running.md) (one writer).
+- **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md) (what a caller outside the app gets); [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (no app lock; `folder.update`); [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one writer).
 
 ## Context
 
@@ -16,7 +16,7 @@ placeholder has methods without keys and no `add`.
 A collection also guards: every `add` and `set` reads the record each ref
 names and refuses one that names nothing, and the generated `set` refuses a
 stale value (`was`). Epicenter presumes one person, one writer, and one
-implementer ([ADR-0936](0936-serve-runs-every-action-while-it-is-running.md)),
+implementer ([ADR-0936](0936-one-serve-per-home-runs-every-action.md)),
 and `epicenter check` reports a ref that names nothing.
 
 Under [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md)
@@ -76,7 +76,7 @@ await data['settings.md'].set({ level: 'HSK 3' });       // creates the file whe
 - Every write goes through `folder.edit`, which reads the file, decides, and
   writes. The handle takes no lock and promises nothing about another writer
   changing the same file at the same moment: Epicenter presumes one
-  ([ADR-0936](0936-serve-runs-every-action-while-it-is-running.md)).
+  ([ADR-0936](0936-one-serve-per-home-runs-every-action.md)).
 - Failures are the four `ActionError` variants: `Missing`, `Misfit`,
   `Changed`, `Refused`. `Changed` gains `why: 'there'`.
 

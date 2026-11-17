@@ -3,7 +3,6 @@ import { isName } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { buildCommand } from './build.ts';
 import { checkCommand } from './check.ts';
-import { checkpoint, renderCheckpoint } from './checkpoint.ts';
 import { COMMANDS, type Command, misuse, parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
@@ -28,12 +27,13 @@ import {
 	writeJson,
 	writeOut,
 } from './output.ts';
+import { repositoryStatus } from './repository.ts';
 import { epicenterDir, epicenterRoot, MARKER, RootUsageError } from './root.ts';
-import { routinesCommand } from './routines.ts';
+import { createRoutines } from './routines.ts';
 import { sendToServe } from './serve-call.ts';
 import { serviceCommand } from './service.ts';
 
-const HELP = `epicenter                              your apps
+const HELP = `epicenter                              your apps, routines and repository
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<input>]
 ${Object.values(COMMANDS)
@@ -46,7 +46,7 @@ then ~/Epicenter. An Epicenter has EPICENTER.md.
 An action's input is one JSON object, such as '{"title":"Call the bank"}',
 or - to read it from stdin; null removes a field that takes it.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
-Exit codes: 0 done, 1 ran with a failure or an unfinished export or checkpoint, 2 did not run.`;
+Exit codes: 0 done, 1 ran with a failure or an unfinished export, 2 did not run.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
@@ -60,21 +60,6 @@ const HANDLERS: { [K in Command]: Handler } = {
 	build: buildCommand,
 	check: checkCommand,
 	service: serviceCommand,
-	routines: routinesCommand,
-	async checkpoint(words, json) {
-		const given = parseWords(
-			words,
-			{ message: { type: 'string', short: 'm' } },
-			[0, 0],
-		);
-		if (!given) return fail(misuse('checkpoint'), json);
-		const result = await checkpoint(epicenterDir(), {
-			message: given.values.message,
-		});
-		if (json) writeJson(result);
-		else writeOut(renderCheckpoint(result));
-		return result.deferred || result.failed || result.pushFailed ? 1 : 0;
-	},
 	async serve(words, json) {
 		if (json)
 			return fail(
@@ -121,8 +106,13 @@ export async function runCli(argv: string[]): Promise<number> {
 			else if (help) print(HELP);
 			else {
 				epicenterRoot();
-				const found = await discoverAll();
-				print(homeListing(found, json));
+				// A report only: it reads the home and starts, fetches and writes nothing.
+				const [found, routines, repository] = await Promise.all([
+					discoverAll(),
+					createRoutines({ folder: epicenterDir() }).list(),
+					repositoryStatus(epicenterDir()),
+				]);
+				print(homeListing(found, { routines, repository }, json));
 			}
 			return 0;
 		}
@@ -133,12 +123,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
 				return 0;
 			}
-			if (
-				command !== 'init' &&
-				command !== 'service' &&
-				command !== 'checkpoint'
-			)
-				epicenterRoot();
+			if (command !== 'init' && command !== 'service') epicenterRoot();
 			return await HANDLERS[command](words, json);
 		}
 		epicenterRoot();

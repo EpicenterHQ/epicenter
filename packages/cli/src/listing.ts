@@ -15,6 +15,7 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
+import { type RepositoryStatus, repositoryLine } from './repository.ts';
 
 /**
  * An action as an MCP tool definition: its name, input schema, and the hints
@@ -94,8 +95,24 @@ function actionLines(located: Runnable) {
 	]);
 }
 
-/** Render discovery as one answer while keeping broken entries separate from runnable apps. */
-export function homeListing(found: Discovery, json: boolean): unknown {
+/** A routine as the report shows it: its schedule and next occurrence, or why its file is refused. */
+export type RoutineRow =
+	| { name: string; cron: string; next: string | undefined }
+	| { name: string; problem: string };
+
+/**
+ * The home's report: its apps, with broken entries kept apart from runnable
+ * ones, then its routines, then one line about its repository. `--json`
+ * carries the same facts; `repository` is `null` when the home is not one.
+ */
+export function homeListing(
+	found: Discovery,
+	{
+		routines,
+		repository,
+	}: { routines: RoutineRow[]; repository: RepositoryStatus | null },
+	json: boolean,
+): unknown {
 	if (json)
 		return {
 			epicenter: found.epicenter,
@@ -105,6 +122,8 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 				folder,
 				problems,
 			})),
+			routines,
+			repository,
 		};
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map((located) => {
@@ -122,6 +141,19 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 				...app.problems.map((problem) => `    ${problem}`),
 			);
 	}
+	lines.push('');
+	if (!routines.length)
+		lines.push('No routines. Add routines/<name>.md with cron and run.');
+	else
+		lines.push(
+			'Routines:',
+			...routines.map((row) =>
+				'problem' in row
+					? `  ${row.name}: ${row.problem}`
+					: `  ${row.name}: cron ${row.cron}, next ${row.next ?? 'never'}`,
+			),
+		);
+	lines.push('', `Git: ${repositoryLine(found.epicenter, repository)}`);
 	return lines.join('\n');
 }
 
