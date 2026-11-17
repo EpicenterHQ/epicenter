@@ -55,7 +55,9 @@ skills: [arktype](../arktype/SKILL.md), [typebox](../typebox/SKILL.md), and
 ### Control flow and values
 
 - Avoid `as any`. Use `unknown`, validation, brands, or narrower helpers instead.
-- Prefer optional chaining over `in` checks or truthiness when checking optional properties.
+- Make required values required, and keep values optional when their absence is meaningful. Put defaults where they belong, usually in the function that defines the behavior, rather than repeating them across callers. Use optional chaining and `??` when they express an intentional choice.
+- When different cases require different data, model them as a discriminated union. Checking the discriminator should make the corresponding data available.
+- For Wellcrafted Results, check `error !== null` for failure.
 - Prefer `switch` over `if/else` for repeated equality comparisons against the same value. Use `default: value satisfies never` for exhaustiveness when needed.
 - Prefer `Record` lookup tables over nested ternaries for finite value mappings.
 - Compose typed errors bottom-up. Do not filter a broad upstream error union at the boundary. See `error-handling` for Result propagation, recovery, and presentation.
