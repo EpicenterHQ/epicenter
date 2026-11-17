@@ -1,6 +1,6 @@
 ---
 name: typescript
-description: Apply project conventions for TypeScript types, imports, generics, factories, and runtime schemas. Use when editing `.ts` files or reviewing TypeScript design and tests, including constraints that need to name an invalid literal key or string in a compiler error.
+description: Apply project conventions for TypeScript types, imports, generics, factories, and runtime schemas. Use when editing `.ts` files, designing factories, documenting returned methods, or reviewing TypeScript design and tests, including constraints that need to name an invalid literal key or string in a compiler error.
 metadata:
   author: epicenter
   version: '2.0'
@@ -8,7 +8,7 @@ metadata:
 
 # TypeScript Guidelines
 
-Project-wide TypeScript conventions compose with narrower skills such as `arktype`, `typebox`, `testing`, and `factory-function-composition`.
+Project-wide TypeScript conventions compose with narrower skills such as `arktype`, `typebox`, and `testing`.
 
 ## Core Rules
 
@@ -18,17 +18,16 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - Use `type`, not `interface`.
 - Use `readonly` only for arrays and maps, unless matching an upstream type exactly.
 - Treat acronyms as normal words in camelCase: `parseUrl`, `defineKv`, `readJson`, `customerId`.
-- Give relative imports an explicit extension, the one the package already uses: `.ts` in packages run from source (`packages/app`, `packages/cli`, `apps/local-books`), `.js` in the rest.
+- Give relative imports an explicit extension, the one the package already uses: for example, `.ts` in `packages/app` and `.js` in `packages/account`.
 - Export symbols at their declarations. Reserve `export { ... } from ...` for barrel files.
 - In React/TSX, prefer named function components with explicit props parameters over `React.FC`/`FunctionComponent`; only type component values when you are storing them in a registry or passing them as data.
 - Prefer factory functions over classes. Let closure position communicate private vs public API.
 - Pass injected dependencies through a destructured object in the function signature, even for one dependency: `createMailbox({ db })`, never `createMailbox(db)`. Function-valued dependencies follow the same convention: `createSession({ signOut })`.
-- Prefer a factory that captures shared dependencies and returns related methods over standalone functions taking dependencies on every call: `const mailbox = createMailbox({ db }); mailbox.search(input)`, rather than `searchMessages(db, input)`. Implement behavior directly in the returned methods; avoid forwarding to helpers that merely take the same dependencies again. See [factory patterns](references/factory-patterns.md) for examples and extraction boundaries.
 - Use descriptive generic names with a `T` prefix, such as `TSchema`, `TDefs`, and `TKey`.
 - Destructure options in the function signature when the object is a configuration bag or dependency object. Keep a named value only when it is the domain object being transformed or forwarded.
 - Let TypeScript infer private and inner return types. Annotate exported APIs only when useful for clarity or to break circular inference.
 - If an exported type is exactly the object returned by a `create*`, `attach*`, `open*`, or similar factory, derive it from the implementation with `ReturnType<typeof createThing>`. Put the exported output alias immediately after the factory. Keep input, config, data, protocol, and multi-implementation contract types above the factory.
-- Move consumer-facing JSDoc onto the returned object members. Add concrete member annotations inside the returned object when they preserve IntelliSense, narrow an implementation detail, or keep a public method/property surface stable.
+- Keep consumer-facing JSDoc on the implementation a caller reaches: an inline returned method, or a named function exposed through property shorthand. Add concrete member annotations inside the returned object when they preserve IntelliSense, narrow an implementation detail, or keep a public method/property surface stable.
 - For curried factories, derive from the inner return, such as `ReturnType<ReturnType<typeof createThing>>`. For generic factories, instantiate `typeof` when needed, such as `ReturnType<typeof openThing<TActions>>`. For async factories, unwrap the promise: `export type CapturesHarness = Awaited<ReturnType<typeof openCaptures>>`, then pass that alias wherever a generic needs it, so editing the factory is the only edit.
 - For new or deliberately redesigned APIs, prefer explicit read methods for live or computed values, named for what they answer: `items()`, `state()`, `isLocked()`. Ordinary data stays in properties. The methods hold in Svelte too: `reactive` from `@epicenter/svelte/reactive` keeps a capability's methods and makes them track ([svelte](../svelte/SKILL.md)), so there is no getter facade. A capability's actions answer promises, even an instant one (ADR-0769). Existing getters and upstream-required shapes are current contracts; keep them unless the API is being redesigned, and do not add wrappers or duplicate spellings just for this convention. Keep writable internal state private rather than exposing it because the implementation happens to store it that way.
 - Use a `Symbol` brand when identity means a specific factory output, not a coincidental shape probe.
@@ -40,6 +39,15 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - Compose typed errors bottom-up. Do not filter a broad upstream error union at the boundary. See `error-handling` for Result propagation, recovery, and presentation.
 - Question silent fallbacks that hide invalid state. Preserve round-trip invariants when parsing and serializing.
 
+## Factory function composition
+
+> When you see two functions that share the same first argument, it is usually a sign that the functions want to be grouped. Pass that shared argument into a service or factory function once, then return methods that only take the values that change per call. If the methods need lifecycle or cached state, put that mutable state in the closure between the factory declaration and the returned object.
+
+Implement behavior directly in the returned methods; avoid forwarding to helpers
+that merely take the same dependencies again. See [factory function composition](references/factory-function-composition.md)
+for signatures, instance setup, and closure-based methods, and [factory patterns](references/factory-patterns.md)
+for additional examples and extraction boundaries.
+
 ## Go-to-Definition Awareness
 
 When organizing types and exports, always consider Go-to-Definition. A developer pressing Go-to-Def from a call site should land as close as possible to the actual source of truth. If a design choice forces an extra navigation hop, the choice has to earn it elsewhere (e.g., a real validation boundary, a published contract, or a multi-implementation port).
@@ -48,22 +56,24 @@ Concrete regressions to watch for:
 
 - **Destructure-re-export of a module-level object**: `const stub = { fn, gn } satisfies T; export const { fn, gn } = stub;` lands Go-to-Def on the destructuring line, not the real definition. Prefer per-export `satisfies` or a direct `export const fn = ... satisfies T['fn']`.
 - **`typeof Real` annotation over `satisfies`**: `export const fn: typeof Real = unreachable` hides the underlying value's identity from navigation. `export const fn = unreachable satisfies typeof Real` keeps the value as the source of truth.
-- **`: T` annotation over `satisfies` for a multi-impl port**: the complement of the rule above. When an interface `T` has several impls (a `#platform/*` or browser/tauri split) and one impl is deliberately narrower than `T` (e.g. ignores a param the contract declares), `export const x = {...} satisfies T` leaks that narrow concrete type, so a caller's view of the method changes by platform. Annotate `export const x: T = {...}` to publish the wide contract, and the narrower impl still type-checks. Reference: whispering's `ManualRecorderLive: RecorderService<...>` (unary CPAL impl behind a binary contract).
+- **`: T` annotation over `satisfies` for a multi-impl port**: the complement of the rule above. When an interface `T` has several impls (such as a browser and desktop recorder) and one impl is deliberately narrower than `T` (e.g. ignores a param the contract declares), `export const x = {...} satisfies T` leaks that narrow concrete type, so a caller's view of the method changes by platform. Annotate `export const x: T = {...}` to publish the wide contract, and the narrower impl still type-checks. The [recorder package](../../../packages/recorder/src/index.ts) exports `recorder: Recorder` for both implementations.
 - **Re-export chains in non-barrel files**: `export { X } from './alias'` outside `index.ts` costs an extra hop with nothing to show for it. Reserve `export { ... } from ...` for barrels; export at the declaration everywhere else.
-- **Adapter / proxy / wrapper with no behavior change**: a `fromX` translator or thin passthrough makes Go-to-Def land on the wrapper. Widen the underlying factory's return shape instead (see `factory-function-composition` "collapsed adapter" rule).
-- **Manual return type annotation duplicating zone 4**: annotating a factory with a hand-written interface diverts Go-to-Def to the alias. Let the factory return its concrete object, then put the exported alias directly after it as `export type Thing = ReturnType<typeof createThing>`. This keeps navigation on the returned members and lets their JSDoc own the public documentation. See [factory method documentation](../factory-function-composition/references/method-documentation-and-sibling-calls.md) when hover or navigation is in question.
-- **Noisy `satisfies` generic lists**: if a return object should prove it extends a generic contract but `satisfies Contract<A, B, C> & Extras` forces callers to restate inferred table, action, or runtime types, prefer a constrained identity helper owned by the contract module. Example: `return defineWorkspace({ ...workspace, ...runtime })` where the helper accepts `TWorkspace extends Workspace<...>` and returns `TWorkspace`. This keeps the call site readable, preserves the exact inferred return type, and leaves Go-to-Def on the real object members.
+- **Adapter / proxy / wrapper with no behavior change**: a `fromX` translator or thin passthrough makes Go-to-Def land on the wrapper.
+- **Manual return type annotation duplicating the return object**: annotating a factory with a hand-written interface diverts Go-to-Def to the alias. Let the factory return its concrete object, then put the exported alias directly after it as `export type Thing = ReturnType<typeof createThing>`. This keeps navigation on the returned members and lets their JSDoc own the public documentation. See [factory method documentation](references/method-documentation-and-sibling-calls.md) when hover or navigation is in question.
+- **Noisy `satisfies` generic lists**: if a return object should prove it extends a generic contract but `satisfies Contract<A, B, C> & Extras` forces callers to restate inferred table, action, or runtime types, prefer a constrained identity helper owned by the contract module. Have the helper accept and return the same constrained type parameter. This keeps the call site readable, preserves the exact inferred return type, and leaves Go-to-Def on the real object members.
 - **When not to add `defineX`**: do not wrap a simple `satisfies` check just to give it a helper name. If the contract has no required type arguments, or its generics have defaults that make `satisfies Contract` readable, prefer `satisfies`. The helper only earns the extra name when it removes generic noise the reader would otherwise have to carry.
 
 For broader public-shape decisions that affect navigation across packages, see `rethink`.
 
 ## Reference Map
 
+- [Factory function composition](references/factory-function-composition.md): dependency and configuration inputs, instance setup, internal operations, and the returned public API.
+- [Method documentation and sibling calls](references/method-documentation-and-sibling-calls.md): documentation on returned operations and receiver requirements in existing APIs.
 - [Project conventions](references/project-conventions.md): detailed examples for derived types, local shape copies, imports, barrels, factories, generics, destructuring, and factory return types.
 - [Type safety and control flow](references/type-safety-and-control-flow.md): identity brands, casts, optional properties, boolean naming, switches, record lookups, error composition, fallback smells, and round-trip invariants.
 - [Type organization](references/type-organization.md): `types.ts` location, co-location rules, inline-vs-extract hop test, options and ID naming.
 - [Factory patterns](references/factory-patterns.md): named dependency objects, methods sharing captured dependencies, parameter destructuring, and coupled state extraction.
-- [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and workspace table IDs.
+- [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and collection keys.
 - [Testing patterns](references/testing-patterns.md): inline single-use setup and source-shadowing tests.
 - [Advanced TypeScript features](references/advanced-typescript-features.md): iterator helpers and const generic array inference.
 - [Readable constraint errors](references/readable-constraint-errors.md): read when a literal key or string constraint needs to identify the offending value in a compiler diagnostic.

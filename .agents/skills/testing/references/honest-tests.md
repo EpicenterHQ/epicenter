@@ -28,6 +28,8 @@ the test's own setup makes structurally impossible to reach.
 
 ## Smells
 
+The collaboration and Y.Doc examples below come from a historical folder-sync test audit. They show how to check what a fixture can exercise and what an assertion can actually detect.
+
 ### 1. The hedged assertion that excludes the failure mode
 
 ```typescript

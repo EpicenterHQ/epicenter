@@ -28,8 +28,7 @@
 			"apps/api/ui",
 			".agents/skills/consult-claude",
 			"ops",
-			"packages/*",
-			"examples/*"
+			"packages/*"
 		],
 		"catalog": {
 			"@types/node": "^24.0.0",

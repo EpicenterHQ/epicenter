@@ -1,41 +1,34 @@
-/**
- * `epicenter new` makes an app in the selected Epicenter: two repositories,
- * the app's folder for its code and `data/` for its data (ADR-0877).
- *
- * - `new <name> --from <path>` and `new <name> --from <git url>[#<folder>]`
- *   take another app's code by copying it (ADR-0904): the files Git tracks
- *   in the app's folder, at the commit its repository's `HEAD` names. The
- *   copy is a repository of its own whose one commit names the source and
- *   that commit. It has no remote and none of the source's history, and no
- *   data comes with it. From then on the code is changed where it is: taking
- *   the source's later changes is work for an agent that reads the source,
- *   not a merge any command performs. `serve` builds its UI when it is first
- *   opened.
- * - `new <name>` makes the folder from the built-in template, makes it a
- *   repository, commits the template, and makes the data repository.
- * Both install the app's locked packages and link @epicenter/app before
- * loading epicenter.ts. An install failure keeps the app for repair.
- * The app's name is its child entry in the Epicenter.
- */
+/** Create an app container from blank code or a committed code copy. */
 import {
 	mkdir,
 	mkdtemp,
 	readdir,
 	readFile,
+	readlink,
+	realpath,
+	rename,
 	rm,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+	checkoutCodeFiles,
+	isCopiedCodePath,
+	readCodeFiles,
+} from './code-copy.ts';
 import { misuse, nameProblem, parseWords } from './commands.ts';
-import { dataRepository } from './data.ts';
 import { ENGINES } from './engines.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
 import { installApp } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { appsDir, folderPath } from './root.ts';
+import { appsDir, epicenterDir, epicenterRoot, folderPath } from './root.ts';
+import { uiSource } from './ui.ts';
+
+type CopiedSource = { commit: string; notCopied?: string[] | null };
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
 function isUrl(source: string) {
@@ -69,7 +62,7 @@ async function locateSource(
 		if (located.code !== 0)
 			return {
 				error: CliError.Usage({
-					message: `${from} is not in a Git repository; --from takes only the files Git tracks`,
+					message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run epicenter install <name>`,
 				}).error,
 			};
 		const [repository = '', prefix = ''] = located.stdout.split('\n');
@@ -95,28 +88,17 @@ async function locateSource(
 	return { repository: from.slice(0, at), folder: segments.join('/') };
 }
 
-/**
- * `from` as the app's first commit records it. A path is made absolute, so it
- * still names a place when read from another folder. An http(s) URL loses any
- * credentials it carries, since the commit is pushed with the app.
- */
+/** Source provenance keeps absolute paths and strips HTTP credentials. */
 function recordedSource(from: string) {
 	return isUrl(from)
 		? from.replace(/^(https?:\/\/)[^/@]*@/i, '$1')
 		: folderPath(from);
 }
 
-/** What every app's code ignores: its data, a repository of its own, and its installed packages. */
-const IGNORED = ['data/', 'node_modules/'];
-
-/**
- * The built-in template: an app with no collections or actions yet, and what
- * its code's Git ignores, starting with its data, a repository of its own. It
- * routes nothing through Git LFS; an app that comes to hold binary files adds
- * its own `.gitattributes` (ADR-0856).
- */
-function template(name: string) {
+/** Blank app code is one Bun project whose records live beside code/. */
+function blank(name: string) {
 	return {
+		'.gitignore': 'node_modules/\nui/dist/\n',
 		'package.json': `${JSON.stringify({ name, private: true, engines: ENGINES }, null, 2)}\n`,
 		'epicenter.ts': `import { defineApp } from '@epicenter/app';
 
@@ -126,11 +108,10 @@ export default defineApp({
 	actions: {},
 });
 `,
-		'.gitignore': IGNORED.map((line) => `${line}\n`).join(''),
 	};
 }
 
-/** Whether `name` is taken in `apps/`, ignoring case, as macOS does. */
+/** Whether `name` is taken in apps/, ignoring case, as macOS does. */
 async function taken(name: string) {
 	try {
 		return (await readdir(appsDir())).some(
@@ -142,28 +123,40 @@ async function taken(name: string) {
 	}
 }
 
-/**
- * Say what `new` made: the folder on stdout and the next step on stderr, then
- * that it is not backed up and how to back it up, or with `--json`, one
- * object.
- */
-function made(name: string, json: boolean) {
+/** The folder is the answer; the next command goes to stderr. */
+async function made(name: string, json: boolean, source?: CopiedSource) {
 	const folder = join(appsDir(), name);
-	if (json) writeJson({ name, folder });
+	const links = await danglingLinks(join(folder, 'code'));
+	for (const { path, target } of links)
+		writeErr(
+			`${name}: code/${path} links to ${target}, which this Epicenter does not have`,
+		);
+	if (json)
+		writeJson({
+			name,
+			folder,
+			...(source ? { source } : {}),
+			...(links.length ? { links } : {}),
+		});
 	else {
 		writeOut(folder);
-		writeErr(`Run: epicenter ${name}`);
-		// A new app has no remote, whether from the template or from another app's code (ADR-0851).
-		writeErr(
-			`not backed up\nRun: git -C ${folder} remote add origin <url> and git -C ${folder}/data remote add origin <url>, each a private repository, then epicenter sync ${name}`,
-		);
+		writeSourceWarning(name, source);
+		if (await uiSource(join(folder, 'code'))) {
+			const { port } = epicenterRoot();
+			writeErr('Run: epicenter serve');
+			writeErr(
+				port
+					? `Open http://127.0.0.1:${port}/${name}/ in your browser.`
+					: `Open /${name}/ at the address printed by serve.`,
+			);
+		} else writeErr(`Run: epicenter ${name}`);
 	}
 	return 0;
 }
 
 /**
  * `epicenter new <name> [--from <path> | --from <git url>[#<folder>]]`: an
- * app from a copy of another app's code, or from the built-in template.
+ * app from a copy of another app's code, or from blank code.
  */
 export async function newCommand(
 	words: string[],
@@ -185,56 +178,134 @@ export async function newCommand(
 				.error,
 			json,
 		);
+	await mkdir(appsDir(), { recursive: true });
 	if (from === undefined) {
 		try {
 			await makeApp(name);
 		} catch (error) {
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
-		const installed = await installApp(join(appsDir(), name), name);
+		const installed = await installApp(join(appsDir(), name, 'code'), name);
 		if ('error' in installed) return installFailed(name, installed.error, json);
 		return made(name, json);
 	}
 	const source = await locateSource(from);
 	if ('error' in source) return fail(source.error, json);
 	const folder = join(appsDir(), name);
-	const copied = await copySource(from, source, name, folder);
-	if ('installError' in copied)
-		return installFailed(name, copied.installError, json);
+	let created = false;
+	try {
+		await mkdir(folder);
+		created = true;
+	} catch (cause) {
+		return fail(CliError.GitFailed({ cause }).error, json);
+	}
+	const copied = await copySource(from, source, name, join(folder, 'code'));
 	if ('error' in copied) {
-		await rm(folder, { recursive: true, force: true });
+		if (created) await rm(folder, { recursive: true, force: true });
 		return fail(copied.error, json);
 	}
-	return made(name, json);
+	const installed = await installApp(join(folder, 'code'), name);
+	if ('error' in installed)
+		return installFailed(name, installed.error, json, copied);
+	const { data: located, error } = await loadHomeApp(name);
+	const loadProblem =
+		error ??
+		(located.ok
+			? undefined
+			: CliError.AppProblems({ app: from, problems: located.problems }).error);
+	if (loadProblem) {
+		await rm(folder, { recursive: true, force: true });
+		return fail(loadProblem, json);
+	}
+	return made(name, json, copied);
 }
 
-/**
- * Copy the app in `source` into `folder` as the app `name`: a repository of
- * its own whose one commit holds the copy and names, in two trailers, where
- * it came from (`recordedSource`) and the commit copied. Nothing reads the
- * trailers; they are there for the person and their agent.
- *
- * The copy is read from Git, never from the source's folder on disk: Git
- * writes exactly the files the commit tracks in that folder, with their modes
- * and symlinks, so an app's `data/`, `node_modules/`, and builds never come
- * along. It writes them from a shallow clone with nothing checked out. The
- * clone is made in the system's temporary folder, since an Epicenter lists
- * every repository inside it (`epicenter-repository.ts`), and it is removed
- * whatever happens.
- *
- * The folder taken must hold an `epicenter.ts` that loads, and no `data/`: a
- * source carries code alone.
- */
+/** Compare local source with the copied commit, including staged and untracked code. */
+async function notCopied(repository: string, folder: string, commit: string) {
+	let worktree = repository;
+	if (isUrl(repository)) {
+		if (!/^file:/i.test(repository)) return undefined;
+		try {
+			worktree = fileURLToPath(repository);
+		} catch {
+			return undefined;
+		}
+	}
+	const bare = await git(worktree, ['rev-parse', '--is-bare-repository']);
+	if (bare.code !== 0) return null;
+	if (bare.stdout === 'true') return undefined;
+	const path = folder ? `${folder}/` : '.';
+	const compared = await Promise.all([
+		git(worktree, [
+			'diff',
+			'--no-ext-diff',
+			'--no-renames',
+			'--name-only',
+			'-z',
+			commit,
+			'--',
+			path,
+		]),
+		git(worktree, [
+			'diff',
+			'--cached',
+			'--no-ext-diff',
+			'--no-renames',
+			'--name-only',
+			'-z',
+			commit,
+			'--',
+			path,
+		]),
+		git(worktree, [
+			'ls-files',
+			'--others',
+			'--exclude-standard',
+			'-z',
+			'--',
+			path,
+		]),
+	]);
+	if (compared.some(({ code }) => code !== 0)) return null;
+	const offset = folder ? folder.length + 1 : 0;
+	return [
+		...new Set(
+			compared
+				.flatMap(({ stdout }) =>
+					stdout
+						.split('\0')
+						.filter(Boolean)
+						.map((path) => path.slice(offset)),
+				)
+				.filter(isCopiedCodePath),
+		),
+	].sort();
+}
+
+function writeSourceWarning(name: string, source?: CopiedSource) {
+	if (source?.notCopied === null)
+		writeErr(
+			`${name}: copied source commit ${source.commit}; could not compare local source files with it`,
+		);
+	else if (source?.notCopied?.length) {
+		writeErr(
+			`${name}: copied source commit ${source.commit}; ${source.notCopied.length} source file(s) differ from it and were not copied`,
+		);
+		const shown = source.notCopied
+			.slice(0, 5)
+			.map((path) => JSON.stringify(path))
+			.join(', ');
+		writeErr(`Not copied: ${shown}${source.notCopied.length > 5 ? ', …' : ''}`);
+	}
+}
+
+/** Copy a filtered committed tree from a temporary clone, preserving Git modes and links. */
 async function copySource(
 	from: string,
 	source: { repository: string; folder: string },
 	name: string,
 	folder: string,
-): Promise<
-	| { ok: true }
-	| { error: CliError }
-	| { installError: { message: string; next?: string } }
-> {
+): Promise<CopiedSource | { error: CliError }> {
 	const usage = (message: string) => ({
 		error: CliError.Usage({ message }).error,
 	});
@@ -255,89 +326,97 @@ async function copySource(
 			const tracks = async (path: string) =>
 				(await git(clone, ['cat-file', '-e', `HEAD:${inFolder(path)}`]))
 					.code === 0;
+			if (
+				!(await tracks('epicenter.ts')) &&
+				(await tracks('code/epicenter.ts'))
+			)
+				source.folder = inFolder('code');
 			if (!(await tracks('epicenter.ts')))
 				return usage(
-					`${from} has no epicenter.ts that Git tracks${isUrl(from) && source.folder === '' ? `; name the app's folder with --from ${from}#<folder>` : ''}`,
+					`${from} has no epicenter.ts that Git tracks; name the app's folder with --from ${source.repository}#<folder>`,
 				);
-			if (await tracks('data'))
+			// Keep full paths and ancestor attributes in the index. Select checkout paths
+			// separately, so root-owned LFS attributes still apply to a subfolder copy.
+			await checkedGit(clone, ['read-tree', 'HEAD']);
+			const { entries, selected } = await readCodeFiles(clone, source.folder);
+			if (entries.some(({ mode }) => mode === '160000'))
 				return usage(
-					`${from} tracks files under data/, and an app's data is never copied`,
+					`${from} contains a gitlink; copy a folder without embedded repositories`,
 				);
-			await mkdir(appsDir(), { recursive: true });
-			// The clone's index takes the folder's tree alone, and Git writes that index out at the app's folder.
-			await checkedGit(clone, ['read-tree', `HEAD:${source.folder}`]);
-			await checkedGit(clone, ['checkout-index', '-a', `--prefix=${folder}/`]);
-			await ignoreDataAndPackages(folder);
-			await checkedGit(folder, ['init', '-q']);
-			// Forced, so the commit holds every file copied, whatever the copied .gitignore or this computer's Git ignores.
-			await checkedGit(folder, ['add', '-A', '-f']);
-			await checkedGit(folder, [
-				'commit',
-				'-q',
-				'-m',
-				`new ${name}`,
-				'--trailer',
-				`Source: ${recordedSource(from)}`,
-				'--trailer',
-				`Source-Commit: ${commit}`,
-			]);
-			await dataRepository(name, folder, { make: true });
+			let lfs: string[];
+			const staging = await mkdtemp(join(appsDir(), name, '.code-build-copy-'));
+			try {
+				lfs = await checkoutCodeFiles(clone, selected, staging);
+				await rename(join(staging, source.folder), folder);
+			} finally {
+				await rm(staging, { recursive: true, force: true });
+			}
+			// Attributes inherited from outside the copied folder must travel with its bytes.
+			const relativeLfs = lfs.map((path) =>
+				source.folder === '' ? path : path.slice(source.folder.length + 1),
+			);
+			await preserveLfs(folder, name, relativeLfs);
+
+			await mkdir(join(appsDir(), name, 'data'), { recursive: true });
+			await writeFile(
+				join(folder, 'SOURCE.md'),
+				`This app's code was copied by \`epicenter new --from\`. No command reads this file.\n\nSource: ${recordedSource(from)}\nSource-Commit: ${commit}\n`,
+			);
+			return {
+				commit,
+				notCopied: await notCopied(source.repository, source.folder, commit),
+			};
 		} finally {
 			await rm(clone, { recursive: true, force: true });
 		}
 	} catch (error) {
 		return { error: CliError.GitFailed({ cause: error }).error };
 	}
-	const installed = await installApp(folder);
-	if ('error' in installed) return { installError: installed.error };
-	const { data: located, error } = await loadHomeApp(name);
-	if (error) return { error };
-	if (!located.ok)
-		return {
-			error: CliError.AppProblems({ app: from, problems: located.problems })
-				.error,
-		};
-	return { ok: true };
 }
 
-/**
- * Make the code at `folder` ignore `data/` and `node_modules/`, adding to its
- * `.gitignore` whichever line is missing. A folder taken from inside a larger
- * repository may have relied on that repository's own `.gitignore`.
- */
-async function ignoreDataAndPackages(folder: string) {
-	const path = join(folder, '.gitignore');
-	let text = '';
-	try {
-		text = await readFile(path, 'utf8');
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-	}
-	const present = new Set(text.split('\n').map((line) => line.trim()));
-	const missing = IGNORED.filter((line) => !present.has(line));
-	if (missing.length === 0) return;
-	// Removed first, so a .gitignore that is a symlink becomes the app's own file, never a write through the link.
-	await rm(path, { force: true });
+/** Add only LFS rules lost when the source folder was detached from its ancestors. */
+async function preserveLfs(folder: string, name: string, paths: string[]) {
+	if (!paths.length) return;
+	const checked = await git(
+		epicenterDir(),
+		['check-attr', '-z', '--stdin', 'filter'],
+		{
+			input: `${paths.map((path) => `apps/${name}/code/${path}`).join('\0')}\0`,
+		},
+	);
+	if (checked.code !== 0) throw new Error(checked.stderr);
+	const fields = checked.stdout.split('\0');
+	const needed = paths.filter((_, i) => fields[i * 3 + 2] !== 'lfs');
+	if (!needed.length) return;
+	const file = join(folder, '.gitattributes');
+	const existing = await readFile(file, 'utf8').catch(
+		(error: NodeJS.ErrnoException) => {
+			if (error.code === 'ENOENT') return '';
+			throw error;
+		},
+	);
+	// Replace a copied symlink instead of writing into its target.
+	await rm(file, { force: true });
+	const rules = needed.map((path) => {
+		// Attribute patterns use wildmatch; quote whitespace and escape metacharacters.
+		const pattern = `/${path.replace(/[\\*?[\]]/g, '\\$&')}`;
+		return `${JSON.stringify(pattern)} filter=lfs diff=lfs merge=lfs -text`;
+	});
 	await writeFile(
-		path,
-		`${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${missing.map((line) => `${line}\n`).join('')}`,
+		file,
+		`${existing}${existing && !existing.endsWith('\n') ? '\n' : ''}${rules.join('\n')}\n`,
 	);
 }
 
-/**
- * Make `<Epicenter>/apps/<name>` from the built-in template, in its own repository
- * whose first commit is the template. The caller has checked the name.
- * Throws Git's message when Git fails.
- */
+/** The caller has checked that the container name is free. */
 async function makeApp(name: string) {
-	const folder = join(appsDir(), name);
-	await mkdir(folder, { recursive: true });
-	for (const [path, text] of Object.entries(template(name)))
+	const container = join(appsDir(), name);
+	await mkdir(container);
+	const folder = join(container, 'code');
+	await mkdir(folder);
+	await mkdir(join(container, 'data'));
+	for (const [path, text] of Object.entries(blank(name)))
 		await writeFile(join(folder, path), text);
-	await checkedGit(folder, ['init', '-q']);
-	await checkedGit(folder, ['add', '-A']);
-	await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
-	await dataRepository(name, folder, { make: true });
 }
 
 /** Keep the app on disk so its packages can be repaired and installed again. */
@@ -345,11 +424,41 @@ function installFailed(
 	name: string,
 	error: { message: string; next?: string },
 	json: boolean,
+	source?: CopiedSource,
 ) {
-	if (json) writeJson({ name, folder: join(appsDir(), name), error });
+	if (json)
+		writeJson({
+			name,
+			folder: join(appsDir(), name),
+			error,
+			...(source ? { source } : {}),
+		});
 	else {
+		writeSourceWarning(name, source);
 		writeErr(`${name}: ${error.message}`);
 		if (error.next) writeErr(`Run: ${error.next}`);
 	}
 	return 1;
+}
+
+/** Report copied links exactly as stored, without following directory links. */
+async function danglingLinks(
+	folder: string,
+	prefix = '',
+): Promise<{ path: string; target: string }[]> {
+	const links: { path: string; target: string }[] = [];
+	for (const entry of await readdir(join(folder, prefix), {
+		withFileTypes: true,
+	})) {
+		if (entry.name === 'node_modules') continue;
+		const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+		const full = join(folder, path);
+		if (entry.isDirectory()) links.push(...(await danglingLinks(folder, path)));
+		else if (
+			entry.isSymbolicLink() &&
+			!(await realpath(full).catch(() => undefined))
+		)
+			links.push({ path, target: await readlink(full) });
+	}
+	return links;
 }

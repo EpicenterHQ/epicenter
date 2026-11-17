@@ -1,53 +1,57 @@
 ---
 name: epicenter-app
-description: Make or change an app that lives in an Epicenter (such as ~/Epicenter): its collections, its actions, its UI, and its two repositories, code and data. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Reading, Tasks, or Vocab, change an app's UI, set up an Epicenter, share an app or take one from someone, or take later changes from the app an app's code was copied from, on the computer that runs epicenter serve.
+description: "Make or change an Epicenter app: its collections, actions, UI, code/data container, and private root history. Use when asked to build a personal app, change Capture, Reading, Tasks, or Vocab, set up an Epicenter, copy or share app code, or adapt code from another app on the computer that runs epicenter serve."
 ---
 
 # Epicenter apps
 
-An Epicenter is a folder holding `EPICENTER.md`; its apps are the folders
-directly inside it with an `epicenter.ts` (ADR-0868). `epicenter` works on the
-Epicenter you stand in (walking up from the current folder), else
-`EPICENTER_ROOT`, else `~/Epicenter`; a computer may hold several, such as one
-per person. `epicenter serve` offers one Epicenter's actions over MCP at `/`
-and each app's UI at `/<app>/`, on the `port` in its `EPICENTER.md` front
-matter (4747 when absent).
+An Epicenter is a marked folder with one private Git repository. Its apps
+live in `apps/<app>/`: `code/` is an ordinary Bun project and sibling `data/`
+holds records and settings. The source and live Epicenter use this layout
+(ADR-0910, Accepted). Inspect an existing app before editing it. An older
+Epicenter needs a separately authorized history and directory migration.
 
-An app is two Git repositories (ADR-0877). The app's folder is its code
-repository, which ignores `data/`; `data/` is its data repository, holding
-every record and every file the app keeps (ADR-0876). The code travels: it is
-what someone else takes, by copying it (ADR-0904). The data never travels:
-its history records every write, so it is backed up privately and shared
-with no one.
+`epicenter` selects the nearest marked ancestor of the current folder, then
+`EPICENTER_ROOT`, then `~/Epicenter`. A computer may hold several Epicenters,
+such as one per person. `epicenter serve` offers MCP at `/` and each UI at
+`/<app>/`, on the marker's `port` or 4747 when absent.
 
 ```txt
-<app>/                 the code repository
-  .gitignore           data/  node_modules/
-  epicenter.ts         the app: its collections and actions, composed by defineApp
-  epicenter.test.ts, package.json   the actions' tests and what they need
-  README.md
-  ui/                  the UI's source
-  ui/dist/             the UI serve shows at /<app>/: built from ui/, never committed
-  data/                the data repository
-    .gitignore         *.local  *.local.*
-    .gitattributes     binary files through LFS (ADR-0856)
-    tasks/<time>.md    records
-    google.local.md    kept on this computer, never committed
+<Epicenter>/                    one private Git repository
+  .gitignore  .gitattributes     local files/caches excluded; optional LFS rules
+  EPICENTER.md  AGENTS.md
+  apps/<app>/                   stable container: folder.path and write lock
+    code/                       one Bun project
+      epicenter.ts              collections and actions
+      epicenter.test.ts         action tests
+      package.json  bun.lock    actions' and UI's dependencies
+      README.md
+      ui/                       optional browser UI
+        dist/                   generated, ignored
+      node_modules/             supplied @epicenter/app link, ignored
+    data/                       records and settings
+      tasks/<time>.md
+      google.local.md           this computer only
 ```
 
-An app is its `epicenter.ts` over its data. The collections and actions
-there are the contract, and the UI is one view of it that can be replaced:
-the UI imports `epicenter.ts` for its types alone and calls the actions
-through `connect()`, so `bun run typecheck` says whether a UI is valid for
-an `epicenter.ts`. An app can start as a copy of another app's code, taken
-with `epicenter new --from`. The copy is a repository of its own with no
-remote, and no command merges later changes into it (ADR-0904). An app has
-one home: its folder in an Epicenter, backed up to its code repository.
-Capture, Reading, Tasks, and Vocab live in their author's Epicenter, each a
-private GitHub repository; the monorepo holds the platform and no apps
-(ADR-0877). Read `@epicenter/app`'s
-README (`packages/app/README.md` in the monorepo) and one existing app before
-starting; Tasks is the smallest whole example.
+`new --from <path|url>[#folder]` copies committed code into a new container's
+`code/`, without records, Git history, or a remote. It accepts a repository
+root, a subfolder, or an app container's code subtree. Provenance is in
+`code/SOURCE.md`. Later source changes are work for the app's owner; there is
+no merge-based updater. A copied symlink stays a link. For example,
+`code/ui/src/theme.css -> ../../../../../theme.css` uses the destination's palette.
+Fresh homes get that file from `init`. `new` reports a missing target if the
+receiving home lacks that file.
+
+Read `packages/app/README.md` and one existing app before starting. Tasks is
+the smallest whole example. Keep private records out of code publication;
+publishing needs a separate code-only history. `epicenter export` writes code
+into a generated directory outside the private Epicenter; review, commit, and
+push the publication's outer repository with Git.
+
+The code travels through export; the records stay private. Someone taking the
+app copies committed code without its records or private history. A private
+origin can still back up the root, including all apps' records.
 
 Before shaping a collection, decide where its truth is (`docs/vision.md`,
 ADR-0896, ADR-0898), then copy the nearest example in `~/Epicenter/apps`:
@@ -59,20 +63,19 @@ its source id, then close it at the source. Never keep two writable copies in
 step, and never make one app import or call another. Anything under
 "Not yet" or "Never" in `docs/vision.md` needs the owner's yes.
 
-Change an app where it is: edit its folder and commit to its code
-repository. The code is the person's own, written there or copied, and
-nothing keeps it in step with any other copy. A change meant for everyone
-who took an app is made in the app they took it from, and reaches each of
-them when their agent takes it (see "Take later changes" below).
+Change an app's code in its own `code/`. Keep experiments outside the live
+Epicenter: a branch switch, stash, or reset there changes every running app's
+code and records together. A change useful to another person is a code copy
+for their agent to adapt, with any record repair explained beside it.
 
 ## Decide the files first
 
 The files outlive every UI and agent, so their shape is the decision that
 matters most. Define each collection with `defineCollection({ path, fields })`
-in `epicenter.ts`: a path template and the fields of each file's front matter
+in `code/epicenter.ts`: a path template and the fields of each file's front matter
 (`packages/app/README.md`). A collection gives
-`list|get|add|set|edit|delete` (`get|set|edit` for one file) through
-`.actions()`. An app with one collection spreads them at the top, so they are
+`list|get|add|set` through `.actions()`, and `delete` only when named
+(`.actions('delete')`). An app with one collection spreads them at the top, so they are
 its own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests
 each under its name (`epicenter mail messages list`). A record's address is
 its path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
@@ -80,15 +83,16 @@ A path is one relative `.md` template under `data/`, such as
 `data/days/{day}.md`; files in a second layout are a second collection.
 `defineCollection` refuses a path outside `data/`, a list of paths, or a part
 starting with `.`. A field or placeholder may not be named `path`,
-`body`, `problems`, `other`, `json`, `help`, or `input`.
+`body`, `was`, or `edit`. No field has a `default`: a definition with one is
+refused, so write the default where the value is read (`limit ?? 50`).
 
 - Choose the path by how people and agents will name a file. `{time}` suits
   things made in passing (`data/captures/{time}.md`, `data/tasks/{time}.md`): `add`
   names the file by the time. A placeholder `add` takes suits things named by
   what they are (`data/words/{word}.md`, `data/books/{title}.md`), at the cost of
-  characters a file name cannot hold. `add` and `pathOf` name the file by the
-  value as NFC, trimmed, with single spaces, so an action passes what the
-  person typed.
+  characters a file name cannot hold. A method finds a file by the value
+  exactly as given first, then as NFC, trimmed, with single spaces, which is
+  the name `add` writes, so an action passes what the person typed.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
   as `field.date` and `field.datetime` hold them; `toISOString()` gives UTC's
@@ -96,93 +100,116 @@ starting with `.`. A field or placeholder may not be named `path`,
 - Derive a state from fields that already say it rather than storing it
   twice: Reading has no status, since `started` and `finished` say whether
   a book is to read, being read, or read.
-- `list` returns fields without bodies. Put what a list or an agent needs at a
-  glance in a field (a task's `title`); put prose in the body.
+- The `list` verb returns `Ok(rows)`, one Result per file without bodies.
+  The method gives one Result per file with bodies. Put what a list or an agent needs at a glance in a field (a
+  task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
-  required field takes no `null`. A `set` with no field throws. In a one-file
-  collection every field is optional or has a default.
+  required field takes no `null`. A generated `set` requires at least one
+  submitted field or body edit.
 - Mark a field `readOnly` when only the app's own actions may write it (Vocab's
   schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
-  A `readOnly` field that is required with no default removes the exposed
-  `add`, so write the app's own (Capture's `add`).
+  A `readOnly` field that is required removes the exposed `add`, so write
+  the app's own (Capture's `add`).
 - Constrain text with `field.text({ pattern, description })`, the description
   reading after "must be" (Tasks' title: `one line, not blank, saying what to
   do`), so the generated `set` refuses what the app's own `add` would.
-- A read never trusts the file: a field that does not fit reads as its
-  default, or is absent, and the file carries `problems` quoting what was
-  dropped; `get` also carries `other`, the front matter that is not a fitting
-  field. So every field without a default is optional when read, a required
-  one included. Read code handles absence; it never assumes the declaration.
-- A body changes through `edit --old <text> --new <text>`, which replaces one
-  passage and is refused unless `old` occurs exactly once, so a body read
-  before someone else changed it is never written back over theirs
-  (ADR-0869). An empty `old` fills an empty body.
-- A secret, such as a sign-in token, is a one-file collection at a
+- `get(keys)` gives `Ok(record)` when the file fits. An absent switch reads
+  as `false` and an absent list as `[]`. A missing keyed file gives
+  `Ok(undefined)` to the method and `Missing` to the generated action.
+  `RecordOf<typeof tasks>` names a fitting record.
+- A malformed file gives `Err(Misfit)`. Its error carries a path and
+  diagnostic lines. For a readable non-local file it also carries a partial
+  `record` for repair. A computed write refuses before its callback runs.
+  A direct patch can repair readable front matter if the whole result fits.
+  Unreadable front matter needs a file edit.
+- `field.list(item)` reads as `[]` when absent and is never needed from a
+  caller. An action that cannot run without an item declares
+  `field.list(item, { min: 1 })`: it is required, `--help` and the schema an
+  agent receives say so, and an empty list is refused before `run`.
+- The `set` verb sends what the caller last saw, since it cannot send a
+  function: fields, an optional `was` naming the field values it last saw
+  (`null` for absent), and `edit: { old, new }` to replace the passage `old`
+  of the body. `old` must occur exactly once, or be the whole body, or be empty
+  for an empty body (ADR-0869). One call is one write: when a `was` value or
+  the passage does not hold, it is refused with `Changed` (`why` says which)
+  and nothing is written, fields included. So a page that saves a record's
+  fields and its notes sends one `set`. In code, `set` carries `body`, as
+  data or from a function of the record.
+- A secret, such as a sign-in token, is a collection with no placeholder at a
   `.local.md` path (`data/google.local.md`), its fields declared like any other
   (ADR-0870). A `.local` file stays on the computer that runs the app:
-  `data/.gitignore` leaves it out of every commit, `folder` makes it `0600`,
+  the root `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
   and its `actions()` throws, so no generated verb hands it to an MCP client.
-  Read it in an action with `google.get()` and write it with `google.set(...)`.
+  Read it with `google.get()` and forward the Err before using the token.
+  The read succeeds with an empty record before sign-in. A local `Misfit`
+  omits the partial record and never quotes field values. Use a computed
+  write to compare the old token when refreshing it.
   A fresh clone has none, so the person signs in again.
-- The collections are the contract between the code and the data, and they
-  live in different repositories, so nothing checks that they agree: a key no
-  field declares goes to `other`, and a missing optional field is no problem.
-  Rename or tighten a field in two steps. Commit the code first; then rewrite
-  the records, by an action or by hand, so each data commit names the code it
-  was written for. Then read every record's `other` and `problems` to find any
-  the rewrite missed. Someone who takes the change into their copy gets the code
-  only: their records change when they run the same rewrite, so ship it as an
-  action, or say in the README what to run.
+- The collections are the contract between code and records. Reads tolerate
+  disagreement: undeclared keys are kept by every write and left out of a
+  read, and a missing optional field is no problem. Rename or tighten a field
+  in two steps: change the code, then repair records with an action or agent.
+  Run `epicenter check <app>` afterward to see any remaining file diagnostics.
+  A checkpoint records both code and repairs together.
+  There is no global migration gate. Explain any repair when sharing code;
+  another person's records change only when they run it.
 
 ## Write actions only for what the verbs cannot do
 
-For Mail (ADR-0882), agents prepare and revise proposals; the person runs
-`epicenter mail apply`. Never apply a proposal or call Gmail's mutation
-endpoints on the person's mail as an agent. Exercise the apply path only
-against fake Gmail.
+For Mail (ADR-0882), agents prepare and revise proposals. The person chooses
+`apply` to approve a proposal or `change` to act on the messages displayed
+in the reader. Exercise either write path only against fake Gmail as an agent.
 
-`epicenter.ts` default-exports `defineApp({ description, collections,
+`code/epicenter.ts` default-exports `defineApp({ description, collections,
 actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
-`node_modules` at the app's top. Its actions may import anything its
+`node_modules` inside code/. Its actions may import anything its
 `package.json` names, plus Node's
-built-ins. Add packages with `bun add` in the app's folder, then run
+built-ins. Add packages with `bun add` in code/, then run
 `epicenter install <app>` to restore the supplied link, which Bun can remove.
 `@epicenter/app` comes from epicenter and is never listed in the app's
 `package.json`. Its `engines.epicenter` (`">=0.2.0"`) is the oldest
 `epicenter` the app runs on; `epicenter new` writes its own version there.
 Raise it when the app starts using something a newer `@epicenter/app` added,
-always as a floor (`>=`), never a caret. `epicenter new` and `install [<app>]` install from
-the app's top-level `package.json` (`--frozen-lockfile` when `bun.lock` exists) and link that package;
+always as a floor (`>=`), never a caret. `epicenter new` and `epicenter install [<app>]` install from
+code/package.json (`--frozen-lockfile` when `bun.lock` exists) and link that package;
 a call never installs. Write each action with `defineAction`, which types its
-`run` from its `input`. Add one when the caller cannot do the job with the
+`run` from its `input`. Every action returns one Result. Return `Ok(value)`,
+`Ok(undefined)` for no value, or the Result of another action or collection
+method. A tagged factory such as `ActionError.Missing({ path })` already
+returns an Err. When continuing a calculation, use
+`if (read.error !== null) return read` before reading `read.data`. Add an action when the caller cannot do the job with the
 verbs: a rule on making a file (Tasks' `add` splits a title from its notes),
 a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
 `{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
-collection's methods (`words.get({ path })`, `words.set({ path, ...fields })`,
-`words.edit({ path, old, new })`, `words.update({ path }, change)`) instead of
-parsing front matter again. For other files, the imported `folder` supplies
-atomic writes and updates. Build a path with `words.pathOf({ word })`, never by hand.
+collection's methods, which name a record by its keys and take the change
+second (`words.get({ word })`, `words.set({ word }, { meaning, body })`,
+`words.set({ word }, (now) => Ok(patch(now)))`, `words.update({ word }, change)`),
+instead of parsing front matter again; a row passes as its own keys. A
+collection with no placeholder takes no keys (`settings.get()`). Its fields
+must allow an empty file. It reads as `Ok(record)` before the first write,
+has no `add`, and its `set` method or verb can create the file. For
+other files, the imported `folder` supplies atomic writes and updates.
+`words.pathOf({ word })` gives a record's path; never build one by hand.
 Make the first write through `folder` or a collection, so the call takes
-the app's lock and snapshots pending data separately. After that, writes may
-go any way: `folder`, `node:fs`, or a library. The call commits everything
-pending in `data/` that Git does not ignore when it ends. A call with no
-`folder` write takes no lock and commits nothing; its writes stay pending.
+container's lock. It stays held until the call returns, throws, or stops.
+After that first write, a library or `node:fs` write shares the call's lock
+lifetime. A call with no folder write takes no lock. All writes stay pending
+until a named commit or root checkpoint records them.
 `folder` refuses a write outside `data/` or through a `.git*` path segment.
 Reads may reach the whole Epicenter, including another app's records by a
 path like `../tasks/data/tasks/<time>.md`, using `node:fs` or a library.
-Change another app's data through that app's actions, so its history names
-what happened; this is guidance, not enforced.
+Resolve that path from `folder.path`, which is the container. Change another
+app's data through its actions so its rules check the write; this is guidance,
+not enforced.
 
-Make `run` an `async function*` only when a person watches it work, such as a
-chat reply from a model: each yield reaches the page that called it, and no
-one else. Return what the call produced, as any action does, since the
-command line, Claude, and tests see only the return. Save at the end, before
-returning, so a page closed mid-reply leaves nothing half-saved (ADR-0879).
-To offer Stop, pass `callSignal()` from `@epicenter/app` to the wait, such as
-the model's `fetch`, so a stop ends it at once; what must survive a stop, such
-as the person's message, is saved in a `finally`.
+Make `run` an `async function*` when a person watches it work, such as a
+chat reply from a model. The host records each yield for observers of that
+run and the action returns one final Result. Save completed output before
+returning. Pass `callSignal()` from `@epicenter/app` to cancellable work,
+such as the model's `fetch`. Decide which writes must survive cancellation,
+including any input the person has already submitted.
 
 Actions run inside `epicenter serve` itself, from the files as they are when
 the call arrives, so an edit takes effect on the next call. Never call
@@ -192,113 +219,116 @@ reaches every app `serve` runs.
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
 directly. A value computed from `get` and written with `set` is last write
-wins: a change made between them is lost. Compute it inside the collection's
-`update` instead, which calls `change` with the record as `get` gives it
-(`undefined` when there is no file) and writes the patch it returns (what
-`set` takes, without `path`, plus `body` when the body changes) only over
-that same record, or makes the file from it when there was none; when the
-file changed meanwhile, it calls `change` again on what is there now. Vocab's
-`review` schedules a word this way, so two reviews at once both count, and
-Reading's `start` makes a book or starts it in one `update`, never `get` then
-`add`, which two calls at once would race.
+wins: a change made between them is lost. Compute it inside `set`. Its callback receives a fitting record and returns `Ok(patch)`
+or a tagged Err. A missing keyed file gives `Missing`. A concurrent change
+causes a retry with the new record. Vocab's
+`review` schedules a word this way, so two reviews at once both count.
+`update(keys, change)` also takes a Result-returning callback. For an absent
+keyed file it supplies `undefined` and creates the file from `Ok(patch)`.
+The patch can carry a new `body`, so Reading's `start` makes a book or starts it in one `update`,
+never `get` then `add`, which two calls at once would race.
 
 ```ts
-await words.update({ path }, (word) => ({ reps: (word?.reps ?? 0) + 1 }));
+return words.set({ word }, (found) => Ok({ reps: (found.reps ?? 0) + 1 }));
 ```
 
-For any other file, use `folder.update(path, change)`, never `folder.read`
-then `folder.write`. It does the same with the file's text (`undefined` when
-there is none). Either way, keep `change` a pure function of what it is
-given, since it may run more than once; throw in it to refuse, and nothing is
-written. A collection's `change` that returns `{}` leaves a file as it is,
-so Reading's `start` returns `{}` for a book already started; throw in it
-when the record must already be there.
+Use `folder.update(path, change)` for a raw text change. It passes the current
+text, or `undefined` when the file is absent. Either way, keep `change` a pure function of what it is
+given, since it may run more than once. A collection callback returns a tagged
+Err to decline or `Ok({})` to leave an existing file alone. A raw folder
+callback returns the new text.
 
 ```ts
 await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
 ```
 
-Every collection write goes through `folder.update`. `set` writes the values
-it is given, and `folder.write` is for a file whose whole content the action
-decides: for both, the last write wins.
+Use `folder.edit(path, decide)` for a raw text change that may decline. Return
+`Err(reason)`, `Ok({ value })` to preserve the file, or `Ok({ value, text })`
+to replace it. The result carries the value from the winning attempt. `set` given fields writes
+the values it is given, and `folder.write` is for a file whose whole content
+the action decides: for both, the last write wins.
 
-The generated verbs address a record by its path, the one address every
-collection has. An action you write chooses its own input, and one people type
-should take what they type: Vocab's `review` could take `{ word, grade }` and
-call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`.
+The generated verbs take a record's keys flat, beside the other fields. On the
+command line an action's input is one JSON object, the same one MCP takes:
+`epicenter vocab set '{"word":"serendipity","meaning":"a lucky find"}'`.
+For text a person wrote, pipe it with `- <<'EOF'`, which has no quoting to get
+wrong; `epicenter <app> <action> --help` lists the keys. An action you write
+chooses its own input, and should take what its caller knows: Vocab's `review`
+takes `{ word, grade }`, giving
+`epicenter vocab review '{"word":"你好","grade":"good"}'`. An action has no
+`positional`; `defineAction` throws on one.
 
-Annotate honestly. An action never commits; after a run that is not
-`readOnlyHint: true`, epicenter commits everything pending in `data/`,
-named for the call (`<app>: <words> <first positional>`, with ` (threw)`
-when it threw). Edits pending before the first write get their own
-`<app>: changed outside epicenter` snapshot. If that snapshot fails, the
-call leaves everything pending and reports the failure. The call's data
-commit carries `Code-Commit: <sha>`, the code HEAD read before `epicenter.ts`
-loads, and `Code-Dirty: true` when the code then had uncommitted changes.
-A read-only run takes no lock and commits nothing. Its writes through
-`folder` throw except to a `.local` file under `data/`: a read-only action
-may refresh its token there without taking the lock, and no commit takes it.
+Annotate honestly. A read-only run takes no lock. Its folder writes throw
+except to `.local` paths under data/, so an action that only reads can refresh
+a token locally. Actions make no commits. The root ignore rules keep local
+files out, and a checkpoint refuses local credentials Git would include.
 
 Write last. A call holds its app's lock from its first write until its
-commit, and other writes to the app wait for it at most 30 seconds, so fetch
+end, and other writes to the app wait for it at most 30 seconds, so fetch
 from a service, call a model, or compute first, then write. When the person's
 input must survive a failure, write it after the slow step fails, not before
 it starts: Vocab's `practice reply` asks the model, then saves both turns, or
-saves the learner's turn alone and throws. Never run `epicenter` against the action's own app
+saves the learner's turn alone and returns its provider error. Never run `epicenter` against the action's own app
 after writing: the inner call waits for the lock its own caller holds, and
 fails after 30 seconds.
 
-When you edit an app's files yourself rather than through its actions, commit
-your edits when you finish, each to its own repository:
+After direct edits, `epicenter checkpoint -m "<what changed>"` records pending
+code and records in one root commit and pushes origin when set. A plain named
+Git commit works too. The branch and index are shared: checkpoints consume
+staged work along with other included files. Make a named commit before a
+risky change. Serve runs the same checkpoint at startup, every five minutes
+after a scheduled pass completes, and on stop. It samples files, not intent,
+and can capture a partial edit or part of a running action.
 
-- Code: `git commit` in the app's folder, with a message that says what the
-  code does now. Whoever takes the app reads that history, so a code message
-  never names or quotes a record.
-- Records: `epicenter sync <app> -m "<what you did>"` commits everything
-  pending in the app under that message and backs it up. Commit the code
-  first, so the data commit names the code it was written for, and so the
-  message, which `sync` gives both repositories, lands only on the data.
-  `git commit` inside `data/` is safe too, since `data/.gitignore` keeps
-  `*.local` and `*.local.*` out; never add one with `git add -f`.
+The root origin is optional and private. It receives all apps' records.
+Checkpoints never pull, merge, rebase, or force-push. A failed push leaves
+commits local for a later retry. Missing or broken code does not hide data
+from a checkpoint. Keep local credentials ignored and never force-add them.
+Never run `git clean -x` in the Epicenter: it deletes local credentials.
 
-Edits nobody commits are committed by `epicenter serve` within 5 minutes as
-`<app>: changed outside epicenter`, in whichever repository holds them.
+To recover, inspect Git history, then restore selected paths from the root:
 
-Never run `git clean -ffdx` or `git clean -x` in the app's folder: `data/` is
-ignored there, so Git deletes it, with any history not yet pushed.
+```sh
+git log --oneline -- apps/<app>/
+git restore --source=<commit> -- apps/<app>/code/    # code only
+git restore --source=<commit> -- apps/<app>/data/    # records only
+```
 
-An agent can read and reverse that history. `epicenter history <app>` lists
-both repositories' commits together, newest first, each with its commit, local
-time, `code` or `data`, subject, and the paths it changed (`--json` gives
-`{ commit, date, repository, subject, changed, code?, undid? }`, `code` being
-a data commit's `Code-Commit`). `epicenter undo <app>` snapshots what is
-pending, then reverts the newest data snapshot that is not an undo and not
-undone, as `<app>: undid <subject>`; run it again to go further back,
-`epicenter undo <app> <commit>` to undo that data commit, and undo an undo to
-bring it back. When the code changed after the commit it undid, its answer
-lists the code commits since (`codeSince`): a record rewrite undone may need
-the field change it went with undone too. Undo reverts data only; revert a
-code commit with `git -C <app folder> revert <sha>`. It refuses a commit not
-in the data's history, a revert Git refuses (a merge), and one that conflicts
-or changes nothing, leaving the folder as it was. After a write that went
-wrong, undo it rather than rewriting the file by hand, so history says what
-happened.
+A whole `apps/<app>/` restore reverts both and deletes tracked files added
+later. Inspect the root `MIGRATION.md` and the commit tree first. Commits from
+before a move into `apps/<app>/` use the old paths. An imported per-app commit
+can hold only code or only records: restore its code or data prefix, not the
+whole app. History retained only in archive refs is outside `main`; fetch it
+explicitly into a separate recovery checkout. Keep the live home on its
+current branch.
+
+When recovering a bad write, inspect history and restore the relevant known
+version rather than retype its previous content, then record the repair in a
+named checkpoint so history says what happened. A field change and its record
+repair belong together. Restoring only code or only data can leave the
+declaration and records disagreeing. Run `epicenter check <app>` and inspect
+the diagnostics for the affected paths. Keep the named checkpoint before
+risky work so the original files remain recoverable.
 
 ## Build the UI as a client
 
-Copy an existing app's `ui/`: Svelte on Bun's bundler, with `ui/build.ts`,
-the Svelte plugin beside it (`ui/svelte-plugin.ts`), the hash router in
-`src/lib/router.svelte.ts`, and a manifest and icons in `static/`; copy
-`bunfig.toml` with it, whose `peer = false` keeps a peer named `bun` from
-shadowing Bun. The app's `package.json` names every package the UI imports,
-from npm, never `workspace:` or `catalog:`. The UI imports Epicenter only
-through `@epicenter/app/client`. It owns its components, copied into
-`src/lib/components/ui/` with `components.json`, `src/lib/utils.ts`, and the
-theme in `src/app.css` (ADR-0874). Add a component by copying it whole,
-dependencies and tests included, and change it in place.
+Add `code/ui/` when the app needs a browser view. The view can keep its own
+colors or import the home's `theme.css`. Finance uses the home variables in
+plain CSS. Tasks maps them to Tailwind utilities. Fonts, layout, and components
+belong to the app.
+
+For a Svelte UI like Tasks, copy its `ui/build.ts`, `ui/svelte-plugin.ts`, and
+the components the view uses. Copy `bunfig.toml` with the build: `peer = false`
+keeps a peer named `bun` from shadowing Bun. Keep component source editable in
+`src/lib/components/ui/` alongside `components.json` in `ui/` and `src/lib/utils.ts`.
+The UI calls Epicenter through `@epicenter/app/client`. Declare other imported
+packages in `code/package.json` with versions resolvable from npm.
+
+Build paths are relative to code/. Component paths starting with src/ or
+static/ are relative to code/ui/.
 
 `serve` builds the UI itself from `ui/` as it sits on disk, committed or
-not (ADR-0880). An app is one Bun project, so the build runs in the app's
+not (ADR-0880). The build runs in the app's `code/`
 folder: when the app's `package.json` has a `build` script, `serve` runs it
 with `EPICENTER_OUT` naming the folder to write; otherwise it bundles
 `ui/index.html` and the TypeScript and CSS beside it, so a tiny UI needs no
@@ -312,13 +342,13 @@ A change under `ui/` shows at `/<app>/` on the next page load after its
 build, and the last good build stays up meanwhile. A build that fails is not
 tried again until a file under `ui/`, `package.json`, or `bun.lock` changes;
 run `epicenter build <app>` to build now and see the build's errors. Never
-commit `ui/dist/`. The UI keeps
-nothing of its own: it shows what serve answers and sends what the person
-changes.
+commit `ui/dist/`. The UI owns unfinished input and local interaction state.
+Actions own stored records; the UI shows what serve answers and sends what the
+person submits.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
-`connect<typeof app>()` from `@epicenter/app/client`, importing the app
-as a type (`import type app from '../../../epicenter.js'`), and lists what the
+`connect<typeof tasksApp>()` from `@epicenter/app/client`, importing the app
+as a type (`import type tasksApp from '../../../epicenter.js'`), and lists what the
 pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts
@@ -327,169 +357,236 @@ export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
 ```
 
-Each call answers a Result: what the action returned, or an `ActionError`
-told apart by `name`: `Changed` and `Missing` (the `FileError` the action
-threw), `Threw`, `Refused`, `Unreachable`. Check the name, never the message:
-a page for one record shows "it was deleted" when its read is `Missing`. The layout makes one
-QueryClient with `createQueryClient()` from the UI's own
-`src/lib/query-client.ts` (copy it from an existing app; it builds on the UI's
-own `@tanstack/svelte-query`, so the bundle has one TanStack Query) and puts it
-in `<QueryClientProvider>`; pages read with
-`createQuery(() => reads.get({ path }))` and write with
-`createMutation(() => writes.set)`. That client refreshes every read after
-each write, before the write counts as done, and when the UI is shown
-again, so a page never refreshes by hand or on a timer. Name
-types with `ActionInput<typeof app.actions.set>` and
-`ActionOutput<typeof app.actions.get>`.
+When the page needs to return to a run after reopening, import `runs` from
+`@epicenter/app/client`. Start it with `runs.start(app.action, input)`.
+On return, use `runs.pending(app.action)` to find its receipt and
+`runs.attach(app.action, id)` to observe it again.
+`field.file()` accepts a temporary browser upload with either form of call.
+See the app package README for the
+run events, cancellation, and retention contract.
+
+On the wire, the host answers with `{ data, error }`. For a failure,
+`error.kind` records what happened to this invocation (ADR-0926).
+The browser client unwraps a `returned` reason with its public fields intact.
+A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
+A `refused` admission becomes `Refused` before the action runs. Actions can use the
+shared `ActionError` factories from `@epicenter/app`.
+
+Match a browser error by its name and subject. A `Missing` for a dependency
+cannot tell the page whether its displayed record still exists. An action
+can make a write and then return an error. When saving is uncertain, keep
+the submitted text and reread the record before clearing the draft.
+
+Build the layout's QueryClient in the UI's own `src/lib/query-client.ts`
+using its own `@tanstack/svelte-query` so the bundle carries one copy.
+Check the helper's export in the app you copy. Provide the client through
+`<QueryClientProvider>` and apply the invalidation rule from `query-layer`.
+Pages read with `createQuery(() => reads.get({ time }))` and write with
+`createMutation(() => writes.set)`. Use the server app's action types, for
+example `ActionInput<typeof tasksApp.actions.set>` and
+`ActionOutput<typeof tasksApp.actions.get>`.
 
 An action that yields takes `onYield` after its input, to show its work as it
 comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
-still refreshes once it returns. A Stop button passes `{ signal }` too and
-aborts it; the call then resolves as the `Stopped` error, which is not a
-failure to show.
+still refreshes once it returns. For a Stop button, start the action with
+`runs.start` and call `run.cancel()` to request cancellation. For a view
+that only stops listening, pass its signal to `run.events({ signal })` or
+`run.result({ signal, onYield })`. Each new observer replays from the
+beginning, and the client resumes dropped connections at its last sequence.
+Use the view's own controller to recognize its aborted observation. A
+dependency can also return `Stopped`. Confirm any cleanup or save separately.
 
-- Route a record by its whole path: the page is at `#/data/tasks/<time>.md`,
-  linked with each part URL-encoded
-  (`path.split('/').map(encodeURIComponent).join('/')`) and read back with the
-  router's `currentPath()`. Write no code that knows the app's templates; show
-  a record's name from its read (`row.word`).
-- Show a record's `problems` quietly where the record is shown, and never
-  crash on a field that is absent.
+- Route a record by its keys, which every row carries: the page is at
+  `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the
+  keys from its route. Write no code that knows the app's templates; show a
+  record's name from its read (`row.word`).
+- In a list, show a file's `Misfit` beside the other rows. Use its partial
+  record for a repair form when present. Keep the fitting records usable.
 
 - It is a phone Home Screen app first: safe-area insets, 44 px targets, 16 px
   inputs so iOS does not zoom, light and dark from the system.
-- Send `set` only the fields that changed, and `null` for one emptied, so a
-  save never writes back a value read before someone else changed it. Skip a
-  save with nothing to send.
-- Keep what is typed as a draft over the query's data
-  (`bind:value={() => draft ?? file.body, (value) => (draft = value)}`), and
-  clear it once it is saved, so a refresh never overwrites typing.
-- Save a changed body with `edit`, quoting the body the draft was typed over
-  (`old: base, new: draft`), after `set` has saved the fields. When the
-  error's `name` is `Changed`, the failed
-  write has already refreshed the file: reapply a small change to the new body
-  (Capture's thoughts), or keep what was typed and say it was not saved,
-  letting the person save over the other change on purpose (Tasks' "Keep
-  mine").
+- Send `set` only the fields being submitted, and `null` for one emptied.
+  Do not spread an entire cached record into a field update. Comparing with
+  cached data can avoid a request; it cannot establish what is currently saved.
+  Submitting a title must not also write back a stale completion status from
+  the cached record. Skip `set` when there are no submitted fields or body
+  edits. The generated action returns `Refused` for an empty change.
+  An unchanged-looking value may still be an intentional
+  submission.
+- When draft, recovery, or workflow promises are unsettled, use
+  [product-collapse](../product-collapse/SKILL.md) to choose the behavior.
+  For settled behavior, choose each input's owner with
+  [input ownership](../svelte/references/input-ownership.md).
+  Writes also arrive from other tabs, agents, and the command line; blocking
+  local edits while pending prevents only this page's overlap.
+- Use `set` with its quoted base (`edit: { old: base, new: draft }`, beside
+  any fields and their `was`) when the app promises conflict detection. On `Changed`, reread and preserve the submitted text
+  while resolving the conflict. When last-write-wins is accepted, use the app's
+  replacement action without adding rebasing or a recovery queue.
 - Show a write before it lands from the mutations still pending:
   `useMutationState({ filters: { mutationKey: writes.set.mutationKey, status:
   'pending' } })` (Tasks' done, Vocab's review queue, Capture's adds). When the
   write settles, the refreshed read takes over. Say a failed write in a toast
   with `error.message`.
-- Every write is a commit in the app's history. Save on blur, on a pause,
-  or on an explicit action, never on each keystroke.
+- Save on blur, on a pause, or on an explicit action, never on each keystroke.
+  Checkpoints sample those files later; a call is not a commit boundary.
+
+### A draft over query data
+
+For an explicit-save form whose live preview reads unfinished input, keep the
+draft over the query's data so a refresh never overwrites typing. This view is
+keyed by the record's collection keys and receives a successfully read file; `Textarea`
+and `Preview` are the app's components:
+
+```svelte
+<script lang="ts">
+  let { file }: { file: { body: string } } = $props();
+  let draft = $state<string>();
+</script>
+
+<Textarea
+  aria-label="Notes"
+  bind:value={() => draft ?? file.body, (value) => (draft = value)}
+/>
+<Preview text={draft ?? file.body} />
+```
+
+The preview gives this draft a live reader. Native controls remain the default
+for input read only at submission. Use `??` here because an empty string is
+real input. This example shows rendering and input ownership, not the whole
+save handler. For conflict detection, capture the quoted base when editing
+begins rather than replace it from a later refetch. Capture that base, the
+submitted text, and record identity before async work.
+
+Clear the draft only when saving is confirmed and completion still owns the
+same record, editing session, and draft, or disable editing while saving.
+Matching text alone is insufficient when the control can disappear or the
+selection can change. An older save must not erase newer typing. Keep failed
+or uncertain input for retry or deliberate discard, following
+[input ownership](../svelte/references/input-ownership.md#explicit-submission).
+An immediate editor that already owns accepted typing needs no second draft.
+
+### Fields, body, and conflict responses
+
+For a form that saves fields and a body together, send one generated `set`
+with the record's keys, submitted fields, their `was` values, and
+`edit: { old: base, new: draft }`. The collection checks every guard before
+writing the file. If another writer changed the passage, the entire edit
+returns `Changed`. A workflow that deliberately makes separate writes
+must account for each completed write when a later one fails.
+
+Two earlier app designs illustrate different responses to a body conflict:
+
+- Capture's thoughts reapplied a small change against the newly read body.
+  Use that response when the change can be reapplied without discarding the
+  other writer's work.
+- Tasks' "Keep mine" kept what was typed, said it was not saved, and let the
+  person deliberately save over the other version. Use that response when
+  choosing which content to keep belongs to the person.
+
+These are strategy examples, not claims about those apps' current controls.
+For `Changed`, first match its path to the requested record, reread, and
+preserve the submitted text while resolving the conflict. A dependency can
+report `Changed` for another path. Neither an error name nor cache invalidation
+alone confirms what persisted. When last-write-wins is the agreed behavior,
+use the replacement action rather than add conflict machinery by default.
 
 ## Verify without touching the person's data
 
 Never run anything against the real `~/Epicenter` until the person asks.
-`HOME` decides `~`, so try an app in a temporary home. Take the app from its
-code repository with `new --from`, which copies what Git tracks there at
-`HEAD` and makes an empty data repository, then `epicenter build <app>`
-builds its UI as the server would. Uncommitted changes are not copied, so
-commit them on a branch first, or take the app from a copy of its folder
-with them committed there:
+Use a temporary home and a committed source. `new --from` copies code and
+creates empty sibling data/; then build it as serve would. Uncommitted edits
+are not copied. To test them, commit in a disposable copy outside the live
+Epicenter, without changing the live branch or index.
 
 ```sh
-bun test ./epicenter.test.ts               # in the app: actions over createMemoryContext
-T=$(mktemp -d)
-printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
-HOME=$T epicenter init $T/Epicenter        # writes EPICENTER.md and AGENTS.md
-cd $T/Epicenter
-HOME=$T epicenter new <app> --from <the app's folder, or its Git URL>
-HOME=$T epicenter build <app>              # the UI, as serve builds it
-HOME=$T epicenter <app> <words> ...
-HOME=$T epicenter serve --port 4799        # then drive http://localhost:4799/<app>/
+bun test ./epicenter.test.ts                # from code/: actions over memory
+source_path=/absolute/path/to/source        # choose a repository or subfolder
+test_home=$(mktemp -d)
+printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitconfig"
+HOME="$test_home" epicenter init "$test_home/Epicenter"
+cd "$test_home/Epicenter"
+HOME="$test_home" epicenter new example --from "$source_path"
+HOME="$test_home" epicenter build example
+HOME="$test_home" epicenter example --help
+HOME="$test_home" epicenter serve --port 4799   # drive /example/ in this test home
 ```
 
-In the monorepo, run the CLI from source as `bun <repo>/packages/cli/src/bin.ts`.
-The temporary `.gitconfig` keeps the person's own, which may sign commits,
-out of the test. Run `bun run typecheck` in the app; it checks the actions and
-the UI. Run tests one file or package at a time.
+In the monorepo, the source CLI is `bun <repo>/packages/cli/src/bin.ts`.
+The temporary Git configuration isolates identity and signing settings.
+Run `bun run typecheck` and action tests from code/, where package.json lives.
+Run tests one file or package at a time.
 
 ## Put an app on the server
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
-- `epicenter new <app> --from <git url>` takes another app by copying its
-  code from the root of that repository; `--from <git url>#<folder>` takes a
-  folder inside it, for a repository that holds several apps. On the same
-  computer, `--from <path>` names the folder that holds `epicenter.ts`
-  (`--from ~/Code/apps/vocab`), a repository's root or any folder inside one,
-  with no `#`. Only the files Git tracks at that repository's `HEAD` are
-  copied, so the path must be inside a Git repository, and `data/`,
-  `node_modules/`, builds, and uncommitted changes never come along. The copy
-  is one commit in a new repository with no remote, whose message names
-  where it came from (`Source:` and `Source-Commit:`), beside an empty data
-  repository. A folder that tracks `data/` is refused.
-- Backups go to each repository's `origin`, a private remote: add one to the
-  app's folder and one to `data/`, and `epicenter sync` pushes both there at
-  once, and `serve` every 5 minutes, never anywhere else. Nothing else pushes,
-  `undo` included. Restoring is two clones: the code's backup, then the data's
-  into `data/`.
-- Sharing an app is pushing its code repository to a remote the person
-  chooses, which only they or an agent they ask does: `git -C <app> push
-  <remote> main`. Someone takes it with `new --from <its URL>`. Whoever can
-  read that remote reads the code's real history, every code commit
-  included, so check it for anything private before the first push. To share
-  several apps from one place, keep each as a folder of one repository
-  outside the Epicenter: `git -C <app> archive HEAD | tar -x -C
-  <repository>/<app>` puts an app's tracked files there, without its
-  history, and someone takes one with `--from <URL>#<app>`. Never push
-  `data/` anywhere but its own `origin`.
-- `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
-  one that built; the UI project's own `bun run build` empties `ui/dist/`
-  first, so a page served meanwhile is missing.
-- Run these from inside the Epicenter the app belongs to; another person's
-  Epicenter on the same computer is another folder with its own port.
+- `epicenter new <app> --from <path|url>[#folder]` takes committed code into
+  apps/<app>/code/ and creates empty data/. It installs but does not build;
+  run `epicenter build <app>` to check it before opening its page.
+- To adapt later code, inspect a committed copy in a temporary home, then
+  change the existing app's code/ deliberately. Preserve data/ beside it and
+  repair records after changing fields. There is no automatic later merge.
+  Inspect the source commit recorded in `code/SOURCE.md`, compare incoming
+  code outside the live Epicenter, and test compatibility with the existing
+  records before a named checkpoint. A refreshed publication does not update
+  apps people have already copied. Bring contributions back into the maintained
+  app before refreshing an export, which would overwrite edits made in the
+  generated directory.
+- Back up the root to one optional private origin. A checkpoint commits all
+  included pending files and pushes only there. Restore with one root clone
+  and `epicenter init --from`, then recreate local credentials.
+- Sharing code requires a separate code-only history, deliberately made and
+  reviewed for private content. Never publish the private root history.
+  Make or clone that code-only repository outside the private Epicenter:
+  a Git repository inside it makes every checkpoint refuse.
+  Use `epicenter export` for the generated code directory, then review, commit,
+  and push the outer repository with Git. Recipients can read its history and
+  notes as well as its code: keep private record content out of those messages,
+  notes, and source files. Never publish the private root history.
+- `epicenter build [<app>]` rebuilds from code/ui/ while retaining the last
+  good build. The project's own build script may empty its output first.
+- Run from inside the app's Epicenter. Another person's Epicenter is a
+  different folder with its own port.
 
-A running `epicenter serve` sees a change on the next request: it lists tools
-and reads `ui/dist/` from disk each time.
+A running serve loads edited code on the next call and checks code/ui/ on a
+page load. It serves code/ui/dist/ and keeps the last good build while rebuilding.
 
-## Take later changes
+### Export code for sharing
 
-No command brings an app the later changes of the code it was copied from
-(ADR-0904). Do it when the person asks, as a comparison you read. A merge
-could not say that a changed collection leaves the person's records not
-fitting, so the order below puts that question first.
+Keep the publication repository and its handwritten files outside the generated
+directory. For one app:
 
-1. Find where the code came from. `git -C <app> log --reverse --format=%B |
-   head` shows the first commit's `Source:`, the `--from` argument, and
-   `Source-Commit:`, the commit copied. A Git URL may end in `#<folder>`,
-   the app's folder in that repository. A path is the app's folder on the
-   computer it was taken on: `git -C <path> rev-parse --show-toplevel` is
-   its repository's root, and the rest of the path is `<folder>`. If a later
-   commit says it took changes, start from the commit it names. An app made
-   when `new --from` still cloned has an `upstream` remote and shares its
-   history: `git merge-base HEAD upstream/<branch>` is its commit.
-2. Get that code as it is now, in a temporary directory outside the
-   Epicenter, so `epicenter` never lists it as an app and no snapshot takes
-   it:
+```sh
+epicenter export tasks ~/Code/shared-tasks/code
+```
 
-   ```sh
-   T=$(mktemp -d)
-   git clone -q <URL or repository root> $T/code
-   # the app is $T/code/<folder>; drop <folder>/ when it is the root
-   git -C $T/code diff <Source-Commit> HEAD -- <folder>/epicenter.ts
-   git -C $T/code diff <Source-Commit> HEAD -- <folder>/ui
-   ```
+```text
+shared-tasks/
+  .git/          publication history
+  README.md      publication notes
+  code/          generated and replaced by export
+    .epicenter-export.json
+    epicenter.ts
+```
 
-   When that commit is no longer in the repository, compare the two folders
-   as they are.
-3. Read the `epicenter.ts` diff first: it is the only change that can affect
-   data. When a collection's path or fields changed, stop and plan the
-   migration with the person before taking anything: which records stop
-   fitting, and the action or rewrite that repairs them, in the two steps
-   under "Decide the files first". Take the actions the person wants.
-4. Take the UI one of two ways. Replace it whole when the app has not
-   changed its own UI, or the person wants the new one more than their own
-   changes: commit what is pending, replace `ui/` with the other `ui/`, and
-   commit that alone, so `git revert` takes it back. Otherwise port the
-   changes wanted over the app's own, file by file. Take what the UI needs
-   in `package.json` and `bun.lock`, then run `epicenter install <app>`.
-5. Run `bun run typecheck`, which says whether the UI is valid for this
-   `epicenter.ts`, then `bun test ./epicenter.test.ts` and
-   `epicenter build <app>`. Commit with a message that names the commit you
-   compared against, and tell the person what you took, what you left, and
-   why.
+Export first makes a local checkpoint of included pending code, records, and
+staged work across the private Epicenter, then copies code from that commit.
+It excludes records, local files, dependencies, builds, provenance, and private
+history. It does not upload the private backup or publish the exported code.
+
+The command owns and replaces the generated directory, including edits and
+extra files inside it. A destination must be new, empty, or carry the matching
+export marker; Git metadata inside it is refused. Review and commit the exported
+files in the outer publication repository before someone copies that version.
+Exporting files does not commit them to the publication repository.
+
+To publish several apps, `epicenter export --all ~/Code/shared-apps/apps`
+generates one child per committed app under `apps/`. A recipient can copy one
+published app with
+`epicenter new tasks --from https://github.com/OWNER/shared-apps#apps/tasks`,
+replacing `OWNER` with the publication owner's username. See
+[the CLI's export contract](../../../packages/cli/README.md#export-app-code)
+for destination rules, shared files, and symlinks.

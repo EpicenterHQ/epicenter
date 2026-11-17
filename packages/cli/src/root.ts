@@ -7,9 +7,8 @@
  * port: 4747
  * ```
  *
- * The marker is read when a command starts, and a field that is wrong stops
- * it with a line naming that field: a person or an agent edits this file by
- * hand.
+ * Commands validate the marker's settings before running. Checkpoint only
+ * needs the marked folder, so it can save files while those settings need repair.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -97,17 +96,19 @@ function markerProblems(fields: Record<string, unknown>): string[] {
 }
 
 function readRoot(folder: string): EpicenterRoot {
-	if (!isMarked(folder))
-		throw new RootUsageError(
-			`There is no ${MARKER} in ${folder}`,
-			`epicenter init ${folder}`,
-		);
 	const marker = join(folder, MARKER);
 	// Decoded as an app's files are, which drops a byte order mark an editor saved.
 	const read = readMarkdown(new TextDecoder().decode(readFileSync(marker)));
-	const problems = read.writable
-		? markerProblems(read.fields)
-		: ['its front matter is neither key: <JSON> lines nor YAML'];
+	const problems = read.readable
+		? [
+				...read.notJson.map(
+					({ key, line }) => `${key} on line ${line} is not JSON`,
+				),
+				...markerProblems(read.fields),
+			]
+		: [
+				'its front matter is not key: value lines between two --- lines, each key once',
+			];
 	if (problems.length)
 		throw new RootUsageError(
 			problems.map((problem) => `${marker}: ${problem}`).join('\n'),
@@ -118,23 +119,29 @@ function readRoot(folder: string): EpicenterRoot {
 
 let selected: EpicenterRoot | undefined;
 
-/** The nearest marked ancestor wins, then EPICENTER_ROOT, then $HOME/Epicenter. */
+/** Read and validate the selected Epicenter's serving settings. */
 export function epicenterRoot(): EpicenterRoot {
-	if (selected) return selected;
+	selected ??= readRoot(epicenterDir());
+	return selected;
+}
+
+/** Select a marked folder without reading its settings: nearest ancestor, then EPICENTER_ROOT, then $HOME/Epicenter. */
+export function epicenterDir(): string {
+	if (selected) return selected.folder;
 	const folder =
 		ancestorWithMarker(process.cwd()) ??
 		(process.env.EPICENTER_ROOT !== undefined
 			? folderPath(process.env.EPICENTER_ROOT)
 			: join(homedir(), 'Epicenter'));
-	selected = readRoot(folder);
-	return selected;
+	if (!isMarked(folder))
+		throw new RootUsageError(
+			`There is no ${MARKER} in ${folder}`,
+			`epicenter init ${folder}`,
+		);
+	return folder;
 }
 
-export function epicenterDir(): string {
-	return epicenterRoot().folder;
-}
-
-/** The folder in an Epicenter that holds its apps, each a repository of its own (ADR-0884). */
+/** The folder in an Epicenter that holds its apps, each holding code/ and data/. */
 export const APPS = 'apps';
 
 /** The selected Epicenter's `apps/`. */

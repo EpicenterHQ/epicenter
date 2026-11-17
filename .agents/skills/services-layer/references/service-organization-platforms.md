@@ -1,11 +1,10 @@
 # Service Organization And Platform Variants
 
-This reference covers where an app's services live and how each surface
-gets its own implementation.
+Whispering runs as a browser page and in its own Tauri shell. This reference covers those two implementations.
 
 ## One build, the package picks
 
-An app has one build (ADR-0781). It makes every capability once, in
+Whispering has one browser and desktop build (ADR-0781). It composes its capabilities in
 `src/lib/app.ts`, and passes each service what it decides. A capability
 package that owns a browser and a desktop implementation picks one when the
 page runs: presence with `isTauri()` when its module loads, the desktop code
@@ -30,11 +29,11 @@ surface. Where the key goes is `connection-keys.ts`'s choice: in a browser
 it is kept in `connection-keys.json` beside the list; in a Tauri window it
 is handed to the shell, which keeps it in the app's `credentials.json` under
 the connection's id and applies it only while the connection still names
-the endpoint it was saved for.
+the endpoint it was saved for. The shell keeps the file private (mode `0600` on Unix). The page hands a key to the shell once and asks the shell to send the request that needs it. See [Whispering’s credential storage decision](../../../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md).
 
 ## Desktop services and the shared crates
 
-A standalone desktop app's shell is `epicenter-standalone` plus
+Whispering's desktop shell uses `epicenter-standalone` plus
 `epicenter-account`. A desktop implementation uses what they expose and
 adds nothing that holds a credential in the page:
 

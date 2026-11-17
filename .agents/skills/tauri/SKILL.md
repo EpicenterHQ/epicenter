@@ -1,6 +1,6 @@
 ---
 name: tauri
-description: Tauri commands, permissions, capabilities, security config, path handling, cross-platform file ops, and native filesystem APIs. Use when mentioning Tauri, desktop apps, Rust commands, invoke, capabilities, permissions, ResourceId, file paths, or platform differences.
+description: 'Write and verify Tauri desktop code: commands, permissions, capabilities, security config, path handling, cross-platform file ops, native filesystem APIs, and checks in the running desktop app. Use when changing or verifying Tauri desktop apps, Rust commands, invoke, capabilities, permissions, ResourceId, file paths, or platform differences.'
 metadata:
   author: epicenter
   version: '1.0'
@@ -71,6 +71,17 @@ cargo check --manifest-path apps/whispering/src-tauri/Cargo.toml
 ```
 
 If binding generation rewrites unrelated sections, inspect the diff before committing it.
+
+## Verify in the desktop app
+
+Compile checks and regenerated bindings establish shape. Accept a change to a
+command, capability, event, window, menu, dialog, or desktop-only UI in the
+running native app: launch it with `bun dev:<app>:desktop`, exercise the
+journey that crosses the change, and watch the webview console and Rust
+output. A browser build or a test that mocks `invoke` does not show the native
+side working. Follow
+[ui-design's verification reference](../ui-design/references/verification.md#the-desktop-app)
+for what counts, OS-owned surfaces, and reporting a check you could not run.
 
 ## Context Detection
 

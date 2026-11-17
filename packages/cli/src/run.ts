@@ -1,78 +1,57 @@
-/**
- * A call runs in the process that received it, the command line's or
- * `serve`'s, from the app's code as it is on disk now (`home.ts`), and owns
- * its data commit (ADR-0850, ADR-0880). Its first folder write takes the
- * app's lock and snapshots pending data as changed outside epicenter. When the action ends, it commits everything
- * pending in data under the call's name, even when it threw. An opening
- * snapshot failure leaves everything pending. A call with no folder write
- * takes no lock and commits nothing. Read-only calls take no lock, including
- * their .local writes. Commit outcomes never change the action's answer.
- */
+/** Run actions with a lazy container write lock, released when the call ends. */
 
-import { join } from 'node:path';
 import {
 	type Action,
+	encodeActionResult,
 	type Folder,
 	inRun,
-	isName,
-	isWriteOnly,
 	runYielding,
-	writeOnlyKeys,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { type CodeState, codeStateOf } from './data.ts';
+import { Err } from 'wellcrafted/result';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
-import { type Answer, writeErr } from './output.ts';
-import { appsDir } from './root.ts';
-import { commitCall, type Snapshot, snapshotData } from './snapshot.ts';
+import { type Answer, type RunAnswer, refused } from './output.ts';
+import { setRoutine } from './routine-set.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
  * frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
- * makes) is kept whole so its name and fields reach the caller.
+ * makes) is kept whole when it survives JSON. A value that cannot be read
+ * or serialized still answers as an action throw, with a safe message.
  */
 function threwOf(cause: unknown): {
 	message: string;
 	thrown?: Record<string, unknown>;
 } {
-	const message = extractErrorMessage(cause);
-	if (typeof cause !== 'object' || cause === null || cause instanceof Error)
-		return { message };
-	const { name } = cause as { name?: unknown };
-	if (
-		typeof name !== 'string' ||
-		typeof (cause as { message?: unknown }).message !== 'string'
-	)
-		return { message };
-	return { message, thrown: JSON.parse(JSON.stringify(cause)) };
-}
-
-/**
- * A call's name in history: the app, the action's words, and its first
- * positional value on one line, cut at 60 characters
- * (`tasks: add Water the plants`). A `writeOnly` value never names a commit,
- * since history travels with the data's backup (ADR-0870).
- */
-export function callName(
-	app: string,
-	key: string,
-	action: Action,
-	input: Record<string, unknown>,
-) {
-	const first = action.positional?.[0];
-	const field = first === undefined ? undefined : action.input[first];
-	const value =
-		first === undefined || (field && isWriteOnly(field))
-			? undefined
-			: input[first];
-	const suffix =
-		value === undefined
-			? ''
-			: ` ${typeof value === 'string' ? value : JSON.stringify(value)}`;
-	return `${app}: ${key}${suffix.replace(/\s+/g, ' ').slice(0, 61)}`;
+	let message = 'The action threw a value that could not be read';
+	try {
+		message = extractErrorMessage(cause).slice(0, 4096);
+	} catch {
+		// Even extracting a message can fail for a cyclic array or a getter.
+	}
+	try {
+		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
+			return { message };
+		const json = JSON.stringify(cause);
+		if (json.length > 4096) return { message };
+		const thrown: unknown = JSON.parse(json);
+		if (
+			typeof thrown === 'object' &&
+			thrown !== null &&
+			!Array.isArray(thrown) &&
+			'name' in thrown &&
+			typeof thrown.name === 'string' &&
+			'message' in thrown &&
+			typeof thrown.message === 'string'
+		)
+			return { message, thrown };
+	} catch {
+		// Error details are best effort; they must not prevent the call's answer.
+	}
+	return { message };
 }
 
 /**
@@ -95,32 +74,21 @@ function forCall(
 		...folder,
 		write: writing(folder.write),
 		writeBytes: writing(folder.writeBytes),
+		edit: writing(folder.edit),
 		update: writing(folder.update),
 		delete: writing(folder.delete),
 	};
 }
 
-/**
- * Run `action`, the app's `key`, with its checked input in the app's folder,
- * then commit everything pending in data under the call's name,
- * whether it returned, threw (`<call> (threw)`), or its caller stopped it
- * (`<call> (stopped)`), and let the app's lock go.
- * `committed` is the commit's outcome, absent when the call wrote nothing
- * through `folder`.
- */
+/** Run a checked action; its first write owns the container until it ends. */
 export async function runAction(
 	located: Runnable,
 	key: string,
 	action: Action,
 	input: Record<string, unknown>,
-	code: CodeState,
 	{ onYield, signal }: Following = {},
-): Promise<{
-	answer: Exclude<Answer, { error: unknown }>;
-	committed?: Snapshot;
-}> {
+): Promise<RunAnswer> {
 	const readOnly = action.annotations?.readOnlyHint === true;
-	let opening: Snapshot | undefined;
 	let owning: Promise<void> | undefined;
 	let held: Held | undefined;
 	const own = () =>
@@ -130,37 +98,39 @@ export async function runAction(
 				throw new Error(
 					`${located.name} is busy: another write held it for ${LOCK_WAIT_MS / 1000} seconds`,
 				);
-			opening = await snapshotData(located.name, located.realPath);
 		})());
 	const folder = forCall(located.context.folder, own, readOnly);
 	const context = {
 		...located.context,
 		folder,
 		signal,
+		routines: {
+			set: (
+				name: string,
+				routine: Parameters<typeof setRoutine>[0]['routine'],
+			) => {
+				if (readOnly)
+					throw new Error(
+						`The action "${key}" is read-only, so it cannot set a routine`,
+					);
+				return setRoutine({ app: located, name, routine });
+			},
+		},
 		...(readOnly ? { readOnly: { action: key } } : {}),
 	};
-	let answer: Exclude<Answer, { error: unknown }>;
 	try {
-		const returned = await inRun(context, () =>
+		const result = await inRun(context, () =>
 			runYielding(action, input, async (value) => {
 				if (signal?.aborted) throw new Error('The caller stopped the call');
 				await onYield?.(value);
 			}),
 		);
-		answer = { returned: returned ?? null };
-	} catch (error) {
-		answer = { threw: threwOf(error) };
-	}
-	try {
-		if (!held) return { answer };
-		if (opening && 'failed' in opening) return { answer, committed: opening };
-		const committed = await commitCall(located.name, located.realPath, {
-			subject:
-				callName(located.name, key, action, input) +
-				(signal?.aborted ? ' (stopped)' : 'threw' in answer ? ' (threw)' : ''),
-			code,
-		});
-		return { answer, committed };
+		const encoded = encodeActionResult(result);
+		return encoded.error === null
+			? encoded
+			: Err({ kind: 'returned', reason: encoded.error });
+	} catch (cause) {
+		return Err({ kind: 'fault', ...threwOf(cause) });
 	} finally {
 		held?.release();
 	}
@@ -169,69 +139,49 @@ export async function runAction(
 /** Who follows a call as it runs: each value it yields, and when they stop listening. */
 export type Following = {
 	/**
-	 * The call came over MCP, whose input sits in an agent's transcript: an
-	 * action with a `writeOnly` input is refused before it runs (ADR-0870).
+	 * The call came over MCP, whose input sits in an agent's transcript: a
+	 * call with private input is refused before it runs.
 	 */
 	overMcp?: boolean;
 	/** Each value the action yields, in order; the action waits for it. */
 	onYield?: (value: unknown) => unknown;
-	/** Aborted when the caller stops listening: the action is stopped at its next yield, or at once where it reads `callSignal()`, and the call commits what it wrote. */
+	/** Execution cancellation signal. HTTP observers do not own it. */
 	signal?: AbortSignal;
 };
 
-/**
- * Run the app `name`'s action `key` (its words one space apart) with `raw`,
- * one JSON object holding its whole input, as MCP and a UI give it: the app's
- * code is loaded as it is now, the input checked, and what the call wrote
- * committed before it answers. A commit that fails is written to stderr; it
- * never changes the answer.
- */
+/** Load the current code, check input, and run the requested action. */
 export async function callAction(
 	name: string,
 	key: string,
 	raw: unknown,
 	following: Following = {},
 ): Promise<Answer> {
-	const refused = (message: string, next?: string): Answer => ({
-		error: CliError.Usage({ message, next }).error,
-	});
-	// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.
-	const code = isName(name)
-		? await codeStateOf(join(appsDir(), name))
-		: { dirty: false };
-	const { data: located, error: notFound } = await loadHomeApp(name);
-	if (notFound) return { error: notFound };
-	if (!located.ok)
-		return {
-			error: CliError.AppProblems({ app: name, problems: located.problems })
-				.error,
-		};
-	const action = Object.hasOwn(located.actions, key)
-		? located.actions[key]
-		: undefined;
-	if (!action)
-		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
-	if (following.overMcp && writeOnlyKeys(action.input).length)
-		return refused(
-			`${name} ${key} takes a secret, so it is not offered over MCP, where the input stays in the agent's transcript. A person gives it in ${name}'s own page or at the command line`,
-			`epicenter ${name} ${key}`,
-		);
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
-		return refused('The input is not a JSON object');
-	const checked = checkInput(action, raw, (field) => field);
-	if ('error' in checked)
-		return refused(checked.error, `epicenter ${name} ${key} --help`);
-	const { answer, committed } = await runAction(
-		located,
-		key,
-		action,
-		checked.input,
-		code,
-		following,
-	);
-	if (committed && 'failed' in committed)
-		writeErr(
-			`${name}: not yet in history: ${committed.failed.message}\nRun: ${committed.failed.next ?? `epicenter sync ${name}`}`,
-		);
-	return answer;
+	const usage = (message: string, next?: string) =>
+		refused(CliError.Usage({ message, next }).error);
+	try {
+		const { data: located, error: notFound } = await loadHomeApp(name);
+		if (notFound) return refused(notFound);
+		if (!located.ok)
+			return refused(
+				CliError.AppProblems({ app: name, problems: located.problems }).error,
+			);
+		const action = Object.hasOwn(located.actions, key)
+			? located.actions[key]
+			: undefined;
+		if (!action)
+			return usage(`${name} has no action "${key}"`, `epicenter ${name}`);
+		if (following.overMcp && action.privateInput === true)
+			return usage(
+				`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page, or pipe JSON to epicenter ${name} ${key} -`,
+				`epicenter ${name} ${key}`,
+			);
+		if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+			return usage('The input is not a JSON object');
+		const checked = checkInput(action, raw);
+		if ('error' in checked)
+			return usage(checked.error, `epicenter ${name} ${key} --help`);
+		return runAction(located, key, action, checked.input, following);
+	} catch (cause) {
+		return refused(CliError.Internal({ cause }).error);
+	}
 }

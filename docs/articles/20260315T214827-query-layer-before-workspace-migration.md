@@ -1,8 +1,6 @@
 # The Query Layer That Did Everything
 
-> **Historical snapshot**: This is the query layer README from before the workspace migration moved domain data (recordings, transformations, runs) to Yjs-backed workspace state modules. At this point, TanStack Query managed all CRUD operations: the query layer co-located service calls, runtime settings injection, and cache manipulation in one place. The architecture has since evolved: workspace state handles domain CRUD, and the RPC layer focuses on audio blob access, external API calls, hardware state, and coordination logic. See `apps/whispering/src/lib/rpc/README.md` for the current version.
-
-> **Do not copy the Wellcrafted query API examples from older revisions of this article.** Current shared queries expose `.options`, `.fetch()`, and `.ensure()` and are not callable. Current shared mutations expose `.options` and are callable. Svelte Query hooks should receive an accessor, such as `createQuery(() => rpc.thing.options)` or `createMutation(() => rpc.thing.options)`.
+> **Historical snapshot.** This README records Whispering's query layer before the workspace migration. TanStack Query managed recordings, transformations, and runs alongside runtime settings and cache updates. The `.options` examples below use the API from that period. For current shared queries and mutations, see [the query-layer skill](../../.agents/skills/query-layer/SKILL.md#compose-a-service-in-two-maps).
 
 The key architectural insight worth preserving: the query layer co-locates three things in one place: the service call, runtime settings injection based on reactive variables, and cache manipulation. This creates a layer that bridges reactivity with services in an intuitive way, and gives developers a consistent place to put this logic. Whether the cache lives in TanStack Query or Yjs, the co-location principle still holds.
 

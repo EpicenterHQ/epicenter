@@ -4,7 +4,9 @@ Detailed TypeScript guidance for identity checks, brands, casts, boolean naming,
 
 ## Identity Checks: Brand, Don't Probe
 
-When `isFoo(x)` is asking "is this the specific thing my factory returned," use a `Symbol` brand stamped at the factory, not a coincidental-property probe. Shape probes collide with look-alikes and rot as the type grows; the brand is unforgeable and survives normal object spreads.
+When `isFoo(x)` is asking "is this the specific thing my factory returned," use a `Symbol` brand stamped at the factory, not a coincidental-property probe. Shape probes collide with look-alikes and rot as the type grows; an enumerable symbol key survives object spread. This is an identity convention, so validate untrusted input separately.
+
+Historical example from the workspace-handle design:
 
 ```typescript
 // Smell: three coincidental properties stand in for identity.
@@ -35,17 +37,7 @@ function isWorkspaceHandle(value: unknown): value is WorkspaceHandle {
 
 ### Cross-package brands: `Symbol.for`, never `Symbol`
 
-Any brand that has to be recognized across a module boundary: CLI-walks-user-bundles, server-adapter-walks-workspace, AI-tool-bridge-walks-actions: must use the global symbol registry. Plain `Symbol('name')` creates a fresh reference per module evaluation; a monorepo that ends up with two instances of `@epicenter/workspace` (pnpm hoisting, dual CJS/ESM publish, bundler dedup miss, test vs. app resolution) gives each instance its own brand reference. `defineX` from copy A stamps symbol-A; `isX` from copy B checks for symbol-B; the identity check silently fails.
-
-`Symbol.for('epicenter.action')` talks to a process-global registry keyed by the string. Every call anywhere returns the same reference. The brand survives duplication.
-
-```ts
-// Wrong: local reference; fails under module duplication
-export const ACTION_BRAND = Symbol('epicenter.action');
-
-// Right: registry-resolved; always the same reference
-export const ACTION_BRAND = Symbol.for('epicenter.action');
-```
+When two copies of a package can create and inspect the same value, `Symbol('name')` gives each copy a different key. Use `Symbol.for` with a namespaced key if those copies must agree. For a live example of the same identity requirement, [the sidebar context](../../../../packages/ui/src/sidebar/context.svelte.ts) uses `Symbol.for(SYMBOL_KEY)` for both `setContext` and `getContext`.
 
 Convention: namespace the key (`epicenter.action`, `epicenter.document-handle`), and centralize cross-package brand keys in one `brands.ts` per package so the duplication-safe identity set is visible and reviewable. The brand constant itself is an implementation detail: consumers import the `isX` guard, never the raw symbol.
 
@@ -213,29 +205,7 @@ When NOT to use switch: early returns for type narrowing are fine as sequential 
 
 When switching over a **closed type**: a discriminated union, a defineErrors variant, a literal-string enum, a migration version: guard the switch with an exhaustiveness check so adding a new variant breaks the build until every site handles it.
 
-```typescript
-// Good: adding a new RpcError variant fails the build here
-switch (error.name) {
-	case 'ActionNotFound':
-		handleNotFound(error.action);
-		return;
-	case 'Timeout':
-		handleTimeout(error.ms);
-		return;
-	case 'PeerOffline':
-	case 'PeerLeft':
-		handleDisconnect();
-		return;
-	case 'ActionFailed':
-		handleFailure(error.cause);
-		return;
-	case 'Disconnected':
-		handleDisconnect();
-		return;
-	default:
-		error satisfies never;
-}
-```
+The [error variants reference](../../error-handling/references/error-variants.md#consuming-a-variant-union-exhaustive-switch-not-ifelse) shows how the recorder translates the native shell’s closed set of refusals.
 
 Why `satisfies never` and not `const _exhaustive: never = error; void _exhaustive;`? Same compile-time guarantee, less emit, no unused-variable suppression dance.
 

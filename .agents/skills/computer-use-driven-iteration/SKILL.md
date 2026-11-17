@@ -32,13 +32,15 @@ do not turn every pass into an exhaustive checklist.
 Establish the source baseline, app instance, and data used for the simulation.
 Prefer disposable local data when journeys mutate state. Keep the evidence
 traceable to the version exercised. A running worker's newer code is not
-evidence about the app currently open in the browser.
+evidence about the app instance you are exercising.
 
 Use the available computer-use tools and their documented entrypoints. Exercise
-the actual UI; retain screenshots or interaction evidence where they support a
-decision. Record the steps, expected behavior, observed behavior, and limits.
-Distinguish visual observations, demonstrated failures, and hypotheses about
-their causes. A screenshot cannot prove persistence or native hardware behavior.
+the actual UI in the surface the product targets, the native desktop app for
+desktop work. View screenshots for appearance and drive the journey for
+behavior; [ui-design's verification reference](../ui-design/references/verification.md)
+describes what each establishes. Record the steps, expected behavior, observed
+behavior, and limits. Distinguish visual observations, demonstrated failures,
+and hypotheses about their causes.
 
 If UI access is blocked, continue useful source investigation or automated
 checks, state which journeys remain unverified, and leave UI acceptance open.
@@ -100,8 +102,8 @@ Choose another wave while there is a grounded improvement worth executing
 within the authorized outcome. Stop when the intended journeys pass, accepted
 findings are resolved, and remaining candidates lack evidence or require a new
 product decision. For an open adversarial review, follow
-[adversarial-review](../adversarial-review/SKILL.md)'s group discussion and
-agreement process. Carry unresolved checks forward explicitly when access or
+[adversarial-review](../adversarial-review/SKILL.md)'s coordinator-led investigation
+and reporting rules. Carry unresolved checks forward explicitly when access or
 external conditions prevent completion.
 
 For work spanning waves, retain enough working evidence to resume: accepted

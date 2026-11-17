@@ -1,5 +1,5 @@
 /**
- * Install an app's packages from its lock at the app's top, then link the
+ * Install an app's packages from its lock in code/, then link the
  * command's own @epicenter/app (ADR-0880). Calls never install packages.
  * Installation runs outside the app's lock, including after new.
  */
@@ -66,8 +66,10 @@ export async function installCommand(
 	const { data: chosen, error } = await chooseApps(given.positionals[0]);
 	if (error) return fail(error, json);
 	const apps = [];
-	for (const { entry: app, realPath: folder } of chosen) {
-		const result = await installApp(folder, app);
+	for (const { entry: app, codePath: folder, problem } of chosen) {
+		const result = problem
+			? { error: { message: problem } }
+			: await installApp(folder, app);
 		const row = {
 			app,
 			folder,

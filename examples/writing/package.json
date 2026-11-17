@@ -1,0 +1,9 @@
+{
+	"name": "writing-inbox",
+	"private": true,
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"engines": {
+		"epicenter": ">=0.2.0"
+	}
+}

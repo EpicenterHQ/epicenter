@@ -1,22 +1,6 @@
 {
 	"version": 1,
 	"skills": {
-		"better-auth-best-practices": {
-			"source": "better-auth/skills",
-			"sourceType": "github",
-			"computedHash": "a4c830509e85557b59339d8d93a4e243e9e59c686e7678854d39230e12c2a6dc"
-		},
-		"better-auth-security-best-practices": {
-			"source": "better-auth/skills",
-			"sourceType": "github",
-			"computedHash": "5717187bba9c22030c7174c74012f01c359f21e2ce87e0eb80e24244d8b8c915"
-		},
-		"diagnose": {
-			"source": "mattpocock/skills",
-			"sourceType": "github",
-			"skillPath": "skills/engineering/diagnose/SKILL.md",
-			"computedHash": "15939a26f86edec2d4862042b8564e5a062cb81d04e047a0cea6305c8830b5f5"
-		},
 		"grill-me": {
 			"source": "mattpocock/skills",
 			"sourceType": "github",
@@ -33,12 +17,6 @@
 			"sourceType": "github",
 			"skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
 			"computedHash": "4a02bd01030d5ed6a5040c0382b9f56fbf02c7c8b8fd68aa1bcc55628963f760"
-		},
-		"prototype": {
-			"source": "mattpocock/skills",
-			"sourceType": "github",
-			"skillPath": "skills/engineering/prototype/SKILL.md",
-			"computedHash": "e4d0c8f8cb3fc096ee99405a15491da466545cf4a3694bee5a0c9db2fa621a43"
 		},
 		"setup-matt-pocock-skills": {
 			"source": "mattpocock/skills",
@@ -69,12 +47,6 @@
 			"sourceType": "github",
 			"skillPath": "skills/engineering/triage/SKILL.md",
 			"computedHash": "2b6efb6da12d92551772fcc04acf331f4e0e6f7bd9d4cb23ce0b301e0b128feb"
-		},
-		"wayfinder": {
-			"source": "mattpocock/skills",
-			"sourceType": "github",
-			"skillPath": "skills/engineering/wayfinder/SKILL.md",
-			"computedHash": "f343ecf46157cb645a5494644418308ad95391e9fc696faa47ae5a412bf5f6e4"
 		},
 		"write-a-skill": {
 			"source": "mattpocock/skills",

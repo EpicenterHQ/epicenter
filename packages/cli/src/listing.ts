@@ -2,90 +2,21 @@
  * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
  * description and collections with each action as the MCP tool `serve`
  * offers, so a listing and `tools/list` agree, except that MCP leaves out an
- * action with a `writeOnly` input, which the listing keeps with its mark for
+ * action with private or file input, which the listing keeps for
  * the app's own page; the human views come from the same actions.
  */
 
 import { basename } from 'node:path';
-import { type Action, isWriteOnly } from '@epicenter/app';
+import { type Action, whatTakes } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
-	fieldKind,
-	flagOf,
+	exampleCommand,
 	jsonSchema,
 	requiredKeys,
+	takesFile,
 	usageLine,
 } from './input.ts';
-import type { appStatusOf, RepositoryStatus } from './snapshot.ts';
-
-/** What Git says of the app's code and its data (ADR-0877); each absent when the app has no such repository. */
-type Status = Awaited<ReturnType<typeof appStatusOf>> | undefined;
-
-/** Whether a repository has nothing pending and a backup that has everything. */
-const settled = (status: RepositoryStatus | undefined) =>
-	!status || (status.pending === 0 && !status.unpushed && !status.backup);
-
-/**
- * Git-derived status as `--json` gives it, for the code and the data:
- * pending paths, commits not backed up, a backup that is missing or has
- * never received the branch, and data written under code this code does not
- * have; absent when both are settled.
- */
-function listingStatus(status: Status) {
-	if (
-		!status ||
-		(settled(status.code) && settled(status.data) && !status.data?.otherCode)
-	)
-		return {};
-	return { status };
-}
-
-/** One repository's history and backup status in a few words each, each starting with which repository. */
-function repositoryMarks(which: 'code' | 'data', status?: RepositoryStatus) {
-	if (!status) return [];
-	return [
-		...(status.pending
-			? [
-					`${which}: ${status.pending} ${status.pending === 1 ? 'change' : 'changes'} not yet in history`,
-				]
-			: []),
-		...(status.unpushed
-			? [
-					`${which}: ${status.unpushed} ${status.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
-				]
-			: []),
-		...(status.backup === 'none' ? [`${which}: not backed up`] : []),
-		...(status.backup === 'never' ? [`${which}: never backed up`] : []),
-	];
-}
-
-/** An app's history and backup status, for its code and its data. */
-function statusMarks(status: Status) {
-	return [
-		...repositoryMarks('code', status?.code),
-		...repositoryMarks('data', status?.data),
-		...(status?.data?.otherCode
-			? [
-					`data: written under code ${status.data.otherCode}, which this code's history does not have`,
-				]
-			: []),
-	];
-}
-
-/** The step that settles an app's status, or nothing when it is settled. */
-function syncStep(name: string, folder: string, status: Status) {
-	const remotes = [
-		...(status?.code?.backup === 'none' ? [folder] : []),
-		...(status?.data?.backup === 'none' ? [`${folder}/data`] : []),
-	];
-	if (remotes.length)
-		return `Run: ${remotes.map((at) => `git -C ${at} remote add origin <url>`).join(' and ')}, then epicenter sync ${name}`;
-	if (!settled(status?.code) || !settled(status?.data))
-		return `Run: epicenter sync ${name}`;
-	if (status?.data?.otherCode) return `Run: epicenter history ${name}`;
-	return undefined;
-}
 
 /** MCP's defaults for each hint an action does not give. */
 const ANNOTATION_DEFAULTS = {
@@ -102,15 +33,15 @@ export function actionTool(app: string, key: string, action: Action) {
 		description: action.description,
 		inputSchema: jsonSchema(action.input),
 		annotations: { ...ANNOTATION_DEFAULTS, ...action.annotations },
+		...(action.privateInput === true ? { privateInput: true } : {}),
 	};
 }
 
 /**
  * The app as `--json` prints it: its description, each collection's path and
- * fields as JSON Schema, its actions as tools, and what is not yet in its
- * history, which the caller reads from Git.
+ * fields as JSON Schema and its actions as tools.
  */
-function appListing(located: Runnable, history: Status) {
+function appListing(located: Runnable) {
 	const { app } = located;
 	return {
 		name: located.name,
@@ -132,7 +63,6 @@ function appListing(located: Runnable, history: Status) {
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
-		...listingStatus(history),
 	};
 }
 
@@ -143,24 +73,20 @@ function readOnly(action: Action) {
 		: '';
 }
 
-/** Each action as one short usage line and its description; `--help` on an action gives every flag. */
+/** Each action as its usage line and its description; `--help` on an action lists its input's keys. */
 function actionLines(located: Runnable) {
 	return Object.entries(located.actions).flatMap(([key, action]) => [
-		`  ${usageLine(located.name, key, action, { short: true })}`,
+		`  ${usageLine(located.name, key, action)}`,
 		`    ${action.description}${readOnly(action)}`,
 	]);
 }
 
-/** Render discovery as one answer while keeping broken entries separate from runnable apps; an app with changes not yet in history is marked. */
-export function homeListing(
-	found: Discovery,
-	json: boolean,
-	histories: ReadonlyMap<string, Status>,
-): unknown {
+/** Render discovery as one answer while keeping broken entries separate from runnable apps. */
+export function homeListing(found: Discovery, json: boolean): unknown {
 	if (json)
 		return {
 			epicenter: found.epicenter,
-			apps: found.apps.map((app) => appListing(app, histories.get(app.name))),
+			apps: found.apps.map((app) => appListing(app)),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
 				folder,
@@ -169,15 +95,10 @@ export function homeListing(
 		};
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map((located) => {
-		const marks = statusMarks(histories.get(located.name));
-		return `${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}${marks.length ? ` (${marks.join('; ')})` : ''}`;
+		return `${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}`;
 	});
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
-	for (const app of found.apps) {
-		const step = syncStep(app.name, app.folder, histories.get(app.name));
-		if (step) lines.push(step);
-	}
 	lines.unshift(`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
@@ -191,20 +112,13 @@ export function homeListing(
 	return lines.join('\n');
 }
 
-/** Render an app's actions, its folder, and what is not yet in its history or its backup. */
-export function oneAppListing(
-	located: Runnable,
-	json: boolean,
-	history: Status,
-): unknown {
-	if (json) return appListing(located, history);
-	const step = syncStep(located.name, located.folder, history);
+/** Render an app's actions and its container folder. */
+export function oneAppListing(located: Runnable, json: boolean): unknown {
+	if (json) return appListing(located);
 	return [
 		`${located.name}  ${located.app.description}`,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
-		...statusMarks(history),
-		...(step ? [step] : []),
 		'',
 		...actionLines(located),
 		'',
@@ -213,38 +127,42 @@ export function oneAppListing(
 }
 
 /**
- * Explain each field: how it is spelled, whether it is needed, and its
- * description. A positional field may also be given as its flag; a
- * `writeOnly` one is asked for after the command runs, without echo.
+ * Explain an action's input: each key, whether it is needed, what it takes,
+ * and its description, then one command to copy.
  */
 export function actionHelp(name: string, key: string, action: Action): string {
-	const positional = new Set<string>(action.positional ?? []);
+	const usage = [usageLine(name, key, action), action.description];
+	if (takesFile(action))
+		return [
+			...usage,
+			'',
+			'This action takes a file. Start it from its page; the command line cannot supply it.',
+		].join('\n');
+	const keys = Object.keys(action.input);
+	if (!keys.length) return usage.join('\n');
 	const required = requiredKeys(action.input);
 	const rows = Object.entries(action.input).map(([key, field]) => {
-		const schema = field as TSchemaOptions;
-		const kind = fieldKind(schema);
-		const flag = `--${flagOf(key)}`;
-		const asFlag = kind === 'switch' ? flag : `${flag} <${kind}>`;
-		const spelling = isWriteOnly(field)
-			? `${key} (asked for)`
-			: positional.has(key)
-				? `<${key}>, ${asFlag}`
-				: asFlag;
-		const status = Object.hasOwn(schema, 'default')
-			? `default ${JSON.stringify(schema.default)}`
-			: required.has(key)
-				? 'required'
-				: 'optional';
+		const { description } = field as TSchemaOptions;
 		return [
-			spelling,
-			`${status}.${schema.description ? ` ${schema.description}` : ''}`,
+			key,
+			required.has(key) ? 'required' : 'optional',
+			`${whatTakes(field)}${description ? `. ${description}` : ''}`,
 		] as const;
 	});
-	const width = Math.max(0, ...rows.map(([spelling]) => spelling.length));
+	const width = Math.max(...keys.map((key) => key.length));
 	return [
-		usageLine(name, key, action),
-		action.description,
+		...usage,
 		'',
-		...rows.map(([spelling, text]) => `  ${spelling.padEnd(width)}  ${text}`),
+		action.privateInput === true
+			? 'Input, one JSON object read from stdin with -, never an argument:'
+			: 'Input, one JSON object, or - to read it from stdin:',
+		...rows.map(
+			([key, status, text]) => `  ${key.padEnd(width)}  ${status}  ${text}`,
+		),
+		'',
+		'Example:',
+		...exampleCommand(name, key, action)
+			.split('\n')
+			.map((line) => `  ${line}`),
 	].join('\n');
 }

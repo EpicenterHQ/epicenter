@@ -6,9 +6,7 @@ shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
 On the page, `openFolder(contract, home({ site }))` from `@epicenter/folder`
 opens the data folder in a Tauri window, and `settings` from
 `@epicenter/local` is this computer's settings in AppData. A desktop app
-does not sync: on a computer only Epicenter does, and an app reads the
-record Epicenter keeps for its folder (`data_record` in the folder plugin)
-to show what is synced
+does not sync
 ([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)).
 The page's recovery UI is in `@epicenter/svelte`.
 
@@ -44,9 +42,6 @@ removes that suffix in development alone, so a production site whose first
 label is `dev` keeps it. A configuration that states something else, or a
 development identifier without `.dev`, fails startup
 (`StartupError::Environment`, `StartupError::Identity`).
-
-Startup also names the Epicenter folder for reading records
-(`Roots::name_library`), never as roots of the app's own.
 
 ## Finding the data folder
 

@@ -103,33 +103,9 @@ function createSomething({ foo, bar = 10 }: { foo: string; bar?: number }) {
 - Complex normalization/validation of the options object
 - Need to pass the entire `opts` object to other functions
 
-### Codebase Examples
+### A factory with two dependencies
 
-```typescript
-// From packages/epicenter/src/core/schema/columns.ts
-export function select<const TOptions extends readonly [string, ...string[]]>({
-  options,
-  nullable = false,
-  default: defaultValue,
-}: {
-  options: TOptions;
-  nullable?: boolean;
-  default?: TOptions[number];
-}): SelectColumnSchema<TOptions, boolean> {
-  return { type: 'select', nullable, options, default: defaultValue };
-}
-
-// From apps/whispering/.../create-key-recorder.svelte.ts
-export function createKeyRecorder({
-  pressedKeys,
-  onRegister,
-  onClear,
-}: {
-  pressedKeys: PressedKeys;
-  onRegister: (keyCombination: KeyboardEventSupportedKey[]) => void;
-  onClear: () => void;
-}) { ... }
-```
+[Whispering’s `createMicrophoneDevice`](../../../../apps/whispering/src/lib/microphone.ts) destructures `{ files, recorder }` in its parameter list. Both dependencies stay visible at construction and are available by name inside `start`.
 
 # Extract Coupled `let` State Into Sub-Factories
 

@@ -69,6 +69,47 @@ Use `resultQueryOptions` or `resultMutationOptions` for one function outside a
 namespace, a key that is not `[namespace, method, args]`, or a query that needs
 TanStack's context, such as its abort signal. Namespace entries never see it.
 
+For a Result-returning operation observed by one component, construct the
+mutation there. The adapter unwraps `Ok` and throws the original `Err` value
+into TanStack's error path. A bare `mutationFn` that fulfills with `Err`
+would run success callbacks, including a form reset.
+
+```ts
+const create = createMutation(() => resultMutationOptions({
+  mutationKey: ['items', 'create'],
+  mutationFn: createItem,
+}));
+```
+
+Share the entry when another consumer needs the same identity or behavior.
+For example, a list can observe pending additions by the form's mutation key
+before the new items appear in a query. A spinner on the form can read the
+local mutation directly. A component-local mutation still runs the
+QueryClient's invalidation rule.
+
+## Capture the submitted operation
+
+Read data, pending, error, and submitted variables from their query or mutation.
+First try removing local state that mirrors these values. Keep an independent
+draft when the interface needs information the operation does not own.
+
+Capture submitted values, record identity, and any reviewed version in the
+interaction handler before calling `mutate(input)`, `mutateAsync(input)`, or
+starting an awaited workflow. Let `mutationFn` receive that input. If someone
+presses Send in thread A and opens thread B while the draft saves, the reply
+still belongs to thread A. Capture the thread ID with the text at Send.
+Read event or control values synchronously. Passing a live form or a callback
+that reads the editor later changes which values the operation uses. Closures
+over stable services or identity fixed for the component's lifetime remain useful.
+
+Passing an object to `mutate` passes a reference. Check who can still change
+it, including the receiving API. Capture the submitted fields or detach
+mutable parts when needed. Replacing the draft on each edit can already
+preserve the submission if its nested values also stay unchanged.
+
+Svelte's [input ownership](../svelte/references/input-ownership.md) applies this
+rule to native controls, reactive drafts, and completion-time clearing.
+
 ## One rule refreshes reads after every write
 
 Give each QueryClient one `MutationCache` rule, where the client is created:
@@ -113,6 +154,8 @@ Behavior goes where its scope is:
 
 TanStack infers what a spread adds, including `select`. Matching defaults merge
 in registration order, so register a broad prefix before a narrow one.
+Spreading options and defining the same callback replaces it; preserve the
+existing work, order, and awaited promises when extending one.
 
 A shared variant reaches the cache through the query factories' keys, so define
 the reads first; writes refer to reads, never the reverse:
@@ -130,6 +173,11 @@ the write is pending and leave the cache alone: there is nothing to roll back.
 Update the cache in `onMutate`, cancel the read first, and restore the snapshot
 in `onError` only when several places must show the change at once.
 
+Put essential per-execution work in mutation options or that call's promise.
+Per-call `mutate` callbacks belong to the latest observed interaction. Read
+[mutation lifecycle](references/mutation-lifecycle.md) when changing callback
+ownership, awaited completion, overlapping submissions, or sensitive inputs.
+
 ## Run options imperatively
 
 Outside a hook, or when a handler needs the outcome as a Result, run the same
@@ -145,8 +193,10 @@ if (error) return reportError(error, 'Could not remove this passkey.');
 `runMutation` goes through the mutation cache, so the rule, devtools, and
 `useIsMutating` see the write. `runQuery(client, options)` reads through the
 cache and returns `Result<TData, TError | CancelledError>`; pass
-`staleTime: 'static'` to accept any cached value. Call a service directly when
-nothing observes its data.
+`staleTime: 'static'` to accept any cached value. Keep sequential workflows
+linear with `mutateAsync` or `runMutation`. Call a service directly when no
+consumer observes its data or operation lifecycle; presenting a final Result
+as a toast alone does not require a mutation.
 
 ## Keep errors and choices where they belong
 

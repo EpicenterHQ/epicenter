@@ -248,7 +248,7 @@ Step 2: [Step name]
 
 When the spec introduces a coherent set of new primitives (column types, action variants, error kinds, modifier methods, etc.), present them as a **catalog**: a compact code block that lists every primitive with a one-line annotation, followed by detail sections only for the ones that need elaboration.
 
-Catalogs let a reader scan the entire surface in one glance before diving into any single primitive.
+The following catalog comes from a historical folder-sync schema proposal. It shows how a spec can record which primitives the author considered and why some were dropped.
 
 ````markdown
 ## The field.* catalog
@@ -288,9 +288,9 @@ Find actual usages in the codebase first. Show the verbatim "Before" with file:l
 ````markdown
 ## Call sites: before and after
 
-### honeycrisp notes table
+### Historical Honeycrisp notes migration
 
-**Before** (`apps/honeycrisp/src/lib/workspace.ts:78`):
+**Before, abbreviated.** The original notes table is at `72a5f6ec37:apps/honeycrisp/src/lib/workspace.ts`, line 78. The translation below was a proposal.
 
 ```ts
 const notesTable = defineTable(

@@ -1,13 +1,12 @@
 /**
  * An action: a function an app exposes, carrying what the CLI, MCP, and a UI
- * need to call it: a description, its input's fields, and how the command
- * line reads them. Call it as any function, inside a run:
+ * need to call it: a description and its input's fields. Call it as any
+ * function, inside a run:
  *
  * ```ts
  * const learn = defineAction({
  *   description: 'Learn a word, due now',
  *   input: { word: field.text(), meaning: field.text({ optional: true }) },
- *   positional: ['word', 'meaning'],
  *   run: ({ word, meaning }) => words.add({ word, meaning }),
  * });
  *
@@ -18,9 +17,16 @@
  * called it, as it runs, and what it returns is the answer (ADR-0879). Called
  * as a function, such an action resolves with its return, its yields unread.
  */
-import { type Static, type TObject, type TSchema, Type } from 'typebox';
-import { Value } from 'typebox/value';
-import { isWriteOnly } from './field.ts';
+
+import type { Static, TObject, TSchema } from 'typebox';
+import type { Result } from 'wellcrafted/result';
+import { isActionResult, type PublicError } from './action-result.ts';
+import {
+	absentValue,
+	defaultIn,
+	type FilledKeys,
+	fileFieldOf,
+} from './field.ts';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -29,8 +35,7 @@ export type Input = Record<string, TSchema>;
  * MCP's tool annotations, verbatim. An action that does not say otherwise
  * may change things, may destroy, is not idempotent, and reaches outside the
  * folder; the last three mean something only when it is not read-only. A
- * read-only action's run is never snapshotted into the app's history, and a
- * write through `folder` in it throws, except to a `.local` path.
+ * read-only action's write through `folder` throws, except to a `.local` path.
  */
 export type Annotations = {
 	title?: string;
@@ -40,15 +45,16 @@ export type Annotations = {
 	openWorldHint?: boolean;
 };
 
-/** What the CLI, MCP, and a UI read from an action besides calling it. */
-export type ActionMeta = {
+/** An action's metadata, shared by its declaration and callers. */
+export type ActionMeta<I extends Input = Input> = {
 	readonly description: string;
-	readonly input: Input;
+	readonly input: I;
 	/**
-	 * The inputs the command line also reads by position, in order:
-	 * `positional: ['from', 'to']` reads `epicenter reading between 2026-11-01 2026-11-08`.
+	 * Handle the whole input privately: exclude MCP, accept CLI input only as
+	 * JSON stdin, and omit input from validation details and commit names.
+	 * HTTP JSON remains available. The app owns its outputs and storage.
 	 */
-	readonly positional?: readonly string[];
+	readonly privateInput?: boolean;
 	readonly annotations?: Annotations;
 };
 
@@ -87,39 +93,24 @@ type Returned =
 	| readonly Returned[]
 	| { readonly [key: string]: Returned };
 
-type DefaultedKeys<I extends Input> = {
-	[K in keyof I]: I[K] extends { default: unknown } ? K : never;
-}[keyof I];
-
+type Answer = Result<Returned, PublicError>;
 type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
 
-/** The value `run` receives for `input`: a field with a default is always there. */
+/** The value `run` receives for `input`: a switch or a list with no `min` is always there, `false` or `[]` when the caller left it out. */
 export type InputOf<I extends Input> = Simplify<
-	Omit<Static<TObject<I>>, DefaultedKeys<I>> & {
-		[K in DefaultedKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
+	Omit<Static<TObject<I>>, FilledKeys<I>> & {
+		[K in FilledKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
 	}
 >;
 
-/** What a caller gives for `input`: a field with a default may be left out. */
-type CallerInput<I extends Input> = Simplify<
-	Omit<Static<TObject<I>>, DefaultedKeys<I>> & {
-		[K in DefaultedKeys<I>]?: Exclude<Static<I[K]>, undefined>;
-	}
->;
-
-/** What an action is besides its `run`, as an app writes it. */
-type ActionFields<I extends Input> = {
-	description: string;
-	input: I;
-	positional?: readonly (keyof I & string)[];
-	annotations?: Annotations;
-};
+/** What a caller gives for `input`: a switch or a list may be left out. */
+type CallerInput<I extends Input> = Simplify<Static<TObject<I>>>;
 
 /** An action as an app writes it: `run` receives its input, typed by its fields. */
 export type ActionDef<
 	I extends Input,
-	Out extends Returned | Promise<Returned> = Returned | Promise<Returned>,
-> = ActionFields<I> & {
+	Out extends Answer | Promise<Answer> = Answer | Promise<Answer>,
+> = ActionMeta<I> & {
 	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
 	run(input: InputOf<I>): Out;
 };
@@ -128,12 +119,12 @@ export type ActionDef<
 export type YieldingActionDef<
 	I extends Input,
 	Y extends Returned,
-	R extends Returned,
-> = ActionFields<I> & {
+	R extends Answer,
+> = ActionMeta<I> & {
 	run(input: InputOf<I>): AsyncGenerator<Y, R, undefined>;
 };
 
-/** The undefaulted `run`, kept on the action for `runYielding`. */
+/** `run` as a call starts it, its input filled but its yields unread, kept on the action for `runYielding`. */
 const RUN = Symbol('run');
 
 function isAsyncGenerator(
@@ -159,44 +150,72 @@ export async function runYielding(
 	action: Action,
 	input: unknown,
 	onYield: (value: unknown) => unknown,
-): Promise<unknown> {
+): Promise<Result<unknown, PublicError>> {
 	const run = (action as { [RUN]?: (input: unknown) => unknown })[RUN];
-	const result = run ? run(input) : action(input);
-	if (!isAsyncGenerator(result)) return result;
+	return settle(run ? run(input) : action(input), onYield, action.description);
+}
+
+function checked(value: unknown, description: string) {
+	if (!isActionResult(value))
+		throw new TypeError(
+			`The action "${description}" must return Ok(data) or Err(error)`,
+		);
+	return value;
+}
+
+function settle(
+	value: unknown,
+	onYield: (value: unknown) => unknown,
+	description: string,
+) {
+	if (isAsyncGenerator(value)) return drain(value, onYield, description);
+	if (value instanceof Promise)
+		return value.then((answer) => checked(answer, description));
+	return checked(value, description);
+}
+
+async function drain(
+	generator: AsyncGenerator<unknown, unknown, undefined>,
+	onYield: (value: unknown) => unknown,
+	description: string,
+) {
 	let finished = false;
 	try {
 		for (;;) {
-			const step = await result.next();
+			const step = await generator.next();
 			if (step.done) {
 				finished = true;
-				return step.value;
+				return checked(step.value, description);
 			}
 			await onYield(step.value);
 		}
 	} finally {
-		if (!finished) await result.return(undefined);
+		if (!finished) await generator.return(undefined);
 	}
 }
 
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
- * the fields. Calling it fills each field's default before `run`, as a call
- * through the CLI or MCP does. Inside `run`, the app's collections and
- * `folder` reach the folder of the run that called it, however deep. Throws
- * when the definition is wrong in a way its types cannot say.
+ * the fields. Calling it gives `run` an absent switch as `false` and an absent
+ * list with no `min` as `[]`, as a read of a collection does, however it is called. Inside
+ * `run`, the app's collections and `folder` reach the folder of the run that
+ * called it, however deep. Throws when the definition is wrong in a way its
+ * types cannot say, such as a field with a `default`.
  */
 export function defineAction<
 	const I extends Input,
 	Y extends Returned,
-	R extends Returned,
+	R extends Answer,
 >(def: YieldingActionDef<I, Y, R>): Action<CallerInput<I>, Promise<R>, Y>;
 export function defineAction<
 	const I extends Input,
-	Out extends Returned | Promise<Returned>,
+	Out extends Answer | Promise<Answer>,
 >(def: ActionDef<I, Out>): Action<CallerInput<I>, Out, never>;
 export function defineAction(
-	def: ActionDef<Input> | YieldingActionDef<Input, Returned, Returned>,
+	def: ActionDef<Input> | YieldingActionDef<Input, Returned, Answer>,
 ): Action {
+	// Fail at declaration, before a non-JSON schema can break tool discovery.
+	JSON.stringify(def.input);
 	const problems = actionProblems(def);
 	if (problems.length)
 		throw new Error(
@@ -205,36 +224,26 @@ export function defineAction(
 				.join('\n'),
 		);
 	const { run, ...meta } = def;
-	const schema = Type.Object(def.input);
-	const start = (input: unknown) =>
-		(run as (input: unknown) => unknown)(
-			Value.Default(schema, { ...(input as object) }),
-		);
-	const action = (input: unknown) => {
-		const result = start(input);
-		return isAsyncGenerator(result)
-			? runYielding(action as Action, input, () => undefined)
-			: result;
+	const filled = Object.entries(def.input).flatMap(([key, schema]) => {
+		const absent = absentValue(schema);
+		return absent === undefined ? [] : [[key, absent] as const];
+	});
+	const start = (input: unknown) => {
+		const given: Record<string, unknown> = { ...(input as object) };
+		for (const [key, absent] of filled)
+			if (given[key] === undefined) given[key] = structuredClone(absent);
+		return (run as (input: unknown) => unknown)(given);
 	};
+	const action = (input: unknown) =>
+		settle(start(input), () => undefined, meta.description);
 	return Object.assign(action, meta, { [RUN]: start });
 }
-
-/**
- * Flags the `epicenter` command reads anywhere among an action's words: no
- * field is named one. `--version` is read only on its own, so a field may be
- * named `version`.
- */
-export const RESERVED_FIELDS: ReadonlySet<string> = new Set([
-	'json',
-	'help',
-	'input',
-]);
 
 /** What an action is made of; anything else, such as `readonly`, is a typo the types let through. */
 const ACTION_KEYS = new Set([
 	'description',
 	'input',
-	'positional',
+	'privateInput',
 	'annotations',
 	'run',
 ]);
@@ -247,49 +256,54 @@ const ANNOTATION_KEYS = new Set([
 	'openWorldHint',
 ]);
 
+/** File handles are decoded only for whole top-level input fields. */
+function containsFileMarker(
+	value: unknown,
+	seen = new WeakSet<object>(),
+): boolean {
+	if (!value || typeof value !== 'object' || seen.has(value)) return false;
+	seen.add(value);
+	return (
+		Object.hasOwn(value, 'x-epicenter-file') ||
+		Object.values(value).some((child) => containsFileMarker(child, seen))
+	);
+}
+
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, positional, annotations, run } = def as Record<
+	const { description, input, privateInput, annotations, run } = def as Record<
 		string,
 		unknown
 	>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
-		if (!ACTION_KEYS.has(key))
+		if (key === 'positional')
+			problems.push(
+				`has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line`,
+			);
+		else if (!ACTION_KEYS.has(key))
 			problems.push(`has "${key}", which an action does not take`);
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
 	if (typeof run !== 'function') problems.push('has no run');
+	if (privateInput !== undefined && typeof privateInput !== 'boolean')
+		problems.push('has a privateInput flag that is not a boolean');
 	if (typeof annotations === 'object' && annotations !== null)
 		for (const key of Object.keys(annotations))
 			if (!ANNOTATION_KEYS.has(key))
 				problems.push(`has the annotation "${key}", which MCP does not define`);
 	if (typeof input !== 'object' || input === null)
 		return [...problems, 'has no input'];
-	const fields = input as Input;
-	for (const key of Object.keys(fields))
-		if (RESERVED_FIELDS.has(key))
-			problems.push(`has a field named "${key}", which epicenter reads itself`);
-	if (!Array.isArray(positional)) return problems;
-	positional.forEach((key: unknown, index) => {
-		if (typeof key !== 'string' || !Object.hasOwn(fields, key))
+	for (const [key, schema] of Object.entries(input as Input)) {
+		if (!fileFieldOf(schema) && containsFileMarker(schema))
 			problems.push(
-				`has the positional ${JSON.stringify(key)}, which is not one of its fields`,
+				`has a nested file in "${key}"; files must be top-level action inputs`,
 			);
-		else if (positional.indexOf(key) !== index)
-			problems.push(`lists the positional "${key}" twice`);
-		else if (isWriteOnly(fields[key] as TSchema))
+		if (defaultIn(schema))
 			problems.push(
-				`has the write-only "${key}" as a positional; a secret is never read from the command line, where the shell's history keeps it`,
+				`has a default in "${key}"; no field has one, so write the default in run, where the value is read, such as \`limit ?? 50\``,
 			);
-		else if (
-			(fields[key] as { type?: unknown }).type === 'array' &&
-			index !== positional.length - 1
-		)
-			problems.push(
-				`has the list "${key}" as a positional before the last, so the ones after it could never be given`,
-			);
-	});
+	}
 	return problems;
 }
 

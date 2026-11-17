@@ -7,6 +7,8 @@
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (`epicenter add`, the first copy), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a UI is a view over actions), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (`epicenter install` and its `Source` trailers), [ADR-0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md) (`repositories.json`), [ADR-0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) (`source`, a different noun).
 - **Unbuilt:** nothing.
 
+- **Amended by:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): an app's copied code lives in `apps/<app>/code/` inside the home's private root repository. Copies create no per-app repository or commit; `code/SOURCE.md` records provenance, and root checkpoints record pending files. The separate-repository and first-commit rules below are historical; copying without automatic merges remains.
+
 ## Context
 
 `epicenter new <name> --from <git url|path>` cloned a starter, an app's code
@@ -21,7 +23,7 @@ Four facts count against it.
 
 - **Where an app's code came from was recorded in one clone's `.git/config`
   and nowhere else.** `repositories.json` lists each repository with its
-  `origin` (`packages/cli/src/epicenter-repository.ts`). An Epicenter rebuilt
+  `origin` (`908ca74ec9:packages/cli/src/epicenter-repository.ts`). An Epicenter rebuilt
   with `epicenter init --from` had no `upstream`, and `epicenter update`
   answered `<app>: no upstream; left alone`. ADR-0886 said a rebuilt Epicenter
   "still merges from it".

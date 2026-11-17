@@ -44,11 +44,11 @@ export async function fixture() {
 		EPICENTER_ROOT: undefined,
 	};
 
-	/** Write `files` under `dir` and, unless `git` is false, commit them as a new repository. */
+	/** Write `files` under `dir` and, when `git` is true, commit them as a new repository. */
 	async function folder(
 		dir: string,
 		files: Record<string, string>,
-		{ git = true }: { git?: boolean } = {},
+		{ git = false }: { git?: boolean } = {},
 	) {
 		await mkdir(dir, { recursive: true });
 		for (const [path, text] of Object.entries(files)) {
@@ -66,14 +66,14 @@ export async function fixture() {
 	}
 
 	/**
-	 * An app at `<epicenter>/apps/<entry>`: a `.gitignore`, and an
-	 * `epicenter.ts` of `source` after an import of everything an app
+	 * An app container at `<epicenter>/apps/<entry>`: `code/.gitignore` and
+	 * `code/epicenter.ts` of `source` after an import of everything an app
 	 * defines itself with.
 	 */
 	async function app(entry: string, source: string, epicenter = home) {
 		return folder(join(epicenter, 'apps', entry), {
-			'.gitignore': gitignore,
-			'epicenter.ts': `${header}${source}`,
+			'code/.gitignore': gitignore,
+			'code/epicenter.ts': `${header}${source}`,
 		});
 	}
 
@@ -135,7 +135,15 @@ export async function startServe(
 				throw new Error('serve did not listen');
 			}),
 		]);
-		return { base, stop, stderr: () => output };
+		return {
+			base,
+			stop,
+			kill: async () => {
+				child.kill('SIGKILL');
+				return child.exited;
+			},
+			stderr: () => output,
+		};
 	} catch (error) {
 		await stop();
 		throw error;
@@ -171,10 +179,10 @@ export async function connectMcp(
 }
 
 /** The ignore file every test app carries, as `epicenter new` writes it. */
-export const gitignore = 'data/\nnode_modules/\n';
+export const gitignore = 'node_modules/\nui/dist/\n';
 
 /** The import every test app's `epicenter.ts` starts with. */
-export const header = `import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';\n`;
+export const header = `import { defineAction, defineApp, defineCollection, field, folder, Err, Ok } from '@epicenter/app';\n`;
 
 /** The `epicenter.ts` of an app with only a description that names it. */
 export function bareApp(name: string) {
@@ -183,8 +191,8 @@ export function bareApp(name: string) {
 
 /** Reading, as an app's files: a books collection and actions that write a CSV. */
 export const readingApp = {
-	'.gitignore': gitignore,
-	'epicenter.ts': `${header}
+	'code/.gitignore': gitignore,
+	'code/epicenter.ts': `${header}
 const books = defineCollection({ path: 'data/books/{slug}.md', fields: { title: field.text() } });
 
 export default defineApp({
@@ -195,25 +203,23 @@ export default defineApp({
 		log: defineAction({
 			description: 'Record minutes read today',
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
-			positional: ['minutes'],
 			run: async ({ minutes, book }) => {
 				await folder.update('data/2026.csv', (before = 'minutes,book\\n') => \`\${before}\${minutes},\${book ?? ''}\\n\`);
-				return { minutes, book: book ?? null };
+				return Ok({ minutes, book: book ?? null });
 			},
 		}),
 		between: defineAction({
 			description: 'Minutes read between two days',
 			input: { from: field.date(), to: field.date() },
-			positional: ['from', 'to'],
 			annotations: { readOnlyHint: true },
-			run: ({ from, to }) => ({ from, to }),
+			run: ({ from, to }) => Ok(({ from, to })),
 		}),
 		week: {
 			show: defineAction({
 				description: 'Minutes read this week',
 				input: {},
 				annotations: { readOnlyHint: true, openWorldHint: false },
-				run: () => 210,
+				run: () => Ok(210),
 			}),
 		},
 		explode: defineAction({
@@ -231,16 +237,16 @@ export default defineApp({
 
 /** The source of an app with many kinds of input, for `fixture().app`. */
 export const reading = `export default defineApp({ description: 'The reading app', collections: {}, actions: {
-	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return input; } }),
-	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) }) },
-	tag: defineAction({ description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input }),
-	collect: defineAction({ description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input }),
-	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('data/index.local.json', '{}'); return {folder:folder.path}; } }),
+	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return Ok(input); } }),
+	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => Ok(({minutes:210})) }) },
+	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text()), done: field.boolean() }, run: (input) => Ok(input) }),
+	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text()) }, run: (input) => Ok(input) }),
+	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('data/index.local.json', '{}'); return Ok({folder:folder.path}); } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } });`;
 
 /** The source of an app whose actions share the word `calendar`. */
 export const vault = `export default defineApp({ description: 'The vault app', collections: {}, actions: { calendar: {
-	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
-	add: defineAction({description:'Add a day',input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
+	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},run:({day})=>Ok(({day}))}),
+	add: defineAction({description:'Add a day',input:{day:field.date()},run:({day})=>Ok(({day}))}),
 } } });`;

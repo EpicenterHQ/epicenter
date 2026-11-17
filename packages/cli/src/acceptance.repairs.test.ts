@@ -1,7 +1,7 @@
 /**
  * Acceptance, stage 2c: the final review's repairs that outlived ADR-0850's
  * rewrite. Black-box runs of the real `epicenter` against a temporary HOME.
- * A run's answer is `{ returned }`, `{ threw }`, or `{ error }`.
+ * A run's answer is `{ result }`, `{ fault }`, or `{ error }`.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -35,33 +35,32 @@ export default defineApp({
 		two: defineAction({
 			description: 'Write two files',
 			input: { text: field.text() },
-			positional: ['text'],
 			run: async ({ text }) => {
 				await folder.write('data/a.md', text);
 				await folder.write('data/b.md', text);
-				return text;
+				return Ok(text);
 			},
 		}),
 		flags: defineAction({
 			description: 'Report how this process was started',
 			input: {},
 			annotations: { readOnlyHint: true },
-			run: () => process.execArgv,
+			run: () => Ok(process.execArgv),
 		}),
-		defaulted: defineAction({
-			description: 'Take a raw field with a default',
-			input: { count: { type: 'number', default: 3 } as never, day: field.date({ optional: true }) },
+		optional: defineAction({
+			description: 'Take fields that may be absent',
+			input: { count: field.number({ optional: true }), day: field.date({ optional: true }) },
 			annotations: { readOnlyHint: true },
-			run: (input) => input,
+			run: (input) => Ok(input),
 		}),
 	},
 });
 `;
 
 const repairsApp = {
-	'.gitignore': gitignore,
+	'code/.gitignore': gitignore,
 	'data/a.md': 'base a\n',
-	'epicenter.ts': repairsCode,
+	'code/epicenter.ts': repairsCode,
 };
 
 async function setup() {
@@ -84,10 +83,7 @@ test('F1 new puts the next step on stderr; a broken root is a usage error', asyn
 	const made = await f.run('new', 'garden');
 	expect(made.code).toBe(0);
 	expect(made.stdout).toBe(`${join(f.apps, 'garden')}\n`);
-	expect(made.stderr).toBe(
-		`Run: epicenter garden\nnot backed up\nRun: git -C ${join(f.apps, 'garden')} remote add origin <url> and git -C ${join(f.apps, 'garden/data')} remote add origin <url>, each a private repository, then epicenter sync garden\n`,
-	);
-
+	expect(made.stderr).toBe('Run: epicenter garden\n');
 	await rm(f.home, { recursive: true });
 	await writeFile(f.home, 'not a folder');
 	const listed = await f.json();
@@ -100,13 +96,13 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await notes(f);
 	await f.folder(join(f.apps, 'broken'), {
-		'.gitignore': gitignore,
-		'epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
+		'code/.gitignore': gitignore,
+		'code/epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
 	});
 	await f.app(
 		'loud',
 		`console.log('noise while importing');
-export default defineApp({ description: 'The loud app', collections: {}, actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => 'hello' }) } });
+export default defineApp({ description: 'The loud app', collections: {}, actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } });
 `,
 	);
 	const { client, close } = await connectMcp(f, ['--no-install']);
@@ -119,77 +115,78 @@ export default defineApp({ description: 'The loud app', collections: {}, actions
 
 		const flags = await client.callTool({ name: 'notes_flags', arguments: {} });
 		expect(flags.structuredContent).toMatchObject({
-			returned: expect.arrayContaining(['--no-install']),
+			data: expect.arrayContaining(['--no-install']),
+			error: null,
 		});
 		const hello = await client.callTool({ name: 'loud_hello', arguments: {} });
 		expect(hello.isError).toBeFalsy();
-		expect(hello.structuredContent).toEqual({ returned: 'hello' });
+		expect(hello.structuredContent).toEqual({ data: 'hello', error: null });
 		const unknown = await client.callTool({
 			name: 'notes_nope',
 			arguments: {},
 		});
 		expect(unknown.isError).toBe(true);
 		expect(unknown.structuredContent).toMatchObject({
-			error: { name: 'Usage' },
+			data: null,
+			error: { kind: 'refused', reason: { name: 'Usage' } },
 		});
 		const broken = await client.callTool({ name: 'broken_x', arguments: {} });
 		expect(broken.isError).toBe(true);
 		expect(broken.structuredContent).toMatchObject({
-			error: { name: 'AppProblems' },
+			data: null,
+			error: { kind: 'refused', reason: { name: 'AppProblems' } },
 		});
 	} finally {
 		await close();
 	}
 });
 
-test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields are not required', async () => {
+test('F9 one table owns the vocabulary; --json goes anywhere; optional fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
-	for (const word of ['open', 'types', 'setup', 'help', 'update']) {
+	for (const word of ['open', 'types', 'setup', 'help']) {
 		const result = await f.json(word);
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'sync', 'serve', 'init', 'build'])
+	for (const word of ['new', 'export', 'checkpoint', 'serve', 'init', 'build'])
 		expect((await f.json('new', word)).code).toBe(2);
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
-	expect(help).toContain('epicenter sync [<app> [-m <message>]]');
+	expect(help).toContain('epicenter checkpoint [-m <message>] [--json]');
 	expect(help).toContain(
-		'Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run.',
+		'Exit codes: 0 done, 1 ran with a failure or an unfinished export or checkpoint, 2 did not run.',
 	);
 	for (const gone of ['epicenter types', 'setup', 'epicenter help'])
 		expect(help).not.toContain(gone);
 
-	const leading = await f.run('--json', 'notes', 'two', 'Ada');
+	const leading = await f.run('--json', 'notes', 'two', '{"text":"Ada"}');
 	expect(leading.code).toBe(0);
-	expect(JSON.parse(leading.stdout)).toEqual({
-		returned: 'Ada',
-	});
+	expect(JSON.parse(leading.stdout)).toEqual({ data: 'Ada', error: null });
 	expect(JSON.parse((await f.run('--json', 'notes')).stdout).name).toBe(
 		'notes',
 	);
 
 	const tool = JSON.parse(
-		(await f.run('notes', 'defaulted', '--help', '--json')).stdout,
+		(await f.run('notes', 'optional', '--help', '--json')).stdout,
 	);
 	expect(tool.inputSchema.required ?? []).not.toContain('count');
-	const ran = await f.json('notes', 'defaulted');
-	expect(ran.report.returned).toEqual({ count: 3 });
-	expect((await f.run('notes', 'defaulted', '--help')).stdout).toContain(
-		'--count <number>  default 3.',
+	const ran = await f.json('notes', 'optional');
+	expect(ran.report.data).toEqual({});
+	expect((await f.run('notes', 'optional', '--help')).stdout).toContain(
+		'  count  optional  a number',
 	);
 });
 
 test('F10 typing waits for its first consumer: no epicenter types, no generated file', async () => {
 	const f = await setup();
 	expect((await f.run('new', 'garden')).code).toBe(0);
-	expect(await readFile(join(f.apps, 'garden', '.gitignore'), 'utf8')).toBe(
-		gitignore,
-	);
+	expect(
+		await readFile(join(f.apps, 'garden', 'code/.gitignore'), 'utf8'),
+	).toBe(gitignore);
 	await f.app(
 		'other',
-		`export default defineApp({ description: 'Another app', collections: {}, actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => 'hi' }) } });\n`,
+		`export default defineApp({ description: 'Another app', collections: {}, actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } });\n`,
 	);
 	const listed = await f.json('other');
 	expect(listed.code).toBe(0);
@@ -197,7 +194,10 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 	expect(JSON.stringify((await f.json()).report)).not.toContain(
 		'epicenter.d.json.ts',
 	);
-	expect((await f.json('other', 'hi')).report).toEqual({ returned: 'hi' });
+	expect((await f.json('other', 'hi')).report).toEqual({
+		data: 'hi',
+		error: null,
+	});
 	expect(existsSync(join(repo, 'packages/cli/src/types.ts'))).toBe(false);
 });
 
@@ -212,9 +212,15 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 		format: 'date',
 	});
 	expect((await f.run('reading', 'between', '-h')).stdout).toContain(
-		'<from>, --from <date>  required.',
+		'  from  required  a day like 2026-11-12',
 	);
-	const bad = await f.json('reading', 'between', '2026-13-45', '2026-11-08');
+	const bad = await f.json(
+		'reading',
+		'between',
+		'{"from":"2026-13-45","to":"2026-11-08"}',
+	);
 	expect(bad.code).toBe(2);
-	expect(bad.report.error.message).toContain('<from>');
+	expect(bad.report.error.reason.message).toBe(
+		'from must be a day like 2026-11-12',
+	);
 });

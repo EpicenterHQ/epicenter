@@ -7,15 +7,15 @@
  * each app's actions; an app that cannot load loses only its own tools, and
  * why goes to stderr. `tools/call` decodes the tool name and runs the action
  * in this process (`run.ts`), which checks the app, the action, and the
- * input, and commits what the call wrote before it answers. An action with a
- * `writeOnly` input takes a secret, so it is neither listed nor run here
- * (ADR-0870). A call's result
- * is the same object `--json` prints: `structuredContent` on success, and
- * with `isError` on failure. What an action yields is not sent: an MCP
- * client reads only the answer.
+ * input, and leaves the call's writes pending. An action with a
+ * `privateInput: true` flag is neither listed nor run here (ADR-0907).
+ * File inputs are also neither listed nor run here. A
+ * call's result is the same object `--json` prints: `structuredContent` on
+ * success, and with `isError` on failure. What an action yields is not sent:
+ * an MCP client reads only the answer.
  */
 
-import { isName, writeOnlyKeys } from '@epicenter/app';
+import { fileFieldOf, isName } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
@@ -24,19 +24,12 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { nameProblem } from './commands.ts';
 import { VERSION } from './engines.ts';
+import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, renderAnswer, writeErr } from './output.ts';
+import { type Answer, outcome, refused, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { callAction } from './run.ts';
-
-/** The tools the Epicenter offers now. */
-async function listTools(): Promise<Tool[]> {
-	const listed = await Promise.all(
-		(await homeEntries()).map(({ entry }) => appTools(entry)),
-	);
-	return listed.flat();
-}
 
 /** One app's tools; none when it cannot load, and why goes to stderr. */
 async function appTools(entry: string): Promise<Tool[]> {
@@ -50,48 +43,32 @@ async function appTools(entry: string): Promise<Tool[]> {
 		return [];
 	}
 	return Object.entries(located.actions)
-		.filter(([, action]) => writeOnlyKeys(action.input).length === 0)
+		.filter(([, action]) => action.privateInput !== true)
+		.filter(
+			([, action]) =>
+				!Object.values(action.input).some((schema) => fileFieldOf(schema)),
+		)
 		.map(([key, action]) => actionTool(located.name, key, action));
 }
 
 /**
  * An answer as an MCP result: the same value `--json` prints, as
- * `structuredContent`, and `isError` exactly when the action threw or did not
+ * `structuredContent`, and `isError` for a returned error, a fault, or a request that could not
  * run. A failure's text is what a person would read on stderr.
  */
 function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
-	const { code, stderr } = renderAnswer(answer);
-	if (code === 0)
+	const result = outcome(answer);
+	if (result.code === 0)
 		return {
 			content: [{ type: 'text' as const, text: JSON.stringify(answer) }],
 			structuredContent,
 		};
 	return {
 		isError: true,
-		content: [{ type: 'text' as const, text: stderr.trim() }],
+		content: [{ type: 'text' as const, text: result.stderr.trim() }],
 		structuredContent,
 	};
-}
-
-/**
- * Run the action `<app>_<word>_<word>` names. App names and action words hold
- * no underscores, and the first word must be able to name an app, so a tool
- * name never runs one of `epicenter`'s own commands.
- */
-async function callTool(name: string, args: Record<string, unknown>) {
-	const [app = '', ...words] = name.split('_');
-	if (
-		nameProblem(app) !== undefined ||
-		words.length === 0 ||
-		!words.every(isName)
-	)
-		return toolResult({
-			error: { name: 'Usage', message: `Unknown tool ${name}` },
-		});
-	return toolResult(
-		await callAction(app, words.join(' '), args, { overMcp: true }),
-	);
 }
 
 /**
@@ -108,11 +85,28 @@ export async function createMcpServer() {
 			...(instructions === undefined ? {} : { instructions }),
 		},
 	);
-	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: await listTools(),
-	}));
-	server.setRequestHandler(CallToolRequestSchema, (request) =>
-		callTool(request.params.name, request.params.arguments ?? {}),
-	);
+	server.setRequestHandler(ListToolsRequestSchema, async () => {
+		const listed = await Promise.all(
+			(await homeEntries()).map(({ entry }) => appTools(entry)),
+		);
+		return { tools: listed.flat() };
+	});
+	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+		const { name, arguments: args } = request.params;
+		const [app = '', ...words] = name.split('_');
+		// App names and action words have no underscores. The first word must name
+		// an app, so a tool name never runs one of epicenter's own commands.
+		if (
+			nameProblem(app) !== undefined ||
+			words.length === 0 ||
+			!words.every(isName)
+		)
+			return toolResult(
+				refused(CliError.Usage({ message: `Unknown tool ${name}` }).error),
+			);
+		return toolResult(
+			await callAction(app, words.join(' '), args ?? {}, { overMcp: true }),
+		);
+	});
 	return server;
 }

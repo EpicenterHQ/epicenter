@@ -35,6 +35,7 @@
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
+		"@epicenter/theme": "workspace:*",
 		"@fontsource-variable/geist": "^5.2.9",
 		"@fontsource-variable/geist-mono": "^5.2.8",
 		"@lucide/svelte": "^1.7.0",

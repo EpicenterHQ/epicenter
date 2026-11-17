@@ -39,8 +39,8 @@ utilities. It is a choice we can revisit, not a restriction on customization.
 Other upstream styles use different distributed component source; switching
 styles requires reviewing and integrating that source.
 
-`src/app.css` owns Geist fonts and the shared semantic color tokens. Dark mode
-uses Neutral with seven existing token values adjusted for soft charcoal.
+`src/app.css` owns Geist fonts and imports the Graphite + blue palette and
+Tailwind mappings from the private [theme package](../theme/README.md).
 [Theme variables](https://www.shadcn-svelte.com/docs/theming) can change colors
 without replacing the component style. Changing a variable does not switch the
 component markup, spacing, or interaction contract. Components own their utility

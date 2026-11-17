@@ -15,31 +15,35 @@ export const COMPILED = Bun.main.startsWith('/$bunfs/');
 export const COMMANDS = {
 	init: {
 		usage: 'epicenter init [<folder>] [--port <n> | --from <git url>]',
-		help: `Makes a folder an Epicenter and writes EPICENTER.md and starter AGENTS.md.
-The folder is a Git repository of its own too: it backs up what is not in an
-app, and repositories.json in it lists every repository inside with its origin.
-With --from, it rebuilds an Epicenter instead: it clones that repository into
-the folder, which must be missing or empty, then clones each repository it
-lists and installs each app. The folder defaults to the current directory.
-Epicenters cannot nest.`,
+		help: `Makes a folder an Epicenter with one root Git repository, EPICENTER.md, and starter AGENTS.md.
+With --from, clone the root repository and install each app's code packages.
+The destination must be missing or empty. Epicenters cannot nest.`,
 	},
 	new: {
-		usage: 'epicenter new <name> [--from <path> | --from <git url>[#<folder>]]',
-		help: `Makes <Epicenter>/apps/<name>, two Git repositories: the folder holds the app's code,
-and data/ inside it the app's data. Without --from, it starts from an
-epicenter.ts and a .gitignore. With --from, it takes another app's code: it
-copies the files Git tracks in that app's folder into a repository of its own,
-in one commit that names where they came from. The folder is a path on this
-computer, inside a Git repository, or a Git URL, with #<folder> when the app
-is not at that repository's root. It copies no data and no history, and adds
-no remote: the code is yours to change. serve builds the UI when it is opened.`,
+		usage: 'epicenter new <name> [--from <git url|path>]',
+		help: `Makes apps/<name>/code/ from blank code or committed source code and creates empty data/.
+With --from <path|url>[#<folder>], copy the selected app's code without its Git history or records.
+Copies the source commit, not its working files; local differences are reported and left out.
+serve builds code/ui/ when it is opened.`,
+	},
+	export: {
+		usage:
+			'epicenter export <app> <directory> | epicenter export --all <directory>',
+		help: `Saves a local checkpoint, then regenerates one owned directory from that app code. With --all, the directory
+contains one child per app, including future committed apps; removed apps disappear.
+Keep Git, handwritten notes and other publication files outside this directory.
+Repeating the command replaces all generated contents, including local edits.
+Exports exclude records, local files, dependencies, builds, provenance, and private history.
+The checkpoint saves included code and records across the private Epicenter without
+pushing its backup. Unrelated nonempty destinations and Git metadata inside them are refused. All code is prepared before
+refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
 	},
 	install: {
 		usage: 'epicenter install [<app>]',
-		help: `Installs each app's top-level package.json, or one app's, with bun install
+		help: `Installs each app's code/package.json, or one app's, with bun install
 (--frozen-lockfile when bun.lock exists), then links node_modules/@epicenter/app
-to this epicenter's own copy, which no app lists. new runs it; a call never
-installs. After bun add, run epicenter install <app> to restore
+to this epicenter's own copy, which no app lists. new runs it;
+a call never installs. After bun add, run epicenter install <app> to restore
 the supplied link if Bun removed it.`,
 	},
 	build: {
@@ -48,36 +52,27 @@ the supplied link if Bun removed it.`,
 and shows the build's errors. serve rebuilds a UI on its own when a page opens
 after its sources changed, and keeps serving the last good build meanwhile.`,
 	},
-	sync: {
-		usage: 'epicenter sync [<app> [-m <message>]]',
-		help: `Takes a snapshot of what is pending in each app's code and data, or one app's,
-then pushes each to its own origin when it exists and the branch is ahead of
-it. It never pushes anywhere else. The snapshot reads "<app>: changed outside epicenter", or with -m
-(--message), "<app>: <message>": an agent that edited an app's files itself
-names what it did this way.`,
+	check: {
+		usage: 'epicenter check [<app>] [--json]',
+		help: `Reads every collection of every app, or one app's, and reports each file that
+does not fit its collection's fields. Each collection shows how many files it
+matched and how many have problems, then each kind of problem with how many
+files have it, most frequent first, then each file's problems. Many files with
+one kind of problem usually mean the declaration is too narrow, not the files.
+It reads only, and never prints a value from a .local file. Exit 1 when any
+file has a problem or an app could not be checked.`,
 	},
-	history: {
-		usage: 'epicenter history <app> [--limit <n>]',
-		help: `Lists the app's snapshots of its code and its data together, newest first, 20
-unless --limit says how many: each one's commit, local time, code or data,
-subject, and the paths it changed. An undo reads as "undid <subject>".`,
-	},
-	undo: {
-		usage: 'epicenter undo <app> [<commit>]',
-		help: `Snapshots what is pending, then reverts the app's most recent data snapshot that
-is not an undo and is not undone, or the data commit named, as "<app>: undid
-<subject>". When the code has changed since that snapshot, it lists the code
-commits since. Run it again to go further back; undo an undo to bring it back.
-Code is reverted with git. It refuses a commit not in the app's data history and
-a revert Git refuses, or that conflicts or changes nothing, leaving the folder as
-it was. It never pushes; sync does.`,
+	checkpoint: {
+		usage: 'epicenter checkpoint [-m <message>] [--json]',
+		help: 'Save included code and records with a factual commit message, then push the saved commit to origin when set. Use -m to supply your own message.',
 	},
 	serve: {
 		usage: 'epicenter serve [--port <n>] [--host <address>]',
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
-action to its UI at POST /<app>/<action>, on 127.0.0.1 and the Epicenter's port
+action to its UI as a serve-owned run at POST /.runs/<app>/<action>/<id>, on
+127.0.0.1 and the Epicenter's port
 (default 4747) unless --port or --host says otherwise. It runs every call itself,
-from the app's code as it is on disk then. It backs up every app as sync does
+from the app's code as it is on disk then. It backs up the root with checkpoint
 when it starts, every 5 minutes, and when it stops. It has no sign-in: only this
 computer and the tailnet should reach it.`,
 	},
@@ -86,6 +81,14 @@ computer and the tailnet should reach it.`,
 		help: `Installs a macOS login job that keeps serve running for this Epicenter.
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
+	},
+	routines: {
+		usage: 'epicenter routines [run <name>]',
+		help: `Lists the home's routines and their last outcomes, even while serve is stopped.
+A routines/<name>.md declares daily: "08:00" and run: [executable, ...arguments].
+serve checks at startup and once a minute, catching up once to the latest due time.
+run explicitly runs one now, including a failed or interrupted attempt. It may
+repeat effects. State and output stay in routines/<name>.local/.`,
 	},
 } as const;
 

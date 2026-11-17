@@ -162,30 +162,18 @@ type HttpError = InferErrors<typeof HttpError>;
 type ConnectionError = InferError<typeof HttpError.Connection>;
 ```
 
-## Consuming a Variant Union: Exhaustive `switch`, Not `if/else`
+## Consuming a variant union: exhaustive switch, not if/else
 
 `defineErrors` builds a discriminated union tagged by `name`. When you *translate the whole union* (every variant mapped to another error, an exit code, a UI state), discriminate with an exhaustive `switch (error.name)` and pin it with `default: error satisfies never`. Do not use an `if/else` chain.
 
-```ts
-// ❌ non-exhaustive fold: a 6th DispatchError variant lands in `else` silently
-if (result.error.name === 'RecipientOffline') {
-  return RunError.PeerNotFound({ peerTarget, waitMs, syncStatus });
-}
-return RunError.RemoteCallFailed({ cause: result.error, peerTarget, syncStatus });
+The [recorder’s `fromNative`](../../../../packages/recorder/src/tauri.ts) translates each native refusal into the error its callers handle. `InputUnavailable` needs the input label, while `Busy` carries the shell’s reason. Its final branch serves two purposes:
 
-// ✅ exhaustive: a 6th variant fails to compile until someone buckets it
-switch (result.error.name) {
-  case 'RecipientOffline':
-    return RunError.PeerNotFound({ peerTarget, waitMs, syncStatus });
-  case 'ActionNotFound':
-  case 'ActionFailed':
-  case 'Cancelled':
-  case 'NetworkFailed':
-    return RunError.RemoteCallFailed({ cause: result.error, peerTarget, syncStatus });
-  default:
-    return result.error satisfies never;
-}
+```ts
+default:
+  return RecorderError.Failed({ cause: error satisfies never });
 ```
+
+A new typed refusal makes this line fail to compile until the translator handles it. At runtime an unexpected rejection from Tauri still becomes a readable failure.
 
 **Why**: error unions grow. The `satisfies never` default makes the *producer* adding a variant break the *consumer's* build, forcing a deliberate decision instead of a silent fall-through into the catch-all branch. Collapsing several variants into one output is fine: list their `case` labels explicitly so the collapse is visible and intentional.
 

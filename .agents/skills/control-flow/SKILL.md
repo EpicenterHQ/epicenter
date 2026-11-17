@@ -17,64 +17,34 @@ When refactoring complex control flow, mirror natural human reasoning patterns:
 1. **Ask the human question first**: "Can I use what I already have?" -> early return for happy path
 2. **Assess the situation**: "What's my current state and what do I need to do?" -> clear, mutually exclusive conditions
 3. **Take action**: "Get what I need" -> consolidated logic at the end
-4. **Use natural language variables**: `isUsingNavigator`, `isUsingLocalTranscription`, `needsOldFileCleanup`: names that read like thoughts
+4. **Use natural language variables**: name a condition in terms of the decision it controls, such as whether the account matches the link
 5. **Avoid artificial constructs**: No nested conditions that don't match how humans actually think through problems
 
 Transform this: nested conditionals with duplicated logic
 Into this: linear flow that mirrors human decision-making
 
-## Example: Early Returns with Natural Language Variables
+## Guard the input before reading it
+
+The [app field reader](../../../packages/app/src/field.ts) accepts unknown schema input. Each guard establishes what the next line can read.
 
 ```typescript
-// From apps/whispering/src/routes/(app)/_layout-utils/check-ffmpeg.ts
-
-export async function checkFfmpegRecordingMethodCompatibility() {
-	if (!window.__TAURI_INTERNALS__) return;
-
-	// Only check if FFmpeg recording method is selected
-	if (settings.value['recording.method'] !== 'ffmpeg') return;
-
-	const { data: ffmpegInstalled } =
-		await rpc.ffmpeg.checkFfmpegInstalled.ensure();
-	if (ffmpegInstalled) return; // FFmpeg is installed, all good
-
-	// FFmpeg recording method selected but not installed
-	toast.warning('FFmpeg Required for FFmpeg Recording Method', {
-		// ... toast content
-	});
+export function refPathOf(schema: unknown): string | undefined {
+	if (typeof schema !== 'object' || schema === null) return undefined;
+	const annotation = (schema as Record<string, unknown>)[REF];
+	const path = (annotation as { path?: unknown } | undefined)?.path;
+	return typeof path === 'string' ? path : undefined;
 }
 ```
 
-## Example: Natural Language Booleans
+## Name a condition when it explains a decision
+
+In the [account dashboard](../../../apps/api/ui/src/routes/dashboard/+layout.svelte), a valid link can still belong to a different person. The same condition controls whether to show the dashboard and whether signing in requires reauthentication.
 
 ```typescript
-// From apps/whispering/src/routes/(app)/_layout-utils/check-ffmpeg.ts
-
-const isUsingNavigator = settings.value['recording.method'] === 'navigator';
-const isUsingLocalTranscription =
-	settings.value['transcription.selectedTranscriptionService'] ===
-		'whispercpp' ||
-	settings.value['transcription.selectedTranscriptionService'] === 'parakeet';
-
-return isUsingNavigator && isUsingLocalTranscription && !isFFmpegInstalled;
-```
-
-## Example: Cleanup Check with Comment
-
-```typescript
-// From packages/epicenter/src/indexes/markdown/markdown-index.ts
-
-/**
- * This is checking if there's an old filename AND if it's different
- * from the new one. It's essentially checking: "has the filename
- * changed?" and "do we need to clean up the old file?"
- */
-const needsOldFileCleanup = oldFilename && oldFilename !== filename;
-if (needsOldFileCleanup) {
-	const oldFilePath = path.join(tableConfig.directory, oldFilename);
-	await deleteMarkdownFile({ filePath: oldFilePath });
-	tracking[table.name]!.deleteByFilename({ filename: oldFilename });
-}
+const mismatched = $derived(
+	target.valid && target.expectedPrincipal !== null &&
+	signIn.status !== 'signed-out' && target.expectedPrincipal !== signIn.account.principalId
+);
 ```
 
 ## Example: Linearizing try-catch into Guard + Happy Path

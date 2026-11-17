@@ -1,5 +1,7 @@
 # The TanStack Query Accessor Pattern In Svelte 5
 
+> **Historical snapshot.** This recording-player bug illustrates why a query must follow a changing recording ID. The two-accessor recipe and RPC examples below use the shared query API from that period. For current Svelte query factories and hook calls, see [the query-layer skill](../../.agents/skills/query-layer/SKILL.md#compose-a-service-in-two-maps).
+
 I was building a recording player in Svelte 5 with TanStack Query to fetch audio URLs. The first recording loaded, but selecting a different recording left the query stuck on the old URL.
 
 The bug was not in TanStack Query or the RPC layer. I had skipped the accessor that lets Svelte track the reactive input.

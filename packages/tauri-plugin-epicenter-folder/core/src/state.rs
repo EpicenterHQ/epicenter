@@ -34,10 +34,6 @@ use sha2::{Digest, Sha256};
 /// a folder an older build wrote, that build's unfinished writes.
 pub const DIRECTORY: &str = ".epicenter";
 
-/// The part of the Epicenter folder's `DIRECTORY` holding one record per
-/// synced folder, `<folder-id>.json`.
-pub const SYNCED: &str = "synced";
-
 /// The part of an older build's `DIRECTORY` in a folder where saves staged.
 pub const LEGACY_SAVES: &str = "saves";
 
@@ -59,12 +55,6 @@ pub const RECORDING_RANDOM: usize = 8;
 /// build's in a folder.
 pub fn directory(directory: &Path) -> PathBuf {
     directory.join(DIRECTORY)
-}
-
-/// Where the Epicenter folder at `epicenter` keeps its records:
-/// `.epicenter/synced`.
-pub fn records(epicenter: &Path) -> PathBuf {
-    directory(epicenter).join(SYNCED)
 }
 
 /// Whether the name `name` (one segment) is reserved: `.ep-`, at least one

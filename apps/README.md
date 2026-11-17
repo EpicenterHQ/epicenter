@@ -10,10 +10,10 @@ The apps in this folder are outside apps: each works without an Epicenter
 | [API](api/README.md) | The server behind it: accounts, paid models, and hosted-only billing. |
 | [Landing](landing) | The website at epicenter.so. |
 
-Inside apps (Capture, Reading, Tasks, Vocab) are not in this repository. Each
-is a repository of its own in its author's `~/Epicenter/apps`, taken with
-`epicenter new <app> --from <git url>`
-([ADR-0877](../docs/adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)).
+Personal apps such as Capture and Tasks live in the owner's Epicenter. One
+private Git repository holds each app's `apps/<name>/code/` and sibling
+`data/`. This repository includes [Writing](../examples/writing/) as an
+example you can copy with `epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'`.
 The `epicenter-app` skill says how to make and change one.
 
 Honeycrisp, Local Books, the PostHog proxy, and the composition guide that

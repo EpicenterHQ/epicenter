@@ -45,6 +45,19 @@ function createServer(
 
 The union type `AnyWorkspaceClient | AnyWorkspaceClient[]` is self-documenting. No overloads needed when both forms return the same type.
 
+## A caller that receives one build or several
+
+The [first-load scanner](../../packages/vite-config/scripts/first-load.ts) receives Vite’s build result. It needs the chunks from every output, whether Vite returned one result or an array. The scanner normalizes the value once before collecting chunks:
+
+```typescript
+const chunks = new Map(
+	(Array.isArray(result) ? result : [result])
+		.flatMap((built) => ('output' in built ? built.output : []))
+		.flatMap((output) => (output.type === 'chunk' ? [output] : []))
+		.map((chunk) => [chunk.fileName, chunk]),
+);
+```
+
 ## Naming Conventions
 
 | Parameter               | Normalized Variable |
@@ -72,7 +85,3 @@ function process(input: string | number): string | number {
 ```
 
 If both overloads return the same type, skip them. The union parameter is clearer.
-
-## Related
-
-- [Skill reference](../../.claude/skills/single-or-array-pattern/SKILL.md)

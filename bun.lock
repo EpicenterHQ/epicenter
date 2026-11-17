@@ -192,7 +192,7 @@
     },
     "packages/app": {
       "name": "@epicenter/app",
-      "version": "0.1.0",
+      "version": "0.4.1",
       "dependencies": {
         "nanoid": "catalog:",
         "typebox": "catalog:",
@@ -205,12 +205,13 @@
     },
     "packages/cli": {
       "name": "@epicenter/cli",
-      "version": "0.0.2",
+      "version": "0.4.1",
       "bin": {
         "epicenter": "./src/bin.ts",
       },
       "dependencies": {
         "@epicenter/app": "workspace:*",
+        "@epicenter/theme": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
@@ -329,6 +330,16 @@
         "typescript": "catalog:",
       },
     },
+    "packages/theme": {
+      "name": "@epicenter/theme",
+      "version": "0.0.1",
+      "peerDependencies": {
+        "tailwindcss": "^4.1.0",
+      },
+      "optionalPeers": [
+        "tailwindcss",
+      ],
+    },
     "packages/transcription": {
       "name": "@epicenter/transcription",
       "version": "0.0.1",
@@ -348,6 +359,7 @@
       "name": "@epicenter/ui",
       "version": "0.4.0",
       "dependencies": {
+        "@epicenter/theme": "workspace:*",
         "@fontsource-variable/geist": "^5.2.9",
         "@fontsource-variable/geist-mono": "^5.2.8",
         "@lucide/svelte": "^1.7.0",
@@ -638,6 +650,8 @@
     "@epicenter/server": ["@epicenter/server@workspace:packages/server"],
 
     "@epicenter/svelte": ["@epicenter/svelte@workspace:packages/svelte"],
+
+    "@epicenter/theme": ["@epicenter/theme@workspace:packages/theme"],
 
     "@epicenter/transcription": ["@epicenter/transcription@workspace:packages/transcription"],
 

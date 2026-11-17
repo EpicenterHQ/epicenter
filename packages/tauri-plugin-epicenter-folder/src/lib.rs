@@ -44,14 +44,12 @@ pub use epicenter_folder_core::storage::{Landing, PutOutcome, StorageError};
 
 mod command_names;
 mod commands;
-mod records;
 mod roots;
 mod watch;
 
 pub use command_names::COMMANDS;
 pub use commands::{FolderError, DATA_FOLDER_FILE};
 pub use epicenter_folder_core::identity::{identity_at, identity_key, proves, FolderIdentity};
-pub use records::FolderRecord;
 pub use roots::{folder_name_problem, Root, RootError, Roots, RootsExt};
 pub use watch::{FolderChanged, FolderEvent};
 
@@ -71,7 +69,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::reveal_root::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
             commands::root_identity::<tauri::Wry>,
-            commands::data_record::<tauri::Wry>,
         ])
         .typ::<Landing>()
         .typ::<FolderEvent>()

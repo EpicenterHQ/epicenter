@@ -3,7 +3,7 @@
  * Listing excludes dependency and Git directories and never traverses directory links.
  * `update` changes what is there when it writes, never what was there when it read,
  * and concurrent updates in one process, through it or a collection's `update`,
- * each land. Across processes a call's lock keeps writers apart (`snapshot.test.ts`).
+ * each land. Across processes a call's lock keeps writers apart (`layout.test.ts`).
  */
 import { afterEach, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
@@ -19,8 +19,18 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { defineCollection, field, inRun } from '@epicenter/app';
+import {
+	ActionError,
+	createMemoryContext,
+	defineAction,
+	defineCollection,
+	field,
+	inRun,
+	Ok,
+} from '@epicenter/app';
 import { folderOnDisk } from './disk.ts';
+import { hold } from './lock.ts';
+import { runAction } from './run.ts';
 import { gitIn } from './runner.test-support.ts';
 
 const roots: string[] = [];
@@ -176,11 +186,11 @@ test('concurrent updates of one collection file each land, each computed from th
 	});
 	await folder.write('data/counters/a.md', '---\nn: 0\n---\n');
 	const context = { folder };
-	const at = { path: 'data/counters/a.md' };
+	const at = { id: 'a' };
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
 			inRun(context, () =>
-				counters.update(at, (record) => ({ n: (record?.n ?? 0) + 1 })),
+				counters.update(at, (record) => Ok({ n: (record?.n ?? 0) + 1 })),
 			),
 		),
 	);
@@ -209,6 +219,7 @@ test('update gives up, writing nothing, on a file another writer changes every t
 		})
 		.catch((thrown: unknown) => thrown);
 	expect(kept).toEqual({
+		namespace: 'epicenter/action-error',
 		name: 'Changed',
 		message: 'busy.txt kept changing while it was updated',
 		path: 'busy.txt',
@@ -234,4 +245,180 @@ test('update whose change throws writes nothing', async () => {
 	).rejects.toThrow('no file');
 	expect(await folder.read('kept.txt')).toBe('kept');
 	expect((await readdir(root)).sort()).toEqual(['.git', 'kept.txt']);
+});
+
+test('a collection returns the record from the write that won the retry', async () => {
+	const { root, folder } = await setup();
+	const path = 'data/counter.md';
+	const counter = defineCollection({
+		path,
+		fields: { n: field.integer({ optional: true }) },
+	});
+	const numbers: number[] = [];
+	await folder.write(path, '---\nn: 1\n---\n');
+	const answer = await inRun({ folder }, () =>
+		counter.update(({ n = 0 }) => {
+			numbers.push(n);
+			if (numbers.length === 1)
+				writeFileSync(join(root, path), '---\nn: 8\n---\n');
+			return Ok({ n: n + 1 });
+		}),
+	);
+	expect(numbers).toEqual([1, 8]);
+	expect(answer).toEqual(Ok({ path, n: 9, body: '' }));
+	expect(await folder.read(path)).toBe('---\nn: 9\n---\n');
+});
+
+test('a collection whose every write loses the compare returns Changed and leaves only the outside writes', async () => {
+	const { root, folder } = await setup();
+	const path = 'data/counter.md';
+	const counter = defineCollection({
+		path,
+		fields: { n: field.integer({ optional: true }) },
+	});
+	await folder.write(path, '');
+	let tries = 0;
+	const answer = await inRun({ folder }, () =>
+		counter.update(() => {
+			writeFileSync(join(root, path), String(++tries));
+			return Ok({ n: 1 });
+		}),
+	);
+	expect(answer).toEqual(ActionError.Changed({ path, why: 'kept' }));
+	expect(tries).toBe(10);
+	expect(await folder.read(path)).toBe('10');
+	expect(await readdir(join(root, 'data'))).toEqual(['counter.md']);
+});
+
+test('a collection forwards returned Changed and lets a thrown Changed escape, including on an absent file', async () => {
+	const disk = await setup();
+	for (const folder of [disk.folder, createMemoryContext().folder]) {
+		const path = 'data/counter.md';
+		const counter = defineCollection({
+			path,
+			fields: { n: field.integer({ optional: true }) },
+		});
+		const refusal = ActionError.Changed({ path, why: 'was' });
+		expect(await inRun({ folder }, () => counter.update(() => refusal))).toBe(
+			refusal,
+		);
+		const thrown = await inRun({ folder }, () =>
+			counter.update(() => {
+				throw refusal.error;
+			}),
+		).catch((cause: unknown) => cause);
+		expect(thrown).toBe(refusal.error);
+		expect(await folder.read(path)).toBeUndefined();
+		const answer = await inRun({ folder }, () =>
+			counter.update((record) => {
+				record.n = 1;
+				return Ok({});
+			}),
+		);
+		expect(answer).toEqual(Ok({ path, body: '' }));
+		expect(await folder.read(path)).toBeUndefined();
+	}
+});
+
+test('a local record omits partial values and body from every repair refusal', async () => {
+	const { folder } = await setup();
+	const path = 'data/accounts.local.md';
+	const accounts = defineCollection({
+		path,
+		fields: {
+			token: field.text({ optional: true }),
+			unit: field.integer({ optional: true }),
+		},
+	});
+	const stored =
+		'---\ntoken: "secret-token"\nunit: "secret-invalid"\n---\nsecret-body';
+	await folder.write(path, stored);
+	await inRun({ folder }, async () => {
+		for (const result of [
+			await accounts.get(),
+			await accounts.set({ token: 'new-secret' }),
+			await accounts.update(() => {
+				throw new Error('misfit reached callback');
+			}),
+		]) {
+			expect(result.error?.name).toBe('Misfit');
+			expect(result.error).not.toHaveProperty('record');
+			expect(JSON.stringify(result)).not.toContain('secret');
+		}
+	});
+	expect(await folder.read(path)).toBe(stored);
+});
+
+test('collection edits through a read-only run decide only on local paths', async () => {
+	const context = { ...createMemoryContext(), readOnly: { action: 'list' } };
+	const publicRecord = defineCollection({ path: 'data/public.md', fields: {} });
+	const cache = defineCollection({ path: 'data/cache.local.md', fields: {} });
+	let decisions = 0;
+	const decide = () => {
+		decisions++;
+		return Ok({ body: 'seen' });
+	};
+	await inRun(context, async () => {
+		await expect(publicRecord.update(decide)).rejects.toThrow('read-only');
+		expect(decisions).toBe(0);
+		expect((await cache.update(decide)).data?.body).toBe('seen');
+	});
+	expect(decisions).toBe(1);
+});
+
+test('the runner first takes its lock on a collection edit and releases it after a returned refusal', async () => {
+	const { root, folder } = await setup();
+	const path = 'data/state.md';
+	const state = defineCollection({ path, fields: {} });
+	const refusal = ActionError.Refused({
+		message: 'stop after the first write',
+	});
+	const canTakeLock = async () => {
+		const held = await hold(root, 0);
+		held?.release();
+		return Boolean(held);
+	};
+	const locks: boolean[] = [];
+	const run = defineAction({
+		description: 'Edit the state',
+		input: {},
+		run: async () => {
+			await state.get();
+			locks.push(await canTakeLock());
+			await state.set({ body: 'saved' });
+			locks.push(await canTakeLock());
+			return state.update(() => refusal);
+		},
+	});
+	const app = {
+		description: 'Test app',
+		actions: { run },
+		collections: { state },
+	};
+	const answer = await runAction(
+		{
+			ok: true,
+			entry: 'test',
+			name: 'test',
+			realPath: root,
+			folder: root,
+			codePath: join(root, 'code'),
+			app,
+			actions: app.actions,
+			context: { folder },
+		},
+		'run',
+		run,
+		{},
+	);
+	expect(locks).toEqual([true, false]);
+	expect(answer).toMatchObject({
+		data: null,
+		error: {
+			kind: 'returned',
+			reason: { name: 'Refused', message: 'stop after the first write' },
+		},
+	});
+	expect(await canTakeLock()).toBe(true);
+	expect(await folder.read(path)).toBe('---\n---\nsaved');
 });

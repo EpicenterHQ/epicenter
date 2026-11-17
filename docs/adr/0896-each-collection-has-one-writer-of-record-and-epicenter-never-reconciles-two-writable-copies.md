@@ -47,9 +47,10 @@ Epicenter.**
    source and pulls what it changed before it returns. Keep the copy
    `.local` when the source can send it again. Commit it as Markdown when
    the person would want it after the source is gone, as with Whispering's
-   recordings and hosted Notes. A stray edit to a committed copy is
-   snapshotted ("changed outside epicenter",
-   `packages/cli/src/snapshot.ts:321`), then replaced by the next pull.
+   recordings and hosted Notes. A checkpoint records committable edits still on disk
+   (`packages/cli/src/checkpoint.ts`). A pull may replace a stray edit before
+   the next checkpoint. Checkpoint manually before a pull when that edit
+   needs to be kept (ADR-0910).
 
 ### Where a collection's truth is
 

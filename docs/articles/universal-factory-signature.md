@@ -222,4 +222,4 @@ Write `createService(client)` that returns `{ method() }`, not `doSomething(clie
 - [Stop Passing Clients as Arguments](./stop-passing-clients-as-arguments.md): the problem this solves
 - [The Factory Function Pattern](./factory-function-pattern.md): detailed walkthrough
 - [Factory Method Patterns](./factory-method-patterns.md): separating bundled options
-- [Factory Function Composition Skill](../../.claude/skills/factory-function-composition/SKILL.md): quick reference
+- [Factory function composition reference](../../.agents/skills/typescript/references/factory-function-composition.md): quick reference

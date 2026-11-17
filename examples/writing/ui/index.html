@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover"
+		>
+		<meta name="color-scheme" content="light dark">
+		<title>Writing inbox</title>
+		<link rel="stylesheet" href="./style.css">
+		<script type="module" src="./main.ts"></script>
+	</head>
+	<body>
+		<main>
+			<header>
+				<p class="eyebrow">Your thoughts and sources</p>
+				<h1>Writing inbox</h1>
+				<p>Save something now. Find it when you write.</p>
+			</header>
+			<form id="capture">
+				<label for="body">What would you like to keep?</label>
+				<textarea
+					id="body"
+					name="body"
+					rows="4"
+					placeholder="A thought, a quote, or a link…"
+					required
+				></textarea>
+				<div class="fields">
+					<label
+						>Kind<select name="kind">
+							<option value="thought">Thought</option>
+							<option value="quote">Quote</option>
+							<option value="link">Link</option>
+						</select></label
+					>
+					<label
+						>Source <span class="optional">optional</span>
+						<input name="source" placeholder="A book, person, or URL"></label
+					>
+					<label
+						>Project <span class="optional">optional</span>
+						<input name="project" placeholder="What you’re writing"></label
+					>
+				</div>
+				<div class="form-footer">
+					<button id="capture-save" type="submit" disabled>Save note</button>
+					<p id="capture-status" role="status"></p>
+				</div>
+			</form>
+			<section class="inbox" aria-labelledby="notes-heading">
+				<div class="inbox-header">
+					<h2 id="notes-heading">Saved notes</h2>
+					<button id="refresh" class="secondary" type="button">Refresh</button>
+				</div>
+				<label class="search-label" for="search"
+					>Search text, source, or project</label
+				>
+				<input
+					id="search"
+					type="search"
+					placeholder="Find something you saved…"
+				>
+				<p id="list-status" role="status"></p>
+				<div id="notes"></div>
+			</section>
+			<footer class="page-footer">
+				Your notes are Markdown files. Your agent can use this app’s actions
+				too.
+			</footer>
+		</main>
+		<dialog id="editor" aria-labelledby="editor-title">
+			<form id="edit-form">
+				<div class="inbox-header">
+					<h2 id="editor-title">Edit note</h2>
+					<button id="close" class="secondary" type="button">Close</button>
+				</div>
+				<p id="edit-details"></p>
+				<label for="edit-body">Text</label
+				><textarea id="edit-body" rows="10" required></textarea>
+				<p id="edit-status" role="status"></p>
+				<div class="form-footer">
+					<button id="edit-save" type="submit">Save changes</button
+					><button id="reload" type="button" class="secondary" hidden>
+						Load saved text, replacing this draft
+					</button>
+				</div>
+			</form>
+		</dialog>
+	</body>
+</html>

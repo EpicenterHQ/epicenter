@@ -1,4 +1,9 @@
+/**
+ * App composition, run context, and action and collection declarations.
+ * Declarations reject malformed metadata and cyclic schemas before discovery.
+ */
 import { describe, expect, test } from 'bun:test';
+import { type TSchema, Type } from 'typebox';
 import {
 	createMemoryContext,
 	defineAction,
@@ -9,6 +14,7 @@ import {
 	inRun,
 	isLocalPath,
 	normalizePath,
+	Ok,
 	runYielding,
 } from './index.ts';
 
@@ -20,11 +26,10 @@ const books = defineCollection({
 const log = defineAction({
 	description: 'Record minutes read today',
 	input: { minutes: field.number() },
-	positional: ['minutes'],
 	run: async ({ minutes }) => {
 		const before = (await folder.read('data/2026.csv')) ?? 'minutes\n';
 		await folder.write('data/2026.csv', `${before}${minutes}\n`);
-		return { minutes };
+		return Ok({ minutes });
 	},
 });
 
@@ -39,7 +44,7 @@ describe('createMemoryContext', () => {
 		const context = createMemoryContext({ 'data/2026.csv': 'minutes\n10\n' });
 		expect(
 			await inRun(context, () => reading.actions.log({ minutes: 30 })),
-		).toEqual({ minutes: 30 });
+		).toEqual(Ok({ minutes: 30 }));
 		expect(await context.folder.read('data/2026.csv')).toBe(
 			'minutes\n10\n30\n',
 		);
@@ -124,11 +129,11 @@ describe('a read-only run', () => {
 			],
 			[() => folder.delete('data/2026.csv'), refused('delete data/2026.csv')],
 			[
-				() => books.set({ path: 'data/books/dune.md', title: 'Other' }),
+				() => books.set({ slug: 'dune' }, { title: 'Other' }),
 				refused('write data/books/dune.md'),
 			],
 			[
-				() => books.delete({ path: 'data/books/dune.md' }),
+				() => books.delete({ slug: 'dune' }),
 				refused('delete data/books/dune.md'),
 			],
 		];
@@ -140,8 +145,8 @@ describe('a read-only run', () => {
 		]);
 		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n');
 		expect(
-			await inRun(context, () => books.get({ path: 'data/books/dune.md' })),
-		).toMatchObject({ title: 'Dune' });
+			await inRun(context, () => books.get({ slug: 'dune' })),
+		).toMatchObject({ data: { title: 'Dune' }, error: null });
 	});
 
 	test('writes and deletes a .local file, as a token refresh does', async () => {
@@ -156,7 +161,7 @@ describe('a read-only run', () => {
 			readOnly: { action: 'mail list' },
 		};
 		await inRun(context, async () => {
-			await google.set({ refreshToken: 'new' });
+			expect((await google.set({ refreshToken: 'new' })).error).toBeNull();
 			await folder.write('data/cache.local', 'x');
 			await folder.delete('data/cache.local');
 		});
@@ -204,7 +209,11 @@ describe('normalizePath', () => {
 	);
 });
 
-const noop = defineAction({ description: 'n', input: {}, run() {} });
+const noop = defineAction({
+	description: 'n',
+	input: {},
+	run: () => Ok(undefined),
+});
 
 /** What `make` throws, one problem a line. */
 function problems(make: () => unknown): string[] {
@@ -232,8 +241,6 @@ describe('defineApp', () => {
 			'get',
 			'add',
 			'set',
-			'edit',
-			'delete',
 		]);
 	});
 
@@ -284,6 +291,35 @@ describe('defineApp', () => {
 			'actions.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
 			'actions.group.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
 			'actions.group.inner.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
+		]);
+	});
+
+	test('accepts groups with actions named run, start, and description', () => {
+		const app = defineApp({
+			description: 'Daily work',
+			collections: {},
+			actions: { daily: { run: noop, start: log, description: noop } },
+		});
+		expect(
+			Object.keys(app.actions.daily).map((word) => `daily ${word}`),
+		).toEqual(['daily run', 'daily start', 'daily description']);
+		expect(app.actions.daily.run).toBe(noop);
+		expect(app.actions.daily.start).toBe(log);
+	});
+
+	test('refuses an object spread with an action description and plain run function', () => {
+		expect(
+			problems(() =>
+				defineApp({
+					description: 'Broken spread',
+					collections: {},
+					actions: {
+						daily: { ...noop, description: 'Daily', run() {} },
+					} as never,
+				}),
+			),
+		).toEqual([
+			'actions.daily is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
 		]);
 	});
 
@@ -343,6 +379,29 @@ describe('defineApp', () => {
 });
 
 describe('defineCollection', () => {
+	test('accepts raw writeOnly schema metadata as ordinary collection data', () => {
+		const schema = { type: 'string', writeOnly: true };
+		const collection = defineCollection({
+			path: 'data/records/{id}.md',
+			fields: { value: schema },
+		});
+		expect(collection.fields.value).toEqual(schema);
+	});
+
+	test('rejects cyclic schemas at declaration before they can break discovery', () => {
+		const schema: { type: string; properties: Record<string, TSchema> } = {
+			type: 'object',
+			properties: {},
+		};
+		schema.properties.self = schema;
+		expect(() =>
+			defineCollection({
+				path: 'data/records/{id}.md',
+				fields: { value: schema },
+			}),
+		).toThrow(TypeError);
+	});
+
 	test('requires a data/ path and names the accepted path', () => {
 		expect(
 			problems(() => defineCollection({ path: 'tasks/{time}.md', fields: {} })),
@@ -394,8 +453,7 @@ describe('defineCollection', () => {
 						body: field.text(),
 						path: field.text(),
 						problems: field.text(),
-						other: field.text(),
-						json: field.text(),
+						edit: field.text(),
 						'two words': field.text(),
 					},
 				}),
@@ -404,44 +462,30 @@ describe('defineCollection', () => {
 			'The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
 			'The collection at data/words/{word}.md has a field "body", which is the file\'s text after its front matter',
 			'The collection at data/words/{word}.md has a field "path", which is the file\'s address',
-			'The collection at data/words/{word}.md has a field "problems", which a read uses to say what does not fit',
-			'The collection at data/words/{word}.md has a field "other", which a read uses for front matter that is not a field',
-			'The collection at data/words/{word}.md has a field "json", which epicenter reads itself',
+			'The collection at data/words/{word}.md has a field "edit", which the set verb takes beside the fields',
 			'The collection at data/words/{word}.md has a field "two words", which a front matter line cannot name',
 		]);
 	});
 
-	test('names placeholders a read or epicenter gives itself', () => {
-		expect(
-			problems(() =>
-				defineCollection({
-					path: 'data/notes/{body}/{path}/{problems}/{other}/{input}.md',
-					fields: {},
-				}),
-			),
-		).toEqual([
-			"The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {body}, which is the file's text after its front matter",
-			"The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {path}, which is the file's address",
-			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {problems}, which a read uses to say what does not fit',
-			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {other}, which a read uses for front matter that is not a field',
-			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {input}, which epicenter reads itself',
+	test('names placeholders a read or the set verb takes itself', () => {
+		const path = 'data/notes/{body}/{path}/{problems}/{edit}/{input}.md';
+		expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([
+			`The collection at ${path} has the placeholder {body}, which is the file's text after its front matter`,
+			`The collection at ${path} has the placeholder {path}, which is the file's address`,
+			`The collection at ${path} has the placeholder {edit}, which the set verb takes beside the fields`,
 		]);
 	});
 
-	test('a one-file collection has no required field without a default', () => {
+	test('a keyless collection must be readable before its first write', () => {
 		expect(
 			problems(() =>
 				defineCollection({
 					path: 'data/settings.md',
-					fields: {
-						voice: field.select(['female', 'male']),
-						goal: field.integer({ optional: true }),
-						loud: field.boolean(),
-					},
+					fields: { voice: field.select(['female', 'male']) },
 				}),
 			),
 		).toEqual([
-			'The collection at data/settings.md has the required field "voice" with no default; one file reads as its defaults before its first set, so make it optional or give it a default',
+			'The collection at data/settings.md is one file, read as empty before it exists, so the field "voice" must be optional, a switch, or a list without min',
 		]);
 	});
 
@@ -458,6 +502,80 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
+	test('preserves a boolean privateInput flag and rejects any other value', () => {
+		for (const privateInput of [true, false]) {
+			const action = defineAction({
+				description: 'Connect',
+				privateInput,
+				input: { token: field.text() },
+				run: () => Ok(true),
+			});
+			expect(action.privateInput).toBe(privateInput);
+		}
+		expect(() =>
+			defineAction({
+				description: 'Connect',
+				privateInput: 'true' as unknown as boolean,
+				input: {},
+				run: () => Ok(true),
+			}),
+		).toThrow('privateInput flag that is not a boolean');
+	});
+
+	test('raw writeOnly schema metadata does not imply private input handling', () => {
+		const action = defineAction({
+			description: 'Read',
+			input: { value: { type: 'string', writeOnly: true } },
+			run: () => Ok(true),
+		});
+		expect(action.privateInput).toBeUndefined();
+	});
+
+	test('rejects the old confidential spelling instead of losing its protections', () => {
+		expect(() =>
+			// @ts-expect-error privateInput is the only supported policy name
+			defineAction({
+				description: 'Connect',
+				input: {},
+				confidential: true,
+				run: () => Ok(true),
+			}),
+		).toThrow('has "confidential", which an action does not take');
+	});
+
+	test('rejects cyclic schemas at declaration before they can break discovery', () => {
+		const schema: { type: string; properties: Record<string, TSchema> } = {
+			type: 'object',
+			properties: {},
+		};
+		schema.properties.self = schema;
+		expect(() =>
+			defineAction({
+				description: 'Read',
+				input: { value: schema },
+				run: () => Ok(true),
+			}),
+		).toThrow(TypeError);
+	});
+
+	test('accepts finite recursive schemas expressed with references', () => {
+		const schema = {
+			$defs: {
+				node: {
+					type: 'object',
+					properties: { next: { $ref: '#/$defs/node' } },
+				},
+			},
+			$ref: '#/$defs/node',
+		};
+		const action = defineAction({
+			description: 'Read',
+			input: { value: schema },
+			run: () => Ok(true),
+		});
+		expect(action.input.value).toEqual(schema);
+	});
+
 	test('a yielding action called directly resolves with its return; runYielding also reads its yields in order', async () => {
 		const say = defineAction({
 			description: 'Say',
@@ -466,13 +584,13 @@ describe('defineAction', () => {
 				yield message;
 				yield { loud };
 				await folder.write('data/said.md', message);
-				return { said: message };
+				return Ok({ said: message });
 			},
 		});
 		const context = createMemoryContext();
-		expect(await inRun(context, () => say({ message: 'hi' }))).toEqual({
-			said: 'hi',
-		});
+		expect(await inRun(context, () => say({ message: 'hi' }))).toEqual(
+			Ok({ said: 'hi' }),
+		);
 		const seen: unknown[] = [];
 		const returned = await inRun(context, () =>
 			runYielding(say, { message: '猫' }, (value) => {
@@ -480,24 +598,55 @@ describe('defineAction', () => {
 			}),
 		);
 		expect(seen).toEqual(['猫', { loud: false }]);
-		expect(returned).toEqual({ said: '猫' });
+		expect(returned).toEqual(Ok({ said: '猫' }));
 		expect(await context.folder.read('data/said.md')).toBe('猫');
 	});
 
-	test('a direct call fills the defaults a call through the CLI or MCP would', async () => {
+	test('a call fills an absent switch and list, and nothing else', async () => {
 		const tag = defineAction({
 			description: 'Tag',
 			input: {
-				tags: field.tags(),
+				tags: field.list(field.text()),
 				done: field.boolean(),
 				note: field.text({ optional: true }),
 			},
-			run: (input) => input,
+			run: (input) => Ok(input),
 		});
 		const given = {};
-		expect(tag(given)).toEqual({ tags: [], done: false });
+		expect(tag(given)).toEqual(Ok({ tags: [], done: false }));
 		expect(given).toEqual({});
-		expect(tag({ done: true })).toEqual({ tags: [], done: true });
+		expect(tag({ done: true })).toEqual(Ok({ tags: [], done: true }));
+	});
+
+	test('refuses a field with a default at any depth, and a field helper an option it does not declare', () => {
+		expect(
+			problems(() =>
+				defineAction({
+					description: 'Research',
+					input: {
+						limit: { type: 'number', default: 50 } as never,
+						filter: Type.Object({ on: Type.Boolean({ default: true }) }),
+						named: Type.Object({ default: Type.String() }),
+					},
+					run: () => Ok(undefined),
+				}),
+			),
+		).toEqual([
+			'The action "Research" has a default in "limit"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
+			'The action "Research" has a default in "filter"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
+		]);
+		expect(() =>
+			// @ts-expect-error no field helper takes a default
+			field.integer({ default: 50, min: 1 }),
+		).toThrow(
+			'field.integer takes no default: no field has one, so write the default in code where the value is read',
+		);
+		expect(() =>
+			// @ts-expect-error a switch takes no optional: it is never required
+			field.boolean({ optional: true }),
+		).toThrow(
+			'field.boolean takes no option "optional"; it takes description, readOnly',
+		);
 	});
 
 	test('names each problem its types cannot', () => {
@@ -507,24 +656,40 @@ describe('defineAction', () => {
 					description: 'Show',
 					input: {
 						a: field.text(),
-						b: field.tags(),
+						// No name is reserved: the command line reads the input as one JSON object.
 						json: field.boolean(),
-						// Not reserved: `--version` is read only on its own.
-						version: field.text(),
+						help: field.text(),
+						input: field.text(),
 					},
-					positional: ['b', 'a', 'a', 'nope' as 'a'],
+					positional: ['a'],
 					annotations: { readOnlyHint: true, dangerous: true } as never,
 					readonly: true,
-					run() {},
+					run: () => Ok(undefined),
 				} as never),
 			),
 		).toEqual([
+			'The action "Show" has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line',
 			'The action "Show" has "readonly", which an action does not take',
 			'The action "Show" has the annotation "dangerous", which MCP does not define',
-			'The action "Show" has a field named "json", which epicenter reads itself',
-			'The action "Show" has the list "b" as a positional before the last, so the ones after it could never be given',
-			'The action "Show" lists the positional "a" twice',
-			'The action "Show" has the positional "nope", which is not one of its fields',
 		]);
 	});
+});
+
+test('a bare return faults on direct, asynchronous and yielding action calls', async () => {
+	const bare = { input: {}, description: 'Invalid action' };
+	// Simulate an untyped app using the old action contract.
+	const sync = defineAction({ ...bare, run: () => 'bare' } as never);
+	expect(() => sync({})).toThrow('must return Ok(data) or Err(error)');
+	for (const run of [
+		async () => 'bare',
+		async function* () {
+			yield 1;
+			return 'bare';
+		},
+	]) {
+		const action = defineAction({ ...bare, run } as never);
+		await expect(action({})).rejects.toThrow(
+			'must return Ok(data) or Err(error)',
+		);
+	}
 });

@@ -32,30 +32,20 @@ The monorepo uses consistent script naming conventions.
 
 ## Dev Scripts
 
-Start apps from the repo root, not by cd-ing into the app. Root
-`bun dev:<app>` runs every process the app needs; for apps that talk to the
-hosted API (epicenter, vocab, and the
-api dashboard), it also starts `@epicenter/api` on `localhost:8787` via
-`bun run --filter`. Root `bun dev:<app>:ui` runs the app's frontend
-alone when that split exists; for desktop apps, it maps to the package's
-web `dev` or `dev:ui`. `bun dev:api` runs just the backend.
+Run these scripts from the repository root. The [root manifest](../../../package.json) lists the available targets.
 
-Inside a single package, the conventions are:
-
-Non-Tauri apps use a single `dev` script that runs the underlying tool
-directly (`vite dev`, `astro dev`, `wrangler dev`). Desktop apps keep that
-`dev` (and `dev:ui`) as the web build and name the desktop shell
-`dev:desktop`; the Epicenter app has no web build, so its `dev` aliases
-`dev:desktop`. The suffix convention applies primarily to database
-commands:
-
-| Script | Meaning |
+| Command | What starts |
 | --- | --- |
-| `dev` | The default local workflow. May still require Infisical login for app secrets (e.g. API keys), but only ever talks to local infrastructure at runtime. |
-| `dev:ui` | Desktop apps: the Vite dev server alone, no desktop shell. |
-| `dev:desktop` | Desktop apps: launches the native desktop app (`tauri dev` with the app's `tauri.dev.conf.json`). The Epicenter app's `dev` aliases this. |
-| `db:*:local` | Runs against local Postgres. Works without Infisical login. |
-| `db:*:remote` | Wraps with `infisical run --env=prod`. Production data; treat as admin. |
+| `bun dev` or `bun dev:whispering` | Whispering's Vite dev server. `bun dev:whispering:ui` starts the same UI. |
+| `bun dev:whispering:desktop` | Whispering in its native Tauri window. |
+| `bun dev:api-dashboard` | The account dashboard and its API together. |
+| `bun dev:api-dashboard:ui` | The dashboard frontend alone. |
+| `bun dev:api` | The backend alone. |
+| `bun dev:landing` | The landing site. |
+
+Apps in a person's `~/Epicenter/apps/` run through the [Epicenter CLI](../../../packages/cli/README.md). Use `epicenter serve` to open their UIs.
+
+For database scripts, `db:*:local` selects local Postgres. `db:*:remote` runs through Infisical against production and is an admin operation.
 
 There is no `dev:remote`. Production data is reached only through `:remote` db
 scripts and `deploy`, never through a development server.
@@ -98,7 +88,7 @@ When creating a new package in `packages/`, follow this exact structure.
 Key conventions:
 
 - `exports` only, no `main`/`types`: modern resolvers ignore `main`/`types` when `exports` is present. The entry point is `./src/index.ts`; there is no build step, consumers import the source directly.
-- Use `"workspace:*"` for internal deps (e.g., `"@epicenter/definition": "workspace:*"`).
+- Use `"workspace:*"` for internal deps (e.g., `"@epicenter/app": "workspace:*"`).
 - Use `"catalog:"` for shared versions managed in the root `package.json` catalogs.
 - `peerDependencies` for packages consumers must also install (e.g., `svelte` in `@epicenter/account`, optional for a consumer without Svelte).
 - `license`: `AGPL-3.0-or-later`. Before adding an MIT package, read "If MIT returns" in `docs/licensing/licensing-strategy.md`.

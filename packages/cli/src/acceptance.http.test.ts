@@ -1,25 +1,19 @@
 /**
  * HTTP serve acceptance tests.
  * Runs the real CLI against a temporary HOME and checks MCP calls, the
- * commits after them, the backup when serve stops, UI confinement, and
+ * returned answers, concurrent writes, UI confinement, and
  * request origin handling. `http.test.ts` drives the backup clock's tick.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import {
-	chmod,
-	mkdir,
-	readFile,
-	rm,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action } from '@epicenter/app';
-import { connect } from '@epicenter/app/client';
+import { connect, runs } from '@epicenter/app/client';
+import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { hold } from './lock.ts';
 import {
 	fixture,
-	gitIn,
 	gitignore,
 	header,
 	readingApp,
@@ -27,16 +21,16 @@ import {
 } from './runner.test-support.ts';
 
 /** Talk's `say` as its app types it: takes words, yields each word, returns them joined. */
-type TalkSay = Action<{ words: string }, Promise<string>, string>;
+type TalkSay = Action<{ words: string }, Promise<Ok<string>>, string>;
 
 /** Reading's actions as its UI calls them, for `connect`. */
 type Reading = {
 	actions: {
-		log: (input: { minutes: number; book?: string }) => {
+		log: (input: { minutes: number; book?: string }) => Ok<{
 			minutes: number;
 			book: string | null;
-		};
-		week: { show: () => number };
+		}>;
+		week: { show: () => Ok<number> };
 		explode: () => never;
 	};
 };
@@ -51,9 +45,7 @@ afterEach(async () => {
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
 /**
- * Serve a new Epicenter once `prepare` has made and committed its apps. serve
- * backs up once when it starts, so a test makes its apps first, and nothing
- * is pending for that backup to take whenever it runs.
+ * Serve a temporary Epicenter after preparing its apps.
  */
 async function setup<T = undefined>(
 	prepare?: (f: Fixture) => Promise<T>,
@@ -112,8 +104,6 @@ test('HTTP tools/list offers app actions', async () => {
 		'reading_books_get',
 		'reading_books_add',
 		'reading_books_set',
-		'reading_books_edit',
-		'reading_books_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
@@ -125,7 +115,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'outside',
-			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return true; } }) } });`,
+			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } });`,
 			f.root,
 		),
 	);
@@ -139,7 +129,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	expect(await Bun.file(join(outside, 'data/ran.txt')).exists()).toBe(false);
 });
 
-test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
+test('the browser client calls a tool without initialize and writes its record', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({
@@ -150,65 +140,28 @@ test('the browser client calls a tool without initialize and a write makes one n
 		minutes: 30,
 		book: null,
 	});
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	expect(await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD')).toBe(
-		'2',
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: log 30',
-	);
-	expect(
-		await gitIn(join(folder, 'data'), 'log', '-1', '--format=%B'),
-	).toContain(`Code-Commit: ${await gitIn(folder, 'rev-parse', 'HEAD')}`);
+
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,\n',
 	);
 });
 
-test('a read-only action makes no commit, and one that throws after writing commits pending data as the call that threw', async () => {
+test('read-only calls return and a write followed by a throw preserves its error', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
-	const folder = f.made;
 	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
-	// Nothing is pending, so serve's startup backup commits nothing whenever it runs.
+	// Read-only calls and throwing calls preserve their return/error contracts.
 	expect(expectOk(await client.week.show())).toBe(210);
 	expect(expectOk(await client.week.show())).toBe(210);
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+
 	expect(expectErr(await client.explode())).toEqual({
+		namespace: 'epicenter/action-error',
 		name: 'Threw',
 		message: 'line 4 is not a number',
 		thrown: undefined,
 	});
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: explode (threw)',
-	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
 
-test('a call whose snapshot fails still resolves, and the app says why', async () => {
-	const f = await setup(async (f) => {
-		const folder = await f.folder(join(f.apps, 'reading'), readingApp);
-		await writeFile(
-			join(folder, '.gitattributes'),
-			'*.csv filter=lfs diff=lfs merge=lfs -text\n',
-		);
-		return folder;
-	});
-	const folder = f.made;
-	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
-	expect(expectOk(await client.log({ minutes: 5 }))).toEqual({
-		minutes: 5,
-		book: null,
-	});
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	expect(
-		JSON.parse((await f.run('reading', '--json')).stdout).status,
-	).toMatchObject({
-		code: { pending: 1, backup: 'none' },
-		data: { pending: 1, backup: 'none' },
-	});
-});
-
-test('concurrent writes through update both land, and both are in history', async () => {
+test('concurrent updates to one record both land', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
@@ -220,29 +173,23 @@ test('concurrent writes through update both land, and both are in history', asyn
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toMatch(
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	const history = await gitIn(join(folder, 'data'), 'log', '--format=%s');
-	expect(history).toMatch(/reading: log (10|20)/);
-	expect(
-		await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD'),
-	).toMatch(/^[23]$/);
 });
 
-test('two calls at once on different files take turns and make separate data commits', async () => {
+test('two calls at once on different files preserve both records', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'notes',
 			`export default defineApp({ description: 'Notes', collections: {}, actions: {
-		write: defineAction({ description: 'Write a page', input: { page: field.text() }, positional: ['page'],
-			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return page; } }),
+		write: defineAction({ description: 'Write a page', input: { page: field.text() },
+			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return Ok(page); } }),
 	} });`,
 		),
 	);
 	const folder = f.made;
 	const client = connect<{
-		actions: { write: (input: { page: string }) => string };
+		actions: { write: (input: { page: string }) => Ok<string> };
 	}>({ app: 'notes', url: `${f.base}/` });
-	// After a call, the backup serve started with has passed this app.
+	// Changes beside concurrent calls survive their writes.
 	expectOk(await client.write({ page: 'sunday' }));
 	await writeFile(join(folder, 'data/by-hand.md'), 'by hand\n');
 	for (const result of await Promise.all([
@@ -250,181 +197,9 @@ test('two calls at once on different files take turns and make separate data com
 		client.write({ page: 'tuesday' }),
 	]))
 		expectOk(result);
-	const commits = (
-		await gitIn(join(folder, 'data'), 'log', '-2', '--format=%s')
-	).split('\n');
-	expect(commits.sort()).toEqual([
-		'notes: write monday',
-		'notes: write tuesday',
-	]);
-	for (const rev of ['HEAD', 'HEAD~1']) {
-		const subject = await gitIn(
-			join(folder, 'data'),
-			'log',
-			'-1',
-			'--format=%s',
-			rev,
-		);
-		expect(
-			await gitIn(
-				join(folder, 'data'),
-				'show',
-				'--name-only',
-				'--format=',
-				rev,
-			),
-		).toBe(`${subject.slice('notes: write '.length)}.md`);
-	}
-	expect(
-		await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s', 'HEAD~2'),
-	).toBe('notes: changed outside epicenter');
-	expect(
-		await gitIn(
-			join(folder, 'data'),
-			'show',
-			'--name-only',
-			'--format=',
-			'HEAD~2',
-		),
-	).toBe('by-hand.md');
-	expect(await gitIn(join(folder, 'data'), 'status', '--porcelain')).toBe('');
-});
-
-test("a backup that runs during a call leaves the call's writes to the call's one commit", async () => {
-	// The backup serve starts with commits an app that sorts first, slowly,
-	// and reaches notes while the call to notes is between its two writes.
-	const f = await setup(async (f) => {
-		const slow = await f.app(
-			'aaa',
-			"export default defineApp({ description: 'Slow to commit', collections: {}, actions: {} });\n",
-		);
-		await mkdir(join(slow, 'data'));
-		await writeFile(join(slow, 'data/pending.md'), 'pending\n');
-		await writeFile(join(slow, 'pending-code.md'), 'pending\n');
-		const hook = join(slow, '.git', 'hooks', 'pre-commit');
-		await writeFile(hook, '#!/bin/sh\nsleep 2\n');
-		await chmod(hook, 0o755);
-		return f.app(
-			'notes',
-			`export default defineApp({ description: 'Notes', collections: {}, actions: {
-		pair: defineAction({ description: 'Write two pages, apart', input: {},
-			run: async () => { await folder.write('data/a.md', 'a'); await Bun.sleep(3000); await folder.write('data/b.md', 'b'); return true; } }),
-	} });`,
-		);
-	});
-	const folder = f.made;
-	expectOk(
-		await connect<{ actions: { pair: () => boolean } }>({
-			app: 'notes',
-			url: `${f.base}/`,
-		}).pair(),
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '--format=%s')).toBe(
-		'notes: pair\nnotes: start its data',
-	);
-	expect(
-		await gitIn(
-			join(folder, 'data'),
-			'show',
-			'--name-only',
-			'--format=',
-			'HEAD',
-		),
-	).toBe('a.md\nb.md');
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	expect(
-		await gitIn(join(f.apps, 'aaa', 'data'), 'log', '-1', '--format=%s'),
-	).toBe('aaa: changed outside epicenter');
-});
-
-/** Reading, backed up to a bare `origin` it has pushed to. */
-async function backedUpReading(f: Fixture) {
-	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
-	await mkdir(join(folder, 'data'));
-	await f.run('sync', 'reading');
-	const remote = join(f.root, 'remote.git');
-	await gitIn(f.root, 'init', '--bare', '-q', remote);
-	await gitIn(join(folder, 'data'), 'remote', 'add', 'origin', remote);
-	await gitIn(join(folder, 'data'), 'push', '-q', '-u', 'origin', 'HEAD');
-	return { folder, remote };
-}
-
-test('serve reports a refused backup push and leaves both histories intact', async () => {
-	const f = await setup(backedUpReading);
-	const { folder, remote } = f.made;
-	const peer = join(f.root, 'peer');
-	await gitIn(f.root, 'clone', '-q', remote, peer);
-	await writeFile(join(peer, 'peer.md'), 'from peer\n');
-	await gitIn(peer, 'add', 'peer.md');
-	await gitIn(peer, 'commit', '-q', '-m', 'peer');
-	await gitIn(peer, 'push', '-q');
-	expectOk(
-		await connect<Reading>({ app: 'reading', url: `${f.base}/` }).log({
-			minutes: 42,
-		}),
-	);
-	expect(await f.stop()).toBe(0);
-	expect(f.stderr()).toContain(
-		'the backup at origin has changes this computer does not; nothing was overwritten',
-	);
-	const branch = await gitIn(
-		join(folder, 'data'),
-		'symbolic-ref',
-		'--short',
-		'HEAD',
-	);
-	expect(f.stderr()).toContain(
-		`git -C ${folder}/data fetch origin && git -C ${folder}/data log HEAD..origin/${branch}`,
-	);
-	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe('peer');
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: log 42',
-	);
-});
-
-test('a write call is pushed by the backup clock, not by the call; serve backs up once more when it stops', async () => {
-	const f = await setup(backedUpReading);
-	const { folder, remote } = f.made;
-	expectOk(
-		await connect<Reading>({
-			app: 'reading',
-			url: `${f.base}/`,
-		}).log({ minutes: 42 }),
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: log 42',
-	);
-	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe(
-		'reading: start its data',
-	);
-	await writeFile(join(folder, 'data/notes.md'), 'by hand\n');
-	expect(await f.stop()).toBe(0);
-	expect(await gitIn(remote, 'log', '--format=%s')).toBe(
-		'reading: changed outside epicenter\nreading: log 42\nreading: start its data',
-	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-});
-
-test('commit subjects use the first positional value on one line, capped at 60 characters', async () => {
-	const f = await setup((f) =>
-		f.app(
-			'notes',
-			`export default defineApp({ description: 'The notes app', collections: {}, actions: {
-		add: defineAction({ description: 'Add a note', input: { text: field.text() }, positional: ['text'],
-			run: async ({ text }) => { await folder.write('data/note.txt', text); return text; } }),
-	} });`,
-		),
-	);
-	const folder = f.made;
-	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
-	expectOk(
-		await connect<{ actions: { add: (input: { text: string }) => string } }>({
-			app: 'notes',
-			url: `${f.base}/`,
-		}).add({ text }),
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		`notes: add ${text.replace(/\s+/g, ' ').slice(0, 60)}`,
+	expect(await readFile(join(folder, 'data/monday.md'), 'utf8')).toBe('monday');
+	expect(await readFile(join(folder, 'data/tuesday.md'), 'utf8')).toBe(
+		'tuesday',
 	);
 });
 
@@ -437,23 +212,26 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		),
 	}));
 	const { folder, linked } = f.made;
-	await mkdir(join(folder, 'ui', 'dist', '_app', 'immutable'), {
+	await mkdir(join(folder, 'code', 'ui', 'dist', '_app', 'immutable'), {
 		recursive: true,
 	});
-	await writeFile(join(folder, 'ui', 'dist', 'index.html'), '<h1>Reading</h1>');
 	await writeFile(
-		join(folder, 'ui', 'dist', '_app', 'immutable', 'asset.js'),
+		join(folder, 'code', 'ui', 'dist', 'index.html'),
+		'<h1>Reading</h1>',
+	);
+	await writeFile(
+		join(folder, 'code', 'ui', 'dist', '_app', 'immutable', 'asset.js'),
 		'export {};',
 	);
 	await symlink(
-		join(folder, 'epicenter.ts'),
-		join(folder, 'ui', 'dist', 'outside.ts'),
+		join(folder, 'code/epicenter.ts'),
+		join(folder, 'code', 'ui', 'dist', 'outside.ts'),
 	);
 	const outsideUi = join(f.root, 'outside-ui');
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
-	await mkdir(join(linked, 'ui'));
-	await symlink(outsideUi, join(linked, 'ui', 'dist'));
+	await mkdir(join(linked, 'code', 'ui'));
+	await symlink(outsideUi, join(linked, 'code', 'ui', 'dist'));
 	expect(await (await fetch(`${f.base}/`)).text()).toContain(
 		'href="/reading/"',
 	);
@@ -489,9 +267,9 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'reading'), {
 			...readingApp,
-			'.gitignore': `${readingApp['.gitignore']}ui/dist/\n`,
-			'package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cp ui/page.txt "$EPICENTER_OUT/index.html" && grep -qv broken ui/page.txt' } })}\n`,
-			'ui/page.txt': 'one\n',
+			'code/.gitignore': `${readingApp['code/.gitignore']}ui/dist/\n`,
+			'code/package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cp ui/page.txt "$EPICENTER_OUT/index.html" && grep -qv broken ui/page.txt' } })}\n`,
+			'code/ui/page.txt': 'one\n',
 		}),
 	);
 	const folder = f.made;
@@ -508,9 +286,9 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	const first = await fetch(`${f.base}/reading/`);
 	expect([first.status, await first.text()]).toEqual([200, 'one\n']);
 	// Uncommitted: the UI runs as it sits on disk.
-	await writeFile(join(folder, 'ui', 'page.txt'), 'two\n');
+	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'two\n');
 	expect(await opened('two\n')).toBe(true);
-	await writeFile(join(folder, 'ui', 'page.txt'), 'broken\n');
+	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'broken\n');
 	await fetch(`${f.base}/reading/`);
 	for (
 		let tries = 0;
@@ -520,7 +298,7 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 		await Bun.sleep(100);
 	expect(f.stderr()).toContain('reading: the UI did not build');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('two\n');
-	await writeFile(join(folder, 'ui', 'page.txt'), 'three\n');
+	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'three\n');
 	expect(await opened('three\n')).toBe(true);
 	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
 });
@@ -548,16 +326,16 @@ export default defineApp({ description: 'Talk', collections: {}, actions: {
 			} finally {
 				await folder.write('data/waited.md', 'waited');
 			}
-			return 'waited';
+			return Ok('waited');
 		},
 	}),
+ refuse: defineAction({description:'Refuse after checking',input:{},async *run(){yield 'checked';return Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'});}}),
 	say: defineAction({
 		description: 'Say words one at a time',
 		input: { words: field.text() },
-		positional: ['words'],
 		async *run({ words }) {
 			for (const word of words.split(' ')) yield word;
-			return words;
+			return Ok(words);
 		},
 	}),
 	drip: defineAction({
@@ -566,14 +344,14 @@ export default defineApp({ description: 'Talk', collections: {}, actions: {
 		async *run() {
 			await folder.write('data/started.md', 'started');
 			try {
-				for (let i = 0; i < 600; i++) {
+				for (let i = 0; i < 5; i++) {
 					yield i;
 					await Bun.sleep(50);
 				}
 			} finally {
 				await folder.write('data/stopped.md', 'stopped');
 			}
-			return 'never stopped';
+			return Ok('never stopped');
 		},
 	}),
 } });
@@ -598,25 +376,12 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 		body: JSON.stringify({ words: 'a b' }),
 	});
 	expect(raw.headers.get('content-type')).toBe('application/x-ndjson');
-	expect(await raw.text()).toBe(
-		'{"yielded":"a"}\n{"yielded":"b"}\n{"answer":{"returned":"a b"}}\n',
+	expect(JSON.parse(await raw.text()).answer.error.message).toBe(
+		'This page is out of date. Reload it to keep using talk.',
 	);
-	const refused = await fetch(`${f.base}/talk/say`, {
-		method: 'POST',
-		body: JSON.stringify({}),
-	});
-	expect(JSON.parse(await refused.text())).toEqual({
-		answer: {
-			error: {
-				name: 'Usage',
-				message: 'words is needed',
-				next: 'epicenter talk say --help',
-			},
-		},
-	});
 	expect(
 		(
-			await fetch(`${f.base}/talk/say`, {
+			await fetch(`${f.base}/.runs/talk/say/${crypto.randomUUID()}`, {
 				method: 'POST',
 				headers: { origin: 'http://evil.example' },
 				body: JSON.stringify({ words: 'no' }),
@@ -631,81 +396,334 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 	const body = (await answered.json()) as {
 		result: { structuredContent: unknown };
 	};
-	expect(body.result.structuredContent).toEqual({ returned: 'x y' });
+	expect(body.result.structuredContent).toEqual({ data: 'x y', error: null });
 });
 
-test('a caller that stops reading stops the action at its next yield; its finally runs and what it wrote is committed', async () => {
+test('an aborted observer leaves the action running to its finally', async () => {
 	const f = await setup((f) => f.app('talk', talk));
+	const client = connect<{
+		actions: {
+			drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
+		};
+	}>({ app: 'talk', url: `${f.base}/` });
+	const run = runs.start(client.drip, {});
 	const stop = new AbortController();
-	const response = await fetch(`${f.base}/talk/drip`, {
-		method: 'POST',
-		body: '{}',
-		signal: stop.signal,
-	});
-	const reader = (response.body as ReadableStream<Uint8Array>).getReader();
-	const first = new TextDecoder().decode((await reader.read()).value);
-	expect(first).toStartWith('{"yielded":0}\n');
-	stop.abort();
-	const data = join(f.apps, 'talk', 'data');
-	const latest = () => gitIn(data, 'log', '-1', '--format=%s');
+	for await (const event of run.events({ signal: stop.signal }))
+		if (event.type === 'yielded') stop.abort();
+	const path = join(f.apps, 'talk', 'data', 'stopped.md');
 	const deadline = Date.now() + 10_000;
-	while (!(await latest()).startsWith('talk: drip') && Date.now() < deadline)
+	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
 		await Bun.sleep(50);
-	expect(await latest()).toBe('talk: drip (stopped)');
-	expect(
-		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
-	).toEqual(['started.md', 'stopped.md']);
+	expect(await Bun.file(path).exists()).toBe(true);
+	expectOk(await run.result());
 });
 
-test('a stop reaches an action waiting between yields through callSignal, at once', async () => {
+test('a callback failure leaves the action running to finally and releases the lock', async () => {
 	const f = await setup((f) => f.app('talk', talk));
-	const stop = new AbortController();
-	const response = await fetch(`${f.base}/talk/wait`, {
-		method: 'POST',
-		body: '{}',
-		signal: stop.signal,
+	const client = connect<{
+		actions: {
+			drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
+		};
+	}>({
+		app: 'talk',
+		url: `${f.base}/`,
 	});
-	const reader = (response.body as ReadableStream<Uint8Array>).getReader();
-	expect(new TextDecoder().decode((await reader.read()).value)).toStartWith(
-		'{"yielded":"waiting"}\n',
+	const bug = new Error('UI callback failed');
+	await expect(
+		client.drip(
+			{},
+			{
+				onYield: async () => {
+					throw bug;
+				},
+			},
+		),
+	).rejects.toBe(bug);
+	const data = join(f.apps, 'talk', 'data');
+	const latest = () => Bun.file(join(data, 'stopped.md')).exists();
+	const deadline = Date.now() + 10_000;
+	while (!(await latest()) && Date.now() < deadline) await Bun.sleep(50);
+	expect(await latest()).toBe(true);
+
+	// The finally write can become visible just before the run releases its lock.
+	const held = await hold(join(f.apps, 'talk'), 1000);
+	try {
+		expect(held).toBeDefined();
+	} finally {
+		held?.release();
+	}
+});
+
+test('unserializable action throws still answer Threw, preserve writes, and release the app lock', async () => {
+	const f = await setup((f) =>
+		f.app(
+			'failure',
+			`
+export default defineApp({ description: 'Failure', collections: {}, actions: {
+	fail: defineAction({ description: 'Write then throw', input: { kind: field.text() },
+		run: async ({ kind }) => {
+			await folder.write('data/' + kind + '.md', kind);
+			if (kind === 'returned') return Err({name:'Problem',message:'action failed',details:1n});
+			if (kind === 'array') throw [1n];
+			const thrown = { name: 'Problem', message: 'action failed', details: 1n };
+			if (kind === 'cycle') thrown.details = thrown;
+			if (kind === 'replacement') thrown.toJSON = () => 42;
+			if (kind === 'json') thrown.details = 'kept';
+			throw thrown;
+		},
+	}),
+} });`,
+		),
 	);
-	stop.abort();
-	const data = join(f.apps, 'talk', 'data');
-	const latest = () => gitIn(data, 'log', '-1', '--format=%s');
-	// Far less than the minute it would wait: the stop ended it.
-	const deadline = Date.now() + 10_000;
-	while (!(await latest()).startsWith('talk: wait') && Date.now() < deadline)
-		await Bun.sleep(50);
-	// It returned once the wait ended, but its caller had stopped it.
-	expect(await latest()).toBe('talk: wait (stopped)');
-	expect(
-		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
-	).toEqual(['waited.md']);
+	const client = connect<{
+		actions: { fail: (input: { kind: string }) => never };
+	}>({
+		app: 'failure',
+		url: `${f.base}/`,
+	});
+	for (const kind of [
+		'bigint',
+		'cycle',
+		'replacement',
+		'array',
+		'json',
+		'returned',
+	]) {
+		const error = expectErr(await client.fail({ kind }));
+		expect(error.name).toBe('Threw');
+		if (kind !== 'returned')
+			expect(error).toMatchObject({
+				name: 'Threw',
+				message:
+					kind === 'array'
+						? 'The action threw a value that could not be read'
+						: 'action failed',
+			});
+		if (error.name === 'Threw')
+			expect(error.thrown).toEqual(
+				kind === 'json'
+					? { name: 'Problem', message: 'action failed', details: 'kept' }
+					: undefined,
+			);
+
+		expect(
+			await readFile(join(f.apps, 'failure', 'data', `${kind}.md`), 'utf8'),
+		).toBe(kind);
+		const held = await hold(join(f.apps, 'failure'), 0);
+		try {
+			expect(held).toBeDefined();
+		} finally {
+			held?.release();
+		}
+	}
 });
+
+test('shared errors cross a real call after writes without claiming rollback or changing custom error depth', async () => {
+	const f = await setup((f) =>
+		f.app(
+			'failures',
+			`
+import { ActionError } from '@epicenter/app';
+export default defineApp({ description: 'Shared failures', collections: {}, actions: {
+	fail: defineAction({ description: 'Write then fail', input: { kind: field.text(), how: field.text() },
+		run: async ({ kind, how }) => {
+			await folder.write('data/' + how + '-' + kind + '.md', kind);
+			const custom = { name: 'ProposalChanged', message: 'Review again', proposal: 'p' };
+			const cases = {
+				Changed: ActionError.Changed({ path: 'data/a.md', why: 'quote' }).error,
+				Missing: ActionError.Missing({ path: 'data/a.md' }).error,
+				Threw: ActionError.Threw({ message: custom.message, thrown: custom }).error,
+				Refused: ActionError.Refused({ message: 'Dependency declined', next: 'Inspect dependency' }).error,
+				Unreachable: ActionError.Unreachable({ message: 'The model did not answer' }).error,
+				Stopped: ActionError.Stopped({ message: 'The dependency stopped' }).error,
+				Custom: custom,
+			};
+			if(how==='return') return Err(cases[kind]);
+			throw cases[kind];
+		},
+	}),
+} });`,
+		),
+	);
+	const client = connect<{
+		actions: {
+			fail: (input: {
+				kind: string;
+				how: string;
+			}) => Result<
+				never,
+				{ name: string; message: string; namespace?: string; proposal?: string }
+			>;
+		};
+	}>({ app: 'failures', url: `${f.base}/` });
+	for (const how of ['return', 'throw']) {
+		for (const kind of [
+			'Changed',
+			'Missing',
+			'Threw',
+			'Refused',
+			'Unreachable',
+			'Stopped',
+			'Custom',
+		]) {
+			const error = expectErr(await client.fail({ kind, how }));
+			if (how === 'throw') {
+				expect(error).toMatchObject({
+					name: 'Threw',
+					namespace: 'epicenter/action-error',
+					thrown: { name: kind === 'Custom' ? 'ProposalChanged' : kind },
+				});
+			} else {
+				expect(error?.name).toBe(kind === 'Custom' ? 'ProposalChanged' : kind);
+				if (kind === 'Custom') {
+					expect(error).toHaveProperty('proposal', 'p');
+					expect(error).not.toHaveProperty('namespace');
+				} else
+					expect(error).toHaveProperty('namespace', 'epicenter/action-error');
+			}
+			expect(
+				await readFile(
+					join(f.apps, 'failures', 'data', `${how}-${kind}.md`),
+					'utf8',
+				),
+			).toBe(kind);
+		}
+		const raw = await fetch(
+			`${f.base}/.runs/failures/fail/${crypto.randomUUID()}`,
+			{ method: 'POST', body: JSON.stringify({ kind: 'Missing', how }) },
+		);
+		const frames = (await raw.text())
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line));
+		expect(frames.at(-1)).toMatchObject({
+			type: 'finished',
+			answer:
+				how === 'return'
+					? {
+							data: null,
+							error: {
+								kind: 'returned',
+								reason: {
+									namespace: 'epicenter/action-error',
+									name: 'Missing',
+									message: 'There is no data/a.md',
+									path: 'data/a.md',
+								},
+							},
+						}
+					: {
+							data: null,
+							error: {
+								kind: 'fault',
+								message: 'There is no data/a.md',
+								thrown: {
+									namespace: 'epicenter/action-error',
+									name: 'Missing',
+									path: 'data/a.md',
+								},
+							},
+						},
+		});
+	}
+});
+
+test('run.cancel reaches callSignal and runs finally', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const client = connect<{
+		actions: {
+			wait: Action<Record<string, never>, Promise<Ok<string>>, string>;
+		};
+	}>({ app: 'talk', url: `${f.base}/` });
+	const run = runs.start(client.wait, {});
+	for await (const event of run.events()) {
+		if (event.type === 'yielded') {
+			expectOk(await run.cancel());
+			break;
+		}
+	}
+	const path = join(f.apps, 'talk', 'data', 'waited.md');
+	const deadline = Date.now() + 10_000;
+	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
+		await Bun.sleep(50);
+	expect(await Bun.file(path).exists()).toBe(true);
+	await run.result();
+});
+
+test('a killed host interrupts an accepted run and never executes it again', async () => {
+	const f = await fixture();
+	f.env.EPICENTER_RUNTIME_DIR = join(f.root, 'runtime');
+	await f.app(
+		'restart',
+		`import { callSignal } from '@epicenter/app';
+export default defineApp({ description: 'Restart', collections: {}, actions: {
+ slow: defineAction({ description: 'Wait', input: {}, async *run() {
+  await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
+  yield 'started';
+  await new Promise((resolve) => { const timer = setTimeout(resolve, 60000); callSignal().addEventListener('abort', () => { clearTimeout(timer); resolve(undefined); }); });
+  return Ok(null);
+ } }),
+} });`,
+	);
+	let server: Awaited<ReturnType<typeof startServe>> | undefined;
+	try {
+		server = await startServe(f);
+		const client = connect<{
+			actions: {
+				slow: Action<Record<string, never>, Promise<Ok<null>>, string>;
+			};
+		}>({ app: 'restart', url: `${server.base}/` });
+		const run = runs.start(client.slow, {});
+		for await (const event of run.events()) if (event.type === 'yielded') break;
+		await server.kill();
+		server = await startServe(f);
+		const restored = connect<{
+			actions: {
+				slow: Action<Record<string, never>, Promise<Ok<null>>, string>;
+			};
+		}>({ app: 'restart', url: `${server.base}/` });
+		const frames = [];
+		for await (const event of runs.attach(restored.slow, run.id).events())
+			frames.push(event);
+		expect(frames.at(-1)?.type).toBe('interrupted');
+		const joined = await fetch(`${server.base}/.runs/restart/slow/${run.id}`, {
+			method: 'POST',
+			body: '{}',
+		});
+		expect(joined.status).toBe(200);
+		await joined.text();
+		expect(
+			await readFile(join(f.apps, 'restart', 'data', 'count.local'), 'utf8'),
+		).toBe('1');
+	} finally {
+		if (server) await server.stop();
+		await rm(f.root, { recursive: true, force: true });
+	}
+}, 20_000);
 
 test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'echo'), {
-			'.gitignore': gitignore,
-			'word.ts': "export const word = 'one';\n",
-			'epicenter.ts': `${header}import { word } from './word.ts';
+			'code/.gitignore': gitignore,
+			'code/word.ts': "export const word = 'one';\n",
+			'code/epicenter.ts': `${header}import { word } from './word.ts';
 export default defineApp({ description: 'Echo', collections: {}, actions: {
-	hello: defineAction({ description: 'Say the word', input: {}, run: () => word }),
+	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok(word) }),
 } });
 `,
 		}),
 	);
-	const client = connect<{ actions: { hello: () => string } }>({
+	const client = connect<{ actions: { hello: () => Ok<string> } }>({
 		app: 'echo',
 		url: `${f.base}/`,
 	});
 	expect(expectOk(await client.hello())).toBe('one');
-	await writeFile(join(f.made, 'word.ts'), "export const word = 'two';\n");
+	await writeFile(join(f.made, 'code/word.ts'), "export const word = 'two';\n");
 	expect(expectOk(await client.hello())).toBe('two');
 	await writeFile(
-		join(f.made, 'epicenter.ts'),
+		join(f.made, 'code/epicenter.ts'),
 		`${header}export default defineApp({ description: 'Echo', collections: {}, actions: {
-	hello: defineAction({ description: 'Say the word', input: {}, run: () => 'three' }),
+	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok('three') }),
 } });
 `,
 	);
@@ -745,4 +763,65 @@ test('mismatched Origin is forbidden, and / refuses an event stream and other me
 			})
 		).status,
 	).toBe(403);
+});
+
+test('cross-origin requests to run routes are refused before admission', async () => {
+	const f = await setup();
+	const response = await fetch(
+		`${f.base}/.runs/reading/log/unknown-run-identifier`,
+		{
+			method: 'POST',
+			headers: {
+				origin: 'https://another.example',
+				'content-type': 'application/json',
+			},
+			body: '{}',
+		},
+	);
+	expect(response.status).toBe(403);
+});
+
+test('a yielded check precedes a returned app refusal for UI and raw HTTP callers', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const client = connect<{
+		actions: {
+			refuse: Action<
+				Record<string, never>,
+				Promise<
+					Result<never, { name: 'NoRoute'; message: string; airport: string }>
+				>,
+				string
+			>;
+		};
+	}>({ app: 'talk', url: `${f.base}/` });
+	const heard: string[] = [];
+	expect(
+		expectErr(
+			await client.refuse(
+				{},
+				{
+					onYield: (word) => {
+						heard.push(word);
+					},
+				},
+			),
+		),
+	).toEqual({ name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' });
+	expect(heard).toEqual(['checked']);
+	const raw = await fetch(
+		`${f.base}/.runs/talk/refuse/${crypto.randomUUID()}`,
+		{ method: 'POST', body: '{}' },
+	);
+	expect(raw.status).toBe(200);
+	const frames = (await raw.text())
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line));
+	expect(frames.at(-1)).toMatchObject({
+		type: 'finished',
+		answer: {
+			data: null,
+			error: { kind: 'returned', reason: { name: 'NoRoute', airport: 'LAX' } },
+		},
+	});
 });

@@ -34,11 +34,13 @@ data model.
    [comparable-apps.md](comparable-apps.md) and name the pattern being borrowed
    or refused.
 3. Choose one primary direction. When uncertainty is visual rather than verbal,
-   use [prototype](../../prototype/SKILL.md) to create two or three throwaway
-   variants before choosing.
+   create two or three throwaway variants before choosing. Match the comparison
+   to the uncertainty: keep the same layout and content when comparing palettes;
+   keep the palette when comparing hierarchy. Change structure when the workflow
+   is the question.
 4. Translate the direction into concrete controls, states, density, layout, and
    copy.
-5. Return to the parent `ui-design` workflow for implementation and browser
+5. Return to the parent `ui-design` workflow for implementation and
    verification.
 
 ## Output Shape
@@ -57,7 +59,7 @@ Implementation:
   Files or surfaces that need to change.
 ```
 
-Keep Epicenter workspace-first. Prefer dense, quiet, operational UI for tools.
+Start with the task the person opened this screen to do. In Whispering that might be starting a recording. In Vocab it might be reviewing a word.
 Do not stop at mood words: every direction must map to layout, controls, states,
 and verification. Do not prototype when the existing surface already answers
 the question.

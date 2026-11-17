@@ -5,16 +5,47 @@
  * run, the app's collections and `folder` reach it, however deep the call,
  * and an action that calls another stays in the same run; outside any run
  * they throw. What an app can rebuild lives in files it gitignores inside the
- * folder, such as `ui/dist/`, and is never committed. A run writes only under
+ * folder, such as `code/ui/dist/`, and is never committed. A run writes only under
  * `data/`; reads may reach any app file.
  *
- * An action changes files and never commits: whatever runs it takes snapshots
- * of the folder into its history (ADR-0850). A change that depends on what it
+ * An action changes files and never commits. Root checkpoints record pending
+ * code and records together. A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
  * file. A run of a read-only action refuses every write through `folder`,
  * except to a `.local` path under `data/` (ADR-0870).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { Ok, type Result, unwrap } from 'wellcrafted/result';
+import type { Action } from './action.ts';
+import type { ActionError } from './errors.ts';
+
+/** A home-owned daily invocation of an action exposed by the current app. */
+export type Routine<TAction extends Action = Action> = {
+	daily: string;
+	action: TAction;
+	input: Parameters<NoInfer<TAction>>[0];
+	paused?: boolean;
+	timeout?: string;
+};
+
+/** Decide synchronously from the current text. Omit text to leave the path as it was. */
+type EditFile = <T, E extends object>(
+	path: string,
+	decide: (
+		before: string | undefined,
+	) => Result<{ value: T; text?: string }, E>,
+) => Promise<Result<T, E | Extract<ActionError, { name: 'Changed' }>>>;
+
+/** Adapt a folder provider's atomic edit to the raw text update contract. */
+export function textUpdate(edit: EditFile): Folder['update'] {
+	return async (path, change) =>
+		unwrap(
+			await edit<string, never>(path, (before) => {
+				const text = change(before);
+				return Ok({ value: text, text });
+			}),
+		);
+}
 
 /**
  * An app's folder as an object. Paths are relative to the folder, with `/`
@@ -24,6 +55,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * path with a `.git*` segment; reads may reach other app files.
  */
 export type Folder = {
+	edit: EditFile;
 	/** The text at `path`, or `undefined` when no file is there. */
 	read(path: string): Promise<string | undefined>;
 	readBytes(path: string): Promise<Uint8Array | undefined>;
@@ -39,7 +71,7 @@ export type Folder = {
 	 * that is what is there. Every update of the app takes turns. When a
 	 * writer that takes no lock changes the file between the read and the
 	 * write, `change` runs again on what is there now; after 10 tries it
-	 * throws `FileError.Changed`. A `change` that throws writes nothing.
+	 * throws `ActionError.Changed`. A `change` that throws writes nothing.
 	 *
 	 * ```ts
 	 * await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
@@ -61,6 +93,13 @@ export type Folder = {
 /** What whatever runs an action opens its run with. */
 export type Context = {
 	folder: Folder;
+	/** Supplied by a host that can save recurring work in the current Epicenter. */
+	routines?: {
+		set(
+			name: string,
+			routine: Routine,
+		): Promise<{ name: string; path: string }>;
+	};
 	/**
 	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
 	 * `folder.write`, `writeBytes`, `update`, and `delete` throw in it before
@@ -71,7 +110,10 @@ export type Context = {
 	 * promise.
 	 */
 	readOnly?: { action: string };
-	/** Aborted when the call's caller stops it: a page's Stop, or the page closed. */
+	/**
+	 * Aborted by explicit cancellation of a serve-owned run, never by loss of
+	 * observation. CLI and MCP calls cannot be cancelled.
+	 */
 	signal?: AbortSignal;
 };
 
@@ -81,11 +123,11 @@ const runs = new AsyncLocalStorage<Context>();
 const UNSTOPPABLE = new AbortController().signal;
 
 /**
- * The signal of the call this code runs in, aborted when its caller stops it.
- * A call is otherwise stopped only at its next yield (ADR-0879); pass this to
- * a slow wait, such as a model's `fetch`, so a stop ends the wait at once and
- * the action's `finally` runs then. It never aborts for a caller that cannot
- * stop a call, such as the command line or a connector.
+ * The action's signal aborts when its serve-owned run is explicitly cancelled,
+ * for example by `run.cancel()` on a page. Closing a page or stopping an
+ * observer does not abort it. Pass the signal to a slow wait so it can stop
+ * cooperatively and run its `finally` blocks. CLI and MCP calls cannot be
+ * cancelled and receive a signal that never aborts.
  */
 export function callSignal(): AbortSignal {
 	return currentRun().signal ?? UNSTOPPABLE;
@@ -108,6 +150,26 @@ function currentRun(): Context {
 		);
 	return context;
 }
+
+/** Save recurring work explicitly, inside an action such as an app's setup. */
+export const routines = {
+	/**
+	 * Create or update routines/<name>.md in the current home. The name is
+	 * home-wide; the host infers this app and resolves the action in its table.
+	 * Input must survive JSON. Private inputs and file inputs cannot be saved.
+	 * Keeps notes, attempt history, and unspecified paused/timeout settings.
+	 * A new unpaused routine catches up to the latest daily occurrence.
+	 */
+	async set<TAction extends Action>(name: string, routine: Routine<TAction>) {
+		const context = currentRun();
+		if (context.readOnly)
+			throw new Error(
+				`The action "${context.readOnly.action}" is read-only, so it cannot set a routine`,
+			);
+		if (!context.routines) throw new Error('This host cannot save routines');
+		return context.routines.set(name, routine);
+	},
+};
 
 /**
  * The folder of the run this code is in, to write or delete `path` in; throws
@@ -134,6 +196,8 @@ function writableFolder(verb: 'write' | 'delete', path: string): Folder {
 
 /** The folder of the run this code is in. */
 export const folder: Folder = {
+	edit: async (path, decide) =>
+		writableFolder('write', path).edit(path, decide),
 	read: (path) => currentRun().folder.read(path),
 	readBytes: (path) => currentRun().folder.readBytes(path),
 	write: async (path, text) => writableFolder('write', path).write(path, text),

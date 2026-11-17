@@ -25,10 +25,12 @@ import {
 import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-	FileError,
+	ActionError,
 	type Folder,
 	isLocalPath,
 	normalizePath,
+	Ok,
+	textUpdate,
 } from '@epicenter/app';
 
 /** How many times `update` tries a file that a writer outside epicenter (an editor) keeps changing before it gives up. */
@@ -85,7 +87,7 @@ export function folderOnDisk(dir: string): Folder {
 	 * Write `bytes` beside the file at `path`, where it can be renamed over
 	 * it, so a reader never sees half a file; a file it replaces keeps its
 	 * mode, and a new `.local` file is `0600` from before it has a name there.
-	 * The file beside it is named `*.local`, so a snapshot taken meanwhile
+	 * The file beside it is named `*.local`, so a checkpoint taken meanwhile
 	 * never commits it.
 	 */
 	function stage(path: string, bytes: Uint8Array) {
@@ -116,6 +118,31 @@ export function folderOnDisk(dir: string): Folder {
 			throw error;
 		}
 	}
+	// An outside writer may change the file between deciding and staging. Retry
+	// synchronously so other updates in this process cannot interleave.
+	const edit: Folder['edit'] = async (path, decide) => {
+		const target = pathOf(path);
+		for (let attempt = 0; attempt < UPDATE_TRIES; attempt++) {
+			const before = readNow(target);
+			const result = decide(decode(before));
+			if (result.data === null) return result;
+			const { text, value } = result.data;
+			if (text === undefined) return Ok(value);
+			const bytes = new TextEncoder().encode(text);
+			// Decoding drops a byte order mark, so compare the original bytes.
+			if (sameBytes(before, bytes)) return Ok(value);
+			const { temp } = stage(path, bytes);
+			try {
+				if (sameBytes(readNow(target), before)) {
+					renameSync(temp, target);
+					return Ok(value);
+				}
+			} finally {
+				rmSync(temp, { force: true });
+			}
+		}
+		return ActionError.Changed({ path: normalizePath(path), why: 'kept' });
+	};
 	return {
 		path: dir,
 		readBytes,
@@ -126,32 +153,8 @@ export function folderOnDisk(dir: string): Folder {
 		async write(path, text) {
 			put(path, new TextEncoder().encode(text));
 		},
-		/**
-		 * Read the file, change it, and replace it only if it is still what was
-		 * read, since a writer outside epicenter (an editor) may have changed it
-		 * meanwhile; then read and change it again. Nothing here yields, so no
-		 * other update in this process runs between the read and the replace.
-		 * A change that changes nothing writes nothing.
-		 */
-		async update(path, change) {
-			const target = pathOf(path);
-			for (let tries = 1; ; tries++) {
-				const before = readNow(target);
-				const changed = change(decode(before));
-				const bytes = new TextEncoder().encode(changed);
-				// Compared as bytes: decoding drops a byte order mark the file still has.
-				if (sameBytes(before, bytes)) return changed;
-				const { temp } = stage(path, bytes);
-				if (sameBytes(readNow(target), before)) {
-					renameSync(temp, target);
-					return changed;
-				}
-				rmSync(temp, { force: true });
-				if (tries === UPDATE_TRIES)
-					throw FileError.Changed({ path: normalizePath(path), why: 'kept' })
-						.error;
-			}
-		},
+		edit,
+		update: textUpdate(edit),
 		async delete(path) {
 			try {
 				await unlink(pathOf(path));

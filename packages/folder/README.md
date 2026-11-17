@@ -46,8 +46,8 @@ is not built; today an app opens a place.
 | `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node); `checkFiles` and `formatNotes`, which check a directory's notes against a contract and rewrite them in its canonical form. |
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
 | `@epicenter/folder/sync` | `sync({ local, remote, manifest })` (ADR-0803, ADR-0804): a store synced with a folder's ledger on the server through a manifest, `{ cursor, files }`, the point of the ledger both sides last agreed at and each file's version (ADR-0824), kept wherever `storeManifest(store, path)` says (on a computer, the folder's record), merging notes with `@epicenter/definition/front-matter`. A sync that would delete 20 or more files on the server, or 5 or more that are half the folder, stops before it writes anything (`outcome: 'deletions'`) until `deletions: 'push'` or `'restore'` answers it. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `folderRepository(account, folder)` is the folder's ledger as a sync sees it (`Repository`, the code's word) and the store a web app opens; `makeFolder(account, { app?, importing? })` makes a folder on the server and never joins one; `joinApp(account, app)` joins the one folder attached to an app (ADR-0822). |
-| `@epicenter/folder/platform` | The `FolderRecord` type: the record Epicenter keeps of a folder it syncs, which `syncedRecord()` answers. |
-| `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager; `syncedRecord()`, the record Epicenter keeps of the app's data folder (read by the shell, never written), for a desktop app to say whether Epicenter syncs it. A desktop app never syncs (ADR-0822). What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
+| `@epicenter/folder/platform` | The `FolderRecord` type: the record Epicenter keeps of a folder it syncs. |
+| `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager. A desktop app never syncs (ADR-0822). What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
 
 Importing an entry does not open anything. A place is opaque: only this
 package makes one, and nothing outside it holds a store or the collections
@@ -336,7 +336,7 @@ ADR-0825).
 | `src/identity.ts` | A directory's identity: its inode and birth time, and when one proves another. |
 | `src/hash.ts` | A file's version, the SHA-256 of its bytes: `versionOf`, and the size above which a listing names a file by its stamp. |
 | `src/remote/` | A folder on the server: the `Repository` sync takes, and the store a web folder opens. |
-| `src/platform/` | The records at the Epicenter folder's root (`records.ts`), which the data folder's hash cache and `syncedRecord` read. |
+| `src/platform/` | The records at the Epicenter folder's root (`records.ts`), which the data folder's hash cache reads. |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
 | `src/sync/` | `sync`, its `Repository` contract (a folder's ledger as a sync sees it) and memory twin, the manifest, the deletion guard, and the scenarios every world runs. |
 

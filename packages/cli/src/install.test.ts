@@ -1,5 +1,5 @@
 /**
- * App installation runs from the app's top, respects the frozen lock, and
+ * App installation runs from code/, respects the frozen lock, and
  * supplies the command's @epicenter/app link even without a lockfile.
  * Fixtures use local workspaces so no registry or person's home is touched.
  */
@@ -21,24 +21,24 @@ async function setup() {
 	roots.push(f.root);
 	f.env.BUN_INSTALL = join(f.root, 'bun');
 	const app = await f.folder(join(f.apps, 'notes'), {
-		'.gitignore': 'data/\nnode_modules/\n',
-		'epicenter.ts': bareApp('notes'),
-		'package.json': JSON.stringify({
+		'code/.gitignore': 'data/\nnode_modules/\n',
+		'code/epicenter.ts': bareApp('notes'),
+		'code/package.json': JSON.stringify({
 			name: 'notes',
 			version: '1.0.0',
 			workspaces: ['local'],
 		}),
-		'local/package.json': JSON.stringify({
+		'code/local/package.json': JSON.stringify({
 			name: 'offline-local',
 			version: '1.0.0',
 		}),
-		'extra/package.json': JSON.stringify({
+		'code/extra/package.json': JSON.stringify({
 			name: 'offline-extra',
 			version: '1.0.0',
 		}),
 	});
 	const child = Bun.spawn([process.execPath, 'install'], {
-		cwd: app,
+		cwd: join(app, 'code'),
 		env: f.env,
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -49,11 +49,11 @@ async function setup() {
 		new Response(child.stdout).text(),
 	]);
 	expect({ code, stderr }).toMatchObject({ code: 0 });
-	expect(await Bun.file(join(app, 'bun.lock')).exists()).toBe(true);
-	return { ...f, dir: app };
+	expect(await Bun.file(join(app, 'code/bun.lock')).exists()).toBe(true);
+	return { ...f, dir: join(app, 'code') };
 }
 
-test('install uses bun.lock at the app top and links the supplied package', async () => {
+test('install uses bun.lock in code/ and links the supplied package', async () => {
 	const f = await setup();
 	const result = await f.run('install', 'notes', '--json');
 	expect(result.code).toBe(0);
@@ -78,9 +78,9 @@ test('install without bun.lock only links the supplied package', async () => {
 	const result = await f.run('install', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({
-		apps: [{ app: 'notes', folder: app, installed: false }],
+		apps: [{ app: 'notes', folder: join(app, 'code'), installed: false }],
 	});
-	expect(await realpath(join(app, 'node_modules/@epicenter/app'))).toBe(
+	expect(await realpath(join(app, 'code/node_modules/@epicenter/app'))).toBe(
 		await realpath(join(import.meta.dir, '../../app')),
 	);
 	expect((await f.run('install', 'notes')).stdout).toBe(
@@ -88,18 +88,18 @@ test('install without bun.lock only links the supplied package', async () => {
 	);
 });
 
-test('install without bun.lock installs a top-level package.json', async () => {
+test('install without bun.lock installs code/package.json', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	const app = await f.folder(join(f.apps, 'notes'), {
-		'.gitignore': 'data/\nnode_modules/\n',
-		'epicenter.ts': bareApp('notes'),
-		'package.json': JSON.stringify({
+		'code/.gitignore': 'data/\nnode_modules/\n',
+		'code/epicenter.ts': bareApp('notes'),
+		'code/package.json': JSON.stringify({
 			name: 'notes',
 			version: '1.0.0',
 			workspaces: ['local'],
 		}),
-		'local/package.json': JSON.stringify({
+		'code/local/package.json': JSON.stringify({
 			name: 'offline-local',
 			version: '1.0.0',
 		}),
@@ -107,8 +107,8 @@ test('install without bun.lock installs a top-level package.json', async () => {
 	const result = await f.run('install', 'notes', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout).apps[0].installed).toBe(true);
-	expect(await Bun.file(join(app, 'bun.lock')).exists()).toBe(true);
-	expect(await realpath(join(app, 'node_modules/@epicenter/app'))).toBe(
+	expect(await Bun.file(join(app, 'code/bun.lock')).exists()).toBe(true);
+	expect(await realpath(join(app, 'code/node_modules/@epicenter/app'))).toBe(
 		await realpath(join(import.meta.dir, '../../app')),
 	);
 });
@@ -142,7 +142,7 @@ test('a frozen mismatch fails with a repair command and does not stop the other 
 	});
 	expect(apps.find((app: { app: string }) => app.app === 'other')).toEqual({
 		app: 'other',
-		folder: other,
+		folder: join(other, 'code'),
 		installed: false,
 	});
 	const text = await f.run('install', 'notes');
@@ -153,7 +153,7 @@ test('a frozen mismatch fails with a repair command and does not stop the other 
 	);
 });
 
-test('new --from keeps the copied app when its frozen install fails', async () => {
+test('new keeps a cloned app when its frozen install fails', async () => {
 	const f = await setup();
 	await writeFile(
 		join(f.dir, 'package.json'),
@@ -163,7 +163,17 @@ test('new --from keeps the copied app when its frozen install fails', async () =
 			dependencies: { 'offline-extra': 'file:./extra' },
 		}),
 	);
-	await gitIn(f.dir, 'add', 'package.json', 'bun.lock');
+	await gitIn(f.dir, 'init', '-q');
+	await gitIn(
+		f.dir,
+		'add',
+		'package.json',
+		'bun.lock',
+		'epicenter.ts',
+		'.gitignore',
+		'local',
+		'extra',
+	);
 	await gitIn(f.dir, 'commit', '-qm', 'mismatched lock');
 	const made = await f.run('new', 'copy', '--from', f.dir, '--json');
 	expect(made.code).toBe(1);
@@ -173,11 +183,8 @@ test('new --from keeps the copied app when its frozen install fails', async () =
 		folder: copy,
 		error: {
 			message: expect.stringContaining('frozen'),
-			next: `cd ${copy} && bun install && epicenter install copy`,
+			next: `cd ${copy}/code && bun install && epicenter install copy`,
 		},
 	});
-	expect(await Bun.file(join(copy, 'epicenter.ts')).exists()).toBe(true);
-	expect(await gitIn(join(copy, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'copy: start its data',
-	);
+	expect(await Bun.file(join(copy, 'code/epicenter.ts')).exists()).toBe(true);
 });

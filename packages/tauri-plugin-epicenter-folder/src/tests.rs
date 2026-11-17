@@ -437,41 +437,6 @@ fn an_open_roots_identity_is_its_folders() {
     }
 }
 
-/// A standalone app reads the record Epicenter keeps for its Data root, the
-/// one whose inode and birth time prove the folder's, and writes nothing.
-#[test]
-fn the_data_root_reads_the_record_that_proves_it() {
-    let fixture = fixture("record");
-    let main = fixture.window("main");
-    open(&main).unwrap();
-    let epicenter = fixture.root.with_file_name("Epicenter");
-    assert_eq!(
-        invoke(&main, "data_record", json!({})).unwrap_err(),
-        json!({ "name": "NotNamed", "root": "Epicenter" })
-    );
-    fixture.app.roots().name_library(epicenter.clone());
-    assert_eq!(invoke(&main, "data_record", json!({})).unwrap(), json!(null));
-    let identity = crate::identity_at(&fixture.root).unwrap().unwrap();
-    let records = epicenter.join(".epicenter/synced");
-    std::fs::create_dir_all(&records).unwrap();
-    let record = json!({
-        "folder": "f_1",
-        "name": "notes",
-        "inode": identity.inode,
-        "birthtime": identity.birthtime,
-        "cursor": "abc.1",
-        "files": { "a.md": version(b"a") },
-    });
-    std::fs::write(records.join("f_1.json"), record.to_string()).unwrap();
-    let found = invoke(&main, "data_record", json!({})).unwrap();
-    if identity.birthtime.is_some() {
-        assert_eq!(found, record);
-    } else {
-        assert_eq!(found, json!(null), "an inode alone proves nothing");
-    }
-    assert_eq!(std::fs::read_dir(&records).unwrap().count(), 1);
-}
-
 /// A note the folder made, never edited, then deleted by another program is
 /// reported gone. macOS's FSEvents never reports removing a file that ever
 /// had a second name, so a create by hard link would leave it listed.
