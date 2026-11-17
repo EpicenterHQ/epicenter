@@ -593,9 +593,17 @@ When absent, the root `.gitignore` excludes local files, node_modules,
 When git-lfs is available, init installs its local filter and writes missing root attributes for common binary extensions.
 These configuration files belong to the person after init.
 
-To bring a home back on another computer, clone its private origin with
-`git clone`, run `epicenter install <app>` for each app that has packages, and
-recreate what each app kept in `local/`, which no clone carries.
+To bring a home back on another computer:
+
+```bash
+git clone <private-origin> ~/Epicenter
+cd ~/Epicenter && epicenter install
+```
+
+The clone carries every app's code and records. `epicenter install` fetches
+what Git ignores and a lock file can rebuild: each app's `node_modules`. What
+each app kept in `local/` is on no remote, so recreate it, for example by
+signing in again.
 
 ## Add or copy an app
 
