@@ -51,7 +51,7 @@ Load these on demand based on what you're working on:
 
 - For **worked examples** of misleading coverage, redundant checks, and useful test seams, read [references/choosing-useful-tests.md](references/choosing-useful-tests.md)
 - If working with **type tests** (`expectTypeOf`, `@ts-expect-error`, compiler checks, intentional runtime-invalid input), read [references/type-testing.md](references/type-testing.md)
-- If working with **test setup architecture** (`setup()` patterns, composable setup, cleanup hooks, shared schemas), read [references/setup-pattern.md](references/setup-pattern.md)
+- If working with **test setup architecture** (single-use definitions, `setup()` patterns, composable setup, cleanup hooks, shared schemas), read [references/setup-pattern.md](references/setup-pattern.md)
 - If working with **test organization structure** (flat tests, `describe()` boundaries, helper-over-nesting), read [references/test-structure.md](references/test-structure.md)
 - If **auditing existing tests** for hedged assertions, pass-through getters, stalled fakes, dead fake surface, or docstrings that contradict the code, read [references/honest-tests.md](references/honest-tests.md)
 - If **choosing new coverage or pruning existing tests** that may not earn their keep, read [references/test-deletion-grill.md](references/test-deletion-grill.md)
@@ -64,7 +64,7 @@ External reading:
 - Matt Pocock, ["How to test your types"](https://www.totaltypescript.com/how-to-test-your-types) : compiler-checked API contracts, equality assertions, and negative cases; use Bun’s `expectTypeOf` import here
 - Matt Pocock, [`shoehorn`](https://github.com/total-typescript/shoehorn) : partial fixtures for legacy or third-party interfaces; incomplete fixtures do not prove a complete input contract
 
-> **Related Skills**: See `services-layer` for the service patterns being tested. See `typescript` for type testing conventions.
+> **Related Skills**: See [services-layer](../services-layer/SKILL.md) for the service patterns being tested. See [typescript](../typescript/SKILL.md) for API design, inference, and editor behavior.
 
 ## Result Assertions
 
