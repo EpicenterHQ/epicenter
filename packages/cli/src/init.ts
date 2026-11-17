@@ -7,7 +7,7 @@ import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git, isRepositoryTop } from './git.ts';
-import { installHome } from './install.ts';
+import { installHome, installNext } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	APPS,
@@ -83,10 +83,9 @@ code and records. Each folder in apps/ is an app:
 
 This folder is one Bun workspace. Its package.json names the version of
 Epicenter it runs, as the dependencies @epicenter/cli and @epicenter/app, and
-takes each apps/<app>/code as a package. Run \`bun install\` here, at the top;
-\`epicenter install\` does the same from anywhere inside. It writes one
-bun.lock, which is committed, and one node_modules/, which is not. After
-\`git clone\`, \`bun install\` is all a restore needs. The version of Epicenter
+takes each apps/<app>/code as a package. Run \`bun install\` here, at the top.
+It writes one bun.lock, which is committed, and one node_modules/, which is
+not. After \`git clone\`, \`bun install\` is all a restore needs. The version of Epicenter
 is the one in package.json: upgrade with
 \`bun update --latest @epicenter/cli @epicenter/app\`, both together. Restart
 serve after changing packages, by stopping it and starting it again: serve keeps the
@@ -266,7 +265,7 @@ export async function initCommand(
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
 		if (given.values['no-install'])
-			writeErr(`Run: cd ${folder} && bun install`);
+			writeErr(`Run: ${installNext(folder)}`);
 		const apps = join(folder, APPS);
 		const hasApps = (
 			await readdir(apps, { withFileTypes: true }).catch(() => [])

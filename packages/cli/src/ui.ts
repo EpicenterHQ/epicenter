@@ -23,7 +23,7 @@
  *
  * Either writes relative URLs, so a build is never told where it is served.
  * Neither installs: an app whose `package.json` names packages is not built
- * while the home has no `node_modules/`, until `epicenter install` installs
+ * while the home has no `node_modules/`, until `bun install` installs
  * them. A UI imports `@epicenter/app/client` from the home's one install, the
  * copy `serve` runs, so a UI's client always matches the `serve` that answers
  * it. Both run with the Bun that runs `epicenter`. The finished build
@@ -44,6 +44,7 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { VERSION } from './engines.ts';
 import { LIBRARY } from './library.ts';
 import { writeErr } from './output.ts';
+import { installNext } from './install.ts';
 import { epicenterDir } from './root.ts';
 
 /** Where an app's built UI lives, relative to its folder. */
@@ -102,7 +103,7 @@ async function missingPackages(app: string, folder: string) {
 	};
 	if (Object.keys(names).length === 0) return undefined;
 	if (await exists(join(epicenterDir(), 'node_modules'))) return undefined;
-	return `the UI needs ${app}'s packages, which are not installed\nRun: epicenter install`;
+	return `the UI needs ${app}'s packages, which are not installed\nRun: ${installNext(epicenterDir())}`;
 }
 
 /** Every file under `dir` the fingerprint covers, as `path size mtime` lines. */
@@ -255,7 +256,7 @@ export async function buildUi(app: string, folder: string): Promise<boolean> {
  * an edit made meanwhile is never missed. Sources whose build failed are not tried again
  * until they change; the failure is written to stderr once, and
  * `epicenter build` shows it again. An app whose packages are not installed
- * is skipped, not failed, so `epicenter install` is all it takes.
+ * is skipped, not failed, so `bun install` is all it takes.
  */
 export function createUiRefresher() {
 	const running = new Map<string, Promise<void>>();

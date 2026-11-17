@@ -1,13 +1,15 @@
 /**
- * `epicenter install` and the workspace a home is.
+ * The workspace a home is, and the install `new` runs.
  *
  * A home is one Bun workspace, so one `bun install` at its top serves every
- * app. Fixture packages name nothing to fetch, so no registry is asked.
+ * app. Epicenter has no install command: a person runs `bun install`. Fixture
+ * packages name nothing to fetch, so no registry is asked.
  *
  * Key behaviors:
- * - Install runs at the top of the home from anywhere inside it, and writes
- *   the home's one lock, naming each app's package.
- * - A failed install is reported with the command that tries it again.
+ * - `bun install` run inside an app installs at the top of the home, and
+ *   writes the home's one lock, naming each app's package.
+ * - A failed install in `new` is reported with the command that tries it
+ *   again.
  * - A package the owner added to `workspaces`, nested inside an app, is
  *   installed with the rest and is not taken for an app.
  * - An app that would load a second copy of `@epicenter/app` is a problem
@@ -36,27 +38,26 @@ async function setup() {
 	return { ...f, notes };
 }
 
-test('install runs bun install at the top of the home from inside an app, and takes no app name', async () => {
-	const f = await setup();
-	const result = await f.runIn(join(f.notes, 'code'), 'install', '--json');
-	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout)).toEqual({
-		folder: f.home,
-		installed: true,
+/** A person's `bun install`, run in `cwd` with the Bun that runs the tests. */
+async function bunInstall(cwd: string) {
+	const child = Bun.spawn([process.execPath, 'install'], {
+		cwd,
+		stdout: 'ignore',
+		stderr: 'ignore',
 	});
+	return child.exited;
+}
+
+test('bun install inside an app installs at the top of the home, in one lock', async () => {
+	const f = await setup();
+	expect(await bunInstall(join(f.notes, 'code'))).toBe(0);
 	expect(await readFile(join(f.home, 'bun.lock'), 'utf8')).toContain(
 		'"apps/notes/code"',
 	);
 	expect(existsSync(join(f.notes, 'code/bun.lock'))).toBe(false);
-	expect((await f.run('install')).stdout).toBe(
-		`Installed the packages of ${f.home}\n`,
-	);
-	const named = await f.run('install', 'notes');
-	expect(named.code).toBe(2);
-	expect(named.stderr).toContain('Usage: epicenter install\n');
 });
 
-test('a failed install is reported with the command that tries it again', async () => {
+test('a failed install in new is reported with the command that tries it again', async () => {
 	const f = await setup();
 	// Two packages of one name: Bun refuses the workspace.
 	await f.folder(join(f.apps, 'other'), {
@@ -64,18 +65,17 @@ test('a failed install is reported with the command that tries it again', async 
 		'code/package.json': '{ "name": "notes" }\n',
 	});
 	const next = `cd ${f.home} && bun install`;
-	const failed = await f.run('install', '--json');
+	const failed = await f.run('new', 'garden', '--json');
 	expect(failed.code).toBe(1);
-	expect(JSON.parse(failed.stdout)).toEqual({
-		folder: f.home,
-		installed: false,
+	expect(JSON.parse(failed.stdout)).toMatchObject({
+		name: 'garden',
 		error: { message: expect.stringContaining('notes'), next },
 	});
-	expect((await f.run('install')).stderr).toEndWith(`Run: ${next}\n`);
+	expect((await f.run('new', 'meadow')).stderr).toEndWith(`Run: ${next}\n`);
 
 	// A home from before it was a workspace is told what it needs.
 	await rm(join(f.home, 'package.json'));
-	const missing = await f.run('install');
+	const missing = await f.run('new', 'orchard');
 	expect(missing.code).toBe(1);
 	expect(missing.stderr).toContain(
 		`${f.home} has no package.json. A home is a Bun workspace`,
@@ -92,7 +92,7 @@ test('a package nested inside an app, added to workspaces by hand, installs with
 		'package.json': '{ "name": "notes-render", "private": true }\n',
 		'index.ts': 'export const frames = 24;\n',
 	});
-	expect((await f.run('install')).code).toBe(0);
+	expect(await bunInstall(f.home)).toBe(0);
 	const lock = await readFile(join(f.home, 'bun.lock'), 'utf8');
 	expect(lock).toContain('"apps/notes/code"');
 	expect(lock).toContain('"apps/notes/code/render"');
@@ -144,6 +144,6 @@ test('an app that would load a second copy of @epicenter/app is a problem naming
 		`apps/notes finds no @epicenter/app; ${next}`,
 	]);
 	expect((await f.run()).stdout).toContain(
-		'Version: not installed. Run: epicenter install\n',
+		`Version: not installed. Run: cd ${f.home} && bun install\n`,
 	);
 });

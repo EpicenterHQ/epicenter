@@ -16,6 +16,7 @@ import {
 	usageLine,
 } from './input.ts';
 import { type RepositoryStatus, repositoryLine } from './repository.ts';
+import { installNext } from './install.ts';
 
 /**
  * An action as an MCP tool definition: its name, input schema, and the hints
@@ -129,7 +130,7 @@ export function homeListing(
 	lines.unshift(
 		`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`,
 		version === null
-			? 'Version: not installed. Run: epicenter install'
+			? `Version: not installed. Run: ${installNext(found.epicenter)}`
 			: `Version: ${version}`,
 	);
 	if (found.problems.length) {
