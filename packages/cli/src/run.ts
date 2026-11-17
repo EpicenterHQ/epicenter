@@ -87,18 +87,13 @@ export async function runAction(
 
 /** Who follows a call as it runs. */
 export type Following = {
-	/**
-	 * The call came over MCP, whose input sits in an agent's transcript: a
-	 * call with private input is refused before it runs.
-	 */
-	overMcp?: boolean;
 	/** Each update the action sends, in order. The action never waits for it. */
 	onUpdate?: (value: unknown) => unknown;
 };
 
 /** A call that is ready to run, or the refusal that answers it instead. */
 export type Resolved =
-	| { refusal: ReturnType<typeof refused>; found: boolean }
+	| { refusal: ReturnType<typeof refused> }
 	| {
 			refusal?: undefined;
 			located: Runnable;
@@ -108,42 +103,30 @@ export type Resolved =
 
 /**
  * Load the current code, find the action, and check its input, running
- * nothing. `found` is false when the app or the action is not there.
+ * nothing.
  */
 export async function resolveAction(
 	name: string,
 	key: string,
 	raw: unknown,
-	{ overMcp }: Pick<Following, 'overMcp'> = {},
 ): Promise<Resolved> {
-	const usage = (message: string, next?: string, found = true) => ({
+	const usage = (message: string, next?: string) => ({
 		refusal: refused(CliError.Usage({ message, next }).error),
-		found,
 	});
 	try {
 		const { data: located, error: notFound } = await loadHomeApp(name);
-		if (notFound) return { refusal: refused(notFound), found: false };
+		if (notFound) return { refusal: refused(notFound) };
 		if (!located.ok)
 			return {
 				refusal: refused(
 					CliError.AppProblems({ app: name, problems: located.problems }).error,
 				),
-				found: true,
 			};
 		const action = Object.hasOwn(located.actions, key)
 			? located.actions[key]
 			: undefined;
 		if (!action)
-			return usage(
-				`${name} has no action "${key}"`,
-				`epicenter ${name}`,
-				false,
-			);
-		if (overMcp && action.privateInput === true)
-			return usage(
-				`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page, or pipe JSON to epicenter ${name} ${key} -`,
-				`epicenter ${name} ${key}`,
-			);
+			return usage(`${name} has no action "${key}"`, `epicenter ${name}`);
 		if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 			return usage('The input is not a JSON object');
 		const checked = checkInput(action, raw);
@@ -153,7 +136,6 @@ export async function resolveAction(
 	} catch (cause) {
 		return {
 			refusal: refused(CliError.Internal({ cause }).error),
-			found: true,
 		};
 	}
 }
@@ -165,7 +147,7 @@ export async function callAction(
 	raw: unknown,
 	following: Following = {},
 ): Promise<Answer> {
-	const call = await resolveAction(name, key, raw, following);
+	const call = await resolveAction(name, key, raw);
 	if (call.refusal) return call.refusal;
 	return runAction(call.located, key, call.action, call.input, following);
 }

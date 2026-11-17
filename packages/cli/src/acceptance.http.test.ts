@@ -11,7 +11,6 @@ import type { Action } from '@epicenter/app';
 import { connect } from '@epicenter/app/client';
 import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { hold } from './lock.ts';
 import {
 	fixture,
 	gitignore,
@@ -393,8 +392,8 @@ test('a call refused before it runs answers its refusal alone, as the body of an
 	const post = (path: string, body: string) =>
 		fetch(`${f.base}/${path}`, { method: 'POST', body });
 	for (const [path, body, status, message] of [
-		['talk/sing', '{}', 404, 'talk has no action "sing"'],
-		['absent/say', '{}', 404, undefined],
+		['talk/sing', '{}', 400, 'talk has no action "sing"'],
+		['absent/say', '{}', 400, undefined],
 		['talk/say', '{"words":1}', 400, 'words must be text'],
 		['talk/say', '[]', 400, 'The input is not a JSON object'],
 		['talk/say', 'words', 400, 'The input is not valid JSON'],
@@ -437,14 +436,6 @@ test('a caller that leaves stops reading; the action runs to its end and release
 	const deadline = Date.now() + 10_000;
 	while (!(await stopped()) && Date.now() < deadline) await Bun.sleep(50);
 	expect(await stopped()).toBe(true);
-
-	// The finally write can become visible just before the call releases its lock.
-	const held = await hold(join(f.apps, 'talk'), 1000);
-	try {
-		expect(held).toBeDefined();
-	} finally {
-		held?.release();
-	}
 });
 
 test('a listener that fails does not stop the action or the call', async () => {
@@ -478,7 +469,7 @@ test('a listener that fails does not stop the action or the call', async () => {
 	}
 });
 
-test('unserializable action throws still answer Threw, preserve writes, and release the app lock', async () => {
+test('unserializable action throws still answer Threw, and preserve writes', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'failure',
@@ -533,12 +524,6 @@ export default defineApp({ description: 'Failure', collections: {}, actions: {
 		expect(
 			await readFile(join(f.apps, 'failure', 'data', `${kind}.md`), 'utf8'),
 		).toBe(kind);
-		const held = await hold(join(f.apps, 'failure'), 0);
-		try {
-			expect(held).toBeDefined();
-		} finally {
-			held?.release();
-		}
 	}
 });
 
@@ -559,7 +544,6 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 				Threw: ActionError.Threw({ message: custom.message, thrown: custom }).error,
 				Refused: ActionError.Refused({ message: 'Dependency declined', next: 'Inspect dependency' }).error,
 				Unreachable: ActionError.Unreachable({ message: 'The model did not answer' }).error,
-				Stopped: ActionError.Stopped({ message: 'The dependency stopped' }).error,
 				Custom: custom,
 			};
 			if(how==='return') return Err(cases[kind]);
@@ -587,7 +571,6 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 			'Threw',
 			'Refused',
 			'Unreachable',
-			'Stopped',
 			'Custom',
 		]) {
 			const error = expectErr(await client.fail({ kind, how }));

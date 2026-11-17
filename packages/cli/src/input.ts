@@ -4,9 +4,7 @@
  * lists the app's actions. After the action's words comes at most one more
  * word, the input: one JSON object as text, or `-` to read that text from
  * stdin. A page, an agent, and the command line give the same object, and
- * `checkInput` checks it for all three. An action that declares
- * `privateInput: true` takes only `-`, before any argument can be echoed in a
- * refusal (ADR-0907).
+ * `checkInput` checks it for all three.
  */
 import { type Action, type Input, isName, whatFits } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
@@ -40,8 +38,7 @@ export function requiredKeys(input: Input): Set<string> {
  * and the command line share. Nothing is filled: an action made by
  * `defineAction` fills its absent switches and lists itself, and a
  * collection's verb writes only what it was given. A key the action does not
- * take is refused, naming the keys it does. An action with private input gets
- * a fixed refusal for its whole input, so no key or value is echoed.
+ * take is refused, naming the keys it does.
  */
 export function checkInput(
 	action: Action,
@@ -51,8 +48,6 @@ export function checkInput(
 	const value = structuredClone(raw);
 	if (Value.Check(schema, value))
 		return { ok: true, input: value as Record<string, unknown> };
-	if (action.privateInput === true)
-		return { error: 'The input is not accepted' };
 	const given =
 		typeof value === 'object' && value !== null && !Array.isArray(value)
 			? (value as Record<string, unknown>)
@@ -86,7 +81,7 @@ export function checkInput(
 }
 
 /**
- * The command an action is called with: `-` for private input, `<input>`, or
+ * The command an action is called with: `<input>`, or
  * `[<input>]` when no key is required, and nothing for an action with no input.
  */
 export function usageLine(
@@ -95,7 +90,6 @@ export function usageLine(
 	action: Action,
 ): string {
 	const command = `epicenter ${appName} ${key}`;
-	if (action.privateInput === true) return `${command} -`;
 	if (!Object.keys(action.input).length) return command;
 	return requiredKeys(action.input).size
 		? `${command} <input>`
@@ -176,8 +170,6 @@ export function exampleCommand(
 	action: Action,
 ): string {
 	const command = `epicenter ${appName} ${key}`;
-	if (action.privateInput === true)
-		return `${command} - <<'EOF'\n${exampleInput(action)}\nEOF`;
 	return `${command} ${quoted(exampleInput(action))}`;
 }
 
@@ -199,16 +191,10 @@ export function jsonSchema(fields: Input): {
 /**
  * Read an action's input from the words after its name: none is `{}`, `-`
  * reads the JSON text from stdin, and any other word is the JSON text itself.
- * Stdin is read only for `-`. An action with private input takes only `-`,
- * refused before any other word is inspected.
+ * Stdin is read only for `-`.
  */
 export async function readInput(action: Action, rest: string[]) {
 	const example = quoted(exampleInput(action));
-	if (action.privateInput === true && !(rest.length === 1 && rest[0] === '-'))
-		return {
-			error:
-				'This action takes private input: give - and pipe the JSON object to it, or use the app page',
-		};
 	if (rest.length > 1)
 		return {
 			error: `The input is one argument, a JSON object such as ${example}; quote it whole`,

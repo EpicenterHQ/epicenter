@@ -9,7 +9,6 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { hold } from './lock.js';
 import {
 	connectMcp,
 	fixture,
@@ -294,7 +293,7 @@ export default defineApp({ description: 'Where', collections: {}, actions: {
 	expect(await pidOf()).not.toBe(alone);
 });
 
-test('C12 runs leave no temporary file and no lock file, and hold no lock once they answer', async () => {
+test('C12 runs leave no temporary file and no lock file', async () => {
 	const f = await setup();
 	const temp = join(f.root, 'tmp');
 	await mkdir(temp);
@@ -321,10 +320,6 @@ test('C12 runs leave no temporary file and no lock file, and hold no lock once t
 			name.endsWith('.tmp.local'),
 		),
 	).toEqual([]);
-	// The app's lock is the folder's own, and no one holds it.
-	const held = await hold(f.dir, 0);
-	expect(held).toBeDefined();
-	held?.release();
 });
 
 test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or an MCP answer', async () => {

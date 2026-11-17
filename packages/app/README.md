@@ -349,21 +349,15 @@ and `defineAction` refuse a schema with one at any depth, so the default is
 written in code where the value is read. `field.boolean` and `field.list`
 mark their schema `"x-epicenter-field": "switch"` or `"list"`, which names
 their kind rather than a value; a read and an action's call give an absent
-one as `false` or `[]`, except a list with `minItems`, which is required. Fields describe data;
-`defineAction({ privateInput: true, ... })` declares private handling for the
-whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
-unchanged and have no effect on this policy. Schemas must serialize as
+one as `false` or `[]`, except a list with `minItems`, which is required.
+Raw JSON Schema annotations pass through unchanged. Schemas must serialize as
 finite JSON; recursive schemas use references rather than cyclic JavaScript
 objects. No field name is reserved: the command line reads the input as one
 JSON object, so `json`, `help`, and `input` are keys like any other.
 
-An action with `privateInput: true` accepts HTTP or exactly `-` at the CLI.
-Its whole input is one JSON object from stdin: an argument and a terminal
-prompt are unavailable. MCP neither lists nor runs it.
-Validation refuses its whole input without echoing values or undeclared
-property names. Actions make no commits.
-The flag governs input handling. It does not authenticate HTTP callers or
-redact action results. The app owns what it returns, throws, reports, and writes.
+A secret an action needs, such as a token, is kept in a `.local` file under
+`data/`, which never enters Git; the action reads it there, so the secret
+is not part of any call's input.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer
@@ -380,8 +374,7 @@ On the command line an action's whole input is one argument, the JSON object,
 or `-` to read it from stdin (ADR-0925):
 `epicenter reading between '{"from":"2026-11-01","to":"2026-11-08"}'`.
 HTTP, MCP, and the command line check it alike, and a key the action does not
-take is refused. `defineAction` throws on a definition that still has
-`positional`.
+take is refused.
 
 An action's `annotations` are MCP's tool annotations, verbatim:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, with
@@ -436,8 +429,7 @@ or data/. What the app can rebuild lives in files it
 gitignores inside its folder, such as `code/ui/dist/`; they are never committed.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
-Every write through `folder` stays under `data/`. A path with a `.git*` segment
-is refused at any depth. Reads may reach code files.
+Every write through `folder` stays under `data/`. Reads may reach code files.
 
 ## Updates while an action runs
 

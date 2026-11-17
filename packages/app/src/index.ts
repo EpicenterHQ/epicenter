@@ -45,8 +45,6 @@ export {
 export { ActionError, type Problem } from './errors.ts';
 export {
 	field,
-	type TList,
-	type TSwitch,
 	whatFits,
 	whatTakes,
 } from './field.ts';

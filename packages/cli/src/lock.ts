@@ -71,22 +71,3 @@ export async function hold(
 		if (!held) closeSync(fd);
 	}
 }
-
-/**
- * Run `work` holding the app's lock on `dir`, waiting up to `waitMs` for it,
- * and let it go however `work` ends. `{ busy: true }` when another holder
- * kept it that long, and `work` did not run.
- */
-export async function locked<T>(
-	dir: string,
-	waitMs: number,
-	work: () => Promise<T>,
-): Promise<{ done: T } | { busy: true }> {
-	const held = await hold(dir, waitMs);
-	if (!held) return { busy: true };
-	try {
-		return { done: await work() };
-	} finally {
-		held.release();
-	}
-}

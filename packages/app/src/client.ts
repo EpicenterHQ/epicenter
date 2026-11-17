@@ -177,7 +177,7 @@ function report(cause: unknown) {
 /**
  * Call one action and read its JSON lines. A stream that ends with no answer
  * was cut off: the action may still be running or may have finished, so the
- * page rereads its records or calls again with the same id.
+ * page rereads its records.
  */
 async function call(
 	url: string,

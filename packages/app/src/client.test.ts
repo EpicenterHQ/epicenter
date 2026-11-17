@@ -110,7 +110,6 @@ test('each kind of failure in an answer becomes its error', async () => {
 	for (const result of [
 		ActionError.Changed({ path: 'x', why: 'quote' }),
 		ActionError.Missing({ path: 'x' }),
-		ActionError.Stopped({ message: 'stopped' }),
 	]) {
 		const reason = { ...result.error, extra: 'retained' };
 		respond(failed({ kind: 'returned', reason }));

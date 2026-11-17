@@ -1,9 +1,8 @@
 /**
  * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
  * description and collections with each action as the MCP tool `serve`
- * offers, so a listing and `tools/list` agree, except that MCP leaves out an
- * action with private or file input, which the listing keeps for
- * the app's own page; the human views come from the same actions.
+ * offers, so a listing and `tools/list` agree; the human views come from the
+ * same actions.
  */
 
 import { basename } from 'node:path';
@@ -17,22 +16,13 @@ import {
 	usageLine,
 } from './input.ts';
 
-/** MCP's defaults for each hint an action does not give. */
-const ANNOTATION_DEFAULTS = {
-	readOnlyHint: false,
-	destructiveHint: true,
-	idempotentHint: false,
-	openWorldHint: true,
-} as const;
-
-/** An action as an MCP tool definition: its name, input schema, and all four hints, explicit. */
+/** An action as an MCP tool definition: its name, input schema, and the hints it states. */
 export function actionTool(app: string, key: string, action: Action) {
 	return {
 		name: `${app}_${key.replaceAll(' ', '_')}`,
 		description: action.description,
 		inputSchema: jsonSchema(action.input),
-		annotations: { ...ANNOTATION_DEFAULTS, ...action.annotations },
-		...(action.privateInput === true ? { privateInput: true } : {}),
+		...(action.annotations ? { annotations: action.annotations } : {}),
 	};
 }
 
@@ -65,11 +55,9 @@ function appListing(located: Runnable) {
 	};
 }
 
-/** " (read-only)" for an action that changes nothing; the other hints are for MCP clients. */
+/** " (read-only)" for an action that says it changes nothing; the other hints are for MCP clients. */
 function readOnly(action: Action) {
-	return { ...ANNOTATION_DEFAULTS, ...action.annotations }.readOnlyHint
-		? ' (read-only)'
-		: '';
+	return action.annotations?.readOnlyHint ? ' (read-only)' : '';
 }
 
 /** Each action as its usage line and its description; `--help` on an action lists its input's keys. */
@@ -146,9 +134,7 @@ export function actionHelp(name: string, key: string, action: Action): string {
 	return [
 		...usage,
 		'',
-		action.privateInput === true
-			? 'Input, one JSON object read from stdin with -, never an argument:'
-			: 'Input, one JSON object, or - to read it from stdin:',
+		'Input, one JSON object, or - to read it from stdin:',
 		...rows.map(
 			([key, status, text]) => `  ${key.padEnd(width)}  ${status}  ${text}`,
 		),

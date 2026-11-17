@@ -124,7 +124,7 @@ export const routines = {
 	/**
 	 * Create or update routines/<name>.md in the current home. The name is
 	 * home-wide; the host infers this app and resolves the action in its table.
-	 * Input must survive JSON. Private inputs and file inputs cannot be saved.
+	 * Input must survive JSON.
 	 * Keeps notes, attempt history, and unspecified paused/timeout settings.
 	 * A new unpaused routine catches up to the latest daily occurrence.
 	 */
@@ -137,35 +137,29 @@ export const routines = {
 
 /**
  * The folder of the run this code is in, to write or delete `path` in. Every
- * write stays under `data/` and avoids `.git*` path segments.
+ * write stays under `data/`.
  */
-function writableFolder(verb: 'write' | 'delete', path: string): Folder {
+function writableFolder(path: string): Folder {
 	const context = currentRun();
 	const normal = normalizePath(path);
 	if (!normal.startsWith('data/'))
 		throw new Error(
 			`${path} is outside data/, and an action writes only there`,
 		);
-	if (normal.split('/').some((part) => part.startsWith('.git')))
-		throw new Error(
-			`${path} has a .git* path segment, and an action cannot ${verb} there`,
-		);
 	return context.folder;
 }
 
 /** The folder of the run this code is in. */
 export const folder: Folder = {
-	edit: async (path, decide) =>
-		writableFolder('write', path).edit(path, decide),
+	edit: async (path, decide) => writableFolder(path).edit(path, decide),
 	read: (path) => currentRun().folder.read(path),
 	readBytes: (path) => currentRun().folder.readBytes(path),
-	write: async (path, text) => writableFolder('write', path).write(path, text),
+	write: async (path, text) => writableFolder(path).write(path, text),
 	writeBytes: async (path, bytes) =>
-		writableFolder('write', path).writeBytes(path, bytes),
-	update: async (path, change) =>
-		writableFolder('write', path).update(path, change),
+		writableFolder(path).writeBytes(path, bytes),
+	update: async (path, change) => writableFolder(path).update(path, change),
 	list: (dir) => currentRun().folder.list(dir),
-	delete: async (path) => writableFolder('delete', path).delete(path),
+	delete: async (path) => writableFolder(path).delete(path),
 	get path() {
 		return currentRun().folder.path;
 	},

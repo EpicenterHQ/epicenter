@@ -63,7 +63,7 @@ const LOOPBACK = '127.0.0.1';
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
 
-/** The largest input a call takes. Bytes travel as base64 text inside it. */
+/** The largest input a call takes; Bun answers 413 past it. */
 const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 
 /** Whether `work` finished within `ms`; it runs on after `false`. */
@@ -300,8 +300,6 @@ async function callAnswer(request: Request): Promise<Response> {
 	const refuse = (status: number, message: string) =>
 		Response.json(refused(CliError.Usage({ message }).error), { status });
 	const bytes = await request.arrayBuffer();
-	if (bytes.byteLength > MAX_INPUT_BYTES)
-		return refuse(413, 'The input is larger than 25 MiB');
 	let input: unknown;
 	try {
 		input = JSON.parse(new TextDecoder().decode(bytes));
@@ -309,10 +307,7 @@ async function callAnswer(request: Request): Promise<Response> {
 		return refuse(400, 'The input is not valid JSON');
 	}
 	const resolved = await resolveAction(app, key, input);
-	if (resolved.refusal)
-		return Response.json(resolved.refusal, {
-			status: resolved.found ? 400 : 404,
-		});
+	if (resolved.refusal) return Response.json(resolved.refusal, { status: 400 });
 	const encoder = new TextEncoder();
 	let listening = true;
 	const body = new ReadableStream<Uint8Array>({
@@ -453,7 +448,7 @@ export function startHttpServer(port: number) {
 		port,
 		idleTimeout: 0,
 		// Bun refuses a larger body itself; the slack is for the JSON around a 25 MiB input.
-		maxRequestBodySize: MAX_INPUT_BYTES + 1024,
+		maxRequestBodySize: MAX_INPUT_BYTES,
 		fetch: answer,
 	});
 	const routines = createRoutines({

@@ -239,18 +239,7 @@ messages; a key the action does not take is refused, naming the keys it does.
 `null` removes a field that accepts it. For text a person wrote, `- <<'EOF'`
 avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
 and prints an example to copy. A listing or action help with `--json` exposes
-each action as an MCP tool definition, with all four annotations explicit and
-private-input metadata kept separately.
-
-An action declares private input handling with `privateInput: true`. The flag
-appears in JSON discovery as action metadata, separately from MCP annotations.
-The CLI accepts it only as `epicenter <app> <action> -`, with the whole JSON
-object piped on stdin. It offers no interactive secret prompt and refuses any
-other argument before parsing it. The same action stays
-available over HTTP and is neither listed nor callable over MCP. Its validation
-refusals contain no supplied input values.
-This is an input-handling policy: HTTP access follows the server's existing
-rules, and the app owns what it returns, throws, reports, and stores.
+each action as an MCP tool definition, with the annotations the action states.
 
 ## Serve runs every action while it is running
 
@@ -332,8 +321,7 @@ input, paused?, timeout? })` from `@epicenter/app`. The host resolves the action
 against that app's current table, checks its JSON input, and saves the same
 command-argv declaration. It preserves notes, runtime receipts, and unspecified
 pause and timeout fields. The name is home-wide. An existing command for another
-app, an ambiguous or unexposed action, private input and file input are
-refused. No new action registry or executable format is involved.
+app and an ambiguous or unexposed action are refused. No new action registry or executable format is involved.
 
 State is atomically replaced in `routines/<name>.local/state.json`. Output
 appends to `routines/<name>.local/output.log`. Both stay local and owner-only.
@@ -369,8 +357,7 @@ most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 | Outcome | Response |
 | --- | --- |
 | The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
-| No such app or action | 404, the refusal `{ data: null, error: { kind: "refused", reason } }` as the body |
-| The input is not JSON, not an object, or does not fit | 400, the refusal as the body |
+| No such app or action, or the input is not JSON, not an object, or does not fit | 400, the refusal `{ data: null, error: { kind: "refused", reason } }` as the body |
 | The body is too large | 413 |
 
 A stream that ends with no `answer` line was cut off, and its outcome is
@@ -398,7 +385,7 @@ no other update between. Every collection write uses it. Plain `folder.write`
 is last-write-wins. Neither guards against a writer outside Epicenter, such
 as an editor or a `git pull`.
 
-Writes through `folder` stay under `data/` and reject `.git*` path segments.
+Writes through `folder` stay under `data/`.
 The container remains `folder.path`. Reads may reach another app's records
 at `../tasks/data/tasks/<time>.md`.
 

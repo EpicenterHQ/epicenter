@@ -41,7 +41,6 @@ const fields = {
 		next: Type.Optional(Type.String()),
 	}),
 	Unreachable: Type.Object({ message: Type.String() }),
-	Stopped: Type.Object({ message: Type.String() }),
 };
 
 const WHY = {
@@ -83,7 +82,6 @@ export const ActionError = defineErrors({
 	/** A required operation returned no usable answer. The message identifies what failed. */
 	Unreachable: (body: Static<typeof fields.Unreachable>) => marked(body),
 	/** Work was deliberately stopped. This does not confirm completed cleanup or rollback. */
-	Stopped: (body: Static<typeof fields.Stopped>) => marked(body),
 });
 export type ActionError = InferErrors<typeof ActionError>;
 

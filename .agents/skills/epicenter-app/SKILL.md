@@ -200,9 +200,9 @@ other files, the imported `folder` supplies atomic writes and updates.
 Make the first write through `folder` or a collection, so the call takes
 container's lock. It stays held until the call returns, throws, or stops.
 After that first write, a library or `node:fs` write shares the call's lock
-lifetime. A call with no folder write takes no lock. All writes stay pending
+lifetime. All writes stay pending
 until a named commit or root checkpoint records them.
-`folder` refuses a write outside `data/` or through a `.git*` path segment.
+`folder` refuses a write outside `data/`.
 Reads may reach the whole Epicenter, including another app's records by a
 path like `../tasks/data/tasks/<time>.md`, using `node:fs` or a library.
 Resolve that path from `folder.path`, which is the container. Change another
@@ -260,8 +260,7 @@ For text a person wrote, pipe it with `- <<'EOF'`, which has no quoting to get
 wrong; `epicenter <app> <action> --help` lists the keys. An action you write
 chooses its own input, and should take what its caller knows: Vocab's `review`
 takes `{ word, grade }`, giving
-`epicenter vocab review '{"word":"你好","grade":"good"}'`. An action has no
-`positional`; `defineAction` throws on one.
+`epicenter vocab review '{"word":"你好","grade":"good"}'`.
 
 Annotate honestly. Annotations are hints an MCP client reads to decide how
 careful to be, and nothing enforces them, so mark an action read-only only

@@ -33,8 +33,6 @@ export async function setRoutine({
 			'A routine needs an action exposed exactly once by the current app',
 		);
 	const [key, action] = match;
-	if (action.privateInput)
-		throw new Error('A routine cannot save an action with private input');
 	const json = JSON.stringify(routine.input);
 	if (json === undefined || !isDeepStrictEqual(routine.input, JSON.parse(json)))
 		throw new Error('A routine input must contain only JSON values');

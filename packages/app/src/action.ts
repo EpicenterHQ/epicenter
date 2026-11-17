@@ -59,12 +59,6 @@ export type Annotations = {
 export type ActionMeta<I extends Input = Input> = {
 	readonly description: string;
 	readonly input: I;
-	/**
-	 * Handle the whole input privately: exclude MCP, accept CLI input only as
-	 * JSON stdin, and omit input from validation details and commit names.
-	 * HTTP JSON remains available. The app owns its outputs and storage.
-	 */
-	readonly privateInput?: boolean;
 	readonly annotations?: Annotations;
 };
 
@@ -234,35 +228,14 @@ export function defineAction(def: ActionDef<Input, Answer, Returned>): Action {
 }
 
 /** What an action is made of; anything else, such as `readonly`, is a typo the types let through. */
-const ACTION_KEYS = new Set([
-	'description',
-	'input',
-	'privateInput',
-	'annotations',
-	'run',
-]);
-
-const ANNOTATION_KEYS = new Set([
-	'title',
-	'readOnlyHint',
-	'destructiveHint',
-	'idempotentHint',
-	'openWorldHint',
-]);
+const ACTION_KEYS = new Set(['description', 'input', 'annotations', 'run']);
 
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, privateInput, annotations, run } = def as Record<
-		string,
-		unknown
-	>;
+	const { description, input, run } = def as Record<string, unknown>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
-		if (key === 'positional')
-			problems.push(
-				`has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line`,
-			);
-		else if (!ACTION_KEYS.has(key))
+		if (!ACTION_KEYS.has(key))
 			problems.push(`has "${key}", which an action does not take`);
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
@@ -271,12 +244,6 @@ function actionProblems(def: object): string[] {
 		problems.push(
 			'has a run that is an async function*; an action reports by calling update, its second argument, and returns its answer',
 		);
-	if (privateInput !== undefined && typeof privateInput !== 'boolean')
-		problems.push('has a privateInput flag that is not a boolean');
-	if (typeof annotations === 'object' && annotations !== null)
-		for (const key of Object.keys(annotations))
-			if (!ANNOTATION_KEYS.has(key))
-				problems.push(`has the annotation "${key}", which MCP does not define`);
 	if (typeof input !== 'object' || input === null)
 		return [...problems, 'has no input'];
 	for (const [key, schema] of Object.entries(input as Input)) {

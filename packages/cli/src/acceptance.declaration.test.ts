@@ -26,13 +26,6 @@ async function setup() {
 /** Vocab's words collection, as epicenter.ts source. */
 const words = `const words = defineCollection({ path: 'data/words/{stem}.md', fields: { stage: field.select(['new', 'known']) } });\n`;
 
-const MCP_DEFAULTS = {
-	readOnlyHint: false,
-	destructiveHint: true,
-	idempotentHint: false,
-	openWorldHint: true,
-};
-
 test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and names each problem', async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
@@ -122,7 +115,7 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 			'code/epicenter.ts: The collection at data/words/{word}.md has a field "path", which is the file\'s address',
 		],
 		misplaced: [
-			'code/epicenter.ts: The action "Show" has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line',
+			'code/epicenter.ts: The action "Show" has "positional", which an action does not take',
 		],
 		nodefault: ['code/epicenter.ts does not export defineApp(...) by default'],
 		nullactions: [
@@ -192,10 +185,8 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 			required: ['minutes'],
 			additionalProperties: false,
 		},
-		annotations: MCP_DEFAULTS,
 	});
 	expect(reading.actions[6].annotations).toEqual({
-		...MCP_DEFAULTS,
 		readOnlyHint: true,
 		openWorldHint: false,
 	});
@@ -560,8 +551,6 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			'capture_delete',
 		]);
 		expect(tools[4]?.annotations).toEqual({
-			readOnlyHint: false,
-			destructiveHint: true,
 			idempotentHint: true,
 			openWorldHint: false,
 		});

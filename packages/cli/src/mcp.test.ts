@@ -27,10 +27,11 @@ test('tools list plain schemas and annotations and return structured answers or 
 			annotations: { readOnlyHint: true, destructiveHint: false },
 			inputSchema: { type: 'object', properties: { day: { type: 'string' } } },
 		});
+		// An action that states no hints has none: the client applies MCP's defaults.
 		expect(
 			listed.tools.find((tool) => tool.name === 'vault_calendar_add')
-				?.annotations?.destructiveHint,
-		).toBe(true);
+				?.annotations,
+		).toBeUndefined();
 		expect(JSON.stringify(listed)).not.toContain('positional');
 		expect(JSON.stringify(listed)).not.toContain('~kind');
 		const answer = await client.callTool({

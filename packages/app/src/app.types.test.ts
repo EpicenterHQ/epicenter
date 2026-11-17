@@ -210,7 +210,6 @@ describe('an app author', () => {
 		});
 		const say = defineAction({
 			description: 'Say',
-			privateInput: true,
 			input: { message: field.text() },
 			async run({ message }, update: Update<string | { step: number }>) {
 				update(message);

@@ -82,27 +82,6 @@ describe('writes in a run', () => {
 		expect(await inRun(context, () => folder.read('README.md'))).toBe('code');
 		expect(await context.folder.list()).toEqual(['README.md']);
 	});
-
-	test('refuses every folder write into a .git* path segment', async () => {
-		const context = createMemoryContext();
-		for (const path of [
-			'data/.git/hooks/x',
-			'data/.gitignore',
-			'data/nested/.gitattributes',
-		]) {
-			const attempts: (() => Promise<unknown>)[] = [
-				() => folder.write(path, 'text'),
-				() => folder.writeBytes(path, new Uint8Array([1])),
-				() => folder.update(path, () => 'text'),
-				() => folder.delete(path),
-			];
-			for (const attempt of attempts)
-				await expect(inRun(context, attempt)).rejects.toThrow(
-					'.git* path segment',
-				);
-		}
-		expect(await context.folder.list()).toEqual([]);
-	});
 });
 
 describe('a run', () => {
@@ -437,45 +416,16 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
-	test('preserves a boolean privateInput flag and rejects any other value', () => {
-		for (const privateInput of [true, false]) {
-			const action = defineAction({
-				description: 'Connect',
-				privateInput,
-				input: { token: field.text() },
-				run: () => Ok(true),
-			});
-			expect(action.privateInput).toBe(privateInput);
-		}
-		expect(() =>
-			defineAction({
-				description: 'Connect',
-				privateInput: 'true' as unknown as boolean,
-				input: {},
-				run: () => Ok(true),
-			}),
-		).toThrow('privateInput flag that is not a boolean');
-	});
-
-	test('raw writeOnly schema metadata does not imply private input handling', () => {
-		const action = defineAction({
-			description: 'Read',
-			input: { value: { type: 'string', writeOnly: true } },
-			run: () => Ok(true),
-		});
-		expect(action.privateInput).toBeUndefined();
-	});
-
-	test('rejects the old confidential spelling instead of losing its protections', () => {
+	test('rejects a key an action does not take', () => {
 		expect(() =>
 			defineAction({
 				description: 'Connect',
 				input: {},
-				// @ts-expect-error privateInput is the only supported policy name
-				confidential: true,
+				// @ts-expect-error an action takes description, input, annotations and run
+				privateInput: true,
 				run: () => Ok(true),
 			}),
-		).toThrow('has "confidential", which an action does not take');
+		).toThrow('has "privateInput", which an action does not take');
 	});
 
 	test('rejects cyclic schemas at declaration before they can break discovery', () => {
@@ -637,16 +587,13 @@ describe('defineAction', () => {
 						help: field.text(),
 						input: field.text(),
 					},
-					positional: ['a'],
-					annotations: { readOnlyHint: true, dangerous: true } as never,
+					annotations: { readOnlyHint: true },
 					readonly: true,
 					run: () => Ok(undefined),
 				} as never),
 			),
 		).toEqual([
-			'The action "Show" has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line',
 			'The action "Show" has "readonly", which an action does not take',
-			'The action "Show" has the annotation "dangerous", which MCP does not define',
 		]);
 	});
 });

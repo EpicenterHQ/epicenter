@@ -7,26 +7,22 @@
  * each app's actions; an app that cannot load loses only its own tools, and
  * why goes to stderr. `tools/call` decodes the tool name and runs the action
  * in this process (`run.ts`), which checks the app, the action, and the
- * input, and leaves the call's writes pending. An action with a
- * `privateInput: true` flag is neither listed nor run here (ADR-0907).
+ * input, and leaves the call's writes pending.
  * A call's result is the same object `--json` prints: `structuredContent` on
  * success, and with `isError` on failure. An action's updates are not sent:
  * an MCP client reads only the answer.
  */
 
-import { isName } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { nameProblem } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, outcome, refused, writeErr } from './output.ts';
+import { type Answer, outcome, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { callAction } from './run.ts';
 
@@ -41,9 +37,9 @@ async function appTools(entry: string): Promise<Tool[]> {
 		writeErr(`${entry}: ${located.problems.join('; ')}`);
 		return [];
 	}
-	return Object.entries(located.actions)
-		.filter(([, action]) => action.privateInput !== true)
-		.map(([key, action]) => actionTool(located.name, key, action));
+	return Object.entries(located.actions).map(([key, action]) =>
+		actionTool(located.name, key, action),
+	);
 }
 
 /**
@@ -89,19 +85,8 @@ export async function createMcpServer() {
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const { name, arguments: args } = request.params;
 		const [app = '', ...words] = name.split('_');
-		// App names and action words have no underscores. The first word must name
-		// an app, so a tool name never runs one of epicenter's own commands.
-		if (
-			nameProblem(app) !== undefined ||
-			words.length === 0 ||
-			!words.every(isName)
-		)
-			return toolResult(
-				refused(CliError.Usage({ message: `Unknown tool ${name}` }).error),
-			);
-		return toolResult(
-			await callAction(app, words.join(' '), args ?? {}, { overMcp: true }),
-		);
+		// App names and action words have no underscores.
+		return toolResult(await callAction(app, words.join(' '), args ?? {}));
 	});
 	return server;
 }
