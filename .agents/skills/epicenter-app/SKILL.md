@@ -263,19 +263,16 @@ takes `{ word, grade }`, giving
 `epicenter vocab review '{"word":"你好","grade":"good"}'`. An action has no
 `positional`; `defineAction` throws on one.
 
-Annotate honestly. A read-only run takes no lock. Its folder writes throw
+Annotate honestly. A read-only run's folder writes throw
 except to `.local` paths under data/, so an action that only reads can refresh
 a token locally. Actions make no commits. The root ignore rules keep local
 files out, and a checkpoint refuses local credentials Git would include.
 
-Write last. A call holds its app's lock from its first write until its
-end, and other writes to the app wait for it at most 30 seconds, so fetch
-from a service, call a model, or compute first, then write. When the person's
-input must survive a failure, write it after the slow step fails, not before
+Write last. Nothing locks a call, so fetch from a service, call a model, or
+compute first, then write: a slow step then never leaves a file half done.
+When the person's input must survive a failure, write it after the slow step fails, not before
 it starts: Vocab's `practice reply` asks the model, then saves both turns, or
-saves the learner's turn alone and returns its provider error. Never run `epicenter` against the action's own app
-after writing: the inner call waits for the lock its own caller holds, and
-fails after 30 seconds.
+saves the learner's turn alone and returns its provider error.
 
 After direct edits, `epicenter checkpoint -m "<what changed>"` records pending
 code and records in one root commit and pushes origin when set. A plain named

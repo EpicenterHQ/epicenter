@@ -393,15 +393,16 @@ Nothing locks a call. While serve is running, one process runs every action,
 so two actions never replace one file at the same moment. With serve stopped,
 two commands started together both run and can interleave their writes.
 
-`folder.update` computes from the text read and retries when an outside
-writer, such as an editor or a `git pull`, changes it before replacement.
-Every collection write uses it. Plain `folder.write` is last-write-wins.
+`folder.update` reads the text, computes from it, and replaces the file, with
+no other update between. Every collection write uses it. Plain `folder.write`
+is last-write-wins. Neither guards against a writer outside Epicenter, such
+as an editor or a `git pull`.
 
 Writes through `folder` stay under `data/` and reject `.git*` path segments.
 The container remains `folder.path`. Reads may reach another app's records
 at `../tasks/data/tasks/<time>.md`.
 
-A read-only call takes no lock. Folder writes throw except on `.local` paths
+A read-only call's folder writes throw except on `.local` paths
 under `data/`. These files have owner-only permissions when created through
 folder methods. Atomic replacement files have local names too, so the root
 ignore rules keep them out of checkpoints. `folder` is not a sandbox.

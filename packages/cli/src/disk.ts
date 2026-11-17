@@ -5,8 +5,9 @@
  * the mode of the file they replace; a new `.local` file is `0600`, readable
  * by its owner alone, and a new directory on a `.local` path is `0700`
  * (ADR-0870). `update` reads, changes, and replaces a file without yielding,
- * so updates in one process never interleave; another process's call waits
- * for the app's lock, which a call holds from its first write (`run.ts`).
+ * so two updates never interleave: one process runs actions (ADR-0936), and
+ * nothing here waits or looks twice. A writer outside epicenter, such as an
+ * editor, is not guarded against.
  * Listing avoids Git, dependencies, and directory links so those trees never
  * become app data.
  */
@@ -25,16 +26,12 @@ import {
 import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-	ActionError,
 	type Folder,
 	isLocalPath,
 	normalizePath,
 	Ok,
 	textUpdate,
 } from '@epicenter/app';
-
-/** How many times `update` tries a file that a writer outside epicenter (an editor) keeps changing before it gives up. */
-const UPDATE_TRIES = 10;
 
 function missing(error: unknown) {
 	return (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -118,30 +115,18 @@ export function folderOnDisk(dir: string): Folder {
 			throw error;
 		}
 	}
-	// An outside writer may change the file between deciding and staging. Retry
-	// synchronously so other updates in this process cannot interleave.
+	// Read, decide, and replace with no await between them: that is what keeps
+	// two updates in this process from interleaving.
 	const edit: Folder['edit'] = async (path, decide) => {
-		const target = pathOf(path);
-		for (let attempt = 0; attempt < UPDATE_TRIES; attempt++) {
-			const before = readNow(target);
-			const result = decide(decode(before));
-			if (result.data === null) return result;
-			const { text, value } = result.data;
-			if (text === undefined) return Ok(value);
-			const bytes = new TextEncoder().encode(text);
-			// Decoding drops a byte order mark, so compare the original bytes.
-			if (sameBytes(before, bytes)) return Ok(value);
-			const { temp } = stage(path, bytes);
-			try {
-				if (sameBytes(readNow(target), before)) {
-					renameSync(temp, target);
-					return Ok(value);
-				}
-			} finally {
-				rmSync(temp, { force: true });
-			}
-		}
-		return ActionError.Changed({ path: normalizePath(path), why: 'kept' });
+		const before = readNow(pathOf(path));
+		const result = decide(decode(before));
+		if (result.data === null) return result;
+		const { text, value } = result.data;
+		if (text === undefined) return Ok(value);
+		const bytes = new TextEncoder().encode(text);
+		// Decoding drops a byte order mark, so compare the original bytes.
+		if (!sameBytes(before, bytes)) put(path, bytes);
+		return Ok(value);
 	};
 	return {
 		path: dir,

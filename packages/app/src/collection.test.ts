@@ -1767,23 +1767,11 @@ test('callback Err is forwarded unchanged, while plain returns and thrown callba
 	}
 });
 
-test('a folder conflict is returned and a callback throwing the same Changed rejects', async () => {
+test('a callback throwing Changed rejects', async () => {
 	const context = createMemoryContext({
 		'data/items/a.md': '---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
 	});
-	const changed = ActionError.Changed({ path: 'data/items/a.md', why: 'kept' });
-	const conflict = {
-		...context,
-		folder: {
-			...context.folder,
-			async edit() {
-				return changed;
-			},
-		},
-	};
-	expect(
-		await inRun(conflict, () => items.set({ id: 'a' }, { done: true })),
-	).toEqual(changed);
+	const changed = ActionError.Changed({ path: 'data/items/a.md', why: 'was' });
 	for (const method of ['set', 'update'] as const)
 		await expect(
 			inRun(context, () =>

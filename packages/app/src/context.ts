@@ -17,7 +17,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Ok, type Result, unwrap } from 'wellcrafted/result';
 import type { Action } from './action.ts';
-import type { ActionError } from './errors.ts';
 
 /** A home-owned daily invocation of an action exposed by the current app. */
 export type Routine<TAction extends Action = Action> = {
@@ -34,7 +33,7 @@ type EditFile = <T, E extends object>(
 	decide: (
 		before: string | undefined,
 	) => Result<{ value: T; text?: string }, E>,
-) => Promise<Result<T, E | Extract<ActionError, { name: 'Changed' }>>>;
+) => Promise<Result<T, E>>;
 
 /** Adapt a folder provider's atomic edit to the raw text update contract. */
 export function textUpdate(edit: EditFile): Folder['update'] {
@@ -68,10 +67,8 @@ export type Folder = {
 	/**
 	 * Changes the text at `path` to what `change` makes of it (`undefined` when
 	 * no file is there), and returns the text written; nothing is written when
-	 * that is what is there. Every update of the app takes turns. When a
-	 * writer that takes no lock changes the file between the read and the
-	 * write, `change` runs again on what is there now; after 10 tries it
-	 * throws `ActionError.Changed`. A `change` that throws writes nothing.
+	 * that is what is there. `change` runs once, and no other update runs
+	 * between its read and its write. A `change` that throws writes nothing.
 	 *
 	 * ```ts
 	 * await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);

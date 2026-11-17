@@ -24,7 +24,6 @@ const fields = {
 			Type.Literal('twice'),
 			Type.Literal('empty'),
 			Type.Literal('was'),
-			Type.Literal('kept'),
 		]),
 	}),
 	Missing: Type.Object({ path: Type.String() }),
@@ -52,7 +51,6 @@ const WHY = {
 		"'s body has that text more than once; quote more around it, or the whole body",
 	empty: "'s body is no longer empty; get it again",
 	was: ' no longer holds a value named in was; it changed since it was read, so get it again',
-	kept: ' kept changing while it was updated',
 } satisfies Record<Static<typeof fields.Changed>['why'], string>;
 
 /** The enumerable marker survives the runner's JSON serialization. It is not proof of origin. */

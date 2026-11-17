@@ -13,8 +13,7 @@
  * write keeps front matter no field declares. Plain set patches can repair
  * readable files, but must make the whole record fit before writing.
  * Computed set and update receive only fitting records and return Ok(change)
- * or Err(error). Update retries its pure callback when the file changes
- * meanwhile; after 10 tries it answers Err(Changed). Refusals are Results;
+ * or Err(error). Update runs its callback once. Refusals are Results;
  * callback faults and I/O failures throw.
  *
  * Generated verbs expose plain-data operations. The set verb guards fields
@@ -210,7 +209,7 @@ export type Handle<D extends CollectionDef> = {
 			>(
 				change: (record: RecordOf<D>) => R,
 			): Promise<Result<RecordOf<D>, SetError<D> | Exclude<R['error'], null>>>;
-			/** Update or create, retrying the callback when the file changes meanwhile. */
+			/** Update or create. */
 			update<
 				R extends Result<Change<D['fields']>, CallbackError> = Result<
 					Change<D['fields']>,
@@ -249,7 +248,7 @@ export type Handle<D extends CollectionDef> = {
 				keys: Keys<D>,
 				change: (record: RecordOf<D>) => R,
 			): Promise<Result<RecordOf<D>, SetError<D> | Exclude<R['error'], null>>>;
-			/** Update or create, retrying the callback when the file changes meanwhile. */
+			/** Update or create. */
 			update<
 				R extends Result<Change<D['fields']>, CallbackError> = Result<
 					Change<D['fields']>,

@@ -205,10 +205,9 @@ must return a Result. Return `Ok(patch)` to apply fields or body, or a tagged
 Err to decline. The caller receives that Err and the file stays as it was.
 A plain patch remains valid as the second argument to `set`.
 
-`set` gives its callback a fitting record, including the body. When the file
-changes during the write, the callback runs again with the new contents.
-Keep it pure. `Ok({})` leaves an existing record alone. Vocab's review can
-therefore count two concurrent reviews:
+`set` gives its callback a fitting record, including the body. The callback
+runs once, and no other write to the file runs between its read and its
+write. `Ok({})` leaves an existing record alone. Vocab's review can therefore count two concurrent reviews:
 
 ```ts
 return words.set({ word }, (found) => Ok(schedule(found, grade, now)));
@@ -413,11 +412,10 @@ first and write last to keep other writers from waiting.
 `folder.write` replaces the file, and the last write wins. A change that
 depends on what it read goes through `folder.update(path, change)`: it reads
 the file, calls `change` with its text (`undefined` when there is none), and
-writes what `change` returns, nothing when that is what is there. A writer
-outside epicenter, such as an editor, may change the file between the read
-and the write; then `update` calls `change` again on what is there now, and
-after 10 tries it throws `ActionError.Changed`. A `change` that
-throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `update`, and the verbs built on them)
+writes what `change` returns, nothing when that is what is there. `change`
+runs once. One process runs actions, so no other update runs between the read
+and the write; a writer outside epicenter, such as an editor, is not guarded
+against. A `change` that throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `update`, and the verbs built on them)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
 

@@ -137,24 +137,6 @@ test('listing is sorted and folder-relative and skips dependency trees and direc
 	expect(await folder.list('nested/node_modules')).toEqual([]);
 });
 
-test('update retries when another writer changes the file between its read and its write, and keeps both changes', async () => {
-	const { root, folder } = await setup();
-	await folder.write('list.txt', 'a\n');
-	const seen: (string | undefined)[] = [];
-	const written = await folder.update('list.txt', (text) => {
-		seen.push(text);
-		// Another writer, after this read and before this write.
-		if (seen.length === 1) writeFileSync(join(root, 'list.txt'), `${text}b\n`);
-		return `${text}c\n`;
-	});
-	expect(seen).toEqual(['a\n', 'a\nb\n']);
-	expect(written).toBe('a\nb\nc\n');
-	expect(await folder.read('list.txt')).toBe('a\nb\nc\n');
-	expect(await folder.update('new.txt', (text) => `${text ?? 'made'}`)).toBe(
-		'made',
-	);
-});
-
 test('update changes a file that starts with a byte order mark, comparing what is there as bytes', async () => {
 	const { root, folder } = await setup();
 	await writeFile(join(root, 'bom.txt'), '﻿a\n');
@@ -204,27 +186,19 @@ test('an update that changes nothing leaves the file untouched', async () => {
 	expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
 });
 
-test('update gives up, writing nothing, on a file another writer changes every time it tries', async () => {
+test('update runs its change once and does not look at the file again', async () => {
 	const { root, folder } = await setup();
-	await folder.write('busy.txt', '0');
-	let tries = 0;
-	const kept = await folder
-		.update('busy.txt', () => {
-			tries++;
-			writeFileSync(join(root, 'busy.txt'), String(tries));
-			return 'mine';
-		})
-		.catch((thrown: unknown) => thrown);
-	expect(kept).toEqual({
-		namespace: 'epicenter/action-error',
-		name: 'Changed',
-		message: 'busy.txt kept changing while it was updated',
-		path: 'busy.txt',
-		why: 'kept',
+	await folder.write('once.txt', '0');
+	let runs = 0;
+	const written = await folder.update('once.txt', () => {
+		runs++;
+		// A writer outside epicenter is not guarded against: the update wins.
+		writeFileSync(join(root, 'once.txt'), 'outside');
+		return 'mine';
 	});
-	expect(tries).toBe(10);
-	expect(await folder.read('busy.txt')).toBe('10');
-	expect((await readdir(root)).sort()).toEqual(['.git', 'busy.txt']);
+	expect([runs, written]).toEqual([1, 'mine']);
+	expect(await folder.read('once.txt')).toBe('mine');
+	expect((await readdir(root)).sort()).toEqual(['.git', 'once.txt']);
 });
 
 test('update whose change throws writes nothing', async () => {
@@ -242,49 +216,6 @@ test('update whose change throws writes nothing', async () => {
 	).rejects.toThrow('no file');
 	expect(await folder.read('kept.txt')).toBe('kept');
 	expect((await readdir(root)).sort()).toEqual(['.git', 'kept.txt']);
-});
-
-test('a collection returns the record from the write that won the retry', async () => {
-	const { root, folder } = await setup();
-	const path = 'data/counter.md';
-	const counter = defineCollection({
-		path,
-		fields: { n: field.integer({ optional: true }) },
-	});
-	const numbers: number[] = [];
-	await folder.write(path, '---\nn: 1\n---\n');
-	const answer = await inRun({ folder }, () =>
-		counter.update(({ n = 0 }) => {
-			numbers.push(n);
-			if (numbers.length === 1)
-				writeFileSync(join(root, path), '---\nn: 8\n---\n');
-			return Ok({ n: n + 1 });
-		}),
-	);
-	expect(numbers).toEqual([1, 8]);
-	expect(answer).toEqual(Ok({ path, n: 9, body: '' }));
-	expect(await folder.read(path)).toBe('---\nn: 9\n---\n');
-});
-
-test('a collection whose every write loses the compare returns Changed and leaves only the outside writes', async () => {
-	const { root, folder } = await setup();
-	const path = 'data/counter.md';
-	const counter = defineCollection({
-		path,
-		fields: { n: field.integer({ optional: true }) },
-	});
-	await folder.write(path, '');
-	let tries = 0;
-	const answer = await inRun({ folder }, () =>
-		counter.update(() => {
-			writeFileSync(join(root, path), String(++tries));
-			return Ok({ n: 1 });
-		}),
-	);
-	expect(answer).toEqual(ActionError.Changed({ path, why: 'kept' }));
-	expect(tries).toBe(10);
-	expect(await folder.read(path)).toBe('10');
-	expect(await readdir(join(root, 'data'))).toEqual(['counter.md']);
 });
 
 test('a collection forwards returned Changed and lets a thrown Changed escape, including on an absent file', async () => {
