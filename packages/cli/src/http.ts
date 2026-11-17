@@ -21,8 +21,9 @@
  * no name is reserved for the server.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
- * It listens on 127.0.0.1 (or `--host`) and trusts every request it answers:
- * only this computer and the tailnet reach it. It answers only a `Host` that
+ * It listens only on 127.0.0.1 and trusts every request it answers: another
+ * device reaches it only through a proxy the owner runs on this computer,
+ * such as `tailscale serve`. It answers only a `Host` that
  * is a loopback name, an IP literal, or a `*.ts.net` name, which a DNS
  * rebinding name is not, and refuses a request a Tailscale Funnel or
  * Cloudflare Tunnel delivered. Both set their header on every request, and
@@ -57,6 +58,9 @@ const BACKUP_EVERY_MS = 5 * 60_000;
 
 /** How long `serve` waits for the checkpoint it runs when it stops. */
 const BACKUP_WAIT_MS = 10_000;
+
+/** `serve` listens only here; another device reaches it through a proxy on this computer. */
+const LOOPBACK = '127.0.0.1';
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
@@ -311,7 +315,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * `tick` runs one checkpoint now, after any already running, and answers what it
  * did for the root.
  */
-export function startHttpServer(host: string, port: number) {
+export function startHttpServer(port: number) {
 	const runs = createRunHost();
 	/** Log an unchanged root checkpoint failure only once. */
 	const lastFailure = new Map<string, string>();
@@ -387,7 +391,7 @@ export function startHttpServer(host: string, port: number) {
 		return site.ui(request);
 	};
 	const server = Bun.serve({
-		hostname: host,
+		hostname: LOOPBACK,
 		port,
 		idleTimeout: 0,
 		fetch: answer,
@@ -436,14 +440,14 @@ export function startHttpServer(host: string, port: number) {
  * more: a host stops `serve` with SIGTERM and allows it time for that
  * checkpoint (ADR-0883).
  */
-export async function serveHttp(host: string, port: number): Promise<number> {
+export async function serveHttp(port: number): Promise<number> {
 	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
 	// that answers it, even when the `epicenter` they linked to is gone.
 	for (const { codePath: realPath, problem } of await homeEntries())
 		if (!problem && (await exists(join(realPath, 'node_modules'))))
 			await linkAppPackage(realPath);
-	const server = startHttpServer(host, port);
-	writeErr(`Serving your apps at http://${host}:${server.port}.`);
+	const server = startHttpServer(port);
+	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);

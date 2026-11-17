@@ -207,11 +207,12 @@ test('a misused command answers its usage line, with its help as the next step',
 			next: `epicenter ${command} --help`,
 		});
 	}
-	expect(await f.run('serve', '--port', '70000')).toEqual({
-		code: 2,
-		stdout: '',
-		stderr: `--port must be a whole number from 0 to 65535\nUsage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
-	});
+	for (const flag of ['--port', '--host'])
+		expect(await f.run('serve', flag, '0')).toEqual({
+			code: 2,
+			stdout: '',
+			stderr: `Usage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
+		});
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /.runs/<app>/<action>/<id>',
 	);

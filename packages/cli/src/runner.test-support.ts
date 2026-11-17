@@ -35,7 +35,8 @@ export async function fixture() {
 	);
 	const home = join(root, 'Epicenter');
 	await mkdir(home);
-	await writeFile(join(home, 'EPICENTER.md'), '');
+	// Port 0 lets each test's `serve` take a free port.
+	await writeFile(join(home, 'EPICENTER.md'), '---\nport: 0\n---\n');
 	const apps = join(home, 'apps');
 	await mkdir(apps);
 	const env: Record<string, string | undefined> = {
@@ -105,10 +106,12 @@ export async function startServe(
 	f: Awaited<ReturnType<typeof fixture>>,
 	execArgv: string[] = [],
 ) {
-	const child = Bun.spawn(
-		[process.execPath, ...execArgv, f.bin, 'serve', '--port', '0'],
-		{ cwd: f.root, env: f.env, stdout: 'ignore', stderr: 'pipe' },
-	);
+	const child = Bun.spawn([process.execPath, ...execArgv, f.bin, 'serve'], {
+		cwd: f.root,
+		env: f.env,
+		stdout: 'ignore',
+		stderr: 'pipe',
+	});
 	const ready = Promise.withResolvers<string>();
 	let output = '';
 	void (async () => {

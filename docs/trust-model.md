@@ -33,10 +33,10 @@ this computer and the tailnet, and who reaches it is the home's decision
 ([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
 Anything that reaches it can call every action of every app.
 
-- It listens on `127.0.0.1` unless `--host` names another address. A reverse
-  proxy such as `tailscale serve` puts it on the tailnet and adds HTTPS.
-  Today `--host` accepts any address; on a rented server, which usually has a
-  public one, never bind that.
+- It listens only on `127.0.0.1`, and it has no flag to listen anywhere else.
+  Another device reaches it through a private proxy on this computer, such as
+  `tailscale serve`, which also adds HTTPS
+  ([ADR-0927](adr/0927-serve-listens-only-on-this-computer.md)).
 - It answers only a `Host` that is `localhost`, an IP address, or a `*.ts.net`
   name, so a DNS rebinding name gets 403, and an `Origin`, when sent, must
   match the `Host`.
