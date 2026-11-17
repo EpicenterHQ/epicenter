@@ -49,6 +49,9 @@ Where taste matters, examine what the passage helps an agent recognize as
 good work. Use a realistic example when the consequences need to become
 visible.
 
+Show the complete piece needed to understand the decision. Explain why it
+works.
+
 Before replacing a substantial passage, ask whether there are phrases,
 sentences, or explanations the user wants to keep. Preserve selected wording
 exactly. An articulation can be worth keeping because it says something
