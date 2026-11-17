@@ -77,25 +77,14 @@ use the shared path.
 
 Distinguish diagnostics from deliberate application or command output.
 
-## 4. Exhaustive `never` Checks as Union-Churn Signals
+## 4. Check switches for missing cases
 
-**Pattern**: `const _exhaustive: never = x` after a switch on a discriminated union.
+Find switches that are responsible for every case of a closed union. Give
+each case an explicit branch and end with `default: value satisfies never`
+so adding a variant fails typechecking until the switch handles it.
 
-```bash
-grep -rn ": never\s*=" packages --include="*.ts" -B10
-```
-
-**Why it matters**: each `never` check is a contract promise: "if this union grows a variant, every consumer with this check will break." That's *good*: it's the type system catching missed cases. But if adding a single variant breaks five different switches, the variants are probably overlapping, the union is too broad, or the same logic is being implemented in too many places.
-
-**Example (justified)**: one canonical formatter that exhaustively switches over a tagged error union with well under five variants, which every other consumer delegates to rather than re-implementing. Single point of enforcement, healthy use of the pattern.
-
-**Triage**: count call sites on the discriminated type. If 1-2 switches enforce exhaustiveness, fine. 5+ is a smell: consider:
-
-- Moving the switch into a method on the union members themselves (each variant exports its own behavior).
-- Splitting the union if some switches only care about a subset of variants.
-- Extracting a single canonical handler that other consumers delegate to.
-
-**False positive**: type-narrowing on a result type at a boundary is healthy, even if there are several. Look for the pattern of "every consumer has to know about every variant" as the actual signal.
+Use [the exhaustive-unions reference](references/exhaustive-unions.md) to
+find candidate switches and recognize when a runtime fallback is needed.
 
 ## 5. Single-Method `Pick` Dependencies
 
