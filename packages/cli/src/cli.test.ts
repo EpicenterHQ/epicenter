@@ -247,7 +247,6 @@ test('a misused command answers its usage line, with its help as the next step',
 	const misused = [
 		['new'],
 		['new', 'garden', '--from'],
-		['build', 'reading', 'vault'],
 		['check', 'reading', 'vault'],
 		['init', '--port'],
 	] as const;
@@ -269,8 +268,8 @@ test('a misused command answers its usage line, with its help as the next step',
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /<app>/<action>',
 	);
-	expect((await f.run('build', '--help')).stdout).toBe(
-		`${COMMANDS.build.usage}\n${COMMANDS.build.help}\n`,
+	expect((await f.run('check', '--help')).stdout).toBe(
+		`${COMMANDS.check.usage}\n${COMMANDS.check.help}\n`,
 	);
 });
 

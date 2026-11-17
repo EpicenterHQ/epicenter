@@ -46,12 +46,21 @@ async function noNestedGit(folder: string): Promise<void> {
 	}
 }
 
-test('new shows how to open a browser app on the home port', async () => {
+/** A package.json whose build copies ui/index.html into ui/dist/, then runs `then`. */
+const copiesPage = (then = 'true') =>
+	JSON.stringify({
+		scripts: {
+			build: `mkdir -p ui/dist && cp ui/index.html ui/dist/ && ${then}`,
+		},
+	});
+
+test('new builds a copied UI and shows how to open it on the home port', async () => {
 	const f = await setup();
 	const source = await f.folder(
 		join(f.root, 'source'),
 		{
 			'epicenter.ts': `${header}export default defineApp({description:'Garden',actions:{}});`,
+			'package.json': copiesPage(),
 			'ui/index.html': '<h1>Garden</h1>',
 		},
 		{ git: true },
@@ -64,11 +73,30 @@ test('new shows how to open a browser app on the home port', async () => {
 	);
 });
 
+test('a copied UI whose build fails keeps the app and says how to build it again', async () => {
+	const f = await setup();
+	const source = await f.folder(
+		join(f.root, 'source'),
+		{
+			'epicenter.ts': `${header}export default defineApp({description:'Garden',actions:{}});`,
+			'package.json': copiesPage('echo build broke >&2 && exit 4'),
+			'ui/index.html': '<h1>Garden</h1>',
+		},
+		{ git: true },
+	);
+	const made = await f.run('new', 'garden', '--from', source);
+	const code = join(f.apps, 'garden', 'code');
+	expect(made.code).toBe(1);
+	expect(made.stderr).toContain('\nbuild broke\n');
+	expect(made.stderr).toContain(`Run: cd ${code} && bun run build\n`);
+	expect(existsSync(join(code, 'epicenter.ts'))).toBe(true);
+});
+
 test('new creates code and empty data without repositories and refuses taken and reserved names', async () => {
 	const f = await setup();
 	await gitIn(f.home, 'init', '-q');
 	await mkdir(join(f.apps, 'Reading'));
-	for (const name of ['reading', 'serve', 'init', 'build', 'Bad_Name'])
+	for (const name of ['reading', 'serve', 'init', 'Bad_Name'])
 		expect((await f.run('new', name, '--json')).code).toBe(2);
 	const made = await f.run('new', 'garden', '--json');
 	expect(made.code).toBe(0);
@@ -93,7 +121,6 @@ test('new creates code and empty data without repositories and refuses taken and
 		'"apps/garden/code"',
 	);
 	expect((await f.run('garden', '--json')).code).toBe(0);
-	expect((await f.run('build', 'garden')).code).toBe(0);
 	await noNestedGit(f.apps);
 });
 
@@ -160,7 +187,6 @@ for (const form of [
 		expect(await readFile(join(dest, 'code/SOURCE.md'), 'utf8')).toContain(
 			`Repository: ${local ? await realpath(source) : 'https://github.com/owner/source'}\nFolder: ${prefix.replace(/\/$/, '') || '.'}\nCommit: ${commit}\n`,
 		);
-		expect((await f.run('build', 'copy')).code).toBe(0);
 		await noNestedGit(f.apps);
 	});
 }
@@ -368,6 +394,14 @@ for (const hasTheme of [true, false]) {
 			[`${prefix}/ui/index.html`]:
 				'<html><head><link rel="stylesheet" href="./src/theme.css"></head><body>Theme</body></html>',
 			'theme.css': 'body { color: rgb(12, 34, 56); }',
+			// Only a home with the theme can build the page that links it.
+			...(hasTheme
+				? {
+						[`${prefix}/package.json`]: JSON.stringify({
+							scripts: { build: 'bun build ui/index.html --outdir ui/dist' },
+						}),
+					}
+				: {}),
 		});
 		await mkdir(join(source, prefix, 'ui/src'));
 		await symlink(
@@ -401,7 +435,6 @@ for (const hasTheme of [true, false]) {
 				'copy: code/ui/src/theme.css links to ../../../../../theme.css, which this Epicenter does not have',
 			);
 		} else {
-			expect((await f.run('build', 'copy')).code).toBe(0);
 			const { readdir } = await import('node:fs/promises');
 			const dist = join(f.apps, 'copy/code/ui/dist');
 			expect(await Bun.file(join(dist, 'index.html')).exists()).toBe(true);

@@ -29,8 +29,8 @@ To copy from another host, clone it first. Copies the source commit, not its wor
 local differences are reported and left out.
 The app's code/package.json is named <name> and lists only its own packages: the copy's
 name is rewritten, and its bun.lock and any @epicenter/app entry are left out, since the
-home has one lock and one @epicenter/app. Then runs bun install at the top of the home.
-serve builds code/ui/ when it is opened.`,
+home has one lock and one @epicenter/app. Then runs bun install at the top of the home,
+and bun run build in code/ when the app has a build script, so its UI is ready to open.`,
 	},
 	export: {
 		usage:
@@ -44,12 +44,6 @@ Repeating the command replaces all generated contents, including local edits.
 Exports exclude records, local files, dependencies, builds, provenance, and private history.
 Unrelated nonempty destinations and Git metadata inside them are refused. All code is prepared before
 refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
-	},
-	build: {
-		usage: 'epicenter build [<app>]',
-		help: `Builds the UI of every app, or one app, from its ui/ as it is on disk now,
-and shows the build's errors. serve rebuilds a UI on its own when a page opens
-after its sources changed, and keeps serving the last good build meanwhile.`,
 	},
 	check: {
 		usage: 'epicenter check [<app>] [--json]',

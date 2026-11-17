@@ -84,7 +84,7 @@ returns Missing and does not recreate it.
 To change the colors, open [ui/src/theme.css](ui/src/theme.css) beside this
 README in the app's `code/` folder.
 Set `--primary` under `:root` for the light-mode Add button and under `.dark`
-for dark mode. Run `epicenter build tasks` and reload the page. The exported
+for dark mode. Run `bun run build` in `code/` and reload the page. The exported
 app includes its own copy of the palette.
 
 `ui/`: the list (`#/`) with a quick add and optional due date. Open tasks are

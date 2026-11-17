@@ -4,7 +4,7 @@
  * ```txt
  * POST /                MCP, stateless JSON
  * GET  /                the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...       the app's UI, ui/dist/, as static files
+ * GET  /<app>/...       the app's UI: ui/dist/ as static files, as the app's build left it
  * GET  /<app>           308 to /<app>/
  * POST /<app>/<action>  call an action; its words are joined by `.`
  * ```
@@ -39,6 +39,7 @@
  * that runs its own script.
  */
 
+import { existsSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
@@ -47,6 +48,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
+import { buildNext } from './install.ts';
 import { createMcpServer } from './mcp.ts';
 import { fail, refused, writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
@@ -58,7 +60,6 @@ import {
 	VERSION_HEADER,
 	whoAnswers,
 } from './serve-call.ts';
-import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
@@ -118,20 +119,11 @@ type Site = {
 
 const notFound = () => new Response('Not found', { status: 404 });
 
-/** How long a page load waits for a UI's first build before answering 404. */
-const FIRST_BUILD_WAIT_MS = 60_000;
-
-async function exists(path: string) {
-	try {
-		await stat(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
+/** Where an app's built UI lives, relative to its code folder. Its own build writes it; `serve` never builds. */
+const UI_DIST = join('ui', 'dist');
 
 /** The private listener's site: MCP, the launcher, and each app's UI and actions. */
-function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
+function createSite(): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const [entry] = (await chooseApps(app)).data ?? [];
@@ -145,26 +137,10 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 		if (
 			decoded.includes('\\') ||
 			isAbsolute(decoded) ||
-			// `.` and `..`, and the build's own stamp: never part of a UI.
+			// `.`, `..`, and other dot names: never part of a UI.
 			decoded.split('/').some((part) => part.startsWith('.'))
 		)
 			return notFound();
-		// A page load, not each of its files, checks that the UI is of its sources now.
-		// A UI that has never built waits for its first build, up to a minute;
-		// after that, the last good build answers while the next one runs.
-		if (decoded === '' || decoded === 'index.html') {
-			const refreshed = refreshUi(entry.entry, entry.codePath);
-			if (!(await exists(join(entry.codePath, UI_DIST, 'index.html')))) {
-				let timer: Timer | undefined;
-				await Promise.race([
-					refreshed,
-					new Promise((resolve) => {
-						timer = setTimeout(resolve, FIRST_BUILD_WAIT_MS);
-					}),
-				]);
-				clearTimeout(timer);
-			}
-		}
 		try {
 			// The UI in ui/dist/ is the only thing served (ADR-0860).
 			const root = await realpath(join(entry.codePath, UI_DIST));
@@ -185,7 +161,23 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 				},
 			});
 		} catch {
-			return notFound();
+			// A UI's page with no build says how to make one; anything else is just missing.
+			const page = decoded === '' || decoded === 'index.html';
+			if (!page || !existsSync(join(entry.codePath, 'ui'))) return notFound();
+			const manifest = await Bun.file(join(entry.codePath, 'package.json'))
+				.json()
+				.catch(() => undefined);
+			const add =
+				typeof manifest?.scripts?.build === 'string'
+					? ''
+					: `Give its package.json a build script, such as "build": "bun build ui/index.html --outdir ui/dist".\n`;
+			return new Response(
+				`${app} has no built UI in ${join(entry.codePath, UI_DIST)}.\n${add}Run: ${buildNext(entry.codePath)}\n`,
+				{
+					status: 404,
+					headers: { 'content-type': 'text/plain; charset=utf-8' },
+				},
+			);
 		}
 	};
 	return {
@@ -361,8 +353,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * starts.
  */
 export function startHttpServer(port: number) {
-	const refreshUi = createUiRefresher();
-	const site = createSite(refreshUi);
+	const site = createSite();
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();

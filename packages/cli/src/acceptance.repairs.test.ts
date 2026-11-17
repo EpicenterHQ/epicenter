@@ -148,14 +148,19 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'export', 'serve', 'init', 'build'])
+	for (const word of ['new', 'export', 'serve', 'init'])
 		expect((await f.json('new', word)).code).toBe(2);
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain(
 		'Exit codes: 0 done, 1 ran with a failure or an unfinished export, 2 did not run.',
 	);
-	for (const gone of ['epicenter types', 'setup', 'epicenter help'])
+	for (const gone of [
+		'epicenter types',
+		'setup',
+		'epicenter help',
+		'epicenter build',
+	])
 		expect(help).not.toContain(gone);
 
 	const leading = await f.run('--json', 'notes', 'two', '{"text":"Ada"}');

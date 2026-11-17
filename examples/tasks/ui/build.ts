@@ -1,8 +1,8 @@
 /**
  * Builds the UI with Bun's bundler: `index.html` and the files it loads, into
- * the folder `EPICENTER_OUT` names when `epicenter` builds it (ADR-0880), else
- * `ui/dist/`. Every URL it writes is relative, so the page works at whatever
- * path `epicenter serve` serves it.
+ * `ui/dist/`, which `epicenter serve` serves as it is. Run it with
+ * `bun run build` after changing `ui/`. Every URL it writes is relative, so
+ * the page works at whatever path `epicenter serve` serves it.
  */
 import { rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
@@ -10,7 +10,7 @@ import type { BunPlugin } from 'bun';
 import tailwind from 'bun-plugin-tailwind';
 import { svelte } from './svelte-plugin.ts';
 
-const outdir = resolve(process.env.EPICENTER_OUT ?? join(import.meta.dir, 'dist'));
+const outdir = join(import.meta.dir, 'dist');
 
 /**
  * Bun inlines every CSS url() under 128 KB as a data: URL, which would put

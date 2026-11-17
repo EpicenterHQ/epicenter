@@ -5,6 +5,7 @@
  * request origin handling. `http.test.ts` covers serve's routine clock.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action } from '@epicenter/app';
@@ -262,44 +263,35 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('serve builds the UI as it sits on disk when a page opens, waits only for the first build, and keeps the last good build through a failure', async () => {
+test('serve serves ui/dist/ as the build left it, never builds, and an unbuilt page says how to build it', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'reading'), {
 			...readingApp,
 			'code/.gitignore': `${readingApp['code/.gitignore']}ui/dist/\n`,
-			'code/package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cp ui/page.txt "$EPICENTER_OUT/index.html" && grep -qv broken ui/page.txt' } })}\n`,
+			'code/package.json': `${JSON.stringify({ scripts: { build: 'touch built-by-serve' } })}\n`,
 			'code/ui/page.txt': 'one\n',
 		}),
 	);
-	const folder = f.made;
-	/** The UI's page once it reads `text`, opening it until it does. */
-	const opened = async (text: string) => {
-		for (let tries = 0; tries < 100; tries++) {
-			const response = await fetch(`${f.base}/reading/`);
-			if (response.ok && (await response.text()) === text) return true;
-			await Bun.sleep(100);
-		}
-		return false;
-	};
-	// The first page load waits for the UI's first build rather than answering 404.
-	const first = await fetch(`${f.base}/reading/`);
-	expect([first.status, await first.text()]).toEqual([200, 'one\n']);
-	// Uncommitted: the UI runs as it sits on disk.
-	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'two\n');
-	expect(await opened('two\n')).toBe(true);
-	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'broken\n');
-	await fetch(`${f.base}/reading/`);
-	for (
-		let tries = 0;
-		tries < 100 && !f.stderr().includes('did not build');
-		tries++
-	)
-		await Bun.sleep(100);
-	expect(f.stderr()).toContain('reading: the UI did not build');
+	const code = join(f.made, 'code');
+	const unbuilt = await fetch(`${f.base}/reading/`);
+	expect(unbuilt.status).toBe(404);
+	const hint = await unbuilt.text();
+	expect(hint).toContain(`Run: cd ${code} && bun run build\n`);
+	expect(hint).not.toContain('Give its package.json');
+	expect((await fetch(`${f.base}/reading/main.js`)).status).toBe(404);
+	// With no build script, the page names the one line to add.
+	await writeFile(join(code, 'package.json'), '{}\n');
+	expect(await (await fetch(`${f.base}/reading/`)).text()).toContain(
+		'"build": "bun build ui/index.html --outdir ui/dist"',
+	);
+	await mkdir(join(code, 'ui', 'dist'), { recursive: true });
+	await writeFile(join(code, 'ui', 'dist', 'index.html'), 'one\n');
+	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('one\n');
+	// An edit to ui/dist/ is what the next page load gets; ui/ itself is never read.
+	await writeFile(join(code, 'ui', 'dist', 'index.html'), 'two\n');
+	await writeFile(join(code, 'ui', 'page.txt'), 'three\n');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('two\n');
-	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'three\n');
-	expect(await opened('three\n')).toBe(true);
-	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
+	expect(existsSync(join(code, 'built-by-serve'))).toBe(false);
 });
 
 /**

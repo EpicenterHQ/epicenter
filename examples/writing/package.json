@@ -1,6 +1,9 @@
 {
 	"name": "writing-inbox",
 	"private": true,
+	"scripts": {
+		"build": "bun build ui/index.html --outdir ui/dist --minify"
+	},
 	"type": "module",
 	"license": "AGPL-3.0-or-later"
 }
