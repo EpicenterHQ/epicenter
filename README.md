@@ -70,7 +70,7 @@ Writing and Tasks both run on Epicenter 0.2.0 or later. To add
 epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
 ```
 
-For CLI commands, MCP setup, and optional background service installation, see
+For CLI commands, MCP setup, and keeping `serve` running in the background, see
 [the CLI guide](packages/cli/README.md).
 
 ## How it works
@@ -132,8 +132,7 @@ The CLI developer preview installs as a standalone executable from
 [GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.4.1).
 Writing is an exported app copied separately from GitHub. The executable
 carries the runtime; each app remains ordinary editable source.
-`epicenter service install` keeps `serve` running as a macOS LaunchAgent; the
-Linux job for a rented home is not built yet.
+`serve` is one process; keep it running as you would any program.
 
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Vocab)
 run on their home, outside this runtime source repository. Each app has

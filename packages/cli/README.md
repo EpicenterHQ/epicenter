@@ -47,13 +47,13 @@ curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-
 rehearsing downloads from a local HTTP server. `EPICENTER_INSTALL_DIR` overrides
 the absolute install directory. The installer replaces an existing executable
 only when it identifies itself as Epicenter. It refuses a symlink at that path.
-It leaves your Epicenter, shell configuration, and login services alone. If the
+It leaves your Epicenter, shell configuration, and login jobs alone. If the
 directory is missing from PATH, its instructions use the executable's full path.
 
 To update an existing home, run the installer above on the computer that runs
-`epicenter serve`. Check `epicenter --version`. From the home directory,
-restart the macOS login service with `epicenter service restart`, or restart
-`epicenter serve` in its terminal. Reload open app pages to use the new client.
+`epicenter serve`. Check `epicenter --version`. Restart `epicenter serve`: stop
+it in its terminal and start it again, or restart the job that runs it (see
+[Keep serve running](#keep-serve-running)). Reload open app pages to use the new client.
 
 For a first install, with `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, create an Epicenter:
 
@@ -78,8 +78,8 @@ explains one first change. Copied code belongs to you; later shared code
 does not replace it.
 
 Start on localhost. Add a private connection when another device needs access.
-On macOS, `epicenter service install` is an optional, explicit step to keep the
-server running at login. No login job is installed during onboarding.
+To keep the server running after you close the terminal, see
+[Keep serve running](#keep-serve-running).
 
 ### When to ship a runtime version
 
@@ -241,8 +241,8 @@ and the plain listing adds `(not offered to agents)`.
 
 ## One serve runs every action
 
-One serve per home. The port is its name and its lock. The operating system
-keeps it running, and the command line never starts it or stands in for it.
+One serve per home. The port is its name and its lock. You start it and keep it
+running; the command line never starts it or stands in for it.
 
 `epicenter serve` is the only process that runs an app's actions.
 `epicenter <app> <action>` checks its words and input, then sends the call to
@@ -254,7 +254,7 @@ While serve is stopped, an action is refused with exit 2 and nothing runs:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
-Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.
+Epicenter is not running for this home. Start it with `epicenter serve`.
 ```
 
 Listings, `--help`, `check`, `build`, and the other commands in
@@ -291,11 +291,11 @@ restarts. A command sent to it uses the answer, because the action ran, and
 adds one line to stderr:
 
 ```txt
-Epicenter is running version 0.4.0 and this command is version 0.4.1. Restart it with `epicenter service restart`, or stop `epicenter serve` and start it again.
+Epicenter is running version 0.4.0 and this command is version 0.4.1. Stop `epicenter serve` and start it again.
 ```
 
 An action runs in serve's environment: it does not see variables exported in
-the caller's shell, and what it prints goes to serve's log, not to the
+the caller's shell, and what it prints goes to serve's output, not to the
 command. Each load drops cached modules under `codePath`, dependencies
 included, then imports `code/epicenter.ts`. The next call reads edits to code
 or its imports without restarting serve.
@@ -306,8 +306,6 @@ fault with exit 1, since the action may have run. `process.chdir` or changes
 to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
-
-`epicenter service install` installs a macOS LaunchAgent for the current Epicenter, running the `epicenter` command found on `PATH` (or the compiled binary) at login. The job keeps the installing shell's `PATH` so actions can find the same programs. The person runs `install` and `uninstall`; agents may run `restart` and `status`. `status --json` reports whether it is installed and running, its pid when running, the serve port, and its log path.
 
 `epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI as serve-owned runs, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
@@ -320,8 +318,15 @@ Serve commits nothing. Git stores the home, and a home commits itself through
 a routine that runs its own script: see
 [The home commits itself](#the-home-commits-itself). Without that routine,
 nothing is committed or pushed on its own. On SIGINT or SIGTERM
-serve stops its routine commands and exits. The service job only keeps serve
-running.
+serve stops its routine commands and exits.
+
+## Keep serve running
+
+`epicenter serve` is one process. If it stops, it stays stopped, and every
+action is refused until something starts it again. Keep it running as you would
+any program, started from the home's folder: a terminal, tmux, a systemd user
+unit, or a LaunchAgent. Actions and routines run with that tool's environment,
+including its `PATH` ([ADR-0941](../../docs/adr/0941-epicenter-serve-is-a-program-you-keep-running.md)).
 
 ## Routines
 
@@ -357,7 +362,7 @@ run: ["epicenter", "flights", "daily", "run", {"recheck": false}]
 
 The working directory is the
 Epicenter folder. `epicenter` and `bun` use the running CLI and its runtime;
-other executables use the service's PATH. `EPICENTER_COMMAND` holds the CLI argv
+other executables use serve's `PATH`. `EPICENTER_COMMAND` holds the CLI argv
 as JSON for scripts calling back into it. A script
 calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
 Unknown fields and malformed declarations are refused. To stop a
@@ -374,10 +379,11 @@ schedules nothing.
 wait for it, time it, stop it, or note how it ended. Runs may overlap. A
 command that needs a deadline sets its own; one that must not overlap itself
 takes a lock, for example with `/usr/bin/lockf -t 0 <file> <command>`. A
-command's output goes where `serve`'s does, the service log, and its result is
-whatever it leaves in the home. `serve` writes to that log only a routine file
-it cannot read and a command it cannot start. Commands share `serve`'s process
-group, so stopping the service stops them. Commands must tolerate repetition;
+command's output goes where `serve`'s does, and its result is whatever it
+leaves in the home. `serve` writes to its stderr only a routine file it cannot
+read and a command it cannot start. Commands share `serve`'s process group, so
+stopping that group (Ctrl-C in a terminal, or the job that runs serve) stops
+them. Commands must tolerate repetition;
 there is no exactly-once guarantee.
 
 The [daily task review example](examples/daily-task-review.md) runs
