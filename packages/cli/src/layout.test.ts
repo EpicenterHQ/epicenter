@@ -76,6 +76,5 @@ test('missing and broken code entries list problems without hiding valid apps; a
 		result.problems.find((app: { entry: string }) => app.entry === 'missing')
 			.problems,
 	).toEqual(['code/epicenter.ts is missing']);
-	expect((await f.run('install', 'missing', '--json')).code).toBe(1);
 	expect((await f.run('build', 'missing', '--json')).code).toBe(1);
 });

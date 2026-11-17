@@ -39,11 +39,18 @@ export default defineApp({
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading books set '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
-the app, so the command supplies it: to `epicenter.ts` when it loads the file,
-and to the editor, `bun test`, and the UI's build by linking
-`code/node_modules/@epicenter/app` to its own copy (ADR-0873). The code project's
-`package.json` names only the app's own dependencies. An app's name is its
-folder's.
+the app. A home is one Bun workspace whose `package.json` depends on
+`@epicenter/cli` and `@epicenter/app` at one version, so `bun install` at the
+top of the home installs one copy, and `epicenter.ts`, the editor, `bun test`
+and the UI's build all find it by ordinary resolution, as the command does.
+An app's `code/package.json` names only the app's own dependencies and never
+lists `@epicenter/app`: a second copy would not share the state a call reaches
+its folder through, and the command refuses an app that would load one. After
+the home's packages change, restart `serve`. An app's name is its folder's.
+
+The package ships its TypeScript source and runs under Bun. See
+[the command's README](../cli/README.md#a-home-is-a-bun-workspace) for the
+home's `package.json`, upgrading, and trying an unreleased change.
 
 ## Three values, composed
 

@@ -38,21 +38,14 @@
 
 ## Try the CLI
 
-Use the [latest Epicenter CLI](https://github.com/EpicenterHQ/epicenter/releases?q=Epicenter+CLI)
-for a new home. The developer preview runs on macOS or Linux, arm64 or x64.
-It requires Git, curl, and shasum or sha256sum. Bun and an AI account are not required.
+A home is a folder that depends on Epicenter, as any Bun project depends on a
+package. It requires [Bun](https://bun.sh) and Git. An AI account is not
+required. With Git's `user.name` and `user.email` configured, create your
+Epicenter and copy the Writing app:
 
 ```sh
-curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.1/install.sh | sh
-```
-
-The installer verifies the download and installs `~/.local/bin/epicenter`.
-With Git's `user.name` and `user.email` configured, create your Epicenter and
-copy the Writing app:
-
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-epicenter init ~/Epicenter
+bun x @epicenter/cli init ~/Epicenter
+export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
 epicenter new writing --from EpicenterHQ/epicenter/examples/writing
 epicenter serve
@@ -63,7 +56,7 @@ source, then find and edit it. Keep the terminal open while the server runs.
 Your notes are Markdown files in `apps/writing/data/notes/`. You own the app's
 copy in `apps/writing/code/` and can change it with your editor or coding agent.
 
-Writing and Tasks both run on Epicenter 0.2.0 or later. To add
+To add
 [Tasks](examples/tasks/README.md) to your home, run
 
 ```sh
@@ -128,13 +121,13 @@ you apply.
 
 ## Status
 
-The CLI developer preview installs as a standalone executable from
-[GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.4.1).
-Writing is an exported app copied separately from GitHub. The executable
-carries the runtime; each app remains ordinary editable source.
+The CLI developer preview is two packages, `@epicenter/cli` and
+`@epicenter/app`, which a home depends on: a home is one Bun workspace, and
+its `package.json` names the version it runs. Writing is an exported app
+copied separately from GitHub. Each app is ordinary editable source.
 `serve` is one process; keep it running as you would any program.
 
-The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Vocab)
+The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Zhongwen)
 run on their home, outside this runtime source repository. Each app has
 `apps/<app>/code/` and sibling `data/` in the home's one private Git
 repository. Root checkpoints record pending code and records together;
@@ -183,8 +176,9 @@ Applications under `apps/` are outside apps
 
 | Package | What it is |
 | --- | --- |
-| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools and serves UIs. Git stores the home, one private root repository, and the command does not wrap it. |
-| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineData`, `defineAction`, fields, `folder`, and the client a UI calls actions with. |
+| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools and serves UIs. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
+| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineData`, `defineAction`, fields, `folder`, and the client a UI calls actions with. A home depends on it beside the command, at the same version. Published. |
+| [`@epicenter/theme`](packages/theme) | The Graphite + blue CSS variables, and the palette `epicenter init` writes into a new home as `theme.css`. Published, because the command depends on it. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |
 | [`@epicenter/server`](packages/server) | The Hono library `apps/api` composes. |

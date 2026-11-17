@@ -23,8 +23,8 @@ import {
 import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
 import { folderOnDisk } from './disk.ts';
-import { enginesProblem } from './engines.ts';
 import { CliError } from './errors.ts';
+import { libraryProblem } from './library.ts';
 import { appsDir, epicenterRoot } from './root.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
@@ -133,10 +133,11 @@ export async function homeEntries() {
 }
 
 /**
- * Drop every module this process loaded from under `folder`, its own
- * `node_modules` included, so the next import reads the files as they are
- * now (ADR-0880). A run already holding the old modules keeps them.
- * `@epicenter/app` is never under an app's folder: `bin.ts` supplies it.
+ * Drop every module this process loaded from under `folder`, so the next
+ * import reads the files as they are now (ADR-0880). A run already holding
+ * the old modules keeps them. The packages an app imports are in the home's
+ * top `node_modules/`, outside its folder, so a changed package shows only
+ * after this process restarts; `@epicenter/app` is one of them.
  */
 function forgetModules(folder: string) {
 	const inside = `${folder}${sep}`;
@@ -164,8 +165,8 @@ async function load(
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
-	const refused = await enginesProblem(place.codePath);
-	if (refused) return broken([refused]);
+	const apart = libraryProblem(entry, place.codePath, place.link);
+	if (apart) return broken([apart]);
 	let module: { default?: unknown };
 	try {
 		forgetModules(place.codePath);

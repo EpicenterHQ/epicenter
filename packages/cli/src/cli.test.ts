@@ -38,7 +38,8 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const linked = await f.app(
 		'linked',
 		`export default defineApp({ description: 'The linked app', actions: {} });`,
-		f.root,
+		// Inside the home: linked code finds packages from where it really is.
+		join(f.home, 'shelf'),
 	);
 	await symlink(linked, join(f.apps, 'linked'));
 	await mkdir(join(f.apps, '.hidden'));
@@ -97,33 +98,6 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	expect((await f.run('reading')).stdout).toContain(
 		'epicenter reading week summary\n    Weekly minutes (read-only)',
 	);
-});
-
-test('an app that asks for a newer epicenter is a problem and does not run; one whose floor is met runs', async () => {
-	const f = await setup();
-	const engines = (range: string) =>
-		`${JSON.stringify({ name: 'x', private: true, engines: { epicenter: range } })}\n`;
-	await writeFile(
-		join(f.apps, 'reading', 'code/package.json'),
-		engines(`>=${VERSION}`),
-	);
-	await writeFile(
-		join(f.apps, 'vault', 'code/package.json'),
-		engines('>=999.0.0'),
-	);
-	const listed = JSON.parse((await f.run('--json')).stdout);
-	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
-		'reading',
-	]);
-	expect(listed.problems).toMatchObject([
-		{
-			entry: 'vault',
-			problems: [
-				`package.json asks for epicenter ">=999.0.0", and this is epicenter ${VERSION}; update epicenter`,
-			],
-		},
-	]);
-	expect((await f.run('vault', '--json')).code).not.toBe(0);
 });
 
 test('commands write disk data and return one JSON answer without diagnostics', async () => {
@@ -226,6 +200,8 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 			command: `epicenter reading week summary '{"note":"it'\\''s here"}' 'two words'`,
 		},
 	]);
+	// The version the home has installed, read from its node_modules.
+	expect(value.version).toBe(VERSION);
 	expect(value.repository).toEqual({
 		lastCommit: expect.any(String),
 		uncommitted: 3,
@@ -236,7 +212,9 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 
 	const human = await f.run();
 	expect(human.code).toBe(0);
-	expect(human.stdout).toStartWith(`Epicenter: Epicenter (${f.home})\nreading`);
+	expect(human.stdout).toStartWith(
+		`Epicenter: Epicenter (${f.home})\nVersion: ${VERSION}\nreading`,
+	);
 	expect(human.stdout).toEndWith(
 		`
 Run: epicenter <app>
@@ -393,7 +371,8 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	const target = await f.app(
 		'linked',
 		`export default defineApp({ description: 'The linked app', actions: {} });`,
-		f.root,
+		// Inside the home: linked code finds packages from where it really is.
+		join(f.home, 'shelf'),
 	);
 	await symlink(target, join(f.apps, 'linked'));
 	expect(JSON.parse((await f.run('linked', '--json')).stdout).link).toBe(
@@ -424,7 +403,7 @@ test('app and action views include locations, schemas, field help and version', 
 		version: VERSION,
 	});
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
-	expect((await f.run('--help')).stdout).toContain('epicenter install [<app>]');
+	expect((await f.run('--help')).stdout).toContain('epicenter install\n');
 	expect((await f.run('install', '--help')).stdout).toBe(
 		`${COMMANDS.install.usage}\n${COMMANDS.install.help}\n`,
 	);

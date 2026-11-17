@@ -19,18 +19,19 @@ or 4747 when absent. Other devices reach it through the owner's private network,
 such as `tailscale serve`.
 
 ```txt
-<Epicenter>/                    one private Git repository
+<Epicenter>/                    one private Git repository, one Bun workspace
   .gitignore  .gitattributes     local files/caches excluded; optional LFS rules
   EPICENTER.md  AGENTS.md
+  package.json  bun.lock        the workspace and the Epicenter version; committed
+  node_modules/                 one install for the command and every app, ignored
   apps/<app>/                   stable container: folder.path and write lock
-    code/                       one Bun project
+    code/                       one package of the workspace
       epicenter.ts              data and actions
       epicenter.test.ts         action tests
-      package.json  bun.lock    actions' and UI's dependencies
+      package.json              named for the app; actions' and UI's dependencies
       README.md
       ui/                       optional browser UI
         dist/                   generated, ignored
-      node_modules/             supplied @epicenter/app link, ignored
     data/                       records and settings
       tasks/<id>.md
     local/                      this computer only; made by the first write
@@ -170,18 +171,22 @@ For Mail (ADR-0882), agents prepare and revise proposals. The person chooses
 in the reader. Exercise either write path only against fake Gmail as an agent.
 
 `code/epicenter.ts` default-exports `defineApp({ description, data,
-actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
-`node_modules` inside code/. Its actions may import anything its
-`package.json` names, plus Node's
-built-ins. Add packages with `bun add` in code/, then run
-`epicenter install <app>` to restore the supplied link, which Bun can remove.
-`@epicenter/app` comes from epicenter and is never listed in the app's
-`package.json`. Its `engines.epicenter` (`">=0.2.0"`) is the oldest
-`epicenter` the app runs on; `epicenter new` writes its own version there.
-Raise it when the app starts using something a newer `@epicenter/app` added,
-always as a floor (`>=`), never a caret. `epicenter new` and `epicenter install [<app>]` install from
-code/package.json (`--frozen-lockfile` when `bun.lock` exists) and link that package;
-a call never installs. Write each action with `defineAction`, which types its
+actions })`. The home is one Bun workspace and an app's code/ is one package
+of it: `code/package.json` is named for the app, and the home has the one
+`bun.lock` and the one `node_modules/`, at its top. An app's actions may
+import anything its `package.json` names, plus Node's built-ins; declare
+every package the app imports. Add one with `bun add <package>` in code/.
+`@epicenter/app` comes from the home's `package.json`, which names the
+version of Epicenter the home runs, and is never listed in the app's: a
+second copy is refused when the app loads. A package nested inside an app,
+such as `apps/films/code/render/` with its own `package.json`, gets its
+packages only once its path is added by hand to `workspaces` in the home's
+`package.json`. `epicenter install` is `bun install` at the top of the home;
+`epicenter init` and `epicenter new` run it, and a call never installs.
+Restart `serve` after packages change, by stopping and starting it: an edit
+to an app's own files shows on the next call, a changed package only after
+the restart. Upgrade Epicenter with
+`bun update --latest @epicenter/cli @epicenter/app`. Write each action with `defineAction`, which types its
 `run` from its `input`. Every action returns one Result. Return `Ok(value)`,
 `Ok(undefined)` for no value, or the Result of another action or data
 method. A tagged factory such as `ActionError.Missing({ path })` already
@@ -403,14 +408,14 @@ folder: when the app's `package.json` has a `build` script, `serve` runs it
 with `EPICENTER_OUT` naming the folder to write; otherwise it bundles
 `ui/index.html` and the TypeScript and CSS beside it, so a tiny UI needs no
 `package.json`. Either way the build writes relative URLs and is never told
-where it is served, and `@epicenter/app` comes from `epicenter`, linked into
-`node_modules/` before every build; never list it. `serve` serves `ui/dist/`
+where it is served, and `@epicenter/app/client` comes from the home's install;
+never list `@epicenter/app` in the app. `serve` serves `ui/dist/`
 and looks nowhere else. A build never installs: after adding a package, run
-`epicenter install <app>`.
+`epicenter install`.
 
 A change under `ui/` shows at `/<app>/` on the next page load after its
 build, and the last good build stays up meanwhile. A build that fails is not
-tried again until a file under `ui/`, `package.json`, or `bun.lock` changes;
+tried again until a file under `ui/`, `package.json`, or the home's `bun.lock` changes;
 run `epicenter build <app>` to build now and see the build's errors. Never
 commit `ui/dist/`. The UI owns unfinished input and local interaction state.
 Actions own stored records; the UI shows what serve answers and sends what the
@@ -593,7 +598,9 @@ Run tests one file or package at a time.
 Only when the person asks, on the computer that runs `epicenter serve`:
 
 - `epicenter new <app> --from <folder | owner/repo/folder#ref>` takes committed code into
-  apps/<app>/code/ and creates empty data/. It installs but does not build;
+  apps/<app>/code/ and creates empty data/. It names the copy's package.json
+  for the app, leaves out a copied bun.lock and any @epicenter/app entry, and
+  runs the home's install. It does not build;
   run `epicenter build <app>` to check it before opening its page.
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
@@ -606,7 +613,9 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   generated directory.
 - Back up the root to one optional private origin. The home's checkpoint
   script commits all pending files and pushes only there. Restore with one root clone
-  and `epicenter install`, then recreate what each app kept in `local/`.
+  and `bun install` at its top, then recreate what each app kept in `local/`.
+  An app's pages may link to the home's root `theme.css`, so a clone used to
+  rehearse a move must include that file.
 - Sharing code requires a separate code-only history, deliberately made and
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:

@@ -2,15 +2,20 @@
 
 `epicenter` runs the apps in an Epicenter as commands and MCP tools. An
 Epicenter is marked by `EPICENTER.md`. Its private root Git repository holds
-all apps' code and records. Each folder in `apps/` is a stable app container:
+all apps' code and records, and it is one Bun workspace: its `package.json`
+names the version of Epicenter it runs. Each folder in `apps/` is a stable app
+container:
 
 ```txt
 <Epicenter>/
   .git/  EPICENTER.md  AGENTS.md  theme.css  .gitignore  .gitattributes
+  package.json                  the workspace, and the Epicenter version
+  bun.lock                      committed
+  node_modules/                 ignored; one install for the command and every app
+  routines/  scripts/
   apps/<app>/
-    code/                       one Bun project
-      epicenter.ts  package.json  bun.lock  README.md
-      node_modules/             ignored
+    code/                       one package of the workspace
+      epicenter.ts  package.json  README.md
       ui/                       source
         dist/                   ignored build
     data/                       records and settings
@@ -23,47 +28,88 @@ its own private root repository, separate from this runtime source monorepo
 and from code-only app publications. Ordinary commands do not import or retire
 nested repositories.
 
+## A home is a Bun workspace
+
+```json
+{
+  "private": true,
+  "workspaces": ["apps/*/code"],
+  "dependencies": { "@epicenter/cli": "0.5.0", "@epicenter/app": "0.5.0" }
+}
+```
+
+`bun install` at the top of the home installs everything: the command, as
+`node_modules/.bin/epicenter`; `@epicenter/app`, the library every
+`epicenter.ts` imports; and each app's own packages. There is one `bun.lock`,
+which is committed, and one `node_modules/`, which is not. The command and
+every app find `@epicenter/app` by ordinary resolution, so the home runs one
+copy of it, and the version a home runs is a line in a file in Git.
+
+- Bun must be installed. The command is TypeScript that Bun runs; there is no
+  separate program to download.
+- Run the home's own command. Put `<home>/node_modules/.bin` on `PATH`, or
+  run `bun x epicenter` from inside the home.
+- An app's `code/package.json` is named for the app and lists only what the
+  app itself imports. It never lists `@epicenter/app`, which comes from the
+  home. Add a package with `bun add <package>` in `code/`.
+- `epicenter install` is `bun install` at the top of the home, from anywhere
+  inside it. `init` and `new` run it. Calls and listings never install.
+- Restart `serve` after changing packages: stop `epicenter serve` and start
+  it again. An edit to an app's own files
+  shows on the next call. A package lives in the home's top `node_modules/`,
+  outside the app's folder, and `serve` keeps the packages it has loaded.
+- Upgrade with `bun update --latest @epicenter/cli @epicenter/app`, both
+  together, then commit `package.json` and `bun.lock` and restart `serve`.
+  Reload open app pages to use the new client.
+- Bun reads one `bunfig.toml`, at the top of the home. It ignores one inside
+  an app, so a setting an app needs, such as `peer = false` under
+  `[install]`, goes in the top file. `init` writes none: a new home needs no
+  setting.
+- A package nested inside an app, such as `apps/films/code/render/` with its
+  own `package.json`, gets its packages only once its path is in the list:
+  `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
+  `init` writes only `apps/*/code`, and no command rewrites the list.
+
+The command checks that every app shares its copy of `@epicenter/app` each
+time it loads one, because a call reaches its app's folder through state the
+library keeps per call. An app that would load another copy is listed as a
+problem that names both:
+
+```txt
+apps/notes resolves @epicenter/app at <path>, and epicenter runs <other path>; run bun install at the top of the home
+```
+
+This happens when an app's folder has a `node_modules/@epicenter/app` of its
+own, when the home's two dependencies name different versions, or when the
+command that ran is not the home's own. An entry in `apps/` that is a link to
+code outside the home is also refused: Bun finds packages from where a file
+really is, so that code does not find the home's install. Keep an app's code
+inside the home.
+
 ## Install and try a writing inbox
 
 Writing is an ordinary app whose code is shared through export. Save
 thoughts, quotes, and links with their sources and projects, then search them
 from the browser, terminal, or an assistant. It needs no AI account or provider
-key. The executable supplies the runtime. `new --from` copies ordinary app files
-from GitHub into your Epicenter. No app is bundled in the executable.
+key. `new --from` copies ordinary app files from GitHub into your Epicenter.
 
-The release installer downloads a platform executable, verifies its SHA-256
-checksum, checks that it runs, and installs it in `~/.local/bin`. It requires
-Git, curl, and either shasum or sha256sum. Supported build targets are macOS and
-Linux on arm64 and x64. For a new home, install the
-[latest Epicenter CLI](https://github.com/EpicenterHQ/epicenter/releases?q=Epicenter+CLI)
-with the command below. Existing homes can run Writing and Tasks on Epicenter
-0.2.0 or later.
+You need Bun and Git, with Git's `user.name` and `user.email` configured.
+Create an Epicenter:
 
 ```sh
-curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.1/install.sh | sh
-```
-
-`EPICENTER_DOWNLOAD_BASE` overrides the asset URL, for example when
-rehearsing downloads from a local HTTP server. `EPICENTER_INSTALL_DIR` overrides
-the absolute install directory. The installer replaces an existing executable
-only when it identifies itself as Epicenter. It refuses a symlink at that path.
-It leaves your Epicenter, shell configuration, and login jobs alone. If the
-directory is missing from PATH, its instructions use the executable's full path.
-
-To update an existing home, run the installer above on the computer that runs
-`epicenter serve`. Check `epicenter --version`. Restart `epicenter serve`: stop
-it in its terminal and start it again, or restart the job that runs it (see
-[Keep serve running](#keep-serve-running)). Reload open app pages to use the new client.
-
-For a first install, with `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, create an Epicenter:
-
-```sh
-epicenter init ~/Epicenter
+bun x @epicenter/cli init ~/Epicenter
+export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
 epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+epicenter serve
+```
+
+`init` writes the home's files, runs `bun install` there, and commits them
+with the lock. In another terminal:
+
+```sh
 epicenter writing add '{"body":"An observation I want to return to","source":"My notebook","project":"Essay"}'
 epicenter writing search '{"query":"observation"}'
-epicenter serve
 ```
 
 Open `http://127.0.0.1:4747/writing/`. Save a real note, search for it, and open
@@ -86,21 +132,16 @@ To keep the server running after you close the terminal, see
 Can the installed `epicenter` run the changed app and build its UI? If so,
 ship the app commit and rebuild its UI when needed. For example, Tasks can
 reread a task after an uncertain save, and Flights can follow a search by
-its existing run ID. Both use capabilities already installed. Raise an
-app's `engines.epicenter` minimum only when it starts relying on behavior
-an older runtime cannot supply.
+its existing run ID. Both use capabilities already installed.
 
-Test routine app changes on the current Epicenter release. Recheck the
-minimum when you change `engines.epicenter`, use a runtime feature that
-might be newer, or investigate a failure on an older release. On the
-declared minimum, exercise the affected action or UI. For a shared app,
+Test routine app changes on the current Epicenter release. For a shared app,
 use `epicenter new <app> --from <source>` to check the copy people install.
 
-When a change needs a different executable or bundled `@epicenter/app`,
-ship those together under one new version. Commits can accumulate before
-that release. Ship separately when an installed consumer needs the fix now
-or when the next change depends on readers having upgraded first. Changes
-that can reach the same consumers together can share a release.
+`@epicenter/cli` and `@epicenter/app` ship together under one version, and
+`@epicenter/cli` depends on that exact `@epicenter/app`. Commits can
+accumulate before a release. Ship separately when an installed consumer needs
+the fix now or when the next change depends on readers having upgraded first.
+Changes that can reach the same consumers together can share a release.
 
 | Example | What to ship | Why |
 | --- | --- | --- |
@@ -114,48 +155,48 @@ number for the whole batch when it ships. Once distributed, a version
 identifies that build. The [Result cutover](../../docs/adr/0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md#cutover)
 records the wire behavior behind these examples.
 
-### Prepare release assets
+### Pack the packages, and try an unreleased change
 
-From the repository root, with dependencies installed:
+Three packages ship: `@epicenter/app`, `@epicenter/theme`, which the command
+depends on for the palette `init` writes, and `@epicenter/cli`. Each ships its
+TypeScript source and runs under Bun. From the repository root:
 
 ```sh
-bun run --cwd packages/cli release
+bun run --cwd packages/cli pack
 ```
 
-This writes a native executable, its `.sha256` file, and a versioned `install.sh`
-under `packages/cli/dist/release/`. The installer points to the intended GitHub
-tag `epicenter-cli-v<VERSION>`. That URL works only after the assets are published.
-To prepare another target, pass `--target darwin-arm64`, `darwin-x64`,
-`linux-arm64`, or `linux-x64`. `--outdir` selects the artifact directory.
-Build and verify each platform before publishing its executable.
+This writes the three tarballs, as a registry would receive them, into
+`packages/cli/dist/pack/<hash>/`, and prints the lines below with their paths.
+It publishes nothing. `bun pm pack` rewrites `catalog:` and `workspace:*` to
+real versions, and the script refuses a tarball where one is left. `--outdir`
+selects another folder.
 
-The [CLI release workflow](../../.github/workflows/release.cli.yml) builds each
-target on a matching native runner. It installs downloads over HTTP in a fresh
-home, copies the exported writing app, saves a note, builds the UI, and
-finds the note over MCP, with Bun absent from PATH. A manual workflow run only
-uploads build artifacts. After publication, enable its `verify-published` input
-to repeat all four trials against the public installer without credentials. Pushing an `epicenter-cli-v<VERSION>` tag creates a
-prerelease draft after all four platforms pass, with Latest explicitly disabled.
-It never publishes automatically and does not reuse desktop app tags or the
-monorepo's global latest-release URL. Whispering uses that global address for
-updates; keep the CLI marked as a prerelease and leave Latest disabled when
-publishing it.
+To run a home on an unreleased change, pack, then point the home's
+dependencies at the tarballs with `overrides` in its `package.json`:
 
-To prepare a public release:
+```json
+{
+  "overrides": {
+    "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.5.0.tgz",
+    "@epicenter/theme": "file:/path/to/pack/<hash>/epicenter-theme-0.0.1.tgz",
+    "@epicenter/cli": "file:/path/to/pack/<hash>/epicenter-cli-0.5.0.tgz"
+  }
+}
+```
 
-1. Commit the intended CLI and runtime source. Publish `examples/writing/` on
-   the default branch before releasing; the workflow exercises a public Git
-   copy before creating the draft.
-2. Review the committed source, then tag that commit to match the CLI's version.
-   Push the tag to run the release workflow.
-3. Review the four native onboarding runs, assets, and draft's install instructions.
-4. Publish the draft as a prerelease with Latest disabled, then try its exact
-   install command without GitHub credentials.
+Run `bun install` in the home and restart `serve`. `overrides` is needed, not
+only `dependencies`, because `@epicenter/cli` itself depends on the other two
+by version. Bun caches a tarball by its path, so a file changed in place keeps
+installing its old content: the file's path must change when its content
+does. The `<hash>` folder is named for the tarballs' content, so each pack of
+changed source is a new path. Rehearse on a clone of the home, not the home.
+An app's pages may link to the home's root `theme.css`, so the clone must
+include that file. Remove `overrides` and install again to return to the
+released version.
 
-A local build from a dirty checkout is a rehearsal artifact. Do not upload it
-as a release of a different source commit. Each app's `engines.epicenter`
-declares its minimum runtime; keep the default branch compatible with the
-public CLI release. Copied apps record their source commit in `SOURCE.md`.
+To publish, the owner publishes each tarball from that folder, `@epicenter/app`
+and `@epicenter/theme` before `@epicenter/cli`. No script or workflow in this
+repository publishes.
 
 Your Epicenter lives on a computer you control and keep on. `epicenter serve`
 offers its apps to devices on a private connection. An older laptop with
@@ -188,8 +229,9 @@ epicenter --version
 
 The commands are `init`, `new`, `export`, `install`, `build`, `check`,
 `serve`, and `service`. Their usage and help live in `src/commands.ts`.
-`epicenter` on its own reports the home: its apps, its routines, and one line
-about its repository. See [The home's report](#the-homes-report).
+`epicenter` on its own reports the home: the version it has installed, its
+apps, its routines, and one line about its repository. See
+[The home's report](#the-homes-report).
 Any other first word names an app. `--json` and `--help` (`-h`) go anywhere
 before `--`; `--version` is read only on its own. Each command parses flags
 strictly. A misuse returns its usage line and next help command.
@@ -199,30 +241,28 @@ strictly. A misuse returns its usage line and next help command.
 Discovery lists `apps/`, skips dot entries, and accepts a directory or a link
 to one with `code/epicenter.ts`. The file must default-export `defineApp(...)`.
 An entry with `code/` or `data/` but no declaration is listed with
-`code/epicenter.ts is missing`. Other folders are skipped.
+`code/epicenter.ts is missing`. Other folders are skipped. Discovery reads
+`apps/` only, never the `workspaces` list, so a package the owner added to
+that list is not taken for an app.
 
 An import or declaration failure is listed under that app's problems with a
-`code/epicenter.ts:` prefix. A wrong default export is also a problem. One
-broken app does not hide the others. Listings include container locations,
-data keys, schemas, actions, and linked targets. They carry no per-app Git
-status. An empty Epicenter says `No apps yet. Run: epicenter new <name>`.
+`code/epicenter.ts:` prefix. A wrong default export is also a problem, and so
+is an app that would load its own copy of `@epicenter/app`. One broken app
+does not hide the others. Listings include container locations, data keys,
+schemas, actions, and linked targets. They carry no per-app Git status. An
+empty Epicenter says `No apps yet. Run: epicenter new <name>`.
 
 The container's real path stays in `context.folder` and `folder.path`.
 Contracts address `data/...` from that container. A separate real `codePath`
-is used for module imports and invalidation, the engines check, package
-installation, the supplied `@epicenter/app` link, and UI builds and serving.
-Replacing `code/` leaves the container lock and record paths intact.
+is used for module imports and invalidation, the check for one shared
+`@epicenter/app`, and UI builds and serving. Replacing `code/` leaves the
+container lock and record paths intact.
 
-`epicenter install [<app>]` installs `code/package.json` with Bun, using
-`--frozen-lockfile` when `code/bun.lock` exists. It links
-`code/node_modules/@epicenter/app` to this command's package. An app lists
-only its own dependencies. After `bun add` in `code/`, run install again if
-Bun removed that link. Calls and listings never install dependencies.
-
-`code/package.json` may declare `engines.epicenter`. The shared Writing and
-Tasks examples both declare `>=0.2.0`.
-An unmet range is a listed problem and prevents running or building that app.
-Install and build report malformed layout entries without stopping other apps.
+`epicenter install` runs `bun install` at the top of the home with the Bun
+that runs the command, and takes no app name. With `--json` it answers
+`{ folder, installed, error? }`. A failure prints Bun's message and
+`Run: cd <home> && bun install`. A home with no `package.json` is told what
+one needs. Build reports malformed layout entries without stopping other apps.
 
 An action's input is one argument after its words, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
@@ -291,7 +331,7 @@ restarts. A command sent to it uses the answer, because the action ran, and
 adds one line to stderr:
 
 ```txt
-Epicenter is running version 0.4.0 and this command is version 0.4.1. Stop `epicenter serve` and start it again.
+Epicenter is running version 0.4.1 and this command is version 0.5.0. Stop `epicenter serve` and start it again.
 ```
 
 An action runs in serve's environment: it does not see variables exported in
@@ -325,7 +365,9 @@ serve stops its routine commands and exits.
 `epicenter serve` is one process. If it stops, it stays stopped, and every
 action is refused until something starts it again. Keep it running as you would
 any program, started from the home's folder: a terminal, tmux, a systemd user
-unit, or a LaunchAgent. Actions and routines run with that tool's environment,
+unit, or a LaunchAgent. What such a tool runs is Bun and the home's own
+command, `bun <home>/node_modules/.bin/epicenter serve`, so after an upgrade a
+restart runs the new version. Actions and routines run with that tool's environment,
 including its `PATH` ([ADR-0941](../../docs/adr/0941-epicenter-serve-is-a-program-you-keep-running.md)).
 
 ## Routines
@@ -361,10 +403,11 @@ run: ["epicenter", "flights", "daily", "run", {"recheck": false}]
 ```
 
 The working directory is the
-Epicenter folder. `epicenter` and `bun` use the running CLI and its runtime;
-other executables use serve's `PATH`. `EPICENTER_COMMAND` holds the CLI argv
-as JSON for scripts calling back into it. A script
-calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
+Epicenter folder. A routine whose program is `epicenter` runs the command
+`serve` itself is, and one whose program is `bun` runs the Bun running it;
+neither is looked up on PATH. Other executables use serve's `PATH`.
+`EPICENTER_COMMAND` holds the command's words as JSON, Bun then the command's
+file, for scripts calling back into it.
 Unknown fields and malformed declarations are refused. To stop a
 routine, remove its file; the home's history keeps it.
 
@@ -542,7 +585,10 @@ could not be checked.
 
 ## The home's report
 
-`epicenter` on its own prints the apps and any problems loading them, then
+`epicenter` on its own prints the version of Epicenter the home has
+installed, read from its `node_modules/@epicenter/cli`, or that it has none.
+`--json` carries it as `version`, `null` when there is none. Then come the
+apps and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
 refused, then one line about the repository:
 
@@ -612,12 +658,23 @@ committed.
 
 ## Initialize an Epicenter
 
-`epicenter init [<folder>] [--port <n>]` writes `EPICENTER.md`, seeds missing
-`theme.css` (the plain Graphite + blue palette), starter `AGENTS.md`,
+`epicenter init [<folder>] [--port <n>] [--no-install]` writes `EPICENTER.md`,
+seeds missing `theme.css` (the plain Graphite + blue palette), starter
+`AGENTS.md`, a `package.json` that makes the folder a Bun workspace depending
+on this command's version of `@epicenter/cli` and `@epicenter/app`,
 <!-- doc-path-check: ignore-next-line -->
 `routines/checkpoint.md` and an executable `scripts/checkpoint.sh`, creates
 `apps/`, and makes the root a repository if needed. It commits only files it wrote. Existing unrelated files and index
 entries are left for another commit.
+
+Before that commit, init runs `bun install` in the folder, so the first commit
+holds `bun.lock` and the home is ready to use. `--no-install` leaves the
+install to you, for a computer that is offline or a `package.json` you want to
+change first. When the install fails, the home is still made and committed:
+init prints Bun's message and `Run: cd <folder> && bun install`, and exits 1.
+A `package.json` already in the folder is kept as it is, so check that it
+lists the workspace and the two dependencies. Init writes no `bunfig.toml`
+and no lock inside an app.
 
 When absent, the root `.gitignore` excludes local files, node_modules,
 `.DS_Store`, `/apps/*/code/ui/dist/` for build output, and
@@ -629,19 +686,24 @@ To bring a home back on another computer:
 
 ```bash
 git clone <private-origin> ~/Epicenter
-cd ~/Epicenter && epicenter install
+cd ~/Epicenter && bun install
 ```
 
-The clone carries every app's code and records. `epicenter install` fetches
-what Git ignores and a lock file can rebuild: each app's `node_modules`. What
+The clone carries every app's code and records, the home's `package.json` and
+its `bun.lock`. `bun install` fetches what Git ignores and the lock can
+rebuild: the one `node_modules/`, with the command, at the versions the lock
+names. Then start `epicenter serve` however this computer keeps it
+running. What
 each app kept in `local/` is on no remote, so recreate it, for example by
 signing in again.
 
 ## Add or copy an app
 
-`epicenter new <name>` creates `apps/<name>/code/` with a declaration, an
-engines-bearing package manifest, and an ignore file for node_modules and
-ui/dist. It creates empty sibling `data/` and installs in `code/`. It makes no
+`epicenter new <name>` creates `apps/<name>/code/` with a declaration, a
+`package.json` named for the app that lists no packages, and an ignore file
+for node_modules and ui/dist. It creates empty sibling `data/`, then runs
+`bun install` at the top of the home, which adds the app to `bun.lock`. It
+writes no lock inside the app. It makes no
 repository or commit. Names are checked without regard to case and cannot
 be CLI command names. JSON reports `{ name, folder }`, with the container as
 folder. Text prints that path and `Run: epicenter <name>`.
@@ -712,7 +774,14 @@ and an optional JSON `links: [{ path, target }]`, with paths relative to code/.
 When the app has a browser UI, `new` prints how to start `serve` and open the app.
 For an action-only app it prints the command that lists its actions.
 
-Install failure leaves the created app for repair. Copy or load failure removes
+A copy joins the home's workspace: its `package.json` is named for the new
+app, since two packages in one workspace cannot share a name; any
+`@epicenter/app` it listed is removed, since the home supplies one copy; and
+a `bun.lock` it carried is left out, since the home has one lock. Code with no
+`package.json` gets the one blank code has. The rest of the file is kept.
+
+Install failure leaves the created app for repair, with
+`Run: cd <home> && bun install`. Copy or load failure removes
 only the container this command created. Opening a page triggers its first UI
 build; new does not build it.
 
@@ -843,17 +912,11 @@ files; you review, commit, and push them with Git.
 Paths in the build description below are relative to `code/`, unless prefixed
 with `code/`.
 
-An app's UI is what its `code/ui/` builds to in `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). A UI runs as it sits on disk, as actions do: `ui/dist/` is a cache of `ui/`'s sources, stamped in `ui/dist/.epicenter-build` with their fingerprint, the path, size and modified time of every file under `ui/` (but `ui/dist/`, `node_modules/`, and names starting with `.`), with the app's `code/package.json` and `bun.lock`, the `epicenter` version, and where the command's own `@epicenter/app` is with the path, size and modified time of each file in its `src/` (`src/ui.ts`), so a `serve` run from another checkout or a newer `epicenter` rebuilds every UI against its own client. When `serve` starts, it links `code/node_modules/@epicenter/app` in every installed app to its own copy. When a page load at `/<app>/` finds the fingerprint changed, `serve` builds in the background, one build per app at a time, and serves the last good build until it is done, so an edit shows on the next page load after its build, committed or not. A UI that has never built has no last build, so its page load waits for the first one, up to a minute, rather than answering 404. Sources whose build fails are not built again until they change; the failure is written to stderr once, with `Run: epicenter build <app>`. An app's code/ is one Bun project, so the build runs in code/. When the app's `code/package.json` has a `build` script, `bun --bun run build` runs with `EPICENTER_OUT` naming the folder to write, which must hold an `index.html`. Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, so one `index.html` and the files beside it are a UI with no `package.json`. With neither, or no `ui/`, there is nothing to build. Either way a build writes relative URLs and is never told where it is served, and runs with the Bun that runs `epicenter`; the compiled `epicenter` is Bun itself under `BUN_BE_BUN=1`. A build never installs: an app whose `package.json` names packages and has no `node_modules/` is skipped, with `Run: epicenter install <app>`, and nothing is remembered against it. Before every build, `code/node_modules/@epicenter/app` links to the command's own copy (`src/app-package.ts`): this repository's `packages/app`, or for the compiled `epicenter`, the package it carries, written once per build to `$XDG_DATA_HOME/epicenter/app/<version>-<hash>` (`~/.local/share` by default) with the packages it imports. The finished build replaces `ui/dist/` by rename, so `serve` never answers from half a build, and a failed build leaves the last one in place. `serve` never serves a path with a part starting with `.`.
+An app's UI is what its `code/ui/` builds to in `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). A UI runs as it sits on disk, as actions do: `ui/dist/` is a cache of `ui/`'s sources, stamped in `ui/dist/.epicenter-build` with their fingerprint, the path, size and modified time of every file under `ui/` (but `ui/dist/`, `node_modules/`, and names starting with `.`), with the app's `code/package.json`, the home's `bun.lock`, the `epicenter` version, and where the home's `@epicenter/app` is with the path, size and modified time of each file in its `src/` (`src/ui.ts`), so a changed install or a newer `epicenter` rebuilds every UI against the client of the `serve` that answers it. When a page load at `/<app>/` finds the fingerprint changed, `serve` builds in the background, one build per app at a time, and serves the last good build until it is done, so an edit shows on the next page load after its build, committed or not. A UI that has never built has no last build, so its page load waits for the first one, up to a minute, rather than answering 404. Sources whose build fails are not built again until they change; the failure is written to stderr once, with `Run: epicenter build <app>`. An app's code/ is one package of the home's workspace, so the build runs in code/. When the app's `code/package.json` has a `build` script, `bun --bun run build` runs with `EPICENTER_OUT` naming the folder to write, which must hold an `index.html`. Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, so one `index.html` and the files beside it are a UI with no `package.json`. With neither, or no `ui/`, there is nothing to build. Either way a build writes relative URLs and is never told where it is served, and runs with the Bun that runs `epicenter`. A build never installs: an app whose `package.json` names packages is skipped while the home has no `node_modules/`, with `Run: epicenter install`, and nothing is remembered against it. A UI imports `@epicenter/app/client` from the home's one install, the copy `serve` runs. The finished build replaces `ui/dist/` by rename, so `serve` never answers from half a build, and a failed build leaves the last one in place. `serve` never serves a path with a part starting with `.`.
 
 `epicenter build [<app>]` builds every app's UI from its sources now, or one app's, and shows the build's errors. It reports `UI built`, `nothing to build`, or a build error for each app. With `--json` it answers `{ "apps": [{ app, folder, built, error? }] }`, `built` saying whether there was a UI to build. A build error exits 1; another app can still build.
 
 Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the blank app's `.gitignore` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
-
-Compile the executable from the repository root:
-
-```sh
-bun run --cwd packages/cli compile
-```
 
 ## Tests
 

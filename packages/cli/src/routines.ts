@@ -11,7 +11,6 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isName, readMarkdown } from '@epicenter/app';
-import { COMPILED } from './commands.ts';
 import { writeErr } from './output.ts';
 
 /** `run` is the command's words: the program, then each argument as text. */
@@ -81,9 +80,13 @@ export function readRoutine(name: string, text: string): Routine {
  */
 export function createRoutines({ folder }: { folder: string }) {
 	const directory = join(folder, 'routines');
-	const epicenter: [string, ...string[]] = COMPILED
-		? [process.execPath]
-		: [process.execPath, fileURLToPath(new URL('./bin.ts', import.meta.url))];
+	// This command is a script Bun runs: the Bun running it now, then its entry.
+	// `--no-install`, as its own first line asks: Bun never fetches a package this home lacks.
+	const epicenter: [string, ...string[]] = [
+		process.execPath,
+		'--no-install',
+		fileURLToPath(new URL('./bin.ts', import.meta.url)),
+	];
 	// The only state: an occurrence that passes while serve is down does not run.
 	let since = new Date();
 
@@ -123,7 +126,6 @@ export function createRoutines({ folder }: { folder: string }) {
 			cwd: folder,
 			env: {
 				...process.env,
-				...(program === 'bun' ? { BUN_BE_BUN: '1' } : {}),
 				EPICENTER_ROOT: folder,
 				EPICENTER_COMMAND: JSON.stringify(epicenter),
 			},

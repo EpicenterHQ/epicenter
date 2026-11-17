@@ -1,7 +1,6 @@
 {
 	"name": "@epicenter/app",
-	"version": "0.4.1",
-	"private": true,
+	"version": "0.5.0",
 	"description": "What an app's epicenter.ts imports to define its collections, actions, and the app itself, and the client its UI calls them through.",
 	"repository": {
 		"type": "git",
@@ -31,6 +30,9 @@
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"typescript": "catalog:"
+	},
+	"publishConfig": {
+		"access": "public"
 	},
 	"license": "AGPL-3.0-or-later"
 }

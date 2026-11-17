@@ -36,7 +36,8 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	const linked = await f.app(
 		'journal',
 		`export default defineApp({ description: 'The journal app', actions: {} });\n`,
-		join(f.root, 'elsewhere'),
+		// Inside the home: linked code finds packages from where it really is.
+		join(f.home, 'elsewhere'),
 	);
 	await symlink(linked, join(f.apps, 'journal'));
 	await f.folder(join(f.apps, 'readme-only'), { 'README.md': 'not an app\n' });
@@ -319,7 +320,7 @@ Example:
 	);
 });
 
-test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no node_modules', async () => {
+test("D5 an epicenter.ts importing @epicenter/app loads from the home's install, with no node_modules of its own", async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	expect(existsSync(join(folder, 'node_modules'))).toBe(false);

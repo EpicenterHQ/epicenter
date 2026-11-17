@@ -69,10 +69,10 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	).not.toHaveProperty('cache');
 });
 
-test('W5 a symlinked entry loads an app where it lives', async () => {
+test('W5 a symlinked entry loads an app where it lives, when its code is inside the home', async () => {
 	const f = await setup();
 	const loose = await f.folder(
-		join(f.root, 'Code', 'loose'),
+		join(f.home, 'shelf', 'loose'),
 		{ 'code/epicenter.ts': bareApp('loose'), 'data/notes/a.md': 'a\n' },
 		{ git: false },
 	);
@@ -82,7 +82,7 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 	expect(existsSync(join(loose, '.git'))).toBe(false);
 	expect(existsSync(join(loose, '.gitignore'))).toBe(false);
 
-	const vault = await f.folder(join(f.root, 'Code', 'vault'), {
+	const vault = await f.folder(join(f.home, 'shelf', 'vault'), {
 		'recipes/code/epicenter.ts': bareApp('recipes'),
 		'journal/today.md': 'today\n',
 	});
@@ -96,4 +96,20 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 		'recipes',
 	]);
 	expect((await f.run('loose', '--json')).code).toBe(0);
+
+	// Code finds packages from where it really is, so code outside the home
+	// does not find the home's @epicenter/app, and the listing says so.
+	const outside = await f.folder(join(f.root, 'Code', 'outside'), {
+		'code/epicenter.ts': bareApp('outside'),
+	});
+	await symlink(outside, join(f.apps, 'outside'));
+	expect(JSON.parse((await f.run('--json')).stdout).problems).toEqual([
+		{
+			entry: 'outside',
+			folder: join(f.apps, 'outside'),
+			problems: [
+				`apps/outside is a link to ${outside}, where no @epicenter/app is found: code finds packages from where it is, not from this home. Keep the app's code inside this home`,
+			],
+		},
+	]);
 });

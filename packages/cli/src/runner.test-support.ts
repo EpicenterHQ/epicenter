@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -6,6 +6,36 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { COMMANDS } from './commands.ts';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
+
+/**
+ * A test home's `package.json`: the workspace `init` writes, without the
+ * two dependencies, which `bun install` would ask the registry for.
+ * `installPackages` puts them in place instead.
+ */
+export const homePackage = `${JSON.stringify({ private: true, workspaces: ['apps/*/code'] }, null, 2)}\n`;
+
+/**
+ * Give the home at `folder` the install a real one gets from `bun install`,
+ * without the network: `node_modules/@epicenter/app` and
+ * `node_modules/@epicenter/cli` link to this repository's packages, and
+ * `node_modules/.bin/epicenter` to the command. So an app there resolves the
+ * same `@epicenter/app` as the `bin.ts` a test runs. The empty
+ * `node_modules/.bun` is what Bun's own install leaves; with it there, a
+ * `bun install` the command runs keeps these links.
+ */
+export async function installPackages(folder: string) {
+	const modules = join(folder, 'node_modules');
+	await mkdir(join(modules, '.bun'), { recursive: true });
+	await mkdir(join(modules, '.bin'));
+	await mkdir(join(modules, '@epicenter'));
+	const packages = resolve(import.meta.dir, '..', '..');
+	await symlink(join(packages, 'app'), join(modules, '@epicenter', 'app'));
+	await symlink(join(packages, 'cli'), join(modules, '@epicenter', 'cli'));
+	await symlink(
+		join('..', '@epicenter', 'cli', 'src', 'bin.ts'),
+		join(modules, '.bin', 'epicenter'),
+	);
+}
 
 /** Run git in `dir`, throwing with its stderr when it fails. */
 export async function gitIn(dir: string, ...args: string[]) {
@@ -89,9 +119,9 @@ function callsAction(args: string[]) {
 }
 
 /**
- * A temporary `HOME` whose `Epicenter` folder is the app home, its apps in
- * `apps`, and the real
- * `bin.ts` run against it, so output, exit codes, and the folders on disk are
+ * A temporary `HOME` whose `Epicenter` folder is the app home, a Bun
+ * workspace with its packages in place (`installPackages`), its apps in
+ * `apps`, and the real `bin.ts` run against it, so output, exit codes, and the folders on disk are
  * tested together. Nothing here reads the person's own home.
  *
  * Only serve runs an action, so a `run` of one starts `epicenter serve` for
@@ -109,6 +139,8 @@ export async function fixture() {
 	// A home's port is how its serve is found, so each home has its own.
 	const port = await freePort();
 	await writeFile(join(home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
+	await writeFile(join(home, 'package.json'), homePackage);
+	await installPackages(home);
 	const apps = join(home, 'apps');
 	await mkdir(apps);
 	const env: Record<string, string | undefined> = {
@@ -150,13 +182,15 @@ export async function fixture() {
 		});
 	}
 
+	// As the command's own first line runs it: Bun never fetches a package the home lacks.
+	const command = [process.execPath, '--no-install', bin];
 	const serving: Serving = { byTest: 0, off: false };
 	/** Start this home's serve unless one runs already or the test asked for none. */
 	async function serve() {
 		if (serving.byTest || serving.off) return;
 		fixtures.add(serving);
 		if (!serving.own) {
-			const own = spawnServe(serving, [process.execPath, bin], root, env);
+			const own = spawnServe(serving, command, root, env);
 			serving.own = own;
 			// An action can end serve; the next one starts it again.
 			void own
@@ -178,7 +212,7 @@ export async function fixture() {
 
 	async function runIn(cwd: string, ...args: string[]) {
 		if (callsAction(args)) await serve();
-		const child = Bun.spawn([process.execPath, bin, ...args], {
+		const child = Bun.spawn([...command, ...args], {
 			cwd,
 			env,
 			stdout: 'pipe',
@@ -192,6 +226,15 @@ export async function fixture() {
 		return { stdout, stderr, code };
 	}
 	const run = (...args: string[]) => runIn(root, ...args);
+	/**
+	 * `epicenter init <folder>` with `args`, leaving the install out, then the
+	 * packages put in place as for this fixture's own home.
+	 */
+	async function init(folder: string, ...args: string[]) {
+		const result = await run('init', folder, '--no-install', ...args);
+		if (result.code === 0) await installPackages(folder);
+		return result;
+	}
 	return {
 		root,
 		home,
@@ -203,6 +246,7 @@ export async function fixture() {
 		app,
 		run,
 		runIn,
+		init,
 		serve,
 		stopServe,
 		serving,
@@ -221,7 +265,7 @@ export async function startServe(
 	f: Awaited<ReturnType<typeof fixture>>,
 	execArgv: string[] = [],
 	{
-		command = [process.execPath, ...execArgv, f.bin],
+		command = [process.execPath, '--no-install', ...execArgv, f.bin],
 		env = f.env,
 	}: { command?: string[]; env?: Record<string, string | undefined> } = {},
 ) {

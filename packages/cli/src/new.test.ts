@@ -1,5 +1,6 @@
 /** New apps use code/data containers; source copies preserve committed modes and links while excluding records and caches. */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import {
 	lstat,
 	mkdir,
@@ -80,13 +81,18 @@ test('new creates code and empty data without repositories and refuses taken and
 		'node_modules/\nui/dist/\n',
 	);
 	expect((await lstat(join(container, 'data'))).isDirectory()).toBe(true);
-	expect(
-		await realpath(join(container, 'code/node_modules/@epicenter/app')),
-	).toBe(await realpath(join(import.meta.dir, '../../app')));
-	expect(
-		await lstat(join(container, 'node_modules')).catch(() => undefined),
-	).toBeUndefined();
-	expect((await f.run('install', 'garden')).code).toBe(0);
+	// A package of the home's workspace, named for the app, that lists nothing:
+	// @epicenter/app comes from the home, which holds the one lock and install.
+	expect(await Bun.file(join(container, 'code/package.json')).json()).toEqual({
+		name: 'garden',
+		private: true,
+	});
+	for (const path of ['code/bun.lock', 'code/node_modules', 'node_modules'])
+		expect(existsSync(join(container, path))).toBe(false);
+	expect(await readFile(join(f.home, 'bun.lock'), 'utf8')).toContain(
+		'"apps/garden/code"',
+	);
+	expect((await f.run('garden', '--json')).code).toBe(0);
 	expect((await f.run('build', 'garden')).code).toBe(0);
 	await noNestedGit(f.apps);
 });
@@ -154,7 +160,6 @@ for (const form of [
 		expect(await readFile(join(dest, 'code/SOURCE.md'), 'utf8')).toContain(
 			`Repository: ${local ? await realpath(source) : 'https://github.com/owner/source'}\nFolder: ${prefix.replace(/\/$/, '') || '.'}\nCommit: ${commit}\n`,
 		);
-		expect((await f.run('install', 'copy')).code).toBe(0);
 		expect((await f.run('build', 'copy')).code).toBe(0);
 		await noNestedGit(f.apps);
 	});
@@ -613,4 +618,74 @@ test('copied LFS bytes retain inherited attributes under apps/name/code', async 
 		'filter=lfs',
 	);
 	await noNestedGit(f.apps);
+});
+
+test('new --from makes the copy a package of this home: named for the new app, without its lock or its own @epicenter/app', async () => {
+	const f = await setup();
+	// An app of this home with a lock of its own, as an older home kept one. A
+	// second package named `notes` would stop the install.
+	await f.folder(
+		f.home,
+		{
+			'apps/notes/code/epicenter.ts': `${header}export default defineApp({description:'Notes',actions:{}});\n`,
+			'apps/notes/code/package.json': `${JSON.stringify(
+				{
+					name: 'notes',
+					private: true,
+					scripts: { test: 'bun test' },
+				},
+				null,
+				'\t',
+			)}\n`,
+			'apps/notes/code/bun.lock': '{ "lockfileVersion": 1 }\n',
+			'.gitignore': 'node_modules/\n',
+		},
+		{ git: true },
+	);
+	const made = await f.run(
+		'new',
+		'journal',
+		'--from',
+		join(f.apps, 'notes'),
+		'--json',
+	);
+	expect(made).toMatchObject({ code: 0 });
+	const code = join(f.apps, 'journal/code');
+	// Only the name changed; the rest reads as it did.
+	expect(await readFile(join(code, 'package.json'), 'utf8')).toBe(
+		`${JSON.stringify({ name: 'journal', private: true, scripts: { test: 'bun test' } }, null, '\t')}\n`,
+	);
+	expect(existsSync(join(code, 'bun.lock'))).toBe(false);
+	const lock = await readFile(join(f.home, 'bun.lock'), 'utf8');
+	expect(lock).toContain('"apps/journal/code"');
+	const listed = JSON.parse((await f.run('--json')).stdout);
+	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
+		'journal',
+		'notes',
+	]);
+
+	// From elsewhere: an app that listed the library itself, and one with no
+	// package.json, which gets the one blank code has.
+	const source = await f.folder(
+		join(f.root, 'source'),
+		{
+			'old/epicenter.ts': `${header}export default defineApp({description:'Old',actions:{}});\n`,
+			'old/package.json': JSON.stringify({
+				name: 'old-name',
+				dependencies: { '@epicenter/app': '0.1.0' },
+			}),
+			'bare/epicenter.ts': `${header}export default defineApp({description:'Bare',actions:{}});\n`,
+		},
+		{ git: true },
+	);
+	for (const app of ['old', 'bare']) {
+		const from = join(source, app);
+		expect((await f.run('new', app, '--from', from)).code).toBe(0);
+	}
+	expect(await Bun.file(join(f.apps, 'old/code/package.json')).json()).toEqual({
+		name: 'old',
+	});
+	expect(await Bun.file(join(f.apps, 'bare/code/package.json')).json()).toEqual(
+		{ name: 'bare', private: true },
+	);
 });

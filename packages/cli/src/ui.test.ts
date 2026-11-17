@@ -117,28 +117,14 @@ test('a failed build keeps the last UI and says why', async () => {
 	expect(await f.ui()).toBe('one\n');
 });
 
-test('an app that asks for a newer epicenter is not built, and keeps its last UI', async () => {
-	const f = await vocab({ 'code/package.json': writes('one') });
-	expect((await f.run('build', 'vocab')).code).toBe(0);
-	await writeFile(
-		join(f.app, 'code/package.json'),
-		`${JSON.stringify({ name: 'vocab', private: true, engines: { epicenter: '>=999.0.0' }, scripts: { build: 'exit 9' } })}\n`,
-	);
-	const refused = await f.run('build', 'vocab');
-	expect(refused.code).toBe(1);
-	expect(refused.stderr).toContain(
-		'package.json asks for epicenter ">=999.0.0"',
-	);
-	expect(await f.ui()).toBe('one\n');
-});
-
-test('an app whose packages are not installed is not built, and is told to install them', async () => {
+test('an app that names packages is not built in a home with no install, and is told to install', async () => {
 	const f = await vocab({
 		'code/package.json': `${JSON.stringify({ name: 'vocab', dependencies: { 'left-pad': '1.3.0' }, scripts: { build: 'exit 9' } })}\n`,
 	});
+	await rm(join(f.home, 'node_modules'), { recursive: true });
 	const built = await f.run('build', 'vocab');
 	expect(built.code).toBe(1);
-	expect(built.stderr).toContain('epicenter install vocab');
+	expect(built.stderr).toContain('Run: epicenter install\n');
 	expect(built.stderr).not.toContain('exited 9');
 });
 

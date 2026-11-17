@@ -146,26 +146,6 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 	}
 });
 
-test('an app requiring a newer runtime is refused without leaving a partial app', async () => {
-	const f = await fixture();
-	try {
-		const source = await f.folder(
-			join(f.root, 'incompatible'),
-			{
-				'epicenter.ts': 'export default {};\n',
-				'package.json': JSON.stringify({ engines: { epicenter: '>=99.0.0' } }),
-			},
-			{ git: true },
-		);
-		const rejected = await f.run('new', 'writing', '--from', source);
-		expect(rejected.code).toBe(2);
-		expect(rejected.stderr).toContain('update epicenter');
-		expect(existsSync(join(f.apps, 'writing'))).toBe(false);
-	} finally {
-		await rm(f.root, { recursive: true, force: true });
-	}
-});
-
 test('init without a Git identity can be retried after configuring one', async () => {
 	const f = await fixture();
 	const folder = join(f.root, 'Fresh');
@@ -180,22 +160,25 @@ test('init without a Git identity can be retried after configuring one', async (
 		GIT_CONFIG_VALUE_0: 'true',
 	};
 	const run = async (configured: boolean) => {
-		const child = Bun.spawn([process.execPath, f.bin, 'init', folder], {
-			cwd: f.root,
-			env: {
-				...env,
-				...(configured
-					? {
-							GIT_AUTHOR_NAME: 'Developer',
-							GIT_AUTHOR_EMAIL: 'developer@example.test',
-							GIT_COMMITTER_NAME: 'Developer',
-							GIT_COMMITTER_EMAIL: 'developer@example.test',
-						}
-					: {}),
+		const child = Bun.spawn(
+			[process.execPath, f.bin, 'init', folder, '--no-install'],
+			{
+				cwd: f.root,
+				env: {
+					...env,
+					...(configured
+						? {
+								GIT_AUTHOR_NAME: 'Developer',
+								GIT_AUTHOR_EMAIL: 'developer@example.test',
+								GIT_COMMITTER_NAME: 'Developer',
+								GIT_COMMITTER_EMAIL: 'developer@example.test',
+							}
+						: {}),
+				},
+				stdout: 'pipe',
+				stderr: 'pipe',
 			},
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
+		);
 		return {
 			code: await child.exited,
 			stderr: await new Response(child.stderr).text(),

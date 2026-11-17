@@ -52,9 +52,9 @@ The next action call loads your changed code. Opening the page rebuilds changed
 UI sources; a build keeps serving the last good version until it finishes.
 `epicenter build writing` builds now and reports errors.
 
-This app has no third-party app dependencies. Epicenter supplies
-`@epicenter/app`. To add your own dependencies, run `bun add` in this code folder,
-then `epicenter install writing` from your Epicenter. Changes in a shared copy
+This app has no third-party app dependencies. `@epicenter/app` comes from
+your Epicenter's own `package.json`. To add your own dependencies, run
+`bun add` in this code folder, then restart `epicenter serve`. Changes in a shared copy
 do not replace your changes.
 
 History belongs to the Epicenter's private root repository. Make a named commit

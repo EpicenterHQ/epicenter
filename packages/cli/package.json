@@ -1,15 +1,24 @@
 {
 	"name": "@epicenter/cli",
-	"version": "0.4.1",
-	"private": true,
-	"description": "The epicenter command: runs the apps in ~/Epicenter as commands and as MCP tools.",
+	"version": "0.5.0",
+	"description": "The epicenter command: runs the apps of an Epicenter home as commands and as MCP tools. A home depends on it and runs it with Bun.",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/EpicenterHQ/epicenter.git",
+		"directory": "packages/cli"
+	},
+	"homepage": "https://epicenter.so",
 	"type": "module",
 	"bin": {
 		"epicenter": "./src/bin.ts"
 	},
+	"files": [
+		"src",
+		"!src/**/*.test.ts",
+		"!src/**/*.test-support.ts"
+	],
 	"scripts": {
-		"compile": "bun scripts/compile.ts",
-		"release": "bun scripts/release.ts",
+		"pack": "bun scripts/pack.ts",
 		"typecheck": "tsc --noEmit",
 		"test": "bun test"
 	},
@@ -23,6 +32,9 @@
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"typescript": "catalog:"
+	},
+	"publishConfig": {
+		"access": "public"
 	},
 	"license": "AGPL-3.0-or-later"
 }

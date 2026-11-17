@@ -6,7 +6,7 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 
 | Prefix | Purpose | Scope |
 |---|---|---|
-| `release.{app}` | Tag-triggered builds + GitHub Release draft | Desktop apps or the CLI, each with its own tag prefix |
+| `release.{app}` | Tag-triggered builds + GitHub Release draft | Desktop apps, each with its own tag prefix |
 | `pr-preview.{app}` | PR preview desktop builds | Per Tauri app (expensive 3-platform matrix) |
 | `deploy.{target}` | Web app deployment | Deployed web targets |
 | `ci.{name}` | Code quality checks | Whole repo |
@@ -18,14 +18,10 @@ Web apps (Cloudflare Workers) deploy **together in one workflow** because deploy
 
 ### CLI releases
 
-`release.cli.yml` builds `epicenter-cli-v*` tags on native macOS and Linux
-runners for arm64 and x64. Each runner tries the downloaded installer and a
-Git source copy of the writing app in a fresh home without Bun on PATH. After
-all four pass, the workflow creates a prerelease draft with Latest disabled,
-executables, checksums, an installer, and onboarding instructions. This keeps
-Whispering's global Latest update address unchanged. A manual run uploads artifacts without
-creating a release. Publication is a separate action after reviewing the draft.
-See [the CLI release procedure](../../packages/cli/README.md#prepare-release-assets).
+No workflow builds or publishes the CLI. `@epicenter/cli`, `@epicenter/app`
+and `@epicenter/theme` are packages a home depends on; the owner packs and
+publishes them by hand. See
+[packing the packages](../../packages/cli/README.md#pack-the-packages-and-try-an-unreleased-change).
 
 ### Web Deployment (Cloudflare Workers)
 

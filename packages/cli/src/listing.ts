@@ -88,21 +88,29 @@ export type RoutineRow =
 	| { name: string; problem: string };
 
 /**
- * The home's report: its apps, with broken entries kept apart from runnable
- * ones, then its routines, then one line about its repository. `--json`
- * carries the same facts; `repository` is `null` when the home is not one.
+ * The home's report: the version of Epicenter it has installed, its apps,
+ * with broken entries kept apart from runnable ones, then its routines, then
+ * one line about its repository. `--json` carries the same facts; `version`
+ * is `null` when the home has no install, and `repository` when it is not
+ * one.
  */
 export function homeListing(
 	found: Discovery,
 	{
 		routines,
 		repository,
-	}: { routines: RoutineRow[]; repository: RepositoryStatus | null },
+		version,
+	}: {
+		routines: RoutineRow[];
+		repository: RepositoryStatus | null;
+		version: string | null;
+	},
 	json: boolean,
 ): unknown {
 	if (json)
 		return {
 			epicenter: found.epicenter,
+			version,
 			apps: found.apps.map((app) => appListing(app)),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
@@ -118,7 +126,12 @@ export function homeListing(
 	});
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
-	lines.unshift(`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`);
+	lines.unshift(
+		`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`,
+		version === null
+			? 'Version: not installed. Run: epicenter install'
+			: `Version: ${version}`,
+	);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
 		for (const app of found.problems)
