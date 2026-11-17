@@ -1,6 +1,6 @@
 ---
 name: epicenter-app
-description: "Make or change an Epicenter app: its collections, actions, UI, code/data container, and private root history. Use when asked to build a personal app, change Capture, Reading, Tasks, or Vocab, set up an Epicenter, copy or share app code, or adapt code from another app on the computer that runs epicenter serve."
+description: "Make or change an Epicenter app: its data, actions, UI, code/data container, and private root history. Use when asked to build a personal app, change Capture, Reading, Tasks, or Vocab, set up an Epicenter, copy or share app code, or adapt code from another app on the computer that runs epicenter serve."
 ---
 
 # Epicenter apps
@@ -24,7 +24,7 @@ such as `tailscale serve`.
   EPICENTER.md  AGENTS.md
   apps/<app>/                   stable container: folder.path and write lock
     code/                       one Bun project
-      epicenter.ts              collections and actions
+      epicenter.ts              data and actions
       epicenter.test.ts         action tests
       package.json  bun.lock    actions' and UI's dependencies
       README.md
@@ -32,7 +32,7 @@ such as `tailscale serve`.
         dist/                   generated, ignored
       node_modules/             supplied @epicenter/app link, ignored
     data/                       records and settings
-      tasks/<time>.md
+      tasks/<id>.md
     local/                      this computer only; made by the first write
       google.md
 ```
@@ -59,13 +59,13 @@ The code travels through export; the records stay private. Someone taking the
 app copies committed code without its records or private history. A private
 origin can still back up the root, including all apps' records.
 
-Before shaping a collection, decide where its truth is (`docs/vision.md`,
+Before shaping a data key, decide where its truth is (`docs/vision.md`,
 ADR-0896, ADR-0898), then copy the nearest example in `~/Epicenter/apps`:
-Tasks for a kept collection, whose files are the truth; Mail for a cached
-one, a `.local` copy of a service with the person's decisions kept beside it
-and applied through an action; Messages for a live one, asked each time. An
-item from elsewhere moves into a kept collection by transfer: write it with
-its source id, then close it at the source. Never keep two writable copies in
+Tasks for kept records, whose files are the truth; Mail for a service whose
+records stay there, with the person's decisions kept in `data/` and applied
+through an action; Messages for live records, asked each time. An item from
+elsewhere moves into kept records by transfer: write it with its source id,
+then close it at the source. Never keep two writable copies in
 step, and never make one app import or call another. Anything under
 "Not yet" or "Never" in `docs/vision.md` needs the owner's yes.
 
@@ -77,28 +77,28 @@ for their agent to adapt, with any record repair explained beside it.
 ## Decide the files first
 
 The files outlive every UI and agent, so their shape is the decision that
-matters most. Define each collection with `defineCollection({ path, fields })`
-in `code/epicenter.ts`: a path template and the fields of each file's front matter
-(`packages/app/README.md`). A collection gives
-`list|get|add|set` through `.actions()`, and `delete` only when named
-(`.actions('delete')`). An app with one collection spreads them at the top, so they are
-its own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests
-each under its name (`epicenter mail messages list`). A record's address is
-its path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
-A path is one relative `.md` template under `data/`, such as
-`data/days/{day}.md`; files in a second layout are a second collection.
-`defineCollection` refuses a path outside `data/`, a list of paths, or a part
-starting with `.`. A field or placeholder may not be named `path`,
-`body`, `was`, or `edit`. No field has a `default`: a definition with one is
-refused, so write the default where the value is read (`limit ?? 50`).
+matters most. Declare them with `defineData` in `code/epicenter.ts` (or a
+`data.ts` beside it), one key per kind of record under `data/`
+(`packages/app/README.md`). A key without `.md` is a folder: `tasks` holds
+`data/tasks/<id>.md`, one record per file, named by its id. A key ending in
+`.md` is one file: `settings.md` is `data/settings.md`. Each key gives
+`fields`, the front matter of each file, and may give a `description` of one
+record. `data.tasks.actions('list', 'get', 'add', 'set', 'delete')` gives the
+verbs it names and only those; a one-file key offers `get`, `set`, and
+`delete`. An app with one key spreads its verbs at the top, so they are its
+own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests each
+under its name (`epicenter mail proposals list`). A record's address is its
+path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`. `defineData`
+refuses a key that is not a name, a field named `path`, `body`, `id`, or
+`edit`, and a `readOnly` field. No field has a `default`: a definition with
+one is refused, so write the default where the value is read (`limit ?? 50`).
 
-- Choose the path by how people and agents will name a file. `{time}` suits
-  things made in passing (`data/captures/{time}.md`, `data/tasks/{time}.md`): `add`
-  names the file by the time. A placeholder `add` takes suits things named by
-  what they are (`data/words/{word}.md`, `data/books/{title}.md`), at the cost of
-  characters a file name cannot hold. A method finds a file by the value
-  exactly as given first, then as NFC, trimmed, with single spaces, which is
-  the name `add` writes, so an action passes what the person typed.
+- Choose the id by how people and agents will name a file. `timeId()` suits
+  things made in passing (Tasks and Writing name each new record with it). An
+  id the caller gives suits things named by what they are (`data/words/<id>.md`
+  for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
+  control characters, a leading dot, or spaces at either end; anything else is
+  `Refused`. `field.id()` takes one as action input.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
   as `field.date` and `field.datetime` hold them; `toISOString()` gives UTC's
@@ -106,27 +106,26 @@ refused, so write the default where the value is read (`limit ?? 50`).
 - Derive a state from fields that already say it rather than storing it
   twice: Reading has no status, since `started` and `finished` say whether
   a book is to read, being read, or read.
-- The `list` verb returns `Ok(rows)`, one Result per file without bodies.
-  The method gives one Result per file with bodies. Put what a list or an agent needs at a glance in a field (a
-  task's `title`); put prose in the body.
+- `list` returns one Result per file, bodies included. Put what a list or an
+  agent needs at a glance in a field (a task's `title`); put prose in the
+  body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
   required field takes no `null`. A generated `set` requires at least one
   submitted field or body edit.
-- Mark a field `readOnly` when only the app's own actions may write it (Vocab's
-  schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
-  A `readOnly` field that is required removes the exposed `add`, so write
-  the app's own (Capture's `add`).
+- When only the app's own actions may write a field (Vocab's schedule,
+  Capture's `capturedAt`), leave the verb that would write it out of
+  `actions(...)` and write the app's own action instead (Capture's `add`).
 - Constrain text with `field.text({ pattern, description })`, the description
   reading after "must be" (Tasks' title: `one line, not blank, saying what to
   do`), so the generated `set` refuses what the app's own `add` would.
-- `get(keys)` gives `Ok(record)` when the file fits. An absent switch reads
-  as `false` and an absent list as `[]`. A missing keyed file gives
-  `Ok(undefined)` to the method and `Missing` to the generated action.
-  `RecordOf<typeof tasks>` names a fitting record.
+- `get(id)` gives `Ok(record)` when the file fits: its `path`, `id`, fields,
+  and `body`. An absent switch reads as `false` and an absent list as `[]`. A
+  missing file gives `Ok(undefined)` to the method and `Missing` to the
+  generated action.
 - A malformed file gives `Err(Misfit)`. Its error carries a path and
-  diagnostic lines. For a readable non-local file it also carries a partial
-  `record` for repair. A computed write refuses before its callback runs.
+  diagnostic lines. When the front matter is readable it also carries a
+  partial `record` for repair. A computed write refuses before its callback runs.
   A direct patch can repair readable front matter if the whole result fits.
   Unreadable front matter needs a file edit.
 - `field.list(item)` reads as `[]` when absent and is never needed from a
@@ -134,25 +133,24 @@ refused, so write the default where the value is read (`limit ?? 50`).
   `field.list(item, { min: 1 })`: it is required, `--help` and the schema an
   agent receives say so, and an empty list is refused before `run`.
 - The `set` verb sends what the caller last saw, since it cannot send a
-  function: fields, an optional `was` naming the field values it last saw
-  (`null` for absent), and `edit: { old, new }` to replace the passage `old`
-  of the body. `old` must occur exactly once, or be the whole body, or be empty
-  for an empty body (ADR-0869). One call is one write: when a `was` value or
-  the passage does not hold, it is refused with `Changed` (`why` says which)
-  and nothing is written, fields included. So a page that saves a record's
+  function: `id`, the fields, and `body` or `edit: { old, new }` to replace
+  the passage `old` of the body. `old` must be non-empty and occur exactly
+  once. One call is one write: when the passage is gone or appears twice, it
+  is refused with `Changed` (`why` is `quote` or `twice`) and nothing is
+  written, fields included. So a page that saves a record's
   fields and its notes sends one `set`. In code, `set` carries `body`, as
   data or from a function of the record.
 - An app is `code/`, `data/` and `local/`. What is in `local/` stays on the
   computer that runs the app: the root `.gitignore` leaves it out of every
   commit, and `folder` makes a new file there `0600`. Git's ignore rules are
   the only guard, so never `git add -f` a file there. It holds plain files, not
-  collections: a token, a cache, a database. Keep a secret, such as a sign-in
+  data keys: a token, a cache, a database. Keep a secret, such as a sign-in
   token, with `folder.write('local/google.md', token)` and read it with
   `folder.read('local/google.md')`, which gives `undefined` before sign-in.
   Use `folder.update` to compare the old token when refreshing it. No
   generated verb reaches `local/`, so no MCP client is handed the token. A
   fresh clone has no `local/`, so the person signs in again.
-- The collections are the contract between code and records. Reads tolerate
+- The data keys are the contract between code and records. Reads tolerate
   disagreement: undeclared keys are kept by every write and left out of a
   read, and a missing optional field is no problem. Rename or tighten a field
   in two steps: change the code, then repair records with an action or agent.
@@ -167,7 +165,7 @@ For Mail (ADR-0882), agents prepare and revise proposals. The person chooses
 `apply` to approve a proposal or `change` to act on the messages displayed
 in the reader. Exercise either write path only against fake Gmail as an agent.
 
-`code/epicenter.ts` default-exports `defineApp({ description, collections,
+`code/epicenter.ts` default-exports `defineApp({ description, data,
 actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
 `node_modules` inside code/. Its actions may import anything its
 `package.json` names, plus Node's
@@ -181,31 +179,30 @@ always as a floor (`>=`), never a caret. `epicenter new` and `epicenter install 
 code/package.json (`--frozen-lockfile` when `bun.lock` exists) and link that package;
 a call never installs. Write each action with `defineAction`, which types its
 `run` from its `input`. Every action returns one Result. Return `Ok(value)`,
-`Ok(undefined)` for no value, or the Result of another action or collection
+`Ok(undefined)` for no value, or the Result of another action or data
 method. A tagged factory such as `ActionError.Missing({ path })` already
 returns an Err. When continuing a calculation, use
 `if (read.error !== null) return read` before reading `read.data`. Add an action when the caller cannot do the job with the
 verbs: a rule on making a file (Tasks' `add` splits a title from its notes),
 a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
-`{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
-collection's methods, which name a record by its keys and take the change
-second (`words.get({ word })`, `words.set({ word }, { meaning, body })`,
-`words.set({ word }, (now) => Ok(patch(now)))`, `words.update({ word }, change)`),
-instead of parsing front matter again; a row passes as its own keys. A
-collection with no placeholder takes no keys (`settings.get()`). Its fields
-must allow an empty file. It reads as `Ok(record)` before the first write,
-has no `add`, and its `set` method or verb can create the file. For
+`{ ...data.words.actions('list', 'get', 'set'), add: learn }`. Inside `run`,
+read and write through the key's methods, which name a record by its id and
+take the change second (`data.words.get(word)`,
+`data.words.set(word, { meaning, body })`, `data.words.update(word, change)`),
+instead of parsing front matter again. A one-file key's methods take no id
+(`data['settings.md'].get()`); it reads as `Ok(undefined)` before the first
+write, has no `add`, and its `set` method or verb can create the file. For
 other files, the imported `folder` supplies atomic writes and updates.
-`words.pathOf({ word })` gives a record's path; never build one by hand.
-Make the first write through `folder` or a collection, so the call takes
+`data.words.pathOf(word)` gives a record's path; never build one by hand.
+Make the first write through `folder` or a data method, so the call takes the
 container's lock. It stays held until the call returns, throws, or stops.
 After that first write, a library or `node:fs` write shares the call's lock
 lifetime. All writes stay pending
 until a commit records them.
-`folder` refuses a write outside `data/`.
+`folder` refuses a write outside `data/` and `local/`.
 Reads may reach the whole Epicenter, including another app's records by a
-path like `../tasks/data/tasks/<time>.md`, using `node:fs` or a library.
+path like `../tasks/data/tasks/<id>.md`, using `node:fs` or a library.
 Resolve that path from `folder.path`, which is the container. Change another
 app's data through its actions so its rules check the write; this is guidance,
 not enforced.
@@ -227,22 +224,23 @@ reaches every app `serve` runs.
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
 directly. A value computed from `get` and written with `set` is last write
-wins: a change made between them is lost. Compute it inside `set`. Its callback receives a fitting record and returns `Ok(patch)`
-or a tagged Err. A missing keyed file gives `Missing`. A concurrent change
-causes a retry with the new record. Vocab's
+wins: a change made between them is lost. Compute it inside `update`. Its
+callback receives the fitting record, or `undefined` for an absent file, and
+returns `Ok(patch)` or a tagged Err; from `undefined` it creates the file. No
+other write to the file runs between its read and its write. Vocab's
 `review` schedules a word this way, so two reviews at once both count.
-`update(keys, change)` also takes a Result-returning callback. For an absent
-keyed file it supplies `undefined` and creates the file from `Ok(patch)`.
 The patch can carry a new `body`, so Reading's `start` makes a book or starts it in one `update`,
 never `get` then `add`, which two calls at once would race.
 
 ```ts
-return words.set({ word }, (found) => Ok({ reps: (found.reps ?? 0) + 1 }));
+return data.words.update(word, (found) =>
+  found ? Ok({ reps: (found.reps ?? 0) + 1 }) : ActionError.Missing({ path: data.words.pathOf(word) }),
+);
 ```
 
 Use `folder.update(path, change)` for a raw text change. It passes the current
 text, or `undefined` when the file is absent. Either way, keep `change` a pure function of what it is
-given, since it may run more than once. A collection callback returns a tagged
+given. A data callback returns a tagged
 Err to decline or `Ok({})` to leave an existing file alone. A raw folder
 callback returns the new text.
 
@@ -256,9 +254,9 @@ to replace it. The result carries the value from the winning attempt. `set` give
 the values it is given, and `folder.write` is for a file whose whole content
 the action decides: for both, the last write wins.
 
-The generated verbs take a record's keys flat, beside the other fields. On the
+The generated verbs take a record's `id` flat, beside the other fields. On the
 command line an action's input is one JSON object, the same one MCP takes:
-`epicenter vocab set '{"word":"serendipity","meaning":"a lucky find"}'`.
+`epicenter vocab set '{"id":"serendipity","meaning":"a lucky find"}'`.
 For text a person wrote, pipe it with `- <<'EOF'`, which has no quoting to get
 wrong; `epicenter <app> <action> --help` lists the keys. An action you write
 chooses its own input, and should take what its caller knows: Vocab's `review`
@@ -402,7 +400,7 @@ export const writes = resultMutations(['tasks'], { add: app.add, set: app.set })
 A page that reopens cannot rejoin a call. It shows what the app's records
 say, so an action whose work outlasts the page writes its progress and its
 outcome as records. An action that must not run twice takes an id the page
-makes in its input and uses it as the record's key, so calling again with
+makes in its input and uses it as the record's id, so calling again with
 the same id is safe. See the app package README for updates and the call
 route.
 
@@ -422,7 +420,7 @@ Build the layout's QueryClient in the UI's own `src/lib/query-client.ts`
 using its own `@tanstack/svelte-query` so the bundle carries one copy.
 Check the helper's export in the app you copy. Provide the client through
 `<QueryClientProvider>` and apply the invalidation rule from `query-layer`.
-Pages read with `createQuery(() => reads.get({ time }))` and write with
+Pages read with `createQuery(() => reads.get({ id }))` and write with
 `createMutation(() => writes.set)`. Use the server app's action types, for
 example `ActionInput<typeof tasksApp.actions.set>` and
 `ActionOutput<typeof tasksApp.actions.get>`.
@@ -435,10 +433,10 @@ still refreshes once it returns. Closing the view stops it listening; the
 action runs on. A call cut off before its answer resolves to `Unreachable`:
 reread the record before deciding what happened.
 
-- Route a record by its keys, which every row carries: the page is at
-  `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the
-  keys from its route. Write no code that knows the app's templates; show a
-  record's name from its read (`row.word`).
+- Route a record by its id, which every row carries: the page is at
+  `#/words/<id>`, the id URL-encoded, and calls `get({ id })` with the id
+  from its route. Write no code that builds paths; show a record's name from
+  its read (`row.id`).
 - In a list, show a file's `Misfit` beside the other rows. Use its partial
   record for a repair form when present. Keep the fitting records usable.
 
@@ -459,7 +457,7 @@ reread the record before deciding what happened.
   Writes also arrive from other tabs, agents, and the command line; blocking
   local edits while pending prevents only this page's overlap.
 - Use `set` with its quoted base (`edit: { old: base, new: draft }`, beside
-  any fields and their `was`) when the app promises conflict detection. On `Changed`, reread and preserve the submitted text
+  any fields) when the app promises conflict detection. On `Changed`, reread and preserve the submitted text
   while resolving the conflict. When last-write-wins is accepted, use the app's
   replacement action without adding rebasing or a recovery queue.
 - Show a write before it lands from the mutations still pending:
@@ -474,7 +472,7 @@ reread the record before deciding what happened.
 
 For an explicit-save form whose live preview reads unfinished input, keep the
 draft over the query's data so a refresh never overwrites typing. This view is
-keyed by the record's collection keys and receives a successfully read file; `Textarea`
+keyed by the record's id and receives a successfully read file; `Textarea`
 and `Preview` are the app's components:
 
 ```svelte
@@ -508,8 +506,8 @@ An immediate editor that already owns accepted typing needs no second draft.
 ### Fields, body, and conflict responses
 
 For a form that saves fields and a body together, send one generated `set`
-with the record's keys, submitted fields, their `was` values, and
-`edit: { old: base, new: draft }`. The collection checks every guard before
+with the record's `id`, submitted fields, and
+`edit: { old: base, new: draft }`. The `set` verb checks the passage before
 writing the file. If another writer changed the passage, the entire edit
 returns `Changed`. A workflow that deliberately makes separate writes
 must account for each completed write when a later one fails.

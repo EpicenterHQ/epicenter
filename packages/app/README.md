@@ -1,8 +1,7 @@
 # @epicenter/app
 
 What an app's `code/epicenter.ts` imports
-([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md),
-[ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
+([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)).
 An app container under `apps/` holds code/, data/ and local/ siblings; what
 is in local/ stays on this computer. Its
 `code/epicenter.ts` default-exports `defineApp(...)`. The
@@ -11,12 +10,13 @@ and an MCP tool for their agent, and its UI calls the same actions.
 
 ```ts
 // <Epicenter>/apps/reading/code/epicenter.ts
-import { defineAction, defineApp, defineCollection, field, folder, Ok } from '@epicenter/app';
+import { defineAction, defineApp, defineData, field, folder, Ok } from '@epicenter/app';
 
-const books = defineCollection({
-  path: 'data/books/{slug}.md',
-  description: 'book I am reading',
-  fields: { title: field.text(), finished: field.date({ optional: true }) },
+const data = defineData({
+  books: {
+    description: 'book I am reading',
+    fields: { title: field.text(), finished: field.date({ optional: true }) },
+  },
 });
 
 const log = defineAction({
@@ -31,14 +31,14 @@ const log = defineAction({
 
 export default defineApp({
   description: 'How much I read each week',
-  collections: { books },
-  actions: { books: books.actions(), log },
+  data,
+  actions: { books: data.books.actions('list', 'get', 'add', 'set'), log },
 });
 ```
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
-`epicenter reading books set '{"slug":"dune","finished":"2026-11-10"}'`
-runs a verb the collection gives. `@epicenter/app` is the API of the `epicenter` that runs
+`epicenter reading books set '{"id":"dune","finished":"2026-11-10"}'`
+runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
 the app, so the command supplies it: to `epicenter.ts` when it loads the file,
 and to the editor, `bun test`, and the UI's build by linking
 `code/node_modules/@epicenter/app` to its own copy (ADR-0873). The code project's
@@ -47,14 +47,15 @@ folder's.
 
 ## Three values, composed
 
-`defineCollection`, `defineAction`, and `defineApp` each check what they are
-given and throw, one problem a line, when it is wrong in a way the types
-cannot say. `epicenter` lists an app whose `epicenter.ts` throws while loading,
-or whose default export `defineApp` refuses, with those lines as its problems,
-and does not run it.
+`defineData`, `defineAction`, and `defineApp` each check what they are
+given and throw when it is wrong in a way the types cannot say. `epicenter`
+lists an app whose `epicenter.ts` throws while loading, or whose default
+export `defineApp` refuses, with those lines as its problems, and does not
+run it.
 
-- `defineCollection` returns what it was given, plus methods an action calls
-  (`books.get({ slug })`) and `actions()`, which gives its verbs to expose.
+- `defineData` returns one handle per key: methods an action calls
+  (`data.books.get('dune')`) and `actions(...)`, which gives the verbs it
+  names.
 - `defineAction` returns the action as a function of its input, carrying its
   description, input, and `annotations`. It exists to type
   `run`'s input from `input`: an action written inline in `defineApp` would
@@ -67,44 +68,44 @@ and does not run it.
   second argument, `update`, and call it to report while it runs; its return
   is still the answer. The UI, CLI and MCP receive its JSON form.
 - `defineApp` checks what it was given and returns that same object. It needs
-  `description`, `collections`, and `actions`, with `{}` for none. Each
-  collection's name is its key in `collections`; each action's words are its
-  keys in `actions`, so `{ books: books.actions(), log }` gives `books list`
-  through `books set` and `log`. `app.actions.books.add(...)` in code,
-  `epicenter reading books add` on the command line, and `reading_books_add`
-  over MCP are one action. No key at any depth may be `then`, which a UI's
-  client cannot call.
+  `description` and `actions`, with `{}` for none, and takes `data` when the
+  app keeps records. Each action's words are its keys in `actions`, so
+  `{ books: data.books.actions('list', 'get', 'add', 'set'), log }` gives
+  `books list` through `books set` and `log`. `app.actions.books.add(...)`
+  in code, `epicenter reading books add` on the command line, and
+  `reading_books_add` over MCP are one action. No key at any depth may be
+  `then`, which a UI's client cannot call.
 
-An app with one collection usually spreads its verbs at the top, so they are
-the app's own: `actions: { ...tasks.actions(), add }` reads `epicenter tasks
-add`, not `epicenter tasks tasks add`. An app with several collections nests
-each under its name, as the example above does.
+An app with one data key usually spreads its verbs at the top, so they are
+the app's own: `actions: { ...data.tasks.actions('list', 'get', 'set'), add }`
+reads `epicenter tasks add`, not `epicenter tasks tasks add`. An app with
+several keys nests each under its name, as the example above does.
 
 A later key replaces an earlier one, as in any object:
-`{ ...words.actions(), add: learn }` gives every verb with `add` replaced.
-Name verbs to give fewer, or `delete`, which only a name gives:
-`settings.actions('get', 'set')`, `{ ...words.actions(), ...words.actions('delete') }`. An action is a
-function, so `{ ...learn, description: 'x' }` drops its call; `defineApp`
-refuses it and says to use `defineAction`.
+`{ ...data.words.actions('list', 'get', 'add'), add: learn }` gives `add`
+from `learn`. An action is a function, so `{ ...learn, description: 'x' }`
+drops its call; `defineApp` refuses it and says to use `defineAction`.
 
-## Collections
+## Data
 
-A collection is a typed set of Markdown files. Its `path` is one template
-that says which files belong, how a record is named, and where `add` writes:
+`defineData` declares an app's records as top-level keys under `data/`. A
+key's name decides its shape:
 
-| `path` | Files | A record's keys |
+| Key | Files | A record's name |
 | --- | --- | --- |
-| `data/words/{word}.md` | every `.md` file in `data/words/` | `word` |
-| `data/captures/{time}.md` | the same, named by the time | `time`, which `add` makes |
-| `data/notes/{year}/{time}.md` | one folder per year | `year` and `time` |
-| `data/settings.md` | that one file | none |
+| `notes` | every `.md` file directly in `data/notes/` | its id, the file name without `.md` |
+| `settings.md` | the one file `data/settings.md` | none |
 
-A placeholder matches one path segment, and two in one segment are refused.
-A record's keys are its placeholders' values, named as the path names them:
-`{ word: '你好' }` names `data/words/你好.md`, which is the record's `path`.
-Files in a second layout, such as `data/entries/archive/{slug}.md` beside
-`data/entries/{time}.md`, are a second collection, so membership, reading,
-making, and naming each have one answer.
+A key is a name (lowercase letters, digits, and dashes, starting with a
+letter), optionally followed by `.md`. Each key gives `fields`, and may give a
+`description` of one record, which its verbs' descriptions use.
+
+An id is the file's name exactly as it is on disk: non-empty NFC text of at
+most 200 UTF-8 bytes, without `/`, control characters, a leading dot, or
+spaces at either end (ADR-0933). A method or verb given another id returns
+`Refused`, and `list` skips a file whose name is not an id. `field.id()` is
+an input field that takes one. A new record's id comes from the caller or the
+app: Tasks and Writing name each new record with `timeId()`.
 
 Each file's fields are its front matter, as `key: <JSON>` lines, and its body
 is the text after it. Each line is read on its own, and no YAML is read
@@ -129,165 +130,113 @@ Results for the other files.
 
 ### Methods and verbs
 
-An action reads and writes through the collection's methods. A method that
-names one record takes its keys first, and a method that changes it takes
-the change second, because which record and what to change are two roles:
+An action reads and writes through a key's handle. A folder key's method
+that names one record takes its id first, and a method that changes it takes
+the change second. A one-file key's methods take no id.
 
 | Method | What it does |
 | --- | --- |
-| `get(keys)` | `Ok(record)`, `Ok(undefined)` for an absent keyed record, or an Err with the reason |
-| `list()` | one Result per file, sorted by path |
-| `add(record)` | creates a keyed record and returns its Result |
-| `set(keys, change)` | updates an existing keyed record from plain data or a function of the record |
-| `update(keys, fn)` | updates a record or creates it when absent |
-| `delete(keys)` | returns whether a file existed |
-| `pathOf(keys)` | the record's path |
-| `check()` | a report counting files and listing problems by path |
+| `get(id)` | `Ok(record)`, `Ok(undefined)` when the file is absent, or an Err with the reason |
+| `list()` | one Result per file, sorted by path; folder keys only |
+| `add(id, record)` | creates the file, or returns `Changed` (`there`) when it exists; folder keys only |
+| `set(id, change)` | patches an existing record; an absent id returns `Missing`. A one-file `set(change)` creates its file |
+| `update(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it |
+| `delete(id)` | returns whether a file existed |
+| `pathOf(id)` | the record's path, without checking the id or the disk |
 
 Writes return the fitting record in Ok. Check a write's Result before
 continuing work that depends on it. A malformed record produces `Misfit`.
 A plain patch can repair it when the front matter is readable and the
 resulting record fits. A computed write refuses before invoking its callback.
+A change merges as JSON Merge Patch: `null` removes an optional field, and
+`body` replaces the text after the front matter.
 
-A keyless collection such as `settings` always represents one record.
-Its fields must allow an empty file. `get()` gives `Ok(record)` before
-the first write, and `set({ theme })` can create the file. It has no `add`.
-
-Generated `get` returns `Missing` for an absent keyed file. Generated
-`list` returns `Ok(rows)`, one Result per file with bodies omitted.
-Generated `add` and `set` return write Results. The `set` verb accepts
-JSON guards `was` and `edit`. An explicitly exposed `delete` returns the
-boolean in Ok.
-
-A verb's input is flat: each key is an input field beside the rest of the
-input, so `epicenter vocab set '{"word":"serendipity","meaning":"a lucky find"}'`
+`actions(...verbs)` gives the verbs it names, and only those: a folder key
+offers `list`, `get`, `add`, `set`, and `delete`, and a one-file key `get`,
+`set`, and `delete`. The verb `get` returns `Missing` for an absent folder
+id; `list` returns `Ok(rows)`, one Result per file, bodies included; `delete`
+returns the boolean in Ok. A verb's input is flat: `id` sits beside the
+fields, so `epicenter vocab set '{"id":"serendipity","meaning":"a lucky find"}'`
 sets one word.
 
-A key finds its file by its exact name first, then by the tidy name: NFC,
-trimmed, with each run of whitespace one space. So `"Tokyo "` finds
-`Tokyo.md`, and a row for `data/notes/Dune  Messiah.md`, named by hand with
-two spaces, finds that file. `get`, `set`, `delete`, and an `update` of a
-file that is there do this. `add` and an `update` that makes a file always
-write the tidy name, which `pathOf` gives. A key that is then empty, holds
-`/` or `\`, starts with `.`, or is over 200 bytes is refused. So an action
-never writes `data/words/${word}.md` itself:
-
-```ts
-const found = await words.get({ word });
-```
-
 The `set` verb is the `set` method for a caller that cannot send a function,
-so it sends what it last saw instead, and one call is one write. `was` names
-the field values the caller last saw, `null` for a field that was absent:
-`{ meaning: 'a lucky find' }`. `edit` is `{ old, new }`, both required:
-`old` names the passage of the body it last saw, and `new` is what replaces
-it. `old` must be in the body exactly once, or be the whole body, or be empty
-for an empty body. An absent keyed file gives `Missing`. A keyless record
-starts with an empty body, so an edit quoting `old: ''` can create its file. Every guard
-is checked inside the write before anything is written: when a `was` value
-differs now, compared as JSON, the refusal is `{ name: 'Changed', why: 'was' }`,
-and when `old` is not there, is there twice, or is empty and the body is not,
-it is `Changed` with `why` `quote`, `twice`, or `empty`, and neither the fields nor
-the body are written. So a page saves a record's fields and its notes in one
+so one call is one write. It takes the fields to change, `null` to remove an
+optional one, and `body` or `edit`, not both. `edit` is `{ old, new }`, both
+required: `old` is a non-empty passage of the body the caller last saw, and
+`new` replaces it. When `old` is not in the body now, or is there twice, the
+answer is `Changed` with `why` `quote` or `twice`, and neither the fields nor
+the body are written. A page saves a record's fields and its notes in one
 call:
 
 ```sh
-epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":"luck"},"edit":{"old":"First seen.\n","new":"First seen in a novel.\n"}}'
+epicenter vocab set '{"id":"serendipity","meaning":"a lucky find","edit":{"old":"First seen.\n","new":"First seen in a novel.\n"}}'
 ```
 
-Without `was`, two callers setting the same field from stale screens: the
-last write wins. Two callers setting different fields both land, since a
-write changes only the lines it names. A collection whose fields are all
-`readOnly` still has `set`, for its body.
+Two callers setting the same field from stale screens: the last write wins.
+Two callers setting different fields both land, since a write changes only
+the lines it names.
 
 A value computed from `get` and written later with `set` can overwrite a
-concurrent change. Compute it inside the write. A `set` or `update` callback
-must return a Result. Return `Ok(patch)` to apply fields or body, or a tagged
-Err to decline. The caller receives that Err and the file stays as it was.
-A plain patch remains valid as the second argument to `set`.
-
-`set` gives its callback a fitting record, including the body. The callback
-runs once, and no other write to the file runs between its read and its
-write. `Ok({})` leaves an existing record alone. Vocab's review can therefore count two concurrent reviews:
+concurrent change. Compute it inside the write with `update`. Its callback
+must return a Result: `Ok(patch)` to apply fields or body, or a tagged Err to
+decline. The caller receives that Err and the file stays as it was. The
+callback runs once, and no other write to the file runs between its read and
+its write. `Ok({})` leaves an existing record alone. Vocab's review can
+therefore count two concurrent reviews:
 
 ```ts
-return words.set({ word }, (found) => Ok(schedule(found, grade, now)));
-```
-
-For a keyed collection, `update` also gives its callback `undefined` when
-there is no file. The patch must then supply all required fields. For a
-keyless collection the callback always receives a record. Reading can
-create or start a book in one write:
-
-```ts
-return books.update({ title }, (book) =>
-  Ok(book?.started === undefined || book.finished !== undefined
-    ? { started: localDay(), finished: null }
-    : {}),
+return data.words.update(word, (found) =>
+  found ? Ok(schedule(found, grade, now)) : ActionError.Missing({ path: data.words.pathOf(word) }),
 );
 ```
 
-`update` is not a verb, since a caller cannot send a function; neither is a
-`set` given one, or a `set` given a whole body, which would replace a person's
-text blindly from a stale page; the `set` verb's `edit` changes the body
-instead.
+`update` is not a verb, since a caller cannot send a function.
 
-A field marked `readOnly` is written only by the app's own actions, through
-the collection's methods; the exposed `add` and `set` leave it out, and
-refuse it from a caller. Vocab's schedule fields are `readOnly`, so only
-`review` changes them. When a `readOnly` field is required, no caller could
-give it, so `actions()` leaves out `add`, in its
-value and its type, and `actions('add')` throws saying why. Write the app's
-own `add` with `defineAction`, as Capture does for `capturedAt`.
-
-A collection's methods read and write the folder of the run they are called
-in, so an action reaches them however deep its code goes. Outside a run they
-throw, so loading an app never touches its files.
+A handle reads and writes the folder of the run it is called in, so an action
+reaches it however deep its code goes. Outside a run it throws, so loading an
+app never touches its files.
 
 ### What a read gives
 
-`RecordOf<typeof collection>` names a record that fits. A computed read
-forwards a refusal or handles it before using fields:
+A record is its `path`, its `id` for a folder key, its fields, and its
+`body`. A computed read forwards a refusal or handles it before using fields:
 
 ```ts
-const read = await watches.get({ id });
+const read = await data.watches.get(id);
 if (read.error !== null) return read;
-if (!read.data) return ActionError.Missing({ path: watches.pathOf({ id }) });
+if (!read.data) return ActionError.Missing({ path: data.watches.pathOf(id) });
 return Ok(read.data.from);
 ```
 
 `Misfit` carries the file path and its diagnostic lines and kinds. When
-front matter is readable, a non-local file's error includes the keys, body
-and fitting fields for a repair form. Local collections omit partial records
-and quoted field values. `partitionResults(await watches.list())` from
-`@epicenter/app` separates fitting records from files that need repair. UI code
-can import the same helper from `@epicenter/app/client`.
+front matter is readable, it also carries `record`: the path, id, body, and
+the fields that fit, for a repair form. `partitionResults(await data.watches.list())`
+from `@epicenter/app` separates fitting records from files that need repair.
+UI code can import the same helper from `@epicenter/app/client`.
+
+`checkData(data)`, which `epicenter check` runs, reads every key and reports
+each file that does not fit, each name that is not an id, names that are one
+file on a disk that ignores case, and each reference that names no file.
 
 ### What a definition may say
 
-`defineCollection` refuses:
+`defineData` refuses:
 
-- a path outside `data/`, naming the path with that prefix;
-- a path that is not a relative `.md` template, has an empty part or one
-  starting with `.`, has a placeholder twice, or a brace
-  that is not a placeholder;
-- a list of paths: a second layout is a second collection;
-- a field or placeholder named `path`, `body`, `was`, or `edit`. A record
-  supplies the first two and the `set` verb accepts the other two as guards;
-- a field with the same name as a placeholder, or a name that a front matter
-  line cannot hold;
+- a key that is not a name, optionally followed by `.md`;
+- a field named `path`, `body`, `id`, or `edit`, which a record or the `set`
+  verb supplies;
+- a field marked `readOnly`: an app offers only the verbs a caller may use;
+- a field name that a front matter line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
-  code where the value is read: `(record.limit ?? 50)`.
-
-`field.ref` refuses, when it is called, a target it cannot name one record
-of by a key.
+  code where the value is read: `(record.limit ?? 50)`;
+- a `field.ref` whose target is not a folder key of the same `defineData`.
 
 ### Naming a record
 
-The generated verbs take a record's keys: `epicenter vocab get '{"word":"你好"}'`.
+The generated verbs take a record's id: `epicenter vocab get '{"id":"你好"}'`.
 An action you write chooses its own input, and one people or agents call
 should take what they know. Vocab's `review` takes `{ word, grade }` and calls
-`words.set({ word }, ...)`, so a caller gives
+`data.words.update(word, ...)`, so a caller gives
 `epicenter vocab review '{"word":"你好","grade":"good"}'`.
 
 ## Fields
@@ -295,13 +244,14 @@ should take what they know. Vocab's `review` takes `{ word, grade }` and calls
 | Field | Value | In the input object |
 | --- | --- | --- |
 | `field.text()` | `string` | `"name": "text"` |
+| `field.id()` | `string`, a record id | `"name": "dune"` |
 | `field.number({ min, max })`, `field.integer({ min, max })` | `number` | `"name": 4` |
 | `field.date()` | `string`, `2026-11-08` | `"name": "2026-11-08"` |
 | `field.datetime()` | `string`, RFC 3339 | `"name": "2026-11-10T22:41:05+08:00"` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `"name": "a"` |
 | `field.boolean()` | `boolean`, `false` unless given | `"name": true` |
 | `field.list(item, { min })` | an array of `item`'s value, empty unless given, or required with at least `min` items | `"name": ["a", "b"]` |
-| `field.ref(collection)` | `string`, the key of a record in `collection` | `"name": "essays"` |
+| `field.ref('shelves')` | `string`, the id of a record in the folder key `shelves` | `"name": "essays"` |
 
 `field.list(item)` is a list of any field: `field.list(field.select(['x', 'threads']))`
 is several of a fixed set, and `field.list(Type.Object({ name: Type.String() }))`
@@ -312,40 +262,28 @@ field, and an absent one is missing rather than `[]`, which would not fit.
 An action that cannot run without an item says so this way, so `--help` and
 the schema an agent receives call it required. `min: 0` is the same as none.
 
-`field.ref(collection)` holds the key of a record in `collection`: the value
-of the one placeholder in its path. `field.ref(shelves)` for
-`data/shelves/{shelf}.md` holds `"essays"` for `data/shelves/essays.md`, and
-nothing else, never the path. `field.list(field.ref(shelves))` holds several.
-`collection` is declared before the field that names it, so a collection
-cannot refer to itself, and two cannot refer to each other. `field.ref`
-refuses a target whose path has no placeholder or more than one, and a
-`.local` target.
+`field.ref('shelves')` holds the id of a record in the folder key `shelves`
+of the same `defineData`: `"essays"` for `data/shelves/essays.md`, never the
+path. `field.list(field.ref('shelves'))` holds several. `defineData` refuses
+a ref whose target is not a folder key beside it, in its types and when it
+runs.
 
-- A collection's `add`, and its `set` given fields, read the record each key
-  names before they write. A key is good when `get` on the target would find
-  a record by it, its exact name first and then its tidy name, and that
-  record's key is the key: `"Dune  Messiah"` finds a file named by hand with
-  two spaces, and `" essays "` is refused, naming `"essays"` to write. A key
-  whose record is not there is refused too. Each returns
-  `ActionError.Refused`, one line per key, such as
-  `data/books/dune.md: shelf: "poems" names no record in data/shelves/{shelf}.md`,
-  and writes nothing. A `.local` collection's line leaves the key out.
-- A function given to `set` or `update` is not checked against the target:
-  what it returns is the app's own, as a `readOnly` field is.
-- A read returns the key and opens no other file, so a key whose record was
-  deleted since still reads as that key.
-- In an action's `input`, a reference is checked as text. The action finds
+- A write takes a ref as given and opens no other file, so a ref may name a
+  record that is not there. `epicenter check` reports each one, such as
+  `shelf "poems" names no file in shelves/`.
+- A read returns the id and opens no other file, so an id whose record was
+  deleted since still reads as that id.
+- In an action's `input`, a reference is checked as an id. The action finds
   out whether the record exists when it reads it.
 
-A reference's JSON Schema is text with the target's path, which the app
+A reference's JSON Schema is an id with its target key, which the app
 listing prints with the rest of the schema:
-`{ "type": "string", "x-epicenter-ref": { "path": "data/shelves/{shelf}.md" } }`.
+`{ "type": "string", "format": "epicenter-id", "x-epicenter-ref": { "key": "shelves" } }`.
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
-is required unless it says `optional: true`; `readOnly: true` is described
-above, and every field helper keeps it in its type. A field helper given an
+is required unless it says `optional: true`. A field helper given an
 option it does not declare, such as `field.integer({ default: 50 })`, is a
-type error and throws naming it. No field has a `default`: `defineCollection`
+type error and throws naming it. No field has a `default`: `defineData`
 and `defineAction` refuse a schema with one at any depth, so the default is
 written in code where the value is read. `field.boolean` and `field.list`
 mark their schema `"x-epicenter-field": "switch"` or `"list"`, which names
@@ -399,7 +337,7 @@ HTTP.
 
 Whatever runs an action opens a run with the app's folder:
 `inRun({ folder }, () => action(input))`. For its length, the app's
-collections and `folder` reach it; an action that calls another stays in the
+data handles and `folder` reach it; an action that calls another stays in the
 same run
 ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 `folder` has `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, and
@@ -422,7 +360,7 @@ the file, calls `change` with its text (`undefined` when there is none), and
 writes what `change` returns, nothing when that is what is there. `change`
 runs once. One process runs actions, so no other update runs between the read
 and the write; a writer outside epicenter, such as an editor, is not guarded
-against. A `change` that throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `update`, and the verbs built on them)
+against. A `change` that throws writes nothing. It returns the text written. Every data write (`add`, `set`, `update`, and the verbs built on them)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
 
@@ -493,6 +431,54 @@ belongs in the app's records. An action that must not run twice takes an id
 in its input and uses it as the record's key. See the
 [CLI's call route](../cli/README.md#a-call-over-http).
 
+## A UI
+
+An app's UI calls its actions through `epicenter serve`, under the same words,
+typed by the app. It imports the app as a type, so its bundle carries no app
+code:
+
+```ts
+import { type ActionOutput, connect } from '@epicenter/app/client';
+import type reading from '../../epicenter.ts';
+
+const app = connect<typeof reading>();
+type Book = ActionOutput<typeof reading.actions.books.get>;
+
+const { data: books, error } = await app.books.list();
+```
+
+The client exposes the action's Result in JSON form. Its public error type
+includes the action's declared errors and the shared errors below. Producers
+import the shared `ActionError` factories from `@epicenter/app`:
+
+- `Changed` (`{ path, why }`): a quoted passage changed or is there twice, or a new record's file is already there.
+- `Misfit` carries diagnostics about a malformed record.
+- `Missing` (`{ path }`): the file is not there.
+- `Threw` (`{ message, thrown? }`): an unrecognized throw, with a JSON-safe tagged payload kept as `thrown`.
+- `Refused` (`{ message, next? }`): an operation declined the request.
+- `Unreachable` (`{ message }`): a required operation returned no usable answer. The message identifies the dependency.
+
+The shared errors carry a serializable namespace marker. The client validates
+all their fields and returns every recognized shared error whole, preserving
+its message and extra fields. App-defined returned errors keep their names and
+public fields. The client maps a new fault to `Threw`, including when the
+action threw a tagged value.
+
+A name gives the failure reason, not proof of what was saved or whether
+repeating an action is safe. When a UI needs to know what persisted, it
+rereads the record. While the outcome is uncertain, it keeps the person's
+draft and reports the uncertainty. `Missing` and `Changed` identify their own
+`path`, which may belong to a dependency; match the requested record before
+interpreting either as its state.
+
+A UI hands these calls to TanStack Query through Wellcrafted's
+`resultQueries` and `resultMutations` (ADR-0661), and makes its one
+QueryClient in its own `src/lib/query-client.ts`, from its own
+`@tanstack/svelte-query`, so the bundle carries one TanStack Query. This
+package does not depend on TanStack Query.
+
+```ts
+import { resultMutations, resultQueries } from 'wellcrafted/query';
 
 export const reads = resultQueries(['reading'], { list: app.books.list });
 export const writes = resultMutations(['reading'], { set: app.books.set });
@@ -519,6 +505,6 @@ whether the action started.
 `ActionInput<typeof app.actions.set>`. A switch and a list without `min` are
 optional in `ActionInput`; an action that only returns reports `never`.
 
-A UI routes to a record by its keys, which every row carries, each
-URL-encoded: `#/words/<word>`. The page calls `get` with the keys from its
-route, so the route never spells the app's templates.
+A UI routes to a record by its id, which every folder row carries,
+URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
+route, so the route never spells the record's path.

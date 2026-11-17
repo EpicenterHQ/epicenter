@@ -172,7 +172,7 @@ epicenter
 epicenter reading
 epicenter reading log '{"minutes":30,"book":"Dune"}'
 epicenter reading log '{"minutes":30}' --json
-epicenter reading books set '{"slug":"dune","finished":null}'
+epicenter reading books set '{"id":"dune","finished":null}'
 epicenter init <folder>
 epicenter new notes
 epicenter new writing --from EpicenterHQ/epicenter/examples/writing
@@ -204,7 +204,7 @@ An entry with `code/` or `data/` but no declaration is listed with
 An import or declaration failure is listed under that app's problems with a
 `code/epicenter.ts:` prefix. A wrong default export is also a problem. One
 broken app does not hide the others. Listings include container locations,
-collections, schemas, actions, and linked targets. They carry no per-app Git
+data keys, schemas, actions, and linked targets. They carry no per-app Git
 status. An empty Epicenter says `No apps yet. Run: epicenter new <name>`.
 
 The container's real path stays in `context.folder` and `folder.path`.
@@ -417,13 +417,13 @@ actions never replace one file at the same moment, whether they came from a
 page, an agent, or two commands started together.
 
 `folder.update` reads the text, computes from it, and replaces the file, with
-no other update between. Every collection write uses it. Plain `folder.write`
+no other update between. Every data write uses it. Plain `folder.write`
 is last-write-wins. Neither guards against a writer outside Epicenter, such
 as an editor or a `git pull`.
 
 Writes through `folder` stay under `data/` and `local/`.
 The container remains `folder.path`. Reads may reach another app's records
-at `../tasks/data/tasks/<time>.md`.
+at `../tasks/data/tasks/<id>.md`.
 
 An action's MCP annotations, `readOnlyHint` among them, are forwarded to MCP
 clients and refuse nothing. `folder` is not a sandbox.
@@ -437,11 +437,6 @@ keeps its mode. An action keeps a token with
 `folder.write('local/google.md', token)`. `local/` appears when an action
 first writes there. A write replaces a file by writing `local/.tmp/<uuid>`
 and renaming it over the target, so nothing unfinished is ever under `data/`.
-
-A file named `*.local` or `*.local.*` was the earlier way to say this. The
-root `.gitignore` still keeps such a file out of every commit, because older
-homes hold tokens named that way under `data/`.
-The name no longer changes a file's mode.
 
 ## What a run answers
 
@@ -462,11 +457,11 @@ ran has kind `refused`. Human output puts success data on stdout and failures on
 stream carries the same answer inside `finished.answer`. A reconnect can
 replay a saved run's earlier answer format without executing it again.
 
-A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb's `was` guard is an object beside the fields, and `edit: { old, new }` replaces a passage of the body in the same write:
+A one-file data key's `set` makes its file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb takes the fields beside `id`, and `edit: { old, new }` replaces a passage of the body in the same write:
 
 ```txt
-$ epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
-$ epicenter vocab set '{"word":"serendipity","edit":{"old":"First seen.","new":"First seen in a novel."}}'
+$ epicenter vocab set '{"id":"serendipity","meaning":"a lucky find"}'
+$ epicenter vocab set '{"id":"serendipity","edit":{"old":"First seen.","new":"First seen in a novel."}}'
 ```
 
 MCP text contains the JSON answer on success and the failure message on error.
@@ -477,9 +472,9 @@ The human CLI formats success data by its structure (`src/output.ts`):
 - An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and single values print as JSON.
 
 ```txt
-$ epicenter tasks get '{"time":"2026-11-10T09-30-00-000Z-k3x9a2f8"}'
+$ epicenter tasks get '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8"}'
 path: data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
-time: 2026-11-10T09-30-00-000Z-k3x9a2f8
+id: 2026-11-10T09-30-00-000Z-k3x9a2f8
 title: Email Sam the slides
 done: false
 due: 2026-11-12
@@ -487,55 +482,50 @@ body: |
   The deck is in Drive.
 ```
 
-A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, and `delete` (given only when the app names it) take each key flat in the input object, where `add` takes the keys it does not make.
+`id` prints as a field: the command reads only the answer. A folder key's `get`, `set`, `add`, and `delete` take `id` flat in the input object, beside the fields.
 
 ## Check records
 
-`epicenter check [<app>]` reads every collection an app declares, or every
-app's, and reports the files that do not fit their collection's fields. A
-`get` returns a tagged `Misfit` for such a file. A generated `list` succeeds
-with one Result per file, including the individual refusals. The check command
+`epicenter check [<app>]` reads every data key an app declares, or every
+app's, and reports the files that do not fit their key's fields. A `get`
+returns a tagged `Misfit` for such a file. A generated `list` succeeds with
+one Result per file, including the individual refusals. The check command
 collects those diagnostics for the whole app so a person or agent can repair
 the records or the declaration.
 
-It reads each collection with its `check()` method in a run of the app's
-folder and writes nothing. A `.local` collection is checked too, and its
-problem lines never quote a value.
-
-For each collection the report gives its path template, the files it
-matched, and how many have problems; then each kind of problem with the number
-of files that have it, most frequent first; then each file's path and problem
-lines. A kind is a problem line without the value it quotes, as `check()`
-gives it, so `due: "next week"` and `due: "soon"` are one kind. When most files share one kind, the declaration is
-often too narrow, and one change to `epicenter.ts` repairs them all. Front
+It runs `checkData` from `@epicenter/app` in a run of the app's folder and
+writes nothing. Besides files that do not fit, it reports a file in a folder
+key whose name is not a record id, names that are one file on a disk that
+ignores case, and a `field.ref` that names no file in its target key. Front
 matter no field declares is not a problem: a read does not give it, every
-write keeps it, and the check does not report it. A collection that matches
-no file says `0 files`.
+write keeps it, and the check does not report it.
+
+For each key the report gives how many files it holds and how many have
+problems, or `fits` for a one-file key whose file fits or is absent; then
+each file's path under `data/` and its problem lines.
 
 ```txt
-$ epicenter check tasks
-tasks
-  items  data/items/{id}.md
-    5 files, 3 with problems
-    2  due is not a day like 2026-11-12
-    1  title is missing
-    data/items/a.md
-      due: "next week" is not a day like 2026-11-12
-    data/items/b.md
-      due: "soon" is not a day like 2026-11-12
-    data/items/c.md
-      title is missing
-  notes  data/notes/{slug}.md
-    0 files
+$ epicenter check flights
+flights
+  watches  2 files, none with problems
+  checks  3 files, 1 with problems
+    checks/bad.md
+      watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or boundary spaces
+      day: "soon" is not a day like 2026-11-12
+  settings.md  fits
 ```
 
 With `--json` it answers
-`{ "apps": { <app>: { <collection>: { path, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
-`records` holds only files with problems. Without an app named, an app that
-does not load is listed under `problems`, as in the Epicenter listing, and the
-other apps are still checked; a read that fails lists its app there too. A
-named app that does not load did not run, exit 2. Otherwise the exit code is 0
-when no file has a problem, and 1 when any does or an app could not be checked.
+`{ "apps": { <app>: { <key>: { path, single, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
+A kind is a problem line without the value it quotes, so `due: "next week"`
+and `due: "soon"` are one kind; when most files share one kind, the
+declaration is often too narrow, and one change to `epicenter.ts` repairs
+them all. `records` holds only files with problems. Without an app named, an
+app that does not load is listed under `problems`, as in the Epicenter
+listing, and the other apps are still checked; a read that fails lists its
+app there too. A named app that does not load did not run, exit 2. Otherwise
+the exit code is 0 when no file has a problem, and 1 when any does or an app
+could not be checked.
 
 ## The home's report
 
@@ -778,7 +768,7 @@ A refusal happens before the output changes. Export never falls back to older
 code, never imports apps and never edits source working files. It takes no
 lock: two exports into one directory at once can mix their output.
 
-The copy excludes `data/`, `.local` paths, `node_modules`, `ui/dist`, `.DS_Store`,
+The copy excludes `data/`, `node_modules`, `ui/dist`, `.DS_Store`,
 `SOURCE.md`, and export markers, even if tracked. It preserves binary bytes and
 executable modes, and materializes Git LFS files. Internal symbolic links keep
 their targets when the targets are included. A relative link to a committed

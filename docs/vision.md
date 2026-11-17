@@ -55,25 +55,25 @@ cannot reach it. For the listener and service setup, see
 1. **File over app.** What a person makes is plain files in a documented
    shape. Any program that writes that shape is a valid writer and needs no
    Epicenter ([ADR-0889]).
-2. **Each collection has one writer of record within an Epicenter:** its
+2. **Each kind of record has one writer of record within an Epicenter:** its
    folder, or a source: a service, or a program's folder. Epicenter never
    reconciles two writable copies.
 3. **Have the folder, write files; otherwise ask an action.** Actions exist
    for reach, rules, and sign-ins.
 4. **Commit what the person made.** A copy of data whose truth is elsewhere
-   is written only by its pull, whoever runs it. Keep it `.local` when the
-   source can send it again; commit it as Markdown when the person would want
-   it after the source is gone.
+   is written only by its pull, whoever runs it. Keep it in the app's `local/`
+   when the source can send it again; commit it as Markdown when the person
+   would want it after the source is gone.
 
-## Where a collection's truth is
+## Where a record's truth is
 
-| Form | Where a write counts | How Epicenter's copy keeps up | Collections today |
+| Form | Where a write counts | How Epicenter's copy keeps up | Records today |
 | --- | --- | --- | --- |
 | Kept | this Epicenter's folder | it is the truth | Tasks, Reading, Vocab, Capture, Mail's proposals, Messages' drafts |
-| Cached | a source: a service, or a program's folder | its pull copies it | Mail's mailbox (`.local` SQLite); Whispering's recordings brought home |
+| Cached | a source: a service, or a program's folder | its pull copies it | Mail's mailbox (SQLite in `local/`); Whispering's recordings brought home |
 | Live | a service | nothing is copied; the app asks each time | Messages' conversations in Beeper |
 
-These words describe; they are not API. No collection declares its form, and
+These words describe; they are not API. No data key declares its form, and
 `serve` acts on none.
 
 Live is the cheapest form, for a service that answers quickly, data too
@@ -114,12 +114,12 @@ after the home was off ([ADR-0908], [ADR-0937]). launchd or cron can call
 
 | You want | Reach for |
 | --- | --- |
-| a new kind of thing about the same subject, under the same rules | a collection in the existing app |
+| a new kind of thing about the same subject, under the same rules | a data key in the existing app |
 | a new source, sign-in, or contract with its own lifetime | a new app |
 | something that crosses apps | an agent, then an action in a personal app |
 
 For an app's shape, copy the nearest example: `examples/tasks` or
-`examples/writing` for kept collections. Mail (cached) and Messages (live) are
+`examples/writing` for kept records. Mail (cached) and Messages (live) are
 the author's apps and are not published yet.
 
 ## Ways in
@@ -137,7 +137,7 @@ For the author, the home is the Mac Studio.
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
 files when they reach the home. `epicenter serve` runs the `code/epicenter.ts` of
 each app you trust, and no sign-in leaves the home: Mail's Google sign-in is
-a `.local` file in Mail's folder, on the computer that runs Mail's actions
+a file in Mail's `local/`, on the computer that runs Mail's actions
 ([ADR-0870]).
 
 Agents make apps: you start Claude Code on the home, ask for an app, and it
@@ -176,7 +176,7 @@ changes in place ([ADR-0910]).
   hand each new recording over to your home once it can reach it, and from
   then on every device sees and edits it there ([ADR-0900], Proposed).
 - **A weekly summary.** You ask an agent for a summary of your voice notes. It
-  adds a `summaries` collection and a `summarize-week` action to
+  adds a `summaries` data key and a `summarize-week` action to
   Whispering's inside app. Whispering keeps writing recordings and never
   notices.
 
@@ -185,17 +185,17 @@ changes in place ([ADR-0910]).
 | Noun | What it is |
 | --- | --- |
 | Epicenter | your folder of apps, `~/Epicenter` on the home, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
-| an inside app | a folder in `~/Epicenter/apps` that runs on the home, whose `code/epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's; bare "app" on this page, in records, and in code means this |
-| a collection | a kind of record in the app, by a path template (`data/words/{word}.md`) and fields; it gives five actions: `list`, `get`, `add`, `set`, and `delete`, which comes only when named |
-| a record | one file in a collection, addressed by its path; it is yours |
+| an inside app | a folder in `~/Epicenter/apps` that runs on the home, whose `code/epicenter.ts` default-exports `defineApp`: its description, data, and actions; its name is the folder's; bare "app" on this page, in records, and in code means this |
+| a data key | a kind of record in the app, declared with `defineData`: a folder (`words` holds `data/words/<id>.md`) or one file (`settings.md`), and its fields; it gives the actions it names: `list`, `get`, `add`, `set`, and `delete` |
+| a record | one file of a data key, addressed by its path; it is yours |
 | an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
-| an action | something you can ask an app to do: one of a collection's five, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
+| an action | something you can ask an app to do: one a data key gives, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
 | a UI | a web page built from the app's `code/ui/` into `code/ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over HTTP |
 | `epicenter` | the command: it runs an action in a folder, and `epicenter serve` offers every app over MCP |
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
-| a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's collections declare, in its own folder, and none has to |
+| a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's data declares, in its own folder, and none has to |
 | the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or as a job the OS keeps running ([ADR-0878]); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
@@ -226,7 +226,7 @@ An app is a stable container with code and records beside each other
 ```txt
 apps/vocab/
   code/                 the editable Bun project
-    epicenter.ts        collections and actions
+    epicenter.ts        data and actions
     README.md           the app's format and use
     package.json  bun.lock
     ui/                 source; ui/dist/ is ignored
@@ -240,35 +240,35 @@ action, a UI, and the files an agent opens. The proposed data-root API of
 [ADR-0893] is not implemented by this layout change.
 
 ```ts
-import { defineAction, defineApp, defineCollection, field } from '@epicenter/app';
+import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
 
-const tasks = defineCollection({
-  path: 'data/tasks/{time}.md',
-  description: 'task',
-  fields: { title: field.text(), done: field.boolean() },
+const data = defineData({
+  tasks: {
+    description: 'task',
+    fields: { title: field.text(), done: field.boolean() },
+  },
 });
 
 const add = defineAction({
   description: 'Add a task to do',
   input: { title: field.text({ description: 'What to do' }) },
   annotations: { destructiveHint: false },
-  run: ({ title }) => tasks.add({ title }),
+  run: ({ title }) => data.tasks.add(timeId(), { title }),
 });
 
 export default defineApp({
   description: 'Things I mean to do',
-  collections: { tasks },
-  actions: { ...tasks.actions(), add },
+  data,
+  actions: { ...data.tasks.actions('list', 'get', 'set'), add },
 });
 ```
 
-Tasks' actions are the collection's four, `tasks list`, `get`, `add`, and
-`set`, with `add` replaced by the one written here. A verb names
-a record by its keys, the values of its path's placeholders:
-`epicenter tasks set '{"time":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
+Tasks' actions are `tasks list`, `get`, and `set` from its data key, and the
+`add` written here. A verb names a record by its id, the file's name:
+`epicenter tasks set '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
 On the command line an action's input is one JSON object, as an agent gives
 it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action reads and writes through its
-collections, or through the `folder` it imports; whatever runs it supplies the
+data handles, or through the `folder` it imports; whatever runs it supplies the
 container. `code/epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies
 when it runs. Install other dependencies in code/.
 
@@ -329,7 +329,7 @@ Whispering is whole at rung 1.
 
 | Job | Least powerful form | Steps up only when |
 | --- | --- | --- |
-| Declare an app | collections in `epicenter.ts` | it needs a rule: an action |
+| Declare an app | data keys in `epicenter.ts` | it needs a rule: an action |
 | Describe a field | JSON Schema | never |
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
 | Reach a service's data | ask it each time | it needs search, offline reading, or history: a pull |
@@ -344,7 +344,7 @@ Whispering is whole at rung 1.
 
 **Next, in order, each tied to its need** ([ADR-0898]):
 
-1. The vault on the current engine: its records as collections and its
+1. The vault on the current engine: its records as data keys and its
    commands as actions, served from the home and used from the phone for a
    month ([ADR-0897]). Its files moved in on 2026-11-15; its code still runs on
    the retired engine.
@@ -357,20 +357,20 @@ Whispering is whole at rung 1.
 **Not yet; each needs the owner's yes:** a program handing its new records
 over to a home, which then holds them ([ADR-0900], Proposed), and a phone
 queueing its adds the same way; moving a
-collection's truth; a published protocol for third parties; a rented home's
+record's truth; a published protocol for third parties; a rented home's
 setup; Epicenter hosting anything new.
 
 **Never:** reconciling two writable copies or keeping two lists in step; a
 queue of edits made while the truth was unreachable; an event bus, triggers,
 or a workflow engine between apps; a
-collection form that `serve` acts on; conflict markers or conflict files; an
+record form that `serve` acts on; conflict markers or conflict files; an
 Epicenter app on every device holding a copy of each app; a folder kept in a
 browser; a third-party sign-in stored anywhere but the home; running other people's
 code in isolates or Durable Objects; Yjs or any CRDT in Epicenter.
 
 **Hosted Notes** is a product beside Epicenter, not an Epicenter app, and
 waits for the month's evidence ([ADR-0897]). If it is built, from an
-Epicenter it is a cached collection, like Gmail.
+Epicenter it is a cached source, like Gmail.
 
 ## What came before
 

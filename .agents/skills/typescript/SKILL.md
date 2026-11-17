@@ -73,7 +73,7 @@ For broader public-shape decisions that affect navigation across packages, see `
 - [Type safety and control flow](references/type-safety-and-control-flow.md): identity brands, casts, optional properties, boolean naming, switches, record lookups, error composition, fallback smells, and round-trip invariants.
 - [Type organization](references/type-organization.md): `types.ts` location, co-location rules, inline-vs-extract hop test, options and ID naming.
 - [Factory patterns](references/factory-patterns.md): named dependency objects, methods sharing captured dependencies, parameter destructuring, and coupled state extraction.
-- [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and collection keys.
+- [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and record ids.
 - [Testing patterns](references/testing-patterns.md): inline single-use setup and source-shadowing tests.
 - [Advanced TypeScript features](references/advanced-typescript-features.md): iterator helpers and const generic array inference.
 - [Readable constraint errors](references/readable-constraint-errors.md): read when a literal key or string constraint needs to identify the offending value in a compiler diagnostic.

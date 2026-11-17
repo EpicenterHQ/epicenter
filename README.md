@@ -77,23 +77,30 @@ For CLI commands, MCP setup, and optional background service installation, see
 
 `~/Epicenter` is on a computer you control and keep on: the
 home. It holds a folder per app in `apps/`. Each app has a `code/epicenter.ts`
-that declares its collections and actions, an optional UI under `code/ui/`,
+that declares its data and actions, an optional UI under `code/ui/`,
 and a sibling `data/` folder of Markdown files you can read. One private Git
 repository holds the home. Checkpoints save pending code and records together.
 
 ```ts
-import { defineApp, defineCollection, field } from '@epicenter/app';
+import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
 
-const tasks = defineCollection({
-  path: 'data/tasks/{time}.md',
-  description: 'task',
-  fields: { title: field.text(), done: field.boolean() },
+const data = defineData({
+  tasks: {
+    description: 'task',
+    fields: { title: field.text(), done: field.boolean() },
+  },
+});
+
+const add = defineAction({
+  description: 'Add a task to do',
+  input: { title: field.text() },
+  run: ({ title }) => data.tasks.add(timeId(), { title }),
 });
 
 export default defineApp({
   description: 'Things I mean to do',
-  collections: { tasks },
-  actions: tasks.actions(),
+  data,
+  actions: { ...data.tasks.actions('list', 'get', 'set'), add },
 });
 ```
 
@@ -150,10 +157,10 @@ Your data is on the home, and whoever can read the home can read it.
 | Where | Who can read it |
 | --- | --- |
 | A home you own | You, and whatever you let reach it: devices on your tailnet, agents you give a shell. |
-| A home you rent | You and its provider, which can read the disk, `.local` sign-in files included. |
+| A home you rent | You and its provider, which can read the disk, sign-in files in `local/` included. |
 | Your other devices | Only what a UI or agent fetches while it reaches the home. They keep no copy. |
 | The home's private `origin` backup | Whoever hosts the backup repository can read all included apps and records. Nothing is pushed until you add an origin. |
-| A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a `.local` file in Mail's folder on the home, and never leaves it. |
+| A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a file in Mail's `local/` on the home, and never leaves it. |
 | Epicenter's hosted services | What you send them: a prompt or audio for a paid model, and your account. They hold no part of your Epicenter. |
 
 `serve` signs no one in and listens only on the home, so which other devices
@@ -178,7 +185,7 @@ Applications under `apps/` are outside apps
 | Package | What it is |
 | --- | --- |
 | [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools and serves UIs. Git stores the home, one private root repository, and the command does not wrap it. |
-| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineCollection`, `defineAction`, fields, `folder`, and the client a UI calls actions with. |
+| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineData`, `defineAction`, fields, `folder`, and the client a UI calls actions with. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |
 | [`@epicenter/server`](packages/server) | The Hono library `apps/api` composes. |
@@ -194,7 +201,7 @@ Whispering's own packages, and the folder sync product's code it still imports
   EPICENTER.md                 marks the folder as an Epicenter
   AGENTS.md                    sent to every MCP client as instructions
   apps/<app>/
-    code/epicenter.ts          collections and actions
+    code/epicenter.ts          data and actions
     code/ui/                   the UI's source, built into code/ui/dist/
     data/                      the app's records in the private root history
 
