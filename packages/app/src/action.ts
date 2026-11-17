@@ -60,6 +60,15 @@ export type ActionMeta<I extends Input = Input> = {
 	readonly description: string;
 	readonly input: I;
 	readonly annotations?: Annotations;
+	/**
+	 * `false` keeps the action out of the tools serve offers over MCP:
+	 * `tools/list` leaves it out and `tools/call` refuses its name. The
+	 * command line, HTTP, pages and routines call it as any other action.
+	 *
+	 * It shapes the list an agent is offered, and it is not a wall: an agent
+	 * with a shell can still call the action through the CLI or HTTP.
+	 */
+	readonly mcp?: boolean;
 };
 
 /**
@@ -228,17 +237,25 @@ export function defineAction(def: ActionDef<Input, Answer, Returned>): Action {
 }
 
 /** What an action is made of; anything else, such as `readonly`, is a typo the types let through. */
-const ACTION_KEYS = new Set(['description', 'input', 'annotations', 'run']);
+const ACTION_KEYS = new Set([
+	'description',
+	'input',
+	'annotations',
+	'mcp',
+	'run',
+]);
 
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, run } = def as Record<string, unknown>;
+	const { description, input, mcp, run } = def as Record<string, unknown>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
 		if (!ACTION_KEYS.has(key))
 			problems.push(`has "${key}", which an action does not take`);
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
+	if (mcp !== undefined && typeof mcp !== 'boolean')
+		problems.push('has an mcp flag that is not a boolean');
 	if (typeof run !== 'function') problems.push('has no run');
 	else if (run.constructor.name === 'AsyncGeneratorFunction')
 		problems.push(

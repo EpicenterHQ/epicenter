@@ -1,6 +1,7 @@
 /**
  * MCP tools for `epicenter serve` (ADR-0849, ADR-0853): every app's actions,
- * and nothing else.
+ * and nothing else. An action that declares `mcp: false` is not offered:
+ * `tools/list` leaves it out and `tools/call` refuses its name.
  *
  * Each request loads the apps it needs as they are on disk now (`home.ts`),
  * so an edit between two calls is seen by the second. `tools/list` offers
@@ -20,11 +21,12 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { VERSION } from './engines.ts';
+import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, outcome, writeErr } from './output.ts';
+import { type Answer, outcome, refused, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
-import { callAction } from './run.ts';
+import { resolveAction, runAction } from './run.ts';
 
 /** One app's tools; none when it cannot load, and why goes to stderr. */
 async function appTools(entry: string): Promise<Tool[]> {
@@ -37,9 +39,9 @@ async function appTools(entry: string): Promise<Tool[]> {
 		writeErr(`${entry}: ${located.problems.join('; ')}`);
 		return [];
 	}
-	return Object.entries(located.actions).map(([key, action]) =>
-		actionTool(located.name, key, action),
-	);
+	return Object.entries(located.actions)
+		.filter(([, action]) => action.mcp !== false)
+		.map(([key, action]) => actionTool(located.name, key, action));
 }
 
 /**
@@ -86,7 +88,20 @@ export async function createMcpServer() {
 		const { name, arguments: args } = request.params;
 		const [app = '', ...words] = name.split('_');
 		// App names and action words have no underscores.
-		return toolResult(await callAction(app, words.join(' '), args ?? {}));
+		const key = words.join(' ');
+		const call = await resolveAction(app, key, args ?? {});
+		if (call.refusal) return toolResult(call.refusal);
+		if (call.action.mcp === false)
+			return toolResult(
+				refused(
+					CliError.Usage({
+						message: `${app} ${key} is not offered over MCP`,
+					}).error,
+				),
+			);
+		return toolResult(
+			await runAction(call.located, key, call.action, call.input),
+		);
 	});
 	return server;
 }

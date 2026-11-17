@@ -240,6 +240,9 @@ messages; a key the action does not take is refused, naming the keys it does.
 avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
 and prints an example to copy. A listing or action help with `--json` exposes
 each action as an MCP tool definition, with the annotations the action states.
+An action that declares `mcp: false` is left out of serve's MCP tools and a
+`tools/call` for it is refused; a `--json` listing shows it with `mcp: false`,
+and the plain listing adds `(not offered to agents)`.
 
 ## Serve runs every action while it is running
 

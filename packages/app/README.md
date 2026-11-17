@@ -384,6 +384,14 @@ destroy. They are hints for an MCP client, which decides from them how careful
 to be before a call. Epicenter forwards them and enforces none: an action
 marked `readOnlyHint: true` that writes is the action's own mistake.
 
+An action that declares `mcp: false` is not offered to agents over MCP:
+`tools/list` leaves it out and `tools/call` refuses its name. The Messages app
+marks "send a message as me" this way, so an agent that reads messages from
+strangers is not also handed a send tool. The command line, HTTP, pages and
+routines call the action as any other. The key shapes the tool list and is not
+a wall: an agent with a shell can still call the action through the CLI or
+HTTP.
+
 ## Runs
 
 Whatever runs an action opens a run with the app's folder:

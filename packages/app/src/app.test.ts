@@ -428,6 +428,21 @@ describe('defineAction', () => {
 		).toThrow('has "privateInput", which an action does not take');
 	});
 
+	test('keeps the mcp flag it is given and refuses one that is not a boolean', () => {
+		const declare = (mcp: boolean) =>
+			defineAction({
+				description: 'Send',
+				input: {},
+				mcp,
+				run: () => Ok(true),
+			});
+		expect(declare(false).mcp).toBe(false);
+		expect(declare(true).mcp).toBe(true);
+		expect(() => declare('no' as never)).toThrow(
+			'The action "Send" has an mcp flag that is not a boolean',
+		);
+	});
+
 	test('rejects cyclic schemas at declaration before they can break discovery', () => {
 		const schema: { type: string; properties: Record<string, TSchema> } = {
 			type: 'object',

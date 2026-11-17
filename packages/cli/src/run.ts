@@ -11,7 +11,7 @@ import { Err } from 'wellcrafted/result';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
-import { type Answer, type RunAnswer, refused } from './output.ts';
+import { type RunAnswer, refused } from './output.ts';
 import { setRoutine } from './routine-set.ts';
 
 /**
@@ -138,16 +138,4 @@ export async function resolveAction(
 			refusal: refused(CliError.Internal({ cause }).error),
 		};
 	}
-}
-
-/** Load the current code, check input, and run the requested action. */
-export async function callAction(
-	name: string,
-	key: string,
-	raw: unknown,
-	following: Following = {},
-): Promise<Answer> {
-	const call = await resolveAction(name, key, raw);
-	if (call.refusal) return call.refusal;
-	return runAction(call.located, key, call.action, call.input, following);
 }

@@ -162,3 +162,36 @@ test('MCP preserves a returned app error and matches the CLI host answer', async
 		await rm(f.root, { recursive: true, force: true });
 	}
 });
+
+test('an action with mcp: false is not offered or run over MCP, and still runs from the command line', async () => {
+	const f = await fixture();
+	const app = await f.app(
+		'messages',
+		`export default defineApp({ description: 'Messages', collections: {}, actions: {
+  read: defineAction({ description: 'Read messages', input: {}, run: () => Ok([]) }),
+  send: defineAction({ description: 'Send a message as me', mcp: false, input: { text: field.text() },
+   run: async ({ text }) => { await folder.write('data/sent.txt', text); return Ok(text); } }),
+ } });`,
+	);
+	const sent = join(app, 'data/sent.txt');
+	const { client, close } = await connectMcp(f);
+	try {
+		const names = (await client.listTools()).tools.map((tool) => tool.name);
+		expect(names).toEqual(['messages_read']);
+		const answer = await client.callTool({
+			name: 'messages_send',
+			arguments: { text: 'from an agent' },
+		});
+		expect(answer.isError).toBe(true);
+		expect(answer.content).toEqual([
+			{ type: 'text', text: 'messages send is not offered over MCP' },
+		]);
+		expect(await Bun.file(sent).exists()).toBe(false);
+		const cli = await f.run('messages', 'send', '{"text":"from me"}', '--json');
+		expect(JSON.parse(cli.stdout)).toEqual({ data: 'from me', error: null });
+		expect(await Bun.file(sent).text()).toBe('from me');
+	} finally {
+		await close();
+		await rm(f.root, { recursive: true, force: true });
+	}
+});

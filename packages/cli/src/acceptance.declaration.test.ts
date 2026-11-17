@@ -222,6 +222,25 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	expect(one.actions).toEqual(reading.actions);
 });
 
+test('a listing marks an action that declares mcp: false', async () => {
+	const f = await setup();
+	await f.app(
+		'messages',
+		`export default defineApp({ description: 'Messages', collections: {}, actions: {
+  read: defineAction({ description: 'Read messages', input: {}, run: () => Ok([]) }),
+  send: defineAction({ description: 'Send a message as me', mcp: false, input: {}, run: () => Ok(null) }),
+ } });`,
+	);
+	const listing = JSON.parse((await f.run('messages', '--json')).stdout);
+	expect(listing.actions.map((tool: { mcp?: boolean }) => tool.mcp)).toEqual([
+		undefined,
+		false,
+	]);
+	const human = (await f.run('messages')).stdout;
+	expect(human).toContain('Send a message as me (not offered to agents)');
+	expect(human).toContain('    Read messages\n');
+});
+
 test("D3 the input is one JSON object after the action's words, or - to read it from stdin", async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);

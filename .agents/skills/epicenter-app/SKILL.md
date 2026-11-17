@@ -264,7 +264,9 @@ takes `{ word, grade }`, giving
 
 Annotate honestly. Annotations are hints an MCP client reads to decide how
 careful to be, and nothing enforces them, so mark an action read-only only
-when it changes nothing. Actions make no commits. The root ignore rules keep local
+when it changes nothing. Declare `mcp: false` on an action an agent should not
+be offered as a tool, such as sending as the owner; the CLI and HTTP still run
+it, so it is not a wall. Actions make no commits. The root ignore rules keep local
 files out, and a checkpoint refuses local credentials Git would include.
 
 Write last. Nothing locks a call, so fetch from a service, call a model, or

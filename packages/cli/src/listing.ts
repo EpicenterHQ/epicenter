@@ -16,13 +16,17 @@ import {
 	usageLine,
 } from './input.ts';
 
-/** An action as an MCP tool definition: its name, input schema, and the hints it states. */
+/**
+ * An action as an MCP tool definition: its name, input schema, and the hints
+ * it states. `mcp: false` marks one a listing shows and serve does not offer.
+ */
 export function actionTool(app: string, key: string, action: Action) {
 	return {
 		name: `${app}_${key.replaceAll(' ', '_')}`,
 		description: action.description,
 		inputSchema: jsonSchema(action.input),
 		...(action.annotations ? { annotations: action.annotations } : {}),
+		...(action.mcp === false ? { mcp: false as const } : {}),
 	};
 }
 
@@ -60,11 +64,16 @@ function readOnly(action: Action) {
 	return action.annotations?.readOnlyHint ? ' (read-only)' : '';
 }
 
+/** " (not offered to agents)" for an action serve keeps out of its MCP tools. */
+function notOffered(action: Action) {
+	return action.mcp === false ? ' (not offered to agents)' : '';
+}
+
 /** Each action as its usage line and its description; `--help` on an action lists its input's keys. */
 function actionLines(located: Runnable) {
 	return Object.entries(located.actions).flatMap(([key, action]) => [
 		`  ${usageLine(located.name, key, action)}`,
-		`    ${action.description}${readOnly(action)}`,
+		`    ${action.description}${readOnly(action)}${notOffered(action)}`,
 	]);
 }
 
