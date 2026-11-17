@@ -13,11 +13,16 @@ it does not require every review to find a reload or deletion.
 
 ## Initial accounts
 
-Three fresh reviewers inspect the same evidence: two Sol subagents and an
-Opus 5.5 reviewer, all at high effort. Each uses a distinct starting question from
-[the coordinator protocol](coordinator.md#supply-the-evidence-and-starting-questions)
-and forms its account before seeing the others. The perspective assignments
-below are illustrative; any model can take any starting perspective.
+In this example, the person has settled the intent: change accounts without
+losing their work. Keeping the app open is part of the proposed vision, which
+the reviewers can reconsider.
+
+Three fresh reviewers inspect that intent, the request, and the same evidence:
+two Sol subagents and an Opus 5.5 reviewer, all at high effort. Each receives the
+shared challenge from
+[the coordinator protocol](coordinator.md#staff-and-brief-the-reviewers)
+and forms its account before seeing the others. In this example, two reviewers
+use the optional starting angles.
 
 Reviewer one, asked what the system should be from the desired experience,
 proposes reloading on account change: one page lifetime belongs to one account.
@@ -33,38 +38,37 @@ a reload cannot send it to the wrong account.
 
 ## Working toward a direction
 
-The coordinator shares the three accounts with every reviewer and relays their
-replies; reviewer three receives each exchange in a resumed turn.
-
-Reviewer two objects to the reload: an edit still waiting in the upload
-queue would be lost. Reviewer three asks whether pending edits are already
-persisted under their owning account before they enter the queue. The three
-agree that this fact decides whether a reload loses them.
+The coordinator works through the three accounts and identifies pending edits
+as the deciding question. Reviewer two objects that a reload would lose
+an edit still waiting in the upload queue. The coordinator resumes reviewer three
+with that objection and asks what evidence could settle it. Reviewer three asks
+whether pending edits are persisted under their owning account before entering
+the queue.
 
 The coordinator traces persistence and runs a focused recovery check. In this
 imagined case, edits are persisted locally under their original account, and
-the check passes after a reload, including offline. Every reviewer receives the
-trace and result, and reviewer two withdraws its objection.
+the check passes after a reload, including offline. The coordinator gives the
+trace and result to reviewer two, who withdraws its objection.
 
-The trace also shows that a second tab can stay open on the old account. How
-tabs share an account lifetime is a question none of the initial accounts
-addressed, so the coordinator adds a fourth reviewer focused on it. That
-reviewer forms its own account from the evidence before reading the group's
-direction, then proposes broadcasting the account change so every tab reloads.
-The others test that against an upload in progress in the second tab. Because
-the edit is persisted under its account, the upload resumes after the reload.
+The trace also shows that a second tab can stay open on the old account. The
+coordinator develops a revised proposal: broadcast the account change so every
+tab reloads. It asks reviewer two to test that against an upload in progress in
+the second tab. Because the edit is persisted under its account, the upload
+resumes after the reload.
 
-Each of the four reviewers then states support for the same direction: reload
-every tab on account change, and upload each persisted edit under the account
-that created it. Their reasons differ; the direction is shared.
+The coordinator sends the complete revised proposal and the evidence to all
+three reviewers. Each examines reloading every tab and uploading each persisted
+edit under its original account. In this hypothetical case, all three explicitly
+support that same design, including the checks for pending edits and other tabs.
 
 ## What the user receives
 
-The coordinating agent presents the agreed direction. The user does not have to
-reconstruct it from four reports and their exchange.
+The coordinating agent presents the developed direction, its deciding evidence,
+and the scope of support. The user does not have to reconstruct them from three
+reports and their exchange.
 
-> All four reviewers support replacing the account-switching machinery with a
-> reload of every open tab. One page lifetime belongs to one account.
+> I recommend replacing the account-switching machinery with a reload of every
+> open tab. One page lifetime belongs to one account.
 >
 > The deletion prize is subscription rebinding, cache replacement, intermediate
 > switching states, and moving pending saves to the new account.
@@ -73,20 +77,19 @@ reconstruct it from four reports and their exchange.
 > original account, and a recovery check passes after a reload, including
 > offline. The remaining cost is that switching accounts reloads the page.
 >
-> I recommend implementing it.
+> All three reviewers examined and support this revised design.
 
 > **You:** Go ahead.
 
 This request began as a review, so implementation follows the user's
-instruction. An existing implementation request would already authorize repairs
-within its accepted outcome; this exchange is not a mandatory approval sequence.
+instruction. Repairs within an existing implementation request's authorization
+can proceed without a separate approval step.
 
-Had the reviewers divided over whether reloading on every switch is acceptable
-to the people using the app, the evidence could not settle it. The coordinator
-would bring that product question to the user with both options rather than
-report an agreed direction.
+If accepting a reload on every switch remains an unsettled product choice,
+the coordinator brings that question to the person with the alternatives and
+their consequences. Agreement among reviewers cannot settle that preference.
 
-## When disagreement points to inherited work
+## When reframing clarifies a disagreement without settling it
 
 Reviewers disagree over how re-importing a project file should update a live
 workspace. One proposes merging fields, another asks the person about each
@@ -95,20 +98,17 @@ adds exceptions for renamed folders and attachments still uploading.
 
 The group notices that every proposal assumes import must change the current
 workspace in place. They return to the outcome: the person should be able to
-inspect imported content without losing their edits. Importing into a separate
-workspace could remove the merge rules and partial rollback. Before supporting
-it, the reviewers check whether links or other devices depend on the current
+inspect imported content without losing their edits. They test importing into
+a separate workspace to remove merge rules and partial rollback. Before
+supporting it, they check whether links or other devices depend on the current
 workspace identity, and whether keeping two copies is acceptable. If that
 check defeats the new process, they return to the merge dispute with its cause
 and cost understood.
 
-## When reframing clarifies a disagreement without settling it
-
-In another hypothetical import review, the group tests importing into a new
-workspace instead of merging into the current one. The new workspace preserves
-both sets of edits, but existing links and offline devices still refer to the
-original workspace. A read-only preview helps someone inspect the import; it
-does not decide which workspace should become their continuing copy.
+In this hypothetical case, the new workspace preserves both sets of edits,
+but existing links and offline devices still refer to the original workspace.
+A read-only preview helps someone inspect the import; it does not decide
+which workspace should become their continuing copy.
 
 One reviewer supports preserving the original identity and accepting merge
 rules. Another supports a new workspace with explicit provenance and the cost
@@ -118,15 +118,15 @@ clarifies the bargain but cannot establish which experience the person wants.
 
 The coordinator gives the group's developed account:
 
-> We have not converged on the import behavior. Importing separately removes
-> merge and rollback machinery, but moves the decision to which workspace you
-> continue using. Preserving the original identity keeps links and devices
-> working and retains the merge problem.
+> Importing separately removes merge and rollback machinery, but moves the
+> decision to which workspace you continue using. Preserving the original
+> identity keeps links and devices working and retains the merge problem.
 >
 > We tested a preview and an identity alias. The preview makes inspection
 > easier; the alias brings back coordination. Neither settles whether keeping
 > the current workspace identity is worth the merge rules. That is the choice
-> we need you to make before pursuing either replacement.
+> we need you to make before pursuing either replacement. The group has not
+> converged on which behavior to pursue.
 
 The review ends with a clearer decision, not manufactured assent. The
 coordinator does not report agreement on the design or implement the disputed
@@ -140,14 +140,14 @@ examine alternatives, test one another's objections, and each explicitly
 supports retaining that mechanism. The coordinator verifies the deciding claims
 and gives the user the result:
 
-> All three reviewers recommend leaving the current design in place, including
-> its deletion markers.
+> I recommend leaving the current design in place, including its deletion
+> markers.
 >
 > The deletion prize would be removing marker retention and cleanup, but getting
 > it requires either rejecting old replicas or making you reset devices.
 >
 > That's a poor bargain for a system where an offline device should reconnect
-> normally. I'd keep the current design.
+> normally. All three reviewers support retaining it.
 
 The opening makes retention explicit. The rejected alternatives appear only to
 explain the cost of the deletion prize, so the user can judge why the current
@@ -160,8 +160,8 @@ In another hypothetical case, checkout, cart, and admin flows each implement
 their own checks and timers to keep two people from buying the same seat.
 A reviewer proposes one reservation authority through which every flow claims
 a seat for a bounded time. The others test it against admin overrides and
-agree to pursue it, conditional on atomic acquisition. The coordinator presents
-the agreed direction:
+support pursuing it, conditional on atomic acquisition. The coordinator presents
+the conditional recommendation:
 
 > I recommend making a reservation own the claim and its expiry. Checkout,
 > cart, and admin would use the same acquisition and release operations.

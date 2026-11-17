@@ -1,109 +1,61 @@
 # Coordinator protocol
 
-Read this before staffing or coordinating an adversarial review. The
-[skill](../SKILL.md) owns the review's reasoning and standards for support.
+[SKILL.md](../SKILL.md) describes your responsibility for developing the design
+with the person.
 
-## Staff the review
+## Staff and brief the reviewers
 
-Normally staff three fresh, read-only seats at high reasoning effort:
+Carry forward the shared intent. If it is unsettled, develop it with the person
+through [dialectic](../../dialectic/SKILL.md) before briefing reviewers.
+
+Give each reviewer the request, intended use, requirements, source evidence,
+and review guidance. Separate the person's decisions from your assumptions.
+Include verification results and open questions. For implementation reviews,
+include the task-start baseline and cumulative diff, accounting for relevant
+uncommitted and untracked files and distinguishing unrelated work.
+
+Give everyone the same challenge:
+
+> Pursue the strongest greenfield design for this subject. Show what you would
+> build and why.
+
+Keep initial accounts private until all arrive. Where anchoring matters, let
+reviewers form accounts before seeing the proposed design and its rationale.
+Say when the request or visible source already reveals it.
+
+Normally use three fresh, read-only reviewers at high reasoning effort:
 
 | Seats | Model and launch settings |
 |---|---|
 | Two Codex subagents | `gpt-6.1-sol`; `fork_turns: "none"`, `reasoning_effort: "high"` |
-| One Claude Opus reviewer | Fresh [consult-claude](../../consult-claude/SKILL.md) session with `--model claude-opus-5-5 --effort high` on launch and every resume |
+| One Claude Opus reviewer | [consult-claude](../../consult-claude/SKILL.md), with `--model claude-opus-5-5 --effort high` |
 
-Check current host availability and select these models explicitly on launch
-and follow-ups. Verify the model that actually ran from execution metadata;
-a reviewer's self-identification is insufficient. Use consult-claude's account,
-session, and returned-model/permission checks. Report unavailability or
-substitution.
+Explicit user choices override these defaults. Select models explicitly and
+check execution metadata where available. Continue with available reviewers
+and report missing seats, substitutions, or verification limits. If none is
+available, review locally and say it was not independent.
 
-Explicit user choices override these defaults. Run the seats in parallel when
-possible. Keep initial conclusions private until all initial accounts arrive.
+Use consult-claude for Claude's launch and follow-up procedures. Evidence
+helpers do not count as independent reviewers. Run reviewers in parallel
+when possible.
 
-## Supply the evidence and starting questions
+## Run the exchange
 
-Give every seat the desired outcome, explicit requirements, actual or intended
-callers, relevant entrypoints, and existing system. Include the task-start
-baseline and cumulative diff for implementation reviews, distinguishing
-task-owned uncommitted and untracked files from unrelated work. Supply
-verification results, remaining plans, and open questions. A summary alone
-is insufficient evidence. Include essential reviewer guidance in each brief;
-provide linked reasoning when the assignment calls for it.
+Keep source evidence stable during each reviewer turn. Defer implementation
+that depends on an unsettled design choice.
 
-When anchoring is a consequential risk, supply outcome, requirements, callers,
-and existing system before the proposed API or rationale. Preserve the initial
-accounts, then supply the proposal. Describe limits from an already visible
-implementation honestly.
+For each follow-up, give the current proposal, what changed, relevant evidence,
+and the question. Preserve who raised an objection and why. Pass the person's
+decisions to affected reviewers. Add a reviewer when an unresolved question
+needs one.
 
-Assign one of the following starting perspectives to each reviewer independently
-of model choice. No perspective belongs to a particular model. Each reviewer
-develops a complete recommendation and tests alternatives; the perspective
-determines where the investigation starts, not what it may examine.
-
-Greenfield design:
-
-> From the desired experience and actual use, what should this system be? Develop
-> your own account of its natural operations and responsibilities, then compare
-> it with the design under review. Which problems disappear under that account,
-> and what work, guarantees, or costs remain?
-
-Use and consequences:
-
-> Follow actual or intended users through the work this system must support.
-> Read existing callers as evidence of need rather than of the right operations.
-> Develop your own account of what belongs together and what its operations
-> mean. Test that account and the design under review against consequential
-> sequences. Which requirements reflect necessary outcomes, and which reflect
-> an assumed solution? Show the bargain behind your recommendation.
-
-Shared premises:
-
-> Find the premises the design under review shares with its obvious
-> alternatives: about ownership, lifetime, representation, or what is promised
-> to people. Which premise accounts for the most machinery, and what would you
-> build if it were false? Develop your own account and test it against the
-> strongest case for the current design. If the evidence points to a better
-> question, pursue that instead.
-
-These are starting questions, not assigned conclusions. Any reviewer can
-challenge its framing or establish that the current design is strongest.
-
-## Carry the exchange
-
-Reviewers may communicate directly where tooling supports it. Otherwise relay
-their substantive findings, questions, evidence, objections, and replies,
-attributed to their author and without summarizing away the reasoning. Claude
-receives these at completed-turn boundaries through its resumed session;
-there is no mid-turn channel. Return deciding traces and experiment results
-to every reviewer. Exchanges should test claims rather than repeat broad
-reviews.
-
-Claude may use host-provided read-only Codex evidence assistance while retaining
-the judgment and checking deciding sources. This helper gathers evidence; it
-is not another independent reviewer. Codex owns requested experiments.
-
-Three seats is a starting point, not a cap. Add a reviewer when an unresolved
-question, competing model, or missing expertise needs one. Give it the shared
-evidence and the question it joins to answer. Where anchoring matters, let it
-form its account before reading the group's current direction and objections.
-Never add a seat to outnumber an objection or obtain endorsement.
-
-Hold the reviewed surface stable until the review ends, whether or not it
-converges. Use that interval for verification preparation or independent work
-whose shape does not depend on the verdict. Reviewers remain read-only.
+Work toward full reviewer support. Ask every reviewer to examine the same
+complete proposal and explicitly state their support, remaining objections,
+and conditions.
 
 ## Continue after review
 
-Explain accepted findings before editing. An implementation task already
-authorizes repairs within its accepted outcome; a review-only task does not
-authorize implementation. Bring changes to the accepted outcome or unresolved
-product choices to the user.
-
-After authorized repairs, use
-[post-implementation-review](../../post-implementation-review/SKILL.md#output-shape)'s
-local post-edit checks on every repaired file. Rewrite remaining work around
-the resulting design and delete obsolete tasks. Return to the group when
-repairs materially change reviewed ownership or expose unresolved risk. Once
-the agreed direction is carried through and its consequential findings are
-resolved, resume remaining assigned work.
+Explain the recommendation and remaining conditions. Carry findings into
+authorized work; a review alone does not authorize implementation or changing
+an explicit requirement. After implementation, use
+[post-implementation-review](../../post-implementation-review/SKILL.md).

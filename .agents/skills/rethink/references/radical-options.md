@@ -1,40 +1,35 @@
 # Radical options
 
-Question the premise that makes the current choices seem exhaustive. Look
-outward until you can see a different organizing idea, then follow that idea
-far enough to show what it makes possible. A radical option may change the
-product promise, the unit of ownership, or the need for an entire subsystem.
+Use these moves to find alternatives the current framing hides.
 
-## Mental inlining
+## Question shared premises
 
-Mentally inline a suspicious helper, adapter, option, or service into its
-consumers. Determine what remains after its name disappears. Keep a boundary
-when it owns an invariant or lifetime, isolates unsafe input, expresses
-non-obvious domain behavior, provides a stable package or runtime contract, or
-simplifies real consumers. A forwarding layer
-that only preserves an old split is a candidate for removal.
+Name what the options you're weighing take for granted. Ask whether those
+assumptions follow from the purpose or from earlier design choices, and
+what would become possible if we changed them.
 
-For example, repeated checks for whether a workspace is half torn down may
-suggest that teardown needs one lifecycle owner. Adding another readiness flag
-would preserve the problem. The alternative must still account for callers
-that have work in flight; moving the flag out of sight is not a solution.
+For example, locking a handle during updates and queuing changes until
+it's idle both assume the handle must survive the setting change.
+Questioning that premise opens up restarting the app with the new setting.
 
-## Compare the consequences
+## Trace where the requirement comes from
 
-Compare the inherited approach with the alternative organizing idea. Explain
-the constraint being reconsidered and show the resulting consumer experience.
-Do not manufacture several alternatives when one concrete contrast exposes the
-decision.
+Follow the requirement through its callers, the lifetimes it depends on,
+and the surrounding system. Find out who relies on it and which decisions
+created that dependency.
 
-Follow complexity to its new owner. Name the machinery removed and the state,
-coordination, failure modes, or obligations introduced elsewhere. Removing a
-local helper while adding central race handling can make the whole harder to
-own. Trace what each affected consumer or person must now understand and do,
-including what happens if they miss a required step. Judge the full bargain
-against the experience the destination promises.
+If other code holds the handle, ask whether that code must also survive
+the setting change. Reloading could recreate the handle and its consumers
+together. Work in progress might still need to survive. The trace shows
+what the requirement protects and what changing it would affect.
 
-If a small promise keeps a second implementation family alive, assess refusing
-that promise. Name both the user loss and the machinery removed. Use
-[asymmetric-wins](../../asymmetric-wins/SKILL.md) when that tradeoff becomes the
-center of the decision. Preserve the promise when its value warrants the
-complexity.
+## Mentally inline suspicious helpers
+
+Imagine a helper's body written directly into its callers. Examine the
+work that remains once its name is gone. Look for operations the system
+already performs elsewhere, or responsibilities that could be composed
+differently.
+
+Also notice behavior the helper genuinely owns, such as managing work
+already in flight. Use what you find to reconsider where the boundary
+belongs.

@@ -149,10 +149,10 @@ There is no interactive attach step.
 
 The launcher sends one fixed brief per turn and provides no mid-turn instruction
 channel. Steer at completed-turn boundaries: state what remains accepted, what
-changed, and the question the next turn should answer. As a review-group seat,
-Claude receives other reviewers' findings, questions, and objections the same
-way: the coordinator resumes the session with them attributed to their authors,
-and Claude replies, revises its position, or holds its objection.
+changed, and the question the next turn should answer. For an adversarial review,
+the coordinator may resume Claude with another reviewer's finding or objection
+when it could advance the investigation. Attribute the reasoning to its author;
+Claude answers the question, revises its position, or holds its objection.
 
 The shared launcher owns launch defaults. New consultations, delegations and
 resumes use Opus 5.5 high unless explicit `--model` or `--effort` flags override
@@ -222,10 +222,12 @@ objections does not establish that a consultation was useful.
 
 For a standalone consultation, return the recommendation, supporting evidence,
 and remaining disagreement. Stop when the bounded decision has enough evidence;
-consensus is not required. As a seat in an adversarial review group, Claude
-keeps answering relayed findings and objections until it can explicitly
-support the group's direction or names the objection that still stands.
-Adversarial-review owns closure.
+consensus is not required. In an adversarial review, answer the coordinator's
+focused follow-ups and state what your reasoning supports, what remains open,
+and which proposal you examined. Check revisions against the concerns you raised.
+The coordinator seeks every reviewer's support for the same design and brings
+disagreements the investigation cannot advance back to the person.
+Adversarial-review owns the coordinator's judgment and reporting rules.
 
 Read [the example and evaluation cases](references/example-workflow.md) when
 evaluating this workflow or revising the skills. For launcher changes, verify
