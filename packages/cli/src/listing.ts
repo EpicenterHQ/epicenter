@@ -48,18 +48,35 @@ function appListing(located: Runnable) {
 		description: app.description,
 		folder: located.folder,
 		...(located.link ? { link: located.link } : {}),
-		collections: Object.fromEntries(
-			Object.entries(app.collections).map(([name, collection]) => [
-				name,
-				{
-					path: collection.path,
-					...(collection.description
-						? { description: collection.description }
-						: {}),
-					fields: jsonSchema(collection.fields),
-				},
-			]),
-		),
+		...(app.data
+			? {
+					data: Object.fromEntries(
+						Object.entries(app.data).map(([key, handle]) => [
+							key,
+							{
+								path: `data/${key}${key.endsWith('.md') ? '' : '/'}`,
+								...(handle.description
+									? { description: handle.description }
+									: {}),
+								fields: jsonSchema(handle.fields),
+							},
+						]),
+					),
+				}
+			: {
+					collections: Object.fromEntries(
+						Object.entries(app.collections).map(([name, collection]) => [
+							name,
+							{
+								path: collection.path,
+								...(collection.description
+									? { description: collection.description }
+									: {}),
+								fields: jsonSchema(collection.fields),
+							},
+						]),
+					),
+				}),
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
@@ -120,6 +137,13 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
 		'',
+		...(located.app.data
+			? Object.entries(located.app.data).flatMap(([key, handle]) => [
+					`  ${key}  data/${key}${key.endsWith('.md') ? '' : '/'}`,
+					...(handle.description ? [`    ${handle.description}`] : []),
+					`    ${JSON.stringify(jsonSchema(handle.fields))}`,
+				])
+			: []),
 		...actionLines(located),
 		'',
 		`Run: epicenter ${located.name} <action> --help`,

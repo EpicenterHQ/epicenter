@@ -118,6 +118,15 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	/** The file path for this id, without checking the id or the disk. */
 	pathOf(id: string): string;
 };
+/** Data metadata and reads; key names determine paths, file or folder shape, and locality. */
+export type AnyData = Record<
+	string,
+	DataDef &
+		(
+			| Pick<OneFile<`${string}.md`, DataDef>, 'get' | 'pathOf'>
+			| Pick<FolderHandle<string, DataDef>, 'get' | 'list' | 'pathOf'>
+		)
+>;
 
 type Verb = 'list' | 'get' | 'add' | 'set' | 'delete';
 type Offered<TKey extends string> = TKey extends

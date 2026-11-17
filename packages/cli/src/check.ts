@@ -6,7 +6,7 @@
  * rather than as many broken files. The read runs as a read-only action's
  * does: it takes no write lock, and the run's folder refuses any write.
  */
-import { inRun } from '@epicenter/app';
+import { checkData, inRun } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
@@ -15,6 +15,8 @@ import { fail, writeJson, writeOut } from './output.ts';
 
 /** One collection as the check found it. */
 type Checked = {
+	/** Present for data keys; true for a one-file key. */
+	single?: boolean;
 	/** The collection's path template. */
 	path: string;
 	/** How many files it matched. */
@@ -36,6 +38,20 @@ async function checkApp(located: Runnable) {
 	await inRun(
 		{ ...located.context, readOnly: { action: 'check' } },
 		async () => {
+			if (located.app.data) {
+				for (const [key, each] of Object.entries(
+					await checkData(located.app.data),
+				)) {
+					checked[key] = {
+						...each,
+						records: each.records.map(({ path, problems }) => ({
+							path,
+							problems: problems.map(({ line }) => line),
+						})),
+					};
+				}
+				return;
+			}
 			for (const [name, collection] of Object.entries(
 				located.app.collections,
 			)) {
@@ -66,13 +82,28 @@ async function checkApp(located: Runnable) {
 function render(
 	apps: Record<string, Record<string, Checked>>,
 	unchecked: Unchecked[],
+	dataApps: Set<string>,
 ) {
 	const lines: string[] = [];
 	for (const [app, collections] of Object.entries(apps)) {
 		if (lines.length) lines.push('');
 		lines.push(app);
-		if (!Object.keys(collections).length) lines.push('  no collections');
+		if (!Object.keys(collections).length)
+			lines.push(dataApps.has(app) ? '  no data keys' : '  no collections');
 		for (const [name, each] of Object.entries(collections)) {
+			if (each.single !== undefined) {
+				const status =
+					each.single && each.withProblems === 0
+						? 'fits'
+						: `${each.files} ${each.files === 1 ? 'file' : 'files'}, ${each.withProblems || 'none'} with problems`;
+				lines.push(`  ${name}  ${status}`);
+				for (const record of each.records)
+					lines.push(
+						`    ${/\p{Cc}/u.test(record.path) ? JSON.stringify(record.path) : record.path}`,
+						...record.problems.map((problem) => `      ${problem}`),
+					);
+				continue;
+			}
 			lines.push(`  ${name}  ${each.path}`);
 			if (!each.files) {
 				lines.push('    0 files');
@@ -143,7 +174,16 @@ export async function checkCommand(
 		}
 	}
 	if (json) writeJson({ apps, problems: unchecked });
-	else writeOut(render(apps, unchecked));
+	else
+		writeOut(
+			render(
+				apps,
+				unchecked,
+				new Set(
+					runnable.filter(({ app }) => app.data).map(({ entry }) => entry),
+				),
+			),
+		);
 	const anyProblem = Object.values(apps).some((collections) =>
 		Object.values(collections).some((each) => each.withProblems > 0),
 	);
