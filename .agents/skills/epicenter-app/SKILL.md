@@ -276,9 +276,30 @@ keep local files out.
 
 Write last. Nothing locks a call, so fetch from a service, call a model, or
 compute first, then write: a slow step then never leaves a file half done.
-When the person's input must survive a failure, write it after the slow step fails, not before
-it starts: Vocab's `practice reply` asks the model, then saves both turns, or
-saves the learner's turn alone and returns its provider error.
+When the person's input is the only copy, keep it: Zhongwen's `practice
+reply` saves the learner's turn, then asks the model, and adds the tutor's
+turn only when it is whole. Codex's voice reply keeps the recording in
+`local/` only when transcription fails.
+
+The outside world is the action's to handle. Epicenter promises one thing
+about the home's files, that one process writes them, and nothing about a
+service, a model or a browser. It has no time limit, retry or stop for an
+action, and adds none: the action is ordinary code, and its author decides.
+
+- Give every outside call a time limit. Pass `AbortSignal.timeout(ms)` to the
+  request, sized for the caller: seconds for a button, hours for a download. A
+  client that retries does so inside that signal, so no call waits forever.
+- Answer what is known. A request that times out after it left may have
+  worked: say it was not confirmed, not that it failed. A long action that
+  stops at its own limit with its progress saved returns `Ok` with a field
+  saying it is unfinished. `ActionError.Unreachable` is what a caller gets
+  when it could not reach `serve`, so do not use it for that.
+- Write what a page must show later. A page that reloads, another device and
+  a routine see neither the updates nor the answer of a call they did not
+  make. Progress worth showing goes in a file with the time it was written.
+  Do not write that something is running: after a restart it is false.
+- Share as little as possible. Two calls of one action both run. Give each
+  its own record id, temporary folder or browser tab, and none has to wait.
 
 Epicenter runs actions and serves pages. Git stores the home, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. After direct
