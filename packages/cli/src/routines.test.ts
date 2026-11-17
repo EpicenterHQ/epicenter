@@ -331,16 +331,21 @@ test('a last start later than now is due, so a corrected clock cannot stall a ro
 	expect((await f.routines.list())[0]?.status).toBe('due');
 });
 
-test('one runner does not start a routine that is still running', async () => {
-	const f = await setup([process.execPath, '-e', 'await Bun.sleep(400)']);
+test('a run still going does not hold the next occurrence or overwrite its record', async () => {
+	const f = await setup([process.execPath, '-e', 'await Bun.sleep(600)']);
 	const first = f.routines.run('review');
 	await eventually(async () => !!(await f.state().catch(() => undefined)));
-	await expect(f.routines.run('review')).rejects.toThrow('already running');
-	// A due check started before the run finishes leaves it alone.
-	const started = (await f.state()).started;
-	await f.routines.check(new Date(Date.now() + 2 * 86_400_000));
+	const later = new Date(Date.now() + 2 * 86_400_000);
+	const second = await f.routines.run('review', later);
+	expect(second?.exitCode).toBe(0);
 	expect((await first)?.exitCode).toBe(0);
-	expect((await f.state()).started).toBe(started);
+	// The earlier run ends while the later one runs and leaves its start in place.
+	expect((await f.state()).started).toBe(later.toISOString());
+	const log = await readFile(
+		join(f.directory, 'review.local/output.log'),
+		'utf8',
+	);
+	expect(log).toStartWith(`${later.toISOString()} started`);
 });
 
 test('a start without a finish shows running until the next occurrence makes it due', async () => {

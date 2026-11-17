@@ -320,14 +320,18 @@ server is stopped; `--json` includes the last start, finish, exit code, and log.
 A person or their agent writes the file. Installing or importing an app
 schedules nothing.
 
-`routines/<name>.local/state.json` records `started`, then `finished` and
-`exitCode` when the command ends. The latest run's output replaces
-`routines/<name>.local/output.log`. Both stay local and owner-only.
+`routines/<name>.local/state.json` records the latest `started`, then
+`finished` and `exitCode` when that run ends. Each start empties
+`routines/<name>.local/output.log`, and every run appends to it. Both stay
+local and owner-only.
 
-The runner starts each routine at most once at a time and keeps no lock,
-timeout, or kill path. A command that needs a deadline sets its own. Commands
-share `serve`'s process group, so stopping the service stops them. A start
-with no finish shows as running until the next occurrence makes it due.
+The runner starts a routine at each occurrence, even while an earlier run is
+still going, and keeps no lock, timeout, or kill path. A command that needs a
+deadline sets its own; one that must not overlap itself takes a lock, for
+example with `/usr/bin/lockf -t 0 <file> <command>`. An earlier run that ends
+after a later start leaves the later record in place. Commands share
+`serve`'s process group, so stopping the service stops them. A start with no
+finish shows as running until the next occurrence makes it due.
 
 A run that fails waits for the schedule's next occurrence or an explicit run;
 nothing blocks a routine until a person repairs it. Corrupted state blocks

@@ -56,15 +56,19 @@ occurrence; nothing blocks a routine until a person repairs it.
 `epicenter routines run <name>` still runs one now.
 
 **The runner starts commands and records how they end; it does not police
-them.** One home has one writer, so the runner keeps no lock. It remembers
-which routines it started and has not seen exit, and starts none of them
-twice. It keeps no timeout and no kill path: a command that needs a deadline
-sets its own, as Flights' agent run already does. This holds for actions too.
+them.** It starts a routine at each occurrence, even while an earlier run is
+still going, as cron does. A command that must not overlap itself takes its
+own lock, for example `/usr/bin/lockf -t 0 <file> <command>`; `epicenter
+checkpoint` already holds its own. The runner keeps no timeout and no kill
+path: a command that needs a deadline sets its own, as Flights' agent run
+already does. This holds for actions too.
 With `serve` running, `epicenter <app> <action>` hands the call to `serve`
 (ADR-0936), and ending that command does not stop the action (ADR-0930), so an
 action that can run long sets its own deadline. Commands share `serve`'s
 process group, so the service manager that stops `serve` stops them. A
 start with no finish reads as running until the next occurrence makes it due.
+An earlier run that ends after a later one started leaves the later record in
+place, and every run appends to a log that each start empties.
 
 `serve` keeps a one-minute timer that calls the routine check, and no
 checkpoint clock. It runs no checkpoint at startup or on stop. A new
@@ -92,13 +96,12 @@ for an agent to add when the person wants history and backup.
 - Up to five minutes of changes stay uncommitted when the computer stops.
   The next start commits them.
 - A routine that cannot tolerate repetition takes its own id or lock.
-- A hung command holds its routine until it exits or `serve` restarts.
-  `epicenter routines` shows it running since its start.
-- A foreground `epicenter routines run` and `serve` do not see each other's
-  runs and can overlap. One writer makes this rare, and routines already
-  tolerate repetition.
-- A `serve` restarted mid-run does not know the old command; it waits for
-  the next occurrence, so overlap needs a run longer than its interval.
+- A run longer than its interval overlaps the next one. A hung command
+  that runs every minute adds a process every minute until someone stops
+  it; this is cron's behavior, and the command's deadline or lock prevents
+  it.
+- Scheduled runs, foreground `epicenter routines run`, and a `serve`
+  restarted mid-run follow one rule, with no exception for any of them.
 
 ## Considered alternatives
 
@@ -120,6 +123,10 @@ for an agent to add when the person wants history and backup.
   The service has restarted only on installs, and the due rule already waits
   for the next occurrence after a restart. A lock every command must keep
   open is a rule every command author must know.
+- **Skip an occurrence while the last run is still going.** Its only
+  record is the command `serve` started, which for an action is only the
+  client that handed the call to `serve`, so it does not see the work.
+  Whether a routine may overlap itself is the command's choice.
 - **Keep a `timeout` that kills the command's process group.** The command
   knows its deadline and what to clean up; `serve` would only guess. Flights
   already stops its agent after fifteen minutes.

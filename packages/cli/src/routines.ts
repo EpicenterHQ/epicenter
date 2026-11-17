@@ -2,11 +2,10 @@
  * Home-owned scheduled commands (ADR-0908, ADR-0937). `serve` checks on
  * startup and once a minute and starts each due routine as a child process.
  * A routine is due when its cron schedule has had an occurrence since its last
- * start, so a run that did not succeed waits for the next occurrence. The
- * runner remembers which of its children are still running and starts none of
- * them twice; it keeps no lock, timeout, or kill path. A command that needs a
- * deadline sets its own, and children share serve's process group, so they
- * end with it.
+ * start, so a run that did not succeed waits for the next occurrence. Runs
+ * may overlap: the runner keeps no lock, timeout, or kill path. A command
+ * that needs a deadline or must not overlap itself arranges that itself.
+ * Children share serve's process group, so they end with it.
  */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -138,7 +137,6 @@ export function createRoutines({
 	const epicenter: [string, ...string[]] = COMPILED
 		? [process.execPath]
 		: [process.execPath, fileURLToPath(new URL('./bin.ts', import.meta.url))];
-	const running = new Set<string>();
 	const stateDirectory = (name: string) => join(directory, `${name}.local`);
 
 	async function names() {
@@ -169,16 +167,24 @@ export function createRoutines({
 		);
 	}
 
-	/** Start the command, record the start, and record how it ended. */
+	/**
+	 * Start the command, record the start, and record how it ended unless a
+	 * later run has started since.
+	 */
 	async function execute(name: string, routine: Routine, now: Date) {
 		const local = stateDirectory(name);
 		await mkdir(local, { recursive: true, mode: 0o700 });
 		const state: State = { started: now.toISOString() };
 		await writeState(local, state);
-		// The log holds the latest run only.
-		const log = await open(join(local, 'output.log'), 'w', 0o600);
+		// A start empties the log; every run appends, so an earlier run still
+		// going writes after this one's header.
+		const logPath = join(local, 'output.log');
+		await Bun.write(
+			logPath,
+			`${state.started} started ${JSON.stringify(routine.run)}\n`,
+		);
+		const log = await open(logPath, 'a', 0o600);
 		try {
-			await log.writeFile(`${state.started}\n${JSON.stringify(routine.run)}\n`);
 			const [program, ...args] = routine.run;
 			const argv: [string, ...string[]] =
 				program === 'epicenter'
@@ -206,32 +212,25 @@ export function createRoutines({
 					.once('exit', (code, signal) => resolve({ code, signal }));
 			});
 			if (code !== null) state.exitCode = code;
-			if (signal) await log.writeFile(`Ended on ${signal}\n`);
+			await log.writeFile(
+				`${state.started} ended ${signal ? `on ${signal}` : `with ${code}`}\n`,
+			);
 		} catch (error) {
-			await log.writeFile(`${messageOf(error)}\n`);
+			await log.writeFile(`${state.started} ${messageOf(error)}\n`);
 		} finally {
 			await log.close();
 		}
 		state.finished = new Date().toISOString();
-		await writeState(local, state);
+		const current = await readState(local).catch(() => ({}) as State);
+		if (current.started === state.started) await writeState(local, state);
 		return state;
 	}
 
-	/** One runner starts a routine at most once at a time. */
 	async function start(name: string, manual: boolean, now: Date) {
-		if (running.has(name)) {
-			if (manual) throw new Error(`${name} is already running`);
-			return;
-		}
-		running.add(name);
-		try {
-			const routine = await read(name);
-			const state = await readState(stateDirectory(name));
-			if (!manual && statusOf(routine, state, now) !== 'due') return;
-			return await execute(name, routine, now);
-		} finally {
-			running.delete(name);
-		}
+		const routine = await read(name);
+		const state = await readState(stateDirectory(name));
+		if (!manual && statusOf(routine, state, now) !== 'due') return;
+		return await execute(name, routine, now);
 	}
 
 	return {
@@ -246,9 +245,7 @@ export function createRoutines({
 						return {
 							name,
 							cron: routine.cron,
-							status: running.has(name)
-								? 'running'
-								: statusOf(routine, state, now),
+							status: statusOf(routine, state, now),
 							...state,
 							log,
 						};
