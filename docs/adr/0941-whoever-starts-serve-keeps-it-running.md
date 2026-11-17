@@ -14,8 +14,9 @@ LaunchAgent (`packages/cli/src/service.ts`, removed in this change). The Linux
 systemd unit and anything for Windows were never built. Each operating system
 needs its own writer, its own tests against a faked `launchctl` or
 `systemctl`, and its own upgrade and uninstall story, all inside the CLI. The
-planned desktop app (ADR-0865) is built on Tauri, whose autostart already
-covers macOS, Linux, and Windows.
+planned desktop app (ADR-0865) already has to keep serve running for the
+people who use it, and ADR-0865 rejects a LaunchAgent that `epicenter` installs
+for itself.
 
 ## Decision
 
@@ -36,18 +37,19 @@ it and restarts nothing.
 and exits 2. A newer command talking to an older serve prints
 ``Stop `epicenter serve` and start it again.``
 
-`packages/cli/README.md` ("Keep serve running") carries a systemd unit and a
-LaunchAgent plist to copy.
+**Epicenter documents no job file.** `packages/cli/README.md` ("Keep serve
+running") names the tools and says to start serve from the home's folder. A
+systemd unit or LaunchAgent is the person's own file, written the way that
+tool's documentation says.
 
 ## Consequences
 
 - The CLI loses `service.ts`, its tests, and the `service` entry in
   `commands.ts`. `service` is no longer a reserved word, so it can name an app.
-- A Mac user loses the one-command install until the desktop app exists. The
-  README snippets cover that gap with a file to copy and one command to load.
-- Linux and Windows cost the CLI nothing. A Linux user writes the same unit
-  ADR-0878 would have written, and `loginctl enable-linger` keeps it up on a
-  headless box.
+- A Mac user loses the one-command install until the desktop app exists. Until
+  then, keeping serve up across a restart is the person's own job file.
+- Linux and Windows cost the CLI nothing, and Epicenter keeps no job file in
+  sync with any operating system's format.
 - Upgrading is installing the new `epicenter` and restarting serve however it
   was started; the CLI no longer offers `epicenter service restart`.
 - Routine commands still share serve's process group. Ctrl-C in serve's
@@ -57,6 +59,9 @@ LaunchAgent plist to copy.
 
 - **Keep `epicenter service` for macOS only.** It covers one OS of three and
   duplicates what the desktop app will own.
+- **Copyable systemd and launchd files in the README.** Paths and labels that
+  are guesses about the reader's computer, kept in step with two formats the
+  project does not otherwise use.
 - **Have serve restart itself through a supervising parent.** A second process
   that every OS job manager already provides, and that hides crashes the
   refusal message now shows.

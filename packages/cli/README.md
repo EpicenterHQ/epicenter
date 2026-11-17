@@ -324,61 +324,11 @@ serve stops its routine commands and exits.
 
 `epicenter serve` is one process. If it crashes, it stays stopped, and every
 action is refused with `Epicenter is not running for this home` until something
-starts it again. Whoever starts serve keeps it running. The Epicenter desktop
-app will do this for people who use it. On a computer without it, use the
-operating system's own job manager, from the home's folder ([ADR-0941](../../docs/adr/0941-whoever-starts-serve-keeps-it-running.md)).
-
-On Linux, a systemd user unit at `~/.config/systemd/user/epicenter.service`:
-
-```ini
-[Unit]
-Description=epicenter serve
-
-[Service]
-WorkingDirectory=%h/Epicenter
-ExecStart=%h/.local/bin/epicenter serve
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-```sh
-systemctl --user enable --now epicenter
-```
-
-On a headless machine, `loginctl enable-linger $USER` starts the unit at boot
-instead of at your first login. Output goes to `journalctl --user -u epicenter`.
-
-On macOS, a LaunchAgent at `~/Library/LaunchAgents/so.epicenter.serve.plist`,
-loaded with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/so.epicenter.serve.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>so.epicenter.serve</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Users/you/.local/bin/epicenter</string>
-    <string>serve</string>
-  </array>
-  <key>WorkingDirectory</key><string>/Users/you/Epicenter</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key><string>/Users/you/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
-  </dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/you/Library/Logs/epicenter-serve.log</string>
-  <key>StandardErrorPath</key><string>/Users/you/Library/Logs/epicenter-serve.log</string>
-</dict>
-</plist>
-```
-
-Actions and routines run with the job's `PATH`, not your shell's, so list the
-directories their programs live in.
+starts it again. Whoever starts serve keeps it running: you in a terminal, or
+any tool that keeps a program running, such as tmux, a systemd user unit, or a
+launchd LaunchAgent, started from the home's folder. Actions and routines run
+with that tool's environment, including its `PATH`. The Epicenter desktop app
+will do this for people who use it ([ADR-0941](../../docs/adr/0941-whoever-starts-serve-keeps-it-running.md)).
 
 ## Routines
 
