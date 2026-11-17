@@ -44,7 +44,6 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { extractErrorMessage } from 'wellcrafted/error';
 import { linkAppPackage } from './app-package.ts';
 import { type Checkpoint, checkpoint } from './checkpoint.js';
-import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
@@ -117,28 +116,7 @@ type Site = {
 	launcher(request: Request): Promise<Response>;
 	/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
 	ui(request: Request): Promise<Response>;
-	/** `POST /<app>/<action>`: ask an old page to reload, or 404. */
-	call(request: Request): Promise<Response>;
 };
-
-/** An old page must reload before it can call actions. */
-export async function staleCallResponse(request: Request): Promise<Response> {
-	const match = /^\/([^/]+)\/([^/]+)$/.exec(new URL(request.url).pathname);
-	if (!match) return notFound();
-	const [, app = '', action = ''] = match;
-	if (!isName(app) || !action.split('.').every(isName)) return notFound();
-	const answer = {
-		error: CliError.Usage({
-			message: `This page is out of date. Reload it to keep using ${app}.`,
-		}).error,
-	};
-	return new Response(`${JSON.stringify({ answer })}\n`, {
-		headers: {
-			'content-type': 'application/x-ndjson',
-			'cache-control': 'no-store',
-		},
-	});
-}
 
 const notFound = () => new Response('Not found', { status: 404 });
 
@@ -281,7 +259,6 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 			}
 			return uiFile(app, match[2]);
 		},
-		call: staleCallResponse,
 	};
 }
 
@@ -386,7 +363,7 @@ export function startHttpServer(port: number) {
 		const { pathname } = new URL(request.url);
 		if (pathname.startsWith('/.runs/')) return runs.handle(request);
 		if (request.method === 'POST')
-			return pathname === '/' ? site.mcp(request) : site.call(request);
+			return pathname === '/' ? site.mcp(request) : notFound();
 		if (pathname === '/') return site.launcher(request);
 		return site.ui(request);
 	};

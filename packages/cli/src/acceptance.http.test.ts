@@ -375,10 +375,7 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 		method: 'POST',
 		body: JSON.stringify({ words: 'a b' }),
 	});
-	expect(raw.headers.get('content-type')).toBe('application/x-ndjson');
-	expect(JSON.parse(await raw.text()).answer.error.message).toBe(
-		'This page is out of date. Reload it to keep using talk.',
-	);
+	expect(raw.status).toBe(404);
 	expect(
 		(
 			await fetch(`${f.base}/.runs/talk/say/${crypto.randomUUID()}`, {

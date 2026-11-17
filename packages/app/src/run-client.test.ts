@@ -58,20 +58,6 @@ const app = connect<{
 	};
 }>({ app: 'files' });
 
-test('pending runs saved by the installed client remain reachable', () => {
-	const saved = journal();
-	const pending = {
-		id: 'existing-upload-run',
-		app: 'files',
-		action: 'upload',
-		startedAt: new Date().toISOString(),
-		files: [{ field: 'file', name: 'note.txt', type: 'text/plain', size: 5 }],
-	};
-	saved.set('epicenter.runs.prototype.v1', JSON.stringify([pending]));
-	expect(runs.pending(app.upload)).toEqual([pending]);
-	expect(runs.attach(app.upload, pending.id).id).toBe(pending.id);
-});
-
 test('cancelling before admission sends no request and clears the journal', async () => {
 	journal();
 	let sent = 0;
@@ -155,35 +141,6 @@ for (const schema of [
 		).toThrow('top-level');
 	});
 }
-
-test('legacy receipt import skips malformed entries and is idempotent', () => {
-	const saved = journal();
-	const entry = (id: string) => ({
-		id,
-		app: 'files',
-		action: 'upload',
-		startedAt: new Date().toISOString(),
-		files: [],
-	});
-	saved.set(
-		'epicenter.runs.prototype.v1',
-		JSON.stringify([entry('one'), null, entry('two')]),
-	);
-	saved.set('epicenter.run:broken', '{');
-	expect(
-		runs
-			.pending(app.upload)
-			.map((item) => item.id)
-			.sort(),
-	).toEqual(['one', 'two']);
-	expect(
-		runs
-			.pending(app.upload)
-			.map((item) => item.id)
-			.sort(),
-	).toEqual(['one', 'two']);
-	expect(saved.has('epicenter.runs.prototype.v1')).toBe(false);
-});
 
 test('concurrent receipts persist and old receipts are pruned', async () => {
 	const saved = journal();
@@ -356,8 +313,8 @@ test('an admitted observer-limit response reconnects by GET', async () => {
 		methods.push(init?.method ?? 'GET');
 		if (init?.method === 'POST')
 			return Response.json(
-				{ admitted: true, error: { message: 'busy' } },
-				{ status: 429 },
+				{ error: { message: 'busy' } },
+				{ status: 429, headers: { 'x-epicenter-admitted': 'true' } },
 			);
 		return new Response(
 			'{"seq":1,"at":"now","type":"finished","answer":{"returned":null}}\n',

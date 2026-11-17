@@ -50,8 +50,6 @@ export type Run<TYield, TOut, TError = never> = {
 	cancel(): Promise<Result<null, ActionError>>;
 };
 
-// This persisted key predates the module rename; keep existing pending runs visible.
-const JOURNAL_KEY = 'epicenter.runs.prototype.v1';
 const REQUEST_TIMEOUT_MS = 20_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -120,27 +118,6 @@ export function pendingRuns({ app }: { app?: string } = {}): PendingRun[] {
 	try {
 		const target = storage();
 		if (target) {
-			const old = target.getItem(JOURNAL_KEY);
-			if (old !== null) {
-				let imported = true;
-				try {
-					const values: unknown = JSON.parse(old);
-					if (Array.isArray(values))
-						for (const entry of values) {
-							if (!isPendingRun(entry)) continue;
-							try {
-								if (target.getItem(PREFIX + entry.id) === null)
-									target.setItem(PREFIX + entry.id, JSON.stringify(entry));
-							} catch {
-								imported = false;
-								if (memory.size < 256) memory.set(entry.id, entry);
-							}
-						}
-				} catch {
-					/* malformed legacy journal */
-				}
-				if (imported) target.removeItem(JOURNAL_KEY);
-			}
 			const keys = Array.from({ length: target.length }, (_, i) =>
 				target.key(i),
 			).filter((key): key is string => key?.startsWith(PREFIX) ?? false);
@@ -538,12 +515,9 @@ export function createRun({
 							.json()
 							.catch(() => undefined);
 						const header = response.headers.get('x-epicenter-admitted');
-						const legacy = isObject(marker) ? marker.admitted : undefined;
 						if (
 							header === 'false' ||
-							(header === null && legacy === false) ||
 							(header === null &&
-								legacy === undefined &&
 								response.status >= 400 &&
 								response.status < 500)
 						)
