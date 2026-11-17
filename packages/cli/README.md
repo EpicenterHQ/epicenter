@@ -241,8 +241,8 @@ and the plain listing adds `(not offered to agents)`.
 
 ## One serve runs every action
 
-One serve per home. The port is its name and its lock. Whoever starts it keeps
-it running, and the command line never starts it or stands in for it.
+One serve per home. The port is its name and its lock. You start it and keep it
+running; the command line never starts it or stands in for it.
 
 `epicenter serve` is the only process that runs an app's actions.
 `epicenter <app> <action>` checks its words and input, then sends the call to
@@ -326,7 +326,7 @@ serve stops its routine commands and exits.
 action is refused until something starts it again. Keep it running as you would
 any program, started from the home's folder: a terminal, tmux, a systemd user
 unit, or a LaunchAgent. Actions and routines run with that tool's environment,
-including its `PATH` ([ADR-0941](../../docs/adr/0941-whoever-starts-serve-keeps-it-running.md)).
+including its `PATH` ([ADR-0941](../../docs/adr/0941-epicenter-serve-is-a-program-you-keep-running.md)).
 
 ## Routines
 

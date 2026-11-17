@@ -395,7 +395,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
 [ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
-[ADR-0941]: adr/0941-whoever-starts-serve-keeps-it-running.md
+[ADR-0941]: adr/0941-epicenter-serve-is-a-program-you-keep-running.md
 [ADR-0880]: adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md
 [ADR-0882]: adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md
 [ADR-0889]: adr/0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md

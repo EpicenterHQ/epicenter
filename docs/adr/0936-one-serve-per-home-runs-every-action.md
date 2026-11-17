@@ -41,8 +41,7 @@ or stands in for it.**
   JSON lines a page does (ADR-0930). Updates go to stderr and the answer to
   stdout.
 - **When nothing answers that port, the command says so and runs nothing.**
-  It names `epicenter serve`; keeping serve up belongs to whoever starts it
-  (ADR-0941).
+  It names `epicenter serve`, a program the person keeps running (ADR-0941).
 - **At most one serve per home is the port.** A home's port is in
   `EPICENTER.md`, and the operating system refuses a second bind. A start
   that fails says which case it met: this home is already served, or the
@@ -61,8 +60,8 @@ or stands in for it.**
 - **Nothing locks a call.** The flock on `apps/<app>` is removed. No folder
   write takes a lock, and the home has none.
 
-Epicenter has no daemon code of its own. Whoever starts serve
-keeps it running (ADR-0941).
+Epicenter has no daemon code of its own. The person keeps serve running, as
+they would any program (ADR-0941).
 
 Commands that run no action do not need serve: `checkpoint`, `check`,
 `export`, `init` and `new`. None takes a lock of its own; a commit takes

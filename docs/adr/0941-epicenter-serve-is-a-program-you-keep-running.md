@@ -1,4 +1,4 @@
-# 0941. Whoever starts serve keeps it running
+# 0941. `epicenter serve` is a program you keep running
 
 - **Status:** Accepted
 - **Date:** 2026-11-17
@@ -15,10 +15,11 @@ installs for itself.
 
 ## Decision
 
-**`epicenter serve` is one process, and whoever starts it keeps it running:**
-a person in a terminal, the person's own systemd unit or LaunchAgent, or the
-Mac app (ADR-0865). The `epicenter` command writes no job and restarts nothing.
-A serve that stops stays stopped, and every action command prints
+**Start `epicenter serve` and keep it running, as you would any program.
+Epicenter installs nothing to do that for you.** It runs in a terminal, under
+the person's own systemd unit or LaunchAgent, or under the Mac app (ADR-0865).
+The `epicenter` command writes no job and restarts nothing. A serve that stops
+stays stopped, and every action command prints
 ``Epicenter is not running for this home. Start it with `epicenter serve`.``
 and exits 2.
 
