@@ -23,32 +23,6 @@ Open and reveal the roots the shell named, show their paths, read and change the
 <tr>
 <td>
 
-`epicenter-folder:allow-list-epicenter`
-
-</td>
-<td>
-
-Enables the list_epicenter command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-list-epicenter`
-
-</td>
-<td>
-
-Denies the list_epicenter command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-folder:allow-list-folder`
 
 </td>
@@ -68,32 +42,6 @@ Enables the list_folder command without any pre-configured scope.
 <td>
 
 Denies the list_folder command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-make-epicenter-folder`
-
-</td>
-<td>
-
-Enables the make_epicenter_folder command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-make-epicenter-folder`
-
-</td>
-<td>
-
-Denies the make_epicenter_folder command without any pre-configured scope.
 
 </td>
 </tr>
@@ -224,19 +172,6 @@ Enables the root_identity command without any pre-configured scope.
 <td>
 
 Denies the root_identity command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:epicenter`
-
-</td>
-<td>
-
-List the Epicenter folder the shell named, and make a folder in it.
 
 </td>
 </tr>

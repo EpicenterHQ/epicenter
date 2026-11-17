@@ -45,7 +45,6 @@ import {
 	within,
 } from '../device/store.js';
 import { versionOf } from '../hash.js';
-import { fromBase64, toBase64 } from '../served/wire.js';
 import type {
 	ChangedPath,
 	ChangeMoved,
@@ -891,3 +890,19 @@ export function folderRepository(
 
 /** A folder on the server, as `folderRepository` answers it. */
 export type FolderRepository = ReturnType<typeof folderRepository>;
+
+/** The bytes as base64, which JSON can carry. */
+function toBase64(bytes: Uint8Array): string {
+	let binary = '';
+	for (let at = 0; at < bytes.length; at += 0x8000)
+		binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+	return btoa(binary);
+}
+
+/** The bytes `text` (base64) names; throws when it is not base64. */
+function fromBase64(text: string): Uint8Array {
+	const binary = atob(text);
+	const bytes = new Uint8Array(binary.length);
+	for (let at = 0; at < binary.length; at++) bytes[at] = binary.charCodeAt(at);
+	return bytes;
+}

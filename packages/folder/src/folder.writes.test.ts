@@ -33,10 +33,10 @@ import { defineContract } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { memoryStore } from './device/memory-store.js';
+import { nodeStore } from './device/node-store.js';
 import type { Store } from './device/store.js';
 import { createFolder } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
-import { nodeStore } from './node.js';
 import { openFolder } from './open-folder.js';
 
 const todos = defineContract({

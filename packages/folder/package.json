@@ -13,8 +13,6 @@
 		"./tauri": "./src/tauri.ts",
 		"./node": "./src/node.ts",
 		"./memory": "./src/memory.ts",
-		"./served": "./src/served.ts",
-		"./serve": "./src/serve.ts",
 		"./sync": "./src/sync/index.ts",
 		"./platform": "./src/platform/index.ts"
 	},
@@ -35,9 +33,7 @@
 		"drizzle-orm": "catalog:",
 		"hono": "catalog:",
 		"pg": "^8.20.0",
-		"playwright": "^1.61.1",
-		"typescript": "catalog:",
-		"vite": "catalog:"
+		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

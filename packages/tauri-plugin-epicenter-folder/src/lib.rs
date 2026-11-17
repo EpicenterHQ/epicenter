@@ -50,10 +50,7 @@ mod watch;
 pub use command_names::COMMANDS;
 pub use commands::{FolderError, DATA_FOLDER_FILE};
 pub use epicenter_folder_core::identity::{identity_at, identity_key, proves, FolderIdentity};
-pub use roots::{
-    folder_name_problem, kept_by_git, EpicenterEntry, EpicenterListing, Outside, Root, RootError,
-    Roots, RootsExt, Unreadable,
-};
+pub use roots::{folder_name_problem, Root, RootError, Roots, RootsExt};
 pub use watch::{FolderChanged, FolderEvent};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
@@ -71,8 +68,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::open_root::<tauri::Wry>,
             commands::reveal_root::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
-            commands::list_epicenter::<tauri::Wry>,
-            commands::make_epicenter_folder::<tauri::Wry>,
             commands::root_identity::<tauri::Wry>,
         ])
         .typ::<Landing>()
