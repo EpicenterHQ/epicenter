@@ -40,11 +40,13 @@ export {
 	textUpdate,
 } from './context.ts';
 export {
+	type AnyData,
 	type Data,
 	type DataDef,
 	type DataRecord,
 	defineData,
 } from './data.ts';
+export { checkData } from './data-check.ts';
 export { ActionError, type Problem } from './errors.ts';
 export {
 	FILE_REFERENCE_PREFIX,
