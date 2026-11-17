@@ -131,17 +131,11 @@ The worst outcome isn't "inline vs extract": it's "extracted into a generic buck
 
 If neither is possible, the members probably don't belong together and some are dead.
 
-# Constant Array Naming Conventions
+# Naming constants and collections
 
-## Pattern Summary
+Use `SCREAMING_SNAKE_CASE` (all caps with underscores) for fixed limits, protocol values, and shared lookup tables when the casing helps readers recognize their role. Use `camelCase` for local values and objects that expose an API.
 
-| Pattern                         | Suffix                 | Description             | Example                                  |
-| ------------------------------- | ---------------------- | ----------------------- | ---------------------------------------- |
-| Simple values (source of truth) | Plural noun with unit  | Raw values array        | `BITRATES_KBPS`, `SAMPLE_RATES`          |
-| Rich array (source of truth)    | Plural noun            | Contains all metadata   | `PROVIDERS`, `RECORDING_MODE_OPTIONS`    |
-| IDs only (for validation)       | `_IDS`                 | Derived from rich array | `PROVIDER_IDS`                           |
-| UI options `{value, label}`     | `_OPTIONS`             | For dropdowns/selects   | `BITRATE_OPTIONS`, `SAMPLE_RATE_OPTIONS` |
-| Label map                       | `_TO_LABEL` (singular) | `Record<Id, string>`    | `LANGUAGES_TO_LABEL`                     |
+Name collections for what they contain. Include units where they matter. Use names like `options`, `ids`, or `labels` when they help distinguish related values.
 
 ## When to Use Each Pattern
 
@@ -182,33 +176,23 @@ export const SAMPLE_RATE_OPTIONS = SAMPLE_RATES.map((rate) => ({
 }));
 ```
 
-### Pattern 3: Rich Array as Source of Truth
+### Pattern 3: Shared lookup table → local list
 
-Use when options have extra fields beyond `value`/`label` (e.g., `icon`, `desktopOnly`):
+Derive related lists from the same source when they describe the same set of choices. Whispering’s [recording collection](../../../../apps/whispering/src/lib/recording-collection.ts) defines the labels for each status:
 
 ```typescript
-// constants/audio/recording-modes.ts
-export const RECORDING_MODES = ['manual', 'vad', 'upload'] as const;
-export type RecordingMode = (typeof RECORDING_MODES)[number];
+export const STATUS_LABELS: Record<RecordingStatus, string> = {
+	failed: 'Transcription failed',
+	transcribing: 'Transcribing',
+	untranscribed: 'Not transcribed',
+	transcribed: 'Transcribed',
+};
+```
 
-export const RECORDING_MODE_OPTIONS = [
-	{ label: 'Manual', value: 'manual', icon: 'mic', desktopOnly: false },
-	{
-		label: 'Voice Activated',
-		value: 'vad',
-		icon: 'mic-voice',
-		desktopOnly: false,
-	},
-	{ label: 'Upload File', value: 'upload', icon: 'upload', desktopOnly: false },
-] as const satisfies {
-	label: string;
-	value: RecordingMode;
-	icon: string;
-	desktopOnly: boolean;
-}[];
+The [recording list](../../../../apps/whispering/src/routes/components/RecordingList.svelte) imports the table and derives the list it needs for sorting:
 
-// Derive IDs for validation if needed
-export const RECORDING_MODE_IDS = RECORDING_MODE_OPTIONS.map((o) => o.value);
+```typescript
+const statusLabels = Object.values(STATUS_LABELS);
 ```
 
 ## Choosing a Pattern
@@ -217,32 +201,8 @@ export const RECORDING_MODE_IDS = RECORDING_MODE_OPTIONS.map((o) => o.value);
 | ----------------------------------------------------------------- | ------------------------ |
 | Label = formatted value (e.g., "128 kbps")                        | Simple Values -> Derived |
 | Label needs separate data (e.g., "16 kHz - Optimized for speech") | Values + Metadata        |
-| Options have extra UI fields (icon, description, disabled)        | Rich Array               |
+| A view needs an ordered list of labels from a shared table        | Lookup Table → Local List |
 | Platform-specific or runtime-conditional content                  | Keep inline in component |
-
-## Naming Rules
-
-### Source Arrays
-
-- Use **plural noun**: `PROVIDERS`, `MODES`, `LANGUAGES`
-- Add unit suffix when relevant: `BITRATES_KBPS`, `SAMPLE_RATES`
-- Avoid redundant `_VALUES` suffix
-
-### Derived/Options Arrays
-
-- Use **plural noun** + `_OPTIONS` suffix: `BITRATE_OPTIONS`, `SAMPLE_RATE_OPTIONS`
-- For IDs: **plural noun** + `_IDS` suffix: `PROVIDER_IDS`
-
-### Label Maps
-
-- Use **singular** `_TO_LABEL` suffix: `LANGUAGES_TO_LABEL`
-- Describes the operation (id -> label), not the container
-- Reads naturally: `LANGUAGES_TO_LABEL[lang]` = "get the label for this language"
-
-### Constant Casing
-
-- Always use `SCREAMING_SNAKE_CASE` for exported constants
-- Never use `camelCase` for constant objects/arrays
 
 ## Co-location
 
