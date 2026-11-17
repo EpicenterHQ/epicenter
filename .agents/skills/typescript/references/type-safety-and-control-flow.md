@@ -39,6 +39,22 @@ function isWorkspaceHandle(value: unknown): value is WorkspaceHandle {
 
 When two copies of a package can create and inspect the same value, `Symbol('name')` gives each copy a different key. Use `Symbol.for` with a namespaced key if those copies must agree. For a live example of the same identity requirement, [the sidebar context](../../../../packages/ui/src/sidebar/context.svelte.ts) uses `Symbol.for(SYMBOL_KEY)` for both `setContext` and `getContext`.
 
+The context setters and readers use the same registered key. `SidebarState` and `SidebarStateProps` are declared in the linked module; this excerpt keeps the complete setter and reader:
+
+```typescript
+const SYMBOL_KEY = 'scn-sidebar';
+
+export function setSidebar(props: SidebarStateProps): SidebarState {
+	return setContext(Symbol.for(SYMBOL_KEY), new SidebarState(props));
+}
+
+export function useSidebar(): SidebarState {
+	return getContext(Symbol.for(SYMBOL_KEY));
+}
+```
+
+Even if these functions come from separate copies of the module, both `Symbol.for` calls return the same symbol for `scn-sidebar`.
+
 Convention: namespace the key (`epicenter.action`, `epicenter.document-handle`), and centralize cross-package brand keys in one `brands.ts` per package so the duplication-safe identity set is visible and reviewable. The brand constant itself is an implementation detail: consumers import the `isX` guard, never the raw symbol.
 
 **When the brand can be local**: if the factory and the check both live in the same file and the type never crosses a package boundary, plain `Symbol()` is fine. The `Symbol.for` rule is specifically for cross-package identity.
