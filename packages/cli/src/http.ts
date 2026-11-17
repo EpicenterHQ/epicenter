@@ -6,19 +6,16 @@
  * GET  /                the launcher; 405 when asked for an event stream (MCP)
  * GET  /<app>/...       the app's UI, ui/dist/, as static files
  * GET  /<app>           308 to /<app>/
- * POST /<app>/<action>  retired; answer with a reload message
- * PUT  /.runs/<app>/<action>/<id>/files/<field>  upload a file
- * POST /.runs/<app>/<action>/<id>               admit and stream a run
- * GET  /.runs/<app>/<action>/<id>/events        observe a run
- * GET  /.runs/<app>/<action>/<id>               read run state
- * POST /.runs/<app>/<action>/<id>/cancel        request cancellation
+ * POST /<app>/<action>  call an action; its words are joined by `.`
  * ```
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
- * the call arrives (`home.ts`, `run.ts`).
- *
- * Every path of the server's own starts with `.`, which no app name can, so
- * no name is reserved for the server.
+ * the call arrives (`home.ts`, `run.ts`), and keeps nothing about it. A call's
+ * body is its input as JSON. Its answer is JSON lines: `{"update": value}`
+ * for each update the action sends, then `{"answer": ...}`. A call that is
+ * refused before it runs answers that one answer as the body of an HTTP
+ * error. An action runs to its end whether or not its caller stays: a caller
+ * that leaves stops reading, and nothing stops the action from outside.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
@@ -44,12 +41,13 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { extractErrorMessage } from 'wellcrafted/error';
 import { linkAppPackage } from './app-package.ts';
 import { type Checkpoint, checkpoint } from './checkpoint.js';
+import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { writeErr } from './output.ts';
+import { refused, writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
 import { createRoutines } from './routines.ts';
-import { createRunHost } from './runs.ts';
+import { resolveAction, runAction } from './run.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
@@ -63,6 +61,9 @@ const LOOPBACK = '127.0.0.1';
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
+
+/** The largest input a call takes. Bytes travel as base64 text inside it. */
+const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 
 /** Whether `work` finished within `ms`; it runs on after `false`. */
 function within(ms: number, work: Promise<unknown>) {
@@ -263,6 +264,72 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 }
 
 /**
+ * `POST /<app>/<action>`: run the action and answer its updates and then its
+ * answer as JSON lines. Updates wait in order for a slow caller, because one
+ * can be a piece of text the next extends, and are dropped once it is gone.
+ */
+async function call(request: Request): Promise<Response> {
+	const parts = new URL(request.url).pathname.split('/');
+	let app: string;
+	let words: string[];
+	try {
+		app = decodeURIComponent(parts[1] ?? '');
+		words = decodeURIComponent(parts[2] ?? '').split('.');
+	} catch {
+		return notFound();
+	}
+	if (parts.length !== 3 || !isName(app) || !words.every(isName))
+		return notFound();
+	const key = words.join(' ');
+	const refuse = (status: number, message: string) =>
+		Response.json(refused(CliError.Usage({ message }).error), { status });
+	const bytes = await request.arrayBuffer();
+	if (bytes.byteLength > MAX_INPUT_BYTES)
+		return refuse(413, 'The input is larger than 25 MiB');
+	let input: unknown;
+	try {
+		input = JSON.parse(new TextDecoder().decode(bytes));
+	} catch {
+		return refuse(400, 'The input is not valid JSON');
+	}
+	const resolved = await resolveAction(app, key, input);
+	if (resolved.refusal)
+		return Response.json(resolved.refusal, {
+			status: resolved.found ? 400 : 404,
+		});
+	const encoder = new TextEncoder();
+	let listening = true;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			const send = (line: object) => {
+				if (!listening) return;
+				try {
+					controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+				} catch {
+					listening = false;
+				}
+			};
+			void runAction(resolved.located, key, resolved.action, resolved.input, {
+				// JSON has no undefined, and a line with no update is not one.
+				onUpdate: (update) => send({ update: update ?? null }),
+			}).then((answer) => {
+				send({ answer });
+				if (listening) controller.close();
+			});
+		},
+		cancel() {
+			listening = false;
+		},
+	});
+	return new Response(body, {
+		headers: {
+			'content-type': 'application/x-ndjson',
+			'cache-control': 'no-store',
+		},
+	});
+}
+
+/**
  * Whether a `Host` header names this computer or the tailnet: a loopback
  * name, an IP literal, or a `*.ts.net` name, whose DNS Tailscale controls.
  */
@@ -293,7 +360,6 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * did for the root.
  */
 export function startHttpServer(port: number) {
-	const runs = createRunHost();
 	/** Log an unchanged root checkpoint failure only once. */
 	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
@@ -361,9 +427,8 @@ export function startHttpServer(port: number) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
-		if (pathname.startsWith('/.runs/')) return runs.handle(request);
 		if (request.method === 'POST')
-			return pathname === '/' ? site.mcp(request) : notFound();
+			return pathname === '/' ? site.mcp(request) : call(request);
 		if (pathname === '/') return site.launcher(request);
 		return site.ui(request);
 	};
@@ -371,6 +436,8 @@ export function startHttpServer(port: number) {
 		hostname: LOOPBACK,
 		port,
 		idleTimeout: 0,
+		// Bun refuses a larger body itself; the slack is for the JSON around a 25 MiB input.
+		maxRequestBodySize: MAX_INPUT_BYTES + 1024,
 		fetch: answer,
 	});
 	const routines = createRoutines({
@@ -399,7 +466,6 @@ export function startHttpServer(port: number) {
 		 * checkpoint, waiting at most 10 seconds; `false` when it gave up waiting.
 		 */
 		stop() {
-			runs.stop();
 			stopping = true;
 			clearTimeout(clock);
 			clearInterval(routineClock);

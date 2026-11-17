@@ -1545,24 +1545,6 @@ describe('outside a run', () => {
 	});
 });
 
-for (const schema of [
-	field.file(),
-	field.file({ optional: true }),
-	Type.Array(field.file()),
-	Type.Object({ a: field.file() }),
-	Type.Union([Type.String(), field.file()]),
-	Type.String({ 'x-epicenter-file': {}, readOnly: true }),
-]) {
-	test(`definition refuses a file marker in ${JSON.stringify(schema)}`, () => {
-		expect(() =>
-			defineCollection({
-				path: 'data/files/{slug}.md',
-				fields: { attachment: schema },
-			}),
-		).toThrow('has the file field "attachment"');
-	});
-}
-
 test('a definition refuses a default at any depth, and was as a placeholder or a field', () => {
 	for (const schema of [
 		Type.Integer({ default: 5 }),

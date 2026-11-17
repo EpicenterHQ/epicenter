@@ -250,7 +250,7 @@ other argument before parsing it. The same action stays
 available over HTTP and is neither listed nor callable over MCP. Its validation
 refusals contain no supplied input values.
 This is an input-handling policy: HTTP access follows the server's existing
-rules, and the app owns what it returns, throws, yields, and stores.
+rules, and the app owns what it returns, throws, reports, and stores.
 
 ## A call runs where it arrives
 
@@ -271,9 +271,8 @@ perform no Git work.
 
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
-A page calls actions through `@epicenter/app/client`. Serve admits each call
-at `POST /.runs/<app>/<action>/<id>` and streams its events. An unreloaded
-page using the retired `POST /<app>/<action>` receives a reload message.
+A page calls actions through `@epicenter/app/client`, at
+`POST /<app>/<action>`. See [A call over HTTP](#a-call-over-http).
 
 Serve runs a root checkpoint at startup, five minutes after each scheduled
 pass completes, and when it receives SIGINT or SIGTERM. It uses the same
@@ -353,62 +352,32 @@ uses no model, and preserves an existing draft. Copy the declaration to
 in the home. The home's repository backs up the declaration, script, and drafts.
 See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md).
 
-## Serve-owned runs
+## A call over HTTP
 
-Ordinary page calls and `runs.start(app.action, input)` share admission,
-execution, and event replay. Both accept `Blob` or `File` inputs. The client
-uploads files by PUT and passes the action temporary `UploadedFile` handles.
-CLI, MCP, and routines refuse file inputs. All routes use the existing Host,
-Origin, and tunnel guards. Action words are joined with dots.
+`POST /<app>/<action>` runs one action. Action words are joined with dots
+(`/flights/watches.search`). The body is the input as one JSON object, at
+most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 
-| Method | Route | Response |
-| --- | --- | --- |
-| PUT | `/.runs/<app>/<action>/<id>/files/<field>` | 200 `{ reference }`; refusal 400, 404, 409, 411, 413, 415, or 507 |
-| POST | `/.runs/<app>/<action>/<id>` | 200 NDJSON for a new run or identical join; refusal 400, 404, 409, 413, 429, 503, or 507 |
-| GET | `/.runs/<app>/<action>/<id>/events?after=<seq>` | 200 NDJSON replay; 404 unknown; 429 observer limit |
-| GET | `/.runs/<app>/<action>/<id>` | 200 state; 404 unknown |
-| POST | `/.runs/<app>/<action>/<id>/cancel` | 202 requested; 200 already terminal; 404 unknown |
-| POST | `/<app>/<action>` | 200 NDJSON reload message; executes nothing |
+| Outcome | Response |
+| --- | --- |
+| The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
+| No such app or action | 404, the refusal `{ data: null, error: { kind: "refused", reason } }` as the body |
+| The input is not JSON, not an object, or does not fit | 400, the refusal as the body |
+| The body is too large | 413 |
 
-A definitive admission refusal carries `X-Epicenter-Admitted: false` in its HTTP headers. A join refused at the
-observer limit carries `X-Epicenter-Admitted: true` because the run already exists. Without a marker,
-4xx is a refusal; another failure after POST is uncertain. Observe that id
-with GET instead of resending admission.
+A stream that ends with no `answer` line was cut off, and its outcome is
+unknown: the action may still be running or may have finished. The caller
+rereads its records, or calls again with the same id when the action takes
+one.
 
-One host owns `~/.local/state/epicenter/prototype-runs/<hash>`, where `<hash>`
-is the first 16 hex characters of SHA-256 of the root's real path.
-`EPICENTER_RUNTIME_DIR` overrides it outside the Epicenter and all apps. The
-runtime is owner-only; Time Machine exclusion is best effort. `runs.sqlite`
-uses WAL and synchronous FULL. It deduplicates payloads by hash and compresses
-when smaller. Startup imports the v1 directory records and marks unfinished
-runs `interrupted`; it never reruns them.
+Serve keeps nothing about a call: no id, no log, no replay. It runs the
+action to its end whether or not the caller stays. A caller that leaves
+stops reading, and updates it has not read are dropped. Updates for a slow
+caller wait in order. Nothing stops an action from outside.
 
-The 512 MiB admission threshold counts uploads, the database, WAL, and SHM,
-including in-flight upload reservations. Admission also reserves a 4 MiB
-serialized event-log allowance per active run, including 1 KiB for its terminal
-frame. This is a refusal threshold for new work, not a maximum disk footprint:
-accepted runs may finish above it, and SQLite rows, indexes, and WAL add space
-beyond serialized JSON. Disk-full errors can prevent a terminal commit. Limits are 32
-active runs, 64 observers, 256 KiB per yield, 1 MiB admission JSON, and 15 MiB
-per file. Accepted runs and published events remain for 24 hours after ending.
-Successful finishes delete input bytes; other outcomes retain them until expiry.
-Orphan uploads and partial files expire after one hour. Cleanup runs every ten
-minutes and under budget pressure.
-
-Observation can stop without cancelling execution. `run.cancel()` records a
-request before aborting the cooperative `callSignal()`. It does not establish
-rollback. `runs.start` stores `epicenter.run:<id>` per receipt and imports the
-old `epicenter.runs.prototype.v1` array on read. Ordinary calls use no browser
-storage. For `privateInput: true`, admission stores neither JSON input values
-nor an input digest; file hashes and bytes follow ordinary retention.
-
-Run the in-process workload with:
-
-```sh
-bun packages/cli/src/__benchmarks__/runs.bench.ts --polls 2000
-```
-
-See [ADR-0917](../../docs/adr/0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md).
+The CLI calls the same function in its own process and writes each update to
+stderr as one line of JSON; stdout holds only the answer. MCP sends the tool
+result alone.
 
 ## Coordinate writes
 

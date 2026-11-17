@@ -5,7 +5,7 @@ import {
 	encodeActionResult,
 	type Folder,
 	inRun,
-	runYielding,
+	isActionResult,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err } from 'wellcrafted/result';
@@ -86,7 +86,7 @@ export async function runAction(
 	key: string,
 	action: Action,
 	input: Record<string, unknown>,
-	{ onYield, signal }: Following = {},
+	{ onUpdate }: Following = {},
 ): Promise<RunAnswer> {
 	const readOnly = action.annotations?.readOnlyHint === true;
 	let owning: Promise<void> | undefined;
@@ -103,7 +103,6 @@ export async function runAction(
 	const context = {
 		...located.context,
 		folder,
-		signal,
 		routines: {
 			set: (
 				name: string,
@@ -119,12 +118,12 @@ export async function runAction(
 		...(readOnly ? { readOnly: { action: key } } : {}),
 	};
 	try {
-		const result = await inRun(context, () =>
-			runYielding(action, input, async (value) => {
-				if (signal?.aborted) throw new Error('The caller stopped the call');
-				await onYield?.(value);
-			}),
-		);
+		const result = await inRun(context, () => action(input, { onUpdate }));
+		// An action made without `defineAction` is checked here, where every call passes.
+		if (!isActionResult(result))
+			throw new TypeError(
+				`The action "${key}" must return Ok(data) or Err(error)`,
+			);
 		const encoded = encodeActionResult(result);
 		return encoded.error === null
 			? encoded
@@ -136,41 +135,61 @@ export async function runAction(
 	}
 }
 
-/** Who follows a call as it runs: each value it yields, and when they stop listening. */
+/** Who follows a call as it runs. */
 export type Following = {
 	/**
 	 * The call came over MCP, whose input sits in an agent's transcript: a
 	 * call with private input is refused before it runs.
 	 */
 	overMcp?: boolean;
-	/** Each value the action yields, in order; the action waits for it. */
-	onYield?: (value: unknown) => unknown;
-	/** Execution cancellation signal. HTTP observers do not own it. */
-	signal?: AbortSignal;
+	/** Each update the action sends, in order. The action never waits for it. */
+	onUpdate?: (value: unknown) => unknown;
 };
 
-/** Load the current code, check input, and run the requested action. */
-export async function callAction(
+/** A call that is ready to run, or the refusal that answers it instead. */
+export type Resolved =
+	| { refusal: ReturnType<typeof refused>; found: boolean }
+	| {
+			refusal?: undefined;
+			located: Runnable;
+			action: Action;
+			input: Record<string, unknown>;
+	  };
+
+/**
+ * Load the current code, find the action, and check its input, running
+ * nothing. `found` is false when the app or the action is not there.
+ */
+export async function resolveAction(
 	name: string,
 	key: string,
 	raw: unknown,
-	following: Following = {},
-): Promise<Answer> {
-	const usage = (message: string, next?: string) =>
-		refused(CliError.Usage({ message, next }).error);
+	{ overMcp }: Pick<Following, 'overMcp'> = {},
+): Promise<Resolved> {
+	const usage = (message: string, next?: string, found = true) => ({
+		refusal: refused(CliError.Usage({ message, next }).error),
+		found,
+	});
 	try {
 		const { data: located, error: notFound } = await loadHomeApp(name);
-		if (notFound) return refused(notFound);
+		if (notFound) return { refusal: refused(notFound), found: false };
 		if (!located.ok)
-			return refused(
-				CliError.AppProblems({ app: name, problems: located.problems }).error,
-			);
+			return {
+				refusal: refused(
+					CliError.AppProblems({ app: name, problems: located.problems }).error,
+				),
+				found: true,
+			};
 		const action = Object.hasOwn(located.actions, key)
 			? located.actions[key]
 			: undefined;
 		if (!action)
-			return usage(`${name} has no action "${key}"`, `epicenter ${name}`);
-		if (following.overMcp && action.privateInput === true)
+			return usage(
+				`${name} has no action "${key}"`,
+				`epicenter ${name}`,
+				false,
+			);
+		if (overMcp && action.privateInput === true)
 			return usage(
 				`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page, or pipe JSON to epicenter ${name} ${key} -`,
 				`epicenter ${name} ${key}`,
@@ -180,8 +199,23 @@ export async function callAction(
 		const checked = checkInput(action, raw);
 		if ('error' in checked)
 			return usage(checked.error, `epicenter ${name} ${key} --help`);
-		return runAction(located, key, action, checked.input, following);
+		return { located, action, input: checked.input };
 	} catch (cause) {
-		return refused(CliError.Internal({ cause }).error);
+		return {
+			refusal: refused(CliError.Internal({ cause }).error),
+			found: true,
+		};
 	}
+}
+
+/** Load the current code, check input, and run the requested action. */
+export async function callAction(
+	name: string,
+	key: string,
+	raw: unknown,
+	following: Following = {},
+): Promise<Answer> {
+	const call = await resolveAction(name, key, raw, following);
+	if (call.refusal) return call.refusal;
+	return runAction(call.located, key, call.action, call.input, following);
 }

@@ -1,15 +1,15 @@
-/** Type checks for ordinary actions, file inputs, run controls, and yields. */
+/** Type checks for a page's calls: inputs, answers, returned errors, and updates. */
 import { expect, test } from 'bun:test';
 import { Err, Ok } from 'wellcrafted/result';
-import { defineAction } from './action.ts';
-import { type ActionRun, connect, runs } from './client.ts';
+import { defineAction, type Update } from './action.ts';
+import { connect } from './client.ts';
 import { field } from './field.ts';
 
-const upload = defineAction({
-	description: 'Upload',
-	input: { file: field.file() },
-	async *run() {
-		yield 1 as const;
+const count = defineAction({
+	description: 'Count',
+	input: { to: field.integer() },
+	async run({ to }, update: Update<{ at: number; note?: string }>) {
+		update({ at: to });
 		return Ok('done');
 	},
 });
@@ -31,9 +31,8 @@ defineAction({ description: 'Plain', input: {}, run: () => 1 });
 const app = connect<{
 	actions: {
 		classify: typeof classify;
-		upload: typeof upload;
+		count: typeof count;
 		daily: { start: typeof empty };
-		practice: { start: typeof empty };
 	};
 }>({ app: 'types' });
 // Typecheck these calls without making network requests during bun test.
@@ -49,41 +48,25 @@ function clientUsage() {
 		}
 		return error.message;
 	});
-	void app.upload(
-		{ file: new Blob() },
+	void app.count(
+		{ to: 3 },
 		{
-			onYield: (value) => {
-				const one: 1 = value;
-				void one;
+			onUpdate: (value) => {
+				const at: number = value.at;
+				const note: string | undefined = value.note;
+				void [at, note];
 			},
 		},
 	);
-	// @ts-expect-error A file input accepts Blob, not a path.
-	void app.upload({ file: 'file.txt' });
-	void app.upload(
-		{ file: new Blob() },
-		// @ts-expect-error Ordinary calls have no observer signal.
-		{ signal: new AbortController().signal },
-	);
-	// @ts-expect-error Non-yielding ordinary calls have no options.
-	void app.daily.start({}, { signal: new AbortController().signal });
+	void app.count({ to: 3 });
+	// @ts-expect-error The input is still checked.
+	void app.count({ to: 'three' });
+	// @ts-expect-error A call takes no signal: nothing stops an action from outside.
+	void app.count({ to: 3 }, { signal: new AbortController().signal });
+	// @ts-expect-error An action that sends no updates takes no options.
+	void app.daily.start({}, { onUpdate: () => {} });
 	void app.daily.start({});
-	void app.practice.start({});
-	const run: ActionRun<typeof upload> = runs.start(app.upload, {
-		file: new Blob(),
-	});
-	void run.events({ signal: new AbortController().signal });
-	// @ts-expect-error Observers replay the run; offsets belong to the transport.
-	void run.events({ after: 1 });
-	void run.result({
-		onYield: (value) => {
-			const one: 1 = value;
-			void one;
-		},
-	});
-	void runs.start(app.daily.start, {});
-	// @ts-expect-error Runs are not thenable.
-	void run.then;
+	void app.daily.start();
 }
 test('client type assertions compile', () =>
 	expect(clientUsage).toBeFunction());

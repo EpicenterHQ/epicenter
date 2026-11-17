@@ -8,13 +8,7 @@
  * `privateInput: true` takes only `-`, before any argument can be echoed in a
  * refusal (ADR-0907).
  */
-import {
-	type Action,
-	fileFieldOf,
-	type Input,
-	isName,
-	whatFits,
-} from '@epicenter/app';
+import { type Action, type Input, isName, whatFits } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -41,11 +35,6 @@ export function requiredKeys(input: Input): Set<string> {
 	return new Set(Type.Object(input).required ?? []);
 }
 
-/** Whether an action takes a file, which only a run started from its page can give. */
-export function takesFile(action: Action): boolean {
-	return Object.values(action.input).some((schema) => fileFieldOf(schema));
-}
-
 /**
  * Check an input against its action's schema, the one check a page, an agent,
  * and the command line share. Nothing is filled: an action made by
@@ -57,17 +46,7 @@ export function takesFile(action: Action): boolean {
 export function checkInput(
 	action: Action,
 	raw: unknown,
-	{ fileReferences = false }: { fileReferences?: boolean } = {},
 ): { ok: true; input: Record<string, unknown> } | { error: string } {
-	if (!fileReferences) {
-		const keys = Object.keys(action.input).filter((key) =>
-			fileFieldOf(action.input[key]),
-		);
-		if (keys.length)
-			return {
-				error: `This action takes a file (${keys.join(', ')}), which only a run started from its page can give`,
-			};
-	}
 	const schema = Type.Object(action.input, { additionalProperties: false });
 	const value = structuredClone(raw);
 	if (Value.Check(schema, value))
@@ -116,7 +95,6 @@ export function usageLine(
 	action: Action,
 ): string {
 	const command = `epicenter ${appName} ${key}`;
-	if (takesFile(action)) return `${command} (file input: start from its page)`;
 	if (action.privateInput === true) return `${command} -`;
 	if (!Object.keys(action.input).length) return command;
 	return requiredKeys(action.input).size

@@ -209,12 +209,12 @@ Resolve that path from `folder.path`, which is the container. Change another
 app's data through its actions so its rules check the write; this is guidance,
 not enforced.
 
-Make `run` an `async function*` when a person watches it work, such as a
-chat reply from a model. The host records each yield for observers of that
-run and the action returns one final Result. Save completed output before
-returning. Pass `callSignal()` from `@epicenter/app` to cancellable work,
-such as the model's `fetch`. Decide which writes must survive cancellation,
-including any input the person has already submitted.
+Give `run` a second argument, `update: Update<T>`, when a person watches it
+work, such as a chat reply from a model, and call it with each piece. The
+action returns one final Result, which must carry everything a caller that
+did not listen needs. Serve runs the action to its end even when the page
+closes, and keeps nothing about the call, so save what a reload must show
+(the person's submitted input first, then completed output) in records.
 
 Actions run inside `epicenter serve` itself, from the files as they are when
 the call arrives, so an edit takes effect on the next call. Never call
@@ -362,19 +362,18 @@ export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
 ```
 
-When the page needs to return to a run after reopening, import `runs` from
-`@epicenter/app/client`. Start it with `runs.start(app.action, input)`.
-On return, use `runs.pending(app.action)` to find its receipt and
-`runs.attach(app.action, id)` to observe it again.
-`field.file()` accepts a temporary browser upload with either form of call.
-See the app package README for the
-run events, cancellation, and retention contract.
+A page that reopens cannot rejoin a call. It shows what the app's records
+say, so an action whose work outlasts the page writes its progress and its
+outcome as records. An action that must not run twice takes an id the page
+makes in its input and uses it as the record's key, so calling again with
+the same id is safe. See the app package README for updates and the call
+route.
 
 On the wire, the host answers with `{ data, error }`. For a failure,
 `error.kind` records what happened to this invocation (ADR-0926).
 The browser client unwraps a `returned` reason with its public fields intact.
 A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
-A `refused` admission becomes `Refused` before the action runs. Actions can use the
+A `refused` call becomes `Refused` before the action runs. Actions can use the
 shared `ActionError` factories from `@epicenter/app`.
 
 Match a browser error by its name and subject. A `Missing` for a dependency
@@ -391,17 +390,13 @@ Pages read with `createQuery(() => reads.get({ time }))` and write with
 example `ActionInput<typeof tasksApp.actions.set>` and
 `ActionOutput<typeof tasksApp.actions.get>`.
 
-An action that yields takes `onYield` after its input, to show its work as it
-comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
+An action that sends updates takes `onUpdate` after its input, to show its
+work as it comes: `app.chat.say({ message }, { onUpdate: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
-still refreshes once it returns. For a Stop button, start the action with
-`runs.start` and call `run.cancel()` to request cancellation. For a view
-that only stops listening, pass its signal to `run.events({ signal })` or
-`run.result({ signal, onYield })`. Each new observer replays from the
-beginning, and the client resumes dropped connections at its last sequence.
-Use the view's own controller to recognize its aborted observation. A
-dependency can also return `Stopped`. Confirm any cleanup or save separately.
+still refreshes once it returns. Closing the view stops it listening; the
+action runs on. A call cut off before its answer resolves to `Unreachable`:
+reread the record before deciding what happened.
 
 - Route a record by its keys, which every row carries: the page is at
   `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the

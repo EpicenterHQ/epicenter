@@ -105,11 +105,10 @@ test('invalid input, timing, identity and read-only setup never create a routine
 		['readonly', 'research', '{limit:3}', '08:00', '{readOnlyHint:true}', ''],
 		['non-json', 'research', '{limit:NaN}', '08:00', '{}', ''],
 		['private', 'secret', '{}', '08:00', '{}', 'secret,'],
-		['file', 'fileAction', '{}', '08:00', '{}', '"file-action":fileAction,'],
 	] as const) {
 		await f.app(
 			name,
-			`import {routines} from '@epicenter/app';const research=defineAction({description:'Research',input:{limit:field.number()},run:()=>Ok(null)});const hidden=defineAction({description:'Hidden',input:{limit:field.number()},run:()=>Ok(null)});const fileAction=defineAction({description:'Upload',input:{audio:field.file()},run:()=>Ok(null)});const secret=defineAction({description:'Secret',privateInput:true,input:{},run:()=>Ok(null)});export default defineApp({description:'Test',collections:{},actions:{research,${aliases}setup:defineAction({description:'Setup',annotations:${annotations},input:{},run:()=>routines.set('${name}',{daily:'${daily}',action:${target},input:${input}})})}});`,
+			`import {routines} from '@epicenter/app';const research=defineAction({description:'Research',input:{limit:field.number()},run:()=>Ok(null)});const hidden=defineAction({description:'Hidden',input:{limit:field.number()},run:()=>Ok(null)});const secret=defineAction({description:'Secret',privateInput:true,input:{},run:()=>Ok(null)});export default defineApp({description:'Test',collections:{},actions:{research,${aliases}setup:defineAction({description:'Setup',annotations:${annotations},input:{},run:()=>routines.set('${name}',{daily:'${daily}',action:${target},input:${input}})})}});`,
 		);
 		expect((await f.run(name, 'setup')).code).toBe(1);
 	}

@@ -214,7 +214,7 @@ test('a misused command answers its usage line, with its help as the next step',
 			stderr: `Usage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
 		});
 	expect((await f.run('serve', '--help')).stdout).toContain(
-		'POST /.runs/<app>/<action>/<id>',
+		'POST /<app>/<action>',
 	);
 	expect((await f.run('checkpoint', '--help')).stdout).toBe(
 		`${COMMANDS.checkpoint.usage}\n${COMMANDS.checkpoint.help}\n`,

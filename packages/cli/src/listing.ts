@@ -14,7 +14,6 @@ import {
 	exampleCommand,
 	jsonSchema,
 	requiredKeys,
-	takesFile,
 	usageLine,
 } from './input.ts';
 
@@ -132,12 +131,6 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
  */
 export function actionHelp(name: string, key: string, action: Action): string {
 	const usage = [usageLine(name, key, action), action.description];
-	if (takesFile(action))
-		return [
-			...usage,
-			'',
-			'This action takes a file. Start it from its page; the command line cannot supply it.',
-		].join('\n');
 	const keys = Object.keys(action.input);
 	if (!keys.length) return usage.join('\n');
 	const required = requiredKeys(action.input);

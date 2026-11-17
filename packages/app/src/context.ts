@@ -110,28 +110,9 @@ export type Context = {
 	 * promise.
 	 */
 	readOnly?: { action: string };
-	/**
-	 * Aborted by explicit cancellation of a serve-owned run, never by loss of
-	 * observation. CLI and MCP calls cannot be cancelled.
-	 */
-	signal?: AbortSignal;
 };
 
 const runs = new AsyncLocalStorage<Context>();
-
-/** A signal that never aborts, for a run whose caller cannot stop it. */
-const UNSTOPPABLE = new AbortController().signal;
-
-/**
- * The action's signal aborts when its serve-owned run is explicitly cancelled,
- * for example by `run.cancel()` on a page. Closing a page or stopping an
- * observer does not abort it. Pass the signal to a slow wait so it can stop
- * cooperatively and run its `finally` blocks. CLI and MCP calls cannot be
- * cancelled and receive a signal that never aborts.
- */
-export function callSignal(): AbortSignal {
-	return currentRun().signal ?? UNSTOPPABLE;
-}
 
 /**
  * Run `work` with `context` as its run's, so collections and `folder` reach

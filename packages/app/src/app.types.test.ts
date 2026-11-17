@@ -5,7 +5,7 @@
 import { describe, test } from 'bun:test';
 import { Type } from 'typebox';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
-import type { ActionYield } from './action.ts';
+import type { ActionUpdate, Update } from './action.ts';
 import type {
 	ActionError,
 	ActionInput,
@@ -212,38 +212,51 @@ describe('an app author', () => {
 			description: 'Say',
 			privateInput: true,
 			input: { message: field.text() },
-			async *run({ message }) {
-				yield message;
-				yield { step: 1 };
+			async run({ message }, update: Update<string | { step: number }>) {
+				update(message);
+				update({ step: 1 });
 				return Ok({ reply: message });
+			},
+		});
+		defineAction({
+			description: 'Forgot',
+			input: {},
+			run(_input, update) {
+				// @ts-expect-error an update argument with no annotation takes nothing
+				update('x');
+				return Ok(null);
 			},
 		});
 		assertType<Equal<ActionInput<typeof say>, { message: string }>>();
 		assertType<Equal<ActionOutput<typeof say>, { reply: string }>>();
-		assertType<Equal<ActionYield<typeof say>, string | { step: number }>>();
-		assertType<Equal<ActionYield<typeof tag>, never>>();
-		assertType<Equal<ActionYield<Actions['words']['set']>, never>>();
+		assertType<Equal<ActionUpdate<typeof say>, string | { step: number }>>();
+		assertType<Equal<ActionUpdate<typeof tag>, never>>();
+		assertType<Equal<ActionUpdate<Actions['words']['set']>, never>>();
 		const chat = defineApp({
 			description: 'Chat',
 			collections: {},
 			actions: { say },
 		});
 		assertType<
-			Equal<ActionYield<typeof chat.actions.say>, string | { step: number }>
+			Equal<ActionUpdate<typeof chat.actions.say>, string | { step: number }>
 		>();
 		const chatUi = {} as AppClient<typeof chat.actions>;
 		() =>
 			chatUi.say(
 				{ message: 'hi' },
 				{
-					onYield: (value) => {
+					onUpdate: (value) => {
 						assertType<Equal<typeof value, string | { step: number }>>();
 					},
 				},
 			);
 		const vocabUi = {} as AppClient<Actions>;
-		// @ts-expect-error an action that only returns takes no onYield
-		() => vocabUi.review({ word: 'a' }, { onYield: () => {} });
+		// @ts-expect-error an action that only returns takes no onUpdate
+		() => vocabUi.review({ word: 'a' }, { onUpdate: () => {} });
+		// The same two arguments call it in the home.
+		() => say({ message: 'hi' }, { onUpdate: (value) => void value });
+		// @ts-expect-error in the home too
+		() => tag({ word: 'a' }, { onUpdate: () => {} });
 	});
 
 	test('raw TypeBox sits beside fields', () => {
@@ -288,20 +301,19 @@ describe('an app author', () => {
 });
 
 describe('type errors', () => {
-	test('ordinary and yielding actions take no positional', () => {
+	test('an action takes no positional, and its run is not a generator', () => {
 		() => {
-			// @ts-expect-error the command line takes the input as one JSON object
 			defineAction({
 				description: 'Read',
 				input: { value: field.text() },
+				// @ts-expect-error the command line takes the input as one JSON object
 				positional: ['value'],
 				run: () => Ok(true),
 			});
-			// @ts-expect-error a yielding action takes no positional either
 			defineAction({
 				description: 'Read',
 				input: { value: field.text() },
-				positional: ['value'],
+				// @ts-expect-error an action reports by calling update, not by yielding
 				async *run() {
 					yield true;
 					return Ok(true);

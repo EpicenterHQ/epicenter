@@ -15,7 +15,7 @@ import {
 	isLocalPath,
 	normalizePath,
 	Ok,
-	runYielding,
+	type Update,
 } from './index.ts';
 
 const books = defineCollection({
@@ -533,10 +533,10 @@ describe('defineAction', () => {
 
 	test('rejects the old confidential spelling instead of losing its protections', () => {
 		expect(() =>
-			// @ts-expect-error privateInput is the only supported policy name
 			defineAction({
 				description: 'Connect',
 				input: {},
+				// @ts-expect-error privateInput is the only supported policy name
 				confidential: true,
 				run: () => Ok(true),
 			}),
@@ -576,13 +576,13 @@ describe('defineAction', () => {
 		expect(action.input.value).toEqual(schema);
 	});
 
-	test('a yielding action called directly resolves with its return; runYielding also reads its yields in order', async () => {
+	test('an action that sends updates resolves with its return, and a caller that listens hears them in order', async () => {
 		const say = defineAction({
 			description: 'Say',
 			input: { message: field.text(), loud: field.boolean() },
-			async *run({ message, loud }) {
-				yield message;
-				yield { loud };
+			async run({ message, loud }, update: Update<string | { loud: boolean }>) {
+				update(message);
+				update({ loud });
 				await folder.write('data/said.md', message);
 				return Ok({ said: message });
 			},
@@ -593,13 +593,54 @@ describe('defineAction', () => {
 		);
 		const seen: unknown[] = [];
 		const returned = await inRun(context, () =>
-			runYielding(say, { message: '猫' }, (value) => {
-				seen.push(value);
-			}),
+			say({ message: '猫' }, { onUpdate: (value) => seen.push(value) }),
 		);
 		expect(seen).toEqual(['猫', { loud: false }]);
 		expect(returned).toEqual(Ok({ said: '猫' }));
 		expect(await context.folder.read('data/said.md')).toBe('猫');
+	});
+
+	test('a listener cannot slow, stop, or outlive the action', async () => {
+		let late: Update<number> = () => {};
+		const count = defineAction({
+			description: 'Count',
+			input: {},
+			async run(_input, update: Update<number>) {
+				late = update;
+				update(1);
+				update(2);
+				update(3);
+				return Ok('done');
+			},
+		});
+		const heard: number[] = [];
+		const answer = await count(
+			{},
+			{
+				onUpdate(value) {
+					heard.push(value);
+					if (value === 1) throw new Error('a listener broke');
+					if (value === 2) return Promise.reject(new Error('and again'));
+					return new Promise(() => {});
+				},
+			},
+		);
+		expect(answer).toEqual(Ok('done'));
+		late(4);
+		expect(heard).toEqual([1, 2, 3]);
+	});
+
+	test('a run that is an async function* is refused where it is defined', () => {
+		expect(() =>
+			defineAction({
+				description: 'Old',
+				input: {},
+				run: async function* () {
+					yield 1;
+					return Ok(null);
+				},
+			} as never),
+		).toThrow('reports by calling update, its second argument');
 	});
 
 	test('a call fills an absent switch and list, and nothing else', async () => {
@@ -675,21 +716,13 @@ describe('defineAction', () => {
 	});
 });
 
-test('a bare return faults on direct, asynchronous and yielding action calls', async () => {
+test('a bare return faults on direct and asynchronous action calls', async () => {
 	const bare = { input: {}, description: 'Invalid action' };
 	// Simulate an untyped app using the old action contract.
 	const sync = defineAction({ ...bare, run: () => 'bare' } as never);
 	expect(() => sync({})).toThrow('must return Ok(data) or Err(error)');
-	for (const run of [
-		async () => 'bare',
-		async function* () {
-			yield 1;
-			return 'bare';
-		},
-	]) {
-		const action = defineAction({ ...bare, run } as never);
-		await expect(action({})).rejects.toThrow(
-			'must return Ok(data) or Err(error)',
-		);
-	}
+	const action = defineAction({ ...bare, run: async () => 'bare' } as never);
+	await expect(action({})).rejects.toThrow(
+		'must return Ok(data) or Err(error)',
+	);
 });

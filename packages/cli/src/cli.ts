@@ -184,8 +184,11 @@ export async function runCli(argv: string[]): Promise<number> {
 			return reject(CliError.Usage({ message: given.error, next }).error);
 		// What the action prints goes to stderr, so stdout holds only the answer.
 		invoked = true;
+		// Each update is one line of JSON on stderr, as it arrives.
 		const answer = await printingToStderr(() =>
-			runAction(located, matched.key, action, given.input),
+			runAction(located, matched.key, action, given.input, {
+				onUpdate: (value) => writeErr(JSON.stringify(value)),
+			}),
 		);
 		return presentAnswer(answer, json);
 	} catch (error) {

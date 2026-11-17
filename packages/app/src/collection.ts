@@ -476,18 +476,6 @@ const RESERVED: ReadonlyMap<string, string> = new Map([
 	['edit', 'which the set verb takes beside the fields'],
 ]);
 
-function containsFileMarker(
-	value: unknown,
-	seen = new WeakSet<object>(),
-): boolean {
-	if (!value || typeof value !== 'object' || seen.has(value)) return false;
-	seen.add(value);
-	return (
-		Object.hasOwn(value, 'x-epicenter-file') ||
-		Object.values(value).some((child) => containsFileMarker(child, seen))
-	);
-}
-
 /** What is wrong with `def` beyond its types, one sentence each. */
 function collectionProblems(def: CollectionDef): string[] {
 	const path: unknown = def.path;
@@ -516,10 +504,6 @@ function collectionProblems(def: CollectionDef): string[] {
 		if (!keys.size && !isOptional(schema) && absentValue(schema) === undefined)
 			problems.push(
 				`The collection at ${path} is one file, read as empty before it exists, so the field "${key}" must be optional, a switch, or a list without min`,
-			);
-		if (containsFileMarker(schema))
-			problems.push(
-				`${at} has the file field "${key}", which a collection of one file per record cannot keep; it would store the host's temporary upload reference`,
 			);
 		if (defaultIn(schema))
 			problems.push(
