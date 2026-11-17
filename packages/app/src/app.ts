@@ -30,6 +30,7 @@
  */
 import { type Action, isAction } from './action.ts';
 import { type AnyCollection, isCollection } from './collection.ts';
+import type { AnyData } from './data.ts';
 import { template } from './path.ts';
 
 /** An app's actions, nested: a key holds an action, or a group of them under that word. */
@@ -39,16 +40,15 @@ export type Actions = { readonly [word: string]: Action | Actions };
 export type App<
 	C extends Record<string, AnyCollection> = Record<string, AnyCollection>,
 	A extends Actions = Actions,
+	D extends AnyData = AnyData,
 > = {
 	readonly description: string;
-	/** Each collection, by its name. */
-	readonly collections: C;
 	/** Each action, nested under its words. */
 	readonly actions: A;
-};
+} & ({ collections: C; data?: never } | { data: D; collections?: never });
 
 /**
- * Define an app: its description, its collections, and its actions, each
+ * Define an app: its description, its data or collections, and its actions, each
  * given, `{}` for none. Each collection's name is its key in `collections`;
  * each action's words are its keys in `actions`, so
  * `words: { ...words.actions(), add: learn }` gives `words list` through
@@ -57,10 +57,7 @@ export type App<
  * wrong in a way its types cannot say, so `epicenter` checks an app it loads
  * by calling this again.
  */
-export function defineApp<
-	const C extends Record<string, AnyCollection>,
-	const A extends Actions,
->(app: App<C, A>): App<C, A> {
+export function defineApp<const TApp extends App>(app: TApp): TApp {
 	const problems = appProblems(app);
 	if (problems.length) throw new Error(problems.join('\n'));
 	return app;
@@ -87,11 +84,34 @@ function appProblems(app: unknown): string[] {
 		return [
 			'An app is an object: defineApp({ description, collections, actions })',
 		];
-	const { description, collections, actions } = app as Partial<App>;
+	const { description, collections, data, actions } = app as Partial<App>;
 	const problems: string[] = [];
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('An app needs a description');
-	if (!isObject(collections))
+	if (data !== undefined && collections !== undefined)
+		problems.push('An app declares data or collections, not both');
+	if (data !== undefined && !isObject(data))
+		problems.push('An app needs data: the value returned by defineData(...)');
+	if (isObject(data)) {
+		for (const [key, handle] of Object.entries(data)) {
+			const name = key.replace(/\.md$/, '').replace(/\.local$/, '');
+			if (!isName(name))
+				problems.push(
+					`data has the key ${JSON.stringify(key)}, which must be a name, optionally followed by .local and .md`,
+				);
+			if (
+				!isObject(handle) ||
+				!isObject(handle.fields) ||
+				typeof handle.get !== 'function' ||
+				typeof handle.pathOf !== 'function' ||
+				(key.endsWith('.md')
+					? 'list' in handle && handle.list !== undefined
+					: !('list' in handle) || typeof handle.list !== 'function')
+			)
+				problems.push(`data.${key} is not a handle from defineData(...)`);
+		}
+	}
+	if (data === undefined && !isObject(collections))
 		problems.push(
 			'An app needs collections: an object of defineCollection(...), {} for none',
 		);
