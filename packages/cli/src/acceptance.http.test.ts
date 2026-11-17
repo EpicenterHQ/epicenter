@@ -275,15 +275,10 @@ test('serve serves ui/dist/ as the build left it, never builds, and an unbuilt p
 	const code = join(f.made, 'code');
 	const unbuilt = await fetch(`${f.base}/reading/`);
 	expect(unbuilt.status).toBe(404);
-	const hint = await unbuilt.text();
-	expect(hint).toContain(`Run: cd ${code} && bun run build\n`);
-	expect(hint).not.toContain('Give its package.json');
-	expect((await fetch(`${f.base}/reading/main.js`)).status).toBe(404);
-	// With no build script, the page names the one line to add.
-	await writeFile(join(code, 'package.json'), '{}\n');
-	expect(await (await fetch(`${f.base}/reading/`)).text()).toContain(
-		'"build": "bun build ui/index.html --outdir ui/dist"',
+	expect(await unbuilt.text()).toBe(
+		`reading has no built UI. Run: cd ${code} && bun run build\n`,
 	);
+	expect((await fetch(`${f.base}/reading/main.js`)).status).toBe(404);
 	await mkdir(join(code, 'ui', 'dist'), { recursive: true });
 	await writeFile(join(code, 'ui', 'dist', 'index.html'), 'one\n');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('one\n');

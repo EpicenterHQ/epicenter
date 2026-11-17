@@ -164,15 +164,8 @@ function createSite(): Site {
 			// A UI's page with no build says how to make one; anything else is just missing.
 			const page = decoded === '' || decoded === 'index.html';
 			if (!page || !existsSync(join(entry.codePath, 'ui'))) return notFound();
-			const manifest = await Bun.file(join(entry.codePath, 'package.json'))
-				.json()
-				.catch(() => undefined);
-			const add =
-				typeof manifest?.scripts?.build === 'string'
-					? ''
-					: `Give its package.json a build script, such as "build": "bun build ui/index.html --outdir ui/dist".\n`;
 			return new Response(
-				`${app} has no built UI in ${join(entry.codePath, UI_DIST)}.\n${add}Run: ${buildNext(entry.codePath)}\n`,
+				`${app} has no built UI. Run: ${buildNext(entry.codePath)}\n`,
 				{
 					status: 404,
 					headers: { 'content-type': 'text/plain; charset=utf-8' },

@@ -23,7 +23,12 @@ import { misuse, nameProblem, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
-import { type BunProblem, buildApp, installHome } from './install.ts';
+import {
+	type BunProblem,
+	buildApp,
+	buildNext,
+	installHome,
+} from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { appsDir, epicenterDir, epicenterRoot, folderPath } from './root.ts';
 
@@ -172,11 +177,14 @@ async function made(name: string, json: boolean, source?: CopiedSource) {
 	else {
 		writeOut(folder);
 		writeSourceWarning(name, source);
-		if (existsSync(join(folder, 'code', 'ui', 'dist', 'index.html'))) {
+		const code = join(folder, 'code');
+		if (existsSync(join(code, 'ui', 'dist', 'index.html'))) {
 			const { port } = epicenterRoot();
 			writeErr('Run: epicenter serve');
 			writeErr(`Open http://127.0.0.1:${port}/${name}/ in your browser.`);
-		} else writeErr(`Run: epicenter ${name}`);
+		} else if (existsSync(join(code, 'ui')))
+			writeErr(`Run: ${buildNext(code)}`);
+		else writeErr(`Run: epicenter ${name}`);
 	}
 	return 0;
 }

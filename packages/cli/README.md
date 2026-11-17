@@ -59,9 +59,9 @@ copy of it, and the version a home runs is a line in a file in Git.
   it again. An edit to an app's own files
   shows on the next call. A package lives in the home's top `node_modules/`,
   outside the app's folder, and `serve` keeps the packages it has loaded.
-- Upgrade with `bun update --latest @epicenter/cli @epicenter/app`, both
-  together, then commit `package.json` and `bun.lock` and restart `serve`.
-  Reload open app pages to use the new client.
+- To upgrade, edit both versions in the home's `package.json`, then run
+  `bun install && bun run build`, commit `package.json` and `bun.lock`, and
+  restart `serve`. The build gives every UI the new client; reload open pages.
 - Bun reads one `bunfig.toml`, at the top of the home. It ignores one inside
   an app, so a setting an app needs, such as `peer = false` under
   `[install]`, goes in the top file. `init` writes none: a new home needs no
@@ -164,7 +164,8 @@ The command names the library as a peer dependency at its own exact
 version, so a home installs one copy of the library: the one its
 `package.json` names. When a home names another version, `bun install`
 warns and `epicenter` refuses to load its apps until the two match. A home
-upgrades both at once with `bun update --latest @epicenter/cli @epicenter/app`.
+upgrades both at once by editing both versions in its `package.json`, then
+running `bun install && bun run build`.
 
 Nothing in this repository publishes by itself: no script or workflow runs
 `bun publish`. The owner releases by hand, from the repository root:

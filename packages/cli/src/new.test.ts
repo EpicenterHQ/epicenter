@@ -73,6 +73,23 @@ test('new builds a copied UI and shows how to open it on the home port', async (
 	);
 });
 
+test('a copied UI with no build script is told how to build it', async () => {
+	const f = await setup();
+	const source = await f.folder(
+		join(f.root, 'source'),
+		{
+			'epicenter.ts': `${header}export default defineApp({description:'Garden',actions:{}});`,
+			'ui/index.html': '<h1>Garden</h1>',
+		},
+		{ git: true },
+	);
+	const made = await f.run('new', 'garden', '--from', source);
+	expect(made.code).toBe(0);
+	expect(made.stderr).toBe(
+		`Run: cd ${join(f.apps, 'garden', 'code')} && bun run build\n`,
+	);
+});
+
 test('a copied UI whose build fails keeps the app and says how to build it again', async () => {
 	const f = await setup();
 	const source = await f.folder(

@@ -88,9 +88,9 @@ Epicenter it runs, as the dependencies @epicenter/cli and @epicenter/app, and
 takes each apps/<app>/code as a package. Run \`bun install\` here, at the top.
 It writes one bun.lock, which is committed, and one node_modules/, which is
 not. After \`git clone\`, \`bun install\` then \`bun run build\` is all a restore needs. The version of Epicenter
-is the one in package.json: upgrade with
-\`bun update --latest @epicenter/cli @epicenter/app\`, both together. Restart
-serve after changing packages, by stopping it and starting it again: serve keeps the
+is the one in package.json. To upgrade, edit both versions there, then run
+\`bun install && bun run build\`, which rebuilds every app's UI against the new
+client. Restart serve after changing packages, by stopping it and starting it again: serve keeps the
 packages it has loaded. An edit to an app's own files shows on the next call.
 
 An app's code/package.json is named for the app and names everything
@@ -113,8 +113,7 @@ Change records with \`epicenter <app> <action>\` when an action fits;
 Apps run from the files on disk: the next call uses the code/epicenter.ts
 there. A UI is what the app's own build writes to code/ui/dist/, and serve
 serves only that: after changing code/ui/, run \`bun run build\` in code/.
-After upgrading Epicenter, run \`bun run build\` here, which builds every app,
-so each UI uses the new client. A record that no longer fits the code still reads,
+A record that no longer fits the code still reads,
 with its problems listed: when you change a field, change the code, then
 repair the records that no longer fit.
 

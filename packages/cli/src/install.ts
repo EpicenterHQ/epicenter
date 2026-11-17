@@ -38,18 +38,11 @@ export async function installHome(
 
 /**
  * Run the app's own `bun run build` in its code `folder`, which writes its UI
- * to `ui/dist/`, when its `package.json` has a `build` script. Answers what
- * went wrong, or undefined when it built or has nothing to build.
+ * to `ui/dist/`; an app with no `build` script has nothing to build. Answers
+ * what went wrong, or undefined.
  */
-export async function buildApp(
-	folder: string,
-): Promise<BunProblem | undefined> {
-	const manifest = await Bun.file(join(folder, 'package.json'))
-		.json()
-		.catch(() => undefined);
-	if (typeof manifest?.scripts?.build !== 'string') return undefined;
-	return runBun(folder, ['run', 'build'], buildNext(folder));
-}
+export const buildApp = (folder: string) =>
+	runBun(folder, ['run', '--if-present', 'build'], buildNext(folder));
 
 /** Run the Bun that runs this command with `args` in `cwd`, answering its failure. */
 async function runBun(
