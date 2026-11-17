@@ -320,13 +320,8 @@ server is stopped; `--json` includes completion, the last attempt, and its log.
 `epicenter routines run <name>` explicitly runs one now, including while paused.
 It also repairs failed or interrupted work and can repeat effects.
 
-An app's explicit setup action can call `routines.set(name, { daily, action,
-input, paused?, timeout? })` from `@epicenter/app`. The host resolves the action
-against that app's current table, checks its JSON input, and saves the same
-command-argv declaration. It preserves notes, runtime receipts, and unspecified
-pause and timeout fields. The name is home-wide. An existing command for another
-app, an ambiguous or unexposed action, private input, file input, and read-only
-setup are refused. No new action registry or executable format is involved.
+A person or their agent writes the file. Installing or importing an app
+schedules nothing.
 
 State is atomically replaced in `routines/<name>.local/state.json`. Output
 appends to `routines/<name>.local/output.log`. Both stay local and owner-only.
