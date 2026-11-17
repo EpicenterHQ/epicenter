@@ -15,7 +15,7 @@ described as an Epicenter app with special rules: an `epicenter.ts` someone
 would write later (ADR-0853 left "how Whispering's folder gets one" open), and
 a contract written a second time with `defineContract` in
 `apps/whispering/src/lib/contract.ts`, beside `defineCollection` in
-`packages/app/src/collection.ts`. Every rule that touched Whispering asked
+[packages/app/src/collection.ts at cd25fe8fa8](https://github.com/EpicenterHQ/epicenter/blob/cd25fe8fa8/packages/app/src/collection.ts). Every rule that touched Whispering asked
 which kind of app it was.
 
 ## Decision
