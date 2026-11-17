@@ -102,7 +102,7 @@ test('misfit fields and malformed front matter reuse handle diagnostics and exit
 		{
 			path: 'checks/bad.md',
 			problems: [
-				'watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or boundary spaces',
+				'watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or whitespace at either end',
 				'day: "soon" is not a day like 2026-11-12',
 			],
 		},
@@ -152,8 +152,8 @@ test('invalid reachable-looking names count as problems but their contents are n
 		[
 			'an id cannot contain / or \\',
 			'an id cannot contain a control character',
-			'an id cannot start or end with a space',
-			'an id cannot start or end with a space',
+			'an id cannot start or end with whitespace',
+			'an id cannot start or end with whitespace',
 			'an id must be Unicode NFC',
 			'an id must be at most 200 UTF-8 bytes',
 		].sort(),

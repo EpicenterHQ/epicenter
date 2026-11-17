@@ -98,10 +98,10 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   things made in passing (Tasks and Writing name each new record with it). An
   id the caller gives suits things named by what they are (`data/words/<id>.md`
   for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
-  control characters, a leading dot, or spaces at either end. Every method and
-  generated verb tidies the id it is given (NFC, whitespace at either end
-  removed, inner spaces kept), so pass what a person typed; an id that still
-  does not fit is `Refused`. A generated `add` names the record with
+  `\`, control characters, a leading dot, or whitespace at either end. An id
+  is the file name exactly: no method or generated verb changes it, and one
+  that does not fit is `Refused` with the reason, so trim what a person typed
+  before passing it. A generated `add` names the record with
   `timeId()` when `id` is left out. `field.id()` takes an id that already
   fits as action input.
 - Write a day or a moment with `localDay()` or `localTime()` from

@@ -340,7 +340,7 @@ type Described = {
 
 const FORMATS: Record<string, string> = {
 	'epicenter-id':
-		'a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or boundary spaces',
+		'a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or whitespace at either end',
 	date: 'a day like 2026-11-12',
 	'date-time': 'a date and time like 2026-11-12T09:30:00Z',
 	uri: 'a URL like https://example.com',

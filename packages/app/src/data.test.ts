@@ -1,6 +1,6 @@
 /**
  * Data handles read and patch top-level Markdown records through the current run.
- * Covers both key shapes, tidied and refused ids, create-only adds, repairs, diagnostics,
+ * Covers both key shapes, exact and refused ids, create-only adds, repairs, diagnostics,
  * list membership, and the separation between app writes and reference checks.
  */
 import { expect, test } from 'bun:test';
@@ -287,32 +287,36 @@ test.each(invalidIds)(
 	},
 );
 
-test('an id with surrounding whitespace or a decomposed accent reaches the same record through every verb', async () => {
-	const {
-		context,
-		data: { notes },
-	} = setup();
-	const typed = '  Cafe\u0301  au lait\n';
-	const id = 'Caf\u00e9  au lait';
-	const path = `data/notes/${id}.md`;
-	await inRun(context, async () => {
-		expect(notes.pathOf(typed)).toBe(path);
-		expect(expectOk(await notes.add(typed, { title: 'first' }))).toMatchObject({
-			path,
-			id,
+test.each([
+	[' Dune', 'notes: an id cannot start or end with whitespace'],
+	['Dune ', 'notes: an id cannot start or end with whitespace'],
+	['Dune\u00a0', 'notes: an id cannot start or end with whitespace'],
+	['\u3000Dune', 'notes: an id cannot start or end with whitespace'],
+	['Cafe\u0301', 'notes: an id must be Unicode NFC'],
+])(
+	'an id is never tidied: %j is refused by every verb with the reason',
+	async (id, message) => {
+		const {
+			context,
+			data: { notes },
+		} = setup({ 'data/notes/Dune.md': '', 'data/notes/Caf\u00e9.md': '' });
+		expect(notes.pathOf(id)).toBe(`data/notes/${id}.md`);
+		await inRun(context, async () => {
+			for (const result of [
+				await notes.get(id),
+				await notes.add(id, { title: 'x' }),
+				await notes.set(id, { title: 'x' }),
+				await notes.update(id, () => Ok({ title: 'x' })),
+				await notes.delete(id),
+			])
+				expect(expectErr(result)).toMatchObject({ name: 'Refused', message });
+			expect((await folder.list('data/notes')).sort()).toEqual(
+				['data/notes/Caf\u00e9.md', 'data/notes/Dune.md'].sort(),
+			);
 		});
-		expect(await folder.list('data/notes')).toEqual([path]);
-		expect(expectOk(await notes.get(typed))?.id).toBe(id);
-		expect(expectOk(await notes.set(typed, { title: 'second' })).id).toBe(id);
-		expect(
-			expectOk(await notes.update(typed, () => Ok({ count: 1 }))).title,
-		).toBe('second');
-		// One inner space is another id.
-		expect(expectOk(await notes.get('Caf\u00e9 au lait'))).toBeUndefined();
-		expect(expectOk(await notes.delete(typed))).toBe(true);
-		expect(await folder.list('data/notes')).toEqual([]);
-	});
-});
+		expect(Value.Check(field.id(), id)).toBe(false);
+	},
+);
 
 test('a Misfit carries the id of a folder record and none for a one-file key', async () => {
 	const text = '---\ntitle: 123\n---\nbody';

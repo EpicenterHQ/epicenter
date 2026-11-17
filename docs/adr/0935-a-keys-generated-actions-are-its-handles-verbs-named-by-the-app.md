@@ -65,7 +65,8 @@ export default defineApp({
   `description` ("the name of the new word I'm learning"). Given one, the
   record has that name. Given none, it is named by the moment it is made,
   with `timeId()`, so an agent can add a record without inventing a name.
-  Every generated verb takes `id` as text and the handle tidies it
+  Every generated verb takes `id` as text and passes it to the handle
+  unchanged, which refuses one that cannot be a file name
   ([ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md)).
   When a file is already there, `add` answers `Changed` (`there`), because
   that is what creating means.
