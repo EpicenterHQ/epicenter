@@ -67,14 +67,14 @@ file has a problem or an app could not be checked.`,
 		help: 'Save included code and records with a factual commit message, then push the saved commit to origin when set. Use -m to supply your own message.',
 	},
 	serve: {
-		usage: 'epicenter serve [--port <n>] [--host <address>]',
+		usage: 'epicenter serve',
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
 action to its UI as a serve-owned run at POST /.runs/<app>/<action>/<id>, on
-127.0.0.1 and the Epicenter's port
-(default 4747) unless --port or --host says otherwise. It runs every call itself,
+127.0.0.1 at the port in EPICENTER.md (default 4747). It runs every call itself,
 from the app's code as it is on disk then. It backs up the root with checkpoint
-when it starts, every 5 minutes, and when it stops. It has no sign-in: only this
-computer and the tailnet should reach it.`,
+when it starts, every 5 minutes, and when it stops. It has no sign-in and answers
+only this computer. To reach it from your other devices, run a private proxy
+such as: tailscale serve --bg 4747`,
 	},
 	service: {
 		usage: 'epicenter service <install|uninstall|restart|status>',
@@ -140,7 +140,7 @@ export function parseWords<const O extends ParseArgsOptionsConfig>(
 	}
 }
 
-/** A port as `--port` gives it, or `undefined` when it is not a whole number from 0 to 65535. */
+/** A port as `init --port` gives it, or `undefined` when it is not a whole number from 0 to 65535. */
 export function portOf(value: string): number | undefined {
 	const port = Number(value);
 	return /^\d+$/.test(value) && port <= 65535 ? port : undefined;

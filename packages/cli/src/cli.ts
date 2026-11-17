@@ -4,14 +4,7 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { buildCommand } from './build.ts';
 import { checkCommand } from './check.ts';
 import { checkpoint, renderCheckpoint } from './checkpoint.ts';
-import {
-	BAD_PORT,
-	COMMANDS,
-	type Command,
-	misuse,
-	parseWords,
-	portOf,
-} from './commands.ts';
+import { COMMANDS, type Command, misuse, parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { exportCommand } from './export.js';
@@ -89,17 +82,8 @@ const HANDLERS: { [K in Command]: Handler } = {
 				misuse('serve', 'serve prints no answer; --json does not apply'),
 				json,
 			);
-		const given = parseWords(
-			words,
-			{ port: { type: 'string' }, host: { type: 'string' } },
-			[0, 0],
-		);
-		if (!given) return fail(misuse('serve'), json);
-		const { port, host } = given.values;
-		const root = epicenterRoot();
-		const listen = port === undefined ? root.port : portOf(port);
-		if (listen === undefined) return fail(misuse('serve', BAD_PORT), json);
-		return serveHttp(host ?? '127.0.0.1', listen);
+		if (!parseWords(words, {}, [0, 0])) return fail(misuse('serve'), json);
+		return serveHttp(epicenterRoot().port);
 	},
 };
 

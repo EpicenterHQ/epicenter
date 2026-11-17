@@ -274,7 +274,7 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 			await realpath(before),
 		);
 
-		const serve = Bun.spawn([bin, 'serve', '--port', '0'], {
+		const serve = Bun.spawn([bin, 'serve'], {
 			cwd: f.root,
 			env: { ...f.env, XDG_DATA_HOME: after },
 			stdout: 'ignore',

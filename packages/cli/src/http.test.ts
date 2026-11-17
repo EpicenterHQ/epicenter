@@ -15,7 +15,7 @@ test('serve checkpoints at startup and shutdown and tick resolves the root resul
 	await gitIn(f.home, 'init', '-q');
 	await checkpoint(f.home);
 	await writeFile(join(f.home, 'direct'), 'start');
-	const server = startHttpServer('127.0.0.1', 0);
+	const server = startHttpServer(0);
 	try {
 		const idle = await server.tick();
 		expect(idle.committed).toBeNull();
@@ -31,7 +31,7 @@ test('serve checkpoints at startup and shutdown and tick resolves the root resul
 });
 
 test('serve logs each changed checkpoint failure once and clears it after success', async () => {
-	const server = startHttpServer('127.0.0.1', 0);
+	const server = startHttpServer(0);
 	await server.tick();
 	const write = process.stderr.write;
 	let output = '';
