@@ -15,7 +15,9 @@ it into a shared package or the self-hosted deployment.
 
 ## License
 
-Everything under `packages/` and `apps/` is AGPL-3.0-or-later and private.
+Everything under `packages/` and `apps/` is AGPL-3.0-or-later. `@epicenter/app`,
+`@epicenter/cli` and `@epicenter/theme` are published so a home can depend on
+them; every other package is private.
 Previously published MIT versions remain MIT for those versions. Before adding
 an MIT package, read "If MIT returns" in
 `docs/licensing/licensing-strategy.md`: a named embedder and restored dependency
