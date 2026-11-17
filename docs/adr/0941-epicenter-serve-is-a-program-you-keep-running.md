@@ -8,7 +8,7 @@
 ## Context
 
 `epicenter service install|uninstall|restart|status` wrote and drove a macOS
-LaunchAgent for serve (`packages/cli/src/service.ts`). Linux and Windows each
+LaunchAgent for serve ([`service.ts` at d1980af95a](https://github.com/EpicenterHQ/epicenter/blob/d1980af95a/packages/cli/src/service.ts)). Linux and Windows each
 needed a writer and tests of their own, and neither was built. ADR-0865 already
 has the Mac app register its own LaunchAgent, and rejects one that `epicenter`
 installs for itself.
