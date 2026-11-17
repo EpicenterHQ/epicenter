@@ -1,12 +1,11 @@
 /**
  * Home routine acceptance tests.
  *
- * Exercise real CLI commands, process groups, local state, and serve startup.
- * Catch-up coalesces missed occurrences; an attempt that did not succeed stays
- * visible until the schedule's next occurrence.
- * Manual runs share exclusion with scheduled runs, and drafts survive reruns.
+ * Exercise real CLI commands, local state, and serve startup. Catch-up
+ * coalesces missed occurrences; a run that did not succeed stays visible until
+ * the schedule's next occurrence, and drafts survive reruns.
  */
-import { afterEach, expect, spyOn, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRoutines } from './routines.ts';
@@ -63,7 +62,7 @@ test('serve catches up once, runs an app action in isolation, and keeps completi
 	await mkdir(join(f.directory, 'review.local'));
 	await writeFile(
 		join(f.directory, 'review.local/state.json'),
-		'{"attempt":{"started":"2000-01-01T08:00:00.000Z","outcome":"succeeded"}}\n',
+		'{"started":"2000-01-01T08:00:00.000Z","finished":"2000-01-01T08:00:01.000Z","exitCode":0}\n',
 	);
 	const served = await startServe(f);
 	try {
@@ -71,7 +70,7 @@ test('serve catches up once, runs an app action in isolation, and keeps completi
 			async () => (await f.routines.list())[0]?.status === 'succeeded',
 		);
 		expect(await readFile(join(app, 'data/count.txt'), 'utf8')).toBe('1');
-		expect((await f.state()).attempt.started).not.toStartWith('2000');
+		expect((await f.state()).started).not.toStartWith('2000');
 		expect((await fetch(served.base)).status).toBe(200);
 	} finally {
 		await served.stop();
@@ -97,13 +96,11 @@ test('a failed command waits for the next occurrence and an explicit run can rep
 		async () => (await f.routines.list())[0]?.status === 'failed',
 	);
 	const failed = await f.state();
-	expect(failed.attempt.exitCode).toBe(7);
+	expect(failed.exitCode).toBe(7);
 	await f.routines.check();
-	await f.routines.stop();
 	expect(await f.state()).toEqual(failed);
 	const restarted = createRoutines({ folder: f.home });
 	await restarted.check();
-	await restarted.stop();
 	expect(await f.state()).toEqual(failed);
 	await writeFile(
 		join(f.directory, 'review.md'),
@@ -111,12 +108,12 @@ test('a failed command waits for the next occurrence and an explicit run can rep
 	);
 	const result = await f.run('routines', 'run', 'review', '--json');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout).attempt.outcome).toBe('succeeded');
+	expect(JSON.parse(result.stdout).exitCode).toBe(0);
 	const log = await readFile(
 		join(f.directory, 'review.local/output.log'),
 		'utf8',
 	);
-	// The log holds the latest attempt only.
+	// The log holds the latest run only.
 	expect(log).not.toContain('offline');
 	expect(log).toContain('123');
 });
@@ -134,122 +131,12 @@ test('a routine action exiting its process cannot stop the HTTP server', async (
 		await eventually(
 			async () => (await f.routines.list())[0]?.status === 'failed',
 		);
-		expect((await f.state()).attempt.exitCode).toBe(9);
+		expect((await f.state()).exitCode).toBe(9);
 		expect((await fetch(served.base)).status).toBe(200);
 	} finally {
 		await served.stop();
 	}
 }, 30_000);
-
-test('manual and scheduled attempts exclude one another and cancellation records interruption', async () => {
-	const f = await setup(
-		[
-			process.execPath,
-			'-e',
-			'process.on("SIGTERM", () => {}); console.log("started"); setInterval(() => {}, 1000)',
-		],
-		'timeout: "1s"\n',
-	);
-	await f.routines.check();
-	await eventually(
-		async () => (await f.state().catch(() => undefined))?.attempt?.pid > 0,
-	);
-	const result = await f.run('routines', 'run', 'review');
-	expect(result.code).toBe(2);
-	expect(result.stderr).toContain('already running');
-	// Shutdown starts first; a timeout during the termination grace cannot rename it.
-	await f.routines.stop();
-	expect((await f.state()).attempt.outcome).toBe('interrupted');
-	// An interrupted attempt blocks nothing: the next occurrence makes it due.
-	const restarted = createRoutines({ folder: f.home });
-	expect((await restarted.list(new Date(2030, 0, 1, 10)))[0]?.status).toBe(
-		'due',
-	);
-	await restarted.stop();
-});
-
-test('a killed supervisor leaves a visible unknown outcome and cannot overlap its surviving command', async () => {
-	const f = await setup([
-		process.execPath,
-		'-e',
-		'setInterval(() => {}, 1000)',
-	]);
-	const supervisor = Bun.spawn(
-		[process.execPath, f.bin, 'routines', 'run', 'review'],
-		{
-			cwd: f.home,
-			env: f.env,
-			stdout: 'ignore',
-			stderr: 'ignore',
-		},
-	);
-	let pid: number | undefined;
-	try {
-		await eventually(async () => {
-			pid = (await f.state().catch(() => undefined))?.attempt?.pid;
-			return pid !== undefined;
-		});
-		supervisor.kill('SIGKILL');
-		await supervisor.exited;
-		await f.routines.check();
-		await eventually(
-			async () => (await f.routines.list())[0]?.status === 'running',
-		);
-		const refused = await f.run('routines', 'run', 'review');
-		expect(refused.code).toBe(2);
-		expect(refused.stderr).toContain('already running');
-		if (pid === undefined)
-			throw new Error('The command did not record its process ID');
-		process.kill(-pid, 'SIGKILL');
-		await eventually(async () => {
-			await f.routines.check();
-			return (await f.state()).attempt.outcome === 'interrupted';
-		});
-	} finally {
-		supervisor.kill('SIGKILL');
-		if (pid !== undefined) {
-			try {
-				process.kill(-pid, 'SIGKILL');
-			} catch {}
-		}
-		await f.routines.stop();
-	}
-});
-
-test('timeouts terminate the command group, including a grandchild ignoring SIGTERM', async () => {
-	const f = await setup(
-		[
-			process.execPath,
-			'-e',
-			`
-    import { writeFileSync } from 'node:fs';
-    process.on('SIGTERM', () => {});
-    const child = Bun.spawn([process.execPath, '-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)']);
-    writeFileSync('grandchild.local', String(child.pid));
-    setInterval(() => {}, 1000);
-  `,
-		],
-		'timeout: "1s"\n',
-	);
-	try {
-		await f.routines.check();
-		await eventually(
-			async () => (await f.routines.list())[0]?.status === 'failed',
-		);
-		const state = await f.state();
-		expect(state.attempt.message).toContain('timeout');
-		await eventually(async () => {
-			try {
-				process.kill(-state.attempt.pid, 0);
-				return false;
-			} catch (error) {
-				return (error as NodeJS.ErrnoException).code === 'ESRCH';
-			}
-		});
-	} finally {
-		await f.routines.stop();
-	}
-}, 15_000);
 
 test('invalid definitions and corrupted state block execution without stopping valid routines', async () => {
 	const f = await setup();
@@ -277,7 +164,6 @@ test('invalid definitions and corrupted state block execution without stopping v
 			(row) => row.name === 'working' && row.status === 'succeeded',
 		),
 	);
-	await f.routines.stop();
 	const rows = await f.routines.list();
 	expect(
 		rows.filter((row) => row.status === 'invalid').map((row) => row.name),
@@ -301,7 +187,6 @@ test('arguments are passed without a shell', async () => {
 		'utf8',
 	);
 	expect(log.split('\n').filter((line) => line === literal)).toHaveLength(1);
-	await f.routines.stop();
 });
 
 test('the daily task review writes a draft, excludes completed tasks, and preserves edits on rerun', async () => {
@@ -352,7 +237,6 @@ test('the next occurrence follows local calendar days and daylight-saving gaps',
     await routines.run('review', new Date(${JSON.stringify(started)}));
     const at = async (when) => (await routines.list(new Date(when)))[0].status;
     console.log(JSON.stringify([await at(${JSON.stringify(before)}), await at(${JSON.stringify(after)})]));
-    await routines.stop();
   `,
 			],
 			{
@@ -392,65 +276,6 @@ test('the next occurrence follows local calendar days and daylight-saving gaps',
 	).toEqual(['succeeded', 'due']);
 });
 
-test('the kernel lock excludes simultaneous attempts in the same runner', async () => {
-	const f = await setup([
-		process.execPath,
-		'-e',
-		'setInterval(() => {}, 1000)',
-	]);
-	const attempts = Promise.allSettled([
-		f.routines.run('review'),
-		f.routines.run('review'),
-	]);
-	try {
-		await eventually(
-			async () => (await f.state().catch(() => undefined))?.attempt?.pid > 0,
-		);
-	} finally {
-		await f.routines.stop();
-	}
-	const results = await attempts;
-	expect(
-		results.filter((result) => result.status === 'fulfilled'),
-	).toHaveLength(1);
-	const refused = results.find((result) => result.status === 'rejected');
-	expect(refused?.status === 'rejected' && refused.reason.message).toContain(
-		'already running',
-	);
-	expect((await f.state()).attempt.outcome).toBe('interrupted');
-});
-
-test('one shutdown signal stops all owned routine groups', async () => {
-	const f = await setup([
-		process.execPath,
-		'-e',
-		'setInterval(() => {}, 1000)',
-	]);
-	await copyFile(
-		join(f.directory, 'review.md'),
-		join(f.directory, 'second.md'),
-	);
-	await f.routines.check();
-	try {
-		await eventually(async () => {
-			const rows = await f.routines.list();
-			return (
-				rows.length === 2 &&
-				rows.every((row) => 'attempt' in row && row.attempt?.pid !== undefined)
-			);
-		});
-	} finally {
-		await f.routines.stop();
-	}
-	const rows = await f.routines.list();
-	expect(rows.map((row) => row.status)).toEqual(['interrupted', 'interrupted']);
-	expect(
-		rows.every(
-			(row) => 'attempt' in row && row.attempt?.outcome === 'interrupted',
-		),
-	).toBe(true);
-});
-
 test('a failed manual run stays visible until the next occurrence', async () => {
 	const f = await setup();
 	await f.routines.run('review');
@@ -462,17 +287,13 @@ test('a failed manual run stays visible until the next occurrence', async () => 
 	const failed = await f.state();
 	expect((await f.routines.list())[0]?.status).toBe('failed');
 	await f.routines.check();
-	await f.routines.stop();
 	expect(await f.state()).toEqual(failed);
 	const nextDay = new Date();
 	nextDay.setDate(nextDay.getDate() + 1);
 	const restarted = createRoutines({ folder: f.home });
 	expect((await restarted.list(nextDay))[0]?.status).toBe('due');
 	await restarted.check(nextDay);
-	await eventually(
-		async () => (await f.state()).attempt.started !== failed.attempt.started,
-	);
-	await restarted.stop();
+	await eventually(async () => (await f.state()).started !== failed.started);
 });
 
 test('invalid saved fields block execution without rewriting the state', async () => {
@@ -480,47 +301,20 @@ test('invalid saved fields block execution without rewriting the state', async (
 	const local = join(f.directory, 'review.local');
 	await mkdir(local);
 	for (const state of [
-		// The state shape before ADR-0937 is refused, not guessed at.
+		// Earlier state shapes are refused, not guessed at.
 		{ completed: '2026-11-14T08:00:00.000Z' },
-		{ attempt: { started: '2026-13-14T08:01:00.000Z', outcome: 'failed' } },
-		{ attempt: { started: '2026-11-14T08:01:00Z', outcome: 'failed' } },
-		{ attempt: { started: '2026-11-14T08:01:00.000Z', outcome: 'done' } },
-		{
-			attempt: {
-				started: '2026-11-14T08:01:00.000Z',
-				outcome: 'running',
-				pid: -1,
-			},
-		},
+		{ attempt: { started: '2026-11-14T08:01:00.000Z', outcome: 'failed' } },
+		{ started: '2026-13-14T08:01:00.000Z' },
+		{ started: '2026-11-14T08:01:00Z' },
+		{ started: '2026-11-14T08:01:00.000Z', exitCode: 'done' },
 	]) {
 		const raw = JSON.stringify(state);
 		await writeFile(join(local, 'state.json'), raw);
 		const runner = createRoutines({ folder: f.home });
 		expect((await runner.list())[0]?.status).toBe('invalid');
 		await expect(runner.run('review')).rejects.toThrow('state.json');
-		await runner.stop();
 		expect(await readFile(join(local, 'state.json'), 'utf8')).toBe(raw);
 	}
-});
-
-test('inspection reports an abandoned attempt coherently without rewriting its record', async () => {
-	const f = await setup();
-	const local = join(f.directory, 'review.local');
-	await mkdir(local);
-	const raw = JSON.stringify({
-		attempt: {
-			started: '2026-11-14T08:01:00.000Z',
-			outcome: 'running',
-		},
-	});
-	await writeFile(join(local, 'state.json'), raw);
-	const [row] = await f.routines.list();
-	// Abandoned, and a later occurrence has passed, so it is due again.
-	expect(row?.status).toBe('due');
-	expect(row && 'attempt' in row && row.attempt?.outcome).toBe('interrupted');
-	expect(await readFile(join(local, 'state.json'), 'utf8')).toBe(raw);
-	expect((await f.routines.run('review'))?.attempt?.outcome).toBe('succeeded');
-	await f.routines.stop();
 });
 
 test('a last start later than now is due, so a corrected clock cannot stall a routine', async () => {
@@ -529,35 +323,34 @@ test('a last start later than now is due, so a corrected clock cannot stall a ro
 	await writeFile(
 		join(f.directory, 'review.local/state.json'),
 		JSON.stringify({
-			attempt: {
-				started: '2099-01-01T08:00:00.000Z',
-				finished: '2099-01-01T08:00:01.000Z',
-				outcome: 'succeeded',
-			},
+			started: '2099-01-01T08:00:00.000Z',
+			finished: '2099-01-01T08:00:01.000Z',
+			exitCode: 0,
 		}),
 	);
 	expect((await f.routines.list())[0]?.status).toBe('due');
 });
 
-test('unconfirmed descendant cleanup remains inspectable', async () => {
+test('one runner does not start a routine that is still running', async () => {
+	const f = await setup([process.execPath, '-e', 'await Bun.sleep(400)']);
+	const first = f.routines.run('review');
+	await eventually(async () => !!(await f.state().catch(() => undefined)));
+	await expect(f.routines.run('review')).rejects.toThrow('already running');
+	// A due check started before the run finishes leaves it alone.
+	const started = (await f.state()).started;
+	await f.routines.check(new Date(Date.now() + 2 * 86_400_000));
+	expect((await first)?.exitCode).toBe(0);
+	expect((await f.state()).started).toBe(started);
+});
+
+test('a start without a finish shows running until the next occurrence makes it due', async () => {
 	const f = await setup();
-	const kill = process.kill.bind(process);
-	const signalling = spyOn(process, 'kill').mockImplementation(
-		(pid, signal) => {
-			if (pid < 0 && signal === 'SIGKILL')
-				throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
-			return kill(pid, signal);
-		},
+	await mkdir(join(f.directory, 'review.local'));
+	await writeFile(
+		join(f.directory, 'review.local/state.json'),
+		JSON.stringify({ started: new Date(Date.now() - 1000).toISOString() }),
 	);
-	try {
-		const state = await f.routines.run('review');
-		expect(state?.attempt?.outcome).toBe('interrupted');
-		expect((await f.state()).attempt.message).toContain('EPERM');
-		expect(
-			await readFile(join(f.directory, 'review.local/output.log'), 'utf8'),
-		).toContain('cleanup is unconfirmed');
-	} finally {
-		signalling.mockRestore();
-		await f.routines.stop();
-	}
+	const tomorrow = new Date(Date.now() + 86_400_000);
+	expect((await f.routines.list())[0]?.status).toBe('running');
+	expect((await f.routines.list(tomorrow))[0]?.status).toBe('due');
 });

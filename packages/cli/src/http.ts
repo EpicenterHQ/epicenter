@@ -329,20 +329,19 @@ export function startHttpServer(port: number) {
 	routineClock.unref();
 	return {
 		port: server.port as number,
-		/** Stop listening and the routine clock, then stop routine commands. */
+		/**
+		 * Stop listening and checking routines. Routine commands share serve's
+		 * process group, so a service manager that stops the group stops them.
+		 */
 		stop() {
 			runs.stop();
 			clearInterval(routineClock);
 			void server.stop();
-			return routines.stop();
 		},
 	};
 }
 
-/**
- * Serve until the process receives SIGINT or SIGTERM, then stop routine
- * commands and exit.
- */
+/** Serve until the process receives SIGINT or SIGTERM, then exit. */
 export async function serveHttp(port: number): Promise<number> {
 	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
 	// that answers it, even when the `epicenter` they linked to is gone.
@@ -355,6 +354,6 @@ export async function serveHttp(port: number): Promise<number> {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	await server.stop();
+	server.stop();
 	return 0;
 }

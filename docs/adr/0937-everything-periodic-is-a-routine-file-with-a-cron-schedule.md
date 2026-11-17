@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-16
-- **Amends:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) on the schedule (`daily` becomes `cron`), what makes a routine due, interrupted attempts, `paused`, and `routines.set`. Its folder, command argv, process supervision, lock, and local state stand. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the checkpoint clock: `serve` keeps none, and a home checkpoints only if it has a routine that does.
+- **Amends:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) on the schedule (`daily` becomes `cron`), what makes a routine due, interrupted attempts, `paused`, `timeout`, the routine lock and process-group supervision, and `routines.set`. Its folder, command argv, and local state stand. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the checkpoint clock: `serve` keeps none, and a home checkpoints only if it has a routine that does.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (actions make no commits).
 - **Unbuilt:** `~/Epicenter/routines/` holds two `daily` files and no checkpoint routine; the home changes when the CLI that reads `cron` is installed.
 
@@ -45,17 +45,24 @@ Commit everything pending and push to the backup.
 
 `cron` is a five-field expression or nickname in the home computer's local
 time, as `Bun.cron.parse` reads it. It replaces `daily`; `daily: "08:00"`
-becomes `cron: "0 8 * * *"`. `run` and `timeout` are unchanged. `paused` is
+becomes `cron: "0 8 * * *"`. `run` is unchanged. `paused` and `timeout` are
 removed: to stop a routine, remove its file. The home's history keeps it.
 
-A routine is due when it has no recorded attempt, or when
-`Bun.cron.parse(cron, lastAttempt.started)` is at or before now. Missed
-occurrences collapse into one run. Any attempt that did not succeed,
-interrupted included, waits for the next occurrence; nothing blocks a
-routine until a person repairs it. The lock still keeps a surviving process
-group from overlapping a new attempt. State keeps only the last attempt;
-`slot`, `completed`, and `EPICENTER_ROUTINE_SLOT` go. `output.log` holds the
-latest attempt only. `epicenter routines run <name>` still runs one now.
+A routine is due when it has never started, or when
+`Bun.cron.parse(cron, lastStart)` is at or before now. Missed occurrences
+collapse into one run. A run that did not succeed waits for the next
+occurrence; nothing blocks a routine until a person repairs it.
+`routines/<name>.local/state.json` holds `started`, and `finished` and
+`exitCode` once the command ends. `output.log` holds the latest run only.
+`epicenter routines run <name>` still runs one now.
+
+**The runner starts commands and records how they end; it does not police
+them.** One home has one writer, so the runner keeps no lock. It remembers
+which routines it started and has not seen exit, and starts none of them
+twice. It keeps no timeout and no kill path: a command that needs a deadline
+sets its own, as Flights' agent run already does. Commands share `serve`'s
+process group, so the service manager that stops `serve` stops them. A
+start with no finish reads as running until the next occurrence makes it due.
 
 `serve` keeps a one-minute timer that calls the routine check, and no
 checkpoint clock. It runs no checkpoint at startup or on stop. A new
@@ -83,7 +90,13 @@ for an agent to add when the person wants history and backup.
 - Up to five minutes of changes stay uncommitted when the computer stops.
   The next start commits them.
 - A routine that cannot tolerate repetition takes its own id or lock.
-- The lock skips an occurrence while the last attempt still holds it.
+- A hung command holds its routine until it exits or `serve` restarts.
+  `epicenter routines` shows it running since its start.
+- A foreground `epicenter routines run` and `serve` do not see each other's
+  runs and can overlap. One writer makes this rare, and routines already
+  tolerate repetition.
+- A `serve` restarted mid-run does not know the old command; it waits for
+  the next occurrence, so overlap needs a run longer than its interval.
 
 ## Considered alternatives
 
@@ -100,6 +113,14 @@ for an agent to add when the person wants history and backup.
   and a second off switch for one rule.
 - **In-process `Bun.cron(expression, handler)` per routine.** It must be
   registered again whenever a file changes and has no catch-up after sleep.
+- **Keep the kernel lock, passed to the command on fd 3.** It guards a
+  `serve` restart during a run and a foreground run during a scheduled one.
+  The service has restarted only on installs, and the due rule already waits
+  for the next occurrence after a restart. A lock every command must keep
+  open is a rule every command author must know.
+- **Keep a `timeout` that kills the command's process group.** The command
+  knows its deadline and what to clean up; `serve` would only guess. Flights
+  already stops its agent after fifteen minutes.
 - **OS-level `Bun.cron` jobs per routine.** ADR-0908's reason stands: the
   person would inspect schedules in a second system.
 - **A model writes every checkpoint message by default.** It sends diffs of

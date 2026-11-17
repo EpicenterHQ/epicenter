@@ -351,7 +351,7 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 				child.exited,
 			]);
 			expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
-			expect(JSON.parse(stdout).attempt.outcome).toBe('succeeded');
+			expect(JSON.parse(stdout).exitCode).toBe(0);
 			// The log holds the latest attempt only.
 			expect(
 				await readFile(

@@ -298,8 +298,7 @@ Prepare my morning review.
 
 `cron` is a five-field expression or nickname such as `@hourly`, read in the
 computer's local time by `Bun.cron.parse`. A routine is due when it has never
-run, or when its schedule has had an occurrence since its last attempt
-started. After several days offline it runs once, not once per missed
+run, or when its schedule has had an occurrence since its last start. After several days offline it runs once, not once per missed
 occurrence. Timing is approximate while the service is awake and available.
 A skipped clock time moves forward through the gap.
 
@@ -311,32 +310,29 @@ routine's name.
 `EPICENTER_SERVICE_URL` names this serve listener's loopback URL, including an
 overridden port. A script
 calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
-Optional `timeout: "30m"`
-bounds each attempt; the default is 30 minutes, with seconds, minutes, or hours
-accepted. Unknown fields and malformed declarations are refused. To stop a
+Unknown fields and malformed declarations are refused. To stop a
 routine, remove its file; the home's history keeps it.
 
 `epicenter routines` lists declarations and last outcomes, even while the
-server is stopped; `--json` includes the last attempt and its log.
+server is stopped; `--json` includes the last start, finish, exit code, and log.
 `epicenter routines run <name>` explicitly runs one now and can repeat effects.
 
 A person or their agent writes the file. Installing or importing an app
 schedules nothing.
 
-State is atomically replaced in `routines/<name>.local/state.json`. The latest
-attempt's output replaces `routines/<name>.local/output.log`. Both stay local
-and owner-only.
-The kernel lock on that folder covers the entire attempt, including foreground
-runs. The command inherits the lock as fd 3, so a command that survives its
-supervisor still prevents overlap. Commands must keep fd 3 open and remain in
-their process group. Shutdown and timeout terminate that group, escalating to
-SIGKILL after two seconds. This uses macOS/Linux facilities, not a sandbox.
+`routines/<name>.local/state.json` records `started`, then `finished` and
+`exitCode` when the command ends. The latest run's output replaces
+`routines/<name>.local/output.log`. Both stay local and owner-only.
 
-An attempt that fails, times out, or is interrupted waits for the schedule's
-next occurrence or an explicit run; nothing blocks a routine until a person
-repairs it. Corrupted state blocks execution without overwriting it. A failure
-to signal descendants records interruption and the signalling error. Deleting
-runtime state makes the routine due again. Commands must tolerate repetition;
+The runner starts each routine at most once at a time and keeps no lock,
+timeout, or kill path. A command that needs a deadline sets its own. Commands
+share `serve`'s process group, so stopping the service stops them. A start
+with no finish shows as running until the next occurrence makes it due.
+
+A run that fails waits for the schedule's next occurrence or an explicit run;
+nothing blocks a routine until a person repairs it. Corrupted state blocks
+execution without overwriting it. Deleting runtime state makes the routine due
+again. Commands must tolerate repetition;
 there is no exactly-once guarantee.
 
 The [daily task review example](examples/daily-task-review.md) runs
