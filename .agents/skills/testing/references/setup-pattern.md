@@ -36,4 +36,22 @@ test('a missing list reads as empty', async () => {
 When a schema, builder, or configuration is only used once in a test, inline it directly at the call site rather than extracting to a variable.
 The definition and its usage are the same conceptual unit, so they should be the same textual unit.
 
+With a separate `fields` variable:
+
+```typescript
+const fields = { title: field.text() };
+const books = defineCollection({ path: 'data/books/{book}.md', fields });
+```
+
+With the field definition inline:
+
+```typescript
+const books = defineCollection({
+	path: 'data/books/{book}.md',
+	fields: { title: field.text() },
+});
+```
+
+The `fields` key already names the object. Keep `books` named so the test can call `books.get(...)`.
+
 Introduce a variable when its name explains something useful, the value is reused, or the test needs to inspect an intermediate result. Extract when doing so makes the test easier to read.
