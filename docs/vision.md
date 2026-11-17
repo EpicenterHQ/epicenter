@@ -17,7 +17,8 @@ Nothing syncs and no one signs in: your other devices are thin clients of the
 one copy, and `origin` is a push-only backup. [ADR-0910] records this layout, implemented in the source
 and live Epicenter.
 
-This page is the front door. [ADR-0896] and [ADR-0898] state the rules below;
+This page is the front door. [ADR-0940] records Epicenter's core invariants
+and their tradeoffs. [ADR-0896] and [ADR-0898] describe how collections meet;
 [ADR-0840] records why the direction changed from the folder sync product, and
 [ADR-0897] why hosted Notes waits. [Architecture](architecture.md),
 [CONTEXT](CONTEXT.md), and the package READMEs describe the code that exists,
@@ -48,22 +49,52 @@ for it. Never expose the port publicly; `serve` refuses Tailscale Funnel.
 Agents can run on the home itself or reach its actions from another
 connected computer. If the home sleeps or goes offline, your other devices
 cannot reach it. For the listener and service setup, see
-[the epicenter command](../packages/cli/README.md#a-call-runs-where-it-arrives).
+[the epicenter command](../packages/cli/README.md#one-serve-runs-every-action).
 
-## The rules
+## Core invariants
 
-1. **File over app.** What a person makes is plain files in a documented
-   shape. Any program that writes that shape is a valid writer and needs no
-   Epicenter ([ADR-0889]).
-2. **Each kind of record has one writer of record within an Epicenter:** its
-   folder, or a source: a service, or a program's folder. Epicenter never
-   reconciles two writable copies.
-3. **Have the folder, write files; otherwise ask an action.** Actions exist
-   for reach, rules, and sign-ins.
-4. **Commit what the person made.** A copy of data whose truth is elsewhere
-   is written only by its pull, whoever runs it. Keep it in the app's `local/`
-   when the source can send it again; commit it as Markdown when the person
-   would want it after the source is gone.
+Epicenter assumes you have one computer you control and keep running. Your other devices reach it. Each kind of record has one place where edits count, and the software is yours to change. These assumptions determine what Epicenter needs to handle, what it can leave to other tools, and which promises it gives up.
+
+These six commitments guide the design. Epicenter does not need to
+anticipate every need because you can change the software and compose it
+with other tools.
+
+| Commitment | What it lets us remove | What we give up |
+| --- | --- | --- |
+| **Your Epicenter lives on one computer you control and keep running.** Your devices and agents reach it through your private connection. | Complete copies and runtimes on every device; distributing the home's service credentials; a separate home sign-in system. | Access while the home is unreachable; automatic failover; public access with separate caller permissions. |
+| **Every kind of record has one place where edits count.** That place is the home's folder or an outside source. | Reconciling independently writable copies, merge policies, conflict files, and offline edit queues. | Editing both a source and its copy and expecting them to converge. Copies may be stale; backups are not active homes. |
+| **One running Epicenter process executes every action.** The terminal, browser, and agents all call it. | Separate CLI execution and fallback; cross-process action locks and their waits. | Actions while `serve` is stopped; process isolation between apps; automatic transactions across a whole action. |
+| **What you make belongs in files you can use without Epicenter.** Apps record lasting outcomes; Git checkpoints the files. | Mandatory SDK access to records; a second platform store for run histories, replay, and receipts. | Automatic recovery of unsaved progress after a reload; an automatic audit of every attempt. An app saves any receipt it needs. |
+| **You can change the software you run.** Apps are editable code that you or your agents can inspect and adapt. You choose which code to trust. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | Configuring every behavior without code; isolation from a faulty app. You are responsible for what you run. |
+| **Epicenter composes tools that already do the job.** Git keeps history, Bun manages packages, and the operating system keeps Epicenter running. | Rebuilding version control, package management, and process supervision. | A platform-managed solution to every operational problem. Some work remains ordinary tool use. |
+
+One place where edits count and one process running actions are different
+promises. Actions can overlap while waiting for a service. A platform file
+update reads, changes, and replaces one file without yielding; a change
+across several files is not a transaction. Direct writers, including
+editors, agents, and scripts, must coordinate when they touch the same
+records ([ADR-0936]).
+
+Apps save what needs to survive a reload. Progress updates are for whoever
+is watching now; configuration, caches, and temporary runtime state still
+exist. Git records checkpoints, not every event ([ADR-0930]).
+
+A specialized app can use a CRDT for concurrent editing and export a saved
+representation into Epicenter. The CRDT document owns the live edits; the
+exported files are a copy. Editing both independently would bring back the
+reconciliation we refuse. An app can also add its own deadline, subprocess,
+or receipt without making every app inherit that machinery.
+
+## Working with files
+
+**Have the folder, write files; otherwise ask an action.** Any program that
+writes the documented shape is a valid writer and needs no Epicenter
+([ADR-0889]). Actions exist for reach, rules, and sign-ins.
+
+**Commit what the person made.** A copy of data whose truth is elsewhere is
+written only by its pull, whoever runs it. Keep it under the app's `local/`
+when the source can send it again; commit it as Markdown when the person
+would want it after the source is gone ([ADR-0939]).
 
 ## Where a record's truth is
 
@@ -130,15 +161,15 @@ For the author, the home is the Mac Studio.
 
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
-| `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
+| `epicenter <app> <action>` | the command, sending its call to the home's running `serve` | you, agents with a shell |
 | `epicenter serve` | MCP at `/`, the launcher for a browser, and each app's UI at `/<app>/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices; UIs in a browser |
 | the files | the folder itself | your editor, Claude Code on the home, a program that writes the contract |
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
 files when they reach the home. `epicenter serve` runs the `code/epicenter.ts` of
 each app you trust, and no sign-in leaves the home: Mail's Google sign-in is
-a file in Mail's `local/`, on the computer that runs Mail's actions
-([ADR-0870]).
+a file under Mail's `local/`, on the computer that runs Mail's actions
+([ADR-0939]).
 
 Agents make apps: you start Claude Code on the home, ask for an app, and it
 writes its code and records. An app can start with committed code copied by
@@ -192,7 +223,7 @@ changes in place ([ADR-0910]).
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: one a data key gives, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
 | a UI | a web page built from the app's `code/ui/` into `code/ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over HTTP |
-| `epicenter` | the command: it runs an action in a folder, and `epicenter serve` offers every app over MCP |
+| `epicenter` | the command: it sends an action to the home's running `serve`, which offers every app over MCP and HTTP |
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
 | a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's data declares, in its own folder, and none has to |
@@ -303,8 +334,10 @@ ssh studio epicenter <app> <action>           an action from a remote shell
 epicenter serve, through tailscale serve     your devices: UIs and MCP
 ```
 
-A command always means the computer it is typed on. `serve` runs each app as
-its files are on disk, so code you just changed is what runs ([ADR-0880]). It
+A command selects a home on the computer it is typed on and sends its action
+to that home's running `serve`. If serve is stopped, the action does not run.
+Serve runs each app as its files are on disk, so code you just changed is
+what runs ([ADR-0880], [ADR-0936]). It
 signs no one in and listens only on the home; your private network decides
 which other devices reach it, for the author the tailnet ([ADR-0927]).
 
@@ -320,8 +353,8 @@ keeps nothing of its own.
 | --- | --- | --- |
 | 1. Files | nothing | any software reads and writes it |
 | 2. History | Git, `git-lfs`, optional `origin` | root checkpoints, optional private backup |
-| 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
-| 4. Everywhere | `epicenter serve` on the home, and a private network such as Tailscale | your devices reach it; its UIs open in a browser |
+| 3. Actions | `epicenter serve` running on the home | the CLI and agents call its actions |
+| 4. Everywhere | a private network such as Tailscale | your other devices reach it; its UIs open in a browser |
 
 Whispering is whole at rung 1.
 
@@ -335,7 +368,7 @@ Whispering is whole at rung 1.
 | Reach a service's data | ask it each time | it needs search, offline reading, or history: a pull |
 | Join two apps | an agent | the steps are stable: an action in a personal app |
 | Record pending files | one root checkpoint | a named commit records intent |
-| Move data | Git | never |
+| Back up the home | Git and an optional private origin | never |
 | Reach | MCP | never |
 | An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
 | Run something later | a routine runs a command on a cron schedule | never |
@@ -366,7 +399,9 @@ or a workflow engine between apps; a
 record form that `serve` acts on; conflict markers or conflict files; an
 Epicenter app on every device holding a copy of each app; a folder kept in a
 browser; a third-party sign-in stored anywhere but the home; running other people's
-code in isolates or Durable Objects; Yjs or any CRDT in Epicenter.
+code in isolates or Durable Objects; a built-in CRDT or a platform protocol
+for reconciling editable copies. An app may use a specialized collaboration
+tool while keeping one place where its edits count.
 
 **Hosted Notes** is a product beside Epicenter, not an Epicenter app, and
 waits for the month's evidence ([ADR-0897]). If it is built, from an
@@ -416,3 +451,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md
 [ADR-0927]: adr/0927-serve-listens-only-on-this-computer.md
 [ADR-0929]: adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md
+[ADR-0930]: adr/0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md
+[ADR-0936]: adr/0936-one-serve-per-home-runs-every-action.md
+[ADR-0939]: adr/0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md
+[ADR-0940]: adr/0940-epicenters-core-invariants.md
