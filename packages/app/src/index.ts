@@ -39,6 +39,12 @@ export {
 	routines,
 	textUpdate,
 } from './context.ts';
+export {
+	type Data,
+	type DataDef,
+	type DataRecord,
+	defineData,
+} from './data.ts';
 export { ActionError, type Problem } from './errors.ts';
 export {
 	FILE_REFERENCE_PREFIX,
@@ -54,4 +60,4 @@ export {
 export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';
 export type { Placeholders } from './path.ts';
-export { localDay, localTime } from './time.ts';
+export { localDay, localTime, timeId } from './time.ts';

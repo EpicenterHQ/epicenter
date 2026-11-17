@@ -25,9 +25,11 @@ import {
 	type TUnion,
 	Type,
 } from 'typebox';
+import { Format } from 'typebox/format';
 import { Value } from 'typebox/value';
 import type { AnyCollection } from './collection.ts';
 import { isLocalPath } from './context.ts';
+import { idProblem } from './id.ts';
 import { template } from './path.ts';
 
 export const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -177,6 +179,20 @@ export type TList<T extends TSchema> = TOptional<TArray<T>> & {
 /** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "path": "<the target's path>" } }`. */
 const REF = 'x-epicenter-ref';
 
+Format.Set('epicenter-id', (value) => idProblem(value) === undefined);
+
+/** A data ref retains its target key for declaration-time checking. */
+type RefSchema<TTarget> = TString &
+	(TTarget extends string ? { [REF]: { key: TTarget } } : unknown);
+
+/** The folder key named by a data ref, or undefined for another field. */
+export function refKeyOf(schema: unknown): string | undefined {
+	if (typeof schema !== 'object' || schema === null) return undefined;
+	const annotation = (schema as Record<string, unknown>)[REF];
+	const key = (annotation as { key?: unknown } | undefined)?.key;
+	return typeof key === 'string' ? key : undefined;
+}
+
 /** `collection`'s path, refusing a collection a key cannot name one record of. */
 function refPath(collection: AnyCollection): string {
 	const path = (collection as Partial<AnyCollection> | undefined)?.path;
@@ -269,6 +285,14 @@ function bounds(options: Bounds | undefined) {
 }
 
 export const field = {
+	/** An id for one Markdown record, refused unless its bytes already fit. */
+	id: <const O extends MaybeOptional>(options?: Only<O, MaybeOptional>) => {
+		only('id', options, MAYBE_OPTIONAL);
+		return maybeOptional(
+			Type.String({ ...schemaOptions(options), format: 'epicenter-id' }),
+			options,
+		);
+	},
 	/**
 	 * A top-level action file input. The wire value is an opaque
 	 * reference the host issued; `run` receives `UploadedFile`. A browser
@@ -409,24 +433,24 @@ export const field = {
 	 */
 	list,
 
-	/**
-	 * The key of a record in `collection`: the value of the one placeholder in
-	 * its path, so `field.ref(essays)` for `data/essays/{slug}.md` holds a slug
-	 * such as `"dune"`. `collection` is declared before the field that names
-	 * it. A collection's `add` and `set` refuse a key unless `get` on
-	 * `collection` would find a record by it whose key it is; a read returns
-	 * the key and opens no other file.
-	 */
-	ref: <const O extends MaybeOptional>(
-		collection: AnyCollection,
+	/** One id in a data folder key, or a key in an existing collection. Reads open no other file. */
+	ref: <
+		const TTarget extends string | AnyCollection,
+		const O extends MaybeOptional,
+	>(
+		target: TTarget,
 		options?: Only<O, MaybeOptional>,
 	) => {
 		only('ref', options, MAYBE_OPTIONAL);
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
-				[REF]: { path: refPath(collection) },
-			}) as TString,
+				...(typeof target === 'string' ? { format: 'epicenter-id' } : {}),
+				[REF]:
+					typeof target === 'string'
+						? { key: target }
+						: { path: refPath(target) },
+			}) as RefSchema<TTarget>,
 			options,
 		);
 	},
@@ -447,6 +471,8 @@ type Described = {
 };
 
 const FORMATS: Record<string, string> = {
+	'epicenter-id':
+		'a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, boundary spaces, or .local',
 	date: 'a day like 2026-11-12',
 	'date-time': 'a date and time like 2026-11-12T09:30:00Z',
 	uri: 'a URL like https://example.com',
