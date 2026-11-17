@@ -100,8 +100,8 @@ Every public claim must be provable by inspecting the repository:
 | "Bring your own model" | AI features accept user-provided API keys. |
 
 Not yet true, so not yet in public copy: installing `epicenter` from npm
-(ADR-0892), Epicenter for Mac (ADR-0865), and a job that keeps `serve` running
-on Linux (ADR-0878).
+(ADR-0892), Epicenter for Mac (ADR-0865), and anything that keeps `serve`
+running for a person without their own systemd unit or LaunchAgent (ADR-0941).
 
 ## Vocabulary
 

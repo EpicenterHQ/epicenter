@@ -84,14 +84,6 @@ and a new home commits itself with routines/checkpoint.md. It has no sign-in
 and answers only this computer. To reach it from your other devices, run a private proxy
 such as: tailscale serve --bg 4747`,
 	},
-	service: {
-		usage: 'epicenter service <install|uninstall|restart|status>',
-		help: `Installs a macOS login job that keeps serve running for this Epicenter. The job
-runs the home's own install, node_modules/.bin/epicenter, with the Bun that ran
-service install, so run bun install at the top of the home first.
-The person runs install and uninstall. Agents may safely run restart and status.
-status --json reports whether the job is installed and running, its pid, and port.`,
-	},
 } as const;
 
 export type Command = keyof typeof COMMANDS;

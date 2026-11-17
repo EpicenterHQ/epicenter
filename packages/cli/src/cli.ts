@@ -32,7 +32,6 @@ import { repositoryStatus } from './repository.ts';
 import { epicenterDir, epicenterRoot, MARKER, RootUsageError } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { sendToServe } from './serve-call.ts';
-import { serviceCommand } from './service.ts';
 
 const HELP = `epicenter                              your apps, routines and repository
 epicenter <app>                        what an app can do
@@ -60,7 +59,6 @@ const HANDLERS: { [K in Command]: Handler } = {
 	export: exportCommand,
 	build: buildCommand,
 	check: checkCommand,
-	service: serviceCommand,
 	async serve(words, json) {
 		if (json)
 			return fail(
@@ -125,7 +123,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
 				return 0;
 			}
-			if (command !== 'init' && command !== 'service') epicenterRoot();
+			if (command !== 'init') epicenterRoot();
 			return await HANDLERS[command](words, json);
 		}
 		epicenterRoot();
@@ -178,13 +176,13 @@ export async function runCli(argv: string[]): Promise<number> {
 				CliError.Refused({
 					message:
 						sent.holder === 'nothing'
-							? 'Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.'
+							? 'Epicenter is not running for this home. Start it with `epicenter serve`.'
 							: `Port ${sent.port} answers for another ${sent.holder === 'epicenter' ? 'Epicenter' : 'program'}. Set a different \`port\` in ${MARKER}.`,
 				}).error,
 			);
 		if (sent.version !== undefined && sent.version !== VERSION)
 			writeErr(
-				`Epicenter is running ${sent.version === null ? 'an older version' : `version ${sent.version}`} and this command is version ${VERSION}. Restart it with \`epicenter service restart\`, or stop \`epicenter serve\` and start it again.`,
+				`Epicenter is running ${sent.version === null ? 'an older version' : `version ${sent.version}`} and this command is version ${VERSION}. Stop \`epicenter serve\` and start it again.`,
 			);
 		return presentAnswer(sent.answer, json);
 	} catch (error) {

@@ -196,7 +196,7 @@ changes in place ([ADR-0910]).
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
 | a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's data declares, in its own folder, and none has to |
-| the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or as a job the OS keeps running ([ADR-0878]); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
+| the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or under a job the person sets up ([ADR-0941]); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
 | Git | one private root history, sampled checkpoints, optional origin backup, LFS for binaries |
@@ -395,7 +395,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
 [ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
-[ADR-0878]: adr/0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md
+[ADR-0941]: adr/0941-epicenter-serve-is-a-program-you-keep-running.md
 [ADR-0880]: adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md
 [ADR-0882]: adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md
 [ADR-0889]: adr/0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md

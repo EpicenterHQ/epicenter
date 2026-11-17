@@ -1149,4 +1149,5 @@ When you add an ADR, add its row here.
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
 | [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Proposed (amends 0870 and 0910) |
 | [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Proposed (amends 0850, 0910, 0937 and 0939) |
-| [0941](0941-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Proposed (supersedes 0873; amends 0878, 0880 and 0910) |
+| [0941](0941-epicenter-serve-is-a-program-you-keep-running.md) | `epicenter serve` is a program you keep running | Accepted (amends 0878) |
+| [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Proposed (supersedes 0873; amends 0880 and 0910) |

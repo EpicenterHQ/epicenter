@@ -89,7 +89,7 @@ bun.lock, which is committed, and one node_modules/, which is not. After
 \`git clone\`, \`bun install\` is all a restore needs. The version of Epicenter
 is the one in package.json: upgrade with
 \`bun update --latest @epicenter/cli @epicenter/app\`, both together. Restart
-serve after changing packages (\`epicenter service restart\`): serve keeps the
+serve after changing packages, by stopping it and starting it again: serve keeps the
 packages it has loaded. An edit to an app's own files shows on the next call.
 
 An app's code/package.json is named for the app and names everything

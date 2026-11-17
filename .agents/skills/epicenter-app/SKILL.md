@@ -183,7 +183,7 @@ such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the home's
 `package.json`. `epicenter install` is `bun install` at the top of the home;
 `epicenter init` and `epicenter new` run it, and a call never installs.
-Restart `serve` after packages change (`epicenter service restart`): an edit
+Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter with
 `bun update --latest @epicenter/cli @epicenter/app`. Write each action with `defineAction`, which types its

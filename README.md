@@ -63,7 +63,7 @@ To add
 epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
 ```
 
-For CLI commands, MCP setup, and optional background service installation, see
+For CLI commands, MCP setup, and keeping `serve` running in the background, see
 [the CLI guide](packages/cli/README.md).
 
 ## How it works
@@ -125,8 +125,7 @@ The CLI developer preview is two packages, `@epicenter/cli` and
 `@epicenter/app`, which a home depends on: a home is one Bun workspace, and
 its `package.json` names the version it runs. Writing is an exported app
 copied separately from GitHub. Each app is ordinary editable source.
-`epicenter service install` keeps `serve` running as a macOS LaunchAgent; the
-Linux job for a rented home is not built yet.
+`serve` is one process; keep it running as you would any program.
 
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Zhongwen)
 run on their home, outside this runtime source repository. Each app has

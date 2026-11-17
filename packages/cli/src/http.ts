@@ -420,7 +420,8 @@ export function startHttpServer(port: number) {
 		port: server.port as number,
 		/**
 		 * Stop listening and checking routines. Routine commands share serve's
-		 * process group, so a service manager that stops the group stops them.
+		 * process group, so whatever stops the group (Ctrl-C, systemd, launchd)
+		 * stops them.
 		 */
 		stop() {
 			clearInterval(routineClock);

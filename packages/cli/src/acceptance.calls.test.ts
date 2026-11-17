@@ -284,7 +284,7 @@ export default defineApp({ description: 'Where', actions: {
 	await f.stopServe();
 	expect(await ran()).toBe('xx');
 	const message =
-		'Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.';
+		'Epicenter is not running for this home. Start it with `epicenter serve`.';
 	expect(await f.run('where', 'am')).toEqual({
 		code: 2,
 		stdout: '',
@@ -358,7 +358,7 @@ test('a command uses the answer of a serve of another version, and says to resta
 			expect(await f.run('notes', 'same', '--json')).toEqual({
 				code: 0,
 				stdout: '{"data":"ran","error":null}\n',
-				stderr: `"halfway"\nEpicenter is running ${running} and this command is version ${VERSION}. Restart it with \`epicenter service restart\`, or stop \`epicenter serve\` and start it again.\n`,
+				stderr: `"halfway"\nEpicenter is running ${running} and this command is version ${VERSION}. Stop \`epicenter serve\` and start it again.\n`,
 			});
 		} finally {
 			await old.stop(true);
