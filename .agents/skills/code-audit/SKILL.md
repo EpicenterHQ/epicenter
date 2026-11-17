@@ -39,19 +39,29 @@ it does not establish correctness.
 Explain concrete problems, their consequences, and the proposed repair.
 A search match alone is not a finding.
 
-## 2. Promise-Shape Ceremony (`.then(() => {})`)
+## 2. Hunt for unnecessary promise conversions
 
-**Pattern**: explicit value-discarding tails on promise chains.
+Actively search the audited scope for empty fulfillment callbacks such
+as `.then(() => {})` and `.then(() => undefined)`, including equivalent
+callbacks written across several lines. Use
+[the promise-shape reference](references/promise-shape.md) for search
+recipes and examples.
 
-```bash
-grep -rn "\.then\s*\(\s*(\(\)|=> \{\}|=> undefined)" packages --include="*.ts"
-```
+Trace the original promise, the callback, the receiving declaration,
+and the consumers. Establish whether the callback only discards a
+value, performs work, or enforces an intentional result contract.
 
-**Why it matters**: usually indicates the type at the receiving end is too narrow. Authors write `.then(() => {})` to convert `Promise<T>` into `Promise<void>` because the field accepting the promise is typed `Promise<void>` instead of `Promise<unknown>`. The ceremony adds zero semantic value.
+When a consumer only waits for completion and ignores the value,
+consider accepting `Promise<unknown>` at that boundary. Remove a
+value-discarding adapter when the contract no longer requires it.
 
-**Recipe**: when you see this pattern, look at where the promise is being assigned. If the consumer awaits-and-discards (typical for readiness/teardown barriers), widen the field type to `Promise<unknown>`. The tail disappears.
+Keep deliberate `Promise<void>` contracts when callers should receive
+no result. Keep callbacks that perform work or transform results.
+Check fulfillment and rejection handling, cleanup, and ordering
+before removing a promise-chain step.
 
-**False positive**: if the `.then(() => result)` returns a *meaningful* transformed value, leave it. The smell is specifically the "discard the value" form.
+Explain the unnecessary conversion and the contract that makes its
+removal sound. A `.then(...)` match alone is not a finding.
 
 ## 3. Unstructured Logging in Library Code
 
