@@ -4,14 +4,14 @@ Use this reference when a factory exposes a documented operation, when a public 
 
 ## Put public documentation at the public surface
 
-An inferred return object can carry JSDoc from a separately declared function assigned through property shorthand. Method shorthand is not required for hover documentation. In TypeScript 5.9.3, the language service shows `Return the current count.` for `counter.current()` in this shape:
+An inferred return object can carry JSDoc from a `const` arrow function exposed through property shorthand. Method shorthand is not required for hover documentation. In TypeScript 5.9.3, the language service shows `Return the current count.` for `counter.current()` in this shape:
 
 ```ts
 function createCounter() {
 	/** Return the current count. */
-	function current() {
+	const current = () => {
 		return 0;
-	}
+	};
 
 	return { current };
 }
@@ -21,7 +21,7 @@ declare const counter: Counter;
 counter.current();
 ```
 
-Prefer a documented method in the return object when that is the clearest definition of the public API. Svelte reactive adapters may expose tracked getters, following the [read API convention](../../typescript/SKILL.md#core-rules). A method used only through the public object can live there directly:
+Keep a documented method in the return object when it can express its operation directly. Methods that use closed-over state without `this` also work after extraction. Follow the [read API convention](../../typescript/SKILL.md#core-rules) for live and computed reads:
 
 ```ts
 function createCounter() {
@@ -39,13 +39,43 @@ function createCounter() {
 }
 ```
 
-Keep a helper in the private zone when initialization or other private code calls it, or when it implements shared internal behavior. If the public contract needs different wording, put it on a returned method that calls the helper. In TypeScript 5.9.3, JSDoc on an aliasing property such as `/** Public wording. */ current: readCount` did not replace `readCount`'s own JSDoc in the consumer hover. Check the actual hover and navigation when an explicit return type, wrapper, or re-export intervenes. `ReturnType<typeof createCounter>` preserves the inferred members; a separate interface can redirect navigation to the interface.
+Declare operations shared by initialization or other methods as `const` arrow functions inside the factory. Expose a public operation through property shorthand; its implementation and JSDoc stay together. If the public contract needs different wording, put it on a returned method that calls the internal function. In TypeScript 5.9.3, JSDoc on an aliasing property such as `/** Public wording. */ current: readCount` did not replace `readCount`'s own JSDoc in the consumer hover. Check the actual hover and navigation when an explicit return type, wrapper, or re-export intervenes. `ReturnType<typeof createCounter>` preserves the inferred members; a separate interface can redirect navigation to the interface.
 
-## Choose sibling calls by receiver requirements
+## Call shared operations through the closure
 
-Use `this.current()` from a method shorthand member when calling through the returned object is part of the contract. This lets an override of `current` affect the sibling call, but it requires the receiver: `counter.bump()` works and an extracted `const { bump } = counter; bump()` may not. Arrow properties capture lexical `this`, so `this.current()` inside an arrow does not refer to the returned object.
+Prefer public methods that work without a receiver. When one method needs another operation, call a named arrow function in the closure. The operation can also be returned as a public method:
 
-An epoch counter shows the complete public-method shape. Both documented operations belong on the returned object; `bumpEpoch` calls `getEpoch` through that object:
+```ts
+function createCounter() {
+	let count = 0;
+	/** Return the current count. */
+	const current = () => count;
+	const increment = () => ++count;
+
+	return {
+		current,
+		increment,
+		incrementTwice() {
+			increment();
+			return increment();
+		},
+	};
+}
+
+const { current, incrementTwice } = createCounter();
+incrementTwice(); // 2
+current(); // 2
+```
+
+The extracted functions still share the same `count`. `const` keeps each arrow function's binding fixed; the function can change the captured `let` state. Initialize the arrow functions before calling them during construction. An internal function may stay private or be exposed through the return object; the [three-part factory structure](../SKILL.md#the-canonical-internal-shape) distinguishes its declaration from its exposure.
+
+A closure call always invokes the original function, even if a consumer replaces the corresponding method on the returned object.
+
+## Use receiver dispatch when replacement is part of the contract
+
+Use `this.current()` when replacing or wrapping the returned object's `current` method is intended to affect its siblings. A call through the object, such as `counter.bump()`, supplies the receiver. An extracted call or callback needs a bound function or a wrapper such as `() => counter.bump()`.
+
+This epoch counter deliberately calls the object's current `getEpoch` method, so a replacement of `getEpoch` changes how `bumpEpoch` computes its next value:
 
 ```ts
 function createEpochCounter({
@@ -72,25 +102,3 @@ function createEpochCounter({
 ```
 
 An arrow member can carry JSDoc, but `bumpEpoch: () => this.getEpoch() + 1` would read the surrounding lexical `this` instead of this returned object.
-
-Use a direct closure call when the operation must work after extraction or when the called function also runs during initialization:
-
-```ts
-function createCounter() {
-	let count = 0;
-	/** Return the current count. */
-	function current() {
-		return count;
-	}
-
-	return {
-		current,
-		bump() {
-			count = current() + 1;
-			return count;
-		},
-	};
-}
-```
-
-The direct call always invokes the closure's `current`, even if a consumer replaces `counter.current`. Choose that behavior deliberately. The [four-zone factory anatomy](../SKILL.md#the-canonical-internal-shape) explains the private helper and public return-object positions.
