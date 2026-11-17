@@ -1,6 +1,6 @@
 ---
 name: dialectic
-description: Work out an unsettled idea together through its intent, proposed form, and consequences in practice. Use when the user explicitly requests standalone dialectic, or another active skill invokes it within its task.
+description: Develop a shared understanding of an unsettled idea and how it could take shape. Use when the user explicitly requests standalone dialectic, or another active skill invokes it within its task.
 ---
 
 # Dialectic
