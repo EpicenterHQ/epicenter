@@ -137,6 +137,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			if (version) print(json ? { version: VERSION } : `epicenter ${VERSION}`);
 			else if (help) print(HELP);
 			else {
+				epicenterRoot();
 				const found = await discoverAll();
 				print(homeListing(found, json));
 			}
@@ -149,8 +150,13 @@ export async function runCli(argv: string[]): Promise<number> {
 				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
 				return 0;
 			}
-			if (command !== 'init' && command !== 'service') epicenterRoot();
-			return HANDLERS[command](words, json);
+			if (
+				command !== 'init' &&
+				command !== 'service' &&
+				command !== 'checkpoint'
+			)
+				epicenterRoot();
+			return await HANDLERS[command](words, json);
 		}
 		epicenterRoot();
 		const { data: located, error: notFound } = await loadHomeApp(name);

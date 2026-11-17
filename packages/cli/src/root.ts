@@ -7,9 +7,8 @@
  * port: 4747
  * ```
  *
- * The marker is read when a command starts, and a field that is wrong stops
- * it with a line naming that field: a person or an agent edits this file by
- * hand.
+ * Commands validate the marker's settings before running. Checkpoint only
+ * needs the marked folder, so it can save files while those settings need repair.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -97,11 +96,6 @@ function markerProblems(fields: Record<string, unknown>): string[] {
 }
 
 function readRoot(folder: string): EpicenterRoot {
-	if (!isMarked(folder))
-		throw new RootUsageError(
-			`There is no ${MARKER} in ${folder}`,
-			`epicenter init ${folder}`,
-		);
 	const marker = join(folder, MARKER);
 	// Decoded as an app's files are, which drops a byte order mark an editor saved.
 	const read = readMarkdown(new TextDecoder().decode(readFileSync(marker)));
@@ -125,20 +119,26 @@ function readRoot(folder: string): EpicenterRoot {
 
 let selected: EpicenterRoot | undefined;
 
-/** The nearest marked ancestor wins, then EPICENTER_ROOT, then $HOME/Epicenter. */
+/** Read and validate the selected Epicenter's serving settings. */
 export function epicenterRoot(): EpicenterRoot {
-	if (selected) return selected;
+	selected ??= readRoot(epicenterDir());
+	return selected;
+}
+
+/** Select a marked folder without reading its settings: nearest ancestor, then EPICENTER_ROOT, then $HOME/Epicenter. */
+export function epicenterDir(): string {
+	if (selected) return selected.folder;
 	const folder =
 		ancestorWithMarker(process.cwd()) ??
 		(process.env.EPICENTER_ROOT !== undefined
 			? folderPath(process.env.EPICENTER_ROOT)
 			: join(homedir(), 'Epicenter'));
-	selected = readRoot(folder);
-	return selected;
-}
-
-export function epicenterDir(): string {
-	return epicenterRoot().folder;
+	if (!isMarked(folder))
+		throw new RootUsageError(
+			`There is no ${MARKER} in ${folder}`,
+			`epicenter init ${folder}`,
+		);
+	return folder;
 }
 
 /** The folder in an Epicenter that holds its apps, each holding code/ and data/. */

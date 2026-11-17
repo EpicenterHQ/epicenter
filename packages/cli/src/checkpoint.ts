@@ -49,8 +49,8 @@ async function retryGit(root: string, args: string[]) {
 	}
 }
 
-/** Shared with the migration report: merge diffs and renamed additions must expose local paths. */
-export async function unpushedLocalPaths(root: string, range: string) {
+/** A deleted or renamed credential still belongs to the history being uploaded. */
+async function unpushedLocalPath(root: string, range: string) {
 	const history = await git(root, [
 		'log',
 		'-m',
@@ -62,11 +62,7 @@ export async function unpushedLocalPaths(root: string, range: string) {
 		range,
 	]);
 	if (history.code !== 0) throw new Error(gitMessage(['log'], history));
-	return [
-		...new Set(
-			history.stdout.split('\0').filter((path) => path && isLocalPath(path)),
-		),
-	];
+	return history.stdout.split('\0').find((path) => path && isLocalPath(path));
 }
 
 async function refusePending(
@@ -221,7 +217,7 @@ async function backup(
 			result.origin = { ahead: Number(ahead.stdout) };
 			if (result.origin.ahead === 0) return result;
 		}
-		const [local] = await unpushedLocalPaths(root, range);
+		const local = await unpushedLocalPath(root, range);
 		if (local) {
 			result.pushFailed = {
 				message: `${local} is in commits not yet pushed, so a push would copy it to origin`,
