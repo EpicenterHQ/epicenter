@@ -38,12 +38,14 @@ code and records. Each folder in apps/ is an app:
 
   apps/<app>/code/   the app: epicenter.ts, package.json, ui/, README.md
   apps/<app>/data/   its records and settings
+  apps/<app>/local/  what stays on this computer: tokens, caches, databases
 
 An app's code/ is one Bun project: its package.json names everything
 epicenter.ts and ui/ import, except @epicenter/app, which epicenter supplies.
 After \`bun add\` in code/, run \`epicenter install <app>\`. Never put records in
-code/. An action writes only under data/, and names a record by its path from
-the app's folder, such as data/tasks/<time>.md.
+code/. An action writes only under data/ and local/, and names a file by its
+path from the app's folder, such as data/tasks/<time>.md or local/google.md.
+local/ appears when an action first writes there.
 
 A browser UI is optional. It can use its own styles or import the home
 palette from theme.css. Keep its components and layout in code/.
@@ -85,9 +87,10 @@ Restoring apps/<app>/ whole reverts both and deletes files newer than that
 commit. A commit made before an app's repositories were combined holds only
 one of code/ or data/, so restoring apps/<app>/ from it deletes the other.
 
-Files named *.local or *.local.* stay on this computer: .gitignore keeps them
-out, and a checkpoint refuses one Git would commit. Never run git clean -x
-here: it deletes them.
+An app is code/, data/ and local/. What is in apps/<app>/local/ stays on this
+computer: .gitignore keeps it out, and a checkpoint refuses a file there that
+Git would commit. The same holds for a file named *.local or *.local.*, the
+older way to say it. Never run git clean -x here: it deletes them.
 `;
 
 function actualFolder(path: string): string {
@@ -291,7 +294,9 @@ async function restore(url: string, folder: string, json: boolean) {
 			for (const failure of failed)
 				writeErr(`${failure.path}: ${failure.message}`);
 		}
-		writeErr('Files named *.local must be recreated on this computer.');
+		writeErr(
+			"Each app's local/ and files named *.local must be recreated on this computer.",
+		);
 		return failed.length ? 1 : 0;
 	} catch (error) {
 		return fail(
@@ -308,7 +313,7 @@ async function startEpicenterRepository(root: string, wrote: string[]) {
 	if (!existsSync(join(root, '.gitignore'))) {
 		await writeFile(
 			join(root, '.gitignore'),
-			'*.local\n*.local.*\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
+			'/apps/*/local/\n*.local\n*.local.*\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
 		);
 		wrote.push('.gitignore');
 	}

@@ -89,6 +89,8 @@ test('a routine runs an app action', async () => {
     } })
   } });`,
 	);
+	// The routine's command sends its action to the home's serve.
+	await f.serve();
 	await f.routines.check(new Date(Date.now() + DAY));
 	await eventually(async () =>
 		readFile(join(app, 'data/count.txt'), 'utf8').then(
@@ -157,6 +159,8 @@ test('the daily task review writes a draft and excludes completed tasks', async 
     ]) })
   } });`,
 	);
+	// The script reads tasks through the command line, which asks serve.
+	await f.serve();
 	await f.routines.check(new Date(Date.now() + DAY));
 	const today = new Date();
 	const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

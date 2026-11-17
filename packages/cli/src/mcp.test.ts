@@ -27,10 +27,11 @@ test('tools list plain schemas and annotations and return structured answers or 
 			annotations: { readOnlyHint: true, destructiveHint: false },
 			inputSchema: { type: 'object', properties: { day: { type: 'string' } } },
 		});
+		// An action that states no hints has none: the client applies MCP's defaults.
 		expect(
 			listed.tools.find((tool) => tool.name === 'vault_calendar_add')
-				?.annotations?.destructiveHint,
-		).toBe(true);
+				?.annotations,
+		).toBeUndefined();
 		expect(JSON.stringify(listed)).not.toContain('positional');
 		expect(JSON.stringify(listed)).not.toContain('~kind');
 		const answer = await client.callTool({
@@ -156,6 +157,39 @@ test('MCP preserves a returned app error and matches the CLI host answer', async
 			{ type: 'text', text: 'No route from LAX\nRun: epicenter routes add' },
 		]);
 		expect(answer.structuredContent).toEqual(JSON.parse(cli.stdout));
+	} finally {
+		await close();
+		await rm(f.root, { recursive: true, force: true });
+	}
+});
+
+test('an action with mcp: false is not offered or run over MCP, and still runs from the command line', async () => {
+	const f = await fixture();
+	const app = await f.app(
+		'messages',
+		`export default defineApp({ description: 'Messages', collections: {}, actions: {
+  read: defineAction({ description: 'Read messages', input: {}, run: () => Ok([]) }),
+  send: defineAction({ description: 'Send a message as me', mcp: false, input: { text: field.text() },
+   run: async ({ text }) => { await folder.write('data/sent.txt', text); return Ok(text); } }),
+ } });`,
+	);
+	const sent = join(app, 'data/sent.txt');
+	const { client, close } = await connectMcp(f);
+	try {
+		const names = (await client.listTools()).tools.map((tool) => tool.name);
+		expect(names).toEqual(['messages_read']);
+		const answer = await client.callTool({
+			name: 'messages_send',
+			arguments: { text: 'from an agent' },
+		});
+		expect(answer.isError).toBe(true);
+		expect(answer.content).toEqual([
+			{ type: 'text', text: 'messages send is not offered over MCP' },
+		]);
+		expect(await Bun.file(sent).exists()).toBe(false);
+		const cli = await f.run('messages', 'send', '{"text":"from me"}', '--json');
+		expect(JSON.parse(cli.stdout)).toEqual({ data: 'from me', error: null });
+		expect(await Bun.file(sent).text()).toBe('from me');
 	} finally {
 		await close();
 		await rm(f.root, { recursive: true, force: true });

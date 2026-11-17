@@ -6,17 +6,17 @@
  * and an action that calls another stays in the same run; outside any run
  * they throw. What an app can rebuild lives in files it gitignores inside the
  * folder, such as `code/ui/dist/`, and is never committed. A run writes only under
- * `data/`; reads may reach any app file.
+ * `data/` and `local/`; reads may reach any app file. What is in `local/`
+ * stays on this computer.
  *
  * An action changes files and never commits. Root checkpoints record pending
  * code and records together. A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
- * file. A run of a read-only action refuses every write through `folder`,
- * except to a `.local` path under `data/` (ADR-0870).
+ * file. Nothing here knows whether an action says it is read-only: that is a
+ * hint the action gives MCP clients, and no write is refused for it.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Ok, type Result, unwrap } from 'wellcrafted/result';
-import type { ActionError } from './errors.ts';
 
 /** Decide synchronously from the current text. Omit text to leave the path as it was. */
 type EditFile = <T, E extends object>(
@@ -24,7 +24,7 @@ type EditFile = <T, E extends object>(
 	decide: (
 		before: string | undefined,
 	) => Result<{ value: T; text?: string }, E>,
-) => Promise<Result<T, E | Extract<ActionError, { name: 'Changed' }>>>;
+) => Promise<Result<T, E>>;
 
 /** Adapt a folder provider's atomic edit to the raw text update contract. */
 export function textUpdate(edit: EditFile): Folder['update'] {
@@ -41,8 +41,8 @@ export function textUpdate(edit: EditFile): Folder['update'] {
  * An app's folder as an object. Paths are relative to the folder, with `/`
  * between parts; one that is absolute, climbs out with `..`, or reaches into
  * `.git` throws. It is a convenience, not a sandbox: an action may use `path`
- * and `node:fs` directly. A run writes only under `data/` and never into a
- * path with a `.git*` segment; reads may reach other app files.
+ * and `node:fs` directly. A run writes only under `data/` and `local/`, and
+ * never into `.git`; reads may reach other app files.
  */
 export type Folder = {
 	edit: EditFile;
@@ -58,10 +58,8 @@ export type Folder = {
 	/**
 	 * Changes the text at `path` to what `change` makes of it (`undefined` when
 	 * no file is there), and returns the text written; nothing is written when
-	 * that is what is there. Every update of the app takes turns. When a
-	 * writer that takes no lock changes the file between the read and the
-	 * write, `change` runs again on what is there now; after 10 tries it
-	 * throws `ActionError.Changed`. A `change` that throws writes nothing.
+	 * that is what is there. `change` runs once, and no other update runs
+	 * between its read and its write. A `change` that throws writes nothing.
 	 *
 	 * ```ts
 	 * await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
@@ -83,38 +81,9 @@ export type Folder = {
 /** What whatever runs an action opens its run with. */
 export type Context = {
 	folder: Folder;
-	/**
-	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
-	 * `folder.write`, `writeBytes`, `update`, and `delete` throw in it before
-	 * doing anything, unless the path is `.local` under `data/`. Such a file
-	 * never enters the app's history, so writing one changes nothing a read-only action
-	 * promised to keep, and an action that only reads may still refresh a
-	 * token. A raw `node:fs` write or an outside service is the action's own
-	 * promise.
-	 */
-	readOnly?: { action: string };
-	/**
-	 * Aborted by explicit cancellation of a serve-owned run, never by loss of
-	 * observation. CLI and MCP calls cannot be cancelled.
-	 */
-	signal?: AbortSignal;
 };
 
 const runs = new AsyncLocalStorage<Context>();
-
-/** A signal that never aborts, for a run whose caller cannot stop it. */
-const UNSTOPPABLE = new AbortController().signal;
-
-/**
- * The action's signal aborts when its serve-owned run is explicitly cancelled,
- * for example by `run.cancel()` on a page. Closing a page or stopping an
- * observer does not abort it. Pass the signal to a slow wait so it can stop
- * cooperatively and run its `finally` blocks. CLI and MCP calls cannot be
- * cancelled and receive a signal that never aborts.
- */
-export function callSignal(): AbortSignal {
-	return currentRun().signal ?? UNSTOPPABLE;
-}
 
 /**
  * Run `work` with `context` as its run's, so collections and `folder` reach
@@ -135,45 +104,44 @@ function currentRun(): Context {
 }
 
 /**
- * The folder of the run this code is in, to write or delete `path` in; throws
- * in a read-only run unless `path` is `.local` under `data/`. Every write stays
- * under `data/` and avoids `.git*` path segments.
+ * The folder of the run this code is in, to write or delete `path` in. Every
+ * write stays under `data/`, which is committed, or `local/`, which stays on
+ * this computer.
  */
-function writableFolder(verb: 'write' | 'delete', path: string): Folder {
+function writableFolder(path: string): Folder {
 	const context = currentRun();
 	const normal = normalizePath(path);
-	if (!normal.startsWith('data/'))
+	if (!normal.startsWith('data/') && !isUnderLocal(normal))
 		throw new Error(
-			`${path} is outside data/, and an action writes only there`,
-		);
-	if (normal.split('/').some((part) => part.startsWith('.git')))
-		throw new Error(
-			`${path} has a .git* path segment, and an action cannot ${verb} there`,
-		);
-	if (context.readOnly && !isLocalPath(path))
-		throw new Error(
-			`The action "${context.readOnly.action}" is read-only, so it cannot ${verb} ${path}`,
+			`${path} is outside data/ and local/, and an action writes only there`,
 		);
 	return context.folder;
 }
 
 /** The folder of the run this code is in. */
 export const folder: Folder = {
-	edit: async (path, decide) =>
-		writableFolder('write', path).edit(path, decide),
+	edit: async (path, decide) => writableFolder(path).edit(path, decide),
 	read: (path) => currentRun().folder.read(path),
 	readBytes: (path) => currentRun().folder.readBytes(path),
-	write: async (path, text) => writableFolder('write', path).write(path, text),
+	write: async (path, text) => writableFolder(path).write(path, text),
 	writeBytes: async (path, bytes) =>
-		writableFolder('write', path).writeBytes(path, bytes),
-	update: async (path, change) =>
-		writableFolder('write', path).update(path, change),
+		writableFolder(path).writeBytes(path, bytes),
+	update: async (path, change) => writableFolder(path).update(path, change),
 	list: (dir) => currentRun().folder.list(dir),
-	delete: async (path) => writableFolder('delete', path).delete(path),
+	delete: async (path) => writableFolder(path).delete(path),
 	get path() {
 		return currentRun().folder.path;
 	},
 };
+
+/**
+ * Whether `path`, as `normalizePath` returns it, is in the app's `local/`.
+ * What is there stays on this computer: it is never committed, and a new file
+ * there is readable by its owner alone.
+ */
+export function isUnderLocal(path: string): boolean {
+	return path.startsWith('local/');
+}
 
 /**
  * A file or folder name matching `*.local` or `*.local.*`, in any case, so a
@@ -182,10 +150,10 @@ export const folder: Folder = {
 const LOCAL = /\.local(\.|$)/i;
 
 /**
- * Whether `path` stays on this computer: one of its parts matches `*.local`
- * or `*.local.*`, as an app's `.gitignore` names them (ADR-0870). Such a file
- * is never committed, a read-only run may write it, and a new one is made
- * readable by its owner alone.
+ * Whether one of `path`'s parts matches `*.local` or `*.local.*`. This is
+ * the old way to say a file stays on this computer, by its name; the place,
+ * `local/`, says it now (`isUnderLocal`). It is kept for the data layer and
+ * the checkpoint refusal until every app has moved its files to `local/`.
  */
 export function isLocalPath(path: string): boolean {
 	return path.split('/').some((part) => LOCAL.test(part));

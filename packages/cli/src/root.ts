@@ -74,7 +74,7 @@ function isPort(value: unknown): value is number {
 	return (
 		typeof value === 'number' &&
 		Number.isInteger(value) &&
-		value >= 0 &&
+		value >= 1 &&
 		value <= 65535
 	);
 }
@@ -85,7 +85,7 @@ function markerProblems(fields: Record<string, unknown>): string[] {
 	const problems: string[] = [];
 	if (port !== undefined && !isPort(port))
 		problems.push(
-			`port: ${JSON.stringify(port)} is not a whole number from 0 to 65535`,
+			`port: ${JSON.stringify(port)} is not a whole number from 1 to 65535`,
 		);
 	problems.push(
 		...Object.keys(rest).map(
@@ -141,7 +141,7 @@ export function epicenterDir(): string {
 	return folder;
 }
 
-/** The folder in an Epicenter that holds its apps, each holding code/ and data/. */
+/** The folder in an Epicenter that holds its apps, each holding code/, data/ and local/. */
 export const APPS = 'apps';
 
 /** The selected Epicenter's `apps/`. */

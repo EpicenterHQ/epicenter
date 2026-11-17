@@ -27,9 +27,8 @@ test('NFC and case aliases form one problem per group, with each affected file c
 		'data/notes/Ᏸ.md': '',
 		'data/notes/ᏸ.md': '',
 	});
-	const report = await inRun(
-		{ ...context, readOnly: { action: 'check' } },
-		() => checkData(defineData({ notes: { fields: {} } })),
+	const report = await inRun(context, () =>
+		checkData(defineData({ notes: { fields: {} } })),
 	);
 	expect(report.notes).toMatchObject({
 		files: 11,

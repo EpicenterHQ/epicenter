@@ -1,20 +1,25 @@
-/** Action calls preserve output, local-file permissions, concurrent writes, and lock release without Git bookkeeping. */
+/**
+ * Action call tests.
+ * A command sends its action to the home's serve, the one process that runs
+ * actions, and never runs it itself.
+ *
+ * Key behaviors:
+ * - Exit codes and answers are the same through the command and MCP.
+ * - Concurrent calls in one serve lose no write and leave no temporary file.
+ * - With serve stopped, or another holder on the port, a command is refused and nothing runs.
+ * - A second serve says whether this home or something else has the port.
+ * - A command says when serve is another version.
+ */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	stat,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { hold } from './lock.js';
+import { VERSION } from './engines.ts';
 import {
 	connectMcp,
 	fixture,
 	gitignore,
 	header,
+	startServe,
 } from './runner.test-support.js';
 
 setDefaultTimeout(30_000);
@@ -76,7 +81,7 @@ export default defineApp({
 			description: 'Say it only reads, then keep a token on this computer',
 			input: {},
 			annotations: { readOnlyHint: true },
-			run: async () => { await folder.write('data/token.local.md', 'kept'); return Ok(undefined); },
+			run: async () => { await folder.write('local/token.md', 'kept'); return Ok(undefined); },
 		}),
 		tagged: defineAction({
 			description: 'Throw a tagged error',
@@ -131,7 +136,7 @@ async function setup() {
 	};
 	return { ...f, dir: folder, data: join(folder, 'data'), json };
 }
-test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits the process ends the command', async () => {
+test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits the process ends serve, and the command answers a fault', async () => {
 	const f = await setup();
 	const tagged = await f.json('notes', 'tagged');
 	expect(tagged.code).toBe(1);
@@ -179,8 +184,18 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 		data: null,
 		error: { kind: 'fault', message: expect.any(String) },
 	});
-	const exited = await f.run('notes', 'exit', '--json');
-	expect(exited).toMatchObject({ code: 7, stdout: '' });
+	// Serve runs the action, so an action that exits ends serve, and the
+	// command is told the answer never came.
+	const exited = await f.json('notes', 'exit');
+	expect(exited).toMatchObject({ code: 1, stderr: '' });
+	expect(exited.answer).toEqual({
+		data: null,
+		error: {
+			kind: 'fault',
+			message:
+				'The connection to Epicenter ended before the answer; the action may still be running, or may have finished',
+		},
+	});
 	const unknown = await f.json('notes', 'nope');
 	expect(unknown.code).toBe(2);
 	expect(unknown.answer).toMatchObject({
@@ -191,34 +206,18 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
-test('C10 a read-only action cannot write through folder, except a .local file, and can update a local file', async () => {
+test('C10 a read-only hint refuses nothing, and a file under local/ is readable by its owner alone', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, 'data/b.md'), 'by hand\n');
-	// A refused write is refused at once, not after waiting on another call's lock.
-	const held = await hold(f.dir, 0);
 	const peek = await f.json('notes', 'peek');
-	held?.release();
-	expect(peek.code).toBe(1);
-	expect(peek.answer).toEqual({
-		data: null,
-		error: {
-			kind: 'fault',
-			message:
-				'The action "peek" is read-only, so it cannot write data/peek.md',
-		},
-	});
-	expect(await Bun.file(join(f.dir, 'data/peek.md')).exists()).toBe(false);
+	expect(peek).toMatchObject({ code: 0, answer: { data: null, error: null } });
+	expect(await readFile(join(f.dir, 'data/peek.md'), 'utf8')).toBe('peeked');
 	const refresh = await f.json('notes', 'refresh');
 	expect(refresh).toMatchObject({
 		code: 0,
 		answer: { data: null, error: null },
 	});
-	expect(await readFile(join(f.dir, 'data/token.local.md'), 'utf8')).toBe(
-		'kept',
-	);
-	expect((await stat(join(f.dir, 'data/token.local.md'))).mode & 0o777).toBe(
-		0o600,
-	);
+	expect(await readFile(join(f.dir, 'local/token.md'), 'utf8')).toBe('kept');
+	expect((await stat(join(f.dir, 'local/token.md'))).mode & 0o777).toBe(0o600);
 });
 
 test('C11 concurrent sets of different fields on one file all land', async () => {
@@ -232,12 +231,13 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 `,
 		'data/items/one.md': '---\n---\n',
 	});
+	// Serve runs every action, so ten commands at once are ten calls in one
+	// process, and no write is lost between them (ADR-0936).
 	const runs = await Promise.all(
 		fields.map((key, i) =>
 			f.run('many', 'items', 'set', JSON.stringify({ id: 'one', [key]: i })),
 		),
 	);
-	// Calls serialize read-modify-write operations across processes.
 	expect(runs.filter((run) => run.code !== 0 || run.stderr !== '')).toEqual([]);
 	const text = await readFile(
 		join(f.apps, 'many', 'data/items/one.md'),
@@ -247,37 +247,223 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 		expect(text).toContain(`${key}: ${i}\n`);
 });
 
-test('C12 runs leave no temporary file and no lock file, and hold no lock once they answer', async () => {
+test('a command sends its action to serve, and is refused and runs nothing while serve is stopped', async () => {
+	const f = await setup();
+	const where = await f.folder(join(f.apps, 'where'), {
+		'code/.gitignore': gitignore,
+		'code/epicenter.ts': `${header}
+export default defineApp({ description: 'Where', collections: {}, actions: {
+	am: defineAction({ description: 'Say which process ran this', input: {}, run: async (_input, update) => {
+		await folder.update('data/ran.txt', (before = '') => before + 'x');
+		update('here');
+		return Ok(process.pid);
+	} }),
+} });
+`,
+	});
+	const ran = () => readFile(join(where, 'data/ran.txt'), 'utf8');
+	const pidOf = async () => {
+		const run = await f.run('where', 'am', '--json');
+		expect(run.stderr).toBe('"here"\n');
+		return (JSON.parse(run.stdout) as { data: number }).data;
+	};
+	const served = await startServe(f);
+	try {
+		const inServe = await pidOf();
+		expect(inServe).not.toBe(process.pid);
+		expect(await pidOf()).toBe(inServe);
+		// A call that names another home is refused before the action runs.
+		const other = await fetch(`${served.base}/where/am`, {
+			method: 'POST',
+			headers: { 'x-epicenter-home': 'elsewhere' },
+			body: '{}',
+		});
+		expect(other.status).toBe(409);
+	} finally {
+		await served.stop();
+	}
+	await f.stopServe();
+	expect(await ran()).toBe('xx');
+	const message =
+		'Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.';
+	expect(await f.run('where', 'am')).toEqual({
+		code: 2,
+		stdout: '',
+		stderr: `${message}\n`,
+	});
+	const refused = await f.json('where', 'am');
+	expect(refused).toMatchObject({ code: 2, stderr: '' });
+	expect(refused.answer).toEqual({
+		data: null,
+		error: { kind: 'refused', reason: { name: 'Refused', message } },
+	});
+	expect(await ran()).toBe('xx');
+});
+
+/** Hold the fixture's port as `answer` does, in place of its serve. */
+async function holdPort(
+	f: Awaited<ReturnType<typeof setup>>,
+	answer: () => Response,
+) {
+	await f.stopServe();
+	return Bun.serve({ hostname: '127.0.0.1', port: f.port, fetch: answer });
+}
+
+test('a command is refused, and runs nothing, when its port answers for another Epicenter or another program', async () => {
+	const f = await setup();
+	for (const [headers, holder] of [
+		[{ 'x-epicenter-home': 'elsewhere' }, 'Epicenter'],
+		[{}, 'program'],
+	] as const) {
+		let asked = 0;
+		const other = await holdPort(f, () => {
+			asked++;
+			return new Response('{"answer":{"data":"theirs","error":null}}\n', {
+				headers,
+			});
+		});
+		try {
+			expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
+				code: 2,
+				stdout: '',
+				stderr: `Port ${f.port} answers for another ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
+			});
+			expect(asked).toBe(1);
+		} finally {
+			await other.stop(true);
+		}
+	}
+	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
+});
+
+test('a command uses the answer of a serve of another version, and says to restart it', async () => {
+	const f = await setup();
+	for (const [version, running] of [
+		['0.0.1', 'version 0.0.1'],
+		[undefined, 'an older version'],
+	] as const) {
+		const old = await holdPort(
+			f,
+			() =>
+				new Response(
+					'{"update":"halfway"}\n{"answer":{"data":"ran","error":null}}\n',
+					{
+						headers: {
+							'x-epicenter-home': encodeURIComponent(f.home),
+							...(version ? { 'x-epicenter-version': version } : {}),
+						},
+					},
+				),
+		);
+		try {
+			expect(await f.run('notes', 'same', '--json')).toEqual({
+				code: 0,
+				stdout: '{"data":"ran","error":null}\n',
+				stderr: `"halfway"\nEpicenter is running ${running} and this command is version ${VERSION}. Restart it with \`epicenter service restart\`, or stop \`epicenter serve\` and start it again.\n`,
+			});
+		} finally {
+			await old.stop(true);
+		}
+	}
+});
+
+test('every answer of serve names its home and version, and a serve of the same version adds no line', async () => {
+	const f = await setup();
+	const served = await startServe(f);
+	try {
+		for (const response of [
+			await fetch(`${served.base}/`),
+			await fetch(`${served.base}/missing/`),
+			await fetch(`${served.base}/notes/same`, { method: 'POST', body: '{}' }),
+		]) {
+			expect(response.headers.get('x-epicenter-home')).toBe(
+				encodeURIComponent(f.home),
+			);
+			expect(response.headers.get('x-epicenter-version')).toBe(VERSION);
+			await response.body?.cancel();
+		}
+		// A tunnel's request is refused before serve says anything about itself.
+		const tunnelled = await fetch(`${served.base}/`, {
+			headers: { 'cf-connecting-ip': '203.0.113.7' },
+		});
+		expect(tunnelled.status).toBe(403);
+		expect(tunnelled.headers.get('x-epicenter-home')).toBeNull();
+		expect(await f.run('notes', 'same', '--json')).toMatchObject({
+			code: 0,
+			stderr: '',
+		});
+	} finally {
+		await served.stop();
+	}
+});
+
+test('a second serve says this home is already served, and a port something else holds says to set another', async () => {
+	const f = await setup();
+	const taken = `Port ${f.port} is in use by another program or another Epicenter. Set a different \`port\` in EPICENTER.md.\n`;
+	const served = await startServe(f);
+	try {
+		expect(await f.run('serve')).toEqual({
+			code: 2,
+			stdout: '',
+			stderr: `Epicenter is already serving this home on port ${f.port}.\n`,
+		});
+		expect((await fetch(`${served.base}/`)).status).toBe(200);
+	} finally {
+		await served.stop();
+	}
+	const elsewhere = await holdPort(
+		f,
+		() => new Response('', { headers: { 'x-epicenter-home': 'elsewhere' } }),
+	);
+	try {
+		expect(await f.run('serve')).toEqual({
+			code: 2,
+			stdout: '',
+			stderr: taken,
+		});
+	} finally {
+		await elsewhere.stop(true);
+	}
+	// A program that does not speak HTTP is found only when the port will not bind.
+	const silent = Bun.listen({
+		hostname: '127.0.0.1',
+		port: f.port,
+		socket: { open: (socket) => void socket.end(), data() {} },
+	});
+	try {
+		expect(await f.run('serve')).toEqual({
+			code: 2,
+			stdout: '',
+			stderr: taken,
+		});
+	} finally {
+		silent.stop(true);
+	}
+});
+
+test('C12 runs leave no temporary file and no lock file', async () => {
 	const f = await setup();
 	const temp = join(f.root, 'tmp');
 	await mkdir(temp);
-	const env = { ...f.env, TMPDIR: temp };
-	const run = (...args: string[]) =>
-		Bun.spawn([process.execPath, f.bin, ...args], {
-			cwd: f.root,
-			env,
-			stdout: 'ignore',
-			stderr: 'ignore',
-		}).exited;
-	const exits = await Promise.all([
-		run('notes', 'write', '{"page":"monday"}'),
-		run('notes', 'write', '{"page":"tuesday"}'),
-		run('notes', 'half', '{"page":"wednesday"}'),
-	]);
-	expect(exits).toEqual([0, 0, 1]);
+	// The actions run in serve, so serve is what must leave nothing behind.
+	const served = await startServe(f, [], {
+		env: { ...f.env, TMPDIR: temp },
+	});
+	try {
+		const exits = await Promise.all([
+			f.run('notes', 'write', '{"page":"monday"}'),
+			f.run('notes', 'write', '{"page":"tuesday"}'),
+			f.run('notes', 'half', '{"page":"wednesday"}'),
+		]);
+		expect(exits.map((run) => run.code)).toEqual([0, 0, 1]);
+	} finally {
+		await served.stop();
+	}
 	// macOS Git's launcher keeps its own cache in TMPDIR.
 	expect((await readdir(temp)).filter((name) => name !== 'xcrun_db')).toEqual(
 		[],
 	);
-	expect(
-		(await readdir(f.dir, { recursive: true })).filter((name) =>
-			name.endsWith('.tmp.local'),
-		),
-	).toEqual([]);
-	// The app's lock is the folder's own, and no one holds it.
-	const held = await hold(f.dir, 0);
-	expect(held).toBeDefined();
-	held?.release();
+	expect(await readdir(join(f.dir, 'local/.tmp'))).toEqual([]);
 });
 
 test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or an MCP answer', async () => {
@@ -285,8 +471,8 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 	const json = await f.json('notes', 'chatty');
 	expect(json.code).toBe(0);
 	expect(json.answer).toEqual({ data: 'answer', error: null });
-	for (const line of ['hello from log', 'hello from info', 'raw stdout'])
-		expect(json.stderr).toContain(line);
+	// The action printed in serve, where it ran, and not in the command.
+	expect(json.stderr).toBe('');
 	const { client, close } = await connectMcp(f);
 	try {
 		const called = await client.callTool({

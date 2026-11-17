@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import type { ActionYield, DataRecord, Result } from './index.ts';
+import type { ActionUpdate, DataRecord, Result } from './index.ts';
 import { defineData, field } from './index.ts';
 
 type Equal<X, Y> =
@@ -34,11 +34,11 @@ const settings = data['settings.md'].actions('get', 'set', 'delete');
 type Word = DataRecord<'words', typeof data.words>;
 type Settings = DataRecord<'settings.md', (typeof data)['settings.md']>;
 
-test('returned keys are exactly the requested verbs and actions yield no progress', () => {
+test('returned keys are exactly the requested verbs and actions send no updates', () => {
 	const selected = data.words.actions('get', 'set');
 	assertType<Equal<keyof typeof selected, 'get' | 'set'>>();
 	assertType<Equal<keyof typeof settings, 'get' | 'set' | 'delete'>>();
-	assertType<Equal<ActionYield<typeof actions.add>, never>>();
+	assertType<Equal<ActionUpdate<typeof actions.add>, never>>();
 	expect(Object.keys(selected)).toEqual(['get', 'set']);
 });
 

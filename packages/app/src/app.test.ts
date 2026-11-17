@@ -15,7 +15,7 @@ import {
 	isLocalPath,
 	normalizePath,
 	Ok,
-	runYielding,
+	type Update,
 } from './index.ts';
 
 const books = defineCollection({
@@ -67,7 +67,7 @@ describe('createMemoryContext', () => {
 });
 
 describe('writes in a run', () => {
-	test('refuses every folder write outside data/ while leaving reads open', async () => {
+	test('refuses every folder write outside data/ and local/ while leaving reads open', async () => {
 		const context = createMemoryContext({ 'README.md': 'code' });
 		const attempts: (() => Promise<unknown>)[] = [
 			() => folder.write('report.md', 'text'),
@@ -77,100 +77,27 @@ describe('writes in a run', () => {
 		];
 		for (const attempt of attempts)
 			await expect(inRun(context, attempt)).rejects.toThrow(
-				'report.md is outside data/, and an action writes only there',
+				'report.md is outside data/ and local/, and an action writes only there',
 			);
+		await expect(
+			inRun(context, () => folder.write('locals/x.md', 'text')),
+		).rejects.toThrow('locals/x.md is outside data/ and local/');
 		expect(await inRun(context, () => folder.read('README.md'))).toBe('code');
 		expect(await context.folder.list()).toEqual(['README.md']);
 	});
 
-	test('refuses every folder write into a .git* path segment', async () => {
+	test('writes under local/, which stays on this computer', async () => {
 		const context = createMemoryContext();
-		for (const path of [
-			'data/.git/hooks/x',
-			'data/.gitignore',
-			'data/nested/.gitattributes',
-		]) {
-			const attempts: (() => Promise<unknown>)[] = [
-				() => folder.write(path, 'text'),
-				() => folder.writeBytes(path, new Uint8Array([1])),
-				() => folder.update(path, () => 'text'),
-				() => folder.delete(path),
-			];
-			for (const attempt of attempts)
-				await expect(inRun(context, attempt)).rejects.toThrow(
-					'.git* path segment',
-				);
-		}
-		expect(await context.folder.list()).toEqual([]);
+		await inRun(context, async () => {
+			await folder.write('local/google.md', 'token');
+			await folder.update('local/cache/seen.txt', (text = '') => `${text}a`);
+			await folder.delete('local/google.md');
+		});
+		expect(await context.folder.list()).toEqual(['local/cache/seen.txt']);
 	});
 });
 
-describe('a read-only run', () => {
-	test('refuses every write through folder and collections before it happens, and still reads', async () => {
-		const memory = createMemoryContext({
-			'data/2026.csv': 'minutes\n',
-			'data/books/dune.md': '---\ntitle: "Dune"\n---\n',
-		});
-		const context = { ...memory, readOnly: { action: 'week show' } };
-		const refused = (doing: string) =>
-			`The action "week show" is read-only, so it cannot ${doing}`;
-		const tries: [() => Promise<unknown>, string][] = [
-			[
-				() => folder.write('data/2026.csv', 'x'),
-				refused('write data/2026.csv'),
-			],
-			[
-				() => folder.writeBytes('data/a.bin', new Uint8Array([1])),
-				refused('write data/a.bin'),
-			],
-			[
-				() => folder.update('data/2026.csv', (text) => `${text}x`),
-				refused('write data/2026.csv'),
-			],
-			[() => folder.delete('data/2026.csv'), refused('delete data/2026.csv')],
-			[
-				() => books.set({ slug: 'dune' }, { title: 'Other' }),
-				refused('write data/books/dune.md'),
-			],
-			[
-				() => books.delete({ slug: 'dune' }),
-				refused('delete data/books/dune.md'),
-			],
-		];
-		for (const [attempt, message] of tries)
-			await expect(inRun(context, attempt)).rejects.toThrow(message);
-		expect(await context.folder.list()).toEqual([
-			'data/2026.csv',
-			'data/books/dune.md',
-		]);
-		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n');
-		expect(
-			await inRun(context, () => books.get({ slug: 'dune' })),
-		).toMatchObject({ data: { title: 'Dune' }, error: null });
-	});
-
-	test('writes and deletes a .local file, as a token refresh does', async () => {
-		const google = defineCollection({
-			path: 'data/google.local.md',
-			fields: { refreshToken: field.text({ optional: true }) },
-		});
-		const context = {
-			...createMemoryContext({
-				'data/google.local.md': '---\nrefreshToken: "old"\n---\n',
-			}),
-			readOnly: { action: 'mail list' },
-		};
-		await inRun(context, async () => {
-			expect((await google.set({ refreshToken: 'new' })).error).toBeNull();
-			await folder.write('data/cache.local', 'x');
-			await folder.delete('data/cache.local');
-		});
-		expect(await context.folder.read('data/google.local.md')).toBe(
-			'---\nrefreshToken: "new"\n---\n',
-		);
-		expect(await context.folder.list()).toEqual(['data/google.local.md']);
-	});
-
+describe('a run', () => {
 	test('a run reaches its folder and nothing else', () => {
 		expect(Object.keys(createMemoryContext())).toEqual(['folder']);
 	});
@@ -502,45 +429,31 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
-	test('preserves a boolean privateInput flag and rejects any other value', () => {
-		for (const privateInput of [true, false]) {
-			const action = defineAction({
+	test('rejects a key an action does not take', () => {
+		expect(() =>
+			defineAction({
 				description: 'Connect',
-				privateInput,
-				input: { token: field.text() },
+				input: {},
+				// @ts-expect-error an action takes description, input, annotations and run
+				privateInput: true,
+				run: () => Ok(true),
+			}),
+		).toThrow('has "privateInput", which an action does not take');
+	});
+
+	test('keeps the mcp flag it is given and refuses one that is not a boolean', () => {
+		const declare = (mcp: boolean) =>
+			defineAction({
+				description: 'Send',
+				input: {},
+				mcp,
 				run: () => Ok(true),
 			});
-			expect(action.privateInput).toBe(privateInput);
-		}
-		expect(() =>
-			defineAction({
-				description: 'Connect',
-				privateInput: 'true' as unknown as boolean,
-				input: {},
-				run: () => Ok(true),
-			}),
-		).toThrow('privateInput flag that is not a boolean');
-	});
-
-	test('raw writeOnly schema metadata does not imply private input handling', () => {
-		const action = defineAction({
-			description: 'Read',
-			input: { value: { type: 'string', writeOnly: true } },
-			run: () => Ok(true),
-		});
-		expect(action.privateInput).toBeUndefined();
-	});
-
-	test('rejects the old confidential spelling instead of losing its protections', () => {
-		expect(() =>
-			// @ts-expect-error privateInput is the only supported policy name
-			defineAction({
-				description: 'Connect',
-				input: {},
-				confidential: true,
-				run: () => Ok(true),
-			}),
-		).toThrow('has "confidential", which an action does not take');
+		expect(declare(false).mcp).toBe(false);
+		expect(declare(true).mcp).toBe(true);
+		expect(() => declare('no' as never)).toThrow(
+			'The action "Send" has an mcp flag that is not a boolean',
+		);
 	});
 
 	test('rejects cyclic schemas at declaration before they can break discovery', () => {
@@ -576,13 +489,13 @@ describe('defineAction', () => {
 		expect(action.input.value).toEqual(schema);
 	});
 
-	test('a yielding action called directly resolves with its return; runYielding also reads its yields in order', async () => {
+	test('an action that sends updates resolves with its return, and a caller that listens hears them in order', async () => {
 		const say = defineAction({
 			description: 'Say',
 			input: { message: field.text(), loud: field.boolean() },
-			async *run({ message, loud }) {
-				yield message;
-				yield { loud };
+			async run({ message, loud }, update: Update<string | { loud: boolean }>) {
+				update(message);
+				update({ loud });
 				await folder.write('data/said.md', message);
 				return Ok({ said: message });
 			},
@@ -593,13 +506,54 @@ describe('defineAction', () => {
 		);
 		const seen: unknown[] = [];
 		const returned = await inRun(context, () =>
-			runYielding(say, { message: '猫' }, (value) => {
-				seen.push(value);
-			}),
+			say({ message: '猫' }, { onUpdate: (value) => seen.push(value) }),
 		);
 		expect(seen).toEqual(['猫', { loud: false }]);
 		expect(returned).toEqual(Ok({ said: '猫' }));
 		expect(await context.folder.read('data/said.md')).toBe('猫');
+	});
+
+	test('a listener cannot slow, stop, or outlive the action', async () => {
+		let late: Update<number> = () => {};
+		const count = defineAction({
+			description: 'Count',
+			input: {},
+			async run(_input, update: Update<number>) {
+				late = update;
+				update(1);
+				update(2);
+				update(3);
+				return Ok('done');
+			},
+		});
+		const heard: number[] = [];
+		const answer = await count(
+			{},
+			{
+				onUpdate(value) {
+					heard.push(value);
+					if (value === 1) throw new Error('a listener broke');
+					if (value === 2) return Promise.reject(new Error('and again'));
+					return new Promise(() => {});
+				},
+			},
+		);
+		expect(answer).toEqual(Ok('done'));
+		late(4);
+		expect(heard).toEqual([1, 2, 3]);
+	});
+
+	test('a run that is an async function* is refused where it is defined', () => {
+		expect(() =>
+			defineAction({
+				description: 'Old',
+				input: {},
+				run: async function* () {
+					yield 1;
+					return Ok(null);
+				},
+			} as never),
+		).toThrow('reports by calling update, its second argument');
 	});
 
 	test('a call fills an absent switch and list, and nothing else', async () => {
@@ -661,35 +615,24 @@ describe('defineAction', () => {
 						help: field.text(),
 						input: field.text(),
 					},
-					positional: ['a'],
-					annotations: { readOnlyHint: true, dangerous: true } as never,
+					annotations: { readOnlyHint: true },
 					readonly: true,
 					run: () => Ok(undefined),
 				} as never),
 			),
 		).toEqual([
-			'The action "Show" has "positional", which an action no longer takes: the command line reads its input as one JSON object, so delete the line',
 			'The action "Show" has "readonly", which an action does not take',
-			'The action "Show" has the annotation "dangerous", which MCP does not define',
 		]);
 	});
 });
 
-test('a bare return faults on direct, asynchronous and yielding action calls', async () => {
+test('a bare return faults on direct and asynchronous action calls', async () => {
 	const bare = { input: {}, description: 'Invalid action' };
 	// Simulate an untyped app using the old action contract.
 	const sync = defineAction({ ...bare, run: () => 'bare' } as never);
 	expect(() => sync({})).toThrow('must return Ok(data) or Err(error)');
-	for (const run of [
-		async () => 'bare',
-		async function* () {
-			yield 1;
-			return 'bare';
-		},
-	]) {
-		const action = defineAction({ ...bare, run } as never);
-		await expect(action({})).rejects.toThrow(
-			'must return Ok(data) or Err(error)',
-		);
-	}
+	const action = defineAction({ ...bare, run: async () => 'bare' } as never);
+	await expect(action({})).rejects.toThrow(
+		'must return Ok(data) or Err(error)',
+	);
 });

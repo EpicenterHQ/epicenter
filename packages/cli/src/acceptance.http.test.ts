@@ -8,10 +8,9 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action } from '@epicenter/app';
-import { connect, runs } from '@epicenter/app/client';
+import { connect } from '@epicenter/app/client';
 import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { hold } from './lock.ts';
 import {
 	fixture,
 	gitignore,
@@ -20,7 +19,7 @@ import {
 	startServe,
 } from './runner.test-support.ts';
 
-/** Talk's `say` as its app types it: takes words, yields each word, returns them joined. */
+/** Talk's `say` as its app types it: takes words, sends each word as an update, returns them joined. */
 type TalkSay = Action<{ words: string }, Promise<Ok<string>>, string>;
 
 /** Reading's actions as its UI calls them, for `connect`. */
@@ -304,60 +303,46 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 });
 
 /**
- * Talk: `say` yields each word and returns them joined; `drip` writes, then
- * yields until its caller stops listening; `wait` yields once, then waits a
- * minute unless its call's signal ends the wait.
+ * Talk: `say` sends each word as an update and returns them joined; `drip`
+ * writes, sends five updates slowly, and writes again in its `finally`.
  */
-const talk = `import { callSignal } from '@epicenter/app';
-export default defineApp({ description: 'Talk', collections: {}, actions: {
-	wait: defineAction({
-		description: 'Yield, then wait for a stop',
-		input: {},
-		async *run() {
-			yield 'waiting';
-			try {
-				await new Promise((resolve) => {
-					const timer = setTimeout(resolve, 60_000);
-					callSignal().addEventListener('abort', () => {
-						clearTimeout(timer);
-						resolve(undefined);
-					});
-				});
-			} finally {
-				await folder.write('data/waited.md', 'waited');
-			}
-			return Ok('waited');
-		},
-	}),
- refuse: defineAction({description:'Refuse after checking',input:{},async *run(){yield 'checked';return Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'});}}),
+const talk = `export default defineApp({ description: 'Talk', collections: {}, actions: {
+ refuse: defineAction({description:'Refuse after checking',input:{},async run(_input, update){update('checked');return Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'});}}),
 	say: defineAction({
 		description: 'Say words one at a time',
 		input: { words: field.text() },
-		async *run({ words }) {
-			for (const word of words.split(' ')) yield word;
+		async run({ words }, update) {
+			for (const word of words.split(' ')) update(word);
 			return Ok(words);
 		},
 	}),
 	drip: defineAction({
-		description: 'Write, then yield until stopped',
+		description: 'Write, then send updates slowly',
 		input: {},
-		async *run() {
+		async run(_input, update) {
 			await folder.write('data/started.md', 'started');
 			try {
 				for (let i = 0; i < 5; i++) {
-					yield i;
+					update(i);
 					await Bun.sleep(50);
 				}
 			} finally {
 				await folder.write('data/stopped.md', 'stopped');
 			}
-			return Ok('never stopped');
+			return Ok('dripped');
 		},
 	}),
 } });
 `;
 
-test("a UI's call gets each value the action yields, in order, then its answer; MCP gets only the answer", async () => {
+/** A raw call's JSON lines. */
+const linesOf = async (response: Response) =>
+	(await response.text())
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
+
+test("a UI's call hears each update in order, then its answer; a raw call reads them as JSON lines; MCP gets only the answer", async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const heard: unknown[] = [];
 	const client = connect<{ actions: { say: TalkSay } }>({
@@ -366,7 +351,7 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 	});
 	const said = await client.say(
 		{ words: 'one two three' },
-		{ onYield: (word) => heard.push(word) },
+		{ onUpdate: (word) => heard.push(word) },
 	);
 	expect(expectOk(said)).toBe('one two three');
 	expect(heard).toEqual(['one', 'two', 'three']);
@@ -375,10 +360,16 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 		method: 'POST',
 		body: JSON.stringify({ words: 'a b' }),
 	});
-	expect(raw.status).toBe(404);
+	expect(raw.status).toBe(200);
+	expect(raw.headers.get('content-type')).toBe('application/x-ndjson');
+	expect(await linesOf(raw)).toEqual([
+		{ update: 'a' },
+		{ update: 'b' },
+		{ answer: { data: 'a b', error: null } },
+	]);
 	expect(
 		(
-			await fetch(`${f.base}/.runs/talk/say/${crypto.randomUUID()}`, {
+			await fetch(`${f.base}/talk/say`, {
 				method: 'POST',
 				headers: { origin: 'http://evil.example' },
 				body: JSON.stringify({ words: 'no' }),
@@ -396,62 +387,89 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 	expect(body.result.structuredContent).toEqual({ data: 'x y', error: null });
 });
 
-test('an aborted observer leaves the action running to its finally', async () => {
+test('a call refused before it runs answers its refusal alone, as the body of an HTTP error', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const post = (path: string, body: string) =>
+		fetch(`${f.base}/${path}`, { method: 'POST', body });
+	for (const [path, body, status, message] of [
+		['talk/sing', '{}', 400, 'talk has no action "sing"'],
+		['absent/say', '{}', 400, undefined],
+		['talk/say', '{"words":1}', 400, 'words must be text'],
+		['talk/say', '[]', 400, 'The input is not a JSON object'],
+		['talk/say', 'words', 400, 'The input is not valid JSON'],
+	] as const) {
+		const response = await post(path, body);
+		expect(response.status).toBe(status);
+		const answer = (await response.json()) as {
+			data: null;
+			error: { kind: string; reason: { message: string } };
+		};
+		expect(answer.data).toBeNull();
+		expect(answer.error.kind).toBe('refused');
+		if (message) expect(answer.error.reason.message).toBe(message);
+	}
+	expect((await post('talk/say/extra', '{}')).status).toBe(404);
+	const client = connect<{ actions: { sing: TalkSay } }>({
+		app: 'talk',
+		url: `${f.base}/`,
+	});
+	expect(expectErr(await client.sing({ words: 'la' }))).toMatchObject({
+		name: 'Refused',
+		message: 'talk has no action "sing"',
+	});
+});
+
+test('a caller that leaves stops reading; the action runs to its end and releases the lock', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const leave = new AbortController();
+	const response = await fetch(`${f.base}/talk/drip`, {
+		method: 'POST',
+		body: '{}',
+		signal: leave.signal,
+	});
+	const reader = response.body?.getReader();
+	const first = await reader?.read();
+	expect(new TextDecoder().decode(first?.value)).toStartWith('{"update":0}');
+	leave.abort();
+	const data = join(f.apps, 'talk', 'data');
+	const stopped = () => Bun.file(join(data, 'stopped.md')).exists();
+	const deadline = Date.now() + 10_000;
+	while (!(await stopped()) && Date.now() < deadline) await Bun.sleep(50);
+	expect(await stopped()).toBe(true);
+});
+
+test('a listener that fails does not stop the action or the call', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const client = connect<{
 		actions: {
 			drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
 		};
 	}>({ app: 'talk', url: `${f.base}/` });
-	const run = runs.start(client.drip, {});
-	const stop = new AbortController();
-	for await (const event of run.events({ signal: stop.signal }))
-		if (event.type === 'yielded') stop.abort();
-	const path = join(f.apps, 'talk', 'data', 'stopped.md');
-	const deadline = Date.now() + 10_000;
-	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
-		await Bun.sleep(50);
-	expect(await Bun.file(path).exists()).toBe(true);
-	expectOk(await run.result());
-});
-
-test('a callback failure leaves the action running to finally and releases the lock', async () => {
-	const f = await setup((f) => f.app('talk', talk));
-	const client = connect<{
-		actions: {
-			drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
-		};
-	}>({
-		app: 'talk',
-		url: `${f.base}/`,
-	});
+	const page = globalThis as { reportError?: (cause: unknown) => void };
+	const original = page.reportError;
+	const reported: unknown[] = [];
+	page.reportError = (cause) => reported.push(cause);
 	const bug = new Error('UI callback failed');
-	await expect(
-		client.drip(
+	try {
+		const heard: number[] = [];
+		const answer = await client.drip(
 			{},
 			{
-				onYield: async () => {
+				onUpdate: (count) => {
+					heard.push(count);
 					throw bug;
 				},
 			},
-		),
-	).rejects.toBe(bug);
-	const data = join(f.apps, 'talk', 'data');
-	const latest = () => Bun.file(join(data, 'stopped.md')).exists();
-	const deadline = Date.now() + 10_000;
-	while (!(await latest()) && Date.now() < deadline) await Bun.sleep(50);
-	expect(await latest()).toBe(true);
-
-	// The finally write can become visible just before the run releases its lock.
-	const held = await hold(join(f.apps, 'talk'), 1000);
-	try {
-		expect(held).toBeDefined();
+		);
+		expect(expectOk(answer)).toBe('dripped');
+		expect(heard).toEqual([0, 1, 2, 3, 4]);
+		expect(reported).toEqual([bug, bug, bug, bug, bug]);
 	} finally {
-		held?.release();
+		page.reportError = original;
 	}
 });
 
-test('unserializable action throws still answer Threw, preserve writes, and release the app lock', async () => {
+test('unserializable action throws still answer Threw, and preserve writes', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'failure',
@@ -506,12 +524,6 @@ export default defineApp({ description: 'Failure', collections: {}, actions: {
 		expect(
 			await readFile(join(f.apps, 'failure', 'data', `${kind}.md`), 'utf8'),
 		).toBe(kind);
-		const held = await hold(join(f.apps, 'failure'), 0);
-		try {
-			expect(held).toBeDefined();
-		} finally {
-			held?.release();
-		}
 	}
 });
 
@@ -532,7 +544,6 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 				Threw: ActionError.Threw({ message: custom.message, thrown: custom }).error,
 				Refused: ActionError.Refused({ message: 'Dependency declined', next: 'Inspect dependency' }).error,
 				Unreachable: ActionError.Unreachable({ message: 'The model did not answer' }).error,
-				Stopped: ActionError.Stopped({ message: 'The dependency stopped' }).error,
 				Custom: custom,
 			};
 			if(how==='return') return Err(cases[kind]);
@@ -560,7 +571,6 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 			'Threw',
 			'Refused',
 			'Unreachable',
-			'Stopped',
 			'Custom',
 		]) {
 			const error = expectErr(await client.fail({ kind, how }));
@@ -585,16 +595,11 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 				),
 			).toBe(kind);
 		}
-		const raw = await fetch(
-			`${f.base}/.runs/failures/fail/${crypto.randomUUID()}`,
-			{ method: 'POST', body: JSON.stringify({ kind: 'Missing', how }) },
-		);
-		const frames = (await raw.text())
-			.trim()
-			.split('\n')
-			.map((line) => JSON.parse(line));
-		expect(frames.at(-1)).toMatchObject({
-			type: 'finished',
+		const raw = await fetch(`${f.base}/failures/fail`, {
+			method: 'POST',
+			body: JSON.stringify({ kind: 'Missing', how }),
+		});
+		expect((await linesOf(raw)).at(-1)).toMatchObject({
 			answer:
 				how === 'return'
 					? {
@@ -625,78 +630,32 @@ export default defineApp({ description: 'Shared failures', collections: {}, acti
 	}
 });
 
-test('run.cancel reaches callSignal and runs finally', async () => {
-	const f = await setup((f) => f.app('talk', talk));
-	const client = connect<{
-		actions: {
-			wait: Action<Record<string, never>, Promise<Ok<string>>, string>;
-		};
-	}>({ app: 'talk', url: `${f.base}/` });
-	const run = runs.start(client.wait, {});
-	for await (const event of run.events()) {
-		if (event.type === 'yielded') {
-			expectOk(await run.cancel());
-			break;
-		}
-	}
-	const path = join(f.apps, 'talk', 'data', 'waited.md');
-	const deadline = Date.now() + 10_000;
-	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
-		await Bun.sleep(50);
-	expect(await Bun.file(path).exists()).toBe(true);
-	await run.result();
-});
-
-test('a killed host interrupts an accepted run and never executes it again', async () => {
-	const f = await fixture();
-	f.env.EPICENTER_RUNTIME_DIR = join(f.root, 'runtime');
-	await f.app(
-		'restart',
-		`import { callSignal } from '@epicenter/app';
-export default defineApp({ description: 'Restart', collections: {}, actions: {
- slow: defineAction({ description: 'Wait', input: {}, async *run() {
-  await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
-  yield 'started';
-  await new Promise((resolve) => { const timer = setTimeout(resolve, 60000); callSignal().addEventListener('abort', () => { clearTimeout(timer); resolve(undefined); }); });
+test('serve keeps nothing about a call: a second call runs the action again', async () => {
+	const f = await setup((f) =>
+		f.app(
+			'counter',
+			`export default defineApp({ description: 'Counter', collections: {}, actions: {
+ bump: defineAction({ description: 'Count one more', input: {}, async run() {
+  await folder.update('local/count', (value = '0') => String(Number(value) + 1));
   return Ok(null);
  } }),
 } });`,
+		),
 	);
-	let server: Awaited<ReturnType<typeof startServe>> | undefined;
-	try {
-		server = await startServe(f);
-		const client = connect<{
-			actions: {
-				slow: Action<Record<string, never>, Promise<Ok<null>>, string>;
-			};
-		}>({ app: 'restart', url: `${server.base}/` });
-		const run = runs.start(client.slow, {});
-		for await (const event of run.events()) if (event.type === 'yielded') break;
-		await server.kill();
-		server = await startServe(f);
-		const restored = connect<{
-			actions: {
-				slow: Action<Record<string, never>, Promise<Ok<null>>, string>;
-			};
-		}>({ app: 'restart', url: `${server.base}/` });
-		const frames = [];
-		for await (const event of runs.attach(restored.slow, run.id).events())
-			frames.push(event);
-		expect(frames.at(-1)?.type).toBe('interrupted');
-		const joined = await fetch(`${server.base}/.runs/restart/slow/${run.id}`, {
+	for (const expected of ['1', '2']) {
+		const response = await fetch(`${f.base}/counter/bump`, {
 			method: 'POST',
 			body: '{}',
 		});
-		expect(joined.status).toBe(200);
-		await joined.text();
+		expect(await linesOf(response)).toEqual([
+			{ answer: { data: null, error: null } },
+		]);
 		expect(
-			await readFile(join(f.apps, 'restart', 'data', 'count.local'), 'utf8'),
-		).toBe('1');
-	} finally {
-		if (server) await server.stop();
-		await rm(f.root, { recursive: true, force: true });
+			await readFile(join(f.apps, 'counter', 'local', 'count'), 'utf8'),
+		).toBe(expected);
 	}
-}, 20_000);
+	expect((await fetch(`${f.base}/.runs/counter/bump/x`)).status).toBe(404);
+});
 
 test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
 	const f = await setup((f) =>
@@ -762,23 +721,21 @@ test('mismatched Origin is forbidden, and / refuses an event stream and other me
 	).toBe(403);
 });
 
-test('cross-origin requests to run routes are refused before admission', async () => {
+test('a cross-origin call is refused before the action runs', async () => {
 	const f = await setup();
-	const response = await fetch(
-		`${f.base}/.runs/reading/log/unknown-run-identifier`,
-		{
-			method: 'POST',
-			headers: {
-				origin: 'https://another.example',
-				'content-type': 'application/json',
-			},
-			body: '{}',
+	const response = await fetch(`${f.base}/reading/log`, {
+		method: 'POST',
+		headers: {
+			origin: 'https://another.example',
+			'content-type': 'application/json',
 		},
-	);
+		body: '{"minutes":5}',
+	});
 	expect(response.status).toBe(403);
+	expect(await Bun.file(join(f.apps, 'reading', 'data')).exists()).toBe(false);
 });
 
-test('a yielded check precedes a returned app refusal for UI and raw HTTP callers', async () => {
+test('an update precedes a returned app refusal for UI and raw HTTP callers', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const client = connect<{
 		actions: {
@@ -797,7 +754,7 @@ test('a yielded check precedes a returned app refusal for UI and raw HTTP caller
 			await client.refuse(
 				{},
 				{
-					onYield: (word) => {
+					onUpdate: (word) => {
 						heard.push(word);
 					},
 				},
@@ -805,20 +762,21 @@ test('a yielded check precedes a returned app refusal for UI and raw HTTP caller
 		),
 	).toEqual({ name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' });
 	expect(heard).toEqual(['checked']);
-	const raw = await fetch(
-		`${f.base}/.runs/talk/refuse/${crypto.randomUUID()}`,
-		{ method: 'POST', body: '{}' },
-	);
-	expect(raw.status).toBe(200);
-	const frames = (await raw.text())
-		.trim()
-		.split('\n')
-		.map((line) => JSON.parse(line));
-	expect(frames.at(-1)).toMatchObject({
-		type: 'finished',
-		answer: {
-			data: null,
-			error: { kind: 'returned', reason: { name: 'NoRoute', airport: 'LAX' } },
-		},
+	const raw = await fetch(`${f.base}/talk/refuse`, {
+		method: 'POST',
+		body: '{}',
 	});
+	expect(raw.status).toBe(200);
+	expect(await linesOf(raw)).toMatchObject([
+		{ update: 'checked' },
+		{
+			answer: {
+				data: null,
+				error: {
+					kind: 'returned',
+					reason: { name: 'NoRoute', airport: 'LAX' },
+				},
+			},
+		},
+	]);
 });

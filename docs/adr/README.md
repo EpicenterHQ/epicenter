@@ -1137,11 +1137,14 @@ When you add an ADR, add its row here.
 | [0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) | A collection declares its files beside its fields, and they rest in the folder named by its key | Proposed |
 | [0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) | A field can list values and can refer to another collection's record by its key | Proposed |
 | [0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) | `epicenter check` reports every record that does not fit its collection | Proposed |
-| [0922](0922-a-file-reaches-an-action-as-its-own-input-beside-input-and-only-a-page-sends-one.md) | A file reaches an action as its own input beside `input`, and only a page sends one | Proposed (amends 0915) |
 | [0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) | A read gives only what the file holds, and no field has a default | Proposed |
 | [0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) | Front matter is `key: <JSON>` lines, each read on its own, and no YAML is read | Proposed |
 | [0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) | An action's input on the command line is one JSON object | Proposed (amends 0841 and 0907) |
 | [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | An action returns one Result from its collections to its callers | Accepted (amends 0850 and 0914) |
 | [0927](0927-serve-listens-only-on-this-computer.md) | `serve` listens only on this computer, and the owner's network brings other devices in | Accepted (amends 0883) |
 | [0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md) | `new` copies an app's code from a folder in Git or a folder on GitHub | Accepted (amends 0904, 0910, 0912) |
+| [0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) | An action call is a function call, and serve keeps nothing about it | Proposed (supersedes 0915 and 0917; amends 0879, 0883, 0914 and 0926) |
+| [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Proposed (amends 0910 and 0880) |
 | [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Proposed (amends 0908, 0910) |
+| [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
+| [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Proposed (amends 0870 and 0910) |

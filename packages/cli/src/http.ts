@@ -6,19 +6,21 @@
  * GET  /                the launcher; 405 when asked for an event stream (MCP)
  * GET  /<app>/...       the app's UI, ui/dist/, as static files
  * GET  /<app>           308 to /<app>/
- * POST /<app>/<action>  retired; answer with a reload message
- * PUT  /.runs/<app>/<action>/<id>/files/<field>  upload a file
- * POST /.runs/<app>/<action>/<id>               admit and stream a run
- * GET  /.runs/<app>/<action>/<id>/events        observe a run
- * GET  /.runs/<app>/<action>/<id>               read run state
- * POST /.runs/<app>/<action>/<id>/cancel        request cancellation
+ * POST /<app>/<action>  call an action; its words are joined by `.`
  * ```
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
- * the call arrives (`home.ts`, `run.ts`).
+ * the call arrives (`home.ts`, `run.ts`), and keeps nothing about it. A call's
+ * body is its input as JSON. Its answer is JSON lines: `{"update": value}`
+ * for each update the action sends, then `{"answer": ...}`. A call that is
+ * refused before it runs answers that one answer as the body of an HTTP
+ * error. An action runs to its end whether or not its caller stays: a caller
+ * that leaves stops reading, and nothing stops the action from outside.
  *
- * Every path of the server's own starts with `.`, which no app name can, so
- * no name is reserved for the server.
+ * A home has one `serve`, and its port is how it is found. Every answer names
+ * the home (`x-epicenter-home`) and states this `epicenter`'s version
+ * (`x-epicenter-version`), so a command can tell whose serve it reached, and
+ * a second `serve` can say whether this home or something else has the port.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
@@ -42,12 +44,20 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { linkAppPackage } from './app-package.ts';
+import { VERSION } from './engines.ts';
+import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { writeErr } from './output.ts';
-import { epicenterDir } from './root.ts';
+import { fail, refused, writeErr } from './output.ts';
+import { epicenterDir, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
-import { createRunHost } from './runs.ts';
+import { resolveAction, runAction } from './run.ts';
+import {
+	HOME_HEADER,
+	homeName,
+	VERSION_HEADER,
+	whoAnswers,
+} from './serve-call.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
@@ -55,6 +65,9 @@ const LOOPBACK = '127.0.0.1';
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
+
+/** The largest input a call takes; Bun answers 413 past it. */
+const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 
 const escapeHtml = (text: string) =>
 	text.replace(
@@ -248,6 +261,76 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 }
 
 /**
+ * `POST /<app>/<action>`: run the action and answer its updates and then its
+ * answer as JSON lines. Updates wait in order for a slow caller, because one
+ * can be a piece of text the next extends, and are dropped once it is gone.
+ */
+async function call(request: Request): Promise<Response> {
+	// A call meant for another home is refused, so a command in a second home
+	// cannot write into this one (ADR-0936).
+	const meant = request.headers.get(HOME_HEADER);
+	if (meant !== null && meant !== (await homeName()))
+		return new Response('This call is for another Epicenter', { status: 409 });
+	return callAnswer(request);
+}
+
+async function callAnswer(request: Request): Promise<Response> {
+	const parts = new URL(request.url).pathname.split('/');
+	let app: string;
+	let words: string[];
+	try {
+		app = decodeURIComponent(parts[1] ?? '');
+		words = decodeURIComponent(parts[2] ?? '').split('.');
+	} catch {
+		return notFound();
+	}
+	if (parts.length !== 3 || !isName(app) || !words.every(isName))
+		return notFound();
+	const key = words.join(' ');
+	const refuse = (status: number, message: string) =>
+		Response.json(refused(CliError.Usage({ message }).error), { status });
+	const bytes = await request.arrayBuffer();
+	let input: unknown;
+	try {
+		input = JSON.parse(new TextDecoder().decode(bytes));
+	} catch {
+		return refuse(400, 'The input is not valid JSON');
+	}
+	const resolved = await resolveAction(app, key, input);
+	if (resolved.refusal) return Response.json(resolved.refusal, { status: 400 });
+	const encoder = new TextEncoder();
+	let listening = true;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			const send = (line: object) => {
+				if (!listening) return;
+				try {
+					controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+				} catch {
+					listening = false;
+				}
+			};
+			void runAction(resolved.located, key, resolved.action, resolved.input, {
+				// JSON has no undefined, and a line with no update is not one.
+				onUpdate: (update) => send({ update: update ?? null }),
+			}).then((answer) => {
+				send({ answer });
+				if (listening) controller.close();
+			});
+		},
+		cancel() {
+			listening = false;
+		},
+	});
+	return new Response(body, {
+		headers: {
+			'content-type': 'application/x-ndjson',
+			'cache-control': 'no-store',
+		},
+	});
+}
+
+/**
  * Whether a `Host` header names this computer or the tailnet: a loopback
  * name, an IP literal, or a `*.ts.net` name, whose DNS Tailscale controls.
  */
@@ -273,10 +356,11 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * Start the listener and the routine clock. The listener answers everything
  * for a request from this computer or the tailnet whose `Origin`, if any, is
  * its own host. The caller owns its lifetime and ends it with `stop`. Port 0
- * asks Bun for a free port.
+ * asks Bun for a free port, which only a test that reads `port` back can use:
+ * the marker refuses it. A port something else holds throws before the clock
+ * starts.
  */
 export function startHttpServer(port: number) {
-	const runs = createRunHost();
 	const refreshUi = createUiRefresher();
 	const site = createSite(refreshUi);
 	const answer = async (request: Request) => {
@@ -297,16 +381,25 @@ export function startHttpServer(port: number) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
-		if (pathname.startsWith('/.runs/')) return runs.handle(request);
-		if (request.method === 'POST')
-			return pathname === '/' ? site.mcp(request) : notFound();
-		if (pathname === '/') return site.launcher(request);
-		return site.ui(request);
+		const response = await (request.method === 'POST'
+			? pathname === '/'
+				? site.mcp(request)
+				: call(request)
+			: pathname === '/'
+				? site.launcher(request)
+				: site.ui(request));
+		// Every answer to a request serve accepts names its home and states its
+		// version, so a command or a second serve can tell who holds the port.
+		response.headers.set(HOME_HEADER, await homeName());
+		response.headers.set(VERSION_HEADER, VERSION);
+		return response;
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,
 		port,
 		idleTimeout: 0,
+		// Bun refuses a larger body itself, with 413.
+		maxRequestBodySize: MAX_INPUT_BYTES,
 		fetch: answer,
 	});
 	const routines = createRoutines({
@@ -333,7 +426,6 @@ export function startHttpServer(port: number) {
 		 * process group, so a service manager that stops the group stops them.
 		 */
 		stop() {
-			runs.stop();
 			clearInterval(routineClock);
 			void server.stop();
 		},
@@ -342,12 +434,32 @@ export function startHttpServer(port: number) {
 
 /** Serve until the process receives SIGINT or SIGTERM, then exit. */
 export async function serveHttp(port: number): Promise<number> {
+	/** Say who holds the port, as the refusal that ends this command. */
+	const portTaken = (holder: { home: boolean }) =>
+		fail(
+			CliError.Refused({
+				message: holder.home
+					? `Epicenter is already serving this home on port ${port}.`
+					: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
+			}).error,
+			false,
+		);
+	// Asked before anything changes, so a second serve leaves the links alone.
+	const holder = await whoAnswers(port);
+	if (holder) return portTaken(holder);
 	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
 	// that answers it, even when the `epicenter` they linked to is gone.
 	for (const { codePath: realPath, problem } of await homeEntries())
 		if (!problem && (await exists(join(realPath, 'node_modules'))))
 			await linkAppPackage(realPath);
-	const server = startHttpServer(port);
+	let server: ReturnType<typeof startHttpServer>;
+	try {
+		server = startHttpServer(port);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
+		// The port was taken since it was asked, or its holder does not speak HTTP.
+		return portTaken((await whoAnswers(port)) ?? { home: false });
+	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);

@@ -22,31 +22,6 @@ export function refused(reason: CliError) {
 	return Err({ kind: 'refused' as const, reason });
 }
 
-/**
- * Run `work` with whatever it prints to stdout, through `console` or
- * `process.stdout`, sent to stderr, so the command's stdout holds only its
- * answer. A program the action starts writes where the action tells it to.
- */
-export async function printingToStderr<T>(work: () => Promise<T>): Promise<T> {
-	const methods = ['log', 'info', 'debug', 'dir', 'table'] as const;
-	// biome-ignore lint/suspicious/noConsole: reads the methods to restore them; nothing prints here.
-	const saved = methods.map((method) => console[method]);
-	const write = process.stdout.write;
-	// biome-ignore lint/suspicious/noConsole: points an action's prints at stderr; nothing prints here.
-	for (const method of methods) console[method] = console.error;
-	process.stdout.write = process.stderr.write.bind(
-		process.stderr,
-	) as typeof write;
-	try {
-		return await work();
-	} finally {
-		methods.forEach((method, index) => {
-			console[method] = saved[index] as never;
-		});
-		process.stdout.write = write;
-	}
-}
-
 /** Write the one JSON answer to stdout. */
 export function writeJson(value: unknown) {
 	process.stdout.write(`${JSON.stringify(value)}\n`);

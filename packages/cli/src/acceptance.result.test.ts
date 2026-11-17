@@ -26,7 +26,7 @@ export default defineApp({description: 'Route notes', collections: {notes}, acti
 	empty: defineAction({ description: 'No data', input: {}, run: () => Ok(undefined) }),
 	check: defineAction({
 		description: 'Check a route', input: {},
-		async *run() { yield 'looking'; return await lookup({}); },
+		async run(_input, update) { update('looking'); return await lookup({}); },
 	}),
 }});`,
 		);
@@ -78,27 +78,18 @@ export default defineApp({description: 'Route notes', collections: {notes}, acti
 			});
 			expect(misfitTool.isError).toBe(true);
 			expect(misfitTool.structuredContent).toEqual(misfitAnswer);
-			const id = crypto.randomUUID();
-			const response = await fetch(
-				`${mcp.served.base}/.runs/notes/check/${id}`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: '{}',
-				},
-			);
-			expect(response.status).toBe(200);
-			const events = (await response.text())
-				.trim()
-				.split('\n')
-				.map((line) => JSON.parse(line));
-			expect(events.at(-1)).toMatchObject({
-				type: 'finished',
-				answer: returned,
+			const response = await fetch(`${mcp.served.base}/notes/check`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: '{}',
 			});
-			expect(events.find((event) => event.type === 'yielded')?.value).toBe(
-				'looking',
-			);
+			expect(response.status).toBe(200);
+			expect(
+				(await response.text())
+					.trim()
+					.split('\n')
+					.map((line) => JSON.parse(line)),
+			).toEqual([{ update: 'looking' }, { answer: returned }]);
 			expect(await app.check()).toEqual(result);
 			const tool = await mcp.client.callTool({
 				name: 'notes_check',
@@ -162,46 +153,27 @@ export default defineApp({description: 'Staged drafts', collections: {}, actions
 				'Draft awaiting review',
 			);
 
-			const runUrl = () =>
-				mcp.served.base + '/.runs/drafts/stage/' + crypto.randomUUID();
-			const post = (url: string, input: object) =>
-				fetch(url, {
+			const post = (input: object) =>
+				fetch(`${mcp.served.base}/drafts/stage`, {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify(input),
 				});
-			const deniedUrl = runUrl();
-			const admission = await post(deniedUrl, { via: 'http' });
-			expect(admission.status).toBe(400);
-			expect(admission.headers.get('X-Epicenter-Admitted')).toBe('false');
-			expect(await admission.json()).toEqual(refused);
-			expect((await fetch(deniedUrl)).status).toBe(404);
+			const turnedAway = await post({ via: 'http' });
+			expect(turnedAway.status).toBe(400);
+			expect(await turnedAway.json()).toEqual(refused);
 			expect(await Bun.file(draft('http')).exists()).toBe(false);
-			const url = runUrl();
-			const stream = await post(url, { via: 'http', title: ' ' });
+			const stream = await post({ via: 'http', title: ' ' });
 			expect(stream.status).toBe(200);
-			const events = (await stream.text())
-				.trim()
-				.split('\n')
-				.map((line) => JSON.parse(line));
-			expect(events.map((event) => event.type)).toEqual([
-				'accepted',
-				'started',
-				'finished',
-			]);
-			expect(events.at(-1).answer).toEqual(returned);
-			expect(await readFile(draft('http'), 'utf8')).toBe(
-				'Draft awaiting review',
-			);
-			await writeFile(draft('http'), 'Newer edit');
-			const replay = await fetch(url + '/events?after=0');
 			expect(
-				(await replay.text())
+				(await stream.text())
 					.trim()
 					.split('\n')
 					.map((line) => JSON.parse(line)),
-			).toEqual(events);
-			expect(await readFile(draft('http'), 'utf8')).toBe('Newer edit');
+			).toEqual([{ answer: returned }]);
+			expect(await readFile(draft('http'), 'utf8')).toBe(
+				'Draft awaiting review',
+			);
 
 			const tool = (args: Record<string, string>) =>
 				mcp.client.callTool({ name: 'drafts_stage', arguments: args });

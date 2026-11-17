@@ -33,7 +33,8 @@ such as `tailscale serve`.
       node_modules/             supplied @epicenter/app link, ignored
     data/                       records and settings
       tasks/<time>.md
-      google.local.md           this computer only
+    local/                      this computer only; made by the first write
+      google.md
 ```
 
 `new --from` copies committed code into a new container's `code/`, without
@@ -141,16 +142,16 @@ refused, so write the default where the value is read (`limit ?? 50`).
   and nothing is written, fields included. So a page that saves a record's
   fields and its notes sends one `set`. In code, `set` carries `body`, as
   data or from a function of the record.
-- A secret, such as a sign-in token, is a collection with no placeholder at a
-  `.local.md` path (`data/google.local.md`), its fields declared like any other
-  (ADR-0870). A `.local` file stays on the computer that runs the app:
-  the root `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
-  and its `actions()` throws, so no generated verb hands it to an MCP client.
-  Read it with `google.get()` and forward the Err before using the token.
-  The read succeeds with an empty record before sign-in. A local `Misfit`
-  omits the partial record and never quotes field values. Use a computed
-  write to compare the old token when refreshing it.
-  A fresh clone has none, so the person signs in again.
+- An app is `code/`, `data/` and `local/`. What is in `local/` stays on the
+  computer that runs the app: the root `.gitignore` leaves it out of every
+  commit, a checkpoint refuses a file there that Git would commit, and
+  `folder` makes a new file there `0600`. It holds plain files, not
+  collections: a token, a cache, a database. Keep a secret, such as a sign-in
+  token, with `folder.write('local/google.md', token)` and read it with
+  `folder.read('local/google.md')`, which gives `undefined` before sign-in.
+  Use `folder.update` to compare the old token when refreshing it. No
+  generated verb reaches `local/`, so no MCP client is handed the token. A
+  fresh clone has no `local/`, so the person signs in again.
 - The collections are the contract between code and records. Reads tolerate
   disagreement: undeclared keys are kept by every write and left out of a
   read, and a missing optional field is no problem. Rename or tighten a field
@@ -200,24 +201,26 @@ other files, the imported `folder` supplies atomic writes and updates.
 Make the first write through `folder` or a collection, so the call takes
 container's lock. It stays held until the call returns, throws, or stops.
 After that first write, a library or `node:fs` write shares the call's lock
-lifetime. A call with no folder write takes no lock. All writes stay pending
+lifetime. All writes stay pending
 until a named commit or root checkpoint records them.
-`folder` refuses a write outside `data/` or through a `.git*` path segment.
+`folder` refuses a write outside `data/`.
 Reads may reach the whole Epicenter, including another app's records by a
 path like `../tasks/data/tasks/<time>.md`, using `node:fs` or a library.
 Resolve that path from `folder.path`, which is the container. Change another
 app's data through its actions so its rules check the write; this is guidance,
 not enforced.
 
-Make `run` an `async function*` when a person watches it work, such as a
-chat reply from a model. The host records each yield for observers of that
-run and the action returns one final Result. Save completed output before
-returning. Pass `callSignal()` from `@epicenter/app` to cancellable work,
-such as the model's `fetch`. Decide which writes must survive cancellation,
-including any input the person has already submitted.
+Give `run` a second argument, `update: Update<T>`, when a person watches it
+work, such as a chat reply from a model, and call it with each piece. The
+action returns one final Result, which must carry everything a caller that
+did not listen needs. Serve runs the action to its end even when the page
+closes, and keeps nothing about the call, so save what a reload must show
+(the person's submitted input first, then completed output) in records.
 
 Actions run inside `epicenter serve` itself, from the files as they are when
-the call arrives, so an edit takes effect on the next call. Never call
+the call arrives, so an edit takes effect on the next call. The command line
+sends its call to serve too: `epicenter <app> <action>` is refused with exit 2
+while serve is stopped, and never runs the action itself. Never call
 `process.exit`, `process.chdir`, or set `process.env` in an action: each
 reaches every app `serve` runs.
 
@@ -260,22 +263,20 @@ For text a person wrote, pipe it with `- <<'EOF'`, which has no quoting to get
 wrong; `epicenter <app> <action> --help` lists the keys. An action you write
 chooses its own input, and should take what its caller knows: Vocab's `review`
 takes `{ word, grade }`, giving
-`epicenter vocab review '{"word":"你好","grade":"good"}'`. An action has no
-`positional`; `defineAction` throws on one.
+`epicenter vocab review '{"word":"你好","grade":"good"}'`.
 
-Annotate honestly. A read-only run takes no lock. Its folder writes throw
-except to `.local` paths under data/, so an action that only reads can refresh
-a token locally. Actions make no commits. The root ignore rules keep local
+Annotate honestly. Annotations are hints an MCP client reads to decide how
+careful to be, and nothing enforces them, so mark an action read-only only
+when it changes nothing. Declare `mcp: false` on an action an agent should not
+be offered as a tool, such as sending as the owner; the CLI and HTTP still run
+it, so it is not a wall. Actions make no commits. The root ignore rules keep local
 files out, and a checkpoint refuses local credentials Git would include.
 
-Write last. A call holds its app's lock from its first write until its
-end, and other writes to the app wait for it at most 30 seconds, so fetch
-from a service, call a model, or compute first, then write. When the person's
-input must survive a failure, write it after the slow step fails, not before
+Write last. Nothing locks a call, so fetch from a service, call a model, or
+compute first, then write: a slow step then never leaves a file half done.
+When the person's input must survive a failure, write it after the slow step fails, not before
 it starts: Vocab's `practice reply` asks the model, then saves both turns, or
-saves the learner's turn alone and returns its provider error. Never run `epicenter` against the action's own app
-after writing: the inner call waits for the lock its own caller holds, and
-fails after 30 seconds.
+saves the learner's turn alone and returns its provider error.
 
 After direct edits, `epicenter checkpoint -m "<what changed>"` records pending
 code and records in one root commit and pushes origin when set. A plain named
@@ -365,19 +366,18 @@ export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
 ```
 
-When the page needs to return to a run after reopening, import `runs` from
-`@epicenter/app/client`. Start it with `runs.start(app.action, input)`.
-On return, use `runs.pending(app.action)` to find its receipt and
-`runs.attach(app.action, id)` to observe it again.
-`field.file()` accepts a temporary browser upload with either form of call.
-See the app package README for the
-run events, cancellation, and retention contract.
+A page that reopens cannot rejoin a call. It shows what the app's records
+say, so an action whose work outlasts the page writes its progress and its
+outcome as records. An action that must not run twice takes an id the page
+makes in its input and uses it as the record's key, so calling again with
+the same id is safe. See the app package README for updates and the call
+route.
 
 On the wire, the host answers with `{ data, error }`. For a failure,
 `error.kind` records what happened to this invocation (ADR-0926).
 The browser client unwraps a `returned` reason with its public fields intact.
 A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
-A `refused` admission becomes `Refused` before the action runs. Actions can use the
+A `refused` call becomes `Refused` before the action runs. Actions can use the
 shared `ActionError` factories from `@epicenter/app`.
 
 Match a browser error by its name and subject. A `Missing` for a dependency
@@ -394,17 +394,13 @@ Pages read with `createQuery(() => reads.get({ time }))` and write with
 example `ActionInput<typeof tasksApp.actions.set>` and
 `ActionOutput<typeof tasksApp.actions.get>`.
 
-An action that yields takes `onYield` after its input, to show its work as it
-comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
+An action that sends updates takes `onUpdate` after its input, to show its
+work as it comes: `app.chat.say({ message }, { onUpdate: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
-still refreshes once it returns. For a Stop button, start the action with
-`runs.start` and call `run.cancel()` to request cancellation. For a view
-that only stops listening, pass its signal to `run.events({ signal })` or
-`run.result({ signal, onYield })`. Each new observer replays from the
-beginning, and the client resumes dropped connections at its last sequence.
-Use the view's own controller to recognize its aborted observation. A
-dependency can also return `Stopped`. Confirm any cleanup or save separately.
+still refreshes once it returns. Closing the view stops it listening; the
+action runs on. A call cut off before its answer resolves to `Unreachable`:
+reread the record before deciding what happened.
 
 - Route a record by its keys, which every row carries: the page is at
   `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the
@@ -521,6 +517,10 @@ HOME="$test_home" epicenter build example
 HOME="$test_home" epicenter example --help
 HOME="$test_home" epicenter serve               # drive /example/ on port 4799
 ```
+
+Only serve runs an action, so keep that `serve` running, in the background or
+another terminal, while you call `epicenter example <action>` in the temporary
+home. Give the temporary home a port the real one does not use.
 
 In the monorepo, the source CLI is `bun <repo>/packages/cli/src/bin.ts`.
 The temporary Git configuration isolates identity and signing settings.

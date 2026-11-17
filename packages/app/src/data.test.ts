@@ -464,28 +464,6 @@ test('data refs validate their target at runtime while collection refs keep work
 	}
 });
 
-test('read-only calls refuse data writes', async () => {
-	const context = { ...createMemoryContext(), readOnly: { action: 'inspect' } };
-	const data = defineData({
-		notes: { fields: {} },
-		'settings.md': { fields: {} },
-	});
-	await context.folder.write('data/notes/b.md', '');
-	await inRun(context, async () => {
-		await expect(data.notes.add('a', {})).rejects.toThrow('read-only');
-		await expect(data.notes.set('a', {})).rejects.toThrow('read-only');
-		await expect(
-			data.notes.update('a', () => {
-				throw new Error('must not call');
-			}),
-		).rejects.toThrow('read-only');
-		await expect(data.notes.delete('b')).rejects.toThrow('read-only');
-		await expect(data['settings.md'].set({ body: 'a' })).rejects.toThrow(
-			'read-only',
-		);
-	});
-});
-
 test('timeId preserves the UTC ISO stamp and adds exactly eight lowercase base36 characters', () => {
 	const at = new Date('2026-11-16T09:12:04.120Z');
 	const ids = Array.from({ length: 100 }, () => timeId(at));
@@ -523,10 +501,7 @@ test('update accepts a whole record spread without storing its path or id as fie
 	});
 });
 
-test('data definitions refuse nested file inputs and defaults', () => {
-	expect(() =>
-		defineData({ notes: { fields: { files: field.list(field.file()) } } }),
-	).toThrow('file input');
+test('data definitions refuse defaults', () => {
 	expect(() =>
 		defineData({
 			notes: {

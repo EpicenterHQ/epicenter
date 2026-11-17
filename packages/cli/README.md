@@ -13,7 +13,8 @@ all apps' code and records. Each folder in `apps/` is a stable app container:
       node_modules/             ignored
       ui/                       source
         dist/                   ignored build
-    data/                       records, settings, local credentials
+    data/                       records and settings
+    local/                      stays on this computer: tokens, caches, databases
 ```
 
 [ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
@@ -166,7 +167,7 @@ Tailscale is one setup. See [a computer that stays on](../../docs/vision.md#a-co
 The command selects the nearest marked ancestor of the current directory,
 then `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without the
 marker needs `epicenter init <folder>`. The marker's optional front matter
-accepts only `port`, an integer from 0 to 65535; the default is 4747. An empty
+accepts only `port`, an integer from 1 to 65535; the default is 4747. An empty
 marker is valid. Epicenters cannot nest.
 
 ```sh
@@ -238,29 +239,76 @@ messages; a key the action does not take is refused, naming the keys it does.
 `null` removes a field that accepts it. For text a person wrote, `- <<'EOF'`
 avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
 and prints an example to copy. A listing or action help with `--json` exposes
-each action as an MCP tool definition, with all four annotations explicit and
-private-input metadata kept separately.
+each action as an MCP tool definition, with the annotations the action states.
+An action that declares `mcp: false` is left out of serve's MCP tools and a
+`tools/call` for it is refused; a `--json` listing shows it with `mcp: false`,
+and the plain listing adds `(not offered to agents)`.
 
-An action declares private input handling with `privateInput: true`. The flag
-appears in JSON discovery as action metadata, separately from MCP annotations.
-The CLI accepts it only as `epicenter <app> <action> -`, with the whole JSON
-object piped on stdin. It offers no interactive secret prompt and refuses any
-other argument before parsing it. The same action stays
-available over HTTP and is neither listed nor callable over MCP. Its validation
-refusals contain no supplied input values.
-This is an input-handling policy: HTTP access follows the server's existing
-rules, and the app owns what it returns, throws, yields, and stores.
+## One serve runs every action
 
-## A call runs where it arrives
+One serve per home. The port is its name and its lock. The operating system
+keeps it running, and the command line never starts it or stands in for it.
 
-The CLI runs a call in its own process, and serve runs calls in its process.
-Each load drops cached modules under `codePath`, dependencies included, then
-imports `code/epicenter.ts`. The next call reads edits to code or its imports
-without restarting serve. On the CLI, an action's prints go to stderr so
-stdout contains only the answer.
+`epicenter serve` is the only process that runs an app's actions.
+`epicenter <app> <action>` checks its words and input, then sends the call to
+serve at the port in `EPICENTER.md`, the same `POST /<app>/<action>` a page
+makes, and prints the updates and the answer it reads back. It never runs the
+action itself.
 
-An action shares its process with other calls. `process.exit` ends that
-process; `process.chdir` or changes to `process.env` affect other apps too.
+While serve is stopped, an action is refused with exit 2 and nothing runs:
+
+```txt
+$ epicenter reading log '{"minutes":30}'
+Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.
+```
+
+Listings, `--help`, `check`, `checkpoint`, `build`, and the other commands in
+`src/commands.ts` do not need serve.
+
+The port is the home's name. Serve puts the home in an `x-epicenter-home`
+header on every answer, and a call says which home it is for, so serve
+refuses a call meant for another home. A command whose port answers for
+something else runs nothing:
+
+```txt
+Port 4747 answers for another Epicenter. Set a different `port` in EPICENTER.md.
+```
+
+It says `another program` when what answers is not an Epicenter. Two homes on
+one computer each need their own `port`, a whole number from 1 to 65535.
+
+The port is also the lock. A second `epicenter serve` for a home that is
+already served exits 2 and changes nothing:
+
+```txt
+Epicenter is already serving this home on port 4747.
+```
+
+When something else holds the port, it says so instead:
+
+```txt
+Port 4747 is in use by another program or another Epicenter. Set a different `port` in EPICENTER.md.
+```
+
+Serve states its version in an `x-epicenter-version` header. After an
+upgrade, the serve that was already running is still the old version until it
+restarts. A command sent to it uses the answer, because the action ran, and
+adds one line to stderr:
+
+```txt
+Epicenter is running version 0.4.0 and this command is version 0.4.1. Restart it with `epicenter service restart`, or stop `epicenter serve` and start it again.
+```
+
+An action runs in serve's environment: it does not see variables exported in
+the caller's shell, and what it prints goes to serve's log, not to the
+command. Each load drops cached modules under `codePath`, dependencies
+included, then imports `code/epicenter.ts`. The next call reads edits to code
+or its imports without restarting serve.
+
+An action shares its process with other calls. `process.exit` ends serve:
+every call then running is cut off, and a command that sent one answers a
+fault with exit 1, since the action may have run. `process.chdir` or changes
+to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
@@ -270,9 +318,8 @@ perform no Git work.
 
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
-A page calls actions through `@epicenter/app/client`. Serve admits each call
-at `POST /.runs/<app>/<action>/<id>` and streams its events. An unreloaded
-page using the retired `POST /<app>/<action>` receives a reload message.
+A page calls actions through `@epicenter/app/client`, at
+`POST /<app>/<action>`. See [A call over HTTP](#a-call-over-http).
 
 Serve commits nothing itself. A home checkpoints through a routine that runs
 `epicenter checkpoint`, such as `cron: "*/5 * * * *"`; a new routine runs at
@@ -340,85 +387,63 @@ in the home. The home's repository backs up the declaration, script, and drafts.
 See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md) and
 [ADR-0937](../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md).
 
-## Serve-owned runs
+## A call over HTTP
 
-Ordinary page calls and `runs.start(app.action, input)` share admission,
-execution, and event replay. Both accept `Blob` or `File` inputs. The client
-uploads files by PUT and passes the action temporary `UploadedFile` handles.
-CLI, MCP, and routines refuse file inputs. All routes use the existing Host,
-Origin, and tunnel guards. Action words are joined with dots.
+`POST /<app>/<action>` runs one action. Action words are joined with dots
+(`/flights/watches.search`). The body is the input as one JSON object, at
+most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 
-| Method | Route | Response |
-| --- | --- | --- |
-| PUT | `/.runs/<app>/<action>/<id>/files/<field>` | 200 `{ reference }`; refusal 400, 404, 409, 411, 413, 415, or 507 |
-| POST | `/.runs/<app>/<action>/<id>` | 200 NDJSON for a new run or identical join; refusal 400, 404, 409, 413, 429, 503, or 507 |
-| GET | `/.runs/<app>/<action>/<id>/events?after=<seq>` | 200 NDJSON replay; 404 unknown; 429 observer limit |
-| GET | `/.runs/<app>/<action>/<id>` | 200 state; 404 unknown |
-| POST | `/.runs/<app>/<action>/<id>/cancel` | 202 requested; 200 already terminal; 404 unknown |
-| POST | `/<app>/<action>` | 200 NDJSON reload message; executes nothing |
+| Outcome | Response |
+| --- | --- |
+| The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
+| No such app or action, or the input is not JSON, not an object, or does not fit | 400, the refusal `{ data: null, error: { kind: "refused", reason } }` as the body |
+| The body is too large | 413 |
 
-A definitive admission refusal carries `X-Epicenter-Admitted: false` in its HTTP headers. A join refused at the
-observer limit carries `X-Epicenter-Admitted: true` because the run already exists. Without a marker,
-4xx is a refusal; another failure after POST is uncertain. Observe that id
-with GET instead of resending admission.
+A stream that ends with no `answer` line was cut off, and its outcome is
+unknown: the action may still be running or may have finished. The caller
+rereads its records, or calls again with the same id when the action takes
+one.
 
-One host owns `~/.local/state/epicenter/prototype-runs/<hash>`, where `<hash>`
-is the first 16 hex characters of SHA-256 of the root's real path.
-`EPICENTER_RUNTIME_DIR` overrides it outside the Epicenter and all apps. The
-runtime is owner-only; Time Machine exclusion is best effort. `runs.sqlite`
-uses WAL and synchronous FULL. It deduplicates payloads by hash and compresses
-when smaller. Startup imports the v1 directory records and marks unfinished
-runs `interrupted`; it never reruns them.
+Serve keeps nothing about a call: no id, no log, no replay. It runs the
+action to its end whether or not the caller stays. A caller that leaves
+stops reading, and updates it has not read are dropped. Updates for a slow
+caller wait in order. Nothing stops an action from outside.
 
-The 512 MiB admission threshold counts uploads, the database, WAL, and SHM,
-including in-flight upload reservations. Admission also reserves a 4 MiB
-serialized event-log allowance per active run, including 1 KiB for its terminal
-frame. This is a refusal threshold for new work, not a maximum disk footprint:
-accepted runs may finish above it, and SQLite rows, indexes, and WAL add space
-beyond serialized JSON. Disk-full errors can prevent a terminal commit. Limits are 32
-active runs, 64 observers, 256 KiB per yield, 1 MiB admission JSON, and 15 MiB
-per file. Accepted runs and published events remain for 24 hours after ending.
-Successful finishes delete input bytes; other outcomes retain them until expiry.
-Orphan uploads and partial files expire after one hour. Cleanup runs every ten
-minutes and under budget pressure.
-
-Observation can stop without cancelling execution. `run.cancel()` records a
-request before aborting the cooperative `callSignal()`. It does not establish
-rollback. `runs.start` stores `epicenter.run:<id>` per receipt and imports the
-old `epicenter.runs.prototype.v1` array on read. Ordinary calls use no browser
-storage. For `privateInput: true`, admission stores neither JSON input values
-nor an input digest; file hashes and bytes follow ordinary retention.
-
-Run the in-process workload with:
-
-```sh
-bun packages/cli/src/__benchmarks__/runs.bench.ts --polls 2000
-```
-
-See [ADR-0917](../../docs/adr/0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md).
+The CLI makes this same call to serve and writes each update to stderr as one
+line of JSON; stdout holds only the answer. MCP sends the tool
+result alone.
 
 ## Coordinate writes
 
-A call's first write or delete through `folder` takes a flock on the real app
-container. It waits up to 30 seconds, then throws that the app is busy. The
-lock stays held until the action returns, throws, or stops. There is no lock
-file to clean up. A process exit closes the descriptor. A call that does not
-write through `folder` takes no lock.
+Nothing locks a call. Serve is the one process that runs actions, so two
+actions never replace one file at the same moment, whether they came from a
+page, an agent, or two commands started together.
 
-`folder.update` computes from the text read and retries when an outside writer
-changes it before replacement. Every collection write uses it. Plain
-`folder.write` is last-write-wins. Fetch or compute before the first write
-to keep other writes from waiting on slow work.
+`folder.update` reads the text, computes from it, and replaces the file, with
+no other update between. Every collection write uses it. Plain `folder.write`
+is last-write-wins. Neither guards against a writer outside Epicenter, such
+as an editor or a `git pull`.
 
-Writes through `folder` stay under `data/` and reject `.git*` path segments.
+Writes through `folder` stay under `data/` and `local/`.
 The container remains `folder.path`. Reads may reach another app's records
-at `../tasks/data/tasks/<time>.md`. Direct `node:fs` operations do not obtain
-the call's lock; the app owns their coordination.
+at `../tasks/data/tasks/<time>.md`.
 
-A read-only call takes no lock. Folder writes throw except on `.local` paths
-under `data/`. These files have owner-only permissions when created through
-folder methods. Atomic replacement files have local names too, so the root
-ignore rules keep them out of checkpoints. `folder` is not a sandbox.
+An action's MCP annotations, `readOnlyHint` among them, are forwarded to MCP
+clients and refuse nothing. `folder` is not a sandbox.
+
+What is in an app's `local/` stays on this computer: the root `.gitignore`
+names `/apps/*/local/`, and a checkpoint refuses a file there that Git would
+commit. A file made under `local/` through folder methods is readable by its
+owner alone (`0600`), and a directory made there is `0700`; one already there
+keeps its mode. An action keeps a token with
+`folder.write('local/google.md', token)`. `local/` appears when an action
+first writes there. A write replaces a file by writing `local/.tmp/<uuid>`
+and renaming it over the target, so nothing unfinished is ever under `data/`.
+
+A file named `*.local` or `*.local.*` was the earlier way to say this. The
+root `.gitignore` and the checkpoint refusal still keep such a file out of
+every commit, because older homes hold tokens named that way under `data/`.
+The name no longer changes a file's mode.
 
 ## What a run answers
 
@@ -475,9 +500,8 @@ with one Result per file, including the individual refusals. The check command
 collects those diagnostics for the whole app so a person or agent can repair
 the records or the declaration.
 
-It reads each collection with its `check()` method in a read-only run of the
-app's folder, as a read-only action's run is: it takes no write lock and the
-folder refuses any write. A `.local` collection is checked too, and its
+It reads each collection with its `check()` method in a run of the app's
+folder and writes nothing. A `.local` collection is checked too, and its
 problem lines never quote a value.
 
 For each collection the report gives its path template, the files it

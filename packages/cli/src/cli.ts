@@ -1,4 +1,4 @@
-/** Dispatch commands and run checked app actions; actions leave their writes pending. */
+/** Dispatch commands, and send each checked app action to the home's serve, which runs it. */
 import { isName } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { buildCommand } from './build.ts';
@@ -23,15 +23,14 @@ import { newCommand } from './new.ts';
 import {
 	fail,
 	presentAnswer,
-	printingToStderr,
 	refused,
 	writeErr,
 	writeJson,
 	writeOut,
 } from './output.ts';
-import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
+import { epicenterDir, epicenterRoot, MARKER, RootUsageError } from './root.ts';
 import { routinesCommand } from './routines.ts';
-import { runAction } from './run.ts';
+import { sendToServe } from './serve-call.ts';
 import { serviceCommand } from './service.ts';
 
 const HELP = `epicenter                              your apps
@@ -182,12 +181,25 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = await readInput(action, matched.rest);
 		if ('error' in given)
 			return reject(CliError.Usage({ message: given.error, next }).error);
-		// What the action prints goes to stderr, so stdout holds only the answer.
+		// Each update is one line of JSON on stderr, as it arrives.
+		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
+		// Serve runs every action; this process only sends the call.
 		invoked = true;
-		const answer = await printingToStderr(() =>
-			runAction(located, matched.key, action, given.input),
-		);
-		return presentAnswer(answer, json);
+		const sent = await sendToServe(name, matched.key, given.input, onUpdate);
+		if (!sent.answer)
+			return reject(
+				CliError.Refused({
+					message:
+						sent.holder === 'nothing'
+							? 'Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.'
+							: `Port ${sent.port} answers for another ${sent.holder === 'epicenter' ? 'Epicenter' : 'program'}. Set a different \`port\` in ${MARKER}.`,
+				}).error,
+			);
+		if (sent.version !== undefined && sent.version !== VERSION)
+			writeErr(
+				`Epicenter is running ${sent.version === null ? 'an older version' : `version ${sent.version}`} and this command is version ${VERSION}. Restart it with \`epicenter service restart\`, or stop \`epicenter serve\` and start it again.`,
+			);
+		return presentAnswer(sent.answer, json);
 	} catch (error) {
 		if (invoked) {
 			writeErr(

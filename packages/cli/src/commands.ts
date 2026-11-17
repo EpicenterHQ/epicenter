@@ -72,10 +72,12 @@ file has a problem or an app could not be checked.`,
 	serve: {
 		usage: 'epicenter serve',
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
-action to its UI as a serve-owned run at POST /.runs/<app>/<action>/<id>, on
-127.0.0.1 at the port in EPICENTER.md (default 4747). It runs every call itself,
-from the app's code as it is on disk then, and runs the home's routines. It
-commits nothing itself: add a routine that runs checkpoint. It has no sign-in and answers
+action to its UI at POST /<app>/<action>, on 127.0.0.1 at the port in
+EPICENTER.md (default 4747). A home has one serve, and it runs every action:
+epicenter <app> <action> sends its call here and is refused while serve is
+stopped. Each call runs from the app's code as it is on disk then, to its end,
+and serve keeps nothing about it. It runs the home's routines. It commits
+nothing itself: add a routine that runs checkpoint. It has no sign-in and answers
 only this computer. To reach it from your other devices, run a private proxy
 such as: tailscale serve --bg 4747`,
 	},
@@ -142,11 +144,11 @@ export function parseWords<const O extends ParseArgsOptionsConfig>(
 	}
 }
 
-/** A port as `init --port` gives it, or `undefined` when it is not a whole number from 0 to 65535. */
+/** A port as `init --port` gives it, or `undefined` when it is not a whole number from 1 to 65535. */
 export function portOf(value: string): number | undefined {
 	const port = Number(value);
-	return /^\d+$/.test(value) && port <= 65535 ? port : undefined;
+	return /^\d+$/.test(value) && port >= 1 && port <= 65535 ? port : undefined;
 }
 
 /** Why `--port` is wrong, for `misuse`. */
-export const BAD_PORT = '--port must be a whole number from 0 to 65535';
+export const BAD_PORT = '--port must be a whole number from 1 to 65535';

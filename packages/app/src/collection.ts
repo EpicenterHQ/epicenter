@@ -13,8 +13,7 @@
  * write keeps front matter no field declares. Plain set patches can repair
  * readable files, but must make the whole record fit before writing.
  * Computed set and update receive only fitting records and return Ok(change)
- * or Err(error). Update retries its pure callback when the file changes
- * meanwhile; after 10 tries it answers Err(Changed). Refusals are Results;
+ * or Err(error). Update runs its callback once. Refusals are Results;
  * callback faults and I/O failures throw.
  *
  * Generated verbs expose plain-data operations. The set verb guards fields
@@ -38,7 +37,6 @@ export type { Problem } from './errors.ts';
 import { absentValue, defaultIn, refPathOf } from './field.ts';
 import { isFieldKey, readMarkdown } from './front-matter.ts';
 import {
-	containsFileMarker,
 	type Fields,
 	type Fitting,
 	isOptional,
@@ -186,7 +184,7 @@ export type Handle<D extends CollectionDef> = {
 			>(
 				change: (record: RecordOf<D>) => R,
 			): Promise<Result<RecordOf<D>, SetError<D> | Exclude<R['error'], null>>>;
-			/** Update or create, retrying the callback when the file changes meanwhile. */
+			/** Update or create. */
 			update<
 				R extends Result<Change<D['fields']>, CallbackError> = Result<
 					Change<D['fields']>,
@@ -225,7 +223,7 @@ export type Handle<D extends CollectionDef> = {
 				keys: Keys<D>,
 				change: (record: RecordOf<D>) => R,
 			): Promise<Result<RecordOf<D>, SetError<D> | Exclude<R['error'], null>>>;
-			/** Update or create, retrying the callback when the file changes meanwhile. */
+			/** Update or create. */
 			update<
 				R extends Result<Change<D['fields']>, CallbackError> = Result<
 					Change<D['fields']>,
@@ -480,10 +478,6 @@ function collectionProblems(def: CollectionDef): string[] {
 		if (!keys.size && !isOptional(schema) && absentValue(schema) === undefined)
 			problems.push(
 				`The collection at ${path} is one file, read as empty before it exists, so the field "${key}" must be optional, a switch, or a list without min`,
-			);
-		if (containsFileMarker(schema))
-			problems.push(
-				`${at} has the file field "${key}", which a collection of one file per record cannot keep; it would store the host's temporary upload reference`,
 			);
 		if (defaultIn(schema))
 			problems.push(

@@ -17,7 +17,7 @@ async function setup() {
 	await gitIn(f.home, 'init', '-q');
 	await writeFile(
 		join(f.home, '.gitignore'),
-		'*.local\n*.local.*\nnode_modules/\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
+		'/apps/*/local/\n*.local\n*.local.*\nnode_modules/\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
 	);
 	await checkpoint(f.home);
 	return f;
@@ -87,6 +87,21 @@ test('unignored local files are refused and tracked local files name git rm --ca
 	await gitIn(f.home, 'rm', '--cached', 'token.local');
 	expect((await checkpoint(f.home)).failed).toBeUndefined();
 	expect(await readFile(join(f.home, 'token.local'), 'utf8')).toBe('secret');
+});
+
+test("a file in an app's local/ is refused until .gitignore keeps it out, and an old-named file under data/ still is", async () => {
+	const f = await setup();
+	await writeFile(join(f.home, '.gitignore'), '');
+	await f.folder(join(f.apps, 'x'), { 'local/google.md': 'secret' });
+	expect((await checkpoint(f.home)).failed?.message).toBe(
+		`apps/x/local/google.md would be committed; add /apps/*/local/ to ${f.home}/.gitignore`,
+	);
+	await writeFile(join(f.home, '.gitignore'), '/apps/*/local/\n');
+	await f.folder(join(f.apps, 'x'), { 'data/token.local.md': 'secret' });
+	expect((await checkpoint(f.home)).failed?.message).toBe(
+		`apps/x/data/token.local.md would be committed; add *.local and *.local.* to ${f.home}/.gitignore`,
+	);
+	expect(await gitIn(f.home, 'ls-files', '--', 'apps')).toBe('');
 });
 
 test('missing and broken code never prevent data checkpoints', async () => {

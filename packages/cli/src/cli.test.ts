@@ -214,7 +214,7 @@ test('a misused command answers its usage line, with its help as the next step',
 			stderr: `Usage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
 		});
 	expect((await f.run('serve', '--help')).stdout).toContain(
-		'POST /.runs/<app>/<action>/<id>',
+		'POST /<app>/<action>',
 	);
 	expect((await f.run('checkpoint', '--help')).stdout).toBe(
 		`${COMMANDS.checkpoint.usage}\n${COMMANDS.checkpoint.help}\n`,
@@ -252,7 +252,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 		'counts',
 		`export default defineApp({description:'Counts',collections:{},actions:{
 		increment:defineAction({description:'Increment',input:{}, async run(){
-			await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
+			await folder.update('local/count', (value = '0') => String(Number(value) + 1));
 			return Ok('done');
 		}}),
 	}});`,
@@ -268,6 +268,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 		};
 	`,
 	);
+	await f.serve();
 	const child = Bun.spawn(
 		[
 			process.execPath,
@@ -296,9 +297,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 		stderr:
 			'Epicenter invoked the action but could not report its outcome: simulated output failure\n',
 	});
-	expect(await readFile(join(f.apps, 'counts/data/count.local'), 'utf8')).toBe(
-		'1',
-	);
+	expect(await readFile(join(f.apps, 'counts/local/count'), 'utf8')).toBe('1');
 });
 
 test('runs use the selected Epicenter and their own local files', async () => {
@@ -313,7 +312,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	const value = JSON.parse(result.stdout).data;
 	expect(value.folder).toBe(join(f.apps, 'reading'));
 	expect(
-		await Bun.file(join(f.apps, 'reading', 'data/index.local.json')).exists(),
+		await Bun.file(join(f.apps, 'reading', 'local/index.json')).exists(),
 	).toBe(true);
 	const target = await f.app(
 		'linked',
@@ -329,7 +328,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	).data;
 	expect(homeRun.folder).toBe(join(f.apps, 'reading'));
 	expect(
-		await Bun.file(join(f.apps, 'reading/data/index.local.json')).exists(),
+		await Bun.file(join(f.apps, 'reading/local/index.json')).exists(),
 	).toBe(true);
 });
 

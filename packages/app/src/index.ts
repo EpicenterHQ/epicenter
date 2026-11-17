@@ -2,13 +2,17 @@ export { defineErrors } from 'wellcrafted/error';
 export { Err, Ok, partitionResults, type Result } from 'wellcrafted/result';
 export {
 	type Action,
-	type ActionYield,
+	type ActionUpdate,
 	defineAction,
 	type Input,
 	isAction,
-	runYielding,
+	type Update,
 } from './action.ts';
-export { encodeActionResult, type PublicError } from './action-result.ts';
+export {
+	encodeActionResult,
+	isActionResult,
+	type PublicError,
+} from './action-result.ts';
 export {
 	type Actions,
 	type App,
@@ -29,11 +33,11 @@ export {
 } from './collection.ts';
 export {
 	type Context,
-	callSignal,
 	type Folder,
 	folder,
 	inRun,
 	isLocalPath,
+	isUnderLocal,
 	normalizePath,
 	textUpdate,
 } from './context.ts';
@@ -47,13 +51,7 @@ export {
 export { checkData } from './data-check.ts';
 export { ActionError, type Problem } from './errors.ts';
 export {
-	FILE_REFERENCE_PREFIX,
 	field,
-	fileFieldOf,
-	MAX_FILE_BYTES,
-	type TList,
-	type TSwitch,
-	type UploadedFile,
 	whatFits,
 	whatTakes,
 } from './field.ts';

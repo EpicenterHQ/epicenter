@@ -6,7 +6,7 @@
  */
 import { access, lstat, readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isLocalPath, isName } from '@epicenter/app';
+import { isLocalPath, isName, isUnderLocal } from '@epicenter/app';
 import { git, gitMessage } from './git.js';
 
 type Problem = { message: string; next?: string };
@@ -53,6 +53,20 @@ async function retryGit(root: string, args: string[]) {
 	}
 }
 
+/**
+ * The ignore rule that keeps `path` on this computer, when it must stay here:
+ * it is in an app's `local/`, or one of its parts is named `*.local` or
+ * `*.local.*`. The name is the old way to say it, and it stays on purpose.
+ * Homes made before `local/` still keep tokens named that way under `data/`,
+ * and this refusal is the only thing between a hand-run `git add` and a
+ * pushed token.
+ */
+function ignoreRuleFor(path: string) {
+	const [top, , ...inApp] = path.split('/');
+	if (top === 'apps' && isUnderLocal(inApp.join('/'))) return '/apps/*/local/';
+	if (isLocalPath(path)) return '*.local and *.local.*';
+}
+
 /** A deleted or renamed credential still belongs to the history being uploaded. */
 async function unpushedLocalPath(root: string, range: string) {
 	const history = await git(root, [
@@ -66,7 +80,7 @@ async function unpushedLocalPath(root: string, range: string) {
 		range,
 	]);
 	if (history.code !== 0) throw new Error(gitMessage(['log'], history));
-	return history.stdout.split('\0').find((path) => path && isLocalPath(path));
+	return history.stdout.split('\0').find((path) => path && ignoreRuleFor(path));
 }
 
 async function refusePending(
@@ -83,10 +97,11 @@ async function refusePending(
 	const pending = pendingPaths(status.stdout);
 	for (const { status, path } of pending) {
 		// A deletion in either column stages removal without including secret contents.
-		if (isLocalPath(path) && !status.includes('D'))
+		const rule = ignoreRuleFor(path);
+		if (rule && !status.includes('D'))
 			return status === '??'
 				? {
-						message: `${path} would be committed; add *.local and *.local.* to ${root}/.gitignore`,
+						message: `${path} would be committed; add ${rule} to ${root}/.gitignore`,
 					}
 				: {
 						trackedLocal: true,
@@ -108,7 +123,7 @@ async function refusePending(
 	if (tracked.code !== 0) throw new Error(gitMessage(['ls-files'], tracked));
 	for (const path of tracked.stdout.split('\0').filter(Boolean)) {
 		if (
-			isLocalPath(path) &&
+			ignoreRuleFor(path) &&
 			!pending.some(
 				(entry) => entry.path === path && entry.status.includes('D'),
 			)

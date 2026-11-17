@@ -1,35 +1,32 @@
 /**
  * MCP tools for `epicenter serve` (ADR-0849, ADR-0853): every app's actions,
- * and nothing else.
+ * and nothing else. An action that declares `mcp: false` is not offered:
+ * `tools/list` leaves it out and `tools/call` refuses its name.
  *
  * Each request loads the apps it needs as they are on disk now (`home.ts`),
  * so an edit between two calls is seen by the second. `tools/list` offers
  * each app's actions; an app that cannot load loses only its own tools, and
  * why goes to stderr. `tools/call` decodes the tool name and runs the action
  * in this process (`run.ts`), which checks the app, the action, and the
- * input, and leaves the call's writes pending. An action with a
- * `privateInput: true` flag is neither listed nor run here (ADR-0907).
- * File inputs are also neither listed nor run here. A
- * call's result is the same object `--json` prints: `structuredContent` on
- * success, and with `isError` on failure. What an action yields is not sent:
+ * input, and leaves the call's writes pending.
+ * A call's result is the same object `--json` prints: `structuredContent` on
+ * success, and with `isError` on failure. An action's updates are not sent:
  * an MCP client reads only the answer.
  */
 
-import { fileFieldOf, isName } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { nameProblem } from './commands.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
 import { type Answer, outcome, refused, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
-import { callAction } from './run.ts';
+import { resolveAction, runAction } from './run.ts';
 
 /** One app's tools; none when it cannot load, and why goes to stderr. */
 async function appTools(entry: string): Promise<Tool[]> {
@@ -43,11 +40,7 @@ async function appTools(entry: string): Promise<Tool[]> {
 		return [];
 	}
 	return Object.entries(located.actions)
-		.filter(([, action]) => action.privateInput !== true)
-		.filter(
-			([, action]) =>
-				!Object.values(action.input).some((schema) => fileFieldOf(schema)),
-		)
+		.filter(([, action]) => action.mcp !== false)
 		.map(([key, action]) => actionTool(located.name, key, action));
 }
 
@@ -94,18 +87,20 @@ export async function createMcpServer() {
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const { name, arguments: args } = request.params;
 		const [app = '', ...words] = name.split('_');
-		// App names and action words have no underscores. The first word must name
-		// an app, so a tool name never runs one of epicenter's own commands.
-		if (
-			nameProblem(app) !== undefined ||
-			words.length === 0 ||
-			!words.every(isName)
-		)
+		// App names and action words have no underscores.
+		const key = words.join(' ');
+		const call = await resolveAction(app, key, args ?? {});
+		if (call.refusal) return toolResult(call.refusal);
+		if (call.action.mcp === false)
 			return toolResult(
-				refused(CliError.Usage({ message: `Unknown tool ${name}` }).error),
+				refused(
+					CliError.Usage({
+						message: `${app} ${key} is not offered over MCP`,
+					}).error,
+				),
 			);
 		return toolResult(
-			await callAction(app, words.join(' '), args ?? {}, { overMcp: true }),
+			await runAction(call.located, key, call.action, call.input),
 		);
 	});
 	return server;

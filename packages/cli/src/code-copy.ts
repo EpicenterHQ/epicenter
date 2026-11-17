@@ -1,12 +1,14 @@
 /** The file boundary shared by taking an app and exporting one. */
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isLocalPath } from '@epicenter/app';
 import { checkedGit, git } from './git.js';
 
 export const EXPORT_MARKER = '.epicenter-export.json';
 
-/** These files are local state or provenance, even if someone committed them. */
+/**
+ * These files are records, caches or provenance, even if someone committed
+ * them. An app's `local/` is beside its code, so it is never among them.
+ */
 export function isCopiedCodePath(path: string) {
 	const segments = path.split('/');
 	return (
@@ -15,7 +17,6 @@ export function isCopiedCodePath(path: string) {
 		!segments.some((part) => part.toLowerCase() === '.git') &&
 		!segments.includes('node_modules') &&
 		!segments.some((part) => part.toLowerCase() === '.ds_store') &&
-		!isLocalPath(path) &&
 		path !== 'ui/dist' &&
 		!path.startsWith('ui/dist/') &&
 		path !== 'SOURCE.md' &&

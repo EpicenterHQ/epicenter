@@ -24,7 +24,6 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 		}),
 		ActionError.Refused({ message: 'declined', next: 'Try another input' }),
 		ActionError.Unreachable({ message: 'The model did not answer' }),
-		ActionError.Stopped({ message: 'Work stopped' }),
 	]) {
 		const received: unknown = JSON.parse(
 			JSON.stringify({ ...error, extra: 7 }),
@@ -60,7 +59,6 @@ test('the marker and the complete variant payload are required', () => {
 		{ ...base, name: 'Threw', thrown: { name: 'Custom' } },
 		{ ...base, name: 'Refused', next: 7 },
 		{ ...base, name: 'Unreachable', message: 7 },
-		{ ...base, name: 'Stopped', message: null },
 	])
 		expect(isActionError(value)).toBe(false);
 });

@@ -3,7 +3,8 @@
 What an app's `code/epicenter.ts` imports
 ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md),
 [ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
-An app container under `apps/` holds code/ and data/ siblings. Its
+An app container under `apps/` holds code/, data/ and local/ siblings; what
+is in local/ stays on this computer. Its
 `code/epicenter.ts` default-exports `defineApp(...)`. The
 `epicenter` command turns each of its actions into a command for the person
 and an MCP tool for their agent, and its UI calls the same actions.
@@ -62,9 +63,9 @@ and does not run it.
   other field as the caller gave it. Every action returns one Wellcrafted
   Result. Return `Ok(value)`, return a tagged Err, or forward the Result of
   another call. `@epicenter/app` exports `Ok`, `Err`, `Result`, and
-  `defineErrors`. Error factories already return Err. An async generator
-  yields progress and returns its final
-  Result. The UI, CLI and MCP receive its JSON form.
+  `defineErrors`. Error factories already return Err. `run` may take a
+  second argument, `update`, and call it to report while it runs; its return
+  is still the answer. The UI, CLI and MCP receive its JSON form.
 - `defineApp` checks what it was given and returns that same object. It needs
   `description`, `collections`, and `actions`, with `{}` for none. Each
   collection's name is its key in `collections`; each action's words are its
@@ -205,10 +206,9 @@ must return a Result. Return `Ok(patch)` to apply fields or body, or a tagged
 Err to decline. The caller receives that Err and the file stays as it was.
 A plain patch remains valid as the second argument to `set`.
 
-`set` gives its callback a fitting record, including the body. When the file
-changes during the write, the callback runs again with the new contents.
-Keep it pure. `Ok({})` leaves an existing record alone. Vocab's review can
-therefore count two concurrent reviews:
+`set` gives its callback a fitting record, including the body. The callback
+runs once, and no other write to the file runs between its read and its
+write. `Ok({})` leaves an existing record alone. Vocab's review can therefore count two concurrent reviews:
 
 ```ts
 return words.set({ word }, (found) => Ok(schedule(found, grade, now)));
@@ -267,7 +267,6 @@ can import the same helper from `@epicenter/app/client`.
 
 `defineCollection` refuses:
 
-- a `field.file()` field, including a nested or read-only file marker;
 - a path outside `data/`, naming the path with that prefix;
 - a path that is not a relative `.md` template, has an empty part or one
   starting with `.`, has a placeholder twice, or a brace
@@ -351,21 +350,18 @@ and `defineAction` refuse a schema with one at any depth, so the default is
 written in code where the value is read. `field.boolean` and `field.list`
 mark their schema `"x-epicenter-field": "switch"` or `"list"`, which names
 their kind rather than a value; a read and an action's call give an absent
-one as `false` or `[]`, except a list with `minItems`, which is required. Fields describe data;
-`defineAction({ privateInput: true, ... })` declares private handling for the
-whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
-unchanged and have no effect on this policy. Schemas must serialize as
+one as `false` or `[]`, except a list with `minItems`, which is required.
+Raw JSON Schema annotations pass through unchanged. Schemas must serialize as
 finite JSON; recursive schemas use references rather than cyclic JavaScript
 objects. No field name is reserved: the command line reads the input as one
 JSON object, so `json`, `help`, and `input` are keys like any other.
 
-An action with `privateInput: true` accepts HTTP or exactly `-` at the CLI.
-Its whole input is one JSON object from stdin: an argument and a terminal
-prompt are unavailable. MCP neither lists nor runs it.
-Validation refuses its whole input without echoing values or undeclared
-property names. Actions make no commits.
-The flag governs input handling. It does not authenticate HTTP callers or
-redact action results. The app owns what it returns, throws, yields, and writes.
+A secret, such as a token, is ordinary input: the app's page sends it once
+and the action keeps it under `local/`, which never enters Git:
+`await folder.write('local/google.md', token)`, read back with
+`await folder.read('local/google.md')`. An action writes only under `data/`
+and `local/`. Epicenter treats that input as any other, so give it from the page or
+piped on stdin, not as a command argument or through an agent.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer
@@ -382,13 +378,22 @@ On the command line an action's whole input is one argument, the JSON object,
 or `-` to read it from stdin (ADR-0925):
 `epicenter reading between '{"from":"2026-11-01","to":"2026-11-08"}'`.
 HTTP, MCP, and the command line check it alike, and a key the action does not
-take is refused. `defineAction` throws on a definition that still has
-`positional`.
+take is refused.
 
 An action's `annotations` are MCP's tool annotations, verbatim:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, with
 MCP's defaults. An action that does not say otherwise reads as one that may
-destroy.
+destroy. They are hints for an MCP client, which decides from them how careful
+to be before a call. Epicenter forwards them and enforces none: an action
+marked `readOnlyHint: true` that writes is the action's own mistake.
+
+An action that declares `mcp: false` is not offered to agents over MCP:
+`tools/list` leaves it out and `tools/call` refuses its name. The Messages app
+marks "send a message as me" this way, so an agent that reads messages from
+strangers is not also handed a send tool. The command line, HTTP, pages and
+routines call the action as any other. The key shapes the tool list and is not
+a wall: an agent with a shell can still call the action through the CLI or
+HTTP.
 
 ## Runs
 
@@ -407,18 +412,17 @@ and records together, from the CLI or serve's clock
 Reads tolerate records that no longer fit the declaration; repair follows a
 code change rather than blocking the whole app.
 
-Calls that write one app take turns from their first folder write until they
-end. The runner flocks the real container `apps/<app>`, so replacing code/
-does not change the lock. A read-only call takes no lock. Fetch or compute
-first and write last to keep other writers from waiting.
+Nothing locks a call. One process, `epicenter serve`, runs every action,
+including one the command line sends.
+Fetch or compute first and write last, so a slow step never leaves a file
+half done.
 `folder.write` replaces the file, and the last write wins. A change that
 depends on what it read goes through `folder.update(path, change)`: it reads
 the file, calls `change` with its text (`undefined` when there is none), and
-writes what `change` returns, nothing when that is what is there. A writer
-outside epicenter, such as an editor, may change the file between the read
-and the write; then `update` calls `change` again on what is there now, and
-after 10 tries it throws `ActionError.Changed`. A `change` that
-throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `update`, and the verbs built on them)
+writes what `change` returns, nothing when that is what is there. `change`
+runs once. One process runs actions, so no other update runs between the read
+and the write; a writer outside epicenter, such as an editor, is not guarded
+against. A `change` that throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `update`, and the verbs built on them)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
 
@@ -432,254 +436,88 @@ refuse the change, `Ok({ value })` to leave the file as it is, or
 `Ok({ value, text })` to replace it. The caller receives the value from the
 attempt that won. This also lets a check leave an absent file absent.
 
-A run of an action marked `readOnlyHint: true` takes no write lock. Its
-context carries `readOnly: { action }`, and in it `folder.write`,
-`folder.writeBytes`, `folder.edit`, `folder.update`, and `folder.delete` throw before doing
-anything, unless the path is `.local` under `data/`: `The action "<words>" is read-only, so
-it cannot write <path>`. A raw `node:fs` write, or a change made through an
-outside service, is the action's own promise.
-
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. That path is the real app container, not code/
 or data/. What the app can rebuild lives in files it
 gitignores inside its folder, such as `code/ui/dist/`; they are never committed.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
-Every write through `folder` stays under `data/`. A path with a `.git*` segment
-is refused at any depth. Reads may reach code files.
+Every write through `folder` stays under `data/`. Reads may reach code files.
 
-## Temporary file inputs and runs
+## Updates while an action runs
 
-A top-level action input can use `field.file({ accept: ['audio/*'], maxBytes })`.
-`accept` contains MIME types or `type/*`; `maxBytes` is a positive integer up
-to 15 MiB, the default. A file cannot be nested in another schema, or stored
-by a collection. Persistent attachments are undecided.
-
-The browser supplies a `Blob` or `File` through separate run controls:
+An action reports by calling `update`, the second argument of `run`. Annotate
+it with `Update<T>`, and that `T` is the type of every caller's `onUpdate`:
 
 ```ts
-import { runs } from '@epicenter/app/client';
+import { defineAction, field, Ok, type Update } from '@epicenter/app';
 
-const ordinary = await app.transcribe({ audio: file }); // Blob or File
-const run = runs.start(app.transcribe, { audio: file });
-if (run.isRemembered()) showCanReturnLater();
-const answer = run.result({ onYield: (value) => show(value) });
-// A Stop button calls run.cancel().
-await run.cancel();
-```
+type Progress = { copied: number; of: number };
 
-Both forms upload each `Blob` or `File` before the same run admission. The
-host passes the action an `UploadedFile` with `name`, `type`, `size`, `path()`,
-`bytes()`, and `text()`, valid while the run executes. CLI, MCP, routines,
-nested schemas, and collections cannot supply files.
-
-`runs.start` saves `epicenter.run:<id>` before sending. Storage failure never
-blocks execution: `isRemembered()` is false, and pending runs remain in a
-bounded page-memory fallback. The client imports the old
-`epicenter.runs.prototype.v1` array into per-id receipts on read. Receipts
-older than seven days are pruned. `runs.pending(action)` lists this action's
-receipts; `pendingRuns({ app })` lists across actions. Ordinary calls keep the
-id in memory and do not write browser storage.
-
-`events({ signal })` replays the run from the beginning. The SDK manages
-reconnect offsets internally. `result({ onYield,
-signal })` waits for the answer and delivers yields in order. An aborted
-observer, a closed tab, or a throwing callback stops observation only.
-`run.cancel()` requests cooperative cancellation, which does not establish
-rollback. A terminal event removes the receipt; an unknown or disconnected
-run retains it. If an uncertain ordinary call returns `Unreachable` or
-`Stopped` with `error.run`, use `runs.attach(app.transcribe, error.run.id)` to
-observe the same id. Never resend admission to recover an answer.
-
-Run controls take a connected action and live outside the action tree, so
-`daily.start` and `practice.start` remain callable actions. Serve marks an
-unfinished run `interrupted` on recovery and never reruns it. For
-`privateInput: true`, admission stores neither input values nor an input
-digest. File metadata, hashes, and bytes follow the ordinary retention rules.
-See the [CLI run policy](../cli/README.md#serve-owned-runs) for limits and retention.
-
-## Secrets are `.local` files
-
-A path with a part matching `*.local` or `*.local.*`, in any case, stays on
-the computer that runs the app
-([ADR-0870](../../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
-`isLocalPath(path)` says whether a path is one. Such a file:
-
-- stays out of root history: the root `.gitignore` excludes it, and a
-  checkpoint refuses local credentials Git would include;
-- may be written and deleted in a read-only run, since it stays out of
-  Git history, so an action that only reads may still refresh a token;
-- is made `0600`, readable by its owner alone, when `folder` creates it on a
-  computer, and a directory `folder` creates on such a path is `0700`;
-- is never one of a collection's files unless the collection's own `path` is
-  `.local`: such a file is skipped by `list`, and a key such as `token.local`
-  that would name one is refused by every method.
-
-An app's secret is a collection with no placeholder at a `.local.md` path,
-with its fields declared like any other:
-
-```ts
-const google = defineCollection({
-  path: 'data/google.local.md',
-  description: "this computer's Google sign-in",
-  fields: {
-    account: field.text({ optional: true }),
-    refreshToken: field.text({ optional: true }),
-  },
+const sync = defineAction({
+	description: 'Copy new mail',
+	input: { account: field.text() },
+	async run({ account }, update: Update<Progress>) {
+		const ids = await newMail(account);
+		for (const [index, id] of ids.entries()) {
+			await copy(id);
+			update({ copied: index + 1, of: ids.length });
+		}
+		return Ok({ copied: ids.length });
+	},
 });
 
-// Inside the action that needs the credential
-const read = await google.get();
-if (read.error !== null) return read;
-const { refreshToken } = read.data;
+// Any caller, in the home or in a page:
+await sync({ account }, { onUpdate: ({ copied, of }) => show(copied, of) });
 ```
 
-Before sign-in the record has no token. When refreshing, compare the
-credential being replaced inside the write so a concurrent sign-out wins.
+- `update` takes one value that survives JSON. It returns at once and never
+  throws: what a listener returns is not awaited and what it throws is
+  dropped, so no caller can slow or stop the action.
+- A helper that reports takes `update` as an ordinary parameter. It stays a
+  plain async function and can report from inside `Promise.all` or an event
+  listener.
+- An update reports and is never the answer. A caller that passes no
+  `onUpdate` loses nothing, and a page must show the right thing after the
+  call ends even if every update was lost.
+- An action that leaves the argument out sends no updates, and its callers
+  take no `onUpdate`. `run` is never an `async function*`; `defineAction`
+  refuses one.
+- The CLI sends its call to serve and writes each update to stderr as one
+  line of JSON. MCP sends the tool result alone.
 
-Its `actions()` throws `data/google.local.md never leaves this computer, so it
-offers no actions`, so no generated verb hands a token to an MCP client. A
-`Misfit` or write refusal names a field that does not fit without
-quoting its value: `refreshToken is not text`. A fresh clone of the app has no
-`.local` files: the person signs in again.
+Serve keeps nothing about a call. It runs the action to its end whether or
+not its caller stays, and nothing stops it from outside. A page that reloads
+loses the updates of a call it was watching, so what must survive a reload
+belongs in the app's records. An action that must not run twice takes an id
+in its input and uses it as the record's key. See the
+[CLI's call route](../cli/README.md#a-call-over-http).
 
-The actions an app writes keep two rules, since `serve` hands an answer and a
-thrown error to its caller whole, and an MCP caller's input sits in its
-transcript:
-
-- **Never return, throw, or yield a value read from a `.local` file.** Return what
-  the secret got you: an account name, a count, a result.
-- **Never take a secret as ordinary input.** An ordinary action is an MCP tool,
-  its input sits in the transcript, and a refusal quotes what did not fit. A secret comes in one of three ways: the person
-  writes the `.local` file; the action runs a flow that brings it back to this
-  computer itself, as Mail's `connect` does with only a `port` and a loopback
-  listener; or an action declaring `privateInput: true`, whose input the app's
-  UI posts over HTTP or the CLI reads as JSON through `-`. The flag
-  governs the whole input, independently of its fields. MCP neither lists
-  nor runs it, and validation returns a fixed refusal. The CLI refuses any other argument before parsing
-  it. The app still owns what its actions return, throw, yield, and
-  write. Discovery through `epicenter <app> --json` and `<action> --help --json`
-  preserves the flag at the top level, separately from MCP's `annotations`.
-
-`.local` means "this computer only", for a cache as much as a sign-in. It is
-not a guard against a shell agent on the same computer: give that agent a
-deny rule for `*.local*` in its own permissions
-([ADR-0870](../../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)
-says what each layer defends).
-
-## Testing an action
-
-Keep the test beside `epicenter.ts` under `code/`. Run it from that Bun project.
-Import `expectOk` and `expectErr` from `@epicenter/app/testing` when a test
-needs the typed value from one branch.
-
-```ts
-import { createMemoryContext, inRun } from '@epicenter/app';
-import reading from './epicenter.ts';
-
-const context = createMemoryContext({
-  'data/2026.csv': 'minutes,book\n',
-  'data/books/dune.md': '---\ntitle: "Dune"\n---\n',
-});
-expect(await inRun(context, () => reading.actions.log({ minutes: 30 }))).toEqual({
-  data: { minutes: 30 }, error: null,
-});
-expect(await context.folder.read('data/2026.csv')).toBe('minutes,book\n30,\n');
-
-const write = await inRun(context, () =>
-  reading.actions.books.set({ slug: 'dune', finished: '2026-11-10' }),
-);
-expect(write.error).toBeNull();
-const { books } = reading.collections;
-const read = await inRun(context, () => books.get({ slug: 'dune' }));
-expect(read).toMatchObject({ data: { finished: '2026-11-10' }, error: null });
-```
-
-The memory context has no Git, so a test checks the files an action wrote. A
-test seeds a secret as it seeds any file:
-`createMemoryContext({ 'data/google.local.md': '---\nrefreshToken: "t"\n---\n' })`.
-
-## A UI
-
-An app's UI calls its actions through `epicenter serve`, under the same words,
-typed by the app. It imports the app as a type, so its bundle carries no app
-code:
-
-```ts
-import { type ActionOutput, connect } from '@epicenter/app/client';
-import type reading from '../../epicenter.ts';
-
-const app = connect<typeof reading>();
-type Book = ActionOutput<typeof reading.actions.books.get>;
-
-const { data: books, error } = await app.books.list();
-```
-
-The client exposes the action's Result in JSON form. Its public error type
-includes the action's declared errors and the shared errors below. Producers
-import the shared `ActionError` factories from `@epicenter/app`:
-
-- `Changed` (`{ path, why }`): a quoted passage or empty body changed, or a file kept changing during an update.
-- `Misfit` carries diagnostics about a malformed record.
-- `Missing` (`{ path }`): the file is not there.
-- `Threw` (`{ message, thrown? }`): an unrecognized throw, with a JSON-safe tagged payload kept as `thrown`.
-- `Refused` (`{ message, next? }`): an operation declined the request.
-- `Unreachable` (`{ message }`): a required operation returned no usable answer. The message identifies the dependency.
-- `Stopped` (`{ message }`): work was deliberately stopped.
-
-The shared errors carry a serializable namespace marker. The client validates
-all their fields and returns every recognized shared error whole, preserving
-its message and extra fields. App-defined returned errors keep their names and public fields. The client
-maps a new fault to `Threw`, including when the action threw a tagged value.
-
-A name gives the failure reason, not proof of what was saved, whether a stop
-has finished, or whether repeating an action is safe. On the wire, the host sets `error.kind` to `returned`,
-`fault` or `refused` for this invocation. A returned reason keeps all its own
-fields under `error.reason`. The browser client unwraps it for action callers.
-When a UI needs to know what persisted, it rereads the record. While the outcome
-is uncertain, it keeps the person's draft and reports the uncertainty. `Missing`
-and `Changed` identify their own `path`, which may belong to a dependency;
-match the requested record before interpreting either as its state. Checkpoint
-failures are reported by the checkpoint command or serve's clock, separately
-from the action's answer.
-
-A UI hands these calls to TanStack Query through Wellcrafted's
-`resultQueries` and `resultMutations` (ADR-0661), and makes its one
-QueryClient in its own `src/lib/query-client.ts`, from its own
-`@tanstack/svelte-query`, so the bundle carries one TanStack Query: every
-write refreshes every read the page shows before it counts as done, and reads
-refresh when the UI is shown again (its tab or app comes back). Nothing
-refreshes on a timer. This package does not depend on TanStack Query.
-
-```ts
-import { resultMutations, resultQueries } from 'wellcrafted/query';
 
 export const reads = resultQueries(['reading'], { list: app.books.list });
 export const writes = resultMutations(['reading'], { set: app.books.set });
 // In a component: createQuery(() => reads.list()), createMutation(() => writes.set)
 ```
 
-An action whose `run` yields accepts `onYield` after its input. The client
-awaits each callback before delivering the next value. A callback failure
-rejects the call and stops observation; the action continues. For a Stop
-button, start a run and request cancellation explicitly:
+An action that sends updates accepts `onUpdate` after its input. Each update
+arrives in order. What the callback returns is not awaited; what it throws is
+reported to the page and does not end the call:
 
 ```ts
-import { runs } from '@epicenter/app/client';
-
-const run = runs.start(vocab.chat.say, { message });
-const said = run.result({ onYield: (token) => (draft += token) });
-// On Stop:
-await run.cancel();
+const said = await vocab.chat.say(
+	{ message },
+	{ onUpdate: (token) => (draft += token) },
+);
 ```
 
-An action that waits between yields can pass `callSignal()` to that wait.
-Closing the page or aborting an observer does not cancel execution.
+Closing the page stops the page from listening; the action runs to its end.
+A call that reaches no answer resolves to `Unreachable`, whose message says
+whether the action started.
 
-`ActionInput<A>`, `ActionOutput<A>`, and `ActionYield<A>` name what action
-`A` takes from a caller, returns to a client, and yields while it runs:
+`ActionInput<A>`, `ActionOutput<A>`, and `ActionUpdate<A>` name what action
+`A` takes from a caller, returns to a client, and reports while it runs:
 `ActionInput<typeof app.actions.set>`. A switch and a list without `min` are
-optional in `ActionInput`; an action that only returns yields `never`.
+optional in `ActionInput`; an action that only returns reports `never`.
 
 A UI routes to a record by its keys, which every row carries, each
 URL-encoded: `#/words/<word>`. The page calls `get` with the keys from its

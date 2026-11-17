@@ -1545,24 +1545,6 @@ describe('outside a run', () => {
 	});
 });
 
-for (const schema of [
-	field.file(),
-	field.file({ optional: true }),
-	Type.Array(field.file()),
-	Type.Object({ a: field.file() }),
-	Type.Union([Type.String(), field.file()]),
-	Type.String({ 'x-epicenter-file': {}, readOnly: true }),
-]) {
-	test(`definition refuses a file marker in ${JSON.stringify(schema)}`, () => {
-		expect(() =>
-			defineCollection({
-				path: 'data/files/{slug}.md',
-				fields: { attachment: schema },
-			}),
-		).toThrow('has the file field "attachment"');
-	});
-}
-
 test('a definition refuses a default at any depth, and was as a placeholder or a field', () => {
 	for (const schema of [
 		Type.Integer({ default: 5 }),
@@ -1785,23 +1767,11 @@ test('callback Err is forwarded unchanged, while plain returns and thrown callba
 	}
 });
 
-test('a folder conflict is returned and a callback throwing the same Changed rejects', async () => {
+test('a callback throwing Changed rejects', async () => {
 	const context = createMemoryContext({
 		'data/items/a.md': '---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
 	});
-	const changed = ActionError.Changed({ path: 'data/items/a.md', why: 'kept' });
-	const conflict = {
-		...context,
-		folder: {
-			...context.folder,
-			async edit() {
-				return changed;
-			},
-		},
-	};
-	expect(
-		await inRun(conflict, () => items.set({ id: 'a' }, { done: true })),
-	).toEqual(changed);
+	const changed = ActionError.Changed({ path: 'data/items/a.md', why: 'was' });
 	for (const method of ['set', 'update'] as const)
 		await expect(
 			inRun(context, () =>

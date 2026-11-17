@@ -9,12 +9,6 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 const NAMESPACE = 'epicenter/action-error' as const;
 
-const runIdentity = Type.Object({
-	app: Type.String(),
-	action: Type.String(),
-	id: Type.String(),
-});
-
 const problem = Type.Object({ line: Type.String(), kind: Type.String() });
 export type Problem = Static<typeof problem>;
 const fields = {
@@ -30,7 +24,6 @@ const fields = {
 			Type.Literal('twice'),
 			Type.Literal('empty'),
 			Type.Literal('was'),
-			Type.Literal('kept'),
 			Type.Literal('there'),
 		]),
 	}),
@@ -48,14 +41,7 @@ const fields = {
 		message: Type.String(),
 		next: Type.Optional(Type.String()),
 	}),
-	Unreachable: Type.Object({
-		message: Type.String(),
-		run: Type.Optional(runIdentity),
-	}),
-	Stopped: Type.Object({
-		message: Type.String(),
-		run: Type.Optional(runIdentity),
-	}),
+	Unreachable: Type.Object({ message: Type.String() }),
 };
 
 const WHY = {
@@ -65,7 +51,6 @@ const WHY = {
 		"'s body has that text more than once; quote more around it, or the whole body",
 	empty: "'s body is no longer empty; get it again",
 	was: ' no longer holds a value named in was; it changed since it was read, so get it again',
-	kept: ' kept changing while it was updated',
 	there: ' is already there',
 } satisfies Record<Static<typeof fields.Changed>['why'], string>;
 
@@ -97,11 +82,8 @@ export const ActionError = defineErrors({
 	/** An operation declined the request. This does not imply the outer action wrote nothing. */
 	Refused: (body: Static<typeof fields.Refused>) => marked(body),
 	/** A required operation returned no usable answer. The message identifies what failed. */
-	Unreachable: ({ message, run }: Static<typeof fields.Unreachable>) =>
-		marked({ message, ...(run ? { run } : {}) }),
+	Unreachable: (body: Static<typeof fields.Unreachable>) => marked(body),
 	/** Work was deliberately stopped. This does not confirm completed cleanup or rollback. */
-	Stopped: ({ message, run }: Static<typeof fields.Stopped>) =>
-		marked({ message, ...(run ? { run } : {}) }),
 });
 export type ActionError = InferErrors<typeof ActionError>;
 

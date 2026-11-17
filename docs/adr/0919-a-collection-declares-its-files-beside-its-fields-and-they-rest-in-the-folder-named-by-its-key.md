@@ -58,7 +58,7 @@ data/memos/walk/
 
 **`add` and `set` take a file for a slot, and a read finds it by name.**
 
-A slot accepts an `UploadedFile`, or `{ name, bytes }` from code. `add`
+A slot accepts `{ name, bytes }`. `add`
 refuses before writing anything when the Markdown file exists; it then writes
 each slot's file and the Markdown file last. `set(keys, { audio: file })`
 replaces whatever file holds the slot, and `set(keys, { audio: null })`
@@ -96,9 +96,9 @@ Renaming a record whose Markdown file is inside its folder is
   the Markdown file inside the folder, so a rename is one `folder.move`. A
   collection whose records rarely do keeps single files, and a rename there
   is two moves.
-- An `UploadedFile` comes only from a page's call
-  ([ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md),
-  [ADR-0922](0922-a-file-reaches-an-action-as-its-own-input-beside-input-and-only-a-page-sends-one.md)).
+- A caller elsewhere sends a slot's file as base64 text in an action's input,
+  and the action decodes it into `{ name, bytes }`
+  ([ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md)).
   A caller on the home's own computer writes the slot's file in the folder.
 - This record gives a record no list of files and no file under the
   uploader's own name.
