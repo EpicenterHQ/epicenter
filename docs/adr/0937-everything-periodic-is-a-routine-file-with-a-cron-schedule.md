@@ -59,7 +59,10 @@ occurrence; nothing blocks a routine until a person repairs it.
 them.** One home has one writer, so the runner keeps no lock. It remembers
 which routines it started and has not seen exit, and starts none of them
 twice. It keeps no timeout and no kill path: a command that needs a deadline
-sets its own, as Flights' agent run already does. Commands share `serve`'s
+sets its own, as Flights' agent run already does. This holds for actions too.
+With `serve` running, `epicenter <app> <action>` hands the call to `serve`
+(ADR-0936), and ending that command does not stop the action (ADR-0930), so an
+action that can run long sets its own deadline. Commands share `serve`'s
 process group, so the service manager that stops `serve` stops them. A
 start with no finish reads as running until the next occurrence makes it due.
 
