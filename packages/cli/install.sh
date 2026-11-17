@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the executable. App creation and long-running services are separate commands.
+# Install the executable. App creation is a separate command; keeping serve running is the person's job.
 set -eu
 
 fail() { printf '%s\n' "epicenter: $*" >&2; exit 1; }

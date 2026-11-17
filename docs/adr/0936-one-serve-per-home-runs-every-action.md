@@ -4,7 +4,6 @@
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the app lock: nothing locks an app, and nothing locks the home to run an action. [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) on who runs a command's action: serve does.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`folder.update`), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (the call and its route), [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) (routines run commands).
-- **Unbuilt:** a systemd unit, so Linux has no job that keeps serve up.
 
 ## Context
 
@@ -42,9 +41,8 @@ or stands in for it.**
   JSON lines a page does (ADR-0930). Updates go to stderr and the answer to
   stdout.
 - **When nothing answers that port, the command says so and runs nothing.**
-  It names the two ways to start serve: `epicenter serve` in a terminal, or
-  `epicenter service install` to have the operating system start it at login
-  and restart it when it stops.
+  It names `epicenter serve`; keeping serve up belongs to whoever starts it
+  (ADR-0941).
 - **At most one serve per home is the port.** A home's port is in
   `EPICENTER.md`, and the operating system refuses a second bind. A start
   that fails says which case it met: this home is already served, or the
@@ -63,8 +61,9 @@ or stands in for it.**
 - **Nothing locks a call.** The flock on `apps/<app>` is removed. No folder
   write takes a lock, and the home has none.
 
-Epicenter has no daemon code of its own. Keeping serve up is the operating
-system's job, through the job `epicenter service install` writes.
+Epicenter has no daemon code of its own. Keeping serve up is the job of
+whoever starts it: the desktop app, the operating system's own job manager, or
+the person in a terminal (ADR-0941).
 
 Commands that run no action do not need serve: `checkpoint`, `check`,
 `export`, `init` and `new`. None takes a lock of its own; a commit takes
@@ -77,8 +76,7 @@ Git's index lock, as any commit does.
 - With serve stopped, an action command does nothing but say so. A fresh
   home needs `epicenter serve` running before its first action.
 - After an upgrade, serve is the old version until it restarts. The command
-  says so; the installer restarts the service.
-- Linux has no job to keep serve up until a systemd unit is written.
+  says so, and whoever runs serve restarts it.
 - A test that runs a command starts a serve for its home first.
 - A person editing a record while an action writes the same file is a race
   nothing guards. `folder.update` used to look at the file a second time and
@@ -88,7 +86,7 @@ Git's index lock, as any commit does.
   see variables exported in the caller's shell, and what it prints goes to
   serve's log, not the caller's terminal.
 - Long work started from the command line runs inside serve. An action that
-  crashes the process takes serve down until its service restarts it, as an
+  crashes the process takes serve down until something starts it again, as an
   action a page started already could. Heavy work belongs in a child process,
   as Flights' browser agent is.
 - Deleted: the app lock in `run.ts` with its 30-second wait and `busy`
