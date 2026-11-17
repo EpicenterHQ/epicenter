@@ -102,8 +102,8 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   is the file name exactly: no method or generated verb changes it, and one
   that does not fit is `Refused` with the reason, so trim what a person typed
   before passing it. A generated `add` names the record with
-  `timeId()` when `id` is left out. `field.id()` takes an id that already
-  fits as action input.
+  `timeId()` when `id` is left out. An action takes an id as `field.text()`;
+  the handle refuses a bad one, quoting it, with the name to send instead.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
   as `field.date` and `field.datetime` hold them; `toISOString()` gives UTC's

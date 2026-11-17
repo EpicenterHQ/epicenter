@@ -102,7 +102,7 @@ test('misfit fields and malformed front matter reuse handle diagnostics and exit
 		{
 			path: 'checks/bad.md',
 			problems: [
-				'watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or whitespace at either end',
+				'watch: 3 is not text',
 				'day: "soon" is not a day like 2026-11-12',
 			],
 		},
@@ -125,7 +125,7 @@ test('misfit fields and malformed front matter reuse handle diagnostics and exit
 	]);
 	const human = await f.run('check', 'flights');
 	expect(human.stdout).toContain(
-		'  checks  3 files, 3 with problems\n    checks/bad.md\n      watch: 3 is not a record id:',
+		'  checks  3 files, 3 with problems\n    checks/bad.md\n      watch: 3 is not text',
 	);
 	expect(human.stdout).not.toContain('data/');
 });

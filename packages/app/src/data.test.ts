@@ -5,8 +5,8 @@
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { idProblem } from './id.ts';
 import {
 	ActionError,
 	createMemoryContext,
@@ -283,7 +283,7 @@ test.each(invalidIds)(
 			])
 				expect(expectErr(result).name).toBe('Refused');
 		});
-		expect(Value.Check(field.id(), id)).toBe(false);
+		expect(idProblem(id)).toBeDefined();
 	},
 );
 
@@ -329,7 +329,7 @@ test.each([
 				['data/notes/Caf\u00e9.md', 'data/notes/Dune.md'].sort(),
 			);
 		});
-		expect(Value.Check(field.id(), id)).toBe(false);
+		expect(idProblem(id)).toBeDefined();
 	},
 );
 
@@ -359,7 +359,7 @@ test('ids retain internal spaces, case, NFC accents, and the byte limit', async 
 	} = setup();
 	await inRun(context, async () => {
 		for (const id of ['Dune  Messiah', 'é', 'a'.repeat(200), '界'.repeat(66)]) {
-			expect(Value.Check(field.id(), id)).toBe(true);
+			expect(idProblem(id)).toBeUndefined();
 			expect(expectOk(await notes.add(id, { title: id })).id).toBe(id);
 			expect(expectOk(await notes.get(id))?.id).toBe(id);
 		}
@@ -372,7 +372,7 @@ test('token.local is a valid id in a folder key', async () => {
 		context,
 		data: { notes },
 	} = setup();
-	expect(Value.Check(field.id(), 'token.local')).toBe(true);
+	expect(idProblem('token.local')).toBeUndefined();
 	await inRun(context, async () => {
 		expect(
 			expectOk(await notes.add('token.local', { title: 'Token' })).id,

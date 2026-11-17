@@ -12,7 +12,7 @@
  *
  * const learn = defineAction({
  *   description: 'Learn a word',
- *   input: { word: field.id(), meaning: field.text() },
+ *   input: { word: field.text(), meaning: field.text() },
  *   run: ({ word, meaning }) => data.words.add(word, { meaning }),
  * });
  *

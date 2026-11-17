@@ -113,8 +113,9 @@ or whitespace at either end (ADR-0933). No method or generated verb changes
 an id: one that does not fit returns `Refused`, quoting the id with the
 reason and, when trimming or NFC would fix it, the name to send instead.
 An app trims or normalises what a person typed before it passes it on.
-`list` skips a file whose name is not an id. `field.id()` is an input field
-that takes an id that already fits. A new record's id comes from the caller
+`list` skips a file whose name is not an id. An action that takes an id
+takes it as `field.text()`; the handle refuses one that cannot name a file
+when the action reads or writes it. A new record's id comes from the caller
 or the app. A generated `add` takes `id` optionally and names the record
 with `timeId()` when it is left out; the `add(id, record)` method always
 takes one.
@@ -257,7 +258,6 @@ should take what they know. Vocab's `review` takes `{ word, grade }` and calls
 | Field | Value | In the input object |
 | --- | --- | --- |
 | `field.text()` | `string` | `"name": "text"` |
-| `field.id()` | `string`, a record id | `"name": "dune"` |
 | `field.number({ min, max })`, `field.integer({ min, max })` | `number` | `"name": 4` |
 | `field.date()` | `string`, `2026-11-08` | `"name": "2026-11-08"` |
 | `field.datetime()` | `string`, RFC 3339 | `"name": "2026-11-10T22:41:05+08:00"` |
@@ -286,12 +286,12 @@ runs.
   `shelf "poems" names no file in shelves/`.
 - A read returns the id and opens no other file, so an id whose record was
   deleted since still reads as that id.
-- In an action's `input`, a reference is checked as an id. The action finds
-  out whether the record exists when it reads it.
+- In an action's `input`, a reference is text. The action finds out whether
+  the record exists, and whether the id can name a file, when it reads it.
 
-A reference's JSON Schema is an id with its target key, which the app
+A reference's JSON Schema is text with its target key, which the app
 listing prints with the rest of the schema:
-`{ "type": "string", "format": "epicenter-id", "x-epicenter-ref": { "key": "shelves" } }`.
+`{ "type": "string", "x-epicenter-ref": { "key": "shelves" } }`.
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`. A field helper given an

@@ -96,8 +96,8 @@ changes it, and only refuses a name that cannot be a file, saying why. So
 ` Dune` is refused, not read as `Dune`, and an accented word typed in
 decomposed form is refused rather than put in NFC. Trimming and normalising
 what a person typed is the app's to do, as are inner spaces and case.
-`field.id()` is the input field a hand-written action uses to refuse a bad id
-at the door.
+An action takes an id as plain text; the handle refuses a bad one when the
+action reads or writes it, so no separate id field or format exists.
 
 Whoever adds a record names it: a word by the word, a book by its title, a
 note by `timeId()`. A generated `add` given no id uses `timeId()`

@@ -34,7 +34,7 @@ const data = defineData({
 
 const learn = defineAction({
 	description: 'Learn a word',
-	input: { word: field.id(), meaning: field.text({ optional: true }) },
+	input: { word: field.text(), meaning: field.text({ optional: true }) },
 	run: async ({ word, meaning }) => {
 		assertType<Equal<typeof word, string>>();
 		assertType<Equal<typeof meaning, string | undefined>>();
@@ -48,7 +48,7 @@ const learn = defineAction({
 
 const review = defineAction({
 	description: 'Review a word',
-	input: { word: field.id() },
+	input: { word: field.text() },
 	run: async ({ word }) => {
 		const read = await data.words.get(word);
 		if (read.error) return read;

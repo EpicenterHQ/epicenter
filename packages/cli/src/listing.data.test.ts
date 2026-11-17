@@ -56,7 +56,6 @@ export default defineApp({ description: 'Flights', data, actions: {} });
 				properties: {
 					watch: {
 						type: 'string',
-						format: 'epicenter-id',
 						'x-epicenter-ref': { key: 'watches' },
 					},
 					many: { items: { 'x-epicenter-ref': { key: 'watches' } } },
