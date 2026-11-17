@@ -45,13 +45,6 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 	await assertNoGit(f.apps);
 	const served = await startServe(f);
 	try {
-		// Startup checkpoint owns prior pending changes; wait for that tick to finish.
-		for (
-			let tries = 0;
-			tries < 100 && (await gitIn(f.home, 'rev-parse', 'HEAD')) === before;
-			tries++
-		)
-			await Bun.sleep(20);
 		const started = await gitIn(f.home, 'rev-parse', 'HEAD');
 		await rm(join(app, 'data/record.md'));
 		const client = connect<{ actions: { put: () => Promise<Ok<string>> } }>({

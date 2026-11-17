@@ -59,9 +59,18 @@ repair the records that no longer fit.
 
 Actions make no commits. History comes from checkpoints: \`epicenter
 checkpoint\` commits everything pending as one commit and pushes to origin
-when one is set; \`-m "<what changed>"\` names it. \`epicenter serve\` runs the
-same checkpoint when it starts, every 5 minutes, and when it stops. The
-branch and the index are shared: a checkpoint commits whatever is staged
+when one is set; \`-m "<what changed>"\` names it. Nothing runs it on its
+own. Without a checkpoint routine this folder keeps no history of records
+and backs up nothing. To checkpoint every five minutes, write
+routines/checkpoint.md:
+
+    ---
+    cron: "*/5 * * * *"
+    run: ["epicenter", "checkpoint"]
+    ---
+    Commit everything pending and push to the backup.
+
+The branch and the index are shared: a checkpoint commits whatever is staged
 along with everything else. Make a named commit before a risky change. Keep
 origin private: it receives every app's records.
 

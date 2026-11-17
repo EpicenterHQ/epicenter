@@ -64,9 +64,9 @@ releases it. Fetch first and write last to avoid holding up another write.
 **One checkpoint records pending code and records at the root.**
 `epicenter checkpoint [-m <message>]` takes `hold(root)`, stages included files,
 and consumes the shared index in one commit. Its subject is `checkpoint` or
-the supplied message. `serve` runs it at startup, five minutes after each
-scheduled pass completes, and on stop with a ten-second wait. This clock
-samples the working tree; it does not claim that an action or agent finished.
+the supplied message. A home runs it on a schedule through a routine
+([ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md)); `serve` runs none of its own. A scheduled
+checkpoint samples the working tree; it does not claim that an action or agent finished.
 The root lock is independent of the app lock, so a checkpoint can capture
 part of a running action.
 

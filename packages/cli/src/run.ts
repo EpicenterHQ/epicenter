@@ -14,7 +14,6 @@ import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
 import { type Answer, type RunAnswer, refused } from './output.ts';
-import { setRoutine } from './routine-set.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -104,18 +103,6 @@ export async function runAction(
 		...located.context,
 		folder,
 		signal,
-		routines: {
-			set: (
-				name: string,
-				routine: Parameters<typeof setRoutine>[0]['routine'],
-			) => {
-				if (readOnly)
-					throw new Error(
-						`The action "${key}" is read-only, so it cannot set a routine`,
-					);
-				return setRoutine({ app: located, name, routine });
-			},
-		},
 		...(readOnly ? { readOnly: { action: key } } : {}),
 	};
 	try {

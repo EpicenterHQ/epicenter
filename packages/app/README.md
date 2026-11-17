@@ -498,40 +498,6 @@ unfinished run `interrupted` on recovery and never reruns it. For
 digest. File metadata, hashes, and bytes follow the ordinary retention rules.
 See the [CLI run policy](../cli/README.md#serve-owned-runs) for limits and retention.
 
-## Save recurring work from setup
-
-An explicit setup action can save a home-owned routine using an exposed action:
-
-```ts
-import { routines } from '@epicenter/app';
-
-await routines.set('flights-daily-research', {
-  daily: '08:00',
-  action: dailyRun,
-  input: {},
-  timeout: '20m',
-});
-```
-
-The host infers the installed app and resolves the action reference in that
-load's existing action table. The input follows the action's TypeScript type
-and is validated against its schema before saving. It must contain only JSON
-values. Omitted fields stay omitted, so each invocation uses current code.
-Private-input and file-input actions cannot be saved.
-
-The name is home-wide: this call writes `routines/flights-daily-research.md`
-using the existing `daily` and command-argv format: the action's words, then
-the input as one JSON argument. It atomically updates the
-requested fields, preserving notes, unspecified `paused` and `timeout`, and
-all runtime state and logs. It refuses an existing command targeting another
-app. Copying or importing code never enables a routine. Read-only actions and
-hosts without routine support refuse the call.
-
-The action must await its work and forward ordinary failures. Returning after starting
-detached work would record launch as completion. A new unpaused routine can
-catch up at the next check, even before today's configured time. Inspect and
-repair it with `epicenter routines` and `epicenter routines run <name>`.
-
 ## Secrets are `.local` files
 
 A path with a part matching `*.local` or `*.local.*`, in any case, stays on

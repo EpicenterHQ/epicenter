@@ -2,7 +2,7 @@
  * HTTP serve acceptance tests.
  * Runs the real CLI against a temporary HOME and checks MCP calls, the
  * returned answers, concurrent writes, UI confinement, and
- * request origin handling. `http.test.ts` drives the backup clock's tick.
+ * request origin handling. `http.test.ts` covers serve's routine clock.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';

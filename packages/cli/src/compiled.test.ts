@@ -327,39 +327,48 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 		} });`,
 		);
 		await mkdir(join(f.home, 'routines'));
-		for (const run of [
-			['epicenter', 'hello', 'greet'],
-			['bun', '-e', 'console.log("compiled runtime")'],
-		]) {
+		for (const [name, run] of [
+			['action', ['epicenter', 'hello', 'greet']],
+			['runtime', ['bun', '-e', 'console.log("compiled runtime")']],
+		] as const)
 			await writeFile(
-				join(f.home, 'routines/review.md'),
-				`---\ndaily: "08:00"\nrun: ${JSON.stringify(run)}\n---\n`,
+				join(f.home, `routines/${name}.md`),
+				`---\ncron: "* * * * *"\nrun: ${JSON.stringify(run)}\n---\n`,
 			);
-			const child = Bun.spawn([bin, 'routines', 'run', 'review', '--json'], {
-				cwd: f.home,
-				env: {
-					...f.env,
-					PATH: '/usr/bin:/bin',
-					XDG_DATA_HOME: join(f.root, 'xdg-data'),
-				},
-				stdout: 'pipe',
-				stderr: 'pipe',
-			});
-			const [stdout, stderr, code] = await Promise.all([
-				new Response(child.stdout).text(),
-				new Response(child.stderr).text(),
-				child.exited,
-			]);
-			expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
-			expect(JSON.parse(stdout).attempt.outcome).toBe('succeeded');
+		// Routines inherit serve's output, and the first check is a minute after start.
+		const serve = Bun.spawn([bin, 'serve'], {
+			cwd: f.home,
+			env: {
+				...f.env,
+				PATH: '/usr/bin:/bin',
+				XDG_DATA_HOME: join(f.root, 'xdg-data'),
+			},
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		try {
+			let printed = '';
+			const reader = serve.stdout.getReader();
+			const deadline = Date.now() + 90_000;
+			while (
+				!(
+					printed.includes('compiled action') &&
+					printed.includes('compiled runtime')
+				)
+			) {
+				if (Date.now() > deadline)
+					throw new Error(`Routines printed only:\n${printed}`);
+				const { value, done } = await reader.read();
+				if (done) break;
+				printed += new TextDecoder().decode(value);
+			}
+			expect(printed).toContain('compiled action');
+			expect(printed).toContain('compiled runtime');
+		} finally {
+			serve.kill('SIGTERM');
+			await serve.exited;
 		}
-		const log = await readFile(
-			join(f.home, 'routines/review.local/output.log'),
-			'utf8',
-		);
-		expect(log).toContain('compiled action');
-		expect(log).toContain('compiled runtime');
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}
-});
+}, 120_000);

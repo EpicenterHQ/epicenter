@@ -35,8 +35,6 @@ export {
 	inRun,
 	isLocalPath,
 	normalizePath,
-	type Routine,
-	routines,
 	textUpdate,
 } from './context.ts';
 export {
