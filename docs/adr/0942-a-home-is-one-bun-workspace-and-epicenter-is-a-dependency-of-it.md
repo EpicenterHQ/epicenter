@@ -37,9 +37,10 @@ it.**
 ```
 
 - **One install.** `bun install` at the top of the home installs every
-  app's packages and Epicenter. `epicenter install` is that command, found
-  from anywhere in the home. There is one lock file, committed, and one
-  `node_modules`, ignored.
+  app's packages and Epicenter. `epicenter` has no `install` command;
+  `epicenter init` and `epicenter new` run `bun install` there because they
+  write a `package.json`. There is one lock file, committed, and
+  one `node_modules`, ignored.
 - **One copy of the library, by ordinary resolution.** The command and every
   app find `@epicenter/app` in the home's `node_modules`. There is no
   plugin, no link and no copy outside the home. The command says so plainly
@@ -85,6 +86,8 @@ it.**
 
 ## Considered alternatives
 
+- **`epicenter install`, the same `bun install` found from anywhere in the
+  home.** A second name for a command the owner already has.
 - **Keep the separate program and its link.** It works, and it is three
   things outside the home that the home's history knows nothing about.
 - **One link at the top of the home, with everything else as it was.** It
