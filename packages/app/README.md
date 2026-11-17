@@ -409,7 +409,8 @@ and records together, from the CLI or serve's clock
 Reads tolerate records that no longer fit the declaration; repair follows a
 code change rather than blocking the whole app.
 
-Nothing locks a call. While serve is running, one process runs every action.
+Nothing locks a call. One process, `epicenter serve`, runs every action,
+including one the command line sends.
 Fetch or compute first and write last, so a slow step never leaves a file
 half done.
 `folder.write` replaces the file, and the last write wins. A change that
@@ -479,8 +480,8 @@ await sync({ account }, { onUpdate: ({ copied, of }) => show(copied, of) });
 - An action that leaves the argument out sends no updates, and its callers
   take no `onUpdate`. `run` is never an `async function*`; `defineAction`
   refuses one.
-- The CLI writes each update to stderr as one line of JSON. MCP sends the
-  tool result alone.
+- The CLI sends its call to serve and writes each update to stderr as one
+  line of JSON. MCP sends the tool result alone.
 
 Serve keeps nothing about a call. It runs the action to its end whether or
 not its caller stays, and nothing stops it from outside. A page that reloads

@@ -171,7 +171,7 @@ test.skipIf(process.platform !== 'darwin')(
 			installed: true,
 			running: true,
 			pid: 1234,
-			port: 0,
+			port: f.port,
 			logPath,
 		});
 		await writeFile(join(f.root, 'loaded'), 'state = waiting\n');
@@ -180,7 +180,7 @@ test.skipIf(process.platform !== 'darwin')(
 			label,
 			installed: true,
 			running: false,
-			port: 0,
+			port: f.port,
 			logPath,
 		});
 		await rm(join(f.root, 'loaded'));
@@ -189,7 +189,7 @@ test.skipIf(process.platform !== 'darwin')(
 			label,
 			installed: true,
 			running: false,
-			port: 0,
+			port: f.port,
 			logPath,
 		});
 		await rm(plistPath);
@@ -198,7 +198,7 @@ test.skipIf(process.platform !== 'darwin')(
 			label,
 			installed: false,
 			running: false,
-			port: 0,
+			port: f.port,
 			logPath,
 		});
 		await writeFile(plistPath, 'test');

@@ -268,6 +268,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 		};
 	`,
 	);
+	await f.serve();
 	const child = Bun.spawn(
 		[
 			process.execPath,

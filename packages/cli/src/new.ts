@@ -172,11 +172,7 @@ async function made(name: string, json: boolean, source?: CopiedSource) {
 		if (await uiSource(join(folder, 'code'))) {
 			const { port } = epicenterRoot();
 			writeErr('Run: epicenter serve');
-			writeErr(
-				port
-					? `Open http://127.0.0.1:${port}/${name}/ in your browser.`
-					: `Open /${name}/ at the address printed by serve.`,
-			);
+			writeErr(`Open http://127.0.0.1:${port}/${name}/ in your browser.`);
 		} else writeErr(`Run: epicenter ${name}`);
 	}
 	return 0;

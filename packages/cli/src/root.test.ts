@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git } from './git.js';
-import { bareApp, fixture, gitIn } from './runner.test-support.ts';
+import { bareApp, fixture, freePort, gitIn } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -136,7 +136,7 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	const refused = await listed();
 	expect(refused.code).toBe(2);
 	expect(JSON.parse(refused.stdout).error.message.split('\n')).toEqual([
-		`${marker}: port: 70000 is not a whole number from 0 to 65535`,
+		`${marker}: port: 70000 is not a whole number from 1 to 65535`,
 		`${marker}: prot is not a field; the only field is port`,
 	]);
 	await writeFile(marker, '---\nport: [unclosed\n---\n');
@@ -239,9 +239,31 @@ test('build reports each app and keeps the last good UI after a failed build', a
 	).toBe('by hand');
 });
 
+test('port 0 names no port a command could find serve at, so the marker and init refuse it', async () => {
+	const f = await setup();
+	const marker = join(f.home, 'EPICENTER.md');
+	await writeFile(marker, '---\nport: 0\n---\n');
+	for (const words of [['serve'], ['--json']]) {
+		const refused = await f.run(...words);
+		expect(refused.code).toBe(2);
+		expect(refused.stdout + refused.stderr).toContain(
+			`${marker}: port: 0 is not a whole number from 1 to 65535`,
+		);
+	}
+	const made = await f.run('init', join(f.root, 'zero'), '--port', '0');
+	expect(made.code).toBe(2);
+	expect(made.stderr).toContain(
+		'--port must be a whole number from 1 to 65535',
+	);
+	expect(await Bun.file(join(f.root, 'zero', 'EPICENTER.md')).exists()).toBe(
+		false,
+	);
+});
+
 test("serve reads the marker's port when no command port is given", async () => {
 	const f = await setup();
-	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 0\n---\n');
+	const port = await freePort();
+	await writeFile(join(f.home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
 	const child = Bun.spawn([process.execPath, f.bin, 'serve'], {
 		cwd: f.root,
 		env: f.env,
@@ -256,7 +278,7 @@ test("serve reads the marker's port when no command port is given", async () => 
 				const { value, done } = await reader.read();
 				if (done) throw new Error(output || 'serve exited before listening');
 				output += new TextDecoder().decode(value);
-				if (/Serving your apps at http:\/\/127\.0\.0\.1:\d+\./.test(output))
+				if (output.includes(`Serving your apps at http://127.0.0.1:${port}.`))
 					return;
 			}
 		})();

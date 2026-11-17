@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { COMMANDS } from './commands.ts';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
 
@@ -24,10 +25,80 @@ export async function gitIn(dir: string, ...args: string[]) {
 }
 
 /**
+ * A port nothing listens on, for a home's `EPICENTER.md`. It is below the
+ * range the system hands to outgoing connections, so nothing takes it between
+ * this check and the serve that binds it.
+ */
+export async function freePort() {
+	for (;;) {
+		const port = 10_000 + Math.floor(Math.random() * 20_000);
+		try {
+			Bun.listen({
+				hostname: '127.0.0.1',
+				port,
+				socket: { data() {} },
+			}).stop(true);
+			return port;
+		} catch {
+			// Taken; try another.
+		}
+	}
+}
+
+type Served = Awaited<ReturnType<typeof spawnServe>>;
+
+/** What a fixture knows of its home's serve. */
+type Serving = {
+	/** The serve the fixture started for an action, once one was run. */
+	own?: Promise<Served>;
+	/** How many serves the test started with `startServe` are running. */
+	byTest: number;
+	/** Whether the test asked for no serve, so the fixture starts none. */
+	off: boolean;
+};
+
+const fixtures = new Set<Serving>();
+
+/**
+ * Stop every serve a fixture started on its own. The preload runs this after
+ * each test, so a fixture's serve lasts as long as the test that made it.
+ */
+export async function stopFixtureServes() {
+	await Promise.all(
+		[...fixtures].map(async (serving) => {
+			const own = serving.own;
+			serving.own = undefined;
+			// Killed, not asked to stop: nobody keeps this home's last checkpoint.
+			await (await own?.catch(() => undefined))?.kill();
+		}),
+	);
+	fixtures.clear();
+}
+
+/** Whether `args` ask `epicenter` to run an app's action, which needs serve. */
+function callsAction(args: string[]) {
+	const words = args.filter((arg) => arg !== '--json');
+	const [first] = words;
+	return (
+		words.length > 1 &&
+		first !== undefined &&
+		!first.startsWith('-') &&
+		!Object.hasOwn(COMMANDS, first) &&
+		!args.some((arg) => arg === '--help' || arg === '-h')
+	);
+}
+
+/**
  * A temporary `HOME` whose `Epicenter` folder is the app home, its apps in
  * `apps`, and the real
  * `bin.ts` run against it, so output, exit codes, and the folders on disk are
  * tested together. Nothing here reads the person's own home.
+ *
+ * Only serve runs an action, so a `run` of one starts `epicenter serve` for
+ * this home unless one is running, and it is stopped when the test ends.
+ * `serve` starts it without a `run`, for a test that spawns the command
+ * itself. While a serve from `startServe` runs, the fixture starts none, and
+ * after `stopServe` it starts none again.
  */
 export async function fixture() {
 	const root = await realpath(
@@ -35,8 +106,9 @@ export async function fixture() {
 	);
 	const home = join(root, 'Epicenter');
 	await mkdir(home);
-	// Port 0 lets each test's `serve` take a free port.
-	await writeFile(join(home, 'EPICENTER.md'), '---\nport: 0\n---\n');
+	// A home's port is how its serve is found, so each home has its own.
+	const port = await freePort();
+	await writeFile(join(home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
 	const apps = join(home, 'apps');
 	await mkdir(apps);
 	const env: Record<string, string | undefined> = {
@@ -78,7 +150,34 @@ export async function fixture() {
 		});
 	}
 
+	const serving: Serving = { byTest: 0, off: false };
+	/** Start this home's serve unless one runs already or the test asked for none. */
+	async function serve() {
+		if (serving.byTest || serving.off) return;
+		fixtures.add(serving);
+		if (!serving.own) {
+			const own = spawnServe(serving, [process.execPath, bin], root, env);
+			serving.own = own;
+			// An action can end serve; the next one starts it again.
+			void own
+				.then((served) => served.exited)
+				.catch(() => undefined)
+				.then(() => {
+					if (serving.own === own) serving.own = undefined;
+				});
+		}
+		await serving.own;
+	}
+	/** Stop the serve the fixture started, and start no other. */
+	async function stopServe() {
+		serving.off = true;
+		const own = serving.own;
+		serving.own = undefined;
+		await (await own?.catch(() => undefined))?.kill();
+	}
+
 	async function runIn(cwd: string, ...args: string[]) {
+		if (callsAction(args)) await serve();
 		const child = Bun.spawn([process.execPath, bin, ...args], {
 			cwd,
 			env,
@@ -93,25 +192,62 @@ export async function fixture() {
 		return { stdout, stderr, code };
 	}
 	const run = (...args: string[]) => runIn(root, ...args);
-	return { root, home, apps, env, bin, folder, app, run, runIn };
+	return {
+		root,
+		home,
+		apps,
+		port,
+		env,
+		bin,
+		folder,
+		app,
+		run,
+		runIn,
+		serve,
+		stopServe,
+		serving,
+	};
 }
 
 /**
- * Start `epicenter serve` on a free port for the fixture `f`, with Bun's
+ * Start `epicenter serve` for the fixture `f` at its home's port, with Bun's
  * `execArgv` before the entry, and wait until it listens. `base` is its
  * address; `stop` sends SIGTERM and resolves with its exit code; `stderr` is
- * what it has written so far.
+ * what it has written so far. The serve the fixture started is stopped first,
+ * and the fixture starts no other while this one runs. `command` is the
+ * `epicenter` to run instead of this source, and `env` its environment.
  */
 export async function startServe(
 	f: Awaited<ReturnType<typeof fixture>>,
 	execArgv: string[] = [],
+	{
+		command = [process.execPath, ...execArgv, f.bin],
+		env = f.env,
+	}: { command?: string[]; env?: Record<string, string | undefined> } = {},
 ) {
-	const child = Bun.spawn([process.execPath, ...execArgv, f.bin, 'serve'], {
-		cwd: f.root,
-		env: f.env,
+	const own = f.serving.own;
+	f.serving.own = undefined;
+	await (await own?.catch(() => undefined))?.kill();
+	return spawnServe(f.serving, command, f.root, env, true);
+}
+
+async function spawnServe(
+	serving: Serving,
+	command: string[],
+	cwd: string,
+	env: Record<string, string | undefined>,
+	byTest = false,
+) {
+	const child = Bun.spawn([...command, 'serve'], {
+		cwd,
+		env,
 		stdout: 'ignore',
 		stderr: 'pipe',
 	});
+	if (byTest) {
+		serving.byTest++;
+		void child.exited.then(() => serving.byTest--);
+	}
 	const ready = Promise.withResolvers<string>();
 	let output = '';
 	void (async () => {
@@ -140,6 +276,7 @@ export async function startServe(
 		]);
 		return {
 			base,
+			exited: child.exited,
 			stop,
 			kill: async () => {
 				child.kill('SIGKILL');

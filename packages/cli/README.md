@@ -166,7 +166,7 @@ Tailscale is one setup. See [a computer that stays on](../../docs/vision.md#a-co
 The command selects the nearest marked ancestor of the current directory,
 then `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without the
 marker needs `epicenter init <folder>`. The marker's optional front matter
-accepts only `port`, an integer from 0 to 65535; the default is 4747. An empty
+accepts only `port`, an integer from 1 to 65535; the default is 4747. An empty
 marker is valid. Epicenters cannot nest.
 
 ```sh
@@ -244,24 +244,71 @@ An action that declares `mcp: false` is left out of serve's MCP tools and a
 `tools/call` for it is refused; a `--json` listing shows it with `mcp: false`,
 and the plain listing adds `(not offered to agents)`.
 
-## Serve runs every action while it is running
+## One serve runs every action
 
-`epicenter <app> <action>` sends its call to serve at the port in
-`EPICENTER.md`, the same `POST /<app>/<action>` a page makes, and prints the
-updates and the answer it reads back. When nothing answers that port, the CLI
-runs the action in its own process. A call names its home in an
-`x-epicenter-home` header, and serve refuses one meant for another home, so a
-command in a second home runs alone instead of writing here.
+One serve per home. The port is its name and its lock. The operating system
+keeps it running, and the command line never starts it or stands in for it.
 
-An action sent to serve runs in serve's environment: it does not see
-variables exported in the caller's shell, and what it prints goes to serve's
-log. Each load drops cached modules under `codePath`, dependencies included, then
-imports `code/epicenter.ts`. The next call reads edits to code or its imports
-without restarting serve. On the CLI, an action's prints go to stderr so
-stdout contains only the answer.
+`epicenter serve` is the only process that runs an app's actions.
+`epicenter <app> <action>` checks its words and input, then sends the call to
+serve at the port in `EPICENTER.md`, the same `POST /<app>/<action>` a page
+makes, and prints the updates and the answer it reads back. It never runs the
+action itself.
 
-An action shares its process with other calls. `process.exit` ends that
-process; `process.chdir` or changes to `process.env` affect other apps too.
+While serve is stopped, an action is refused with exit 2 and nothing runs:
+
+```txt
+$ epicenter reading log '{"minutes":30}'
+Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.
+```
+
+Listings, `--help`, `check`, `checkpoint`, `build`, and the other commands in
+`src/commands.ts` do not need serve.
+
+The port is the home's name. Serve puts the home in an `x-epicenter-home`
+header on every answer, and a call says which home it is for, so serve
+refuses a call meant for another home. A command whose port answers for
+something else runs nothing:
+
+```txt
+Port 4747 answers for another Epicenter. Set a different `port` in EPICENTER.md.
+```
+
+It says `another program` when what answers is not an Epicenter. Two homes on
+one computer each need their own `port`, a whole number from 1 to 65535.
+
+The port is also the lock. A second `epicenter serve` for a home that is
+already served exits 2 and changes nothing:
+
+```txt
+Epicenter is already serving this home on port 4747.
+```
+
+When something else holds the port, it says so instead:
+
+```txt
+Port 4747 is in use by another program or another Epicenter. Set a different `port` in EPICENTER.md.
+```
+
+Serve states its version in an `x-epicenter-version` header. After an
+upgrade, the serve that was already running is still the old version until it
+restarts. A command sent to it uses the answer, because the action ran, and
+adds one line to stderr:
+
+```txt
+Epicenter is running version 0.4.0 and this command is version 0.4.1. Restart it with `epicenter service restart`, or stop `epicenter serve` and start it again.
+```
+
+An action runs in serve's environment: it does not see variables exported in
+the caller's shell, and what it prints goes to serve's log, not to the
+command. Each load drops cached modules under `codePath`, dependencies
+included, then imports `code/epicenter.ts`. The next call reads edits to code
+or its imports without restarting serve.
+
+An action shares its process with other calls. `process.exit` ends serve:
+every call then running is cut off, and a command that sent one answers a
+fault with exit 1, since the action may have run. `process.chdir` or changes
+to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
@@ -318,6 +365,7 @@ accepted. Unknown fields and malformed declarations are refused.
 server is stopped; `--json` includes completion, the last attempt, and its log.
 `epicenter routines run <name>` explicitly runs one now, including while paused.
 It also repairs failed or interrupted work and can repeat effects.
+A routine that calls an app action needs serve running, as any action does.
 
 An app's explicit setup action can call `routines.set(name, { daily, action,
 input, paused?, timeout? })` from `@epicenter/app`. The host resolves the action
@@ -373,15 +421,15 @@ action to its end whether or not the caller stays. A caller that leaves
 stops reading, and updates it has not read are dropped. Updates for a slow
 caller wait in order. Nothing stops an action from outside.
 
-The CLI calls the same function in its own process and writes each update to
-stderr as one line of JSON; stdout holds only the answer. MCP sends the tool
+The CLI makes this same call to serve and writes each update to stderr as one
+line of JSON; stdout holds only the answer. MCP sends the tool
 result alone.
 
 ## Coordinate writes
 
-Nothing locks a call. While serve is running, one process runs every action,
-so two actions never replace one file at the same moment. With serve stopped,
-two commands started together both run and can interleave their writes.
+Nothing locks a call. Serve is the one process that runs actions, so two
+actions never replace one file at the same moment, whether they came from a
+page, an agent, or two commands started together.
 
 `folder.update` reads the text, computes from it, and replaces the file, with
 no other update between. Every collection write uses it. Plain `folder.write`

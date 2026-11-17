@@ -55,15 +55,12 @@ test('new shows how to open a browser app on the home port', async () => {
 		},
 		{ git: true },
 	);
-	for (const [name, port, hint] of [
-		['garden', 4861, 'Open http://127.0.0.1:4861/garden/ in your browser.'],
-		['flowers', 0, 'Open /flowers/ at the address printed by serve.'],
-	] as const) {
-		await writeFile(join(f.home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
-		const made = await f.run('new', name, '--from', source);
-		expect(made.code).toBe(0);
-		expect(made.stderr).toBe(`Run: epicenter serve\n${hint}\n`);
-	}
+	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 4861\n---\n');
+	const made = await f.run('new', 'garden', '--from', source);
+	expect(made.code).toBe(0);
+	expect(made.stderr).toBe(
+		'Run: epicenter serve\nOpen http://127.0.0.1:4861/garden/ in your browser.\n',
+	);
 });
 
 test('new creates code and empty data without repositories and refuses taken and reserved names', async () => {

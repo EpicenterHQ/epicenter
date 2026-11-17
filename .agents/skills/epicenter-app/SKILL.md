@@ -217,7 +217,9 @@ closes, and keeps nothing about the call, so save what a reload must show
 (the person's submitted input first, then completed output) in records.
 
 Actions run inside `epicenter serve` itself, from the files as they are when
-the call arrives, so an edit takes effect on the next call. Never call
+the call arrives, so an edit takes effect on the next call. The command line
+sends its call to serve too: `epicenter <app> <action>` is refused with exit 2
+while serve is stopped, and never runs the action itself. Never call
 `process.exit`, `process.chdir`, or set `process.env` in an action: each
 reaches every app `serve` runs.
 
@@ -511,6 +513,10 @@ HOME="$test_home" epicenter build example
 HOME="$test_home" epicenter example --help
 HOME="$test_home" epicenter serve               # drive /example/ on port 4799
 ```
+
+Only serve runs an action, so keep that `serve` running, in the background or
+another terminal, while you call `epicenter example <action>` in the temporary
+home. Give the temporary home a port the real one does not use.
 
 In the monorepo, the source CLI is `bun <repo>/packages/cli/src/bin.ts`.
 The temporary Git configuration isolates identity and signing settings.

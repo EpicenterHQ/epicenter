@@ -17,7 +17,13 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
+import {
+	fixture,
+	gitIn,
+	gitignore,
+	header,
+	startServe,
+} from './runner.test-support.ts';
 import { writingSource } from './writing.test-support.ts';
 
 setDefaultTimeout(120_000);
@@ -96,14 +102,15 @@ test('compiled export refreshes a collection without importing app code or copyi
 
 test('the compiled binary copies and builds a writing app from Git without Bun on PATH', async () => {
 	const f = await fixture();
+	const env = {
+		...f.env,
+		PATH: '/usr/bin:/bin',
+		XDG_DATA_HOME: join(f.root, 'xdg-data'),
+	};
 	const run = async (...words: string[]) => {
 		const child = Bun.spawn([bin, ...words], {
 			cwd: f.root,
-			env: {
-				...f.env,
-				PATH: '/usr/bin:/bin',
-				XDG_DATA_HOME: join(f.root, 'xdg-data'),
-			},
+			env,
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
@@ -114,6 +121,8 @@ test('the compiled binary copies and builds a writing app from Git without Bun o
 		]);
 		return { stdout, stderr, code };
 	};
+	// The compiled serve runs the actions, with no Bun on its PATH either.
+	const served = await startServe(f, [], { command: [bin], env });
 	try {
 		expect(
 			(
@@ -154,6 +163,7 @@ test('the compiled binary copies and builds a writing app from Git without Bun o
 			await readFile(join(f.apps, 'writing/code/ui/dist/index.html'), 'utf8'),
 		).toContain('Writing inbox');
 	} finally {
+		await served.stop();
 		await rm(f.root, { recursive: true, force: true });
 	}
 });
@@ -204,15 +214,21 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 			'utf8',
 		);
 		expect(html).toMatch(/src="\.\/[^"]+\.js"/);
-		const hello = Bun.spawn([bin, 'vocab', 'hello', '--json'], {
-			cwd: f.root,
-			env: { ...f.env, XDG_DATA_HOME: data },
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
-		expect(await new Response(hello.stdout).text()).toBe(
-			'{"data":"hi","error":null}\n',
-		);
+		const env = { ...f.env, XDG_DATA_HOME: data };
+		const served = await startServe(f, [], { command: [bin], env });
+		try {
+			const hello = Bun.spawn([bin, 'vocab', 'hello', '--json'], {
+				cwd: f.root,
+				env,
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			expect(await new Response(hello.stdout).text()).toBe(
+				'{"data":"hi","error":null}\n',
+			);
+		} finally {
+			await served.stop();
+		}
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}
@@ -229,22 +245,28 @@ test("a compiled epicenter runs an app whose package names its entry only in pac
 			'code/node_modules/greeting/dist/main.js':
 				"export const greeting = 'hi';\n",
 		});
-		const hello = Bun.spawn([bin, 'vocab', 'hello', '--json'], {
-			cwd: f.root,
-			env: { ...f.env, XDG_DATA_HOME: join(f.root, 'xdg-data') },
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
-		const [stdout, stderr, code] = await Promise.all([
-			new Response(hello.stdout).text(),
-			new Response(hello.stderr).text(),
-			hello.exited,
-		]);
-		expect({ code, stdout, stderr }).toEqual({
-			code: 0,
-			stdout: '{"data":"hi","error":null}\n',
-			stderr: '',
-		});
+		const env = { ...f.env, XDG_DATA_HOME: join(f.root, 'xdg-data') };
+		const served = await startServe(f, [], { command: [bin], env });
+		try {
+			const hello = Bun.spawn([bin, 'vocab', 'hello', '--json'], {
+				cwd: f.root,
+				env,
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			const [stdout, stderr, code] = await Promise.all([
+				new Response(hello.stdout).text(),
+				new Response(hello.stderr).text(),
+				hello.exited,
+			]);
+			expect({ code, stdout, stderr }).toEqual({
+				code: 0,
+				stdout: '{"data":"hi","error":null}\n',
+				stderr: '',
+			});
+		} finally {
+			await served.stop();
+		}
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}
@@ -319,6 +341,7 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 
 test('compiled routines invoke their own CLI and Bun runtime without depending on PATH', async () => {
 	const f = await fixture();
+	let served: Awaited<ReturnType<typeof startServe>> | undefined;
 	try {
 		await f.app(
 			'hello',
@@ -327,6 +350,14 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 		} });`,
 		);
 		await mkdir(join(f.home, 'routines'));
+		const env = {
+			...f.env,
+			PATH: '/usr/bin:/bin',
+			XDG_DATA_HOME: join(f.root, 'xdg-data'),
+		};
+		// Started before the routine exists, so only the explicit runs below run
+		// it; the routine's action is sent to this serve.
+		served = await startServe(f, [], { command: [bin], env });
 		for (const run of [
 			['epicenter', 'hello', 'greet'],
 			['bun', '-e', 'console.log("compiled runtime")'],
@@ -337,11 +368,7 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 			);
 			const child = Bun.spawn([bin, 'routines', 'run', 'review', '--json'], {
 				cwd: f.home,
-				env: {
-					...f.env,
-					PATH: '/usr/bin:/bin',
-					XDG_DATA_HOME: join(f.root, 'xdg-data'),
-				},
+				env,
 				stdout: 'pipe',
 				stderr: 'pipe',
 			});
@@ -360,6 +387,7 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 		expect(log).toContain('compiled action');
 		expect(log).toContain('compiled runtime');
 	} finally {
+		await served?.stop();
 		await rm(f.root, { recursive: true, force: true });
 	}
 });

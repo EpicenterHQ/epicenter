@@ -17,6 +17,11 @@
  * error. An action runs to its end whether or not its caller stays: a caller
  * that leaves stops reading, and nothing stops the action from outside.
  *
+ * A home has one `serve`, and its port is how it is found. Every answer names
+ * the home (`x-epicenter-home`) and states this `epicenter`'s version
+ * (`x-epicenter-version`), so a command can tell whose serve it reached, and
+ * a second `serve` can say whether this home or something else has the port.
+ *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
  * device reaches it only through a proxy the owner runs on this computer,
@@ -41,14 +46,20 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { extractErrorMessage } from 'wellcrafted/error';
 import { linkAppPackage } from './app-package.ts';
 import { type Checkpoint, checkpoint } from './checkpoint.js';
+import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { refused, writeErr } from './output.ts';
-import { epicenterDir } from './root.ts';
+import { fail, refused, writeErr } from './output.ts';
+import { epicenterDir, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
-import { HOME_HEADER, homeName } from './serve-call.ts';
+import {
+	HOME_HEADER,
+	homeName,
+	VERSION_HEADER,
+	whoAnswers,
+} from './serve-call.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
@@ -270,18 +281,12 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
  * can be a piece of text the next extends, and are dropped once it is gone.
  */
 async function call(request: Request): Promise<Response> {
-	// Every answer names this home, and a call meant for another is refused,
-	// so a command in a second home cannot write into this one (ADR-0936).
-	const home = await homeName();
+	// A call meant for another home is refused, so a command in a second home
+	// cannot write into this one (ADR-0936).
 	const meant = request.headers.get(HOME_HEADER);
-	if (meant !== null && meant !== home)
-		return new Response('This call is for another Epicenter', {
-			status: 409,
-			headers: { [HOME_HEADER]: home },
-		});
-	const answered = await callAnswer(request);
-	answered.headers.set(HOME_HEADER, home);
-	return answered;
+	if (meant !== null && meant !== (await homeName()))
+		return new Response('This call is for another Epicenter', { status: 409 });
+	return callAnswer(request);
 }
 
 async function callAnswer(request: Request): Promise<Response> {
@@ -366,9 +371,10 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * Start the listener and its checkpoint clock, which checkpoints once now and every
  * 5 minutes after. The listener answers everything for a request from this
  * computer or the tailnet whose `Origin`, if any, is its own host. The caller
- * owns its lifetime and ends it with `stop`. Port 0 asks Bun for a free port.
+ * owns its lifetime and ends it with `stop`. Port 0 asks Bun for a free port, which
+ * only a test that reads `port` back can use: the marker refuses it.
  * `tick` runs one checkpoint now, after any already running, and answers what it
- * did for the root.
+ * did for the root. A port something else holds throws before either clock starts.
  */
 export function startHttpServer(port: number) {
 	/** Log an unchanged root checkpoint failure only once. */
@@ -418,7 +424,6 @@ export function startHttpServer(port: number) {
 		}, BACKUP_EVERY_MS);
 		clock.unref();
 	};
-	void tickLogged().finally(schedule);
 	const site = createSite(refreshUi);
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
@@ -438,10 +443,18 @@ export function startHttpServer(port: number) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
-		if (request.method === 'POST')
-			return pathname === '/' ? site.mcp(request) : call(request);
-		if (pathname === '/') return site.launcher(request);
-		return site.ui(request);
+		const response = await (request.method === 'POST'
+			? pathname === '/'
+				? site.mcp(request)
+				: call(request)
+			: pathname === '/'
+				? site.launcher(request)
+				: site.ui(request));
+		// Every answer to a request serve accepts names its home and states its
+		// version, so a command or a second serve can tell who holds the port.
+		response.headers.set(HOME_HEADER, await homeName());
+		response.headers.set(VERSION_HEADER, VERSION);
+		return response;
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,
@@ -451,6 +464,7 @@ export function startHttpServer(port: number) {
 		maxRequestBodySize: MAX_INPUT_BYTES,
 		fetch: answer,
 	});
+	void tickLogged().finally(schedule);
 	const routines = createRoutines({
 		folder: epicenterDir(),
 		serviceUrl: `http://127.0.0.1:${server.port}/`,
@@ -495,12 +509,32 @@ export function startHttpServer(port: number) {
  * checkpoint (ADR-0883).
  */
 export async function serveHttp(port: number): Promise<number> {
+	/** Say who holds the port, as the refusal that ends this command. */
+	const portTaken = (holder: { home: boolean }) =>
+		fail(
+			CliError.Refused({
+				message: holder.home
+					? `Epicenter is already serving this home on port ${port}.`
+					: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
+			}).error,
+			false,
+		);
+	// Asked before anything changes, so a second serve leaves the links alone.
+	const holder = await whoAnswers(port);
+	if (holder) return portTaken(holder);
 	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
 	// that answers it, even when the `epicenter` they linked to is gone.
 	for (const { codePath: realPath, problem } of await homeEntries())
 		if (!problem && (await exists(join(realPath, 'node_modules'))))
 			await linkAppPackage(realPath);
-	const server = startHttpServer(port);
+	let server: ReturnType<typeof startHttpServer>;
+	try {
+		server = startHttpServer(port);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
+		// The port was taken since it was asked, or its holder does not speak HTTP.
+		return portTaken((await whoAnswers(port)) ?? { home: false });
+	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
