@@ -1,15 +1,14 @@
 /**
- * The workspace a home is, and the install `new` runs.
+ * The workspace a home is.
  *
  * A home is one Bun workspace, so one `bun install` at its top serves every
- * app. Epicenter has no install command: a person runs `bun install`. Fixture
- * packages name nothing to fetch, so no registry is asked.
+ * app. Epicenter has no install command, and `new` installs nothing: a person
+ * runs `bun install`. Fixture packages name nothing to fetch, so no registry
+ * is asked.
  *
  * Key behaviors:
  * - `bun install` run inside an app installs at the top of the home, and
  *   writes the home's one lock, naming each app's package.
- * - A failed install in `new` is reported with the command that tries it
- *   again.
  * - A package the owner added to `workspaces`, nested inside an app, is
  *   installed with the rest and is not taken for an app.
  * - An app that would load a second copy of `@epicenter/app` is a problem
@@ -57,31 +56,6 @@ test('bun install inside an app installs at the top of the home, in one lock', a
 	expect(existsSync(join(f.notes, 'code/bun.lock'))).toBe(false);
 });
 
-test('a failed install in new is reported with the command that tries it again', async () => {
-	const f = await setup();
-	// Two packages of one name: Bun refuses the workspace.
-	await f.folder(join(f.apps, 'other'), {
-		'code/epicenter.ts': bareApp('other'),
-		'code/package.json': '{ "name": "notes" }\n',
-	});
-	const next = `cd ${f.home} && bun install`;
-	const failed = await f.run('new', 'garden', '--json');
-	expect(failed.code).toBe(1);
-	expect(JSON.parse(failed.stdout)).toMatchObject({
-		name: 'garden',
-		error: { message: expect.stringContaining('notes'), next },
-	});
-	expect((await f.run('new', 'meadow')).stderr).toEndWith(`Run: ${next}\n`);
-
-	// A home from before it was a workspace is told what it needs.
-	await rm(join(f.home, 'package.json'));
-	const missing = await f.run('new', 'orchard');
-	expect(missing.code).toBe(1);
-	expect(missing.stderr).toContain(
-		`${f.home} has no package.json. A home is a Bun workspace`,
-	);
-});
-
 test('a package nested inside an app, added to workspaces by hand, installs with the home and is not an app', async () => {
 	const f = await setup();
 	await writeFile(
@@ -102,7 +76,7 @@ test('a package nested inside an app, added to workspaces by hand, installs with
 		'notes',
 	]);
 	expect(listed.problems).toEqual([]);
-	// `new` installs through the same list, and leaves the owner's entry alone.
+	// `new` leaves the owner's entry alone.
 	expect((await f.run('new', 'garden')).code).toBe(0);
 	expect(
 		(await Bun.file(join(f.home, 'package.json')).json()).workspaces,

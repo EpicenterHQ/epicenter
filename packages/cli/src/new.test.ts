@@ -12,7 +12,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fixture, gitIn, header, startServe } from './runner.test-support.ts';
+import { fixture, gitIn, header } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -46,39 +46,13 @@ async function noNestedGit(folder: string): Promise<void> {
 	}
 }
 
-/** A package.json whose build copies ui/index.html into ui/dist/, then runs `then`. */
-const copiesPage = (then = 'true') =>
-	JSON.stringify({
-		scripts: {
-			build: `mkdir -p ui/dist && cp ui/index.html ui/dist/ && ${then}`,
-		},
-	});
-
-test('new builds a copied UI and shows how to open it on the home port', async () => {
+test('new copies a UI without installing or building, and prints the one command that does both', async () => {
 	const f = await setup();
 	const source = await f.folder(
 		join(f.root, 'source'),
 		{
 			'epicenter.ts': `${header}export default defineApp({description:'Garden',actions:{}});`,
-			'package.json': copiesPage(),
-			'ui/index.html': '<h1>Garden</h1>',
-		},
-		{ git: true },
-	);
-	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 4861\n---\n');
-	const made = await f.run('new', 'garden', '--from', source);
-	expect(made.code).toBe(0);
-	expect(made.stderr).toBe(
-		'Run: epicenter serve\nOpen http://127.0.0.1:4861/garden/ in your browser.\n',
-	);
-});
-
-test('a copied UI with no build script is told how to build it', async () => {
-	const f = await setup();
-	const source = await f.folder(
-		join(f.root, 'source'),
-		{
-			'epicenter.ts': `${header}export default defineApp({description:'Garden',actions:{}});`,
+			'package.json': JSON.stringify({ scripts: { build: 'touch built' } }),
 			'ui/index.html': '<h1>Garden</h1>',
 		},
 		{ git: true },
@@ -86,27 +60,12 @@ test('a copied UI with no build script is told how to build it', async () => {
 	const made = await f.run('new', 'garden', '--from', source);
 	expect(made.code).toBe(0);
 	expect(made.stderr).toBe(
-		`Run: cd ${join(f.apps, 'garden', 'code')} && bun run build\n`,
+		`Run: cd ${f.home} && bun install && bun run build\n`,
 	);
-});
-
-test('a copied UI whose build fails keeps the app and says how to build it again', async () => {
-	const f = await setup();
-	const source = await f.folder(
-		join(f.root, 'source'),
-		{
-			'epicenter.ts': `${header}export default defineApp({description:'Garden',actions:{}});`,
-			'package.json': copiesPage('echo build broke >&2 && exit 4'),
-			'ui/index.html': '<h1>Garden</h1>',
-		},
-		{ git: true },
-	);
-	const made = await f.run('new', 'garden', '--from', source);
 	const code = join(f.apps, 'garden', 'code');
-	expect(made.code).toBe(1);
-	expect(made.stderr).toContain('\nbuild broke\n');
-	expect(made.stderr).toContain(`Run: cd ${code} && bun run build\n`);
-	expect(existsSync(join(code, 'epicenter.ts'))).toBe(true);
+	expect(existsSync(join(code, 'built'))).toBe(false);
+	expect(existsSync(join(code, 'ui', 'dist'))).toBe(false);
+	expect(existsSync(join(f.home, 'bun.lock'))).toBe(false);
 });
 
 test('new creates code and empty data without repositories and refuses taken and reserved names', async () => {
@@ -134,9 +93,6 @@ test('new creates code and empty data without repositories and refuses taken and
 	});
 	for (const path of ['code/bun.lock', 'code/node_modules', 'node_modules'])
 		expect(existsSync(join(container, path))).toBe(false);
-	expect(await readFile(join(f.home, 'bun.lock'), 'utf8')).toContain(
-		'"apps/garden/code"',
-	);
 	expect((await f.run('garden', '--json')).code).toBe(0);
 	await noNestedGit(f.apps);
 });
@@ -401,74 +357,41 @@ done
 	);
 });
 
-for (const hasTheme of [true, false]) {
-	test(`copied external theme symlink stays a link and ${hasTheme ? 'builds with a root theme' : 'reports a missing root theme'}`, async () => {
-		const f = await setup();
-		const source = join(f.root, 'source');
-		const prefix = 'apps/x/code';
-		await f.folder(source, {
-			[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Theme',actions:{}});`,
-			[`${prefix}/ui/index.html`]:
-				'<html><head><link rel="stylesheet" href="./src/theme.css"></head><body>Theme</body></html>',
-			'theme.css': 'body { color: rgb(12, 34, 56); }',
-			// Only a home with the theme can build the page that links it.
-			...(hasTheme
-				? {
-						[`${prefix}/package.json`]: JSON.stringify({
-							scripts: { build: 'bun build ui/index.html --outdir ui/dist' },
-						}),
-					}
-				: {}),
-		});
-		await mkdir(join(source, prefix, 'ui/src'));
-		await symlink(
-			'../../../../../theme.css',
-			join(source, prefix, 'ui/src/theme.css'),
-		);
-		await gitIn(source, 'init', '-q');
-		await gitIn(source, 'add', '.');
-		await gitIn(source, 'commit', '-qm', 'theme');
-		if (hasTheme)
-			await writeFile(
-				join(f.home, 'theme.css'),
-				'body { color: rgb(12, 34, 56); }',
-			);
-		const result = await f.run(
-			'new',
-			'copy',
-			'--from',
-			join(source, 'apps/x'),
-			'--json',
-		);
-		expect(result.code).toBe(0);
-		expect(await readlink(join(f.apps, 'copy/code/ui/src/theme.css'))).toBe(
-			'../../../../../theme.css',
-		);
-		if (!hasTheme) {
-			expect(JSON.parse(result.stdout).links).toEqual([
-				{ path: 'ui/src/theme.css', target: '../../../../../theme.css' },
-			]);
-			expect(result.stderr).toContain(
-				'copy: code/ui/src/theme.css links to ../../../../../theme.css, which this Epicenter does not have',
-			);
-		} else {
-			const { readdir } = await import('node:fs/promises');
-			const dist = join(f.apps, 'copy/code/ui/dist');
-			expect(await Bun.file(join(dist, 'index.html')).exists()).toBe(true);
-			const css = (await readdir(dist)).filter((path) => path.endsWith('.css'));
-			expect(css.length).toBeGreaterThan(0);
-			expect(await readFile(join(dist, css[0]!), 'utf8')).toContain('#0c2238');
-			await noNestedGit(f.apps);
-			const served = await startServe(f);
-			try {
-				expect((await fetch(`${served.base}/copy/`)).status).toBe(200);
-			} finally {
-				await served.stop();
-			}
-		}
-		await noNestedGit(f.apps);
+test('a copied link that leads outside code/ stays a link and is reported', async () => {
+	const f = await setup();
+	const source = join(f.root, 'source');
+	const prefix = 'apps/x/code';
+	await f.folder(source, {
+		[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Theme',actions:{}});`,
+		'theme.css': 'body { color: rgb(12, 34, 56); }',
 	});
-}
+	await mkdir(join(source, prefix, 'ui/src'), { recursive: true });
+	await symlink(
+		'../../../../../theme.css',
+		join(source, prefix, 'ui/src/theme.css'),
+	);
+	await gitIn(source, 'init', '-q');
+	await gitIn(source, 'add', '.');
+	await gitIn(source, 'commit', '-qm', 'theme');
+	const result = await f.run(
+		'new',
+		'copy',
+		'--from',
+		join(source, 'apps/x'),
+		'--json',
+	);
+	expect(result.code).toBe(0);
+	expect(await readlink(join(f.apps, 'copy/code/ui/src/theme.css'))).toBe(
+		'../../../../../theme.css',
+	);
+	expect(JSON.parse(result.stdout).links).toEqual([
+		{ path: 'ui/src/theme.css', target: '../../../../../theme.css' },
+	]);
+	expect(result.stderr).toContain(
+		'copy: code/ui/src/theme.css links to ../../../../../theme.css, which this Epicenter does not have',
+	);
+	await noNestedGit(f.apps);
+});
 
 test('copy failure removes only the created container and reports the source folder hint', async () => {
 	const f = await setup();
@@ -706,8 +629,16 @@ test('new --from makes the copy a package of this home: named for the new app, w
 		`${JSON.stringify({ name: 'journal', private: true, scripts: { test: 'bun test' } }, null, '\t')}\n`,
 	);
 	expect(existsSync(join(code, 'bun.lock'))).toBe(false);
-	const lock = await readFile(join(f.home, 'bun.lock'), 'utf8');
-	expect(lock).toContain('"apps/journal/code"');
+	// Renamed, the copy installs beside the app it came from.
+	const install = Bun.spawn([process.execPath, 'install'], {
+		cwd: f.home,
+		stdout: 'ignore',
+		stderr: 'ignore',
+	});
+	expect(await install.exited).toBe(0);
+	expect(await readFile(join(f.home, 'bun.lock'), 'utf8')).toContain(
+		'"apps/journal/code"',
+	);
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'journal',

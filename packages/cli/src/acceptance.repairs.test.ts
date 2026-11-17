@@ -82,7 +82,9 @@ test('F1 new puts the next step on stderr; a broken root is a usage error', asyn
 	const made = await f.run('new', 'garden');
 	expect(made.code).toBe(0);
 	expect(made.stdout).toBe(`${join(f.apps, 'garden')}\n`);
-	expect(made.stderr).toBe('Run: epicenter garden\n');
+	expect(made.stderr).toBe(
+		`Run: cd ${f.home} && bun install && bun run build\n`,
+	);
 	await rm(f.home, { recursive: true });
 	await writeFile(f.home, 'not a folder');
 	const listed = await f.json();

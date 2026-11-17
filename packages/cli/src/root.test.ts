@@ -29,7 +29,6 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	const folder = join(f.root, 'other');
 	await mkdir(folder);
 	await writeFile(join(folder, 'AGENTS.md'), 'Keep this guidance.\n');
-	await writeFile(join(folder, 'theme.css'), '/* personal palette */');
 	const result = await f.init(folder, '--port', '4748', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ folder, port: 4748 });
@@ -40,10 +39,6 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 		'Keep this guidance.\n',
 	);
 	expect((await f.run('init', folder, '--json')).code).toBe(2);
-	expect(await readFile(join(folder, 'theme.css'), 'utf8')).toBe(
-		'/* personal palette */',
-	);
-	expect(await gitIn(folder, 'ls-files', '--', 'theme.css')).toBe('');
 	expect((await f.run('init', join(folder, 'nested'), '--json')).code).toBe(2);
 	expect((await f.runIn(folder, 'init', 'nested', '--json')).code).toBe(2);
 	const alias = join(f.root, 'alias');
@@ -57,10 +52,8 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(await readFile(join(fresh, 'EPICENTER.md'), 'utf8')).toStartWith(
 		'---\nport: 4747\n---\n',
 	);
-	const seeded = await readFile(join(fresh, 'theme.css'), 'utf8');
-	expect(seeded).toContain('--primary:');
-	expect(seeded).toContain('.dark {');
-	expect(await gitIn(fresh, 'show', 'HEAD:theme.css')).toBe(seeded.trimEnd());
+	// Each app owns its palette, so a home has no theme of its own.
+	expect(existsSync(join(fresh, 'theme.css'))).toBe(false);
 	expect(await gitIn(fresh, 'check-ignore', 'apps/x/local/google.md')).toBe(
 		'apps/x/local/google.md',
 	);
@@ -149,8 +142,6 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	});
 	const other = join(f.root, 'other');
 	expect((await f.init(other, '--json')).code).toBe(0);
-	// `new` installs, so this home names nothing the registry would be asked for.
-	await writeFile(join(other, 'package.json'), homePackage);
 	await f.folder(join(other, 'apps', 'tasks'), {
 		'code/epicenter.ts': bareApp('tasks'),
 	});

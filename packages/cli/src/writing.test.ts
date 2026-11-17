@@ -66,9 +66,15 @@ test('an exported writing app copied as journal captures and finds text, sources
 			).data,
 		).toEqual([]);
 		expect((await f.run('journal', 'add', '{"body":"   "}')).code).toBe(2);
-		expect(existsSync(join(f.apps, 'journal/code/ui/dist/index.html'))).toBe(
-			true,
-		);
+		// Its own build makes the page serve answers with.
+		const code = join(f.apps, 'journal/code');
+		const build = Bun.spawn([process.execPath, 'run', 'build'], {
+			cwd: code,
+			stdout: 'ignore',
+			stderr: 'ignore',
+		});
+		expect(await build.exited).toBe(0);
+		expect(existsSync(join(code, 'ui/dist/index.html'))).toBe(true);
 		expect(
 			await readFile(join(f.apps, 'journal/code/SOURCE.md'), 'utf8'),
 		).toMatch(/^Commit: [0-9a-f]{40}$/m);
