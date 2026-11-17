@@ -37,7 +37,6 @@ import { misuse, nameProblem, parseWords } from './commands.js';
 import { CliError } from './errors.js';
 import { checkedGit, git } from './git.js';
 import { homeEntries } from './home.js';
-import { hold } from './lock.js';
 import { fail, writeErr, writeJson, writeOut } from './output.js';
 import { epicenterDir, folderPath } from './root.js';
 
@@ -235,7 +234,6 @@ export async function exportCommand(
 		return fail(misuse('export', nameProblem(app)), json);
 	const directory = folderPath(given.positionals[all ? 0 : 1]!);
 	let scratch: string | undefined;
-	let held: Awaited<ReturnType<typeof hold>>;
 	try {
 		const source = await realpath(epicenterDir());
 		await checkLocation(directory, source);
@@ -354,10 +352,6 @@ export async function exportCommand(
 			: [];
 		await checkLocation(directory, source);
 		await mkdir(directory, { recursive: true });
-		held = await hold(directory, 0);
-		if (!held)
-			refuse(`${directory}: another export is using this directory; try again`);
-		await checkLocation(directory, source);
 		await checkDestination(directory, marker);
 		// Keep ownership through interruption: a rerun repairs an incomplete fill.
 		if (!(await info(join(directory, EXPORT_MARKER))))
@@ -410,7 +404,6 @@ export async function exportCommand(
 			);
 		return fail(CliError.Internal({ cause }).error, json);
 	} finally {
-		held?.release();
 		if (scratch) await rm(scratch, { recursive: true, force: true });
 	}
 }
