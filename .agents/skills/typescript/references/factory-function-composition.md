@@ -1,16 +1,8 @@
----
-name: factory-function-composition
-description: Factory function patterns to compose clients and services. Use when wrapping resources with domain methods, refactoring mixed client/service/method options, or documenting returned factory methods.
-metadata:
-  author: epicenter
-  version: '1.0'
----
-
 # Factory Function Composition
 
 This skill helps you apply factory function patterns for clean dependency injection and function composition in TypeScript.
 
-> **Related Skills**: See [refactoring methods](../collapse-pass/references/refactoring-methods.md) for caller counting and inlining single-use extractions.
+> **Related Skills**: See [refactoring methods](../../collapse-pass/references/refactoring-methods.md) for caller counting and inlining single-use extractions.
 
 ## The universal factory signature
 
@@ -214,7 +206,7 @@ ordinary factories do not need section labels.
 
 When the exported type is just the handle returned by one factory, derive the type from the factory instead of annotating the factory with the type.
 
-[Whispering’s factory](../../../apps/whispering/src/lib/whispering.svelte.ts) gives callers a name for the handle it returns.
+[Whispering’s factory](../../../../apps/whispering/src/lib/whispering.svelte.ts) gives callers a name for the handle it returns.
 
 ```typescript
 export type Whispering = ReturnType<typeof createWhispering>;
@@ -222,7 +214,7 @@ export type Whispering = ReturnType<typeof createWhispering>;
 
 The return object already defines the public API. Duplicating it in a manual return type creates a second source of truth and changes editor navigation: Go to Definition tends to jump to the alias instead of the returned member. Keep method parameter and return annotations on the returned operations when they make the public surface clearer.
 
-This is one face of a broader principle: when organizing types and exports, always consider Go-to-Definition. See [TypeScript guidance](../typescript/SKILL.md#go-to-definition-awareness) for the broader navigation rule.
+This is one face of a broader principle: when organizing types and exports, always consider Go-to-Definition. See [TypeScript guidance](../SKILL.md#go-to-definition-awareness) for the broader navigation rule.
 
 Do not use this for shared service contracts that several factories implement. Those contracts are vocabulary. Use `satisfies` at the return object when a factory needs to prove it matches an external contract while preserving the concrete returned shape.
 
@@ -242,7 +234,7 @@ incrementTwice(); // 4
 value(); // 4
 ```
 
-See [method documentation and sibling calls](references/method-documentation-and-sibling-calls.md)
+See [method documentation and sibling calls](method-documentation-and-sibling-calls.md)
 for documentation behavior and receiver requirements in existing APIs.
 
 ## The Mental Model
@@ -268,6 +260,6 @@ createClient(...)  →  createService({ client }, ...)  →  service.method(...)
 
 ## References
 
-Read [method documentation and sibling calls](references/method-documentation-and-sibling-calls.md)
+Read [method documentation and sibling calls](method-documentation-and-sibling-calls.md)
 when documenting returned operations or working with receiver-dependent
 methods in existing APIs.

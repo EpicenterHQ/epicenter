@@ -48,10 +48,7 @@ Arktype-validated IDs (auth user IDs, persisted-state schemas, HTTP route
 inputs) use type-first + validator + `as*` helper. The branded type and the
 arktype `Type` share one PascalCase name.
 
-A file contract carries no brands: `defineContract` from
-`@epicenter/definition/contract` declares each collection's fields as plain
-JSON Schema, and a file's identity is its path (`recordings/{id}.md`), not a
-branded field value.
+Inside an Epicenter, a collection names records by the placeholders in its `path`. For example, the [writing app](../../../../examples/writing/epicenter.ts) defines `data/notes/{time}.md` and its actions use `time` to identify a note. Whispering’s outside-app [file contract](../../../../apps/whispering/src/lib/contract.ts) still uses `defineContract`.
 
 ## Arktype-Validated IDs: Type First, Validator Annotated, Optional `as*` Helper
 

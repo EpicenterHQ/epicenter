@@ -216,4 +216,4 @@ The same principle applies: each client is configured at its own creation time. 
 - [The Universal Factory Function Signature](./universal-factory-signature.md): why every factory uses this signature
 - [Stop Passing Clients as Arguments](./stop-passing-clients-as-arguments.md): practical guide
 - [Factory Method Patterns](./factory-method-patterns.md): separating bundled options and method patterns
-- [Factory Function Composition Skill](../../.claude/skills/factory-function-composition/SKILL.md): quick reference
+- [Factory function composition reference](../../.agents/skills/typescript/references/factory-function-composition.md): quick reference

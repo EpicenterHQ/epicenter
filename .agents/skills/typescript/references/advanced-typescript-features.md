@@ -34,21 +34,14 @@ Use `const T extends readonly T[]` to preserve literal types without requiring `
 
 The `const` modifier preserves literal types; the `readonly` constraint determines mutability.
 
-```typescript
-// From packages/epicenter/src/core/schema/fields/factories.ts
-export function select<const TOptions extends readonly [string, ...string[]]>({
-	id,
-	options,
-}: {
-	id: string;
-	options: TOptions;
-}): SelectField<TOptions> {
-	// ...
-}
+[`field.select`](../../../../packages/app/src/field.ts) takes a `const V extends readonly [string, ...string[]]`. The first element makes the list nonempty. The `const` type parameter preserves the caller's literal choices.
 
-// Caller gets literal union type — no `as const` needed
-const status = select({ id: 'status', options: ['draft', 'published'] });
-// status.options[number] is "draft" | "published", not string
+```typescript
+import { field } from '@epicenter/app';
+import type { Static } from 'typebox';
+
+const status = field.select(['draft', 'published']);
+type Status = Static<typeof status>; // 'draft' | 'published'
 ```
 
 See `docs/articles/typescript-const-modifier-generic-type-parameters.md` for details.

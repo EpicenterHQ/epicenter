@@ -1,6 +1,6 @@
 # Svelte Lifecycle And Reactivity Patterns
 
-Detailed Svelte 5 guidance for keyed resources, async gates, stable owners, finite union mapping, reactive collections, contract editors, and state modules.
+Detailed Svelte 5 guidance for keyed resources, async gates, stable owners, finite union mapping, reactive collections, and state modules.
 
 # Prop-Keyed Resources: Let the Tree Own the Lifecycle
 
@@ -84,8 +84,7 @@ When an owner exposes a stable readiness promise and the view only needs its
 pending, fulfilled, and rejected branches, use `{#await}` instead of copying
 those states into a flag. The block follows the current promise for rendering;
 it does not cancel the underlying operation or dispose its resource. Keep
-cancellation and cleanup with the operation's owner. Contract editors use the
-[connection boundary](#contract-reads-and-editing), not per-editor promises.
+cancellation and cleanup with the operation's owner.
 
 ```svelte
 <!-- Same keyed resource owner as above. -->
@@ -180,23 +179,30 @@ public component API, or a non-obvious widget invariant that deserves its own
 file. Otherwise, collapse the wrapper into the component that owns the resource
 and mount lifetime.
 
+## A caller can own the initial wait
+
+The [dashboard auth module](../../../../apps/api/ui/src/lib/platform/auth.ts) constructs its client synchronously and exports `authReady = client.refresh()` for the first cookie-session read. The [layout](../../../../apps/api/ui/src/routes/dashboard/+layout.svelte) waits on that promise once with `{#await authReady}`. Later sign-ins are changes to `auth.state()`. In the signed-in branch, `{#key signIn.account}` gives each account its own dashboard session.
+
+The promise answers “has the first read finished?” The live state answers “who is signed in now?” A later refresh can change that answer after the promise has settled.
+
 ## Related
 
-- The sync-construction / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent: synchronous construction, one render gate, actions that wait.
 - `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
 - `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
 
 # Stable adapters and reactive reads
 
-Separate the adapter's identity from the values it exposes. For an existing owner
-whose getters participate in Svelte reactivity, keep it stable when the source
-is fixed for the component instance. Capabilities already use `reactive`; this
-is not a reason to build a per-capability wrapper.
+An adapted capability keeps its methods. Reading `auth.state()` in markup,
+`$derived`, or an effect tracks the capability. Reading it in component setup
+or an event handler takes a snapshot. Actions pass through untracked, so an
+effect can call `void ai.refresh()` without subscribing to that action.
+See [the adapter contract](../../../../packages/svelte/README.md#one-adapter-for-every-capability).
 
-A reactive local is not a second draft or a mount-time snapshot. Keep one when
-several reads must narrow one answer, such as
-`const signIn = $derived(auth.state())`. For the contrasting direct-property
-example, see [deriving from the owner](component-ui-patterns.md#derive-from-the-owner-of-the-fact).
+A check on one call to `auth.state()` cannot narrow the answer to a second
+call. Read it once when several expressions need the same answer. The
+dashboard uses `const signIn = $derived(auth.state())` in both script and
+markup. Within a template block, [a single `{@const}`](component-ui-patterns.md#template-locals-narrow-reactive-values-before-use)
+can do the same job. Both locals follow later changes.
 
 Search a bounded area for candidate passthroughs, then inspect the consumers:
 
@@ -245,6 +251,18 @@ its contents when the key changes. See the official
 [`$derived`](https://svelte.dev/docs/svelte/$derived),
 [`$props`](https://svelte.dev/docs/svelte/$props), and
 [`{#key}`](https://svelte.dev/docs/svelte/key) documentation.
+
+## Derived computations and read APIs
+
+Use a direct read for a cheap computation. Use `$derived` when a computation
+benefits from caching or a consumer depends on stable output identity. A method
+or getter that reads reactive state can track changes, but each call recomputes
+its body unless it returns an already derived value. See
+[the projection example](component-ui-patterns.md#referential-stability-for-reactive-data-sources).
+
+For new APIs, expose live reads through explicit methods, following
+[typescript](../../typescript/SKILL.md). Keep existing getters and upstream
+protocols when callers rely on them.
 
 # Finite value mappings
 
@@ -327,8 +345,6 @@ listener bag; reactivity without a reader adds no behavior.
 
 | Data Shape | Use | Example |
 |---|---|---|
-| Contract listings | `notes.items()`, `notes.invalid()` | notes and notes that do not read |
-| An open note | `notes.edit({ id })` | `todo.fields` (typed until saved), `todo.exists()`, and `todo.saving()` |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Reactive membership | `new SvelteSet()` | expanded row IDs when only membership matters |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
@@ -337,110 +353,6 @@ listener bag; reactivity without a reader adds no behavior.
 Project collections to arrays with `$derived` when consumers depend on stable
 identity. Follow [referential stability](component-ui-patterns.md#referential-stability-for-reactive-data-sources)
 to check whether a consumer observes reference identity.
-
-# Contract reads and editing
-
-For contract apps, `src/lib/app.ts` exports the capabilities as module
-values ([ADR-0766](../../../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
-`openFolder(contract, home({ site, account }))` returns at once; where it is in its life is
-`folder.state()` (opening, open, failed with a typed error and the failure's
-`retry()`, or closed), and the root layout renders `<WhenOpen {folder}
-{settings}>`, which waits for the folder and this computer's settings
-(`@epicenter/local`). Editing `app.ts`, or anything it imports, reloads the
-page in development, so it closes nothing by hand. Any code imports
-`folder`; none passes it through context. Only `<WhenOpen>` and Recovery read
-`state()`. The page connects once, and nothing that reads a store renders
-before: inside `<WhenOpen>` every read is synchronous and answers what is
-stored; a read before the connection throws `FolderNotOpen` (or
-`SettingsNotOpen`), a bug in the code that made it
-([ADR-0778](../../../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
-Code outside a page calls an action, such as `list()`, which waits. No
-capability exposes `ready` or `loading()`, so no code checks or awaits
-readiness. Keep contract apps on this shape; do not add a `Startup` root, a
-per-collection context, or a gate of its own. Key editors by note identity so
-each mounted editor owns one edit.
-
-Read capabilities through `reactive(capability)` once where they are made.
-It keeps their methods: reads track in markup, `$derived`, or effects; a read
-in setup or a handler is a snapshot. Actions pass through untracked and return
-promises, so an effect may call one without subscribing to that call. Keep
-shared narrowed reads in `$derived` when script consumers need them.
-
-A folder read through `reactive` gives each collection tracking reads:
-`items()`, `invalid()` (notes) and `get(args)` (ADR-0769), each answering at
-once inside `<WhenOpen>` (ADR-0778).
-Collections come straight off the module-level `folder` in
-`src/lib/app.ts` (ADR-0766):
-
-```ts
-// src/lib/app.ts
-export const folder = reactive(openFolder(todos, home({ site, account })));
-
-// any component
-import { folder } from '$lib/app.js';
-const { todos } = folder;
-```
-
-The component that shows a note makes one editor of it during setup. The
-editor is that view's read of the note too: `todo.fields` holds one accessor
-per declared field and `body`, each showing typed input until its save
-answers and the note as shown after, and `todo.exists()` says whether a note
-that reads is listed at its path (false while missing, deleted or not
-reading):
-
-Bind structured content through `todo.fields` and the whole note through
-`todo.text`. The editor keeps each typed value until its save lands.
-
-```svelte
-<script lang="ts">
-  import { folder } from '$lib/app.js';
-
-  const { todos } = folder;
-  const todo = todos.edit({ id });
-  const open = $derived(todos.items().filter((todo) => !todo.done));
-</script>
-
-{#if todo.exists()}
-  <Input bind:value={todo.fields.title} />
-  <Textarea bind:value={todo.fields.body} />
-  <Checkbox bind:checked={todo.fields.done} />
-{:else}
-  <p>This todo is no longer here.</p>
-{/if}
-```
-
-Do not read the open note a second time with `todos.get({ id })` or take it
-as a prop; `get` is for lists, code that is not the note's view, and the
-rare view that needs the saved note beside what is typed (Capture's export
-waits for the save, then reads the file's text from `get`). `fields` stays
-live, so `const { fields } = todo` is fine. Keep
-derived filters in `$derived`. The editor's saves go through the folder's
-queue one at a time; the newest carries everything typed since the last that
-landed. A typed field takes this write, another writer's change to a field
-not typed stays, and a body changed elsewhere since the typing began merges
-by lines. A save never fails: while the store cannot be reached it waits,
-the typing stays shown, and `<WhenOpen>` says the store is out of reach
-(`folder.unavailable()`), so a view shows no save error of its own. Code
-that is not typing, such as a list row's toggle, writes with
-`set(args, changes)`, which answers once it has landed. Keep an app-level context only for state that is not a collection
-(selection, a recorder), named for what it holds.
-
-### Derived computations and read APIs
-
-Use `$derived` when a reactive computation needs caching or stable output
-identity. A plain method or getter recomputes its body on each access; either
-can return an already derived value. Keep simple reads direct.
-
-For new APIs, expose live reads through explicit methods, following
-[typescript](../../typescript/SKILL.md). Keep existing getters and upstream
-protocols as their current contracts; avoid adding a facade solely to change
-access syntax.
-
-A getter may still be reactive if it reads reactive state, but it recomputes
-its body on every access. `$derived` computes reactively and caches until its
-dependencies change. Use it for a computation that benefits from caching;
-a method or existing getter can return the cached value. See
-[the projection example](component-ui-patterns.md#referential-stability-for-reactive-data-sources).
 
 # Product state modules
 

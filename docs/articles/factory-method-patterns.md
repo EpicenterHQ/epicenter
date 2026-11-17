@@ -311,4 +311,4 @@ The two patterns work together: Pattern 1 ensures your factory receives explicit
 - [The Universal Factory Function Signature](./universal-factory-signature.md): the signature explained in depth
 - [The Factory Function Pattern](./factory-function-pattern.md): deep dive into factory functions
 - [Stop Passing Clients as Arguments](./stop-passing-clients-as-arguments.md): practical guide
-- [Factory Function Composition Skill](../../.claude/skills/factory-function-composition/SKILL.md): quick reference
+- [Factory function composition reference](../../.agents/skills/typescript/references/factory-function-composition.md): quick reference

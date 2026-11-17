@@ -7,8 +7,8 @@ support focused reviews without starting an exploratory pass.
 
 [collapse-pass](../SKILL.md) owns execution, scope, authorization, and reporting.
 Use [control-flow](../../control-flow/SKILL.md) for linearizing conditionals,
-[factory composition](../../factory-function-composition/SKILL.md) for factory
-shape and [method documentation](../../factory-function-composition/references/method-documentation-and-sibling-calls.md),
+[factory composition](../../typescript/references/factory-function-composition.md) for factory
+shape and [method documentation](../../typescript/references/method-documentation-and-sibling-calls.md),
 <!-- vocab-check: ignore-next-line (the code-prose skill name) -->
 and [code-prose](../../code-prose/SKILL.md) for identifiers and comments.
 

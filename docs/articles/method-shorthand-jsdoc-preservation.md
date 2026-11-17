@@ -72,4 +72,4 @@ return {
 };
 ```
 
-This direct call keeps using the closure's `current` even if a consumer replaces the public property. Decide which behavior the factory promises before moving a helper into the return object. For the concise decision rule, see the [factory composition reference](../../.agents/skills/factory-function-composition/references/method-documentation-and-sibling-calls.md).
+This direct call keeps using the closure's `current` even if a consumer replaces the public property. Decide which behavior the factory promises before moving a helper into the return object. For the concise decision rule, see the [factory composition reference](../../.agents/skills/typescript/references/method-documentation-and-sibling-calls.md).

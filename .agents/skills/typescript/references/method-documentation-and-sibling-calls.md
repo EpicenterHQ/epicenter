@@ -21,7 +21,7 @@ declare const counter: Counter;
 counter.current();
 ```
 
-Keep a documented method in the return object when it can express its operation directly. Methods that use closed-over state without `this` also work after extraction. Follow the [read API convention](../../typescript/SKILL.md#core-rules) for live and computed reads:
+Keep a documented method in the return object when it can express its operation directly. Methods that use closed-over state without `this` also work after extraction. Follow the [read API convention](../SKILL.md#core-rules) for live and computed reads:
 
 ```ts
 function createCounter() {
@@ -67,7 +67,7 @@ incrementTwice(); // 2
 current(); // 2
 ```
 
-The extracted functions still share the same `count`. `const` keeps each arrow function's binding fixed; the function can change the captured `let` state. Initialize the arrow functions before calling them during construction. An internal function may stay private or be exposed through the return object; the [three-part factory structure](../SKILL.md#the-canonical-internal-shape) distinguishes its declaration from its exposure.
+The extracted functions still share the same `count`. `const` keeps each arrow function's binding fixed; the function can change the captured `let` state. Initialize the arrow functions before calling them during construction. An internal function may stay private or be exposed through the return object; the [three-part factory structure](factory-function-composition.md#the-canonical-internal-shape) distinguishes its declaration from its exposure.
 
 A closure call always invokes the original function, even if a consumer replaces the corresponding method on the returned object.
 
