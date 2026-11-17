@@ -1,6 +1,6 @@
 # 0933. An app's data is top-level folders of Markdown records and single Markdown files
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-16
 - **Supersedes:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) (a collection selects a record by its keys) and [ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) (file slots), once accepted.
 - **Amends:** [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md): a ref names its target by key name and holds one id. [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md): the check's rules below, with no count of skipped files.

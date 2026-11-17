@@ -1,6 +1,6 @@
 # 0936. One serve per home runs every action
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the app lock: nothing locks an app, and nothing locks the home to run an action. [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) on who runs a command's action: serve does.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`folder.update`), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (the call and its route), [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) (routines run commands).
