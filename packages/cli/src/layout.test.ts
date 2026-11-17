@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { connect } from '@epicenter/app/client';
 import type { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { checkpoint } from './checkpoint.js';
 import { fixture, gitIn, startServe } from './runner.test-support.js';
 
 setDefaultTimeout(30_000);
@@ -27,7 +26,8 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 	roots.push(f.root);
 	await gitIn(f.home, 'init', '-q');
 	const app = await f.app('x', code);
-	await checkpoint(f.home);
+	await gitIn(f.home, 'add', '-A');
+	await gitIn(f.home, 'commit', '-qm', 'start');
 	const before = await gitIn(f.home, 'rev-parse', 'HEAD');
 	const cli = await f.run('x', 'put', '--json');
 	expect(cli.code).toBe(0);

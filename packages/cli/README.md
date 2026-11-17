@@ -181,15 +181,15 @@ epicenter export tasks ~/Code/my-project/code
 epicenter export --all ~/Code/shared-apps/apps
 epicenter install
 epicenter build
-epicenter checkpoint
-epicenter checkpoint -m "Repair the book fields"
+epicenter check
 epicenter serve
-epicenter routines
 epicenter --version
 ```
 
-The commands are `init`, `new`, `export`, `install`, `build`, `checkpoint`,
-`serve`, `service`, and `routines`. Their usage and help live in `src/commands.ts`.
+The commands are `init`, `new`, `export`, `install`, `build`, `check`,
+`serve`, and `service`. Their usage and help live in `src/commands.ts`.
+`epicenter` on its own reports the home: its apps, its routines, and one line
+about its repository. See [The home's report](#the-homes-report).
 Any other first word names an app. `--json` and `--help` (`-h`) go anywhere
 before `--`; `--version` is read only on its own. Each command parses flags
 strictly. A misuse returns its usage line and next help command.
@@ -257,7 +257,7 @@ $ epicenter reading log '{"minutes":30}'
 Epicenter is not running for this home. Start it with `epicenter serve`, or keep it running with `epicenter service install`.
 ```
 
-Listings, `--help`, `check`, `checkpoint`, `build`, and the other commands in
+Listings, `--help`, `check`, `build`, and the other commands in
 `src/commands.ts` do not need serve.
 
 The port is the home's name. Serve puts the home in an `x-epicenter-home`
@@ -316,10 +316,10 @@ MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, whe
 A page calls actions through `@epicenter/app/client`, at
 `POST /<app>/<action>`. See [A call over HTTP](#a-call-over-http).
 
-Serve commits nothing itself. A home checkpoints through a routine that runs
-`epicenter checkpoint`, such as `cron: "*/5 * * * *"`; a new routine runs at
-the first check, so it also checkpoints soon after serve starts. Without one,
-the home keeps no history of records and pushes nothing. On SIGINT or SIGTERM
+Serve commits nothing. Git stores the home, and a home commits itself through
+a routine that runs its own script: see
+[The home commits itself](#the-home-commits-itself). Without that routine,
+nothing is committed or pushed on its own. On SIGINT or SIGTERM
 serve stops its routine commands and exits. The service job only keeps serve
 running.
 
@@ -328,7 +328,9 @@ running.
 The home opts into recurring work with `routines/<name>.md`, outside `apps/`.
 A routine is an instruction to this computer, so sharing an app schedules
 nothing. Once a minute, `serve` reads `routines/` and starts each routine
-whose schedule had an occurrence since its last check:
+whose schedule had an occurrence since its last check. It keeps that one
+moment in memory, starting from when serve started, so nothing runs at
+startup:
 
 ```yaml
 ---
@@ -355,8 +357,8 @@ calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
 Unknown fields and malformed declarations are refused. To stop a
 routine, remove its file; the home's history keeps it.
 
-`epicenter routines` lists each routine's schedule and next occurrence, or why
-its file is refused, whether or not `serve` is running.
+`epicenter` on its own lists each routine's schedule and next occurrence, or
+why its file is refused, whether or not `serve` is running.
 
 A person or their agent writes the file. Installing or importing an app
 schedules nothing.
@@ -427,8 +429,9 @@ An action's MCP annotations, `readOnlyHint` among them, are forwarded to MCP
 clients and refuse nothing. `folder` is not a sandbox.
 
 What is in an app's `local/` stays on this computer: the root `.gitignore`
-names `/apps/*/local/`, and a checkpoint refuses a file there that Git would
-commit. A file made under `local/` through folder methods is readable by its
+names `/apps/*/local/`, which covers every app whoever makes the folder.
+Git's ignore rules are the only guard: nothing else refuses a commit of a
+file there, so keep that line and never `git add -f` such a file. A file made under `local/` through folder methods is readable by its
 owner alone (`0600`), and a directory made there is `0700`; one already there
 keeps its mode. An action keeps a token with
 `folder.write('local/google.md', token)`. `local/` appears when an action
@@ -436,8 +439,8 @@ first writes there. A write replaces a file by writing `local/.tmp/<uuid>`
 and renaming it over the target, so nothing unfinished is ever under `data/`.
 
 A file named `*.local` or `*.local.*` was the earlier way to say this. The
-root `.gitignore` and the checkpoint refusal still keep such a file out of
-every commit, because older homes hold tokens named that way under `data/`.
+root `.gitignore` still keeps such a file out of every commit, because older
+homes hold tokens named that way under `data/`.
 The name no longer changes a file's mode.
 
 ## What a run answers
@@ -534,56 +537,80 @@ other apps are still checked; a read that fails lists its app there too. A
 named app that does not load did not run, exit 2. Otherwise the exit code is 0
 when no file has a problem, and 1 when any does or an app could not be checked.
 
-## Checkpoint the root
+## The home's report
 
-`epicenter checkpoint [-m <message>] [--json]` requires the selected Epicenter
-to be the top of its repository. It takes no lock of its own; Git's index lock
-is the only one. Two checkpoints at once commit the changes once: the one that
-finds them already committed reports nothing to commit. A checkpoint can
-capture a partial agent edit or some of a running action's writes; it does not
-establish transaction boundaries.
+`epicenter` on its own prints the apps and any problems loading them, then
+each routine with its cron and next occurrence or the reason its file is
+refused, then one line about the repository:
 
-Before staging, it defers during a merge, rebase, revert, or cherry-pick.
-An index-lock collision is retried for about two seconds, then deferred if
-Git stays busy. It refuses included embedded repositories and gitlinks,
-local credential paths Git would commit, and LFS paths without their filter.
-For a tracked local credential it names `git rm --cached` as the next step.
-Ignored cache/build directories are pruned and directory links are not followed.
+```txt
+Git: last commit 3 days ago; 212 files uncommitted; 41 commits not on origin
+```
 
-The tracked ignore rules decide what a checkpoint records. A file under
-`data/` that an ignore rule matches, such as a regenerable rendition, stays out
-of the index and the commit and does not block included files. Scope each such
-rule to the app and directory it means. The checkpoint never imports or
-requires app code, so missing or broken code does not prevent data from being
-recorded.
+The line says `no origin` when there is none, and names any Git repository
+nested under `apps/`, because the home's commits hold only a pointer to a
+nested repository and not its files. `--json` adds the same facts as
+`routines: [{ name, cron, next } | { name, problem }]` and
+`repository: { lastCommit, uncommitted, origin, nested }`: `origin` is null or
+`{ branch, ahead? }`, and `repository` is null when the home is not a Git
+repository. The report reads only. It starts nothing, fetches nothing, so the
+count against origin is as of the last push or fetch, and it works while serve
+is stopped. It exits 0 when it could report, even when an app or a routine
+file has a problem.
 
-The operation runs `git add -A` and commits all included files together,
-including what the person already staged. The default subject describes changed
-app code, records, and root files, such as `checkpoint: mail code, vault records`.
-Long subjects use a file count. `-m` preserves the supplied message unchanged.
-It makes no commit when nothing changed. The shared branch
-and index belong to every app; make a named commit before risky work.
+## The home commits itself
 
-The optional root origin receives an ordinary push of the exact saved commit
-to its captured branch. Another local snapshot can proceed while an upload is
-slow.
-It stays private because it receives every app's records. Checkpoints never
-pull, merge, rebase, or force-push. A non-fast-forward refusal leaves the remote
-unchanged and suggests fetching and inspecting it by hand. Unpushed history
-containing local credentials also refuses the push. A push has a ten-minute
-process-group deadline. A later pass retries outstanding pushes without
-requiring a new commit.
+Epicenter runs actions and serves pages. Git stores the home, and Epicenter
+does not wrap Git: no `epicenter` command commits or pushes. `init` gives a
+new home two files of its own, which the owner may change. An older home adds
+them by hand.
 
-JSON reports `{ committed, pushed, origin, deferred?, failed?, pushFailed? }`.
-`committed` is `{ commit, files }` or null. `origin` is `{ ahead }` for the saved
-commit against local tracking refs, or null when no count is available. Problems carry
-`{ message, next? }`. Exit 0 means no deferral or failure; otherwise exit 1.
-Text output uses the same result. No fetch refreshes the ahead count.
+`routines/checkpoint.md` runs the script every five minutes while serve runs,
+one run at a time:
+
+```yaml
+---
+cron: "*/5 * * * *"
+run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
+---
+Commit everything pending and push to the backup.
+```
+
+`scripts/checkpoint.sh`, mode `755`:
+
+```sh
+#!/bin/sh
+set -eu
+for s in MERGE_HEAD REVERT_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD; do
+  [ -e ".git/$s" ] && { echo "merge or rebase underway" >&2; exit 0; }
+done
+git add -A
+if git ls-files -s | grep -q '^160000'; then
+  echo "a nested Git repository is staged; remove its .git" >&2; exit 1
+fi
+git diff --cached --quiet || git commit -qm "${1:-checkpoint}"
+git remote get-url origin >/dev/null 2>&1 || exit 0
+GIT_TERMINAL_PROMPT=0 git push -q origin HEAD
+```
+
+The script commits everything pending as one commit named `checkpoint`,
+including what is already staged, and pushes when there is an origin. It
+waits out a merge, rebase, revert or cherry-pick. It refuses while a nested
+Git repository is staged, because the commit would hold only a pointer to it.
+`/usr/bin/lockf` is macOS; on Linux the routine's `run` starts with
+`"flock", "-n", ".git/checkpoint.lock"` instead.
+
+A commit made this way samples files, not intent: it can hold a partial edit
+or part of a running action's writes. The branch and index belong to every
+app, so make a named commit with Git before risky work. Keep origin private:
+it receives every app's records. Git's ignore rules alone decide what is
+committed.
 
 ## Initialize an Epicenter
 
 `epicenter init [<folder>] [--port <n>]` writes `EPICENTER.md`, seeds missing
-`theme.css` (the plain Graphite + blue palette) and starter `AGENTS.md`, creates
+`theme.css` (the plain Graphite + blue palette), starter `AGENTS.md`,
+`routines/checkpoint.md` and an executable `scripts/checkpoint.sh`, creates
 `apps/`, and makes the root a repository if needed. It commits only files it wrote. Existing unrelated files and index
 entries are left for another commit.
 
@@ -649,8 +676,7 @@ dependencies, builds, and provenance. The source is not changed or committed
 automatically.
 
 The private development commit and the public publication commit are separate.
-Export saves a local checkpoint of your Epicenter and writes code into the
-publication folder. Commit those exported files
+Export writes your Epicenter's committed code into the publication folder. Commit those exported files
 there before asking someone to copy that version with `new --from`. A refreshed
 export that is not committed is still outside the publication's copied commit.
 
@@ -689,7 +715,7 @@ build; new does not build it.
 one. To take a later code change, inspect the source commit in `SOURCE.md`,
 compare incoming code outside the live Epicenter, and adapt the existing
 `code/` while preserving `data/` and local changes. Test with the existing
-records before a named checkpoint. Committing a refreshed public export does
+records before a named commit. Committing a refreshed public export does
 not update apps people have already copied.
 
 ## Export app code
@@ -733,20 +759,22 @@ epicenter export tasks ~/Code/my-project/code
 The single-app form puts `epicenter.ts` directly in the exact directory you
 name. `new --from` accepts a repository with this `code/` wrapper too.
 
-Export first saves a local checkpoint of the whole private Epicenter, including
-pending code, records, and staged files. It then reads that exact commit for
-the invocation. You do not need to wait for the scheduled checkpoint or run one
-manually. Export does not upload the private backup; a checkpoint routine or
-a later `epicenter checkpoint` can upload it. A backup connection
-problem does not block export.
+Export is read-only in the private Epicenter. It reads the commit `HEAD`
+names and never commits, stages or pushes. When `git status` shows anything
+under an app's `code/`, export refuses and names it:
 
-If the local checkpoint fails or is deferred, export stops before changing the
-output. It never falls back to older code. Destination checks happen before the
-checkpoint, so a mistaken target does not create a private commit. Export never
-imports apps or edits source working files. Concurrent edits after the snapshot
-are left for the next export; pending source changes are reported. Export
-takes no lock: two exports into one directory at once can mix their output. `--all`
-reports on-disk apps whose code is excluded from the checkpoint.
+```txt
+apps/tasks/code has uncommitted changes; commit them, then export.
+```
+
+Commit with Git, or wait for the home's own checkpoint routine, then export
+again. With `--all`, one such app refuses the whole export, and an on-disk app
+with no committed code is reported and left out. Records and other apps'
+pending files do not matter to it.
+
+A refusal happens before the output changes. Export never falls back to older
+code, never imports apps and never edits source working files. It takes no
+lock: two exports into one directory at once can mix their output.
 
 The copy excludes `data/`, `.local` paths, `node_modules`, `ui/dist`, `.DS_Store`,
 `SOURCE.md`, and export markers, even if tracked. It preserves binary bytes and
@@ -776,11 +804,11 @@ directory is not atomic: an interruption or write failure can leave incomplete
 output. Its ownership marker remains, so rerun the same command before
 reviewing or committing. Export keeps no rollback copies of generated files.
 
-`--json` reports `{ commit, checkpoint, directory, apps, omitted }`. `checkpoint`
-is `{ commit, files }` for a new local commit, or null when nothing changed.
-`commit` always names the exported snapshot. Each app has `app`,
-`materialized: [{ path, from }]`, and `uncommitted`. `omitted` lists on-disk
-apps without a code tree in the saved snapshot. Exit 0 means the export
+`--json` reports `{ commit, directory, apps, omitted }`. `commit` names the
+exported commit. Each app has `app`, `materialized: [{ path, from }]`, and
+`uncommitted`, which is true when a shared file it links to has changes the
+export left out. `omitted` lists on-disk apps without a code tree in that
+commit. Exit 0 means the export
 completed; exit 1 means omitted apps need attention; exit 2 means a failure or
 refusal. Refusals and failures use the CLI's error envelope.
 

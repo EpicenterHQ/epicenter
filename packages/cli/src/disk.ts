@@ -72,8 +72,9 @@ export function folderOnDisk(dir: string): Folder {
 	/**
 	 * Replace the file at `path` with `bytes` at once, so a reader never sees
 	 * half a file. The bytes are written to a file in `local/.tmp/` and renamed
-	 * over the target: `local/` is never committed, so a checkpoint taken
-	 * meanwhile finds nothing new under `data/`. A file that is replaced keeps
+	 * over the target: the home's ignore file keeps `local/` out, so a commit
+	 * made meanwhile finds nothing unfinished under `data/`. A file that is
+	 * replaced keeps
 	 * its mode. A new file under `local/` is `0600` from before it has its
 	 * name, and a new directory there is `0700`; one already there keeps its
 	 * mode.

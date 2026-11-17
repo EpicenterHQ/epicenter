@@ -31,13 +31,14 @@ serve builds code/ui/ when it is opened.`,
 	export: {
 		usage:
 			'epicenter export <app> <directory> | epicenter export --all <directory>',
-		help: `Saves a local checkpoint, then regenerates one owned directory from that app code. With --all, the directory
+		help: `Regenerates one owned directory from an app's committed code. With --all, the directory
 contains one child per app, including future committed apps; removed apps disappear.
+It reads the last commit and commits nothing: an app whose code/ has uncommitted
+changes is refused until you commit them.
 Keep Git, handwritten notes and other publication files outside this directory.
 Repeating the command replaces all generated contents, including local edits.
 Exports exclude records, local files, dependencies, builds, provenance, and private history.
-The checkpoint saves included code and records across the private Epicenter without
-pushing its backup. Unrelated nonempty destinations and Git metadata inside them are refused. All code is prepared before
+Unrelated nonempty destinations and Git metadata inside them are refused. All code is prepared before
 refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
 	},
 	install: {
@@ -64,10 +65,6 @@ one kind of problem usually mean the declaration is too narrow, not the files.
 It reads only, and never prints a value from a .local file. Exit 1 when any
 file has a problem or an app could not be checked.`,
 	},
-	checkpoint: {
-		usage: 'epicenter checkpoint [-m <message>] [--json]',
-		help: 'Save included code and records with a factual commit message, then push the saved commit to origin when set. Use -m to supply your own message.',
-	},
 	serve: {
 		usage: 'epicenter serve',
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
@@ -75,9 +72,13 @@ action to its UI at POST /<app>/<action>, on 127.0.0.1 at the port in
 EPICENTER.md (default 4747). A home has one serve, and it runs every action:
 epicenter <app> <action> sends its call here and is refused while serve is
 stopped. Each call runs from the app's code as it is on disk then, to its end,
-and serve keeps nothing about it. It runs the home's routines. It commits
-nothing itself: add a routine that runs checkpoint. It has no sign-in and answers
-only this computer. To reach it from your other devices, run a private proxy
+and serve keeps nothing about it. It runs the home's routines: a
+routines/<name>.md declares cron: "0 8 * * *" and run: [executable,
+...arguments], and once a minute serve starts each routine whose schedule had
+an occurrence since its last check. It records nothing about them, and
+epicenter on its own lists them. Serve commits nothing: Git stores the home,
+and a new home commits itself with routines/checkpoint.md. It has no sign-in
+and answers only this computer. To reach it from your other devices, run a private proxy
 such as: tailscale serve --bg 4747`,
 	},
 	service: {
@@ -85,13 +86,6 @@ such as: tailscale serve --bg 4747`,
 		help: `Installs a macOS login job that keeps serve running for this Epicenter.
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
-	},
-	routines: {
-		usage: 'epicenter routines',
-		help: `Lists the home's routines with each schedule and next occurrence, or why a file
-is refused. A routines/<name>.md declares cron: "0 8 * * *" and run: [executable,
-...arguments]. Once a minute serve starts each routine whose schedule had an
-occurrence since its last check. It records nothing; the command owns its output.`,
 	},
 } as const;
 

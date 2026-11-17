@@ -116,13 +116,9 @@ test('refused files are listed with their problem and do not stop valid routines
 	expect(rows.filter((row) => 'problem' in row).map((row) => row.name)).toEqual(
 		['extra', 'invalid'],
 	);
-	const result = await f.run('routines', '--json');
-	expect(result.code).toBe(1);
-	expect(
-		JSON.parse(result.stdout).find(
-			(row: { name: string }) => row.name === 'review',
-		).cron,
-	).toBe('0 8 * * *');
+	expect(rows.find((row) => row.name === 'review')).toMatchObject({
+		cron: '0 8 * * *',
+	});
 });
 
 test('arguments are passed without a shell', async () => {

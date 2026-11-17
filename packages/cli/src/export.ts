@@ -26,7 +26,6 @@ import {
 	sep,
 } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { snapshot } from './checkpoint.js';
 import {
 	checkoutCodeFiles,
 	EXPORT_MARKER,
@@ -35,7 +34,7 @@ import {
 } from './code-copy.js';
 import { misuse, nameProblem, parseWords } from './commands.js';
 import { CliError } from './errors.js';
-import { checkedGit, git } from './git.js';
+import { checkedGit, git, isRepositoryTop } from './git.js';
 import { homeEntries } from './home.js';
 import { fail, writeErr, writeJson, writeOut } from './output.js';
 import { epicenterDir, folderPath } from './root.js';
@@ -218,8 +217,9 @@ async function checkLinks(
 
 /**
  * Regenerate one owned directory, holding all committed apps or one app.
- * Save a local checkpoint first, then export its exact commit without uploading
- * the private backup. Repeating either invocation refreshes the same directory.
+ * It exports what `HEAD` holds and never commits, stages or pushes: an app
+ * whose `code/` has uncommitted changes is refused. Repeating either
+ * invocation refreshes the same directory.
  */
 export async function exportCommand(
 	words: string[],
@@ -241,12 +241,12 @@ export async function exportCommand(
 		const marker: ExportMarker =
 			app === undefined ? { export: 'all' } : { export: 'app', app };
 		await checkDestination(directory, marker);
-		const saved = await snapshot(source);
-		const problem = saved.deferred ?? saved.failed;
-		if (problem) return fail(CliError.Refused(problem).error, json);
-		if (!saved.head)
-			refuse('This Epicenter has no included files to checkpoint');
-		const commit = saved.head;
+		if (!(await isRepositoryTop(source)))
+			refuse(`${source} is not a Git repository`);
+		const head = await git(source, ['rev-parse', '--verify', 'HEAD']);
+		if (head.code !== 0)
+			refuse('This Epicenter has no commits; commit its code, then export.');
+		const commit = head.stdout;
 		scratch = await mkdtemp(join(tmpdir(), 'epicenter-export-source-'));
 		const repository = join(scratch, 'repository');
 		await checkedGit(source, [
@@ -294,6 +294,10 @@ export async function exportCommand(
 			if (!all || files.entries.length) apps.push({ app: name, ...files });
 		}
 		for (const { app, entries } of apps) {
+			// Git's own answer, so its ignore rules decide what counts as a change.
+			const code = `apps/${app}/code`;
+			if (await checkedGit(source, ['status', '--porcelain', '--', code]))
+				refuse(`${code} has uncommitted changes; commit them, then export.`);
 			if (
 				!entries.some(
 					({ path, mode }) =>
@@ -368,16 +372,11 @@ export async function exportCommand(
 		if (json)
 			writeJson({
 				commit,
-				checkpoint: saved.committed,
 				directory,
 				apps: reports,
 				omitted,
 			});
 		else {
-			if (saved.committed)
-				writeOut(
-					`Saved local checkpoint: ${saved.committed.commit} (${saved.committed.files} files)`,
-				);
 			writeOut(
 				`Exported ${reports.length} app${reports.length === 1 ? '' : 's'} to ${directory}`,
 			);
@@ -389,7 +388,7 @@ export async function exportCommand(
 					);
 				if (report.uncommitted)
 					writeErr(
-						`${report.app}: source changed after the checkpoint; run export again to include it`,
+						`${report.app}: uncommitted changes were left out; commit them, then export.`,
 					);
 			}
 			for (const name of omitted)
