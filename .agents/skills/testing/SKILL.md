@@ -1,48 +1,68 @@
 ---
 name: testing
-description: Choose useful regression coverage and apply Epicenter test conventions for setup, Result assertions, type tests, naming, and pruning. Use when writing, reviewing, deleting, or reorganizing tests, especially `*.test.ts` files.
+description: Write and challenge tests that catch meaningful mistakes, and improve or delete misleading or unnecessary coverage. Use when writing, reviewing, deleting, or reorganizing tests, especially `*.test.ts` files.
 metadata:
   author: epicenter
-  version: '2.0'
+  version: '3.0'
 ---
 
-# Test File Conventions
+# Testing
 
-## Choose useful coverage
+Keep tests that help us catch mistakes that matter. Improve or delete tests that give false reassurance or create work without protecting behavior we care about.
 
-Before adding a test, name the plausible regression it detects and confirm
-that its setup can expose that failure. Check existing coverage before adding
-another scenario. Overlap can earn its cost through different inputs, real
-dependency boundaries, faster diagnosis, or reliable execution.
+## Choose useful tests
 
-When simplifying a suite, use challenge, response, and resolution around a
-meaningful opportunity: a behavior, shared fixture, or inherited promise.
-The challenge names a deletion prize and what would replace it; the response
-checks what the smaller shape would lose; the resolution chooses the shape
-whose regression confidence earns its cost. Keeping a test is a valid result.
-These are reasoning moves, not paperwork for every test.
+Ask what important mistake could happen, whether the test would actually
+catch it, and whether the behavior could be protected more simply. Trace the
+production path, the setup that makes the failure possible, and the assertion
+that detects it. Apply this scrutiny to tests you write as well as existing
+ones, including AI-generated tests. Check what a passing result establishes;
+test counts and coverage percentages do not establish confidence.
 
-For the evidence, safeguards, and a concrete example, read
-[the test deletion grill](references/test-deletion-grill.md). Use it before
-writing substantial new coverage as well as when pruning existing tests.
+Look for tests, assertions, fixtures, and production seams that add no useful
+protection. Combine or delete redundant checks, remove tests for retired
+behavior, and repair or replace tests whose setup excludes the failure they
+claim to cover. Different inputs, failure mechanisms, dependency boundaries,
+and faster diagnosis can justify separate tests. Read unfamiliar tests and
+their relevant history before deciding that they have no useful job.
+
+Choose production structure and test boundaries together. When testing
+motivates a helper, export, or injected dependency, ask: without the test,
+would I have written this as two pieces? Keep boundaries that explain a
+responsibility, own a lifecycle, or isolate an external dependency. Test-only
+substitution can also earn its place by making important failures reproducible.
+Caller counts and line counts are clues, not verdicts.
+
+Before removing a test that detects a required regression, identify what still
+catches it. If you can't name where the coverage goes, you haven't earned the
+deletion. A test that never detected the claimed failure has no such coverage
+to relocate; establish whether the behavior needs a better test. Keep or delete
+based on what the test actually contributes, not whether it is currently green
+or red. Investigate a failure before changing the expectation or removing it.
+
+Read [the worked examples](references/choosing-useful-tests.md) for examples of
+misleading coverage, redundant checks, and useful test seams. Use
+[the test deletion grill](references/test-deletion-grill.md) when investigating
+whether tests, shared setup, or production seams still earn their cost.
 
 ## References
 
 Load these on demand based on what you're working on:
 
-- If working with **negative type tests** (`@ts-expect-error`, `bun:test` type strategy, no `as any`), read [references/type-testing.md](references/type-testing.md)
-- If working with **test setup architecture** (`setup()` patterns, composable setup, `beforeEach` avoidance, shared schemas), read [references/setup-pattern.md](references/setup-pattern.md)
+- For **worked examples** of misleading coverage, redundant checks, and useful test seams, read [references/choosing-useful-tests.md](references/choosing-useful-tests.md)
+- If working with **type tests** (`expectTypeOf`, `@ts-expect-error`, compiler checks, intentional runtime-invalid input), read [references/type-testing.md](references/type-testing.md)
+- If working with **test setup architecture** (`setup()` patterns, composable setup, cleanup hooks, shared schemas), read [references/setup-pattern.md](references/setup-pattern.md)
 - If working with **test organization structure** (flat tests, `describe()` boundaries, helper-over-nesting), read [references/test-structure.md](references/test-structure.md)
 - If **auditing existing tests** for hedged assertions, pass-through getters, stalled fakes, dead fake surface, or docstrings that contradict the code, read [references/honest-tests.md](references/honest-tests.md)
 - If **choosing new coverage or pruning existing tests** that may not earn their keep, read [references/test-deletion-grill.md](references/test-deletion-grill.md)
 
 External reading:
 
-- Kent C. Dodds, ["Avoid Nesting When You're Testing"](https://kentcdodds.com/blog/avoid-nesting-when-youre-testing) : setup functions over beforeEach, flat tests
-- Kent C. Dodds, ["AHA Testing"](https://kentcdodds.com/blog/aha-testing) : avoid hasty abstractions in tests
-- Kent C. Dodds, [Testing JavaScript](https://testingjavascript.com) : Test Object Factory Pattern
-- Matt Pocock, ["How to test your types"](https://www.totaltypescript.com/how-to-test-your-types) : vitest `expectTypeOf` for type testing
-- Matt Pocock, [`shoehorn`](https://github.com/total-typescript/shoehorn) : partial mocks for test ergonomics
+- Kent C. Dodds, ["Avoid Nesting When You're Testing"](https://kentcdodds.com/blog/avoid-nesting-when-youre-testing) : visible setup and fresh mutable state; hooks still serve cleanup and resource lifetimes
+- Kent C. Dodds, ["AHA Testing"](https://kentcdodds.com/blog/aha-testing) : avoid hasty abstractions; introduce fixture factories when shared setup earns them
+- Kent C. Dodds, [Testing JavaScript](https://testingjavascript.com) : optional course material; see AHA Testing above for fixture-factory guidance
+- Matt Pocock, ["How to test your types"](https://www.totaltypescript.com/how-to-test-your-types) : compiler-checked API contracts, equality assertions, and negative cases; use Bun’s `expectTypeOf` import here
+- Matt Pocock, [`shoehorn`](https://github.com/total-typescript/shoehorn) : partial fixtures for legacy or third-party interfaces; incomplete fixtures do not prove a complete input contract
 
 > **Related Skills**: See `services-layer` for the service patterns being tested. See `typescript` for type testing conventions.
 
@@ -71,9 +91,10 @@ objects that merely have an `error` property.
 
 Two distinct file extensions, two distinct purposes:
 
-- **`*.test.ts`** : asserts behavior with `expect()`. Runs under `bun test`
-  (repo default, CI). A test file without at least one `expect()` call does
-  not belong under this extension.
+- **`*.test.ts`** : verifies behavior or type contracts. Runtime tests run
+  under `bun test` and may use `expect()` or assertion helpers. Compiler-only
+  tests such as `*.types.test.ts` need no runtime assertion; include them in
+  the package's typecheck. Passing runtime tests do not verify type assertions.
 - **`*.bench.ts`** : measures and reports. Prints tables, timings, or
   storage sizes. Runs under `bun bench` only. No assertions required
   (perf thresholds on shared hardware flake; prefer visual trends).

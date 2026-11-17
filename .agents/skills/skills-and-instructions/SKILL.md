@@ -102,6 +102,18 @@ Keep durable personal guidance in the tracked dotfiles repository.
 When importing a skill, inspect its scripts, dependencies, and external
 actions before using it. Identify the tools and credentials it needs.
 
+## Keep technical guidance grounded
+
+When revising technical guidance or upgrading a dependency, recheck the
+affected API claims against official documentation and the installed types
+or behavior. Link factual claims to their sources beside the guidance.
+Distinguish a source's advice from the project's chosen convention.
+
+For examples that claim to detect mistakes, introduce an intentional mistake
+and verify that the documented command fails for the intended reason. Keep
+historical context separate from current instructions. Recheck the affected
+guidance when it changes; ordinary maintenance does not need a standing audit.
+
 ## Optional references
 
 - Read [evaluation](references/evaluation.md) when investigating how agents use
