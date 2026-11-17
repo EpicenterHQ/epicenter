@@ -52,8 +52,9 @@ copy of it, and the version a home runs is a line in a file in Git.
 - An app's `code/package.json` is named for the app and lists only what the
   app itself imports. It never lists `@epicenter/app`, which comes from the
   home. Add a package with `bun add <package>` in `code/`.
-- `epicenter install` is `bun install` at the top of the home, from anywhere
-  inside it. `init` and `new` run it. Calls and listings never install.
+- `bun install` at the top of the home installs every app's packages and
+  Epicenter. `init` and `new` run it for you. Epicenter has no install
+  command, and calls and listings never install.
 - Restart `serve` after changing packages: stop `epicenter serve` and start
   it again. An edit to an app's own files
   shows on the next call. A package lives in the home's top `node_modules/`,
@@ -212,7 +213,7 @@ paths:
 }
 ```
 
-Run `bun install` in the home and restart `serve`. `overrides` replaces a
+Run `bun install` at the top of the home and restart `serve`. `overrides` replaces a
 package wherever it is named, including the command's peer on the library,
 so the home still installs one copy. Bun caches a tarball by its path, so a
 file changed in place keeps installing its old content: the file's path must
@@ -246,15 +247,14 @@ epicenter new writing --from EpicenterHQ/epicenter/examples/writing
 epicenter new recipes --from <folder or owner/repo/folder#ref>
 epicenter export tasks ~/Code/my-project/code
 epicenter export --all ~/Code/shared-apps/apps
-epicenter install
 epicenter build
 epicenter check
 epicenter serve
 epicenter --version
 ```
 
-The commands are `init`, `new`, `export`, `install`, `build`, `check`,
-`serve`, and `service`. Their usage and help live in `src/commands.ts`.
+The commands are `init`, `new`, `export`, `build`, `check`, and `serve`.
+Their usage and help live in `src/commands.ts`.
 `epicenter` on its own reports the home: the version it has installed, its
 apps, its routines, and one line about its repository. See
 [The home's report](#the-homes-report).
@@ -284,9 +284,8 @@ is used for module imports and invalidation, the check for one shared
 `@epicenter/app`, and UI builds and serving. Replacing `code/` leaves the
 container lock and record paths intact.
 
-`epicenter install` runs `bun install` at the top of the home with the Bun
-that runs the command, and takes no app name. With `--json` it answers
-`{ folder, installed, error? }`. A failure prints Bun's message and
+`init` and `new` run `bun install` at the top of the home with the Bun that
+runs the command. A failure prints Bun's message and
 `Run: cd <home> && bun install`. A home with no `package.json` is told what
 one needs. Build reports malformed layout entries without stopping other apps.
 
@@ -938,7 +937,7 @@ files; you review, commit, and push them with Git.
 Paths in the build description below are relative to `code/`, unless prefixed
 with `code/`.
 
-An app's UI is what its `code/ui/` builds to in `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). A UI runs as it sits on disk, as actions do: `ui/dist/` is a cache of `ui/`'s sources, stamped in `ui/dist/.epicenter-build` with their fingerprint, the path, size and modified time of every file under `ui/` (but `ui/dist/`, `node_modules/`, and names starting with `.`), with the app's `code/package.json`, the home's `bun.lock`, the `epicenter` version, and where the home's `@epicenter/app` is with the path, size and modified time of each file in its `src/` (`src/ui.ts`), so a changed install or a newer `epicenter` rebuilds every UI against the client of the `serve` that answers it. When a page load at `/<app>/` finds the fingerprint changed, `serve` builds in the background, one build per app at a time, and serves the last good build until it is done, so an edit shows on the next page load after its build, committed or not. A UI that has never built has no last build, so its page load waits for the first one, up to a minute, rather than answering 404. Sources whose build fails are not built again until they change; the failure is written to stderr once, with `Run: epicenter build <app>`. An app's code/ is one package of the home's workspace, so the build runs in code/. When the app's `code/package.json` has a `build` script, `bun --bun run build` runs with `EPICENTER_OUT` naming the folder to write, which must hold an `index.html`. Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, so one `index.html` and the files beside it are a UI with no `package.json`. With neither, or no `ui/`, there is nothing to build. Either way a build writes relative URLs and is never told where it is served, and runs with the Bun that runs `epicenter`. A build never installs: an app whose `package.json` names packages is skipped while the home has no `node_modules/`, with `Run: epicenter install`, and nothing is remembered against it. A UI imports `@epicenter/app/client` from the home's one install, the copy `serve` runs. The finished build replaces `ui/dist/` by rename, so `serve` never answers from half a build, and a failed build leaves the last one in place. `serve` never serves a path with a part starting with `.`.
+An app's UI is what its `code/ui/` builds to in `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). A UI runs as it sits on disk, as actions do: `ui/dist/` is a cache of `ui/`'s sources, stamped in `ui/dist/.epicenter-build` with their fingerprint, the path, size and modified time of every file under `ui/` (but `ui/dist/`, `node_modules/`, and names starting with `.`), with the app's `code/package.json`, the home's `bun.lock`, the `epicenter` version, and where the home's `@epicenter/app` is with the path, size and modified time of each file in its `src/` (`src/ui.ts`), so a changed install or a newer `epicenter` rebuilds every UI against the client of the `serve` that answers it. When a page load at `/<app>/` finds the fingerprint changed, `serve` builds in the background, one build per app at a time, and serves the last good build until it is done, so an edit shows on the next page load after its build, committed or not. A UI that has never built has no last build, so its page load waits for the first one, up to a minute, rather than answering 404. Sources whose build fails are not built again until they change; the failure is written to stderr once, with `Run: epicenter build <app>`. An app's code/ is one package of the home's workspace, so the build runs in code/. When the app's `code/package.json` has a `build` script, `bun --bun run build` runs with `EPICENTER_OUT` naming the folder to write, which must hold an `index.html`. Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, so one `index.html` and the files beside it are a UI with no `package.json`. With neither, or no `ui/`, there is nothing to build. Either way a build writes relative URLs and is never told where it is served, and runs with the Bun that runs `epicenter`. A build never installs: an app whose `package.json` names packages is skipped while the home has no `node_modules/`, with `Run: cd <home> && bun install`, and nothing is remembered against it. A UI imports `@epicenter/app/client` from the home's one install, the copy `serve` runs. The finished build replaces `ui/dist/` by rename, so `serve` never answers from half a build, and a failed build leaves the last one in place. `serve` never serves a path with a part starting with `.`.
 
 `epicenter build [<app>]` builds every app's UI from its sources now, or one app's, and shows the build's errors. It reports `UI built`, `nothing to build`, or a build error for each app. With `--json` it answers `{ "apps": [{ app, folder, built, error? }] }`, `built` saying whether there was a UI to build. A build error exits 1; another app can still build.
 

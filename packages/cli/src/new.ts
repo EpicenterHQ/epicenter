@@ -67,7 +67,7 @@ async function locateSource(
 		if (located.code !== 0)
 			return {
 				error: CliError.Usage({
-					message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run epicenter install`,
+					message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run bun install at the top of the home`,
 				}).error,
 			};
 		const [repository = '', prefix = ''] = located.stdout.split('\n');

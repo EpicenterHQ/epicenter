@@ -181,7 +181,7 @@ version of Epicenter the home runs, and is never listed in the app's: a
 second copy is refused when the app loads. A package nested inside an app,
 such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the home's
-`package.json`. `epicenter install` is `bun install` at the top of the home;
+`package.json`. `bun install` at the top of the home installs its packages;
 `epicenter init` and `epicenter new` run it, and a call never installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
@@ -412,8 +412,8 @@ with `EPICENTER_OUT` naming the folder to write; otherwise it bundles
 `package.json`. Either way the build writes relative URLs and is never told
 where it is served, and `@epicenter/app/client` comes from the home's install;
 never list `@epicenter/app` in the app. `serve` serves `ui/dist/`
-and looks nowhere else. A build never installs: after adding a package, run
-`epicenter install`.
+and looks nowhere else. A build never installs: `bun add` in `code/` installs
+the package, then restart `serve`.
 
 A change under `ui/` shows at `/<app>/` on the next page load after its
 build, and the last good build stays up meanwhile. A build that fails is not

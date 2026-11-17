@@ -45,8 +45,8 @@ Epicenter does not wrap Git.**
   are uncommitted, how many commits are not on origin, and any Git
   repository nested under `apps/`. It has no side effects and never starts
   serve. `epicenter routines` is deleted.
-- **A home comes back with `git clone`**, then `epicenter install` for the
-  packages Git ignores. `init --from` is deleted.
+- **A home comes back with `git clone`**, then `bun install` at its top for
+  the packages Git ignores. `init --from` is deleted.
 - **Epicenter takes no lock.** The root lock and the export lock are gone
   with the commands they guarded. A commit takes Git's own index lock. The
   home's routine runs its script under `lockf`, which is the home's choice.

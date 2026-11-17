@@ -45,15 +45,6 @@ Exports exclude records, local files, dependencies, builds, provenance, and priv
 Unrelated nonempty destinations and Git metadata inside them are refused. All code is prepared before
 refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
 	},
-	install: {
-		usage: 'epicenter install',
-		help: `Runs bun install at the top of the home, the folder with EPICENTER.md, from
-anywhere inside it. The home is one Bun workspace: its package.json names the
-version of @epicenter/cli and @epicenter/app it runs and takes each
-apps/<app>/code as a package, so one install serves the command and every app.
-init and new run it; a call never installs. Restart serve after it changes
-packages: serve keeps the packages it has loaded.`,
-	},
 	build: {
 		usage: 'epicenter build [<app>]',
 		help: `Builds the UI of every app, or one app, from its ui/ as it is on disk now,

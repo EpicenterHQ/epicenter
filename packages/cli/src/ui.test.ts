@@ -124,7 +124,7 @@ test('an app that names packages is not built in a home with no install, and is 
 	await rm(join(f.home, 'node_modules'), { recursive: true });
 	const built = await f.run('build', 'vocab');
 	expect(built.code).toBe(1);
-	expect(built.stderr).toContain('Run: epicenter install\n');
+	expect(built.stderr).toContain(`Run: cd ${f.home} && bun install\n`);
 	expect(built.stderr).not.toContain('exited 9');
 });
 

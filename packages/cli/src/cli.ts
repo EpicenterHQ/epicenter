@@ -11,7 +11,6 @@ import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
-import { installCommand } from './install.ts';
 import { installedVersion } from './library.ts';
 import {
 	actionHelp,
@@ -54,7 +53,6 @@ type Handler = (words: string[], json: boolean) => Promise<number>;
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
-	install: installCommand,
 	new: newCommand,
 	export: exportCommand,
 	build: buildCommand,
