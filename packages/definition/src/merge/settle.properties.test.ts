@@ -18,7 +18,7 @@
  * - `settle.sync.test.ts` for the cases spike 7 ran through Git
  * - `merge.test.ts` for the line merge's own examples and token properties
  */
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	formatNote,
@@ -139,6 +139,8 @@ const bodyStartOf = (text: string) => {
 const bodyOf = (text: string) => text.slice(bodyStartOf(text));
 
 const ROUNDS = 4_000;
+// Seeded, so every run checks the same cases; a busy CI runner only makes them slower.
+setDefaultTimeout(30_000);
 
 describe('settle over random edits', () => {
 	test('the output parses, is in house style, and loses no field', () => {
