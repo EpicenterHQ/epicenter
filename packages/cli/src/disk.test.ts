@@ -276,20 +276,3 @@ test('a local record omits partial values and body from every repair refusal', a
 	});
 	expect(await folder.read(path)).toBe(stored);
 });
-
-test('collection edits through a read-only run decide only on local paths', async () => {
-	const context = { ...createMemoryContext(), readOnly: { action: 'list' } };
-	const publicRecord = defineCollection({ path: 'data/public.md', fields: {} });
-	const cache = defineCollection({ path: 'data/cache.local.md', fields: {} });
-	let decisions = 0;
-	const decide = () => {
-		decisions++;
-		return Ok({ body: 'seen' });
-	};
-	await inRun(context, async () => {
-		await expect(publicRecord.update(decide)).rejects.toThrow('read-only');
-		expect(decisions).toBe(0);
-		expect((await cache.update(decide)).data?.body).toBe('seen');
-	});
-	expect(decisions).toBe(1);
-});

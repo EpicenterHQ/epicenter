@@ -204,23 +204,11 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
-test('C10 a read-only action cannot write through folder, except a .local file, and can update a local file', async () => {
+test('C10 a read-only hint refuses nothing, and a .local file is readable by its owner alone', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, 'data/b.md'), 'by hand\n');
-	// A refused write is refused at once, not after waiting on another call's lock.
-	const held = await hold(f.dir, 0);
 	const peek = await f.json('notes', 'peek');
-	held?.release();
-	expect(peek.code).toBe(1);
-	expect(peek.answer).toEqual({
-		data: null,
-		error: {
-			kind: 'fault',
-			message:
-				'The action "peek" is read-only, so it cannot write data/peek.md',
-		},
-	});
-	expect(await Bun.file(join(f.dir, 'data/peek.md')).exists()).toBe(false);
+	expect(peek).toMatchObject({ code: 0, answer: { data: null, error: null } });
+	expect(await readFile(join(f.dir, 'data/peek.md'), 'utf8')).toBe('peeked');
 	const refresh = await f.json('notes', 'refresh');
 	expect(refresh).toMatchObject({
 		code: 0,

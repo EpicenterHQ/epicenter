@@ -263,9 +263,9 @@ takes `{ word, grade }`, giving
 `epicenter vocab review '{"word":"你好","grade":"good"}'`. An action has no
 `positional`; `defineAction` throws on one.
 
-Annotate honestly. A read-only run's folder writes throw
-except to `.local` paths under data/, so an action that only reads can refresh
-a token locally. Actions make no commits. The root ignore rules keep local
+Annotate honestly. Annotations are hints an MCP client reads to decide how
+careful to be, and nothing enforces them, so mark an action read-only only
+when it changes nothing. Actions make no commits. The root ignore rules keep local
 files out, and a checkpoint refuses local credentials Git would include.
 
 Write last. Nothing locks a call, so fetch from a service, call a model, or

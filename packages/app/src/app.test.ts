@@ -105,72 +105,7 @@ describe('writes in a run', () => {
 	});
 });
 
-describe('a read-only run', () => {
-	test('refuses every write through folder and collections before it happens, and still reads', async () => {
-		const memory = createMemoryContext({
-			'data/2026.csv': 'minutes\n',
-			'data/books/dune.md': '---\ntitle: "Dune"\n---\n',
-		});
-		const context = { ...memory, readOnly: { action: 'week show' } };
-		const refused = (doing: string) =>
-			`The action "week show" is read-only, so it cannot ${doing}`;
-		const tries: [() => Promise<unknown>, string][] = [
-			[
-				() => folder.write('data/2026.csv', 'x'),
-				refused('write data/2026.csv'),
-			],
-			[
-				() => folder.writeBytes('data/a.bin', new Uint8Array([1])),
-				refused('write data/a.bin'),
-			],
-			[
-				() => folder.update('data/2026.csv', (text) => `${text}x`),
-				refused('write data/2026.csv'),
-			],
-			[() => folder.delete('data/2026.csv'), refused('delete data/2026.csv')],
-			[
-				() => books.set({ slug: 'dune' }, { title: 'Other' }),
-				refused('write data/books/dune.md'),
-			],
-			[
-				() => books.delete({ slug: 'dune' }),
-				refused('delete data/books/dune.md'),
-			],
-		];
-		for (const [attempt, message] of tries)
-			await expect(inRun(context, attempt)).rejects.toThrow(message);
-		expect(await context.folder.list()).toEqual([
-			'data/2026.csv',
-			'data/books/dune.md',
-		]);
-		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n');
-		expect(
-			await inRun(context, () => books.get({ slug: 'dune' })),
-		).toMatchObject({ data: { title: 'Dune' }, error: null });
-	});
-
-	test('writes and deletes a .local file, as a token refresh does', async () => {
-		const google = defineCollection({
-			path: 'data/google.local.md',
-			fields: { refreshToken: field.text({ optional: true }) },
-		});
-		const context = {
-			...createMemoryContext({
-				'data/google.local.md': '---\nrefreshToken: "old"\n---\n',
-			}),
-			readOnly: { action: 'mail list' },
-		};
-		await inRun(context, async () => {
-			expect((await google.set({ refreshToken: 'new' })).error).toBeNull();
-			await folder.write('data/cache.local', 'x');
-			await folder.delete('data/cache.local');
-		});
-		expect(await context.folder.read('data/google.local.md')).toBe(
-			'---\nrefreshToken: "new"\n---\n',
-		);
-		expect(await context.folder.list()).toEqual(['data/google.local.md']);
-	});
-
+describe('a run', () => {
 	test('a run reaches its folder and nothing else', () => {
 		expect(Object.keys(createMemoryContext())).toEqual(['folder']);
 	});

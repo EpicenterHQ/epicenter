@@ -11,8 +11,8 @@
  * An action changes files and never commits. Root checkpoints record pending
  * code and records together. A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
- * file. A run of a read-only action refuses every write through `folder`,
- * except to a `.local` path under `data/` (ADR-0870).
+ * file. Nothing here knows whether an action says it is read-only: that is a
+ * hint the action gives MCP clients, and no write is refused for it.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Ok, type Result, unwrap } from 'wellcrafted/result';
@@ -97,16 +97,6 @@ export type Context = {
 			routine: Routine,
 		): Promise<{ name: string; path: string }>;
 	};
-	/**
-	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
-	 * `folder.write`, `writeBytes`, `update`, and `delete` throw in it before
-	 * doing anything, unless the path is `.local` under `data/`. Such a file
-	 * never enters the app's history, so writing one changes nothing a read-only action
-	 * promised to keep, and an action that only reads may still refresh a
-	 * token. A raw `node:fs` write or an outside service is the action's own
-	 * promise.
-	 */
-	readOnly?: { action: string };
 };
 
 const runs = new AsyncLocalStorage<Context>();
@@ -140,19 +130,14 @@ export const routines = {
 	 */
 	async set<TAction extends Action>(name: string, routine: Routine<TAction>) {
 		const context = currentRun();
-		if (context.readOnly)
-			throw new Error(
-				`The action "${context.readOnly.action}" is read-only, so it cannot set a routine`,
-			);
 		if (!context.routines) throw new Error('This host cannot save routines');
 		return context.routines.set(name, routine);
 	},
 };
 
 /**
- * The folder of the run this code is in, to write or delete `path` in; throws
- * in a read-only run unless `path` is `.local` under `data/`. Every write stays
- * under `data/` and avoids `.git*` path segments.
+ * The folder of the run this code is in, to write or delete `path` in. Every
+ * write stays under `data/` and avoids `.git*` path segments.
  */
 function writableFolder(verb: 'write' | 'delete', path: string): Folder {
 	const context = currentRun();
@@ -164,10 +149,6 @@ function writableFolder(verb: 'write' | 'delete', path: string): Folder {
 	if (normal.split('/').some((part) => part.startsWith('.git')))
 		throw new Error(
 			`${path} has a .git* path segment, and an action cannot ${verb} there`,
-		);
-	if (context.readOnly && !isLocalPath(path))
-		throw new Error(
-			`The action "${context.readOnly.action}" is read-only, so it cannot ${verb} ${path}`,
 		);
 	return context.folder;
 }
@@ -199,8 +180,7 @@ const LOCAL = /\.local(\.|$)/i;
 /**
  * Whether `path` stays on this computer: one of its parts matches `*.local`
  * or `*.local.*`, as an app's `.gitignore` names them (ADR-0870). Such a file
- * is never committed, a read-only run may write it, and a new one is made
- * readable by its owner alone.
+ * is never committed, and a new one is made readable by its owner alone.
  */
 export function isLocalPath(path: string): boolean {
 	return path.split('/').some((part) => LOCAL.test(part));

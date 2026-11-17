@@ -386,7 +386,9 @@ take is refused. `defineAction` throws on a definition that still has
 An action's `annotations` are MCP's tool annotations, verbatim:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, with
 MCP's defaults. An action that does not say otherwise reads as one that may
-destroy.
+destroy. They are hints for an MCP client, which decides from them how careful
+to be before a call. Epicenter forwards them and enforces none: an action
+marked `readOnlyHint: true` that writes is the action's own mistake.
 
 ## Runs
 
@@ -405,10 +407,9 @@ and records together, from the CLI or serve's clock
 Reads tolerate records that no longer fit the declaration; repair follows a
 code change rather than blocking the whole app.
 
-Calls that write one app take turns from their first folder write until they
-end. The runner flocks the real container `apps/<app>`, so replacing code/
-does not change the lock. A read-only call takes no lock. Fetch or compute
-first and write last to keep other writers from waiting.
+Nothing locks a call. While serve is running, one process runs every action.
+Fetch or compute first and write last, so a slow step never leaves a file
+half done.
 `folder.write` replaces the file, and the last write wins. A change that
 depends on what it read goes through `folder.update(path, change)`: it reads
 the file, calls `change` with its text (`undefined` when there is none), and
@@ -428,13 +429,6 @@ callback receives the current text on each attempt. Return `Err(reason)` to
 refuse the change, `Ok({ value })` to leave the file as it is, or
 `Ok({ value, text })` to replace it. The caller receives the value from the
 attempt that won. This also lets a check leave an absent file absent.
-
-A run of an action marked `readOnlyHint: true` takes no write lock. Its
-context carries `readOnly: { action }`, and in it `folder.write`,
-`folder.writeBytes`, `folder.edit`, `folder.update`, and `folder.delete` throw before doing
-anything, unless the path is `.local` under `data/`: `The action "<words>" is read-only, so
-it cannot write <path>`. A raw `node:fs` write, or a change made through an
-outside service, is the action's own promise.
 
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. That path is the real app container, not code/

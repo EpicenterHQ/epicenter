@@ -1,7 +1,7 @@
 /**
  * Real setup actions save existing routine declarations, using the installed
  * app and action table. Repeat setup keeps notes, pause settings and receipts;
- * bad references, inputs and read-only calls leave no runnable declaration.
+ * bad references and inputs leave no runnable declaration.
  */
 import { afterEach, expect, test } from 'bun:test';
 import {
@@ -94,7 +94,7 @@ test('repeat setup preserves notes, pause, timeout and state and refuses a forei
 	]);
 });
 
-test('invalid input, timing, identity and read-only setup never create a routine', async () => {
+test('invalid input, timing and identity never create a routine', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	for (const [name, target, input, daily, annotations, aliases] of [
@@ -102,7 +102,6 @@ test('invalid input, timing, identity and read-only setup never create a routine
 		['bad-time', 'research', '{limit:3}', '25:00', '{}', ''],
 		['unknown', 'hidden', '{limit:3}', '08:00', '{}', ''],
 		['ambiguous', 'research', '{limit:3}', '08:00', '{}', 'alias:research,'],
-		['readonly', 'research', '{limit:3}', '08:00', '{readOnlyHint:true}', ''],
 		['non-json', 'research', '{limit:NaN}', '08:00', '{}', ''],
 		['private', 'secret', '{}', '08:00', '{}', 'secret,'],
 	] as const) {

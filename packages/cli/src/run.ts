@@ -60,22 +60,14 @@ export async function runAction(
 	input: Record<string, unknown>,
 	{ onUpdate }: Following = {},
 ): Promise<RunAnswer> {
-	const readOnly = action.annotations?.readOnlyHint === true;
 	const context = {
 		...located.context,
 		routines: {
 			set: (
 				name: string,
 				routine: Parameters<typeof setRoutine>[0]['routine'],
-			) => {
-				if (readOnly)
-					throw new Error(
-						`The action "${key}" is read-only, so it cannot set a routine`,
-					);
-				return setRoutine({ app: located, name, routine });
-			},
+			) => setRoutine({ app: located, name, routine }),
 		},
-		...(readOnly ? { readOnly: { action: key } } : {}),
 	};
 	try {
 		const result = await inRun(context, () => action(input, { onUpdate }));

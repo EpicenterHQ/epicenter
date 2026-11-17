@@ -42,10 +42,10 @@ import { absentValue, defaultIn, type FilledKeys } from './field.ts';
 export type Input = Record<string, TSchema>;
 
 /**
- * MCP's tool annotations, verbatim. An action that does not say otherwise
- * may change things, may destroy, is not idempotent, and reaches outside the
- * folder; the last three mean something only when it is not read-only. A
- * read-only action's write through `folder` throws, except to a `.local` path.
+ * MCP's tool annotations, verbatim. They are hints the action gives an MCP
+ * client, which decides from them how careful to be before a call. Serve
+ * forwards them and nothing enforces them: an action that says it is
+ * read-only and writes is the action's own mistake.
  */
 export type Annotations = {
 	title?: string;

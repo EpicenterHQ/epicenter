@@ -3,8 +3,8 @@
  * app's, and report the records that do not fit their declaration, so a
  * person or an agent can repair them. Each collection leads with its problems
  * counted by kind, so one declaration that is too narrow reads as one cause
- * rather than as many broken files. The read runs as a read-only action's
- * does: it takes no write lock, and the run's folder refuses any write.
+ * rather than as many broken files. The read runs in a run of the app's
+ * folder, as an action's does, and writes nothing.
  */
 import { inRun } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -33,32 +33,27 @@ type Unchecked = { entry: string; folder: string; problems: string[] };
 /** Every collection of `located`, read in a read-only run of its folder. */
 async function checkApp(located: Runnable) {
 	const checked: Record<string, Checked> = {};
-	await inRun(
-		{ ...located.context, readOnly: { action: 'check' } },
-		async () => {
-			for (const [name, collection] of Object.entries(
-				located.app.collections,
-			)) {
-				const { files, records } = await collection.check();
-				const counts = new Map<string, number>();
-				for (const { problems } of records)
-					for (const { kind } of problems)
-						counts.set(kind, (counts.get(kind) ?? 0) + 1);
-				checked[name] = {
-					path: collection.path,
-					files,
-					withProblems: records.length,
-					kinds: [...counts]
-						.map(([kind, count]) => ({ kind, count }))
-						.sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind)),
-					records: records.map(({ path, problems }) => ({
-						path,
-						problems: problems.map(({ line }) => line),
-					})),
-				};
-			}
-		},
-	);
+	await inRun(located.context, async () => {
+		for (const [name, collection] of Object.entries(located.app.collections)) {
+			const { files, records } = await collection.check();
+			const counts = new Map<string, number>();
+			for (const { problems } of records)
+				for (const { kind } of problems)
+					counts.set(kind, (counts.get(kind) ?? 0) + 1);
+			checked[name] = {
+				path: collection.path,
+				files,
+				withProblems: records.length,
+				kinds: [...counts]
+					.map(([kind, count]) => ({ kind, count }))
+					.sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind)),
+				records: records.map(({ path, problems }) => ({
+					path,
+					problems: problems.map(({ line }) => line),
+				})),
+			};
+		}
+	});
 	return checked;
 }
 

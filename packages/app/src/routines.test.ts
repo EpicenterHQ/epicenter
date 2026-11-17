@@ -1,6 +1,6 @@
 /**
  * Typed routine authoring uses the current run's host capability.
- * Inputs follow the chosen action; read-only and unsupported runs refuse writes.
+ * Inputs follow the chosen action; a host that keeps no routines refuses.
  */
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
@@ -43,7 +43,7 @@ test('the action controls input inference and the current host receives the same
 	void invalidInputs;
 });
 
-test('unsupported and read-only runs cannot save routines', async () => {
+test('a host that keeps no routines cannot save one', async () => {
 	const action = defineAction({
 		description: 'Research',
 		input: {},
@@ -53,19 +53,4 @@ test('unsupported and read-only runs cannot save routines', async () => {
 	await expect(
 		inRun(createMemoryContext(), () => routines.set('research', routine)),
 	).rejects.toThrow('This host cannot');
-	let called = false;
-	const context: Context = {
-		...createMemoryContext(),
-		readOnly: { action: 'inspect' },
-		routines: {
-			async set(name) {
-				called = true;
-				return { name, path: name };
-			},
-		},
-	};
-	await expect(
-		inRun(context, () => routines.set('research', routine)),
-	).rejects.toThrow('read-only');
-	expect(called).toBe(false);
 });

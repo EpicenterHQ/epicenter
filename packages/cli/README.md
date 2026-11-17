@@ -332,8 +332,8 @@ input, paused?, timeout? })` from `@epicenter/app`. The host resolves the action
 against that app's current table, checks its JSON input, and saves the same
 command-argv declaration. It preserves notes, runtime receipts, and unspecified
 pause and timeout fields. The name is home-wide. An existing command for another
-app, an ambiguous or unexposed action, private input, file input, and read-only
-setup are refused. No new action registry or executable format is involved.
+app, an ambiguous or unexposed action, private input and file input are
+refused. No new action registry or executable format is involved.
 
 State is atomically replaced in `routines/<name>.local/state.json`. Output
 appends to `routines/<name>.local/output.log`. Both stay local and owner-only.
@@ -402,9 +402,9 @@ Writes through `folder` stay under `data/` and reject `.git*` path segments.
 The container remains `folder.path`. Reads may reach another app's records
 at `../tasks/data/tasks/<time>.md`.
 
-A read-only call's folder writes throw except on `.local` paths
-under `data/`. These files have owner-only permissions when created through
-folder methods. Atomic replacement files have local names too, so the root
+An action's MCP annotations, `readOnlyHint` among them, are forwarded to MCP
+clients and refuse nothing. A `.local` path under `data/` has owner-only
+permissions when created through folder methods. Atomic replacement files have local names too, so the root
 ignore rules keep them out of checkpoints. `folder` is not a sandbox.
 
 ## What a run answers
@@ -462,9 +462,8 @@ with one Result per file, including the individual refusals. The check command
 collects those diagnostics for the whole app so a person or agent can repair
 the records or the declaration.
 
-It reads each collection with its `check()` method in a read-only run of the
-app's folder, as a read-only action's run is: it takes no write lock and the
-folder refuses any write. A `.local` collection is checked too, and its
+It reads each collection with its `check()` method in a run of the app's
+folder and writes nothing. A `.local` collection is checked too, and its
 problem lines never quote a value.
 
 For each collection the report gives its path template, the files it
