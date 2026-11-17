@@ -162,7 +162,7 @@ type HttpError = InferErrors<typeof HttpError>;
 type ConnectionError = InferError<typeof HttpError.Connection>;
 ```
 
-## Consuming a Variant Union: Exhaustive `switch`, Not `if/else`
+## Consuming a variant union: exhaustive switch, not if/else
 
 `defineErrors` builds a discriminated union tagged by `name`. When you *translate the whole union* (every variant mapped to another error, an exit code, a UI state), discriminate with an exhaustive `switch (error.name)` and pin it with `default: error satisfies never`. Do not use an `if/else` chain.
 
