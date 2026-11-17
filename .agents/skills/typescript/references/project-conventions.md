@@ -163,7 +163,6 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   );
   ```
 
-- When moving components to new locations, always update relative imports to absolute imports (e.g., change `import Component from '../Component.svelte'` to `import Component from '$lib/components/Component.svelte'`)
 - **Give relative imports an explicit extension, and match the package**: For example, `packages/app` re-exports `defineApp` from `./app.ts`, while `packages/account` re-exports `createBrowserOAuth` from `./browser-oauth.js`. TypeScript resolves the latter to the source `.ts` file.
 
   This does not apply to package imports (`import { type } from 'arktype'`) or path aliases (`import Component from '$lib/components/Foo.svelte'`): only bare relative paths.
