@@ -355,9 +355,10 @@ finite JSON; recursive schemas use references rather than cyclic JavaScript
 objects. No field name is reserved: the command line reads the input as one
 JSON object, so `json`, `help`, and `input` are keys like any other.
 
-A secret an action needs, such as a token, is kept in a `.local` file under
-`data/`, which never enters Git; the action reads it there, so the secret
-is not part of any call's input.
+A secret, such as a token, is ordinary input: the app's page sends it once
+and the action keeps it in a `.local` file under `data/`, which never enters
+Git. Epicenter treats that input as any other, so give it from the page or
+piped on stdin, not as a command argument or through an agent.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer
