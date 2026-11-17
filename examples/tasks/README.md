@@ -9,7 +9,7 @@ Use the latest Epicenter CLI for a new home. Tasks runs on 0.2.0 or later.
 To add Tasks to your home, run
 
 ```sh
-epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
+epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
 epicenter serve
 ```
 

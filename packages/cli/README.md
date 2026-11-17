@@ -62,7 +62,7 @@ For a first install, with `~/.local/bin` on PATH and Git's `user.name` and `user
 ```sh
 epicenter init ~/Epicenter
 cd ~/Epicenter
-epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+epicenter new writing --from EpicenterHQ/epicenter/examples/writing
 epicenter writing add '{"body":"An observation I want to return to","source":"My notebook","project":"Essay"}'
 epicenter writing search '{"query":"observation"}'
 epicenter serve
@@ -178,8 +178,8 @@ epicenter reading books set '{"slug":"dune","finished":null}'
 epicenter init <folder>
 epicenter init --from <private-origin> <folder>
 epicenter new notes
-epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
-epicenter new recipes --from <path-or-url>
+epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+epicenter new recipes --from <folder or owner/repo/folder#ref>
 epicenter export tasks ~/Code/my-project/code
 epicenter export --all ~/Code/shared-apps/apps
 epicenter install
@@ -606,19 +606,36 @@ folder. Text prints that path and `Run: epicenter <name>`.
 Without `--from`, `new` makes a blank app. To start with a usable app, copy a
 shared app with `--from`; the destination name can differ from the source's name.
 
-`epicenter new <name> --from <path|url>[#folder]` copies committed code:
+`epicenter new <name> --from <source>` copies committed code. Git moves code
+between computers; `new` copies one committed folder into this Epicenter
+([ADR-0928](../../docs/adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md)).
+A source is one of two things:
 
-- A local path names a repository root or a subfolder inside one.
-- A URL names a repository root, or selects a subfolder with `#folder`.
-- An app container is accepted when its tracked `code/epicenter.ts` identifies
-  the code subtree instead of a top-level declaration.
+- A folder on disk, written as a path that starts with `/`, `./`, `../`, or
+  `~/`. It is a repository root or a folder inside one, and its current commit
+  is copied. To copy from GitLab or any other host, clone the repository
+  first, check out the version you want, and pass the app's folder.
+- A folder on GitHub, written `owner/repo[/folder][#ref]`. `ref` is a branch,
+  a tag, or a full commit; without it, the default branch is copied. Only that
+  folder's files are downloaded.
 
-The copy uses the commit cloned from the source. Files visible in a local source
-folder may differ from that commit. For local paths and non-bare `file://`
-repositories, `new` reports the copied commit and warns about tracked, staged,
-deleted, or untracked code it left out. It applies the same code filter as the
-copy, excluding records, local files, dependencies, builds, and provenance.
-The source is not changed or committed automatically.
+```sh
+epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+epicenter new tasks --from someone/shared-apps/apps/tasks#v2
+epicenter new notes --from ~/Code/shared-apps/apps/notes
+```
+
+An app container is accepted when its tracked `code/epicenter.ts` identifies
+the code subtree instead of a top-level declaration. A folder that holds
+several apps is refused with their names and the `--from` for one of them.
+Anything else, such as a Git URL or a bare word, is refused with a hint.
+
+The copy uses the source's commit. Files visible in a local source folder may
+differ from that commit. For a folder on disk, `new` reports the copied commit
+and warns about tracked, staged, deleted, or untracked code it left out. It
+applies the same code filter as the copy, excluding records, local files,
+dependencies, builds, and provenance. The source is not changed or committed
+automatically.
 
 The private development commit and the public publication commit are separate.
 Export saves a local checkpoint of your Epicenter and writes code into the
@@ -629,11 +646,11 @@ export that is not committed is still outside the publication's copied commit.
 With `--json`, a copy adds `source: { commit, notCopied? }` to the result.
 `notCopied` lists relative code paths: an empty array means the local source
 was checked and matches; a missing key means no local working tree could be
-compared, and `null` means comparison failed. A comparison failure is a warning,
+compared, as for a GitHub folder, and `null` means comparison failed. A comparison failure is a warning,
 not a failed copy. These differences are measured against the commit actually
 copied, so the report also covers a source commit made during the copy.
 
-The command uses a temporary shallow clone, then checks out selected committed
+The command uses a temporary clone, then checks out selected committed
 files into the new container's ignored `.code-build-copy-*` directory before
 renaming them to `code/`. It excludes data/, local paths, node_modules at any
 depth, ui/dist, and old SOURCE.md. It preserves modes and symlinks, refuses
@@ -641,8 +658,10 @@ gitlinks, materializes LFS content, and retains inherited LFS attributes that
 the destination root does not already supply. No nested repository or remote
 is created. Changes from the source are later work for the app's owner.
 
-`code/SOURCE.md` records the source and commit. Local source paths are absolute;
-HTTP credentials are removed. No command reads this provenance file. Copied
+`code/SOURCE.md` records where the code came from, one field per line:
+`Repository` (the GitHub address, or a local checkout's `origin` with HTTP
+credentials removed, else its absolute path), `Folder`, `Ref` when one was
+named, and `Commit`. No command reads this provenance file. Copied
 links remain links. A link such as
 `code/ui/src/theme.css -> ../../../../../theme.css` needs the destination's
 root theme. A dangling link produces a stderr line naming its stored target
@@ -688,7 +707,7 @@ apps disappear on refresh. Each child has `epicenter.ts` at its root and no
 private `data/`. Recipients can copy one app:
 
 ```sh
-epicenter new tasks --from https://github.com/OWNER/shared-apps#apps/tasks
+epicenter new tasks --from OWNER/shared-apps/apps/tasks
 ```
 
 Replace `OWNER` with the collection owner's GitHub username.

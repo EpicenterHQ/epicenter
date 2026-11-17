@@ -12,7 +12,6 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
 	checkoutCodeFiles,
 	isCopiedCodePath,
@@ -30,30 +29,36 @@ import { uiSource } from './ui.ts';
 
 type CopiedSource = { commit: string; notCopied?: string[] | null };
 
-/** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
-function isUrl(source: string) {
-	return (
-		/^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^[\w.-]+@[\w.-]+:/.test(source)
-	);
-}
-
 /**
- * Where `--from` takes an app's code: the repository to clone, and the folder
- * inside it that holds the app, empty for the repository's root.
+ * Where `--from` takes an app's code. Git moves code between computers; `new`
+ * copies one committed folder into this Epicenter.
  *
- * - A Git URL names a repository, and after its first `#`, a folder inside
- *   it, so a URL cannot contain `#` and a folder's name can. The folder is
- *   read from the repository's root: `.` segments and extra slashes are
- *   dropped, and an absolute path or a `..` is a misuse.
- * - Anything else is a path to the app's folder itself, whole: a `#` in it is
- *   part of the path. Git says which repository holds the folder and where,
- *   so it may be a repository's root or any folder inside one. It must be
- *   inside a repository, since only what Git tracks is copied.
+ * - A folder on disk, written as a path (`/`, `./`, `../`, or `~/`): Git
+ *   says which repository holds it, and its current commit is copied. Clone
+ *   any other host's repository first.
+ * - A folder on GitHub, written `owner/repo[/folder][#ref]`: that one folder
+ *   is fetched at the branch, tag, or full commit after `#`, or at the
+ *   default branch.
  */
+type Source =
+	| { kind: 'local'; repository: string; folder: string }
+	| {
+			kind: 'github';
+			repository: string;
+			address: string;
+			folder: string;
+			ref?: string;
+	  };
+
+const LOCAL = /^(?:\.{1,2}|~)?(?:\/|$)/;
+const GITHUB =
+	/^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+)(\/[^#]*)?(?:#(.*))?$/;
+const COMMIT = /^[0-9a-f]{40}$/i;
+
 async function locateSource(
 	from: string,
-): Promise<{ repository: string; folder: string } | { error: CliError }> {
-	if (!isUrl(from)) {
+): Promise<Source | { error: CliError }> {
+	if (LOCAL.test(from)) {
 		const located = await git(folderPath(from), [
 			'rev-parse',
 			'--show-toplevel',
@@ -66,33 +71,56 @@ async function locateSource(
 				}).error,
 			};
 		const [repository = '', prefix = ''] = located.stdout.split('\n');
-		return { repository, folder: prefix.replace(/\/$/, '') };
+		return { kind: 'local', repository, folder: prefix.replace(/\/$/, '') };
 	}
-	const at = from.indexOf('#');
-	if (at === -1) return { repository: from, folder: '' };
-	const given = from.slice(at + 1);
-	const segments = given
-		.split('/')
-		.filter((segment) => segment !== '' && segment !== '.');
-	if (given.startsWith('/') || segments.includes('..'))
+	const matched = GITHUB.exec(from);
+	if (!matched || matched[2] === '.' || matched[2] === '..') {
+		const url = /^[a-z][a-z0-9+.-]*:/i.test(from) || /^[\w.-]+@/.test(from);
 		return {
 			error: misuse(
 				'new',
-				`${JSON.stringify(given)} is not a folder inside the repository; write its path from the repository's root, without ..`,
+				url
+					? `--from takes a folder on disk or owner/repo/folder on GitHub; clone ${from} with git clone, then pass the app's folder as a path`
+					: `--from ${from} is neither a path nor owner/repo/folder; write a folder on disk as ./${from}`,
 			),
 		};
-	if (segments.length === 0)
+	}
+	const [, owner = '', repo = '', path = '', ref] = matched;
+	const segments = path
+		.split('/')
+		.filter((segment) => segment !== '' && segment !== '.');
+	if (segments.includes('..'))
 		return {
-			error: misuse('new', `--from ${from} names no folder after #`),
+			error: misuse(
+				'new',
+				`${JSON.stringify(path.slice(1))} is not a folder inside ${owner}/${repo}; write it from the repository's root, without ..`,
+			),
 		};
-	return { repository: from.slice(0, at), folder: segments.join('/') };
+	if (ref === '')
+		return { error: misuse('new', `--from ${from} names no ref after #`) };
+	return {
+		kind: 'github',
+		repository: `https://github.com/${owner}/${repo}.git`,
+		address: `${owner}/${repo}`,
+		folder: segments.join('/'),
+		...(ref === undefined ? {} : { ref }),
+	};
 }
 
-/** Source provenance keeps absolute paths and strips HTTP credentials. */
-function recordedSource(from: string) {
-	return isUrl(from)
-		? from.replace(/^(https?:\/\/)[^/@]*@/i, '$1')
-		: folderPath(from);
+/** How to name one app's folder in the same place `--from` named. */
+function suggestedFrom(from: string, source: Source, app: string) {
+	if (source.kind === 'local') return join(folderPath(from), app);
+	const folder = source.folder ? `${source.folder}/${app}` : app;
+	return `${source.address}/${folder}${source.ref === undefined ? '' : `#${source.ref}`}`;
+}
+
+/** Provenance: a GitHub address, or a checkout's origin with credentials stripped, else its path. */
+async function recordedRepository(source: Source) {
+	if (source.kind === 'github') return `https://github.com/${source.address}`;
+	const origin = await git(source.repository, ['remote', 'get-url', 'origin']);
+	return origin.code === 0 && origin.stdout
+		? origin.stdout.replace(/^(https?:\/\/)[^/@]*@/i, '$1')
+		: source.repository;
 }
 
 /** Blank app code is one Bun project whose records live beside code/. */
@@ -155,7 +183,7 @@ async function made(name: string, json: boolean, source?: CopiedSource) {
 }
 
 /**
- * `epicenter new <name> [--from <path> | --from <git url>[#<folder>]]`: an
+ * `epicenter new <name> [--from <path> | --from <owner/repo/folder>[#<ref>]]`: an
  * app from a copy of another app's code, or from blank code.
  */
 export async function newCommand(
@@ -220,20 +248,8 @@ export async function newCommand(
 	return made(name, json, copied);
 }
 
-/** Compare local source with the copied commit, including staged and untracked code. */
-async function notCopied(repository: string, folder: string, commit: string) {
-	let worktree = repository;
-	if (isUrl(repository)) {
-		if (!/^file:/i.test(repository)) return undefined;
-		try {
-			worktree = fileURLToPath(repository);
-		} catch {
-			return undefined;
-		}
-	}
-	const bare = await git(worktree, ['rev-parse', '--is-bare-repository']);
-	if (bare.code !== 0) return null;
-	if (bare.stdout === 'true') return undefined;
+/** Compare a local checkout with the copied commit, including staged and untracked code. */
+async function notCopied(worktree: string, folder: string, commit: string) {
 	const path = folder ? `${folder}/` : '.';
 	const compared = await Promise.all([
 		git(worktree, [
@@ -299,10 +315,65 @@ function writeSourceWarning(name: string, source?: CopiedSource) {
 	}
 }
 
+/**
+ * Put the source's commit at a temporary clone's HEAD without checking out
+ * files. A local repository is cloned at its current commit. A GitHub folder
+ * is fetched shallow and without file contents, which Git fetches later only
+ * for the files copied; a full commit is fetched by itself, since a clone can
+ * only start from a branch or tag.
+ */
+async function fetchSource(source: Source, clone: string) {
+	if (source.kind === 'local') {
+		await checkedGit(tmpdir(), [
+			'clone',
+			'-q',
+			'--no-checkout',
+			source.repository,
+			clone,
+		]);
+		return;
+	}
+	const commit = source.ref !== undefined && COMMIT.test(source.ref);
+	await checkedGit(tmpdir(), [
+		'clone',
+		'-q',
+		'--depth=1',
+		'--filter=blob:none',
+		'--no-checkout',
+		...(source.ref !== undefined && !commit ? ['--branch', source.ref] : []),
+		source.repository,
+		clone,
+	]);
+	if (!commit) return;
+	await checkedGit(clone, ['fetch', '-q', '--depth=1', 'origin', source.ref!]);
+	await checkedGit(clone, ['update-ref', '--no-deref', 'HEAD', 'FETCH_HEAD']);
+}
+
+/** The apps directly inside `folder`: each child holding `epicenter.ts` or `code/epicenter.ts`. */
+async function appsIn(clone: string, folder: string) {
+	const listed = await checkedGit(clone, [
+		'ls-tree',
+		'-r',
+		'-z',
+		'--name-only',
+		'HEAD',
+		...(folder ? ['--', folder] : []),
+	]);
+	const offset = folder ? folder.length + 1 : 0;
+	const apps = new Set<string>();
+	for (const path of listed.split('\0')) {
+		const match = /^([^/]+)\/(?:code\/)?epicenter\.ts$/.exec(
+			path.slice(offset),
+		);
+		if (match?.[1]) apps.add(match[1]);
+	}
+	return [...apps].sort();
+}
+
 /** Copy a filtered committed tree from a temporary clone, preserving Git modes and links. */
 async function copySource(
 	from: string,
-	source: { repository: string; folder: string },
+	source: Source,
 	name: string,
 	folder: string,
 ): Promise<CopiedSource | { error: CliError }> {
@@ -314,27 +385,30 @@ async function copySource(
 	try {
 		const clone = await mkdtemp(join(tmpdir(), 'epicenter-new-'));
 		try {
-			await checkedGit(tmpdir(), [
-				'clone',
-				'-q',
-				'--depth=1',
-				'--no-checkout',
-				source.repository,
-				clone,
-			]);
+			await fetchSource(source, clone);
 			const commit = await checkedGit(clone, ['rev-parse', 'HEAD']);
+			// Read trees, not file contents: a GitHub copy fetches only the files it keeps.
 			const tracks = async (path: string) =>
-				(await git(clone, ['cat-file', '-e', `HEAD:${inFolder(path)}`]))
-					.code === 0;
+				(await checkedGit(clone, [
+					'ls-tree',
+					'--name-only',
+					'HEAD',
+					'--',
+					inFolder(path),
+				])) !== '';
 			if (
 				!(await tracks('epicenter.ts')) &&
 				(await tracks('code/epicenter.ts'))
 			)
 				source.folder = inFolder('code');
-			if (!(await tracks('epicenter.ts')))
+			if (!(await tracks('epicenter.ts'))) {
+				const apps = await appsIn(clone, source.folder);
 				return usage(
-					`${from} has no epicenter.ts that Git tracks; name the app's folder with --from ${source.repository}#<folder>`,
+					apps.length
+						? `${from} holds ${apps.length === 1 ? 'one app' : `${apps.length} apps`}: ${apps.join(', ')}. Run: epicenter new ${name} --from ${suggestedFrom(from, source, apps[0]!)}`
+						: `${from} has no epicenter.ts that Git tracks; name the app's folder`,
 				);
+			}
 			// Keep full paths and ancestor attributes in the index. Select checkout paths
 			// separately, so root-owned LFS attributes still apply to a subfolder copy.
 			await checkedGit(clone, ['read-tree', 'HEAD']);
@@ -360,11 +434,24 @@ async function copySource(
 			await mkdir(join(appsDir(), name, 'data'), { recursive: true });
 			await writeFile(
 				join(folder, 'SOURCE.md'),
-				`This app's code was copied by \`epicenter new --from\`. No command reads this file.\n\nSource: ${recordedSource(from)}\nSource-Commit: ${commit}\n`,
+				[
+					"This app's code was copied by `epicenter new --from`. No command reads this file.",
+					'',
+					`Repository: ${await recordedRepository(source)}`,
+					`Folder: ${source.folder || '.'}`,
+					...(source.kind === 'github' && source.ref !== undefined
+						? [`Ref: ${source.ref}`]
+						: []),
+					`Commit: ${commit}`,
+					'',
+				].join('\n'),
 			);
 			return {
 				commit,
-				notCopied: await notCopied(source.repository, source.folder, commit),
+				notCopied:
+					source.kind === 'local'
+						? await notCopied(source.repository, source.folder, commit)
+						: undefined,
 			};
 		} finally {
 			await rm(clone, { recursive: true, force: true });

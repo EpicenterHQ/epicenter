@@ -20,7 +20,7 @@ or credentials into this directory.
 After these files are published, a developer can take their own copy:
 
 ```sh
-epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+epicenter new writing --from EpicenterHQ/epicenter/examples/writing
 ```
 
 Each recipient owns their copy and its records. Source changes are compared

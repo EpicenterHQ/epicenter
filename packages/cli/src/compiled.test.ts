@@ -121,7 +121,7 @@ test('the compiled binary copies and builds a writing app from Git without Bun o
 					'new',
 					'writing',
 					'--from',
-					`file://${await writingSource(f)}#writing`,
+					join(await writingSource(f), 'writing'),
 				)
 			).code,
 		).toBe(0);

@@ -16,7 +16,7 @@ is not on PATH. With that directory on PATH:
 ```sh
 epicenter init ~/Epicenter
 cd ~/Epicenter
-epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
+epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
 epicenter serve
 ```
 

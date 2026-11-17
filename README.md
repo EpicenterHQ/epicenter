@@ -54,7 +54,7 @@ copy the Writing app:
 export PATH="$HOME/.local/bin:$PATH"
 epicenter init ~/Epicenter
 cd ~/Epicenter
-epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+epicenter new writing --from EpicenterHQ/epicenter/examples/writing
 epicenter serve
 ```
 
@@ -67,7 +67,7 @@ Writing and Tasks both run on Epicenter 0.2.0 or later. To add
 [Tasks](examples/tasks/README.md) to your home, run
 
 ```sh
-epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
+epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
 ```
 
 For CLI commands, MCP setup, and optional background service installation, see
