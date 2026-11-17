@@ -179,7 +179,7 @@ export async function initCommand(
 		writeErr(
 			hasApps
 				? 'Run: epicenter'
-				: "Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing",
+				: 'Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing',
 		);
 	}
 	return 0;
