@@ -188,7 +188,7 @@ its person or their agent.
 ## Not decided
 
 - Several UIs side by side in one app. `serve` finds one folder named `ui/`
-  (`packages/cli/src/ui.ts`).
+  (`packages/cli/src/http.ts`).
 - How an app records that it has taken changes up to a later commit.
   `Source-Commit` on the first commit does not move.
 - Where Whispering's contract lives. ADR-0891 named
