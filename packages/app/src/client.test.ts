@@ -169,8 +169,8 @@ test('refusal does not GET; uncertain admission observes the same id', async () 
 	globalThis.fetch = (async (url: string | URL | Request) => {
 		urls.push(String(url));
 		return Response.json(
-			{ error: { message: 'no' }, admitted: false },
-			{ status: 503 },
+			{ error: { message: 'no' } },
+			{ status: 503, headers: { 'x-epicenter-admitted': 'false' } },
 		);
 	}) as unknown as typeof fetch;
 	expect(expectErr(await app.count()).name).toBe('Refused');

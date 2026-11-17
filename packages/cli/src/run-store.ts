@@ -217,40 +217,6 @@ export function openRunStore({ path }: { path: string }) {
 			return { created: record(input.app, input.id)!, event };
 		},
 	);
-	const importLegacy = db.transaction(
-		(legacy: Omit<RunRecord, 'lastSeq' | 'logBytes'>, log: HostEvent[]) => {
-			if (record(legacy.app, legacy.id)) return;
-			const lastTerminal = log.findLast(
-				(event) => event.type === 'finished' || event.type === 'interrupted',
-			);
-			const state =
-				lastTerminal?.type === 'finished' ||
-				lastTerminal?.type === 'interrupted'
-					? lastTerminal.type
-					: legacy.state;
-			const ended = lastTerminal?.at ?? legacy.endedAt;
-			const size = log.reduce(
-				(sum, event) => sum + Buffer.byteLength(JSON.stringify(event)) + 1,
-				0,
-			);
-			db.run(
-				'INSERT INTO runs(app,id,action,input_digest,state,accepted_at,ended_at,last_seq,log_bytes,files) VALUES(?,?,?,?,?,?,?,?,?,?)',
-				[
-					legacy.app,
-					legacy.id,
-					legacy.action,
-					legacy.inputDigest ?? null,
-					state,
-					legacy.acceptedAt,
-					ended ? Date.parse(ended) : null,
-					log.at(-1)?.seq ?? 0,
-					size,
-					JSON.stringify(legacy.files),
-				],
-			);
-			for (const event of log) insertEvent(legacy.app, legacy.id, event);
-		},
-	);
 	const expire = db.transaction(
 		(cutoff: number, protectedKeys: Set<string> = new Set()) => {
 			const rows = db
@@ -301,7 +267,6 @@ export function openRunStore({ path }: { path: string }) {
 				.map(decodeRecord),
 		append,
 		events,
-		importLegacy,
 		expire,
 		sizes,
 		compact() {

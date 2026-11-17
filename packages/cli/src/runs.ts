@@ -64,17 +64,6 @@ type FileMeta = {
 	reference: string;
 	uploadedAt: string;
 };
-type LegacyRecord = {
-	version: 1;
-	id: string;
-	app: string;
-	action: string;
-	inputDigest?: string;
-	acceptedAt: string;
-	state: 'accepted' | 'running' | 'finished' | 'interrupted';
-	endedAt?: string;
-	files: Record<string, Pick<FileMeta, 'name' | 'type' | 'size' | 'sha256'>>;
-};
 type RunRecord = StoredRunRecord;
 type RunLocation = {
 	app: string;
@@ -311,39 +300,6 @@ export function createRunHost(
 		}
 	}
 
-	async function readLegacyEvents(run: RunLocation): Promise<HostEvent[]> {
-		const text = await readFile(join(run.dir, 'events.ndjson'), 'utf8').catch(
-			(cause: NodeJS.ErrnoException) => {
-				if (cause.code === 'ENOENT') return '';
-				throw cause;
-			},
-		);
-		const result: HostEvent[] = [];
-		for (const line of text.split('\n')) {
-			if (!line.trim()) continue;
-			try {
-				const value: unknown = JSON.parse(line);
-				if (
-					object(value) &&
-					Number.isSafeInteger(value.seq) &&
-					typeof value.at === 'string' &&
-					[
-						'accepted',
-						'started',
-						'yielded',
-						'cancel-requested',
-						'finished',
-						'interrupted',
-					].includes(String(value.type))
-				)
-					result.push(value as HostEvent);
-			} catch {
-				/* A legacy log can have a torn tail. */
-			}
-		}
-		return result;
-	}
-
 	/** Publish only after the SQLite transaction commits. */
 	async function append(
 		run: RunLocation,
@@ -444,17 +400,8 @@ export function createRunHost(
 				if (claimed.has(run.key) || busy.has(run.key)) continue;
 				await exclusive(run.key, async () => {
 					if (claimed.has(run.key) || busy.has(run.key)) return;
-					const legacy = await jsonFile<LegacyRecord>(
-						join(run.dir, 'record.json'),
-					);
-					if (legacy && !store.record(run.app, run.id))
-						store.importLegacy(legacy, await readLegacyEvents(run));
 					const info = await sizeOf(run.dir);
-					if (
-						!store.record(run.app, run.id) &&
-						!legacy &&
-						info.newest < now() - HOUR_MS
-					) {
+					if (!store.record(run.app, run.id) && info.newest < now() - HOUR_MS) {
 						await rm(run.dir, { recursive: true, force: true });
 						runtimeBytes = Math.max(0, runtimeBytes - info.bytes);
 						return;
@@ -481,12 +428,6 @@ export function createRunHost(
 			await makeDir(join(dir, 'runs'));
 			runtimeBytes = (await sizeOf(join(dir, 'runs'))).bytes;
 			store = openRunStore({ path: join(dir, 'runs.sqlite') });
-			for (const run of await runDirs()) {
-				const record = await jsonFile<LegacyRecord>(
-					join(run.dir, 'record.json'),
-				);
-				if (record) store.importLegacy(record, await readLegacyEvents(run));
-			}
 			for (const record of store.nonTerminal())
 				await interrupt(location(record.app, record.action, record.id), record);
 			await sweep();

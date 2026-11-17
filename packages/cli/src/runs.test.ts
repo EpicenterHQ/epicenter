@@ -6,14 +6,7 @@
 
 import { Database } from 'bun:sqlite';
 import { afterAll, afterEach, expect, test } from 'bun:test';
-import {
-	chmod,
-	readdir,
-	readFile,
-	rm,
-	stat,
-	writeFile,
-} from 'node:fs/promises';
+import { chmod, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action, UploadedFile } from '@epicenter/app';
 import { ActionError } from '@epicenter/app';
@@ -50,7 +43,6 @@ type UploadAction = Action<
 	Yield
 >;
 const base = 'http://127.0.0.1:4747/';
-const journalKey = 'epicenter.runs.prototype.v1';
 const realFetch = globalThis.fetch;
 const storageDescriptor = Object.getOwnPropertyDescriptor(
 	globalThis,
@@ -487,24 +479,21 @@ test('recovery marks an abandoned record interrupted and re-admission never reru
 	const digest = new Bun.CryptoHasher('sha256')
 		.update(JSON.stringify({ action: 'transcribe', input }))
 		.digest('hex');
-	await writeFile(
-		join(dir, 'record.json'),
-		JSON.stringify({
-			version: 1,
-			id,
+	f.host.stop();
+	// A run serve admitted and never finished, as a crash leaves it.
+	const store = openRunStore({ path: join(f.runtime, 'runs.sqlite') });
+	try {
+		store.admit({
 			app: 'files',
+			id,
 			action: 'transcribe',
 			inputDigest: digest,
-			acceptedAt: new Date().toISOString(),
-			state: 'running',
 			files: {},
-		}),
-	);
-	await writeFile(
-		join(dir, 'events.ndjson'),
-		`${JSON.stringify({ seq: 1, at: new Date().toISOString(), type: 'accepted' })}\n{torn`,
-	);
-	f.host.stop();
+			at: new Date().toISOString(),
+		});
+	} finally {
+		store.close();
+	}
 	const recovered = createRunHost();
 	cleanup.push(async () => {
 		recovered.stop();
@@ -534,16 +523,14 @@ test('recovery marks an abandoned record interrupted and re-admission never reru
 test('unknown ids observe without admission and retain an uncertain journal entry', async () => {
 	const f = await setup();
 	f.storage.setItem(
-		journalKey,
-		JSON.stringify([
-			{
-				id: 'unknown-run-identifier',
-				app: 'files',
-				action: 'transcribe',
-				startedAt: new Date().toISOString(),
-				files: [],
-			},
-		]),
+		'epicenter.run:unknown-run-identifier',
+		JSON.stringify({
+			id: 'unknown-run-identifier',
+			app: 'files',
+			action: 'transcribe',
+			startedAt: new Date().toISOString(),
+			files: [],
+		}),
 	);
 	const events = await collect(
 		runs.attach(f.app.transcribe, 'unknown-run-identifier').events(),
@@ -1141,22 +1128,6 @@ test('startup expiry removes old runs and their retained upload directories', as
 		).exists(),
 	).toBe(false);
 	restarted.stop();
-});
-
-test('retired ordinary route asks the page to reload without executing', async () => {
-	const f = await setup();
-	const { staleCallResponse } = await import('./http.ts');
-	const response = await staleCallResponse(
-		new Request(`${base}files/plain`, { method: 'POST', body: '{}' }),
-	);
-	expect(response.status).toBe(200);
-	expect(response.headers.get('content-type')).toBe('application/x-ndjson');
-	expect(JSON.parse((await response.text()).trim()).answer.error.message).toBe(
-		'This page is out of date. Reload it to keep using files.',
-	);
-	expect(await Bun.file(join(f.apps, 'files/data/count.local')).exists()).toBe(
-		false,
-	);
 });
 
 test('runtime directories inside the Epicenter are refused before creation', async () => {
