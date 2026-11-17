@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) (a collection selects a record by its keys) and [ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) (file slots), once accepted.
 - **Amends:** [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md): a ref names its target by key name and holds one id. [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md): the check's rules below, with no count of skipped files.
 - **Unbuilt:** all of it. No runtime has `defineData`, no app has moved, and `defineCollection` is not deleted.
-- **Relates:** [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (how code reaches these records); [ADR-0935](0935-generated-actions-carry-the-guards-a-caller-outside-the-app-needs.md) (the actions generated for them); [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) (refs); [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) (the check); [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) (absent switches and lists); [ADR-0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) (front matter grammar); [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files).
+- **Relates:** [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (how code reaches these records); [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md) (the actions generated for them); [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) (refs); [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) (the check); [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) (absent switches and lists); [ADR-0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) (front matter grammar); [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files).
 
 ## Context
 
@@ -80,12 +80,13 @@ data/
   says.
 - Each value is `{ description?, fields }`. `description` says what one file
   is ("a word I'm learning") for the generated actions and for
-  `epicenter list`. Field kinds, optional fields, read-only fields, absent
-  switches and lists, and undeclared front matter keys behave as a
-  collection's do today. `path`, `body`, `id`, `was`, and `edit` cannot be
+  `epicenter list`. Field kinds, optional fields, absent switches and
+  lists, and undeclared front matter keys behave as a collection's do today.
+  A field cannot be `readOnly`
+  ([ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md)). `path`, `body`, `id`, and `edit` cannot be
   field names: the first three are a record's own, and the generated `set`
-  takes the last two beside the fields
-  ([ADR-0935](0935-generated-actions-carry-the-guards-a-caller-outside-the-app-needs.md)).
+  takes `edit` beside the fields
+  ([ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md)).
 - The declaration lives in `code/data.ts`, so the app's `lib/` files import
   `data` without importing `epicenter.ts`. This is a convention; nothing
   looks for the file by name.
@@ -115,7 +116,7 @@ another extension, a name starting with `.`, and a local file in a key that is
 not `.local` are the app's own: no handle names them and `epicenter check`
 does not read them. `pages/intro.md` beside `pages/intro/final.mp4` is one
 record and a folder the app arranges. An entry in `data/` that no key names,
-such as a cache or a lock file, is the app's own too.
+such as a cache, is the app's own too.
 
 **A relation is a field: `field.ref(key)` holds the id of a record in folder key `key`.**
 
