@@ -1,7 +1,7 @@
 /** An action's command-line input is one JSON object, checked as a page's or an agent's is (ADR-0925). */
 
 import { expect, test } from 'bun:test';
-import { defineAction, defineCollection, field, Ok } from '@epicenter/app';
+import { defineAction, defineData, field, Ok } from '@epicenter/app';
 import { Type } from 'typebox';
 import { checkInput, matchAction, readInput, usageLine } from './input.ts';
 import { actionHelp } from './listing.ts';
@@ -138,18 +138,13 @@ test("a number's refusal names its bounds", () => {
 	});
 });
 
-const shelves = defineCollection({
-	path: 'data/shelves/{shelf}.md',
-	fields: {},
-});
-
-test('every input shape works: lists of objects, and a reference checked as text only', async () => {
+test('every input shape works: lists of objects, and a reference checked as an id only', async () => {
 	const invite = defineAction({
 		description: 'Invite',
 		input: {
 			people: field.list(Type.Object({ name: Type.String() })),
 			ratings: field.list(field.integer({ min: 1, max: 5 })),
-			shelf: field.ref(shelves, { optional: true }),
+			shelf: field.ref('shelves', { optional: true }),
 		},
 		run: (input) => Ok(input),
 	});
@@ -170,14 +165,13 @@ test('every input shape works: lists of objects, and a reference checked as text
 	});
 });
 
-test("a collection's set takes edit as one object, and refuses half of one", () => {
-	const notes = defineCollection({
-		path: 'data/notes/{id}.md',
-		fields: { title: field.text({ optional: true }) },
+test("a data key's set takes edit as one object, and refuses half of one", () => {
+	const { notes } = defineData({
+		notes: { fields: { title: field.text({ optional: true }) } },
 	});
 	const { set } = notes.actions('set');
 	expect(actionHelp('notes', 'set', set)).toContain(
-		'  edit   optional  an object. { "old": the passage of the body as you last saw it, "new": the text to put in its place }; refused when old is not in the body now\n',
+		'  edit   optional  an object\n',
 	);
 	expect(checkInput(set, { id: 'a', edit: { old: 'x' } })).toEqual({
 		error: 'edit.new is needed',

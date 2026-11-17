@@ -1,6 +1,6 @@
 /**
  * Data app listings expose keys, paths, descriptions, and JSON Schema.
- * Real CLI invocations verify human and JSON views without changing collection listings.
+ * Real CLI invocations verify human and JSON views.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
@@ -20,7 +20,6 @@ test('human and JSON app listings show data paths, descriptions, and field schem
 	await f.app(
 		'flights',
 		`
-import { defineData } from '@epicenter/app';
 const data = defineData({
   watches: { description: 'A flight I watch', fields: { from: field.text() } },
   checks: { fields: { watch: field.ref('watches'), many: field.list(field.ref('watches')) } },
@@ -41,7 +40,6 @@ export default defineApp({ description: 'Flights', data, actions: {} });
 	const json = await f.run('flights', '--json');
 	expect(json.code).toBe(0);
 	const listed = JSON.parse(json.stdout);
-	expect(listed).not.toHaveProperty('collections');
 	expect(listed.data).toMatchObject({
 		watches: {
 			path: 'data/watches/',

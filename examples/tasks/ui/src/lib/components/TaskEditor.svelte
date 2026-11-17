@@ -16,23 +16,16 @@
 	import TaskRepair from '$lib/components/TaskRepair.svelte';
 	import { reads, writes } from '$lib/app.js';
 	import { addDays, dayOf, dueLabel } from '$lib/tasks.js';
-	let { time: given }: { time: string } = $props();
-	const time = untrack(() => given);
-	const task = createQuery(() => reads.get({ time }));
+	let { id: given }: { id: string } = $props();
+	const id = untrack(() => given);
+	const task = createQuery(() => reads.get({ id }));
 
-	type Change = { title?: string; done?: boolean | null; due?: string | null };
-	/**
-	 * Save fields the person changed, naming in `was` what the page showed for
-	 * each: the title as it was when typing began, the rest as saved now. A
-	 * field changed elsewhere since is refused rather than overwritten.
-	 */
+	type Change = { title?: string; done?: boolean; due?: string | null };
+	/** Save only the fields the person changed. */
 	function save(change: Change) {
-		const shown = task.data;
-		const was: Record<string, unknown> = {};
-		for (const key of Object.keys(change) as (keyof Change)[])
-			was[key] = (key === 'title' ? titleBase : shown?.[key]) ?? null;
-		setTask.mutate({ time, ...change, was });
+		setTask.mutate({ id, ...change });
 	}
+
 	const setTask = createMutation(() => ({
 		...writes.set,
 		onSuccess: async (file, variables, previous, context) => {
@@ -43,33 +36,14 @@
 			}
 		},
 		onMutate: () => {
-			toast.dismiss(`set:${time}`);
+			toast.dismiss(`set:${id}`);
 		},
-		onError: (error, { time: _time, was: _was, ...change }) => {
-			if (error.name === 'Changed')
-				toast.error('This task changed elsewhere', {
-					id: `set:${time}`,
-					description:
-						change.title !== undefined
-							? 'It now shows what is saved; your title is kept.'
-							: 'It now shows what is saved.',
-					action: {
-						label: 'Save mine',
-						onClick: () => {
-							if (change.title === undefined) return save(change);
-							const typed = title?.trim();
-							if (!typed) return;
-							titleBase = task.data?.title;
-							save({ ...change, title: typed });
-						},
-					},
-				});
-			else
-				toast.error('Could not confirm the task was saved', {
-					id: `set:${time}`,
-					description: error.message,
-					action: change.title === undefined ? undefined : { label: 'View submitted text', onClick: () => toast('Submitted task', { description: change.title || '(empty)', duration: Infinity }) },
-				});
+		onError: (error, { id: _id, ...change }) => {
+			toast.error('Could not save the task', {
+				id: `set:${id}`,
+				description: error.message,
+				action: change.title === undefined ? undefined : { label: 'View submitted text', onClick: () => toast('Submitted task', { description: change.title || '(empty)', duration: Infinity }) },
+			});
 		},
 	}));
 	const editNotes = createMutation(() => ({
@@ -79,12 +53,12 @@
 			if (notes !== undefined && withEnd(notes) === variables.new) notes = undefined;
 		},
 		onMutate: () => {
-			toast.dismiss(`notes:${time}`);
+			toast.dismiss(`notes:${id}`);
 		},
 		onError: (error, variables) => {
 			if (error.name === 'Changed')
 				toast.error('The notes changed elsewhere', {
-					id: `notes:${time}`,
+					id: `notes:${id}`,
 					description: 'Your draft is kept. Save it over them, or show the saved notes.',
 					duration: Infinity,
 					action: {
@@ -97,8 +71,8 @@
 					cancel: { label: 'Show saved', onClick: () => (notes = undefined) },
 				});
 			else
-				toast.error('Could not confirm the notes were saved', {
-					id: `notes:${time}`,
+				toast.error('Could not save the notes', {
+					id: `notes:${id}`,
 					description: error.message,
 					action: { label: 'View submitted text', onClick: () => toast('Submitted notes', { description: variables.new || '(empty)', duration: Infinity }) },
 				});
@@ -108,8 +82,6 @@
 	const fields = $derived({ ...task.data, ...(setTask.isPending ? setTask.variables : {}) });
 	const busy = $derived(setTask.isPending || deleteTask.isPending);
 	let title = $state<string>();
-	/** The saved title when typing began, which a title save names in `was`. */
-	let titleBase: string | undefined;
 	let titleError = $state('');
 	/** The notes being typed, kept until saved; `undefined` shows the saved notes. */
 	let notes = $state<string>();
@@ -128,7 +100,7 @@
 			notes = undefined;
 			return;
 		}
-		editNotes.mutate({ time, old: notesBase, new: next });
+		editNotes.mutate({ id, old: notesBase, new: next });
 	}
 </script>
 <svelte:window onbeforeunload={(event) => {
@@ -160,7 +132,7 @@
 				<Button variant="outline" href="#/">Back to tasks</Button>
 			</Empty.Root>
 		{:else if task.error?.name === 'Misfit'}
-		<TaskRepair {time} error={task.error} onSaved={() => task.refetch()} />
+		<TaskRepair {id} error={task.error} onSaved={() => task.refetch()} />
 	{:else if !task.data}
 			<Empty.Root class="py-16">
 				<Empty.Title>This task could not be loaded</Empty.Title>
@@ -188,7 +160,6 @@
 					enterkeyhint="done"
 					bind:value={() => title ?? fields.title ?? '',
 					(value) => {
-						if (title === undefined) titleBase = task.data?.title;
 						// The title is one line: Enter ends it rather than adding a line.
 						title = value.replace(/\r?\n/g, ' ');
 						titleError = '';
@@ -288,11 +259,10 @@
 <AlertDialog.Root bind:open={() => deleting, (next) => { if (!deleteTask.isPending) deleting = next; }}>
 	<AlertDialog.Content onEscapeKeydown={(event) => { if (deleteTask.isPending) event.preventDefault(); }}>
 		<AlertDialog.Header><AlertDialog.Title>Delete this task?</AlertDialog.Title><AlertDialog.Description>This deletes the task and its notes.</AlertDialog.Description></AlertDialog.Header>
-		{#if deleteTask.error}<p role="alert" class="text-sm text-destructive">Could not confirm the deletion: {deleteTask.error.message}</p>{/if}
+		{#if deleteTask.error}<p role="alert" class="text-sm text-destructive">Could not delete the task: {deleteTask.error.message}</p>{/if}
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel disabled={deleteTask.isPending}>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action variant="destructive" disabled={deleteTask.isPending} onclick={() => deleteTask.mutate({ time }, { onSettled: (_deleted, error) => {
-				if (error && task.error?.name !== 'Missing') return;
+			<AlertDialog.Action variant="destructive" disabled={deleteTask.isPending} onclick={() => deleteTask.mutate({ id }, { onSuccess: () => {
 				title = undefined; deleting = false; location.hash = '#/'; toast('Task removed');
 			} })}>
 				{#if deleteTask.isPending}<Spinner class="size-4" />{/if}Delete

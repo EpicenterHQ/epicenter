@@ -1,6 +1,5 @@
 /**
  * App data composition retains the given handles and their inferred fields.
- * Data and collections are alternatives at both typed and untyped boundaries.
  */
 import { expect, test } from 'bun:test';
 import { defineApp, defineData, field } from './index.ts';
@@ -12,27 +11,11 @@ test('an app accepts data and returns the same object and typed handles', () => 
 	expect(app).toBe(given);
 	expect(app.data.notes).toBe(data.notes);
 	expect(app.data.notes.pathOf('one')).toBe('data/notes/one.md');
-	expect(app).not.toHaveProperty('collections');
 });
 
-test('an app refuses both data and collections, including empty declarations', () => {
-	const given = {
-		description: 'Both',
-		data: defineData({}),
-		collections: {},
-		actions: {},
-	};
-	// @ts-expect-error an app declares one data model
-	expect(() => defineApp(given)).toThrow(
-		'An app declares data or collections, not both',
-	);
-});
-
-test('an app still requires collections when no data is declared', () => {
-	// @ts-expect-error an app needs data or collections
-	expect(() => defineApp({ description: 'Neither', actions: {} })).toThrow(
-		'An app needs collections: an object of defineCollection(...), {} for none',
-	);
+test('an app may keep no data, and refuses data that is not an object', () => {
+	const given = { description: 'Chat', actions: {} };
+	expect(defineApp(given)).toBe(given);
 	expect(() =>
 		defineApp({ description: 'Bad', data: null, actions: {} } as never),
 	).toThrow('An app needs data: the value returned by defineData(...)');

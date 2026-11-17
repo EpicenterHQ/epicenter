@@ -19,9 +19,9 @@ const lookup = defineAction({
 	description: 'Look for a route', input: {},
 	run: () => NotesError.NoRoute({ airport: 'LAX' }),
 });
-const notes = defineCollection({ path: 'data/notes/{slug}.md', fields: {count: field.integer()} });
-const read = defineAction({ description: 'Read a note', input: {}, run: () => notes.get({slug:'a'}) });
-export default defineApp({description: 'Route notes', collections: {notes}, actions: {
+const data = defineData({ notes: { fields: {count: field.integer()} } });
+const read = defineAction({ description: 'Read a note', input: {}, run: () => data.notes.get('a') });
+export default defineApp({description: 'Route notes', data, actions: {
 	inspect: defineAction({description: 'Inspect a note', input: {}, run: () => read({})}),
 	empty: defineAction({ description: 'No data', input: {}, run: () => Ok(undefined) }),
 	check: defineAction({
@@ -117,7 +117,7 @@ const review = defineAction({
 		name: 'Usage', message: 'title is needed', next: 'epicenter drafts stage --help',
 	}),
 });
-export default defineApp({description: 'Staged drafts', collections: {}, actions: {
+export default defineApp({description: 'Staged drafts', actions: {
 	stage: defineAction({
 		description: 'Keep the draft, then ask for a review',
 		input: { via: field.select(['cli','http','mcp']), title: field.text() },

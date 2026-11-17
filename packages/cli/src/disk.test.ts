@@ -2,7 +2,7 @@
  * The folder on disk preserves relative paths and atomic writes.
  * Listing excludes dependency and Git directories and never traverses directory links.
  * `update` changes what is there when it writes, never what was there when it read,
- * and concurrent updates in one process, through it or a collection's `update`,
+ * and concurrent updates in one process, through it or a data handle's `update`,
  * each land. Across processes a call's lock keeps writers apart (`layout.test.ts`).
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import {
 	ActionError,
 	createMemoryContext,
-	defineCollection,
+	defineData,
 	field,
 	inRun,
 	Ok,
@@ -77,10 +77,6 @@ test('a new file under local/ is readable by its owner alone and a new directory
 	expect(await mode('local/tokens')).toBe(0o700);
 	expect(await mode('local/google.md')).toBe(0o600);
 	expect(await mode('local/tokens/mail.md')).toBe(0o600);
-	// A name says nothing: only the place does.
-	await folder.write('data/keys.local/google.local.md', 'c');
-	expect(await mode('data/keys.local')).toBe(0o755);
-	expect(await mode('data/keys.local/google.local.md')).toBe(0o644);
 	// What the owner widened keeps what they chose.
 	await chmod(join(root, 'local/google.md'), 0o640);
 	await folder.write('local/google.md', 'again');
@@ -161,19 +157,17 @@ test('concurrent updates of one file each land, and leave nothing beside it', as
 	expect(await folder.list()).toEqual(['log.txt']);
 });
 
-test('concurrent updates of one collection file each land, each computed from the record it replaces', async () => {
+test('concurrent updates of one data file each land, each computed from the record it replaces', async () => {
 	const { root, folder } = await setup();
-	const counters = defineCollection({
-		path: 'data/counters/{id}.md',
-		fields: { n: field.integer({ optional: true }) },
+	const { counters } = defineData({
+		counters: { fields: { n: field.integer({ optional: true }) } },
 	});
 	await folder.write('data/counters/a.md', '---\nn: 0\n---\n');
 	const context = { folder };
-	const at = { id: 'a' };
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
 			inRun(context, () =>
-				counters.update(at, (record) => Ok({ n: (record?.n ?? 0) + 1 })),
+				counters.update('a', (record) => Ok({ n: (record?.n ?? 0) + 1 })),
 			),
 		),
 	);
@@ -222,15 +216,15 @@ test('update whose change throws writes nothing', async () => {
 	expect(await folder.list()).toEqual(['kept.txt']);
 });
 
-test('a collection forwards returned Changed and lets a thrown Changed escape, including on an absent file', async () => {
+test('a data update forwards returned Changed and lets a thrown Changed escape, including on an absent file', async () => {
 	const disk = await setup();
+	const data = defineData({
+		'counter.md': { fields: { n: field.integer({ optional: true }) } },
+	});
+	const counter = data['counter.md'];
 	for (const folder of [disk.folder, createMemoryContext().folder]) {
 		const path = 'data/counter.md';
-		const counter = defineCollection({
-			path,
-			fields: { n: field.integer({ optional: true }) },
-		});
-		const refusal = ActionError.Changed({ path, why: 'was' });
+		const refusal = ActionError.Changed({ path, why: 'quote' });
 		expect(await inRun({ folder }, () => counter.update(() => refusal))).toBe(
 			refusal,
 		);
@@ -241,42 +235,5 @@ test('a collection forwards returned Changed and lets a thrown Changed escape, i
 		).catch((cause: unknown) => cause);
 		expect(thrown).toBe(refusal.error);
 		expect(await folder.read(path)).toBeUndefined();
-		const answer = await inRun({ folder }, () =>
-			counter.update((record) => {
-				record.n = 1;
-				return Ok({});
-			}),
-		);
-		expect(answer).toEqual(Ok({ path, body: '' }));
-		expect(await folder.read(path)).toBeUndefined();
 	}
-});
-
-test('a local record omits partial values and body from every repair refusal', async () => {
-	const { folder } = await setup();
-	const path = 'data/accounts.local.md';
-	const accounts = defineCollection({
-		path,
-		fields: {
-			token: field.text({ optional: true }),
-			unit: field.integer({ optional: true }),
-		},
-	});
-	const stored =
-		'---\ntoken: "secret-token"\nunit: "secret-invalid"\n---\nsecret-body';
-	await folder.write(path, stored);
-	await inRun({ folder }, async () => {
-		for (const result of [
-			await accounts.get(),
-			await accounts.set({ token: 'new-secret' }),
-			await accounts.update(() => {
-				throw new Error('misfit reached callback');
-			}),
-		]) {
-			expect(result.error?.name).toBe('Misfit');
-			expect(result.error).not.toHaveProperty('record');
-			expect(JSON.stringify(result)).not.toContain('secret');
-		}
-	});
-	expect(await folder.read(path)).toBe(stored);
 });

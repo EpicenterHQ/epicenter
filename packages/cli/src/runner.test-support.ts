@@ -322,24 +322,24 @@ export async function connectMcp(
 export const gitignore = 'node_modules/\nui/dist/\n';
 
 /** The import every test app's `epicenter.ts` starts with. */
-export const header = `import { defineAction, defineApp, defineCollection, field, folder, Err, Ok } from '@epicenter/app';\n`;
+export const header = `import { defineAction, defineApp, defineData, field, folder, Err, Ok } from '@epicenter/app';\n`;
 
 /** The `epicenter.ts` of an app with only a description that names it. */
 export function bareApp(name: string) {
-	return `${header}export default defineApp({ description: 'The ${name} app', collections: {}, actions: {} });\n`;
+	return `${header}export default defineApp({ description: 'The ${name} app', actions: {} });\n`;
 }
 
-/** Reading, as an app's files: a books collection and actions that write a CSV. */
+/** Reading, as an app's files: a books data key and actions that write a CSV. */
 export const readingApp = {
 	'code/.gitignore': gitignore,
 	'code/epicenter.ts': `${header}
-const books = defineCollection({ path: 'data/books/{slug}.md', fields: { title: field.text() } });
+const data = defineData({ books: { fields: { title: field.text() } } });
 
 export default defineApp({
 	description: 'How much I read each week',
-	collections: { books },
+	data,
 	actions: {
-		books: books.actions(),
+		books: data.books.actions('list', 'get', 'add', 'set'),
 		log: defineAction({
 			description: 'Record minutes read today',
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
@@ -376,7 +376,7 @@ export default defineApp({
 };
 
 /** The source of an app with many kinds of input, for `fixture().app`. */
-export const reading = `export default defineApp({ description: 'The reading app', collections: {}, actions: {
+export const reading = `export default defineApp({ description: 'The reading app', actions: {
 	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return Ok(input); } }),
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => Ok(({minutes:210})) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text()), done: field.boolean() }, run: (input) => Ok(input) }),
@@ -386,7 +386,7 @@ export const reading = `export default defineApp({ description: 'The reading app
 } });`;
 
 /** The source of an app whose actions share the word `calendar`. */
-export const vault = `export default defineApp({ description: 'The vault app', collections: {}, actions: { calendar: {
+export const vault = `export default defineApp({ description: 'The vault app', actions: { calendar: {
 	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},run:({day})=>Ok(({day}))}),
 	add: defineAction({description:'Add a day',input:{day:field.date()},run:({day})=>Ok(({day}))}),
 } } });`;

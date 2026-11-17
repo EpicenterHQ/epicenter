@@ -29,7 +29,7 @@ export type Write = { fields: Record<string, unknown>; body?: unknown };
 type Need = 'absent' | 'present' | 'either';
 type Found = ReturnType<typeof readMarkdown>;
 
-/** `values` in the order the collection declares its fields, then the rest. */
+/** `values` in the order the data key declares its fields, then the rest. */
 function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 	const order = Object.keys(fields);
 	const rank = (key: string) => order.indexOf(key) + 1 || order.length + 1;
@@ -41,15 +41,10 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 /** Read and patch declared Markdown fields without changing undeclared lines. */
 export function createMarkdownRecords({
 	fields,
-	local = false,
 	keysOf,
-	single = false,
 }: {
 	fields: Fields;
-	local?: boolean;
 	keysOf: (path: string) => Record<string, string> | undefined;
-	/** Collections alone read an absent one-file record as empty. */
-	single?: boolean;
 }) {
 	function unknownField(path: string, key: string) {
 		if (!Object.hasOwn(fields, key))
@@ -66,7 +61,7 @@ export function createMarkdownRecords({
 	 * values that did not fit.
 	 */
 	function project(path: string, found: Found) {
-		const { fields: values, problems } = projectFields(fields, found, local);
+		const { fields: values, problems } = projectFields(fields, found);
 		const record: AnyRecord = {
 			path,
 			...keysOf(path),
@@ -77,7 +72,7 @@ export function createMarkdownRecords({
 			? ActionError.Misfit({
 					path,
 					problems,
-					...(!local && found.readable ? { record } : {}),
+					...(found.readable ? { record } : {}),
 				})
 			: Ok(record);
 		return { record, result };
@@ -107,7 +102,7 @@ export function createMarkdownRecords({
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
-					problems.push(misfit(key, schema, set[key], local));
+					problems.push(misfit(key, schema, set[key]));
 			} else if (
 				creating &&
 				!isOptional(schema) &&
@@ -144,14 +139,13 @@ export function createMarkdownRecords({
 		before: string | undefined,
 	) => Result<{ value: AnyRecord; text?: string }, CallbackError> {
 		return (before) => {
-			if (before === undefined && need === 'present' && !single)
+			if (before === undefined && need === 'present')
 				return ActionError.Missing({ path });
 			if (before !== undefined && need === 'absent')
 				return ActionError.Refused({ message: `${path} is already there` });
 
 			const found = readMarkdown(before ?? '');
-			const current =
-				before !== undefined || single ? project(path, found) : undefined;
+			const current = before !== undefined ? project(path, found) : undefined;
 			if (current?.result.error && (computed || !found.readable))
 				return current.result;
 			const changed = change(current?.record);
@@ -188,13 +182,6 @@ export function createMarkdownRecords({
 			const next = project(path, readMarkdown(after)).result;
 			if (next.error !== null)
 				return current?.result.error ? current.result : next;
-			// A keyless record already reads as its defaults while its file is absent.
-			if (
-				before === undefined &&
-				current &&
-				Value.Equal(current.record, next.data)
-			)
-				return Ok({ value: next.data });
 			return Ok({ value: next.data, text: after });
 		};
 	}

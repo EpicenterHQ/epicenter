@@ -1,6 +1,6 @@
 /**
  * The page's route, read from its hash: `#/` is the front page and
- * `#/tasks/<time>` is a task, named by its key, URI-encoded. A link to another
+ * `#/tasks/<id>` is a task, named by its key, URI-encoded. A link to another
  * route is a plain `href="#/..."`. Every page starts at the top, including
  * back and forward; no scroll position is kept per history entry.
  */

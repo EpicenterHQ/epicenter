@@ -122,10 +122,9 @@ one of code/ or data/, so restoring apps/<app>/ from it deletes the other.
 
 An app is code/, data/ and local/. What is in apps/<app>/local/ stays on this
 computer: the line /apps/*/local/ in .gitignore keeps it out of every commit,
-whoever makes the folder. A file named *.local or *.local.* is the older way
-to say it, and .gitignore keeps those out too. Git's ignore rules are the
-only guard: keep those lines, and never \`git add -f\` such a file. Never run
-git clean -x here: it deletes them.
+whoever makes the folder. Git's ignore rules are the only guard: keep that
+line, and never \`git add -f\` a file there. Never run git clean -x here: it
+deletes what Git ignores.
 `;
 
 function actualFolder(path: string): string {
@@ -235,7 +234,7 @@ async function startEpicenterRepository(root: string, wrote: string[]) {
 	if (!existsSync(join(root, '.gitignore'))) {
 		await writeFile(
 			join(root, '.gitignore'),
-			'/apps/*/local/\n*.local\n*.local.*\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
+			'/apps/*/local/\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
 		);
 		wrote.push('.gitignore');
 	}

@@ -30,7 +30,6 @@ afterEach(async () => {
 const repairsCode = `${header}
 export default defineApp({
 	description: 'The notes app',
-	collections: {},
 	actions: {
 		two: defineAction({
 			description: 'Write two files',
@@ -102,7 +101,7 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 	await f.app(
 		'loud',
 		`console.log('noise while importing');
-export default defineApp({ description: 'The loud app', collections: {}, actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } });
+export default defineApp({ description: 'The loud app', actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } });
 `,
 	);
 	const { client, close } = await connectMcp(f, ['--no-install']);
@@ -185,7 +184,7 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 	).toBe(gitignore);
 	await f.app(
 		'other',
-		`export default defineApp({ description: 'Another app', collections: {}, actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } });\n`,
+		`export default defineApp({ description: 'Another app', actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } });\n`,
 	);
 	const listed = await f.json('other');
 	expect(listed.code).toBe(0);

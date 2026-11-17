@@ -2,25 +2,11 @@ import {
 	ActionError,
 	defineAction,
 	defineApp,
-	defineCollection,
+	timeId,
 	field,
 } from "@epicenter/app";
 
-const tasks = defineCollection({
-	path: "data/tasks/{time}.md",
-	description: "task",
-	fields: {
-		title: field.text({
-			pattern: "^[^\\r\\n]*\\S[^\\r\\n]*$",
-			description: "one line, not blank, saying what to do",
-		}),
-		done: field.boolean({ description: "Whether it is done" }),
-		due: field.date({
-			optional: true,
-			description: "The day it is due, as 2026-11-10; absent when it has none",
-		}),
-	},
-});
+import { data } from "./data.ts";
 
 /** `add`: a title of several lines keeps its first line as the title. */
 const add = defineAction({
@@ -39,7 +25,7 @@ const add = defineAction({
 		const body = [rest.join("\n").trim(), notes?.trim() ?? ""]
 			.filter((part) => part !== "")
 			.join("\n\n");
-		return tasks.add({
+		return data.tasks.add(timeId(), {
 			title: heading,
 			done: false,
 			due,
@@ -51,7 +37,7 @@ const add = defineAction({
 export default defineApp({
 	description:
 		"Things I mean to do: a note per task, its title, whether it is done, and when it is due; its notes in the body",
-	collections: { tasks },
-	// One collection: its verbs are the app's own, `tasks add` rather than `tasks tasks add`.
-	actions: { ...tasks.actions(), ...tasks.actions("delete"), add },
+	data,
+	// One data key: its verbs are the app's own, `tasks add` rather than `tasks tasks add`.
+	actions: { ...data.tasks.actions("list", "get", "set", "delete"), add },
 });

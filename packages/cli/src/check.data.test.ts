@@ -22,7 +22,6 @@ async function setup(aliasInventory = false) {
 	const app = await f.app(
 		'flights',
 		`
-import { defineData } from '@epicenter/app';
 const data = defineData({
   watches: { fields: { from: field.text() } },
   checks: { fields: { watch: field.ref('watches'), day: field.date(), many: field.list(field.ref('watches')) } },

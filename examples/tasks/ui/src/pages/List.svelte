@@ -28,7 +28,7 @@
 
 	const partition = $derived(splitTasks(tasks.data ?? []));
 	const broken = $derived(partition.errs);
-	const rows = $derived(partition.oks.map((task) => setTask.isPending && setTask.variables?.time === task.time ? { ...task, done: setTask.variables.done ?? task.done } : task));
+	const rows = $derived(partition.oks.map((task) => setTask.isPending && setTask.variables?.id === task.id ? { ...task, done: setTask.variables.done ?? task.done } : task));
 
 	let showCompleted = $state(false);
 
@@ -45,12 +45,11 @@
 
 	/**
 	 * Each row's change settles its own promise, so quick ticks on several rows
-	 * each get their toast. The check shows the opposite of what it sets, and
-	 * `was` names that, so a task changed elsewhere since is refused, not flipped.
+	 * each get their toast. The check uses the last value written.
 	 */
 	function toggle(task: Task, isDone: boolean) {
 		const label = task.title;
-		setTask.mutateAsync({ time: task.time, done: isDone, was: { done: !isDone } }).then(
+		setTask.mutateAsync({ id: task.id, done: isDone }).then(
 			() => {
 				if (!isDone) return;
 				toast(`Done: ${label}`, {
@@ -58,11 +57,8 @@
 				});
 			},
 			(error: ActionError) =>
-				toast.error(`Could not confirm the change to “${label}”`, {
-					description:
-						error.name === 'Changed'
-							? 'It changed elsewhere; the list now shows it as saved.'
-							: error.message,
+				toast.error(`Could not save changes to “${label}”`, {
+					description: error.message,
 				}),
 		);
 	}
@@ -89,7 +85,7 @@
 					const due = dueField.value;
 					addTask.mutate({ title, ...(due ? { due } : {}) }, {
 						onSuccess: () => { form.reset(); input.focus(); },
-						onError: (error) => toast.error('Check your tasks before adding this again', { description: error.message }),
+						onError: (error) => toast.error('Could not add this task', { description: error.message }),
 					});
 				}}
 			>
@@ -154,7 +150,7 @@
 							<li class="flex items-center gap-3 border-b border-border/60 last:border-b-0">
 								<TriangleAlertIcon class="size-5 shrink-0 text-muted-foreground" aria-label="Needs repair" />
 								<a
-									href={hrefOf({ time: misfitKeyOf(error) })}
+									href={hrefOf({ id: misfitKeyOf(error) })}
 									class="flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 outline-none focus-visible:underline"
 								>
 									<span class="break-anywhere">{misfitLabelOf(error)}</span>
@@ -177,7 +173,7 @@
 						<span class="ml-1 tabular-nums">{group.tasks.length}</span>
 					</h2>
 					<ul>
-						{#each group.tasks as task (task.time)}
+						{#each group.tasks as task (task.id)}
 							<TaskRow {task} {today} showDue={group.key !== 'today'} onToggle={toggle} disabled={setTask.isPending} />
 						{/each}
 					</ul>
@@ -204,7 +200,7 @@
 					</Collapsible.Trigger>
 					<Collapsible.Content>
 						<ul>
-							{#each done as task (task.time)}
+							{#each done as task (task.id)}
 								<TaskRow {task} {today} onToggle={toggle} disabled={setTask.isPending} />
 							{/each}
 						</ul>

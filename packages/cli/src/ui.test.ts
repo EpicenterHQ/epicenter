@@ -37,7 +37,7 @@ async function vocab(files: Record<string, string>) {
 	roots.push(f.root);
 	const app = await f.folder(join(f.apps, 'vocab'), {
 		'code/.gitignore': `${gitignore}ui/dist/\n`,
-		'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
+		'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', actions: {} });\n`,
 		...files,
 	});
 	await mkdir(join(app, 'code', 'ui'), { recursive: true });
@@ -147,7 +147,7 @@ test('an app with no ui/ has nothing to build', async () => {
 	roots.push(f.root);
 	const app = await f.folder(join(f.apps, 'vocab'), {
 		'code/.gitignore': gitignore,
-		'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
+		'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', actions: {} });\n`,
 	});
 	const built = await f.run('build', 'vocab', '--json');
 	expect(built.code).toBe(0);

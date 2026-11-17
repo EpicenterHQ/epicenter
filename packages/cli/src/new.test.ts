@@ -50,7 +50,7 @@ test('new shows how to open a browser app on the home port', async () => {
 	const source = await f.folder(
 		join(f.root, 'source'),
 		{
-			'epicenter.ts': `${header}export default defineApp({description:'Garden',collections:{},actions:{}});`,
+			'epicenter.ts': `${header}export default defineApp({description:'Garden',actions:{}});`,
 			'ui/index.html': '<h1>Garden</h1>',
 		},
 		{ git: true },
@@ -107,7 +107,7 @@ for (const form of [
 				: form === 'container'
 					? 'apps/x/code/'
 					: 'sub/folder/';
-		const code = `${header}export default defineApp({description:'Source',collections:{},actions:{}});\n`;
+		const code = `${header}export default defineApp({description:'Source',actions:{}});\n`;
 		await f.folder(
 			source,
 			{
@@ -163,7 +163,7 @@ for (const form of [
 test('a refreshed export warns until its publication commit exists, and a later copy leaves the first app alone', async () => {
 	const f = await setup();
 	const sourceCode = (version: string) =>
-		`${header}export default defineApp({description:'${version}',collections:{},actions:{}});`;
+		`${header}export default defineApp({description:'${version}',actions:{}});`;
 	await f.folder(
 		f.home,
 		{ 'apps/writing/code/epicenter.ts': sourceCode('First version') },
@@ -226,7 +226,7 @@ test('source warnings include staged, deleted, and untracked code while excludin
 	const f = await setup();
 	const source = join(f.root, 'source');
 	const prefix = 'apps/original/code';
-	const code = `${header}export default defineApp({description:'Source',collections:{},actions:{}});`;
+	const code = `${header}export default defineApp({description:'Source',actions:{}});`;
 	await f.folder(
 		source,
 		{
@@ -282,7 +282,7 @@ test('excluded changes do not warn and a GitHub folder has no working tree repor
 	await f.folder(
 		source,
 		{
-			'epicenter.ts': `${header}export default defineApp({description:'Source',collections:{},actions:{}});`,
+			'epicenter.ts': `${header}export default defineApp({description:'Source',actions:{}});`,
 			'.gitignore': 'ignored.txt\n',
 			'data/private.md': 'private',
 		},
@@ -314,7 +314,7 @@ test('a source commit made after cloning is reported against the commit actually
 	const source = await f.folder(
 		join(f.root, 'source'),
 		{
-			'epicenter.ts': `${header}export default defineApp({description:'Source',collections:{},actions:{}});`,
+			'epicenter.ts': `${header}export default defineApp({description:'Source',actions:{}});`,
 		},
 		{ git: true },
 	);
@@ -359,7 +359,7 @@ for (const hasTheme of [true, false]) {
 		const source = join(f.root, 'source');
 		const prefix = 'apps/x/code';
 		await f.folder(source, {
-			[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Theme',collections:{},actions:{}});`,
+			[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Theme',actions:{}});`,
 			[`${prefix}/ui/index.html`]:
 				'<html><head><link rel="stylesheet" href="./src/theme.css"></head><body>Theme</body></html>',
 			'theme.css': 'body { color: rgb(12, 34, 56); }',
@@ -433,7 +433,7 @@ test('copy failure removes only the created container and reports the source fol
 test('a folder holding several apps lists them and names one', async () => {
 	const f = await setup();
 	const app = (description: string) =>
-		`${header}export default defineApp({description:'${description}',collections:{},actions:{}});`;
+		`${header}export default defineApp({description:'${description}',actions:{}});`;
 	const source = await f.folder(
 		join(f.root, 'shared'),
 		{
@@ -466,7 +466,7 @@ test('a folder holding several apps lists them and names one', async () => {
 test('a GitHub folder is copied at a branch, a tag, or a full commit', async () => {
 	const f = await setup();
 	const app = (description: string) =>
-		`${header}export default defineApp({description:'${description}',collections:{},actions:{}});`;
+		`${header}export default defineApp({description:'${description}',actions:{}});`;
 	const source = await f.folder(
 		join(f.root, 'versions'),
 		{ 'apps/journal/epicenter.ts': app('First') },
@@ -525,7 +525,7 @@ test('new --from keeps folder pathspecs literal and filenames with tabs and newl
 	const asset = 'asset\twith\nlines.bin';
 	const bytes = new Uint8Array([0, 255, 128, 10]);
 	await f.folder(source, {
-		[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Literal paths',collections:{},actions:{}});`,
+		[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Literal paths',actions:{}});`,
 		'apps c/epicenter.ts': 'throw new Error("wrong subtree");',
 	});
 	await writeFile(join(source, prefix, asset), bytes);
@@ -551,7 +551,7 @@ test('new --from descends into a code container and preserves a linked declarati
 	const source = join(f.root, 'source');
 	const prefix = 'apps/original/code';
 	await f.folder(source, {
-		[`${prefix}/app.ts`]: `${header}export default defineApp({description:'Linked declaration',collections:{},actions:{}});`,
+		[`${prefix}/app.ts`]: `${header}export default defineApp({description:'Linked declaration',actions:{}});`,
 	});
 	await symlink('app.ts', join(source, prefix, 'epicenter.ts'));
 	await gitIn(source, 'init', '-q');
@@ -580,7 +580,7 @@ test('copied LFS bytes retain inherited attributes under apps/name/code', async 
 	const source = join(f.root, 'lfs-source');
 	await f.folder(source, {
 		'.gitattributes': '*.bin filter=lfs diff=lfs merge=lfs -text\n',
-		'starter/epicenter.ts': `${header}export default defineApp({description:'LFS',collections:{},actions:{}});`,
+		'starter/epicenter.ts': `${header}export default defineApp({description:'LFS',actions:{}});`,
 		'starter/image.bin': 'binary fixture bytes',
 	});
 	await gitIn(source, 'init', '-q');

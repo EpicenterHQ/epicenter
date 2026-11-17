@@ -22,8 +22,6 @@ const fields = {
 		why: Type.Union([
 			Type.Literal('quote'),
 			Type.Literal('twice'),
-			Type.Literal('empty'),
-			Type.Literal('was'),
 			Type.Literal('there'),
 		]),
 	}),
@@ -49,8 +47,6 @@ const WHY = {
 		"'s body does not have that text; it may have changed since it was read, so get it again",
 	twice:
 		"'s body has that text more than once; quote more around it, or the whole body",
-	empty: "'s body is no longer empty; get it again",
-	was: ' no longer holds a value named in was; it changed since it was read, so get it again',
 	there: ' is already there',
 } satisfies Record<Static<typeof fields.Changed>['why'], string>;
 
@@ -60,7 +56,7 @@ function marked<T extends { message: string }>(body: T) {
 }
 
 export const ActionError = defineErrors({
-	/** A file does not fit its declared fields. Local files omit the partial record. */
+	/** A file does not fit its declared fields. An unreadable file omits the partial record. */
 	Misfit: ({ path, problems, record }: Static<typeof fields.Misfit>) =>
 		marked({
 			message: [
@@ -71,7 +67,7 @@ export const ActionError = defineErrors({
 			problems,
 			...(record === undefined ? {} : { record }),
 		}),
-	/** The quoted passage, empty body, field values, or file a write depended on changed, or a quote is not one place. */
+	/** The quoted passage changed or is not in one place, or a new file is already there. */
 	Changed: ({ path, why }: Static<typeof fields.Changed>) =>
 		marked({ message: `${path}${WHY[why]}`, path, why }),
 	/** There is no file at this path. It may be a dependency of the requested action. */
@@ -83,7 +79,6 @@ export const ActionError = defineErrors({
 	Refused: (body: Static<typeof fields.Refused>) => marked(body),
 	/** A required operation returned no usable answer. The message identifies what failed. */
 	Unreachable: (body: Static<typeof fields.Unreachable>) => marked(body),
-	/** Work was deliberately stopped. This does not confirm completed cleanup or rollback. */
 });
 export type ActionError = InferErrors<typeof ActionError>;
 

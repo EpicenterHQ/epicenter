@@ -20,23 +20,10 @@ export {
 	isName,
 } from './app.ts';
 export {
-	type AnyCollection,
-	type Collection,
-	type CollectionDef,
-	defineCollection,
-	type Fields,
-	type Handle,
-	type Keys,
-	type RecordOf,
-	type Row,
-	type Verb,
-} from './collection.ts';
-export {
 	type Context,
 	type Folder,
 	folder,
 	inRun,
-	isLocalPath,
 	isUnderLocal,
 	normalizePath,
 	textUpdate,
@@ -56,6 +43,6 @@ export {
 	whatTakes,
 } from './field.ts';
 export { readMarkdown } from './front-matter.ts';
+export type { Fields } from './markdown-fields.ts';
 export { createMemoryContext } from './memory.ts';
-export type { Placeholders } from './path.ts';
 export { localDay, localTime, timeId } from './time.ts';

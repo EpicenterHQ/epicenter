@@ -31,8 +31,8 @@ function stub(answer: (action: string | undefined) => Response) {
 	}));
 }
 test('a saved record survives a failed refresh and retry only reads', async () => {
-	const time = 'save-check';
-	const before = { path: `data/tasks/${time}.md`, time, title: 'Save check', done: false, body: 'Before\n' };
+	const id = 'save-check';
+	const before = { path: `data/tasks/${id}.md`, id, title: 'Save check', done: false, body: 'Before\n' };
 	const saved = { ...before, body: 'Saved text\n' };
 	let writeCount = 0;
 	let readsFail = true;
@@ -48,13 +48,13 @@ test('a saved record survives a failed refresh and retry only reads', async () =
 			onSettled: (_data, _error, _variables, _previous, _mutation, { client }) => client.invalidateQueries(),
 		}),
 	});
-	const options = reads.get({ time });
+	const options = reads.get({ id });
 	client.setQueryData(options.queryKey, before);
 	const view = new QueryObserver(client, { ...options, staleTime: Infinity });
 	const stop = view.subscribe(() => { });
 	try {
 		const save = new MutationObserver(client, writes.edit);
-		await save.mutate({ time, old: before.body, new: saved.body });
+		await save.mutate({ id, old: before.body, new: saved.body });
 		expect(save.getCurrentResult().status).toBe('success');
 		expect(view.getCurrentResult().isRefetchError).toBe(true);
 		expect(view.getCurrentResult().data?.body).toBe(saved.body);
@@ -71,8 +71,8 @@ test('a saved record survives a failed refresh and retry only reads', async () =
 	}
 });
 /** Exact caches are reconciled once per confirmed write, before failed invalidation reads. */
-const time = 'save-check';
-const confirmed = { path: `data/tasks/${time}.md`, time, title: 'Save check', done: false, body: 'Notes\n' };
+const id = 'save-check';
+const confirmed = { path: `data/tasks/${id}.md`, id, title: 'Save check', done: false, body: 'Notes\n' };
 function cacheClient() {
 	return new QueryClient({
 		defaultOptions: { queries: { retry: false } },
@@ -99,11 +99,11 @@ for (const loaded of [true, false])
 		});
 		try {
 			await new MutationObserver(client, writes.add).mutate({ title: confirmed.title });
-			const { body: _body, ...row } = confirmed;
+			const row = confirmed;
 			expect(client.getQueryData(listKey)).toEqual(loaded ? [Ok(row)] : undefined);
 			if (view)
 				expect(view.getCurrentResult().isRefetchError).toBe(true);
-			expect(client.getQueryData(reads.get({ time }).queryKey)).toEqual(confirmed);
+			expect(client.getQueryData(reads.get({ id }).queryKey)).toEqual(confirmed);
 			await client.refetchQueries();
 			expect(writesMade).toBe(1);
 		}
@@ -116,10 +116,10 @@ for (const loaded of [true, false])
 for (const outcome of [true, false, 'failed'] as const)
 	test(`delete ${outcome} reconciles only confirmed absence`, async () => {
 		const client = cacheClient();
-		const getKey = reads.get({ time }).queryKey;
+		const getKey = reads.get({ id }).queryKey;
 		const listKey = reads.list().queryKey;
-		const { body: _body, ...row } = confirmed;
-		const unrelated = { ...row, path: 'data/tasks/unrelated.md', time: 'unrelated' };
+		const row = confirmed;
+		const unrelated = { ...row, path: 'data/tasks/unrelated.md', id: 'unrelated' };
 		client.setQueryData(getKey, confirmed);
 		client.setQueryData(listKey, [Ok(row), Ok(unrelated)]);
 		const view = new QueryObserver(client, { ...reads.list(), staleTime: Infinity });
@@ -135,9 +135,9 @@ for (const outcome of [true, false, 'failed'] as const)
 		try {
 			const mutation = new MutationObserver(client, writes.delete);
 			if (outcome === 'failed')
-				await expect(mutation.mutate({ time })).rejects.toBeDefined();
+				await expect(mutation.mutate({ id })).rejects.toBeDefined();
 			else
-				await mutation.mutate({ time });
+				await mutation.mutate({ id });
 			expect(client.getQueryData(listKey)).toEqual(outcome === 'failed' ? [Ok(row), Ok(unrelated)] : [Ok(unrelated)]);
 			expect(view.getCurrentResult().isRefetchError).toBe(true);
 			expect(client.getQueryState(getKey)).toEqual(outcome === 'failed' ? expect.objectContaining({ data: confirmed }) : undefined);
@@ -157,11 +157,11 @@ test('a confirmed repair replaces the Misfit cache row and deletion removes it',
 	client.setQueryData(listKey, [broken]);
 	const transport = stub((action) => action === 'set' ? response(confirmed) : response(true));
 	try {
-		await new MutationObserver(client, writes.set).mutate({ time, done: false });
-		const { body: _body, ...row } = confirmed;
+		await new MutationObserver(client, writes.set).mutate({ id, done: false });
+		const row = confirmed;
 		expect(client.getQueryData(listKey)).toEqual([Ok(row)]);
 		client.setQueryData(listKey, [broken]);
-		await new MutationObserver(client, writes.delete).mutate({ time });
+		await new MutationObserver(client, writes.delete).mutate({ id });
 		expect(client.getQueryData(listKey)).toEqual([]);
 	}
 	finally {
@@ -170,46 +170,26 @@ test('a confirmed repair replaces the Misfit cache row and deletion removes it',
 	}
 });
 
-for (const body of ['after', 'someone else edited', undefined]) test('uncertain save reads once: ' + (body ?? 'unreadable'), async () => {
-	const calls: (string | undefined)[] = [];
-	const fault = { data: null, error: { kind: 'fault', message: 'Lost write confirmation' } };
-	const transport = stub(action => {
-		calls.push(action);
-		if (action === 'get') return body === undefined ? unavailable() : response({ time: 'receipt-test', body, done: false });
-		return new Response(JSON.stringify({ seq: 1, at: 'now', type: 'finished', answer: fault }) + '\n');
-	});
-	const client = new QueryClient();
+for (const body of ['', 'Before']) test(`notes save from ${body ? 'a quote' : 'an empty body'} sends one set`, async () => {
+	const calls: string[] = [];
+	const transport = spyOn(globalThis, 'fetch').mockImplementation(Object.assign(async (url: Parameters<typeof fetch>[0], options?: RequestInit) => {
+		calls.push(String(url));
+		expect(JSON.parse(String(options?.body))).toEqual(body === '' ? { id: 'book', body: 'After' } : { id: 'book', edit: { old: body, new: 'After' } });
+		return response({ id: 'book', path: 'data/tasks/book.md', title: 'Book', done: false, body: 'After' });
+	}, { preconnect: fetch.preconnect }));
+	const client = cacheClient();
 	try {
-		const save = new MutationObserver(client, writes.edit);
-		const attempt = save.mutate({ time: 'receipt-test', old: 'before', new: 'after' });
-		if (body === 'after') expect((await attempt).body).toBe(body);
-		else await expect(attempt).rejects.toMatchObject({ name: 'Threw', message: 'Lost write confirmation' });
-		expect(calls).toEqual(['set', 'get']);
-	} finally {
-		client.clear();
-		transport.mockRestore();
-	}
+		await new MutationObserver(client, writes.edit).mutate({ id: 'book', old: body, new: 'After' });
+		expect(calls).toEqual(['/tasks/set']);
+	} finally { client.clear(); transport.mockRestore(); }
 });
 
-for (const matches of [true, false]) test('every submitted field must match after a refusal: ' + matches, async () => {
-	const key = { time: 'fields-check' };
-	const file = { ...key, path: 'data/tasks/fields-check.md', title: 'Test task', body: 'unrelated notes', done: false, ...(matches ? {} : { due: '2026-11-16' }) };
-	const reason = { name: 'Refused', namespace: 'epicenter/action-error', message: 'Refused' };
+test('a failed save reports its error without a recovery read or another write', async () => {
 	const calls: (string | undefined)[] = [];
-	const transport = stub(action => {
-		calls.push(action);
-		if (action === 'get') return response(file);
-		const answer = { data: null, error: { kind: 'returned', reason } };
-		return new Response(JSON.stringify({ seq: 1, at: 'now', type: 'finished', answer }) + '\n');
-	});
-	const client = new QueryClient();
+	const transport = stub(action => { calls.push(action); return new Response(''); });
+	const client = cacheClient();
 	try {
-		const attempt = new MutationObserver(client, writes.set).mutate({ ...key, done: false, due: null });
-		if (matches) expect(await attempt).toEqual(file);
-		else await expect(attempt).rejects.toEqual(reason);
-		expect(calls).toEqual(['set', 'get']);
-	} finally {
-		client.clear();
-		transport.mockRestore();
-	}
+		await expect(new MutationObserver(client, writes.set).mutate({ id: 'book', done: true })).rejects.toMatchObject({ name: 'Unreachable' });
+		expect(calls).toEqual(['set']);
+	} finally { client.clear(); transport.mockRestore(); }
 });

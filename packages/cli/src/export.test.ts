@@ -39,7 +39,7 @@ async function setup(files: Record<string, string> = {}) {
 	await gitIn(f.home, 'init', '-q');
 	await writeFile(
 		join(f.home, '.gitignore'),
-		'*.local\n*.local.*\nnode_modules/\n',
+		'/apps/*/local/\nnode_modules/\n',
 	);
 	await gitIn(f.home, 'config', 'user.name', 'Export Test');
 	await gitIn(f.home, 'config', 'user.email', 'export@example.com');
@@ -60,7 +60,7 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 	const f = await setup({
 		'apps/tasks/code/tool.sh': '#!/bin/sh\nprintf hello\n',
 		'apps/tasks/code/data/private.md': 'private record',
-		'apps/tasks/code/key.local.json': 'private credential',
+		'apps/tasks/local/key.json': 'private credential',
 		'apps/tasks/code/SOURCE.md': '/private/source/path',
 		'apps/tasks/data/record.md': 'private sibling',
 	});
@@ -123,7 +123,8 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 	for (const path of [
 		'code',
 		'data',
-		'key.local.json',
+		'local',
+		'key.json',
 		'SOURCE.md',
 		'node_modules',
 		'ui/dist',
@@ -266,7 +267,7 @@ test('--all adds future committed apps and removes absent apps without importing
 	).toEqual(['broken', 'tasks']);
 	await f.app(
 		'reading',
-		'export default defineApp({ description: "Reading", collections: {}, actions: {} });',
+		'export default defineApp({ description: "Reading", actions: {} });',
 	);
 	// An app that was never committed is left out and named, not committed.
 	const pending = await f.run('export', '--all', output, '--json');
@@ -347,7 +348,7 @@ test('unowned directories, another app export, and symlinked targets are refused
 	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
 	await f.app(
 		'reading',
-		'export default defineApp({ description: "Reading", collections: {}, actions: {} });',
+		'export default defineApp({ description: "Reading", actions: {} });',
 	);
 	await commit(f.home);
 	expect((await f.run('export', 'reading', f.output)).code).toBe(2);
@@ -442,7 +443,7 @@ test('links that escape and reenter through the checkout directory name are refu
 test('links to data, excluded code, missing files, external paths, and shared directories leave the previous export intact', async () => {
 	const f = await setup({
 		'apps/tasks/data/private.md': 'private',
-		'apps/tasks/code/key.local': 'credential',
+		'apps/tasks/local/key': 'credential',
 		'apps/tasks/code/other/keep.txt': 'included directory',
 		'apps/tasks/code/allowed.txt': 'included file',
 	});
@@ -453,7 +454,7 @@ test('links to data, excluded code, missing files, external paths, and shared di
 	const before = await readFile(join(f.output, EXPORT_MARKER), 'utf8');
 	for (const target of [
 		'../data/private.md',
-		'key.local',
+		'../local/key',
 		'missing.txt',
 		'/etc/passwd',
 		'../../../../outside',

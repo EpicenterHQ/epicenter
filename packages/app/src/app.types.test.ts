@@ -16,7 +16,7 @@ import {
 	createMemoryContext,
 	defineAction,
 	defineApp,
-	defineCollection,
+	defineData,
 	field,
 	inRun,
 } from './index.ts';
@@ -27,68 +27,56 @@ type Equal<X, Y> =
 		: false;
 const assertType = <T extends true>(): T | undefined => undefined;
 
-const words = defineCollection({
-	path: 'data/words/{word}.md',
-	fields: {
-		meaning: field.text({ optional: true }),
-		createdAt: field.datetime({ readOnly: true }),
-		due: field.datetime({ optional: true, readOnly: true }),
-	},
-});
-
-const settings = defineCollection({
-	path: 'data/settings.md',
-	fields: { dailyGoal: field.integer({ optional: true }) },
+const data = defineData({
+	words: { fields: { meaning: field.text({ optional: true }) } },
+	'settings.md': { fields: { dailyGoal: field.integer({ optional: true }) } },
 });
 
 const learn = defineAction({
-	description: 'Learn a word, due now',
-	input: { word: field.text(), meaning: field.text({ optional: true }) },
+	description: 'Learn a word',
+	input: { word: field.id(), meaning: field.text({ optional: true }) },
 	run: async ({ word, meaning }) => {
 		assertType<Equal<typeof word, string>>();
 		assertType<Equal<typeof meaning, string | undefined>>();
-		const setting = await settings.get();
+		const setting = await data['settings.md'].get();
 		if (setting.error) return setting;
-		const goal = setting.data.dailyGoal;
+		const goal = setting.data?.dailyGoal;
 		assertType<Equal<typeof goal, number | undefined>>();
-		// The handle writes readOnly fields; the exposed add and set do not take them.
-		return words.add({ word, meaning, createdAt: '2026-11-10T00:00:00Z' });
+		return data.words.add(word, { meaning });
 	},
 });
 
 const review = defineAction({
-	description: 'Schedule a word',
-	input: { word: field.text() },
+	description: 'Review a word',
+	input: { word: field.id() },
 	run: async ({ word }) => {
-		const read = await words.get({ word });
+		const read = await data.words.get(word);
 		if (read.error) return read;
 		const found = read.data;
 		assertType<
 			Equal<NonNullable<typeof found>['meaning'], string | undefined>
 		>();
-		const changed = await words.set({ word }, { due: '2026-11-11T04:00:00Z' });
+		const changed = await data.words.set(word, { meaning: null });
 		if (changed.error) return changed;
-		// A row names its own record.
-		for (const row of await words.list()) {
+		// A row names its own record by its id.
+		for (const row of await data.words.list()) {
 			if (row.error) return row;
-			await words.delete(row.data);
+			await data.words.delete(row.data.id);
 		}
-		// @ts-expect-error a collection with a placeholder names its record by its keys
-		await words.get();
-		// @ts-expect-error a record is named by its keys, not its path
-		await words.get({ path: 'data/words/a.md' });
+		// @ts-expect-error a folder key names its record by its id
+		await data.words.get();
 		// @ts-expect-error which record, then the change: two arguments
-		await words.set({ word, meaning: 'x' });
+		await data.words.set({ meaning: 'x' });
 		return Ok(found?.meaning);
 	},
 });
 
 const vocab = defineApp({
 	description: 'Words I am learning',
-	collections: { words, settings },
+	data,
 	actions: {
-		words: { ...words.actions(), add: learn },
-		settings: settings.actions(),
+		words: { ...data.words.actions('list', 'get', 'set'), add: learn },
+		settings: data['settings.md'].actions('get', 'set'),
 		review,
 	},
 });
@@ -101,25 +89,21 @@ describe('an app author', () => {
 	test('gets every action under its words, with exact inputs and outputs', () => {
 		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
 		assertType<Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set'>>();
-		assertType<Equal<keyof Actions['settings'], 'list' | 'get' | 'set'>>();
+		assertType<Equal<keyof Actions['settings'], 'get' | 'set'>>();
 		assertType<
 			Equal<
 				In<Actions['words']['set']>,
 				{
-					word: string;
+					id: string;
 					meaning?: string | null | undefined;
-					was?: {
-						meaning?: string | null;
-						createdAt?: string | null;
-						due?: string | null;
-					};
+					body?: string;
 					edit?: { old: string; new: string };
 				}
 			>
 		>();
 		// @ts-expect-error an edit names both old and new
-		() => vocab.actions.words.set({ word: 'a', edit: { old: 'x' } });
-		assertType<Equal<In<Actions['words']['get']>, { word: string }>>();
+		() => vocab.actions.words.set({ id: 'a', edit: { old: 'x' } });
+		assertType<Equal<In<Actions['words']['get']>, { id: string }>>();
 		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
 		type Item = NonNullable<Out<Actions['words']['list']>['data']>[number];
 		assertType<
@@ -127,10 +111,9 @@ describe('an app author', () => {
 				Extract<Item, Ok<unknown>>['data'],
 				{
 					path: string;
-					word: string;
+					id: string;
+					body: string;
 					meaning?: string;
-					createdAt: string;
-					due?: string;
 				}
 			>
 		>();
@@ -140,7 +123,7 @@ describe('an app author', () => {
 				In<Actions['settings']['set']>,
 				{
 					dailyGoal?: number | null | undefined;
-					was?: { dailyGoal?: number | null };
+					body?: string;
 					edit?: { old: string; new: string };
 				}
 			>
@@ -231,11 +214,7 @@ describe('an app author', () => {
 		assertType<Equal<ActionUpdate<typeof say>, string | { step: number }>>();
 		assertType<Equal<ActionUpdate<typeof tag>, never>>();
 		assertType<Equal<ActionUpdate<Actions['words']['set']>, never>>();
-		const chat = defineApp({
-			description: 'Chat',
-			collections: {},
-			actions: { say },
-		});
+		const chat = defineApp({ description: 'Chat', actions: { say } });
 		assertType<
 			Equal<ActionUpdate<typeof chat.actions.say>, string | { step: number }>
 		>();
@@ -271,25 +250,23 @@ describe('an app author', () => {
 
 	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
 		const vocabUi = {} as AppClient<Actions>;
-		const call = () => vocabUi.words.set({ word: 'a', meaning: 'x' });
+		const call = () => vocabUi.words.set({ id: 'a', meaning: 'x' });
 		type Answer = Awaited<ReturnType<typeof call>>;
 		assertType<
 			Equal<
 				Extract<Answer, Ok<unknown>>['data'],
 				{
 					path: string;
-					word: string;
+					id: string;
 					body: string;
 					meaning?: string;
-					createdAt: string;
-					due?: string;
 				}
 			>
 		>();
 		assertType<Answer extends Result<unknown, ActionError> ? true : false>();
-		// @ts-expect-error due is written only by Vocab's own actions
-		() => vocabUi.words.set({ word: 'a', due: 'x' });
-		// @ts-expect-error a verb takes the keys, not a path
+		// @ts-expect-error a field the data key does not declare
+		() => vocabUi.words.set({ id: 'a', due: 'x' });
+		// @ts-expect-error a verb takes the id, not a path
 		() => vocabUi.words.get({ path: 'data/words/a.md' });
 		() => vocabUi.settings.get();
 		() => vocabUi.words.list();

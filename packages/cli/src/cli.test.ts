@@ -33,11 +33,11 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
 	await f.app(
 		'spaced',
-		`export default defineApp({ description: 'The spaced app', collections: {}, actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } });`,
+		`export default defineApp({ description: 'The spaced app', actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } });`,
 	);
 	const linked = await f.app(
 		'linked',
-		`export default defineApp({ description: 'The linked app', collections: {}, actions: {} });`,
+		`export default defineApp({ description: 'The linked app', actions: {} });`,
 		f.root,
 	);
 	await symlink(linked, join(f.apps, 'linked'));
@@ -73,10 +73,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	).toEqual({
 		broken: ['code/epicenter.ts: import exploded'],
 		// An object default is checked as defineApp checks it, since defineApp returns its argument.
-		invalid: [
-			'code/epicenter.ts: An app needs a description',
-			'code/epicenter.ts: An app needs collections: an object of defineCollection(...), {} for none',
-		],
+		invalid: ['code/epicenter.ts: An app needs a description'],
 		// An action's words are its keys' path: one key holds one word.
 		spaced: [
 			'code/epicenter.ts: actions has the key "week show" at actions.week show, which is not lowercase letters, digits, and dashes, starting with a letter',
@@ -323,7 +320,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 	roots.push(f.root);
 	await f.app(
 		'counts',
-		`export default defineApp({description:'Counts',collections:{},actions:{
+		`export default defineApp({description:'Counts',actions:{
 		increment:defineAction({description:'Increment',input:{}, async run(){
 			await folder.update('local/count', (value = '0') => String(Number(value) + 1));
 			return Ok('done');
@@ -389,7 +386,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	).toBe(true);
 	const target = await f.app(
 		'linked',
-		`export default defineApp({ description: 'The linked app', collections: {}, actions: {} });`,
+		`export default defineApp({ description: 'The linked app', actions: {} });`,
 		f.root,
 	);
 	await symlink(target, join(f.apps, 'linked'));

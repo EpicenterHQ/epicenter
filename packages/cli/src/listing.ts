@@ -1,6 +1,6 @@
 /**
  * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
- * description and collections with each action as the MCP tool `serve`
+ * description and data keys with each action as the MCP tool `serve`
  * offers, so a listing and `tools/list` agree; the human views come from the
  * same actions.
  */
@@ -32,8 +32,8 @@ export function actionTool(app: string, key: string, action: Action) {
 }
 
 /**
- * The app as `--json` prints it: its description, each collection's path and
- * fields as JSON Schema and its actions as tools.
+ * The app as `--json` prints it: its description, each data key's path and
+ * fields as JSON Schema, and its actions as tools.
  */
 function appListing(located: Runnable) {
 	const { app } = located;
@@ -57,20 +57,7 @@ function appListing(located: Runnable) {
 						]),
 					),
 				}
-			: {
-					collections: Object.fromEntries(
-						Object.entries(app.collections).map(([name, collection]) => [
-							name,
-							{
-								path: collection.path,
-								...(collection.description
-									? { description: collection.description }
-									: {}),
-								fields: jsonSchema(collection.fields),
-							},
-						]),
-					),
-				}),
+			: {}),
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),

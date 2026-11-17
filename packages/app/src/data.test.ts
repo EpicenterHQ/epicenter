@@ -10,7 +10,6 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	ActionError,
 	createMemoryContext,
-	defineCollection,
 	defineData,
 	field,
 	folder,
@@ -406,7 +405,11 @@ test('list reads only directly contained Markdown files with valid ids, sorted b
 test('definitions refuse readOnly fields', () => {
 	expect(() =>
 		defineData({
-			notes: { fields: { created: field.datetime({ readOnly: true }) } },
+			notes: {
+				fields: {
+					created: Type.String({ format: 'date-time', readOnly: true }),
+				},
+			},
 		}),
 	).toThrow('"created" readOnly');
 });
@@ -446,12 +449,7 @@ test('handles write refs as given without opening the referenced file', async ()
 	});
 });
 
-test('data refs validate their target at runtime while collection refs keep working', () => {
-	const collection = defineCollection({
-		path: 'data/old/{slug}.md',
-		fields: {},
-	});
-	expect(Value.Check(field.ref(collection), 'dune')).toBe(true);
+test('data refs validate their target at runtime', () => {
 	for (const target of ['missing', 'settings.md']) {
 		// Dynamic schemas exercise runtime validation without bypassing the public types.
 		const ref = Type.String({ 'x-epicenter-ref': { key: target } });

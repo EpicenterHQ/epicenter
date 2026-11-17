@@ -1,5 +1,5 @@
 /**
- * The fields a collection's files and an action's input are made of. Each is
+ * The fields a data file and an action's input are made of. Each is
  * a TypeBox schema, which is JSON Schema, so raw TypeBox sits beside them.
  * Every caller gives an action's input as one JSON object whose keys are its
  * fields; MCP shows each as a property of the tool's input.
@@ -10,10 +10,8 @@
  * then `[]` would not fit, so it is required like any other field. That is a
  * rule of these two helpers, which mark their schema with its kind
  * (`absentValue`); no field carries a JSON Schema `default`, and a definition
- * that has one is refused (`defaultIn`). A collection's field that says
- * `readOnly` is written only by the app's own actions: the exposed `add` and
- * `set` leave it out. Fields describe data; an action declares private input
- * handling separately.
+ * that has one is refused (`defaultIn`). Fields describe data; an action
+ * declares private input handling separately.
  */
 import {
 	type TArray,
@@ -27,15 +25,10 @@ import {
 } from 'typebox';
 import { Format } from 'typebox/format';
 import { Value } from 'typebox/value';
-import type { AnyCollection } from './collection.ts';
-import { isLocalPath } from './context.ts';
 import { idProblem } from './id.ts';
-import { template } from './path.ts';
 
 type Options = {
 	description?: string;
-	/** JSON Schema's `readOnly`: in a collection, only the app's own actions write it. */
-	readOnly?: boolean;
 };
 
 type MaybeOptional = Options & { optional?: boolean };
@@ -62,7 +55,7 @@ function only(
 	}
 }
 
-const OPTIONS = ['description', 'readOnly'] as const;
+const OPTIONS = ['description'] as const;
 const MAYBE_OPTIONAL = [...OPTIONS, 'optional'] as const;
 const BOUNDED = [...MAYBE_OPTIONAL, 'min', 'max'] as const;
 
@@ -113,15 +106,9 @@ export function defaultIn(schema: unknown): boolean {
 	);
 }
 
-/** `T` marked as JSON Schema's `readOnly` when the options say so, so types can read the mark. */
-type Marked<T extends TSchema, O> = O extends { readOnly: true }
-	? T & { readOnly: true }
+type Optionally<T extends TSchema, O> = O extends { optional: true }
+	? TOptional<T>
 	: T;
-
-type Optionally<T extends TSchema, O> = Marked<
-	O extends { optional: true } ? TOptional<T> : T,
-	O
->;
 
 /**
  * The keys of `F` that are a switch or a list that may be empty, which a read
@@ -142,14 +129,13 @@ export type TList<T extends TSchema> = TOptional<TArray<T>> & {
 	[KIND]: 'list';
 };
 
-/** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "path": "<the target's path>" } }`. */
+/** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a folder key>" } }`. */
 const REF = 'x-epicenter-ref';
 
 Format.Set('epicenter-id', (value) => idProblem(value) === undefined);
 
 /** A data ref retains its target key for declaration-time checking. */
-type RefSchema<TTarget> = TString &
-	(TTarget extends string ? { [REF]: { key: TTarget } } : unknown);
+type RefSchema<TTarget extends string> = TString & { [REF]: { key: TTarget } };
 
 /** The folder key named by a data ref, or undefined for another field. */
 export function refKeyOf(schema: unknown): string | undefined {
@@ -157,33 +143,6 @@ export function refKeyOf(schema: unknown): string | undefined {
 	const annotation = (schema as Record<string, unknown>)[REF];
 	const key = (annotation as { key?: unknown } | undefined)?.key;
 	return typeof key === 'string' ? key : undefined;
-}
-
-/** `collection`'s path, refusing a collection a key cannot name one record of. */
-function refPath(collection: AnyCollection): string {
-	const path = (collection as Partial<AnyCollection> | undefined)?.path;
-	if (typeof path !== 'string')
-		throw new Error(
-			'field.ref takes a collection made by defineCollection(...)',
-		);
-	if (isLocalPath(path))
-		throw new Error(
-			`field.ref cannot refer to ${path}: it never leaves this computer, so a key to one of its records would be read where the record is not`,
-		);
-	const { placeholders } = template(path);
-	if (placeholders.length !== 1)
-		throw new Error(
-			`field.ref names a record by its key, the one placeholder in its collection's path, and ${path} has ${placeholders.length === 0 ? 'none' : placeholders.length}`,
-		);
-	return path;
-}
-
-/** The path of the collection a `field.ref` schema names, or `undefined` for any other schema. */
-export function refPathOf(schema: unknown): string | undefined {
-	if (typeof schema !== 'object' || schema === null) return undefined;
-	const annotation = (schema as Record<string, unknown>)[REF];
-	const path = (annotation as { path?: unknown } | undefined)?.path;
-	return typeof path === 'string' ? path : undefined;
 }
 
 /** A list that needs at least one item: required, and never filled when absent. */
@@ -210,14 +169,13 @@ function list<const T extends TSchema, const O extends ListOptions>(
 		...(min > 0 ? { minItems: min } : {}),
 		[KIND]: 'list',
 	});
-	return (min > 0 ? array : Type.Optional(array)) as unknown as Marked<
-		O extends { min: infer M extends number }
-			? M extends 0
-				? TList<T>
-				: TRequiredList<T>
-			: TList<T>,
-		O
-	>;
+	return (min > 0 ? array : Type.Optional(array)) as unknown as O extends {
+		min: infer M extends number;
+	}
+		? M extends 0
+			? TList<T>
+			: TRequiredList<T>
+		: TList<T>;
 }
 
 function maybeOptional<T extends TSchema, O extends MaybeOptional>(
@@ -230,14 +188,11 @@ function maybeOptional<T extends TSchema, O extends MaybeOptional>(
 	>;
 }
 
-/** The schema options a field carries: its description, and whether it is read-only. */
+/** The schema options a field carries: its description. */
 function schemaOptions(options: Options | undefined) {
-	return {
-		...(options?.description === undefined
-			? {}
-			: { description: options.description }),
-		...(options?.readOnly ? { readOnly: true } : {}),
-	};
+	return options?.description === undefined
+		? {}
+		: { description: options.description };
 }
 
 type Bounds = { min?: number; max?: number };
@@ -342,7 +297,7 @@ export const field = {
 		only('boolean', options, OPTIONS);
 		return Type.Optional(
 			Type.Boolean({ ...schemaOptions(options), [KIND]: 'switch' }),
-		) as unknown as Marked<TSwitch, O>;
+		) as unknown as TSwitch;
 	},
 
 	/**
@@ -352,11 +307,8 @@ export const field = {
 	 */
 	list,
 
-	/** One id in a data folder key, or a key in an existing collection. Reads open no other file. */
-	ref: <
-		const TTarget extends string | AnyCollection,
-		const O extends MaybeOptional,
-	>(
+	/** One id in a folder key of the same `defineData`. Reads open no other file. */
+	ref: <const TTarget extends string, const O extends MaybeOptional>(
 		target: TTarget,
 		options?: Only<O, MaybeOptional>,
 	) => {
@@ -364,11 +316,8 @@ export const field = {
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
-				...(typeof target === 'string' ? { format: 'epicenter-id' } : {}),
-				[REF]:
-					typeof target === 'string'
-						? { key: target }
-						: { path: refPath(target) },
+				format: 'epicenter-id',
+				[REF]: { key: target },
 			}) as RefSchema<TTarget>,
 			options,
 		);
@@ -477,7 +426,7 @@ export function whatTakes(field: TSchema): string {
  * What a field takes, in words such as `a day like 2026-11-12` or `a whole
  * number from 1 to 5`, when `value` does not fit it for a reason those words
  * say; `undefined` when it fits, or when they would not say why (a text too
- * long). A call says it of an input's key and a collection of a file's front
+ * long). A call says it of an input's key and a data read of a file's front
  * matter, so both say it alike.
  */
 export function whatFits(field: TSchema, value: unknown): string | undefined {

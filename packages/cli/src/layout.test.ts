@@ -13,7 +13,7 @@ afterEach(async () => {
 	for (const root of roots.splice(0))
 		await rm(root, { recursive: true, force: true });
 });
-const code = `export default defineApp({description:'X',collections:{},actions:{put:defineAction({description:'Write',input:{},run:async()=>{await folder.write('data/record.md','record');return Ok(folder.path);}})}});`;
+const code = `export default defineApp({description:'X',actions:{put:defineAction({description:'Write',input:{},run:async()=>{await folder.write('data/record.md','record');return Ok(folder.path);}})}});`;
 async function assertNoGit(folder: string): Promise<void> {
 	for (const entry of await readdir(folder, { withFileTypes: true })) {
 		expect(entry.name).not.toBe('.git');

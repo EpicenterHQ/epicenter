@@ -54,8 +54,9 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(seeded).toContain('--primary:');
 	expect(seeded).toContain('.dark {');
 	expect(await gitIn(fresh, 'show', 'HEAD:theme.css')).toBe(seeded.trimEnd());
-	const kept = ['apps/x/local/google.md', 'apps/x/data/token.local.md'];
-	expect(await gitIn(fresh, 'check-ignore', ...kept)).toBe(kept.join('\n'));
+	expect(await gitIn(fresh, 'check-ignore', 'apps/x/local/google.md')).toBe(
+		'apps/x/local/google.md',
+	);
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('one private Git repository');
 	// The guidance shows the two files as init wrote them.

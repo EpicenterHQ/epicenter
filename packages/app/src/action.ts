@@ -182,8 +182,8 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields. Calling it gives `run` an absent switch as `false` and an absent
- * list with no `min` as `[]`, as a read of a collection does, however it is called. Inside
- * `run`, the app's collections and `folder` reach the folder of the run that
+ * list with no `min` as `[]`, as a read of a data file does, however it is called. Inside
+ * `run`, the app's data and `folder` reach the folder of the run that
  * called it, however deep. The type of `run`'s `update` argument is the type
  * of every caller's `onUpdate`. Throws when the definition is wrong in a way
  * its types cannot say, such as a field with a `default`.
