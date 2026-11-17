@@ -79,7 +79,7 @@ does not replace it.
 
 Start on localhost. Add a private connection when another device needs access.
 To keep the server running after you close the terminal, see
-[Keep serve running](#keep-serve-running). Onboarding installs no login job.
+[Keep serve running](#keep-serve-running).
 
 ### When to ship a runtime version
 
@@ -322,13 +322,11 @@ serve stops its routine commands and exits.
 
 ## Keep serve running
 
-`epicenter serve` is one process. If it crashes, it stays stopped, and every
-action is refused with `Epicenter is not running for this home` until something
-starts it again. Whoever starts serve keeps it running: you in a terminal, or
-any tool that keeps a program running, such as tmux, a systemd user unit, or a
-launchd LaunchAgent, started from the home's folder. Actions and routines run
-with that tool's environment, including its `PATH`. The Epicenter desktop app
-will do this for people who use it ([ADR-0941](../../docs/adr/0941-whoever-starts-serve-keeps-it-running.md)).
+`epicenter serve` is one process. If it stops, it stays stopped, and every
+action is refused until something starts it again. Keep it running as you would
+any program, started from the home's folder: a terminal, tmux, a systemd user
+unit, or a LaunchAgent. Actions and routines run with that tool's environment,
+including its `PATH` ([ADR-0941](../../docs/adr/0941-whoever-starts-serve-keeps-it-running.md)).
 
 ## Routines
 

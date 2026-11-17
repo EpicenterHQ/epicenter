@@ -61,9 +61,8 @@ or stands in for it.**
 - **Nothing locks a call.** The flock on `apps/<app>` is removed. No folder
   write takes a lock, and the home has none.
 
-Epicenter has no daemon code of its own. Keeping serve up is the job of
-whoever starts it: the desktop app, the operating system's own job manager, or
-the person in a terminal (ADR-0941).
+Epicenter has no daemon code of its own. Whoever starts serve
+keeps it running (ADR-0941).
 
 Commands that run no action do not need serve: `checkpoint`, `check`,
 `export`, `init` and `new`. None takes a lock of its own; a commit takes

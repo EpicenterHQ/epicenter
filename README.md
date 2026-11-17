@@ -132,8 +132,7 @@ The CLI developer preview installs as a standalone executable from
 [GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.4.1).
 Writing is an exported app copied separately from GitHub. The executable
 carries the runtime; each app remains ordinary editable source.
-`serve` is one process; keep it running with your own tool, such as a terminal,
-tmux, systemd, or launchd. The desktop app that will do this is not built yet.
+`serve` is one process; keep it running as you would any program.
 
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Vocab)
 run on their home, outside this runtime source repository. Each app has

@@ -1149,4 +1149,4 @@ When you add an ADR, add its row here.
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
 | [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Proposed (amends 0870 and 0910) |
 | [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Proposed (amends 0850, 0910, 0937 and 0939) |
-| [0941](0941-whoever-starts-serve-keeps-it-running.md) | Whoever starts serve keeps it running | Proposed (amends 0878) |
+| [0941](0941-whoever-starts-serve-keeps-it-running.md) | Whoever starts serve keeps it running | Accepted (amends 0878) |
