@@ -545,7 +545,7 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   generated directory.
 - Back up the root to one optional private origin. A checkpoint commits all
   included pending files and pushes only there. Restore with one root clone
-  and `epicenter init --from`, then recreate local credentials.
+  and `epicenter install`, then recreate what each app kept in `local/`.
 - Sharing code requires a separate code-only history, deliberately made and
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:

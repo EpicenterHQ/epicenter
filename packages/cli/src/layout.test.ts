@@ -52,7 +52,7 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 	}
 });
 
-test('legacy, missing, and broken code entries list problems without hiding valid apps', async () => {
+test('missing and broken code entries list problems without hiding valid apps; a top-level epicenter.ts is not an app', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	await f.app('valid', code);
@@ -70,11 +70,8 @@ test('legacy, missing, and broken code entries list problems without hiding vali
 		'valid',
 	]);
 	expect(
-		result.problems.find((app: { entry: string }) => app.entry === 'legacy')
-			.problems[0],
-	).toContain(
-		"epicenter.ts is at the app's top; move the app's code into code/",
-	);
+		result.problems.find((app: { entry: string }) => app.entry === 'legacy'),
+	).toBeUndefined();
 	expect(
 		result.problems.find((app: { entry: string }) => app.entry === 'missing')
 			.problems,

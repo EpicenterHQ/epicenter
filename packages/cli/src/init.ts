@@ -1,21 +1,12 @@
-/** Initialize or restore one root repository, with apps in code/data containers. */
+/** Initialize one root repository, with apps in code/data containers. */
 import { existsSync, realpathSync } from 'node:fs';
-import {
-	mkdir,
-	readdir,
-	readFile,
-	realpath,
-	stat,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import defaultTheme from '@epicenter/theme/theme.css' with { type: 'text' };
-import { extractErrorMessage } from 'wellcrafted/error';
 import { isRepositoryTop } from './checkpoint.ts';
 import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import { CliError } from './errors.ts';
-import { checkedGit, git, gitMessage } from './git.ts';
-import { installApp } from './install.ts';
+import { checkedGit, git } from './git.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	APPS,
@@ -104,19 +95,9 @@ export async function initCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	const given = parseWords(
-		words,
-		{ port: { type: 'string' }, from: { type: 'string' } },
-		[0, 1],
-	);
+	const given = parseWords(words, { port: { type: 'string' } }, [0, 1]);
 	if (!given) return fail(misuse('init'), json);
 	const [path] = given.positionals;
-	const { from } = given.values;
-	if (from !== undefined && given.values.port !== undefined)
-		return fail(
-			misuse('init', '--from takes the port from the restored EPICENTER.md'),
-			json,
-		);
 	const port =
 		given.values.port === undefined ? DEFAULT_PORT : portOf(given.values.port);
 	if (port === undefined) return fail(misuse('init', BAD_PORT), json);
@@ -134,7 +115,6 @@ export async function initCommand(
 			}).error,
 			json,
 		);
-	if (from !== undefined) return restore(from, folder, json);
 	await mkdir(folder, { recursive: true });
 	// Establish Git identity before writing the marker, so a missing identity is retryable.
 	if (!(await isRepositoryTop(folder)))
@@ -195,115 +175,6 @@ export async function initCommand(
 		);
 	}
 	return 0;
-}
-
-/** Restore one root repository and install each runnable app's code. */
-async function restore(url: string, folder: string, json: boolean) {
-	try {
-		if (existsSync(folder) && (await readdir(folder)).length)
-			throw new Error(`${folder} is not empty; restore into a new folder`);
-		await mkdir(dirname(folder), { recursive: true });
-		// Fetch LFS after checking the marker so failures keep a usable clone.
-		await checkedGit(dirname(folder), [
-			'-c',
-			'filter.lfs.process=',
-			'-c',
-			'filter.lfs.smudge=',
-			'-c',
-			'filter.lfs.required=false',
-			'clone',
-			'-q',
-			url,
-			folder,
-		]);
-		if (!isMarked(folder))
-			throw new Error(`${url} has no ${MARKER} at its top`);
-		const tracked = await checkedGit(folder, ['ls-files', '-z']);
-		const attributes = await git(
-			folder,
-			['check-attr', '-z', '--stdin', 'filter'],
-			{ input: tracked },
-		);
-		if (attributes.code !== 0)
-			throw new Error(gitMessage(['check-attr'], attributes));
-		const fields = attributes.stdout.split('\0');
-		const lfs: string[] = [];
-		for (let i = 0; i + 2 < fields.length; i += 3)
-			if (fields[i + 2] === 'lfs') lfs.push(fields[i]!);
-		if (lfs.length) {
-			let path = lfs[0]!;
-			try {
-				if ((await git(folder, ['lfs', 'version'])).code !== 0)
-					throw new Error('git-lfs is required; install git-lfs');
-				await checkedGit(folder, ['lfs', 'install', '--local']);
-				// LFS uses pathspec magic internally when checking out downloaded files.
-				const pulled = await git(folder, [
-					'--no-literal-pathspecs',
-					'lfs',
-					'pull',
-				]);
-				let pointer: string | undefined;
-				for (const candidate of lfs) {
-					path = candidate;
-					const file = join(folder, candidate);
-					if (
-						(await stat(file)).size < 1024 &&
-						(await readFile(file, 'utf8')).startsWith(
-							'version https://git-lfs.github.com/spec/v1\n',
-						)
-					) {
-						pointer = candidate;
-						break;
-					}
-				}
-				path = pointer ?? lfs[0]!;
-				if (pulled.code !== 0)
-					throw new Error(gitMessage(['lfs', 'pull'], pulled));
-				if (pointer) throw new Error('file is still a Git LFS pointer');
-			} catch (error) {
-				throw new Error(
-					`${path}: ${extractErrorMessage(error)}\nRun: git -C ${folder} lfs pull`,
-				);
-			}
-		}
-		const installed: string[] = [];
-		const failed: { path: string; message: string }[] = [];
-		for (const entry of await readdir(join(folder, APPS), {
-			withFileTypes: true,
-		}).catch(() => [])) {
-			if (entry.name.startsWith('.')) continue;
-			const container = join(folder, APPS, entry.name);
-			if (
-				!(
-					await stat(join(container, 'code/epicenter.ts')).catch(
-						() => undefined,
-					)
-				)?.isFile()
-			)
-				continue;
-			const codePath = await realpath(join(container, 'code'));
-			const result = await installApp(codePath, entry.name);
-			const path = `${APPS}/${entry.name}`;
-			if ('error' in result)
-				failed.push({ path, message: result.error.message });
-			else installed.push(path);
-		}
-		if (json) writeJson({ folder, installed, failed });
-		else {
-			writeOut(`Restored the Epicenter at ${folder}.`);
-			for (const failure of failed)
-				writeErr(`${failure.path}: ${failure.message}`);
-		}
-		writeErr(
-			"Each app's local/ and files named *.local must be recreated on this computer.",
-		);
-		return failed.length ? 1 : 0;
-	} catch (error) {
-		return fail(
-			CliError.Usage({ message: extractErrorMessage(error) }).error,
-			json,
-		);
-	}
 }
 
 /** Initialize the root and commit only files this invocation wrote. */

@@ -20,11 +20,8 @@ all apps' code and records. Each folder in `apps/` is a stable app container:
 [ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
 describes the current layout and history. Each personal or shared home has
 its own private root repository, separate from this runtime source monorepo
-and from code-only app publications. The one-time
-`packages/cli/scripts/migrate-to-one-repository.ts` combined nested repositories
-on 2026-11-14. The author's live home later moved onto a Vault-based `main`,
-with that combined history kept as archive refs (ADR-0910). Ordinary commands
-do not import or retire nested repositories.
+and from code-only app publications. Ordinary commands do not import or retire
+nested repositories.
 
 ## Install and try a writing inbox
 
@@ -177,7 +174,6 @@ epicenter reading log '{"minutes":30,"book":"Dune"}'
 epicenter reading log '{"minutes":30}' --json
 epicenter reading books set '{"slug":"dune","finished":null}'
 epicenter init <folder>
-epicenter init --from <private-origin> <folder>
 epicenter new notes
 epicenter new writing --from EpicenterHQ/epicenter/examples/writing
 epicenter new recipes --from <folder or owner/repo/folder#ref>
@@ -202,9 +198,8 @@ strictly. A misuse returns its usage line and next help command.
 
 Discovery lists `apps/`, skips dot entries, and accepts a directory or a link
 to one with `code/epicenter.ts`. The file must default-export `defineApp(...)`.
-An entry with `epicenter.ts` at its top is listed with a problem asking to move
-code into `code/`. An entry with `code/` or `data/` but no declaration is listed
-with `code/epicenter.ts is missing`. Other folders are skipped.
+An entry with `code/` or `data/` but no declaration is listed with
+`code/epicenter.ts is missing`. Other folders are skipped.
 
 An import or declaration failure is listed under that app's problems with a
 `code/epicenter.ts:` prefix. A wrong default export is also a problem. One
@@ -585,7 +580,7 @@ commit against local tracking refs, or null when no count is available. Problems
 `{ message, next? }`. Exit 0 means no deferral or failure; otherwise exit 1.
 Text output uses the same result. No fetch refreshes the ahead count.
 
-## Initialize or restore an Epicenter
+## Initialize an Epicenter
 
 `epicenter init [<folder>] [--port <n>]` writes `EPICENTER.md`, seeds missing
 `theme.css` (the plain Graphite + blue palette) and starter `AGENTS.md`, creates
@@ -598,13 +593,17 @@ When absent, the root `.gitignore` excludes local files, node_modules,
 When git-lfs is available, init installs its local filter and writes missing root attributes for common binary extensions.
 These configuration files belong to the person after init.
 
-`epicenter init --from <url|path> [<folder>]` requires a missing or empty
-destination. It clones one root repository, requires `EPICENTER.md` at its top,
-then installs each runnable app's real `code/` directory. JSON reports
-`{ folder, installed, failed: [{ path, message }] }`. An install failure
-returns exit 1; a rejected restore returns exit 2. Local credentials must be
-recreated. This operation restores a combined root repository; it does not
-combine old per-app histories.
+To bring a home back on another computer:
+
+```bash
+git clone <private-origin> ~/Epicenter
+cd ~/Epicenter && epicenter install
+```
+
+The clone carries every app's code and records. `epicenter install` fetches
+what Git ignores and a lock file can rebuild: each app's `node_modules`. What
+each app kept in `local/` is on no remote, so recreate it, for example by
+signing in again.
 
 ## Add or copy an app
 
