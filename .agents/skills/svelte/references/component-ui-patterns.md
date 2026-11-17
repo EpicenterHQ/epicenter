@@ -243,14 +243,10 @@ operations reverse each other and which source information survives.
 Use [the input patterns](input-ownership.md) for the choice between immediate
 editing and explicit submission.
 
-Files opens full text; a product list opens structured controls. An invalid file
-shows its reason and opens as text; repairing text does not switch a
-mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
-mode, or automatic Source fallback.
-
-Use the [contract editor lifecycle](lifecycle-and-reactivity.md#contract-reads-and-editing)
-for collection reads, editor construction, field bindings, and saves. Key details
-by the acquired editor identity.
+When a record cannot be edited through its structured fields, show what failed
+and give the person a repair path that preserves their input. In a personal
+app, a `Misfit` can carry a partial record for a repair form while other rows
+remain usable. See [the app client's repair guidance](../../epicenter-app/SKILL.md#build-the-ui-as-a-client).
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger
@@ -263,15 +259,10 @@ instead of an app-local component that only forwards bindings. Keep substantial
 UI, resources, format rules, and real editing lifetimes. Delayed commands keep
 their own lifetime and current-data checks.
 
-For an editor hunt, trace write mutations and the queries they update. Look for
-per-record Source tabs, raw-mode admission, and duplicated selection or tab
-conditions inside shared `Tabs.Content`. Keep path-operation facts and edit
-identities; name who preserves their information before removing an owner.
-Use the [input search recipes](input-ownership.md#search-recipes), then verify
-repair navigation. For writes that can fail, verify that the submitted input
-remains available and the failure is visible. Synchronous input refusals remain
-distinct from publication failures. Contract editors with queued saves keep
-their accepted input and availability handling at the contract owner.
+When tracing a repair, follow the submitted record ID through the write and
+the resulting read. Check that a failed write leaves the input available for
+retry and explains what failed. A validation refusal before dispatch and a
+write that fails after dispatch may need different recovery.
 
 ## Inline Simple Props Types
 

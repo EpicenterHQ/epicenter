@@ -1,6 +1,6 @@
 ---
 name: services-layer
-description: Apply Epicenter's service-boundary patterns for UI-free capabilities, explicit inputs, Result fallibility, lifecycle factories, and a capability package that picks its browser or desktop implementation when the page runs. Use when creating or refactoring an app's services or their contract, provider or connection dispatch, or a desktop service over the shell, the credentials file, or the account.
+description: Design UI-free services with explicit inputs, Result fallibility, and lifecycle factories. Use when creating services, choosing a provider for a request, or maintaining Whispering's browser and desktop services.
 metadata:
   author: epicenter
   version: '5.0'
@@ -10,14 +10,11 @@ metadata:
 
 Grounded in Whispering (`apps/whispering/src/lib/app.ts` and
 `whispering.svelte.ts`) and `@epicenter/ai`'s `customEndpoints()`
-(`connection-keys.ts`). Read the app's `app.ts` and the capability package's
-entry before changing a service.
+(`connection-keys.ts`). Trace a service from its caller to the capability it uses.
 
 ## Product Sentence
 
-A service owns a UI-free capability; the app passes in what it decides,
-fallible operations return Results, and the package that owns a capability
-picks its browser or desktop implementation when the page runs.
+A service owns a UI-free capability. Its caller supplies app choices. Fallible operations return Results.
 
 ## Boundary
 
@@ -29,45 +26,11 @@ and app policy:
 - domain data and tagged errors come out, not presentation copy;
 - a capability's browser and desktop implementations share one type.
 
-A service never chooses or opens the store. It is made over the folder
-`src/lib/app.ts` opened: Whispering's `createMicrophoneDevice({ files:
-folder.audio, recorder })` and `createWhispering` (`whispering.svelte.ts`),
-so a recording lands in the same store the pages read.
+Pass the service the storage capability its caller selected. In [Whispering](../../../apps/whispering/src/lib/app.ts), `createMicrophoneDevice({ files: folder.audio, recorder: microphone })` records into the same audio store its pages read.
 
-## Where the page runs
+## Whispering's browser and desktop services
 
-One build serves the web and the desktop (see the `platform-seams` skill).
-The capability package picks its implementation: it decides presence with
-`isTauri()` when its module loads, and loads its desktop code with
-`import()` in its asynchronous step. The app imports one name
-(`recorder` from `@epicenter/recorder`, `customEndpoints()` from
-`@epicenter/ai`), and a capability a surface lacks is `null` there
-(`localSpeech()` in a browser). App code never checks `isTauri()`.
-
-On the desktop, a service reaches native code only through the app's shell
-and the shared crates, never through a credential in the page:
-
-- **Secrets** live in the app's `credentials.json` in AppData (mode
-  `0600`), which only `epicenter-account` reads and writes and no page
-  reaches
-  ([ADR-0740](../../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)).
-  A connection's key is handed to the shell once (`connectionKey` in
-  `@epicenter/ai`'s `tauri.ts`, over `connection_key_set` and
-  `connection_key_move`) and read by the request that uses it;
-  `connections.md` in this computer's settings records which endpoint it
-  was entered for, never the key. Never put a key in a settings file, the
-  data folder, or WebView storage.
-- **The account** is a relay: requests go through `account.fetch`, which
-  the shell sends with `account_fetch` and a token the page never sees.
-- **Other requests** to a custom endpoint or a server on this computer
-  leave through the shell (`connection_fetch`, and `shellFetch` with no
-  key), so no endpoint needs a CORS rule for the window's origin.
-- **A root-scoped native command** (the recorder, local transcription)
-  names the data folder's root by name (`'Data'`), never by path; the shell
-  refuses a root the window did not open.
-
-Read [service organization and platform variants](references/service-organization-platforms.md)
-when adding or moving a service.
+Whispering passes the same recorder interface to its capture service on both surfaces. Its desktop shell holds credentials and relays authenticated requests. For the specific stores, commands, and browser equivalents, see [Whispering’s platform services](references/service-organization-platforms.md). For implementation selection and lazy desktop imports, see [platform seams](../platform-seams/SKILL.md).
 
 ## Model Fallibility Honestly
 
@@ -84,10 +47,8 @@ propagation.
 ## Direct Object Or Factory
 
 Default to a plain object when construction has no input or lifecycle. Use a
-factory when it owns real construction inputs or a lifecycle: Whispering's
-capture device (`createMicrophoneDevice`, over the folder's audio and the
-package's `recorder`) owns one recording session at a time with its stop
-and recovery. Do not add `create*` only to
+factory when it owns real construction inputs or a lifecycle: Whispering’s
+`createMicrophoneDevice` takes the selected recorder and audio store at construction. Each successful `start` returns a session whose `stop` finishes that specific recording. Do not add `create*` only to
 call it once at module load. See
 [service implementation patterns](references/service-implementation-pattern.md).
 
@@ -104,11 +65,6 @@ across callers.
 
 - The service imports no UI and reads no settings; every app choice is an
   input.
-- It is made over the folder `app.ts` opened, and opens no store.
+- If a service writes to a store, its caller supplies the intended store.
 - Fallible operations return Results; infallible ones stay plain.
 - A factory owns construction or a lifecycle, not convention.
-- The capability package picks the implementation where the page runs,
-  with one shared type, and its desktop code loads on demand.
-- On the desktop, secrets stay in the shell's credentials file, account
-  requests go through the relay, and no token or key reaches the page's
-  storage.

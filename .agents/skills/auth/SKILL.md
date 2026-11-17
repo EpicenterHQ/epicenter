@@ -9,7 +9,7 @@ metadata:
 # Epicenter auth
 
 Better Auth is the deployment's OAuth 2.1 authorization server (ADR-0549).
-Every app is an OAuth client of it, and a hosted resource accepts only an
+Apps using hosted OAuth sign in through it. A hosted resource accepts only an
 opaque access token for its audience. A self-hosted server is `apps/api` on
 Bun with Postgres and issues the same tokens.
 
@@ -35,19 +35,15 @@ identity.
 
 | Program | Client |
 | --- | --- |
-| A browser app | `createBrowserOAuth` from `@epicenter/account`, with one build-configured `AuthServer` |
-| A standalone desktop app | `createTauriAuth()` from `@epicenter/account/tauri`, over the `epicenter-account` crate |
-| The Epicenter app | the `epicenter` CLI's desktop grant (`epicenter auth login --desktop`); no page holds a token |
+| A client using browser OAuth | `createBrowserOAuth` from `@epicenter/account`, with one build-configured `AuthServer` |
+| Whispering in a Tauri window | `connectAccount` selects `createTauriAuth`, backed by the `epicenter-account` crate |
 | The account dashboard | `createCookieSessionAuth` in `apps/api/ui`, over the authorization server's own session cookie |
 
 Never restore a server destination from saved preferences. An auth
 client has the shape every capability has (ADR-0769): it reads `state()`,
 its actions answer promises, and `subscribe` hears a change. A Svelte app
 adapts it once with `reactive` from `@epicenter/svelte/reactive`, and
-`auth.state()` tracks in a template, `$derived` or effect. A capability that
-takes the live account (`hosted(account)` from `@epicenter/ai`,
-`home({ site, account })` from `@epicenter/folder`) takes the plain client and reads
-`state()` and `subscribe` itself.
+`auth.state()` tracks in a template, `$derived` or effect. Whispering passes the plain `signIn` client to `hosted(signIn)` so the capability can read and subscribe to account changes itself.
 Retain the callback-capable type where a callback route needs it
 (`isCallbackAuthClient`).
 
@@ -73,10 +69,7 @@ with `location.replace(returnTo)` and opens no store.
 `startSignIn({ reauthenticate: true })` asks for a completed sign-in without
 signing out first, so the Account survives.
 
-An online root captures the Account once and opens its store over it, keyed
-on the Account (`{#key auth.state.account}`), so a new Account opens a new
-store.
-Imports and preloads acquire no resources.
+The [dashboard layout](../../../apps/api/ui/src/routes/dashboard/+layout.svelte) reads `const signIn = $derived(auth.state())`. Once it has checked the account against the link, `{#key signIn.account}` gives `DashboardSession` the lifetime of that Account. Replacing the account remounts the session and its account-bound services.
 
 ## Hosted resources and sessions
 

@@ -26,7 +26,7 @@ grep -rn "as\s*{" packages apps --include="*.ts" -B2 -A2
 
 **Example (justified)**: a loader that duck-types fields off a user-authored module it imports at runtime, because the module's shape is arbitrary by design. What makes it justified is the comment block above the access explaining exactly why static typing is impossible there.
 
-**Example (unjustified)**: `if (entry.handle.whenReady)` was duck-typing `whenReady` until it became a typed optional on `Document`. The diagnostic told us the contract was incomplete; the fix was to declare the field.
+**Historical folder-sync audit.** `if (entry.handle.whenReady)` was duck-typing `whenReady` until it became a typed optional on `Document`. The diagnostic told us the contract was incomplete; the fix was to declare the field.
 
 **How to triage a hit**: read the ~30 lines above the duck-type. If there's a comment explaining why static typing isn't possible at this boundary, leave it. If there's no explanation and the producer is an internal type, either widen the producer's type to include the field, or consolidate the access into a duck-typing helper that's itself well-documented.
 
@@ -54,7 +54,7 @@ grep -rnE "console\.(log|error|warn)" packages --include="*.svelte"
 
 **Why it matters**: library code that calls `console` directly can't be redirected, silenced, or piped to a custom sink (in-memory test introspection, telemetry shipping). Every `console.log` is a hardcoded output decision the consumer can't override.
 
-**The framework's logger**: `wellcrafted/logger` provides `createLogger(name)` plus pluggable sinks (`consoleSink`, `memorySink`, `composeSinks`). Three established injection patterns:
+**The framework's logger**: `wellcrafted/logger` provides `createLogger(name)` plus pluggable sinks (`consoleSink`, `memorySink`, `composeSinks`). Common injection patterns:
 
 ```ts
 // Module-scoped (default)
@@ -63,8 +63,9 @@ const log = createLogger('module-name');
 // Optional parameter (for libraries that may want a caller-supplied logger)
 function createX({ log = createLogger('x') }: { log?: Logger } = {}) { ... }
 
-// Config-injected (used in openCollaboration)
-const log = config.log ?? createLogger('collaboration');
+// A caller selects the sink (packages/account/src/browser-oauth.test.ts)
+const logs = memorySink();
+const log = createLogger('auth/browser-oauth', logs.sink);
 ```
 
 **Triage**: this category is verified periodically: the codebase has historically been clean. Treat any hit as a regression and route through `wellcrafted/logger` before merging. A deliberate call carries a `biome-ignore lint/suspicious/noConsole` with its reason; question one whose reason does not say why that code must print.
@@ -110,7 +111,7 @@ rg "Pick<[^>]+,\s*['\"][^'\"|]+['\"]\s*>" packages apps
 
 **Why it matters**: a single-method pick can keep an old object boundary alive after the caller only needs one operation. The type looks narrow, but the object name still tells readers to think about the whole capability family.
 
-**Example fix**: `packages/workspace/src/daemon/unix-socket.ts` used `Pick<Hono, 'fetch'>` for the socket binder. The binder's job is "bind one request handler to a unix socket and harden the socket file", so the dependency became a `UnixSocketRequestHandler` function instead of a Hono-shaped object.
+**Historical socket binder.** The folder-sync daemon took a request handler to bind a Unix socket and harden the socket file. A dependency on `Pick<Hono, 'fetch'>` also required the caller to supply an object. The resulting binder took `fetch` directly. See `364f3b5bd2:packages/workspace/src/daemon/unix-socket.ts`.
 
 **Triage**: write the one-sentence job of the caller and mentally inline the picked method. Keep the object only when that sentence names the object or the caller coordinates the object's life cycle. If the sentence only names one verb, accept a named capability function in the caller's language and update tests to fake that function. Do not replace `Pick<Thing, 'method'>` with `Thing['method']` unless `Thing` is still the caller's real concept.
 
@@ -166,7 +167,7 @@ grep -rn "\.error\.name === '" packages apps --include="*.ts" | grep -v test
 
 **Why it matters**: the `else` silently absorbs any variant added later; a `switch` with `default: x satisfies never` makes the producer's new variant break the consumer's build instead.
 
-**Validated**: a sweep of `workspace`/`sync`/`cli`/`api` found four (`run-handler.ts`, `run.ts`, `list.ts`, `materializer.ts`), all fixed. Re-run after adding variants to a wire or IPC error union.
+**Historical folder-sync audit.** A sweep of `workspace`/`sync`/`cli`/`api` found four (`run-handler.ts`, `run.ts`, `list.ts`, `materializer.ts`), all fixed. Re-run after adding variants to a wire or IPC error union.
 
 **The pattern itself lives elsewhere**: the rule, the predicate/guard/fold triage, and the before/after are in `error-handling`'s [error variants reference](../error-handling/references/error-variants.md). This entry is only the detection recipe: use it to find hits, then read that reference to classify them.
 

@@ -68,8 +68,24 @@ topUp.mutate({ successUrl: window.location.href }, { onSuccess, onError });
 Use `resultQueryOptions` or `resultMutationOptions` for one function outside a
 namespace, a key that is not `[namespace, method, args]`, or a query that needs
 TanStack's context, such as its abort signal. Namespace entries never see it.
-Keep a component-local operation local; observing its pending state alone does
-not justify a shared namespace entry.
+
+For a Result-returning operation observed by one component, construct the
+mutation there. The adapter unwraps `Ok` and throws the original `Err` value
+into TanStack's error path. A bare `mutationFn` that fulfills with `Err`
+would run success callbacks, including a form reset.
+
+```ts
+const create = createMutation(() => resultMutationOptions({
+  mutationKey: ['items', 'create'],
+  mutationFn: createItem,
+}));
+```
+
+Share the entry when another consumer needs the same identity or behavior.
+For example, a list can observe pending additions by the form's mutation key
+before the new items appear in a query. A spinner on the form can read the
+local mutation directly. A component-local mutation still runs the
+QueryClient's invalidation rule.
 
 ## Capture the submitted operation
 
@@ -79,16 +95,17 @@ draft when the interface needs information the operation does not own.
 
 Capture submitted values, record identity, and any reviewed version in the
 interaction handler before calling `mutate(input)`, `mutateAsync(input)`, or
-starting an awaited workflow. Let `mutationFn` receive that input. A queued
-operation must still act on what the person submitted. Read event or control
-values synchronously; passing a live form or a callback that reads the editor
-later changes which values the operation uses. Closures over stable services
-or identity fixed for the component's lifetime remain useful.
+starting an awaited workflow. Let `mutationFn` receive that input. If someone
+presses Send in thread A and opens thread B while the draft saves, the reply
+still belongs to thread A. Capture the thread ID with the text at Send.
+Read event or control values synchronously. Passing a live form or a callback
+that reads the editor later changes which values the operation uses. Closures
+over stable services or identity fixed for the component's lifetime remain useful.
 
-Arguments do not automatically make a snapshot: later in-place edits to the
-same object can change them. Capture the submitted fields or detach mutable
-parts when needed; an object replaced on each edit can already preserve the
-submission. Choose by mutation behavior rather than cloning every input.
+Passing an object to `mutate` passes a reference. Check who can still change
+it, including the receiving API. Capture the submitted fields or detach
+mutable parts when needed. Replacing the draft on each edit can already
+preserve the submission if its nested values also stay unchanged.
 
 Svelte's [input ownership](../svelte/references/input-ownership.md) applies this
 rule to native controls, reactive drafts, and completion-time clearing.

@@ -47,9 +47,7 @@ documented entrypoints. For a native desktop window, prefer computer-use tools
 that drive and capture the real app. For a web surface, any tool that captures
 screenshots you then view will do, including a headless script.
 
-Start apps the repository's way: `bun dev:<app>` for a web app and
-`bun dev:<app>:desktop` for a native desktop shell. The
-[monorepo skill](../../monorepo/SKILL.md#dev-scripts) owns these scripts.
+Start a monorepo app using its [root dev script](../../monorepo/SKILL.md#dev-scripts). For Whispering's native window, run `bun dev:whispering:desktop`. For an inside app, open the UI from `epicenter serve`.
 
 ## The desktop app
 

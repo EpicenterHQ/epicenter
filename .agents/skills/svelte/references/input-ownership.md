@@ -18,11 +18,11 @@ count.
 
 ## Immediate editing
 
-Bind accepted input to its existing editor rather than synchronizing another
-draft with effects. Gate structured controls on valid content; codecs transform
-representations without becoming content owners. For contract apps, follow
-[contract reads and editing](lifecycle-and-reactivity.md#contract-reads-and-editing)
-for editor construction, field binding, and save lifetime.
+If an editor already owns unfinished input, bind its controls to that editor.
+Use a codec when a control displays a different representation of the same
+content. For a new personal app whose edits stay local until Save, see how a
+[draft over query data](../../epicenter-app/SKILL.md#a-draft-over-query-data)
+preserves typing through a refresh.
 
 ## Explicit submission
 
@@ -30,8 +30,9 @@ The form owns input that has not been submitted. Choose where that input lives
 by who needs to read it and how long it must survive.
 
 Use [query-layer's submission rule](../../query-layer/SKILL.md#capture-the-submitted-operation):
-read the controls synchronously and pass the submitted values onward. A bound
-draft can keep changing while that operation stays fixed.
+read the controls synchronously and pass the submitted values onward.
+Bindings and submission arguments work together. The draft can keep changing
+while the submitted operation stays fixed.
 Preserve failed input for retry unless the form deliberately discards it.
 Clear input after success only if it still belongs to that
 submission, or disable editing while pending. An older request must not erase
@@ -49,9 +50,23 @@ guarantee for every field it resets. Keep these checks where those lifetime
 changes are possible; a fixed form with editing disabled need not acquire a new
 revision protocol.
 
+### Submitting from an editor
+
+“Send what I reviewed” fixes the payload at the click. Capture the note ID,
+reviewed text, and any version the action checks. If Send also requires a
+successful save, send that same payload once the save succeeds.
+
+“Export the saved note” fixes the note ID at the click. Read its saved content
+after the save succeeds and handle a missing note. The export can include
+later typing or edits merged from another writer.
+[Historical editor walkthrough](../../../../docs/articles/a-save-can-finish-after-the-person-has-moved-on.md#a-save-could-wait-for-later-typing)
+
 ### Native controls
 
 When only submission reads the input, prefer letting the browser hold it.
+Styled wrappers such as `Input` and `Textarea` still render native controls;
+they can hold unfinished text without an application `bind:value` or draft.
+This is a choice about value ownership, not a request for unstyled markup.
 On blur or change, read `event.currentTarget.value`. At Submit, read a native
 element reference or named controls through `FormData`. Choose the read that
 makes the complete form simplest; native ownership does not require FormData.
@@ -72,27 +87,27 @@ For values with reactive readers, `bind:value={draft}` remains supported;
 bindings do not replace `bind:this` or make the DOM's `.value` reactive.
 
 Native constraint validation and submit-time validation do not require a
-reactive draft. This illustrative text form assumes `createItem` is the app's
-operation:
+reactive draft. In this example `createItem` rejects on failure. For a service
+that returns a Result, use [the Result adapter](../../query-layer/SKILL.md#compose-a-service-in-two-maps)
+so only a successful write resets the form.
 
 ```svelte
 <script lang="ts">
   import { createMutation } from '@tanstack/svelte-query';
 
   const create = createMutation(() => ({ mutationFn: createItem }));
-  let titleInput: HTMLInputElement;
 </script>
 
 <form onsubmit={(event) => {
   event.preventDefault();
   if (create.isPending) return;
   const form = event.currentTarget;
-  const title = titleInput.value.trim();
-
-  create.mutate({ title }, { onSuccess: () => form.reset() });
+  const title = new FormData(form).get('title');
+  if (typeof title !== 'string') return;
+  create.mutate({ title: title.trim() }, { onSuccess: () => form.reset() });
 }}>
   <label for="item-title">Title</label>
-  <input id="item-title" bind:this={titleInput} required disabled={create.isPending} />
+  <input id="item-title" name="title" required disabled={create.isPending} />
   <button type="submit" disabled={create.isPending}>Create</button>
   {#if create.error}<p role="alert">{create.error.message}</p>{/if}
 </form>
@@ -117,9 +132,6 @@ A new-entry form can use `form.reset()`; reset restores control defaults, so
 choose those deliberately.
 Native input lasts only as long as its element. For an existing record, decide
 what a changed server value or remount may replace, and verify that behavior.
-
-Do not replace a draft with refs, dirty flags, and reset effects that recreate
-the same coordination elsewhere.
 
 ### Commit-on-blur
 
@@ -146,10 +158,8 @@ one `commit(field, next)` helper that owns that comparison. Keep it when it
 centralizes a shared rule; do not introduce a forwarding helper for each field.
 Its comparison still has the cached-value limits described above.
 
-Honeycrisp's `apps/honeycrisp/src/lib/components/FolderNav.svelte` shows a real
-rename interaction: it commits on Enter as well as blur, and Escape cancels.
-Choose those keys with the interaction rather than make pointer focus changes
-the only way to finish editing.
+For an inline rename that accepts Enter or blur and cancels on Escape, make
+sure the blur caused by cancellation cannot commit the discarded name.
 
 Capture and dispatch in the blur handler; deferring dispatch through an await,
 timer, or animation frame can miss a closing page. Dispatch does not guarantee
@@ -226,7 +236,9 @@ Submit.
 
 `$state.raw` stores a value without deep proxying. Use it for replace-only draft
 objects. Replace changed nested objects as well; `draft.title = text` and
-`draft.tags.push(tag)` do not notify raw-state readers. Raw state is not frozen.
+`draft.tags.push(tag)` do not notify raw-state readers. A persistence effect
+watching that draft can miss the edit even though an imperative save would
+read the changed object. Raw state is not frozen.
 A raw object containing previously proxied values is not automatically plain.
 
 Ordinary `$state` is appropriate for intentional property mutation and direct

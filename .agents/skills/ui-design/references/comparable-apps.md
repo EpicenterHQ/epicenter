@@ -32,7 +32,10 @@ LOCAL-FIRST WORKSPACE  the workspace is primary; identity is configuration
 
 Start with the app the person is using. An app served from their Epicenter
 runs on their home. An outside app such as Whispering has its own account
-and storage choices. Pick comparisons that fit that app's task.
+and storage choices. Pick the row that explains the surface under review. In
+Whispering the person came to record. In the billing dashboard the account
+determines whose usage and payment details they see. Those two screens can
+give identity different prominence.
 
 ## Method
 

@@ -16,24 +16,12 @@ For library code, test that incorrect types are rejected. Use `@ts-expect-error`
 
 ### Pattern
 
+In the [app type tests](../../../../packages/app/src/app.types.test.ts), `vocab` is a typed app fixture. An uncalled function lets TypeScript check an invalid call without executing it in Bun.
+
 ```typescript
-test('rejects invalid row data at compile time', () => {
-	const doc = createTables(new Y.Doc(), [
-		table({
-			id: 'posts',
-			name: '',
-			fields: [id(), text({ id: 'title' })] as const,
-		}),
-	]);
-
-	// @ts-expect-error — missing required field 'title'
-	doc.get('posts').upsert({ id: Id('1') });
-
-	// @ts-expect-error — wrong type for 'title' (number instead of string)
-	doc.get('posts').upsert({ id: Id('1'), title: 42 });
-
-	// @ts-expect-error — unknown table name
-	doc.get('nonexistent');
+test('an edit needs both the old and new text', () => {
+	// @ts-expect-error an edit names both old and new
+	() => vocab.actions.words.set({ word: 'a', edit: { old: 'x' } });
 });
 ```
 

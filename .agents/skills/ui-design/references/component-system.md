@@ -41,6 +41,23 @@ product reason that the shared scale cannot express. Name the reason. If the
 value repeats or becomes a reusable visual decision, promote it to a semantic
 token, component variant, or stable primitive.
 
+## Choose the interaction contract
+
+Choose the control by its job: form field, inline disclosure, exclusive
+disclosure group, anchored overlay, menu, or modal. Start with the established
+component for that job. Judge its rendered appearance in the theme alongside
+its keyboard, focus, dismissal, positioning, and layering behavior. A native
+element can be the simpler choice when it meets the required contract without
+rebuilding a richer primitive around it.
+
+State ownership and appearance are separate decisions. Styled native inputs
+can hold unfinished values; a Bits UI widget can own interaction state inside
+a styled component. Prefer the existing component over reconstructing its
+behavior or styling locally. Count the caller code and custom CSS that
+disappear, rather than treating fewer application runes or bare HTML as the
+measure of a collapse. Use [Svelte's ownership guidance](../../svelte/SKILL.md#state-and-handler-defaults)
+for bindings and lifetimes.
+
 ## What Earns A Custom Shape
 
 Keep a composition in the app when it owns app-specific data, persistence,

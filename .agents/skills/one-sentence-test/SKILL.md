@@ -84,9 +84,9 @@ Finding: `schedule`, `batch`, `digest` belong to a sibling product. The cohesion
 
 Bad: *"A CLI for managing your workspace."* Vague. Could be anything.
 
-Good: *"Introspect and invoke `defineQuery`/`defineMutation` actions in `epicenter.config.ts`, either locally or on a peer that's online right now."*
+Good, for the [CLI’s action surface](../../../packages/cli/README.md): *“Run an app’s actions as commands and expose the same actions as MCP tools.”*
 
-The good sentence names the objects (actions), their source (config file), the verbs (introspect, invoke), and the scope (local or live peer). Every CLI command maps to one of those verbs or objects. Anything else is a surface that does not belong.
+That sentence makes a second action registry worth questioning. It scopes the audit to running actions. Commands such as `init` and `checkpoint` answer different needs and deserve their own sentence if they are under review.
 
 ## Application B: Value-Add Audit (bottom-up)
 
@@ -110,9 +110,9 @@ Three reductions in order. Don't skip.
 
 3. **Caller-need check.** Does the caller's use case actually need the default-config version? If not, you've found a mismatch: wrong tool, wrong defaults, or a wrapper adding zero value.
 
-### Worked example: createDisposableCache
+### Historical audit of createDisposableCache
 
-`createDisposableCache` has a page of JSDoc about refcounted Y.Doc lifecycles, cache eviction, idle timeouts, deterministic cleanup.
+The folder-sync implementation documented `createDisposableCache` in terms of refcounted Y.Doc lifecycles, cache eviction, idle timeouts, deterministic cleanup.
 
 ```
 Strip-docs reduction:

@@ -42,9 +42,12 @@ Read pending state from the mutation for rendering. A control may need to stay
 disabled until its initial read is available and through a write's awaited
 refresh when overlapping changes would race with optimistic updates or rollback.
 
-Preserve an existing synchronous admission guard when it prevents duplicate
-calls before observer notifications reach the template. A disabled button
-alone does not establish that stronger guarantee.
+Two submit events can arrive before the button renders as disabled. When
+the operation must accept only one, check its existing owner synchronously.
+For a keyed mutation, a handler can check
+`queryClient.isMutating({ mutationKey, exact: true })` before dispatch if
+every pending execution with that key should block this one. Scope the check
+to the record when distinct records can proceed independently.
 
 ## Retained variables
 

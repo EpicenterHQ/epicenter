@@ -59,7 +59,7 @@ Implementation:
   Files or surfaces that need to change.
 ```
 
-Keep Epicenter workspace-first. Prefer dense, quiet, operational UI for tools.
+Start with the task the person opened this screen to do. In Whispering that might be starting a recording. In Vocab it might be reviewing a word.
 Do not stop at mood words: every direction must map to layout, controls, states,
 and verification. Do not prototype when the existing surface already answers
 the question.

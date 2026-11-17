@@ -1,6 +1,6 @@
 ---
 name: platform-seams
-description: Apply Epicenter's one-build rule, where a capability package decides at run time whether the page is in a Tauri window and loads its desktop implementation when it connects or first acts, and apps branch on what a capability offers. Use when adding or changing a desktop implementation, a capability only some surfaces have, a view only they show, or the desktop shell's build.
+description: Maintain Whispering's shared browser and Tauri build, capability detection, on-demand desktop imports, and desktop-only views. Use when changing a native capability or the desktop shell.
 metadata:
   author: epicenter
   version: '9.0'
@@ -8,11 +8,9 @@ metadata:
 
 # Platform seams
 
-One build serves the web and the desktop
+Whispering is an outside app. One build serves its browser and desktop surfaces
 ([ADR-0781](../../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
-The seam between a page and its platform sits inside each capability
-package, never in an app: the package decides where the page runs, and the
-app uses what the capability offers.
+Each capability chooses its implementation. Whispering’s views use what that capability offers. For a UI served inside an Epicenter, follow [Build the UI as a client](../epicenter-app/SKILL.md#build-the-ui-as-a-client).
 
 ## Where the choice lives
 
@@ -43,27 +41,16 @@ imports its small desktop part directly. `@epicenter/account`'s `tauri.ts`
 is the one such part: it reads who is signed in from `account.json` at
 once, and asks the shell only when the person acts.
 
-## What an app does
+## How Whispering uses a capability
 
-An app has no `#platform/*` imports, no `tauri` condition, and no build
-per surface. `src/lib/app.ts` makes every capability once, synchronously,
-and the views branch on what each offers:
+[Whispering’s app module](../../../apps/whispering/src/lib/app.ts) opens its capabilities once. Its app-owned `openShortcut` can check `isTauri()` and load desktop code on demand. The [settings form](../../../apps/whispering/src/routes/components/SettingsForm.svelte) renders the controls each capability supplies.
 
 ```svelte
-{#if shortcut}<ShortcutSettings {shortcut} />{/if}
-{#if folder.reveal === null}<RepositoryChrome />{:else}<FolderChrome />{/if}
+{#if speech}<SpeechSettings {speech} /><Separator />{/if}
+{#if shortcut}<ShortcutSettings {shortcut} /><Separator />{/if}
 ```
 
-- **Branch on a capability, never on the platform.** `folder.reveal` is
-  there for a folder on this computer; `shortcut` and `speech` are `null`
-  in a browser. App code does not call `isTauri()`; an app-owned
-  capability may, in the module that makes it (Whispering's
-  `src/lib/shortcut.ts`), with its desktop code behind `import()`.
-- **A view only some surfaces show is its own component** under the
-  branch (`ShortcutSettings`, `SpeechSettings`, `FolderSettings`), and
-  imports only what the page may load at once.
-- **Words that differ by surface** follow the same branch: Vocab's
-  `accountPurpose` reads `folder.reveal`.
+Keep imports on the shared page path safe for a browser, including imports in a component that only the desktop renders.
 
 ## Tests and the `test` condition
 
@@ -78,8 +65,7 @@ These tests and the browser build show the web branch and the mocked contract.
 Accept the desktop branch in the running native app, as the
 [tauri skill](../tauri/SKILL.md#verify-in-the-desktop-app) describes.
 
-`scripts/first-load.test.ts` builds every page source of each app with a
-desktop window (`firstLoadModules` from
+[The first-load test](../../../scripts/first-load.test.ts) builds Whispering’s page sources (`firstLoadModules` from
 `@epicenter/vite-config/module-graph`) and fails when what loads before any
 `import()` holds a Tauri plugin, the shell's API beyond `core`, or a
 package's desktop implementation. Add a new desktop module's name to its
@@ -87,7 +73,7 @@ package's desktop implementation. Add a new desktop module's name to its
 
 ## The desktop shell's build
 
-A desktop app's `src-tauri/tauri.conf.json` loads `../build`, the output
+Whispering's `src-tauri/tauri.conf.json` loads `../build`, the output
 the web serves, and builds it first (`"beforeBuildCommand": "bun run
 build"`). `tauri.dev.conf.json` loads the app's dev server (`devUrl`),
 which `tauri dev` starts (`"beforeDevCommand": "bun run dev"`). One
@@ -104,4 +90,3 @@ which `tauri dev` starts (`"beforeDevCommand": "bun run dev"`). One
   `connectAccount` pick.
 - A capability that answers a fake on a surface that lacks it, instead of
   `null`.
-- Choosing the store anywhere but `home`, or moving files between stores.

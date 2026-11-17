@@ -6,8 +6,8 @@ options, submission inputs, shared identity, invalidation, and mutation callback
 scope and ordering. [Input ownership](input-ownership.md) owns native
 controls, reactive drafts, and commit-on-blur.
 
-The app-local operations and report names below are illustrative. Adapt them to
-the actual app; they are not the removed Whispering query-adapter API.
+The operations and report names below are illustrative. Use the app's own
+operations and reporting boundary.
 
 ## Choose the component operation owner
 
@@ -15,12 +15,9 @@ the actual app; they are not the removed Whispering query-adapter API.
 reserved for cache invalidation, retry policy, or shared mutation keys. Use it
 when the template observes the operation's pending, error, success, or data.
 
-Refreshing reads after a write is the QueryClient's invalidation rule, not a
-reason to share a definition. Use a shared entry when several consumers share
-the operation's identity, optimistic behavior, or mutation-state observation.
-For a local operation, `createMutation` gives the component a standard
-pending/error/success surface without pretending the operation is shared
-query-layer state.
+The download and export examples below both show pending state. Only the
+download has a second consumer for its mutation entry. See [query-layer](../../query-layer/SKILL.md#compose-a-service-in-two-maps)
+for choosing local or shared options.
 
 ## Async download button
 
@@ -37,8 +34,8 @@ export const recordingMutations = resultMutations(['recordings'], {
 });
 ```
 
-Namespace mutations are options entries, so the component passes the entry
-directly without an `.options` hop:
+The button observes the shared download mutation and passes the recording ID
+at the click.
 
 ```svelte
 <script lang="ts">
@@ -164,8 +161,7 @@ that owner rather than duplicate it.
 Outside component context, or for a sequential workflow, use direct `await`,
 `mutateAsync`, or `runMutation(queryClient, entry, input)` as appropriate.
 `runMutation` executes the same options through the mutation cache and returns
-a Result. Do not resurrect a callable shared-entry API that the current query
-factories do not expose.
+a Result.
 
 For when a handler should stay inline or earn a name, see
 [single-use functions and aliases](component-ui-patterns.md#single-use-functions-and-aliases).
