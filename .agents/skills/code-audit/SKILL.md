@@ -63,42 +63,19 @@ before removing a promise-chain step.
 Explain the unnecessary conversion and the contract that makes its
 removal sound. A `.then(...)` match alone is not a finding.
 
-## 3. Unstructured Logging in Library Code
+## 3. Hunt for logging bypasses
 
-**Pattern**: `console.log` / `console.error` / `console.warn` in library code. Biome's `noConsole` refuses it under `packages/*/src` in `bun run check`. Biome does not read `.svelte` files, so the grep covers those:
+Hunt for library diagnostics that bypass `wellcrafted/logger`, including
+direct console calls, custom logging wrappers, and direct sink emission.
+Use [the logging audit reference](references/logging.md) for search recipes
+and a real migration example.
 
-```bash
-grep -rnE "console\.(log|error|warn)" packages --include="*.svelte"
-```
+Use [the logging skill](../logging/SKILL.md) to move those diagnostics onto
+the shared logger. Preserve the original cause, useful context, and
+surrounding behavior. Remove redundant logging machinery once its callers
+use the shared path.
 
-**Why it matters**: library code that calls `console` directly can't be redirected, silenced, or piped to a custom sink (in-memory test introspection, telemetry shipping). Every `console.log` is a hardcoded output decision the consumer can't override.
-
-**The framework's logger**: `wellcrafted/logger` provides `createLogger(name)` plus pluggable sinks (`consoleSink`, `memorySink`, `composeSinks`). Common injection patterns:
-
-```ts
-// Module-scoped (default)
-const log = createLogger('module-name');
-
-// Optional parameter (for libraries that may want a caller-supplied logger)
-function createX({ log = createLogger('x') }: { log?: Logger } = {}) { ... }
-
-// A caller selects the sink (packages/account/src/browser-oauth.test.ts)
-const logs = memorySink();
-const log = createLogger('auth/browser-oauth', logs.sink);
-```
-
-**Triage**: this category is verified periodically: the codebase has historically been clean. Treat any hit as a regression and route through `wellcrafted/logger` before merging. A deliberate call carries a `biome-ignore lint/suspicious/noConsole` with its reason; question one whose reason does not say why that code must print.
-
-**Two evasions the `console\.` grep misses.** Both import from `wellcrafted/logger` and are therefore invisible to the pattern above, and both were found live in `apps/whispering`:
-
-```bash
-grep -rn "consoleSink({" apps packages --include="*.ts" --include="*.svelte"
-grep -rn "log\.(warn|error)(new Error" apps packages --include="*.ts" --include="*.svelte"
-```
-
-A direct `consoleSink({ ... })` call skips `createLogger`, and with it the `Logger` type that makes `warn`/`error` unary over a `LoggableError`. Whispering's `$lib/report` did this and grew a parallel `log` whose extra `data` argument silently discarded the error object. The only legitimate mention of `consoleSink` is composing it into a sink passed to `createLogger`.
-
-A `new Error(...)` inside a `warn`/`error` call type-checks (native `Error` satisfies `LoggableError` structurally) but hands the sink a message string and no filterable `name`. It usually means the boundary above types its failure callback `(cause: unknown)` and ships no vocabulary, so each implementer invents one. Fix it at the boundary: export the `defineErrors` variants from the file that declares the callback. See the `logging` skill.
+Distinguish diagnostics from deliberate application or command output.
 
 ## 4. Exhaustive `never` Checks as Union-Churn Signals
 
