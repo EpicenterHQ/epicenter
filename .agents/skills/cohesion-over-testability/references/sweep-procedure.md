@@ -4,6 +4,8 @@ How to systematically audit a codebase for test-shaped splits and collapse
 them safely. This is the operational playbook for the
 [cohesion-over-testability](../SKILL.md) skill.
 
+The `up`, `down`, and `ps` examples below are historical decisions from the folder-sync CLI. They illustrate how similar-looking test seams earned different verdicts. Commits `9434030a7` and `50a9b0c61` preserve the two removals.
+
 ## When to run a sweep
 
 - **After a big merge** that landed a stack of Wave-N unit tests. New
@@ -90,8 +92,7 @@ For each candidate, pick one of four:
 
 - **Inline + delete test.** Branch logic is small, exercised on every
   product use, and the test was buying insurance you didn't need.
-  Document the risk decision in the commit. Examples: `runPs`,
-  `runDown` (commits `9434030a7`, `50a9b0c61`).
+  Document the risk decision in the commit. The earlier sweep took this option for `runPs` and `runDown`.
 - **Inline + rewrite test as integration.** Branch logic is small, but
   the regression risk is non-trivial (cross-process behavior, real
   filesystem effects). Move the test to drive the natural boundary
@@ -149,12 +150,11 @@ For each test you delete, name where the regression coverage now lives:
   declarations. The compiler enforces what the test was watching.
 - **Integration test**: an e2e or smoke test that exercises the same
   branch through the natural boundary. Reference it in the commit
-  message ("Wave 8 e2e in `test/e2e-up-cross-peer.test.ts`").
+  message so a reviewer can run it.
 - **Manual + product use**: when the branch is small enough that
   type-checking plus the next product invocation catches regressions
   cheaper than the seam taxed them. Document the risk decision
-  explicitly: "the dead-pid sweep is exercised on every `epicenter ps`;
-  manual smoke covers it."
+  explicitly. The old `ps` command checked for dead processes on each invocation, which gave that sweep a concrete manual check.
 
 If you can't name where the coverage goes, you haven't earned the
 deletion. Write the integration test first; then delete the unit test.

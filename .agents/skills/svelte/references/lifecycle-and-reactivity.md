@@ -1,16 +1,24 @@
 # Svelte Lifecycle And Reactivity Patterns
 
-Detailed Svelte 5 guidance for keyed resources, async gates, shallow aliases, finite union mapping, SvelteMap, reactive table state, and state modules.
+Detailed Svelte 5 guidance for keyed resources, async gates, stable owners, finite union mapping, reactive collections, and state modules.
 
 # Prop-Keyed Resources: Let the Tree Own the Lifecycle
 
-When a component owns a disposable resource (subscription, socket, timer, any handle with a `dispose()`/`close()`/`unsubscribe()` method) whose identity depends on a prop, open it synchronously and let the parent control mount/unmount with `{#key}` or `{#if}`. Don't store the resource in nullable `$state` and re-open it inside an `$effect`: that reimplements component mount/unmount in user-space.
+When a view and a disposable resource share an identity and lifetime, prefer
+letting `{#key}` or `{#if}` own their creation and destruction. The child can
+hold one resource instead of mirroring the view's mount state in a nullable
+handle and setup effect.
+
+Choose a setup phase that can actually create the resource. The example below
+assumes a client-rendered component with synchronous construction. Browser-only
+resources in an SSR app need client-side setup, such as an effect, `onMount`,
+or an element attachment, with cleanup in that owner's lifetime.
 
 ## The rule
 
 ```svelte
-<!-- Parent: one lifecycle boundary, structurally visible -->
-{#if resourceId}
+<!-- Parent: resourceId is string | undefined; an empty id is still present. -->
+{#if resourceId !== undefined}
 	{#key resourceId}
 		<ResourceView id={resourceId} />
 	{/key}
@@ -18,9 +26,10 @@ When a component owns a disposable resource (subscription, socket, timer, any ha
 
 <!-- Child: id is stable for this instance; open sync, dispose on unmount -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	let { id }: { id: string } = $props();
 
-	const resource = openResource(id);
+	const resource = untrack(() => openResource(id));
 	$effect(() => () => resource.dispose());
 </script>
 
@@ -29,10 +38,10 @@ When a component owns a disposable resource (subscription, socket, timer, any ha
 
 The child's handle is non-nullable. No `{#if handle}` guard leaks into markup. The effect has one line because its only job is cleanup.
 
-## The anti-pattern
+## When an effect duplicates mount state
 
 ```svelte
-<!-- Reimplements mount/unmount by hand -->
+<!-- This handle only mirrors the view's mounted lifetime. -->
 <script lang="ts">
 	let { id }: { id: string } = $props();
 	let handle = $state<Resource | null>(null);
@@ -49,38 +58,52 @@ The child's handle is non-nullable. No `{#if handle}` guard leaks into markup. T
 {/if}
 ```
 
-It's easy to write a double-dispose or leak here. The version above can't: the body is the cleanup.
+When mount and resource lifetimes coincide, the keyed version removes this
+nullable render gate and leaves cleanup with the resource owner.
+
+That nullable handle and setup effect reimplement component mount/unmount in
+user-space when their only job is to follow the view. Keeping one resource
+and its cleanup together removes competing setup and disposal paths; the
+cleanup body is the teardown. This does not make arbitrary resource code
+incapable of leaking: the owner must still acquire and dispose it correctly.
 
 ## Decision check
 
-1. Is the id a prop? -> Parent keys on it with `{#key}`; child opens sync.
-2. Can the id be absent? -> Parent wraps in `{#if id}<Child {id} />{/if}`; child opens sync.
-3. Does the component have local UI state (selection, zoom, scroll) that must survive an id swap without persistence? -> rare exception; the nullable-state pattern is justified.
+Key the view when changing the id should replace both its resource and local
+state. If selection, a draft, zoom, or scroll must survive, keep that state
+outside the keyed resource boundary, or use an effect that replaces only the
+resource. Handle an absent id with the API's actual sentinel, rather than a
+truthiness check when empty strings or zero are valid ids.
+
+`untrack` documents the intentional setup-time capture; the caller's key makes
+that capture valid. It does not make a changing prop safe to ignore.
 
 ## Async-gate variant
 
-When the resource exposes a readiness promise (`whenReady`, `whenLoaded`), gate rendering in the **template** with `{#await}`. Do NOT introduce a `$state(false)` flag + `$effect` that flips it inside `.then()`: Svelte already owns promise lifecycles, cancellation, and error branching. Rebuilding that in userland is pure ceremony.
+When an owner exposes a stable readiness promise and the view only needs its
+pending, fulfilled, and rejected branches, use `{#await}` instead of copying
+those states into a flag. The block follows the current promise for rendering;
+it does not cancel the underlying operation or dispose its resource. Keep
+cancellation and cleanup with the operation's owner.
 
 ```svelte
-<script lang="ts">
-	const resource = openResource(id);
-	$effect(() => () => resource.dispose());
-</script>
-
+<!-- Same keyed resource owner as above. -->
 {#await resource.whenReady}
 	<div class="flex h-full items-center justify-center">
 		<Spinner class="size-5 text-muted-foreground" />
 	</div>
-{:then _}
+{:then}
 	<Editor binding={resource.body.binding} />
 {:catch error}
 	<ErrorState {error} />
 {/await}
 ```
 
-Bare `{:then}` is valid Svelte when the resolved promise value is unused. In this repo, use `{:then _}` for readiness gates because Biome 2.4.x currently parses bare `{:then}` as `Expected an expression, instead none was found`. Treat `_` as a temporary compatibility placeholder, not a semantic value. Use `{:then value}` only when the resolved value is actually read.
+Use `{:then}` when the fulfilled value is unused, and `{:then value}` when
+markup needs it. Add `{:catch}` when this block owns a possible failure;
+otherwise identify the existing failure owner or the promise's infallibility.
 
-### Anti-pattern: don't do this
+### Avoid mirroring readiness-only render state
 
 ```svelte
 <!-- Bad: Re-implements {#await} with extra state and a cancellation flag -->
@@ -96,42 +119,36 @@ Bare `{:then}` is valid Svelte when the resolved promise value is unused. In thi
 {#if isLoaded}<Editor />{:else}<Spinner />{/if}
 ```
 
-Three problems, every time:
-1. **One idea, three primitives.** A state var, a subscription effect, and an if/else branch collectively say what `{#await}` says in four lines.
-2. **Silent unhandled rejections.** The `.then()` chain drops errors on the floor. `{#await}`'s `{:catch}` makes failure explicit and catchable.
-3. **Manual stale-result handling.** The `cancelled` flag exists because `.then()` can fire after the branch is gone. `{#await}` keeps the pending, fulfilled, and rejected render states tied to the template branch instead of scattering that state across a flag and an effect.
+For a readiness-only gate, `{#await}` keeps rendering tied to the current
+promise and gives rejection its own branch. The flag and cancellation boolean
+above duplicate that render state and omit rejection handling. They do not
+cancel the operation itself.
+
+The readiness-only flag pattern has three separate costs:
+
+1. **One idea, three primitives.** A state variable, subscription effect, and
+   conditional branch collectively express the render decision `{#await}` owns.
+2. **Silent unhandled rejections.** A fulfillment-only `.then()` drops rejection
+   handling. Use `{:catch}` when this block owns its presentation.
+3. **Manual stale-result handling.** The flag must ignore an older result after
+   its branch leaves. `{#await}` follows the current promise for rendering;
+   cancellation and resource disposal still belong to the operation's owner.
 
 ### When you still need `$state` flags
 
-`{#await}` is for **one stable promise** driving one render branch. Reach for `$state` + `$effect` only when:
-- You're composing multiple promises with custom logic (race, timeout, retry).
-- The flag reflects an external reactive source (`$derived(query.isPending)` from TanStack Query, a Svelte store, `createSubscriber`).
+`{#await}` follows one stable promise. A workflow with independent race,
+timeout, or retry decisions may need its own state. When another owner already
+exposes pending state, read it directly; use a store or `createSubscriber` for an
+external event source rather than copying its answer through an effect.
 
-## `$state.raw` for non-proxyable handles
+## State for replaceable handles
 
-Svelte's deep proxy can break handles whose methods rely on `this` being the original instance, or that hold internal non-reactive state. Prefer keeping handles out of `$state` entirely (the rule above). If a handle must live in state, use `$state.raw(handle)` to skip proxying.
-
-## Project-specific application
-
-For contract apps, `src/lib/app.ts` exports the capabilities as module
-values ([ADR-0766](../../../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
-`openFolder(contract, home({ site, account }))` returns at once; where it is in its life is
-`folder.state()` (opening, open, failed with a typed error and the failure's
-`retry()`, or closed), and the root layout renders `<WhenOpen {folder}
-{settings}>`, which waits for the folder and this computer's settings
-(`@epicenter/local`). Editing `app.ts`, or anything it imports, reloads the
-page in development, so it closes nothing by hand. Any code imports
-`folder`; none passes it through context. Only `<WhenOpen>` and Recovery read
-`state()`. The page connects once, and nothing that reads a store renders
-before: inside `<WhenOpen>` every read is synchronous and answers what is
-stored; a read before the connection throws `FolderNotOpen` (or
-`SettingsNotOpen`), a bug in the code that made it
-([ADR-0778](../../../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
-Code outside a page calls an action, such as `list()`, which waits. No
-capability exposes `ready` or `loading()`, so no code checks or awaits
-readiness. Every app is on this shape; do not add a `Startup` root, a
-per-collection context, or a gate of its own. Key editors by note identity so each mounted editor owns one edit. See
-[Contract reads and editing](#contract-reads-and-editing).
+Keep a stable imperative handle in a plain `const`. If a reactive reader needs
+to observe replacement, choose state for that handle's actual mutation model.
+`$state.raw` supports explicit replacement without deep proxying. Ordinary
+`$state` does not proxy class instances; raw state is not required merely
+because a value is an imperative handle. See
+[Svelte's proxy boundary](https://svelte.dev/docs/svelte/$state#Deep-state).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
 
@@ -162,87 +179,40 @@ public component API, or a non-obvious widget invariant that deserves its own
 file. Otherwise, collapse the wrapper into the component that owns the resource
 and mount lifetime.
 
+## A caller can own the initial wait
+
+The [dashboard auth module](../../../../apps/api/ui/src/lib/platform/auth.ts) constructs its client synchronously and exports `authReady = client.refresh()` for the first cookie-session read. The [layout](../../../../apps/api/ui/src/routes/dashboard/+layout.svelte) waits on that promise once with `{#await authReady}`. Later sign-ins are changes to `auth.state()`. In the signed-in branch, `{#key signIn.account}` gives each account its own dashboard session.
+
+The promise answers “has the first read finished?” The live state answers “who is signed in now?” A later refresh can change that answer after the promise has settled.
+
 ## Related
 
-- The sync-construction / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent: synchronous construction, one render gate, actions that wait.
 - `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
 - `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
 
-# Template locals: narrow reactive values before use
+# Stable adapters and reactive reads
 
-Svelte template expressions already track reactive property reads. Introduce
-`{@const}` or `$derived` when a repeated optional property access loses its
-narrowing inside a deferred callback, or when a useful computation needs a
-name. An already-narrowed local needs no extra alias. A reactive local is not
-a second draft or a mount-time snapshot.
+An adapted capability keeps its methods. Reading `auth.state()` in markup,
+`$derived`, or an effect tracks the capability. Reading it in component setup
+or an event handler takes a snapshot. Actions pass through untracked, so an
+effect can call `void ai.refresh()` without subscribing to that action.
+See [the adapter contract](../../../../packages/svelte/README.md#one-adapter-for-every-capability).
 
-Place `{@const}` in the nearest supported template scope containing the controls that
-need it. Capture the optional value, narrow that local, then create the binding
-callbacks. Several controls in that scope share one local; nested property
-access alone does not justify another alias.
+A check on one call to `auth.state()` cannot narrow the answer to a second
+call. Read it once when several expressions need the same answer. The
+dashboard uses `const signIn = $derived(auth.state())` in both script and
+markup. Within a template block, [a single `{@const}`](component-ui-patterns.md#template-locals-narrow-reactive-values-before-use)
+can do the same job. Both locals follow later changes.
 
-```svelte
-{#each items as item (item.id)}
-	{@const details = item.details}
-	{#if details}
-		<Input bind:value={() => details.title, (title) => item.update({ title })} />
-		<Textarea bind:value={() => details.notes, (notes) => item.update({ notes })} />
-	{/if}
-{/each}
-```
+Search a bounded area for candidate passthroughs, then inspect the consumers:
 
-Read the value once, then check its presence with the source's actual sentinel.
-The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
-explains event-time composition through the current owner.
-
-Use `const details = $derived(item.details)` if script code also needs it or no
-existing template scope supports `{@const}` before the guard. Do not add a
-block solely to host the local. Do not replace either reactive form with a
-component-level `const details = item.details`: that captures only the initial
-value. A simple display that needs no shared narrowing may read
-`session.current` directly:
-
-```svelte
-<!-- Bad: the alias does not compute or narrow anything -->
-<script lang="ts">
-	const current = $derived(session.current);
-</script>
-
-{#if current}
-	<AccountPopover principal={current.principal} />
-{/if}
-```
-
-```svelte
-<!-- Good: read the source directly in markup -->
-{#if session.current}
-	<AccountPopover principal={session.current.principal} />
-{/if}
-```
-
-Do not add an alias just to rename a read, and do not remove a useful local
-merely because its initializer is a shallow property read. Other reasons to
-keep a local include a computed predicate, an expensive projection shared by
-several consumers, a change filter that skips downstream work when its value
-stays identical, or a dynamic component such as `{@const Icon = item.icon}`.
-Inspect the consumers before inlining.
-
-An operation-local snapshot can keep a read-modify-write operation coherent.
-Capture it when the handler runs, and re-read or check the operation's
-validity after an `await` before writing.
-
-Searches for candidate passthroughs:
-
-```bash
+```sh
 rg -n '\$derived\([^)]*\.[A-Za-z_$][A-Za-z0-9_$]*\)' --glob '*.svelte'
 rg -n '\{@const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*[^}\n]+\.[A-Za-z_$][A-Za-z0-9_$]*\s*\}' --glob '*.svelte'
 ```
 
-# Stable adapters and reactive reads
-
-Separate the adapter's identity from the values it exposes. For a read-through
-adapter whose getters participate in Svelte reactivity, construct it once when
-the source owner is fixed for the component instance:
+These match useful computations and narrowing too; a match is not an instruction
+to inline it.
 
 ```svelte
 <!-- Parent: a new open item recreates the child. -->
@@ -269,19 +239,37 @@ instead; `$derived` does not supply cleanup.
 Confirm owner stability at the caller before removing the wrapper. A keyed
 child can establish that stability when the key tracks the owner identity.
 The caller now owns that guarantee; removing its key can leave the child stale.
-Use `untrack` for this intentional initial prop capture to avoid Svelte's
-[state_referenced_locally warning](https://svelte.dev/docs/svelte/compiler-warnings#state_referenced_locally). It documents the capture, not a substitute
-for the caller's lifetime guarantee. Prefer deriving from the prop when the
-component must remain correct independently of its caller's mount policy.
+When setup intentionally captures a prop once, use `untrack` as in the
+[keyed-resource example](#the-rule) to document the capture and avoid Svelte's
+[state_referenced_locally warning](https://svelte.dev/docs/svelte/compiler-warnings#state_referenced_locally).
+The markup read above does not capture the prop and needs no `untrack`.
+An initial capture still requires the caller's lifetime guarantee. Prefer
+deriving from the prop when the component must remain correct independently
+of its caller's mount policy.
 Svelte executes component initialization once, and a `{#key}` block recreates
 its contents when the key changes. See the official
 [`$derived`](https://svelte.dev/docs/svelte/$derived),
 [`$props`](https://svelte.dev/docs/svelte/$props), and
 [`{#key}`](https://svelte.dev/docs/svelte/key) documentation.
 
-# `$derived` Value Mapping: Use `satisfies Record`, Not Ternaries
+## Derived computations and read APIs
 
-When a `$derived` expression maps a finite union to output values, use a `satisfies Record` lookup. Never use nested ternaries. Never use `$derived.by()` with a switch just to map values.
+Use a direct read for a cheap computation. Use `$derived` when a computation
+benefits from caching or a consumer depends on stable output identity. A method
+or getter that reads reactive state can track changes, but each call recomputes
+its body unless it returns an already derived value. See
+[the projection example](component-ui-patterns.md#referential-stability-for-reactive-data-sources).
+
+For new APIs, expose live reads through explicit methods, following
+[typescript](../../typescript/SKILL.md). Keep existing getters and upstream
+protocols when callers rely on them.
+
+# Finite value mappings
+
+For a finite union mapped to constant labels, icons, or values, prefer a
+`satisfies Record` lookup: it declares the mapping and checks its keys.
+Use branching when cases require conditions or computation. Use template
+branches for different markup or variant-specific fields.
 
 ```svelte
 <!-- Bad: nested ternary in $derived -->
@@ -328,11 +316,12 @@ Why `satisfies Record` wins:
 
 Reserve `$derived.by()` for multi-statement logic where you genuinely need a function body. For value lookups, keep it as `$derived()` with a record.
 
-`as const` is unnecessary when using `satisfies`. `satisfies Record<T, string>` already validates shape and value types.
+`satisfies Record<T, string>` checks the mapping. Add `as const` when preserving
+literal value types is part of the contract.
 
 See `docs/articles/record-lookup-over-nested-ternaries.md` for rationale.
 
-# When to Use SvelteMap vs $state
+# Reactive collections
 
 Use `SvelteMap` when items have stable IDs and you need keyed lookup. Reads of
 `get`, `has`, `size`, and iteration participate in Svelte reactivity when they
@@ -343,148 +332,108 @@ local UI booleans, and sequential data without identity.
 reactively, store row objects that are already reactive, or replace the map
 value with `set(id, next)`.
 
+For an ID-keyed collection you own, `.find()` scans an array while `get(id)`
+expresses keyed lookup directly. Replacing a whole array invalidates readers
+of that array; a map can track reads of individual keys. Keep the array when
+order or sequence is the information it owns. Derive a sorted array when a
+consumer needs that projection, rather than repeatedly sort inside a read.
+
+Use `SvelteSet` for reactive membership read by a template, derived value, or
+effect. When membership needs associated data, such as a timestamp or error,
+use `SvelteMap`. Plain maps and sets suit imperative-only consumers such as a
+listener bag; reactivity without a reader adds no behavior.
+
 | Data Shape | Use | Example |
 |---|---|---|
-| Contract listings | `files.notes.items`, `files.notes.invalid` | notes and notes that do not read |
-| An open note | `notes.edit({ id })` | `todo.fields` (typed until saved), `todo.exists`, and inline save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
+| Reactive membership | `new SvelteSet()` | expanded row IDs when only membership matters |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
-| Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
-| Replace-only ordered list where position matters | `$state.raw<T[]>([])` | open file tab order |
+| Replace-only ordered data | `$state.raw<T[]>([])` | command history, open file tab order |
 
-For an id-keyed collection you own and mutate in place, `SvelteMap` still beats
-`$state<T[]>`: `.find()` scans, a whole-array write re-triggers every reader, and
-sorting inside a getter returns a fresh array on every access, which sends
-TanStack Table into an infinite loop. See
-`docs/articles/sveltemap-over-state-for-keyed-collections.md`.
+Project collections to arrays with `$derived` when consumers depend on stable
+identity. Follow [referential stability](component-ui-patterns.md#referential-stability-for-reactive-data-sources)
+to check whether a consumer observes reference identity.
 
-# Contract reads and editing
+# Product state modules
 
-A folder read through `reactive` gives each collection tracking reads:
-`items()`, `invalid()` (notes) and `get(args)` (ADR-0769), each answering at
-once inside `<WhenOpen>` (ADR-0778).
-Collections come straight off the module-level `folder` in
-`src/lib/app.ts` (ADR-0766):
-
-```ts
-// src/lib/app.ts
-export const folder = reactive(openFolder(todos, home({ site, account })));
-
-// any component
-import { folder } from '$lib/app.js';
-const { todos } = folder;
-```
-
-The component that shows a note makes one editor of it during setup. The
-editor is that view's read of the note too: `todo.fields` holds one accessor
-per declared field and `body`, each showing typed input until its save
-answers and the note as shown after, and `todo.exists()` says whether a note
-that reads is listed at its path (false while missing, deleted or not
-reading):
-
-```svelte
-<script lang="ts">
-  import { folder } from '$lib/app.js';
-
-  const { todos } = folder;
-  const todo = todos.edit({ id });
-  const open = $derived(todos.items().filter((todo) => !todo.done));
-</script>
-
-{#if todo.exists()}
-  <Input bind:value={todo.fields.title} />
-  <Textarea bind:value={todo.fields.body} />
-  <Checkbox bind:checked={todo.fields.done} />
-{:else}
-  <p>This todo is no longer here.</p>
-{/if}
-```
-
-Do not read the open note a second time with `todos.get({ id })` or take it
-as a prop; `get` is for lists, code that is not the note's view, and the
-rare view that needs the saved note beside what is typed (Capture's export
-waits for the save, then reads the file's text from `get`). `fields` stays
-live, so `const { fields } = todo` is fine. Keep
-derived filters in `$derived`. The editor's saves go through the folder's
-queue one at a time; the newest carries everything typed since the last that
-landed. A typed field takes this write, another writer's change to a field
-not typed stays, and a body changed elsewhere since the typing began merges
-by lines. A save never fails: while the store cannot be reached it waits,
-the typing stays shown, and `<WhenOpen>` says the store is out of reach
-(`folder.unavailable()`), so a view shows no save error of its own. Code
-that is not typing, such as a list row's toggle, writes with
-`set(args, changes)`, which answers once it has landed. Keep an app-level context only for state that is not a collection
-(selection, a recorder), named for what it holds.
-
-### Template Props
-
-For component props expecting `T[]`, derive in the script block: never materialize in the template:
-
-```svelte
-<!-- Bad: re-creates array on every render -->
-<FujiSidebar entries={entries.values().toArray()} />
-
-<!-- Good: cached via $derived -->
-<script>
-	const entriesArray = $derived(entries.values().toArray());
-</script>
-<FujiSidebar entries={entriesArray} />
-```
-
-### Why `$derived`, Not a Plain Getter
-
-Put reactive computations in `$derived`, not inside public getters.
-
-A getter may still be reactive if it reads reactive state, but it recomputes on every access. `$derived` computes reactively and caches until dependencies change.
-
-Use `$derived` for the computation. Use the getter only as a pass-through to expose that derived value.
-
-See `docs/articles/derived-vs-getter-caching-matters.md` for rationale.
-
-# Reactive State Module Conventions
-
-State modules use a factory function that returns a flat object with getters and methods, exported as a singleton.
+A state module can own independent product information shared by components,
+such as a selection or recording workflow. Choose its instance lifetime where
+that information belongs: per view, per attachment, or across app navigation.
+A singleton is appropriate only for state with that shared lifetime.
 
 ```typescript
-function createBookmarkState(db: AppData) {
-	let rows = $state.raw<Bookmark[]>([]);
-	function read() {
-		const { data, error } = db.bookmarks.list();
-		if (error !== null) return reportBackgroundError(error);
-		rows = data.rows;
-	}
-	read();
-	const stop = db.bookmarks.subscribe(read);
+// selection.svelte.ts
+export function createSelection() {
+  let selected = $state<string>();
 
-	const bookmarks = $derived(rows.filter((b) => b.deletedAt === null));
-
-	return {
-		[Symbol.dispose]: stop,
-		get bookmarks() { return bookmarks; },
-		add(fields: BookmarkFields) { /* ... */ },
-		remove(id: BookmarkId) { /* ... */ },
-	};
+  return {
+    selectedId: () => selected,
+    select(id: string) { selected = id; },
+    clear() { selected = undefined; },
+  };
 }
-
-export const bookmarkState = createBookmarkState(db);
 ```
 
-## Naming
+Read an existing capability through `reactive(capability)` instead of copying
+its reads into this module with a subscription and another cache. Use queries
+for request state; keep this module for information neither owner provides.
+If it acquires subscriptions or other disposable resources, its creator owns
+cleanup for the chosen lifetime.
+
+Name the factory and instance for the information they own. New read methods
+can be `selectedId()`, `items()`, or `state()`; existing getters, `.current`, or
+`.value` remain valid where their owning API defines them. Svelte does not
+require one universal property name for reactive values.
+
+## A module that owns a snapshot and subscription
+
+The small selection example does not show source acquisition or cleanup.
+This fuller factory illustrates those responsibilities. It assumes a
+synchronous, nonreactive `AppData` source whose changes must be followed for
+the factory's whole lifetime, including while no view is mounted. Imperative
+consumers need the latest successful snapshot too. `reportBackgroundError`
+is the app's error boundary; on a failed read this owner keeps its last good
+snapshot. It is not a wrapper to add around an already-reactive capability.
+
+```ts
+// bookmark-state.svelte.ts
+function createBookmarkState(db: AppData) {
+  let rows = $state.raw<Bookmark[]>([]);
+
+  function read() {
+    const { data, error } = db.bookmarks.list();
+    if (error !== null) return reportBackgroundError(error);
+    rows = data.rows;
+  }
+
+  read();
+  const stop = db.bookmarks.subscribe(read);
+  const bookmarks = $derived(rows.filter((bookmark) => bookmark.deletedAt === null));
+
+  return {
+    [Symbol.dispose]: stop,
+    bookmarks: () => bookmarks,
+  };
+}
+```
+
+Its creator disposes the module when that chosen lifetime ends. Add domain
+operations alongside the read when this owner actually owns those rules.
+For a source whose subscription should exist only while reactive readers use
+it, prefer `createSubscriber` instead of introducing this retained snapshot
+and explicit subscription lifetime. Read an existing capability through
+`reactive` rather than create either bridge again.
+
+Names can make those responsibilities easier to see:
 
 | Concern | Convention | Example |
 |---|---|---|
-| **Export name** | `xState` for domain state; descriptive noun for utilities | `bookmarkState`, `notesState`, `deviceConfig`, `vadRecorder` |
-| **Factory function** | `createX()` matching the export name | `createBookmarkState()` |
-| **File name** | Domain name, optionally with `-state` suffix | `bookmark-state.svelte.ts`, `auth.svelte.ts` |
+| Factory | `createX()` names the owner being made | `createBookmarkState()` |
+| Instance | A noun for the information it owns | `bookmarkState`, `deviceConfig`, `vadRecorder` |
+| File | Domain name, optionally with `-state` | `bookmark-state.svelte.ts`, `selection.svelte.ts` |
 
-Use the `State` suffix when the export name would collide with a key property (`bookmarkState.bookmarks`, not `bookmarks.bookmarks`).
-
-## Accessor Patterns
-
-| Data Shape | Accessor | Example |
-|---|---|---|
-| **Collection** | Named getter | `bookmarkState.bookmarks`, `notesState.notes` |
-| **Single reactive value** | `.current` (Svelte 5 convention) | `selectedFolderId.current`, `serverUrl.current` |
-| **Keyed lookup** | `.get(key)` | `toolTrustState.get(name)`, `deviceConfig.get(key)` |
-
-The `.current` convention comes from [runed](https://github.com/svecosystem/runed) (the standard Svelte 5 utility library). All 34+ runed utilities use `.current`. Never use `.value` (Vue convention).
+Use the `State` suffix when the instance name would collide with a read:
+`bookmarkState.bookmarks()`, rather than `bookmarks.bookmarks()`. This names the
+owner without prescribing a singleton. Existing single-value wrappers may use
+`.current`; a new read can be `selectedId()` or `state()`. Preserve an owning
+API's `.current`, `.value`, or getter contract instead of renaming it by habit.

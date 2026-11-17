@@ -269,4 +269,4 @@ Both stores have the same interface. The implementation details are hidden. Test
 - [The Universal Factory Function Signature](./universal-factory-signature.md): why every factory uses this signature
 - [The Factory Function Pattern](./factory-function-pattern.md): the full pattern with all variations
 - [Factory Method Patterns](./factory-method-patterns.md): separating bundled options and turning functions into methods
-- [Factory Function Composition Skill](../../.claude/skills/factory-function-composition/SKILL.md): quick reference
+- [Factory function composition reference](../../.agents/skills/typescript/references/factory-function-composition.md): quick reference

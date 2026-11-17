@@ -1,175 +1,33 @@
-# Test Setup Pattern
+# Test setup
 
-## When to Read This
+When several tests need the same starting conditions, let each call a plain `setup()` function. Keep stateless declarations at module scope. Give each test fresh mutable state, and return the values it needs by name so it can destructure them. Adding a second fixture then leaves existing callers alone.
 
-Read when adding shared test infrastructure, deciding between `setup()` and `beforeEach`, or designing reusable test fixtures.
-
-## The `setup()` Pattern
-
-Every test file that needs shared infrastructure MUST have a `setup()` function. This replaces `beforeEach` for code reuse, following Kent C. Dodds' principle: "We have functions for that."
-
-### Rules
-
-1. `setup()` ALWAYS returns a destructured object, even for single values
-2. Tests ALWAYS destructure the return: `const { thing } = setup()`
-3. `setup()` is a plain function, not a hook; each test calls it independently
-4. No mutable `let` variables at describe scope. Setup returns fresh state per test
-
-### Why Always an Object (Even for One Value)
-
-- **Extensibility**: Adding a second value later doesn't require changing any existing callsites
-- **Self-documenting**: `const { files } = setup()` tells you what you're getting by name
-- **Consistency**: Every test file follows the same pattern. No guessing
-
-### Single Value
+This abbreviated [collection list test](../../../../packages/app/src/collection.lists.test.ts) uses the named-object form. The collection definition can be shared. The contents of its memory folder belong to one test.
 
 ```typescript
-// Good: always an object, even for one thing
-function setup() {
-	const workspace = createWorkspace({
-		id: 'test',
-		tables: { files: filesTable },
-	});
-	return { files: workspace.tables.files };
-}
+import { expect, test } from 'bun:test';
+import { createMemoryContext, defineCollection, field, inRun, Ok } from '@epicenter/app';
 
-test('creates a file', () => {
-	const { files } = setup();
-	files.set({ id: asFileId('1'), name: 'test.txt' });
-	expect(files.has('1')).toBe(true);
-});
-```
-
-```typescript
-// Bad: returns value directly
-function setup() {
-	const workspace = createWorkspace({
-		id: 'test',
-		tables: { files: filesTable },
-	});
-	return workspace.tables.files; // No destructuring = breaks convention
-}
-```
-
-### Multiple Values
-
-```typescript
-function setup() {
-	const ydoc = new Y.Doc();
-	const yarray = ydoc.getArray<YKeyValueLwwEntry<unknown>>('test-table');
-	const ykv = new YKeyValueLww(yarray);
-	return { ydoc, yarray, ykv };
-}
-
-test('stores a row', () => {
-	const { ykv } = setup(); // Take only what you need
-	// ...
-});
-
-test('atomic transactions', () => {
-	const { ydoc, ykv } = setup(); // Take multiple when needed
-	ydoc.transact(() => {
-		ykv.set('1', { name: 'Alice' });
-	});
-});
-```
-
-### Composable Setup Functions
-
-When tests need additional setup beyond the base, create composable setup variants that build on `setup()`:
-
-```typescript
-function setup() {
-	const tableDef = defineTable(fileSchema);
-	const workspace = createWorkspace({
-		id: 'test-workspace',
-		tables: { files: tableDef },
-	});
-	return { ydoc: workspace.ydoc, tables: workspace.tables };
-}
-
-function setupWithBinding(
-	overrides?: Partial<Parameters<typeof createDocumentBinding>[0]>,
-) {
-	const { ydoc, tables } = setup();
-	const binding = createDocumentBinding({
-		guidKey: 'id',
-		tableHelper: tables.files,
-		ydoc,
-		...overrides,
-	});
-	return { ydoc, tables, binding };
-}
-```
-
-### When `setup()` Is NOT Needed
-
-- Pure function tests with no shared infrastructure (e.g., `parseFrontmatter('# Hello')`)
-- Tests where each case has completely different inputs with no overlap
-- Type-only test files (`*.test-d.ts`)
-
-## Avoid `beforeEach` for Setup
-
-Use `beforeEach`/`afterEach` ONLY for cleanup that must run even if a test fails (server shutdown, spy restoration). Never use them for data setup.
-
-```typescript
-// Bad: mutable state, hidden setup
-let files: TableHelper;
-beforeEach(() => {
-	const workspace = createWorkspace({
-		id: 'test',
-		tables: { files: filesTable },
-	});
-	files = workspace.tables.files;
-});
-
-// Good: setup function, immutable per-test
-function setup() {
-	const workspace = createWorkspace({
-		id: 'test',
-		tables: { files: filesTable },
-	});
-	return { files: workspace.tables.files };
-}
-```
-
-## Shared Schemas at Module Level
-
-Table definitions used across multiple tests should be defined at module level, outside `setup()`:
-
-```typescript
-const filesTable = defineTable({
-	id: field.string<FileId>(),
-	name: field.string(),
-	updatedAt: field.integer(),
+const books = defineCollection({
+	path: 'data/books/{book}.md',
+	fields: { tags: field.list(field.text()) },
 });
 
 function setup() {
-	const workspace = createWorkspace({
-		id: 'test',
-		tables: { files: filesTable },
-	});
-	return { files: workspace.tables.files };
+	const context = createMemoryContext({ 'data/books/dune.md': '---\n---\nA book\n' });
+	return { context };
 }
+
+test('a missing list reads as empty', async () => {
+	const { context } = setup();
+	const dune = await inRun(context, () => books.get({ book: 'dune' }));
+	expect(dune).toEqual(Ok({
+		path: 'data/books/dune.md', book: 'dune', tags: [], body: 'A book\n',
+	}));
+});
 ```
 
-These are stateless definitions, safe to share. Stateful objects (Y.Doc, workspace instances) go in `setup()`.
-
-## Don't Return Dead Weight
-
-Every property in the setup return should be used by at least one test. If no test uses `ydoc`, don't return it:
-
-```typescript
-// Bad: ydoc is never destructured by any test
-function setup() {
-	const ydoc = new Y.Doc();
-	return { ydoc, tl: createTimeline(ydoc) };
-}
-
-// Good: only return what tests actually use
-function setup() {
-	return { tl: createTimeline(new Y.Doc()) };
-}
-```
-
-Exception: if a value is needed for cleanup or might be needed by future tests in the same file, keeping it is fine.
+- **Compose fixtures when the extra setup matters.** The [CLI export tests](../../../../packages/cli/src/export.test.ts) start with `fixture()`, add a Tasks app and a Git checkpoint, and return the export paths. Tests that only need an empty Epicenter can use the base fixture.
+- **Keep setup visible and cleanup reliable.** Create the fixture in the test. Register cleanup that must run after a failure in `afterEach`, as the export tests do for temporary roots.
+- **Keep the return value small.** Include values a test or its cleanup needs. Keep intermediate construction details inside the helper.
+- **Skip shared setup** for pure functions, type-only tests, and cases whose starting conditions have little in common.

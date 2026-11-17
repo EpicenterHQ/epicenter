@@ -45,7 +45,13 @@ receiving home lacks that file.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
 the smallest whole example. Keep private records out of code publication;
-publishing needs a separate code-only history, and no command builds it.
+publishing needs a separate code-only history. `epicenter export` writes code
+into a generated directory outside the private Epicenter; review, commit, and
+push the publication's outer repository with Git.
+
+The code travels through export; the records stay private. Someone taking the
+app copies committed code without its records or private history. A private
+origin can still back up the root, including all apps' records.
 
 Before shaping a collection, decide where its truth is (`docs/vision.md`,
 ADR-0896, ADR-0898), then copy the nearest example in `~/Epicenter/apps`:
@@ -99,7 +105,8 @@ refused, so write the default where the value is read (`limit ?? 50`).
   task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
-  required field takes no `null`. A generated `set` with no change returns `Refused`.
+  required field takes no `null`. A generated `set` requires at least one
+  submitted field or body edit.
 - Mark a field `readOnly` when only the app's own actions may write it (Vocab's
   schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
   A `readOnly` field that is required removes the exposed `add`, so write
@@ -150,10 +157,9 @@ refused, so write the default where the value is read (`limit ?? 50`).
 
 ## Write actions only for what the verbs cannot do
 
-For Mail (ADR-0882), agents prepare and revise proposals; the person runs
-`epicenter mail apply`. Never apply a proposal or call Gmail's mutation
-endpoints on the person's mail as an agent. Exercise the apply path only
-against fake Gmail.
+For Mail (ADR-0882), agents prepare and revise proposals. The person chooses
+`apply` to approve a proposal or `change` to act on the messages displayed
+in the reader. Exercise either write path only against fake Gmail as an agent.
 
 `code/epicenter.ts` default-exports `defineApp({ description, collections,
 actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
@@ -198,14 +204,12 @@ Resolve that path from `folder.path`, which is the container. Change another
 app's data through its actions so its rules check the write; this is guidance,
 not enforced.
 
-Make `run` an `async function*` only when a person watches it work, such as a
-chat reply from a model: each yield reaches the page that called it, and no
-one else. Return one final Result, as any action does, since the
-command line, Claude, and tests see only the return. Save at the end, before
-returning, so a page closed mid-reply leaves nothing half-saved (ADR-0879).
-To offer Stop, pass `callSignal()` from `@epicenter/app` to the wait, such as
-the model's `fetch`, so a stop ends it at once; what must survive a stop, such
-as the person's message, is saved in a `finally`.
+Make `run` an `async function*` when a person watches it work, such as a
+chat reply from a model. The host records each yield for observers of that
+run and the action returns one final Result. Save completed output before
+returning. Pass `callSignal()` from `@epicenter/app` to cancellable work,
+such as the model's `fetch`. Decide which writes must survive cancellation,
+including any input the person has already submitted.
 
 Actions run inside `epicenter serve` itself, from the files as they are when
 the call arrives, so an edit takes effect on the next call. Never call
@@ -298,6 +302,14 @@ whole app. History retained only in archive refs is outside `main`; fetch it
 explicitly into a separate recovery checkout. Keep the live home on its
 current branch.
 
+When recovering a bad write, inspect history and restore the relevant known
+version rather than retype its previous content, then record the repair in a
+named checkpoint so history says what happened. A field change and its record
+repair belong together. Restoring only code or only data can leave the
+declaration and records disagreeing. Run `epicenter check <app>` and inspect
+the diagnostics for the affected paths. Keep the named checkpoint before
+risky work so the original files remain recoverable.
+
 ## Build the UI as a client
 
 Add `code/ui/` when the app needs a browser view. The view can keep its own
@@ -335,8 +347,8 @@ Actions own stored records; the UI shows what serve answers and sends what the
 person submits.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
-`connect<typeof app>()` from `@epicenter/app/client`, importing the app
-as a type (`import type app from '../../../epicenter.js'`), and lists what the
+`connect<typeof tasksApp>()` from `@epicenter/app/client`, importing the app
+as a type (`import type tasksApp from '../../../epicenter.js'`), and lists what the
 pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts
@@ -345,40 +357,46 @@ export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
 ```
 
-For a run that should continue after the page closes, use
-import `runs` from `@epicenter/app/client` and use
-`runs.start(app.action, input)`, `runs.attach(app.action, id)`, and
-`runs.pending(app.action)`. These controls preserve every app action name.
-`field.file()` accepts a temporary browser upload through these run controls;
-it does not store a collection attachment. See the app package README for the
+When the page needs to return to a run after reopening, import `runs` from
+`@epicenter/app/client`. Start it with `runs.start(app.action, input)`.
+On return, use `runs.pending(app.action)` to find its receipt and
+`runs.attach(app.action, id)` to observe it again.
+`field.file()` accepts a temporary browser upload with either form of call.
+See the app package README for the
 run events, cancellation, and retention contract.
 
-Each call gives the action's Result in JSON form. The client also reports
-shared platform errors such as `Changed`, `Misfit`, `Missing`, `Threw`,
-`Refused`, `Unreachable`, and `Stopped`. On the wire, an admitted action's
-finished answer is `{ result: { data, error } }` or `{ fault: { message, ... } }`
-for an unexpected throw. CLI JSON and MCP structured output carry the same
-answer. Check the name and its subject, never
-the message. A `Missing` may describe a dependency rather than the record being
-shown. An error does not establish what was saved or rolled back; reread the
-record when the outcome is uncertain and retain unsent writing. The layout creates one
-QueryClient from the UI's own `@tanstack/svelte-query`, with the invalidation
-rule from `query-layer`, and puts it
-in `<QueryClientProvider>`; pages read with
-`createQuery(() => reads.get({ word }))` and write with
-`createMutation(() => writes.set)`. That client refreshes every read after
-each write, before the write counts as done, and when the UI is shown
-again, so a page never refreshes by hand or on a timer. Name
-types with `ActionInput<typeof app.actions.set>` and
-`ActionOutput<typeof app.actions.get>`.
+On the wire, the host answers with `{ data, error }`. For a failure,
+`error.kind` records what happened to this invocation (ADR-0926).
+The browser client unwraps a `returned` reason with its public fields intact.
+A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
+A `refused` admission becomes `Refused` before the action runs. Actions can use the
+shared `ActionError` factories from `@epicenter/app`.
+
+Match a browser error by its name and subject. A `Missing` for a dependency
+cannot tell the page whether its displayed record still exists. An action
+can make a write and then return an error. When saving is uncertain, keep
+the submitted text and reread the record before clearing the draft.
+
+Build the layout's QueryClient in the UI's own `src/lib/query-client.ts`
+using its own `@tanstack/svelte-query` so the bundle carries one copy.
+Check the helper's export in the app you copy. Provide the client through
+`<QueryClientProvider>` and apply the invalidation rule from `query-layer`.
+Pages read with `createQuery(() => reads.get({ time }))` and write with
+`createMutation(() => writes.set)`. Use the server app's action types, for
+example `ActionInput<typeof tasksApp.actions.set>` and
+`ActionOutput<typeof tasksApp.actions.get>`.
 
 An action that yields takes `onYield` after its input, to show its work as it
 comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
-still refreshes once it returns. A Stop button passes `{ signal }` too and
-aborts it; the call then resolves as the `Stopped` error, which is not a
-failure to show.
+still refreshes once it returns. For a Stop button, start the action with
+`runs.start` and call `run.cancel()` to request cancellation. For a view
+that only stops listening, pass its signal to `run.events({ signal })` or
+`run.result({ signal, onYield })`. Each new observer replays from the
+beginning, and the client resumes dropped connections at its last sequence.
+Use the view's own controller to recognize its aborted observation. A
+dependency can also return `Stopped`. Confirm any cleanup or save separately.
 
 - Route a record by its keys, which every row carries: the page is at
   `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the
@@ -392,6 +410,11 @@ failure to show.
 - Send `set` only the fields being submitted, and `null` for one emptied.
   Do not spread an entire cached record into a field update. Comparing with
   cached data can avoid a request; it cannot establish what is currently saved.
+  Submitting a title must not also write back a stale completion status from
+  the cached record. Skip `set` when there are no submitted fields or body
+  edits. The generated action returns `Refused` for an empty change.
+  An unchanged-looking value may still be an intentional
+  submission.
 - When draft, recovery, or workflow promises are unsettled, use
   [product-collapse](../product-collapse/SKILL.md) to choose the behavior.
   For settled behavior, choose each input's owner with
@@ -409,6 +432,66 @@ failure to show.
   with `error.message`.
 - Save on blur, on a pause, or on an explicit action, never on each keystroke.
   Checkpoints sample those files later; a call is not a commit boundary.
+
+### A draft over query data
+
+For an explicit-save form whose live preview reads unfinished input, keep the
+draft over the query's data so a refresh never overwrites typing. This view is
+keyed by the record's collection keys and receives a successfully read file; `Textarea`
+and `Preview` are the app's components:
+
+```svelte
+<script lang="ts">
+  let { file }: { file: { body: string } } = $props();
+  let draft = $state<string>();
+</script>
+
+<Textarea
+  aria-label="Notes"
+  bind:value={() => draft ?? file.body, (value) => (draft = value)}
+/>
+<Preview text={draft ?? file.body} />
+```
+
+The preview gives this draft a live reader. Native controls remain the default
+for input read only at submission. Use `??` here because an empty string is
+real input. This example shows rendering and input ownership, not the whole
+save handler. For conflict detection, capture the quoted base when editing
+begins rather than replace it from a later refetch. Capture that base, the
+submitted text, and record identity before async work.
+
+Clear the draft only when saving is confirmed and completion still owns the
+same record, editing session, and draft, or disable editing while saving.
+Matching text alone is insufficient when the control can disappear or the
+selection can change. An older save must not erase newer typing. Keep failed
+or uncertain input for retry or deliberate discard, following
+[input ownership](../svelte/references/input-ownership.md#explicit-submission).
+An immediate editor that already owns accepted typing needs no second draft.
+
+### Fields, body, and conflict responses
+
+For a form that saves fields and a body together, send one generated `set`
+with the record's keys, submitted fields, their `was` values, and
+`edit: { old: base, new: draft }`. The collection checks every guard before
+writing the file. If another writer changed the passage, the entire edit
+returns `Changed`. A workflow that deliberately makes separate writes
+must account for each completed write when a later one fails.
+
+Two earlier app designs illustrate different responses to a body conflict:
+
+- Capture's thoughts reapplied a small change against the newly read body.
+  Use that response when the change can be reapplied without discarding the
+  other writer's work.
+- Tasks' "Keep mine" kept what was typed, said it was not saved, and let the
+  person deliberately save over the other version. Use that response when
+  choosing which content to keep belongs to the person.
+
+These are strategy examples, not claims about those apps' current controls.
+For `Changed`, first match its path to the requested record, reread, and
+preserve the submitted text while resolving the conflict. A dependency can
+report `Changed` for another path. Neither an error name nor cache invalidation
+alone confirms what persisted. When last-write-wins is the agreed behavior,
+use the replacement action rather than add conflict machinery by default.
 
 ## Verify without touching the person's data
 
@@ -446,6 +529,12 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
+  Inspect the source commit recorded in `code/SOURCE.md`, compare incoming
+  code outside the live Epicenter, and test compatibility with the existing
+  records before a named checkpoint. A refreshed publication does not update
+  apps people have already copied. Bring contributions back into the maintained
+  app before refreshing an export, which would overwrite edits made in the
+  generated directory.
 - Back up the root to one optional private origin. A checkpoint commits all
   included pending files and pushes only there. Restore with one root clone
   and `epicenter init --from`, then recreate local credentials.
@@ -453,7 +542,10 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:
   a Git repository inside it makes every checkpoint refuse.
-  No publication command is built.
+  Use `epicenter export` for the generated code directory, then review, commit,
+  and push the outer repository with Git. Recipients can read its history and
+  notes as well as its code: keep private record content out of those messages,
+  notes, and source files. Never publish the private root history.
 - `epicenter build [<app>]` rebuilds from code/ui/ while retaining the last
   good build. The project's own build script may empty its output first.
 - Run from inside the app's Epicenter. Another person's Epicenter is a
@@ -461,3 +553,40 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 
 A running serve loads edited code on the next call and checks code/ui/ on a
 page load. It serves code/ui/dist/ and keeps the last good build while rebuilding.
+
+### Export code for sharing
+
+Keep the publication repository and its handwritten files outside the generated
+directory. For one app:
+
+```sh
+epicenter export tasks ~/Code/shared-tasks/code
+```
+
+```text
+shared-tasks/
+  .git/          publication history
+  README.md      publication notes
+  code/          generated and replaced by export
+    .epicenter-export.json
+    epicenter.ts
+```
+
+Export first makes a local checkpoint of included pending code, records, and
+staged work across the private Epicenter, then copies code from that commit.
+It excludes records, local files, dependencies, builds, provenance, and private
+history. It does not upload the private backup or publish the exported code.
+
+The command owns and replaces the generated directory, including edits and
+extra files inside it. A destination must be new, empty, or carry the matching
+export marker; Git metadata inside it is refused. Review and commit the exported
+files in the outer publication repository before someone copies that version.
+Exporting files does not commit them to the publication repository.
+
+To publish several apps, `epicenter export --all ~/Code/shared-apps/apps`
+generates one child per committed app under `apps/`. A recipient can copy one
+published app with
+`epicenter new tasks --from https://github.com/OWNER/shared-apps#apps/tasks`,
+replacing `OWNER` with the publication owner's username. See
+[the CLI's export contract](../../../packages/cli/README.md#export-app-code)
+for destination rules, shared files, and symlinks.

@@ -1,98 +1,102 @@
 ---
 name: rethink
-description: Develop the strongest grounded vision of a system, API, or abstraction through dialectic, then work backward to make it real. Use when the user asks for greenfield thinking, radical options, a clean break, first-principles design, or questions the current organizing idea or boundaries.
+description: Zoom out from accumulated fixes, exceptions, and individually reasonable decisions to imagine the whole afresh and find the most tasteful way to recompose it around its purpose. Use when the user asks to zoom out, rethink from first principles, explore greenfield or radical alternatives, redraw the line of best fit, or reconsider the question, assumptions, or boundaries shaping the current approach.
 ---
 
 # Rethink
 
-Develop your own account of what the system should do from the desired
-experience and actual use. Treat the current design as one explanation of the
-problem. Discover the organizing idea that gives the whole its strongest shape,
-then derive its concepts, operations, responsibilities, and guarantees.
+When we’ve accumulated fixes, exceptions, or individually reasonable
+decisions, zoom out. Bring together what they’ve taught us and imagine the
+whole afresh. Given what we’re trying to make possible, what would we make
+if we were starting today?
 
-Use [dialectic](../dialectic/SKILL.md) to develop that vision together through
-concrete expression. Contribute a considered model the user can recognize,
-challenge, and improve. Take responsibility for pursuing the idea beyond what
-they have already articulated.
+Look for the most tasteful way to recompose the work around that purpose,
+with the freedom to change the question we’ve been answering. Judge the
+result by what it makes possible and what it asks us to give up.
 
-## Form an account of the whole
+If the purpose or direction is still unsettled, work it out with the user
+through [dialectic](../dialectic/SKILL.md). When the user has settled and
+authorized the outcome, use this reasoning to make the choices it leaves
+open. Investigate further when uncertainty could change the decision.
+A local correction can still be the best result.
 
-Start with what someone wants to make possible and how they would naturally
-use it. Articulate what the system does, what its operations mean, and which
-information and responsibilities belong together. Follow that account far
-enough to reveal a coherent design. Let the surrounding system come into
-question when its shape limits the outcome.
+## Understand the particulars
 
-Read the current implementation and actual callers to understand the work,
-needs, and consequences. Distinguish necessary work from problems created by
-the current arrangement. Existing names, APIs, ownership boundaries, lifetimes,
-and guarantees are evidence about earlier choices. They need not supply the
-vocabulary or boundaries of the destination.
+Gather what the fixes, exceptions, and decisions have taught us, along
+with the corrections and observations that prompted this rethink.
+Identify what each one establishes. Some show what people need or value;
+others reveal problems the current approach creates. Identify the
+assumptions behind those problems. Distinguish observed facts,
+preferences, and your explanation of them; a proposed explanation may
+itself need revision.
 
-Use [greenfield thinking](references/greenfield.md) to develop natural use and
-derive ownership. Use [radical options](references/radical-options.md) when the
-apparent choices share an assumption worth reconsidering. Let the live question
-determine the exploration; a fixed number of alternatives or a mandatory
-guarantee-removal exercise would prejudge what a better design looks like.
-When questioning which concepts a workflow or API needs, use the
-[concept inventory](../collapse-pass/references/concept-inventory.md) to make
-the current and alternative nouns and their distinctions visible.
+Read the current work and its actual uses. For software, follow the
+callers; for a principle, examine the situations it should guide.
+Separate what people are trying to do from how the current work lets
+them do it. Find out who relies on the current behavior and what would
+happen if it changed. A revealing workaround can expose a problem even
+before the same problem recurs.
 
-Keep the desired outcome distinct from a proposed way to achieve it. Explicit
-requirements govern implementation; a promising vision may reveal a requirement
-worth changing. Show that conflict and its consequences as a proposal. Investigate
-uncertain limits, and separate demonstrated constraints from inherited assumptions.
-Keep transition costs visible without letting them define the destination
-before it has been developed.
+## Imagine the whole afresh
 
-## Give the vision concrete expression
+Develop your own conception of what we would make today to serve the
+purpose. Zoom out beyond the part we've been trying to fix and consider
+how the surrounding system could do the work differently. Imagine it in
+use. Use taste to judge how the parts fit together and what someone using
+the whole would have to understand or do. Ask what can be reused or
+recomposed, and which distinctions still matter. Look for an organizing
+principle from which the parts follow.
 
-Show how someone would use the proposed system: realistic caller code, an
-interaction, or a data flow. Derive the public surface and internal boundaries
-from that use. Follow important information through creation, change,
-persistence, failure, and cleanup where those affect the design. An attractive
-entrypoint alone may conceal the decisions that matter.
+For example, changing a setting may not require editing a running handle.
+Restarting the app or refreshing the page can reuse its startup process
+to create the handle with the new setting, removing the need for live
+reconfiguration. Weigh the interruption and any lost work against the
+complexity of keeping the handle alive while its settings change.
 
-Use what the expression reveals to revise the model. Explain what the person
-must understand and do, which distinctions carry independent information, and
-which coordination problems disappear or move elsewhere. A new abstraction may
-earn its place by making the whole easier to understand and own. Fewer concepts
-and less code are valuable consequences when supported by the design.
+Existing names, rules, boundaries, and guarantees are evidence about earlier
+choices; they need not determine the new shape. A rule whose reason has
+disappeared may be unnecessary; giving up a guarantee someone still relies
+on is a tradeoff to make explicit.
 
-Use the user's reactions to develop the account of the whole. A correction may
-reveal a preference, tradeoff, or requirement that was not apparent at the start.
-Follow that new understanding through related decisions and show the revised
-design in concrete use. When a consequential tradeoff remains unresolved, make
-its effects visible and ask a focused question. A rename or local repair remains
-appropriate when that is what the evidence supports.
+For systems and APIs, set existing applications aside. Ask what primitives
+we would choose if we were building from scratch and how they would compose.
+When two things overlap, ask whether they can be built from the same pieces.
 
-Compare the promising vision with the existing approach through concrete use
-and consequential failures. Show what improves, what machinery or obligations
-disappears, and what complexity or loss is introduced. A counterexample reveals
-a cost to judge against the intended experience. Develop the strongest supported
-destination, whether it retains the current model or changes it substantially.
+Use [radical options](references/radical-options.md) when the current framing
+makes alternatives hard to see.
 
-## Work backward from the destination
+Use the [concept inventory](../collapse-pass/references/concept-inventory.md)
+when deciding which concepts a workflow or API needs.
 
-As the direction settles, state the observable behavior that would make it real.
-Derive what must be created, moved, replaced, or removed, in dependency order,
-and what evidence will establish that it works. Use
-[clean breaks](references/clean-breaks.md) to carry an authorized replacement
-through consumers and retire the superseded shapes.
+Keep what we're trying to accomplish separate from how we propose to do it.
+Explicit requirements still apply. If a promising design suggests changing
+one, propose that change and explain its consequences. Check limits you're
+unsure about. Note what switching designs would cost, and explore the new
+design before deciding whether to make that switch.
 
-Keep the reasons the vision is worth pursuing present through implementation.
-A convenient intermediate shape must not quietly become the endpoint.
-Distinguish a difficult step from a discovery that changes the destination.
-Continue solving the former; bring the latter back into dialectic with its
-consequences visible, then work backward from the revised understanding.
+## Return to the particulars
 
-An already settled direction needs no repeated discovery exercise. Carry out
-the work within the user's authorization: exploration remains exploration, and
-an authorized replacement proceeds without an added confirmation ritual.
+Take the newly imagined whole back to the cases, corrections, and decisions
+that prompted it. Show what it makes possible in those situations and which
+old problems no longer arise. Try an awkward or materially different case.
+Where the design fails, reconsider the design or the judgment about that
+case rather than automatically appending another exception.
 
-## Close against the vision
+Show enough of the proposal to test it: a revised principle applied to
+realistic situations, an argument, caller code, an interaction, or a data
+flow. For software, follow important information through creation, change,
+persistence, failure, and cleanup where those affect the design. An
+attractive entrypoint alone may conceal the decisions that matter.
 
-Exercise the concrete use and verify changed contracts. Judge the result against
-the destination and the qualities that made it worth pursuing. Explain what now
-realizes the vision and resolve consequential drift. Passing tests alone does
-not establish that the intended system has been built.
+Compare the new whole with the current one. Explain what becomes easier to
+understand or do, what work disappears or moves elsewhere, and what
+complexity, risk, or loss is introduced. Say who would give up what.
+Distinguish a deliberate tradeoff from a problem we haven't solved.
+Follow a user's correction through related decisions and test the revised
+design again.
+
+A better design may reveal a distinction worth keeping. It may improve the
+explanation while leaving the implementation intact. Keep the current
+design when it best serves the purpose; fewer rules or less code are useful
+consequences when the reasoning supports them.
+

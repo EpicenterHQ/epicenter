@@ -7,8 +7,8 @@ support focused reviews without starting an exploratory pass.
 
 [collapse-pass](../SKILL.md) owns execution, scope, authorization, and reporting.
 Use [control-flow](../../control-flow/SKILL.md) for linearizing conditionals,
-[factory composition](../../factory-function-composition/SKILL.md) for factory
-shape and [method documentation](../../factory-function-composition/references/method-documentation-and-sibling-calls.md),
+[factory composition](../../typescript/references/factory-function-composition.md) for factory
+shape and [method documentation](../../typescript/references/method-documentation-and-sibling-calls.md),
 <!-- vocab-check: ignore-next-line (the code-prose skill name) -->
 and [code-prose](../../code-prose/SKILL.md) for identifiers and comments.
 
@@ -24,6 +24,9 @@ explaining anything. A named operation can earn its place by expressing a
 non-obvious decision, enforcing an invariant, owning a lifecycle, or making a
 long phase understandable. Preserve evaluation timing, receiver binding,
 caching, and snapshot semantics when inlining; fewer names must not change behavior.
+
+A boundary that isolates unsafe input can earn its place too. Keep the parsing
+or validation owner rather than distribute its checks among callers.
 
 ### Find same name property aliases
 
@@ -87,18 +90,24 @@ read()              → getCurrentEntry() (discriminated)     ← typed
 ```
 
 Route access through the typed reader. Public methods discriminate
-`getCurrentEntry()` instead of repeating raw `.get()` calls. A Svelte reactive
-adapter may expose that read as a tracked property; the framework-neutral
-implementation keeps the explicit method. When the existing reader is a
-public getter, keep that contract unless the API is being redesigned.
+`getCurrentEntry()` instead of repeating raw `.get()` calls. Svelte reads the
+same method through `reactive(capability)`; see [Svelte](../../svelte/SKILL.md).
+When the existing reader is a public getter, keep that contract unless the API
+is being redesigned.
 
 ## Collapsing Duplicate Branches
 
-When a switch has 2+ branches doing the same thing with different inputs, collapse via a shared method.
+When branches repeat an operation with different inputs, check whether an
+existing operation already expresses the common work.
 
 ### The Tell
 
-If you can describe two branches with the same sentence, they're duplicates.
+Describing two branches with the same sentence identifies a candidate. Compare
+the information and behavior each preserves before sharing the operation.
+
+If you can describe two branches with the same sentence, they may be
+duplicates. The sentence is a useful tell, not proof that their facts,
+lifetimes, or failure behavior are interchangeable.
 
 ```typescript
 // BEFORE: "flatten to string and push" appears twice
@@ -171,7 +180,16 @@ parseSheetFromCsv(csv, result);
 
 ## Prefer Inline for Trivial Duplications
 
-When a duplicated block is 1-3 lines and appears 2-3 times within the same file, keeping it inline is usually more readable than extracting a helper. The helper adds a name to learn, a definition to jump to, and an abstraction boundary to reason about: all of which cost more than the duplication saves.
+Judge a short repeated block by what an extraction would explain. Keep it inline
+when the operation is already clear and a helper would only add a name and
+navigation. Use the extraction criteria below when a shared owner could improve
+the result.
+
+When a duplicated block is 1-3 lines and appears 2-3 times in one file, keeping
+it inline is often more readable. The helper adds a name to learn, a definition
+to jump to, and an abstraction boundary to reason about; those costs can exceed
+what the duplication saves. Treat the counts as an inspection prompt, not a
+threshold that overrides a shared rule or necessary boundary.
 
 **The readability test:** Does a reader need to leave the callsite to understand what's happening? If the inline code is self-explanatory, extraction hurts more than it helps.
 

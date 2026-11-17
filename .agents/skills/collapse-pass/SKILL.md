@@ -1,205 +1,200 @@
 ---
 name: collapse-pass
-description: Find and carry through worthwhile code simplifications across recent edits, named files, or a subsystem. Use when asked for a collapse pass, a refactoring pass, another simplification pass, "simplify this", to clean up code, or to hunt for indirection and dead abstractions. Specific transformations, planning requests, review-only requests, and explicit file limits determine the work. Use control-flow for a request limited to one function's branching.
+description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Use control-flow for a request limited to one function's branching.
 metadata:
   author: epicenter
-  version: '1.0'
+  version: '2.0'
 ---
 
 # Collapse pass
 
-A collapse pass simplifies the system's model by finding and removing complexity
-that does not earn its place. Start from the intended outcome and actual use.
-Question the current concepts and promises as well as their implementation,
-then carry worthwhile simplifications through implementation and verification.
-Read the relevant [refactoring methods](references/refactoring-methods.md)
-for caller evidence, safe inlining, typed boundaries, or straggler cleanup.
+A collapse pass looks for a simpler way for the system to do its job.
+Question the current concepts and promises as well as their implementation.
 
-## Start and expand the hunt
+Look for the choices that make the code do extra work. Several helpers,
+checks, caches, and exceptions may all exist because of one earlier
+decision. Ask what would let those pieces disappear together, then carry
+the better design through the code that uses it.
 
-The requested outcome determines the work. A named transformation supplies the
-candidate: perform and verify it without turning the request into an open-ended
-hunt. Planning and proposal requests produce plans or proposals; review-only
-requests produce findings without edits. A broad pass authorizes the hunt below.
+For example, an editor might let a window switch between folders.
+Switching requires coordinating open files, pending work, and cleanup.
+If each window stayed with one folder, opening another folder could open
+another window. The window would still need to know its folder, but the
+work of switching a running editor could disappear. That changes the
+experience too, so develop the choice with the user unless it is already
+settled.
 
-Start with named files, recent edits, or the subsystem established in the
-conversation. Treat that scope as a starting point unless the user explicitly
-limits it. With no named target, infer the starting area from the conversation
-and current changes; unrelated dirty files are not permission to edit them.
+Count the coordination eliminated, not the collections deleted.
 
-After implementation, inspect new helpers, components, callbacks, types, and
-file splits as well as existing code. Trace actual callers, dependencies, and
-neighboring implementations. Expand when those relationships reveal another
-concrete opportunity, and explain the connection before editing beyond the
-starting area. Respect instructions such as "only these files." Read external
-callers to establish behavior, but defer a candidate if completing it requires
-edits beyond that hard limit.
+Scale investigation to the uncertainty; a local edit can be the right result of considering the whole.
 
-"Another pass" means pursue fresh candidates, including simplifications exposed
-by the previous pass. Use prior findings and rejected candidates to choose new
-searches rather than repeating the same diff review. Search for the same shape
-in related code when an accepted simplification suggests a recurring pattern.
-Revisit a rejected candidate when new evidence changes its justification. Move through the relevant subsystem
-without requiring the user to nominate every next file.
+## Understand the work
 
-An implementation pass authorizes routine simplifications within this scope.
-Do not require a proposal approval for each edit. Stage, commit, push, or create
-a PR only when authorized; when committing, keep each logical simplification
-reviewable.
+Start from what the person or caller needs to accomplish. Read the
+relevant code and the code that uses it. Build on what the user has
+already decided. Ask when an unresolved purpose or tradeoff would
+change the work.
 
-## PR and branch starting points
+Begin with the named files or subsystem. With no named target, infer the
+starting area from the conversation and current changes. Unrelated dirty
+files are not permission to edit them.
 
-For a PR or branch, establish its comparison base from PR metadata, the upstream
-tracking branch, or `origin/main`, then start with changed files and their callers.
-Use an isolated worktree when switching targets would disturb the current
-checkout. Never reset the user's active work. Report the checkout path and any
-uncommitted edits at handoff. A request to review a PR remains read-only unless
-implementation is authorized.
+A named transformation stays focused: perform and verify it without
+turning it into an open-ended hunt. Reviews, plans, and proposals remain
+read-only. Respect explicit file limits. Read callers outside those
+limits to understand behavior, but defer a change that requires editing
+them.
 
-## Judge candidates by what disappears
+Follow connected evidence when it points to a shared cause. Explain the
+connection before editing beyond the starting area.
 
-For a broad pass, once you understand actual use, visibly inventory the nouns,
-methods, properties, keys, and relationships someone must understand to use or
-change the relevant system. Show where information lives, how responsibilities
-connect, and which relationships require coordination. Ask which distinctions
-carry independent information or behavior and whether the same job could use
-fewer concepts or operations, including a different design that makes several
-parts unnecessary together.
-Look for ownership and lifetime rules that eliminate coordination. Name what
-flexibility the stronger rule removes and whether actual users need it. Use the
-[concept inventory](references/concept-inventory.md) to examine that surface
-through its owners and callers. A focused transformation needs no subsystem
-inventory.
+For a PR or branch, establish the comparison base from PR metadata, the
+upstream tracking branch, or `origin/main`. Start with changed files and
+their callers. Use an isolated worktree when switching targets would
+disturb the current checkout. Never reset the user's work. Report the
+checkout path and any uncommitted edits at handoff.
 
-Use [product-collapse](../product-collapse/SKILL.md) when simpler product behavior
-could make machinery unnecessary and the experience needs the person's judgment.
+## Find what makes the work necessary
 
-For expensive guarantees, establish who needs the promise and what would change
-if it were narrowed, replaced, or removed. Show the machinery eliminated and any
-user loss or obligation. Changes beyond existing authorization remain proposals.
+Look for information kept in several places, repeated decisions,
+forwarding layers, and rules that need another exception for each new
+case. Include the fixes already made, including your own. A workaround
+may reveal a better design even before the same problem recurs.
 
-Look for forwarding layers, re-export chains, shallow aliases, shadow or
-mirrored state, duplicated decisions, copied boundary shapes, derivable state,
-dead exports, obsolete compatibility paths, and files that only pass work
-elsewhere. These are candidates, not default fixes. Use
-[code-audit](../code-audit/SKILL.md) when a proven search recipe fits.
+Searches for maps, registries, flags, caches, retries, adapters, and
+compatibility paths can help you find these places. Use
+[code-audit](../code-audit/SKILL.md) when one of its searches fits.
+Treat matches as clues, not instructions to delete something.
 
-Hunt for synchronization obligations. Within the relevant subsystem, search
-literally for `registry`, `Map`, `Set`, `index`, `flag`, `cache`, `pending`, and
-`retry`, including collection constructions and named state. Trace their writes,
-reads, cleanup, and any observable gap between updates. Ask whether readers can
-derive the answer from another source or ask its owner directly. When an owner
-hand-builds a transition loop, search its distinctive state and operation names
-in related owners. Count the coordination or repeated decisions eliminated,
-not the collections deleted. A computed key alone does not make membership,
-authorization, selection, in-flight work, or unsaved input derivable.
+When several pieces seem connected, investigate them together. What
+choice makes them necessary? Who needs that choice: the person, an
+actual caller, or only the current implementation?
 
-Design the replacement from the intended outcome and actual use. Reconsider the
-API, ownership, lifecycle, and compatibility promises together; develop a shape
-that could make several existing paths unnecessary. Trace callers and stored
-data to establish the consequences and transition. Carry an authorized
-replacement through its consumers and retire superseded paths.
+Existing behavior alone does not establish that someone needs it.
 
-Search the affected path for `fallback`, `adapter`, `legacy`, `migration`, and
-`compatibility`. A matching adapter or fallback may still own active recovery;
-trace its consumers and stored data before removal. Applied migrations are
-durable history, not disposable compatibility code. Keep a temporary
-compatibility path only for a named consumer or migration, with a retirement
-condition. Use
-[clean breaks](../rethink/references/clean-breaks.md) to carry an authorized
-replacement through its callers.
+Use [rethink](../rethink/SKILL.md) to consider how you would build this
+today. Look beyond making the existing pieces tidier:
 
-For Svelte surfaces, hunt custom binding protocols and mirrored input state. Use
-[function bindings](../svelte/references/component-ui-patterns.md#function-bindings-for-transformed-values)
-for wrapper boundaries and [input ownership](../svelte/references/input-ownership.md)
-for drafts and submission. Trace the current owner before removing state or
-guards.
+- Could readers ask the thing that already knows? A Map that copies
+  connections a pool already tracks may disappear along with its updates.
+- Could one part do the whole job instead of several parts keeping each
+  other informed?
+- Could choosing something once remove repeated choices and checks?
+- Could related operations belong together so callers stop passing the
+  same information through several layers?
+- Could a different workflow make an entire subsystem unnecessary?
 
-Mentally inline the affected layers and reconsider the resulting flow from
-scratch. When should work happen? Who should own its lifetime? Are caching,
-snapshots, callbacks, or repeated checks still necessary, or could different
-ownership make them disappear together?
+These are examples of questions to pursue, not a required checklist.
 
-**Look for opportunities to recompose capabilities, not only inline them.**
-Trace how method namespaces, resources, and context are passed between layers.
-Could binding context once, regrouping operations, or composing a focused adapter
-remove repeated wiring or duplicated decisions? Show the resulting caller code
-and where state, rules, and lifecycle would live.
+Develop the alternative far enough to show how it works. Use realistic
+caller code, an interaction, or a data flow. Try it on the awkward cases
+as well as the ordinary ones. Use the
+[concept inventory](references/concept-inventory.md) when showing the
+current and proposed parts would help someone judge the change.
 
-For a local inlining, preserve the existing semantics. When redesigning the
-model, make changed semantics explicit and verify the resulting caller
-experience.
+If the alternative keeps needing exceptions, reconsider how you have
+divided the work. Keep the current design when it handles real needs
+more simply than the replacement.
 
-Keep a boundary when it names non-obvious work, enforces a shared rule, owns a
-lifecycle, isolates unsafe input, or makes a long phase understandable. Caller
-count alone does not decide.
-A local that preserves type narrowing inside a deferred callback can earn its place even when it only reads a property; inspect its consumers before inlining it.
-Use [one-sentence-test](../one-sentence-test/SKILL.md) when a file's purpose is
-unclear, rather than forcing the exercise on every small change.
+## Keep what still has a job
 
-Every accepted change should remove an unnecessary concept, exported surface,
-file, navigation hop, duplicated decision, or maintenance burden. Fewer lines
-alone are insufficient. Do not manufacture changes to make a pass look productive.
-If an edit fails this test on rereading, undo only that edit while preserving
-unrelated and unsaved work.
+Before removing state, find out what it remembers and who needs it.
+Something that looks like a copy may preserve a different fact:
+unfinished input, a submitted version, a choice someone made, or an
+action whose outcome is still uncertain.
 
-Use [rethink](../rethink/SKILL.md) for ownership, lifecycle, API, or package-boundary
-decisions. Use [asymmetric-wins](../asymmetric-wins/SKILL.md) to develop the
-tradeoff when refusing a small promise could delete a disproportionate code
-family.
+Establish that the replacement has the information whenever it is
+needed. Before removing a check, understand what it protects and whether
+the information it uses is still current.
 
-## Carry each finding through
+Keep a boundary when it names non-obvious work, enforces a shared rule,
+owns a lifecycle, isolates unsafe input, or makes a long phase
+understandable. Caller count alone does not decide.
 
-Establish the starting state of target files so your changes remain
-distinguishable from existing edits. Before editing, briefly name the unnecessary
-complexity, why the proposed shape is better, and any material tradeoff. A routine
-finding needs a short progress update, not a mandatory transcript template or
-proposed diff.
+For Svelte inputs, use
+[input ownership](../svelte/references/input-ownership.md) to distinguish
+unnecessary copies from unfinished work. Check the
+[template-local examples](../svelte/references/component-ui-patterns.md#template-locals-narrow-reactive-values-before-use)
+before inlining locals that preserve type narrowing.
 
-Apply the change, inspect its callers, and run checks appropriate to the affected
-behavior. Verify external library behavior against official docs or installed
-types when correctness depends on it. When a simplification would reshape or
-reimplement a library's public surface, read
-[library refusal](references/library-refusal.md) first. Re-search removed or renamed symbols and
-clean up stale imports, exports, comments, tests, and documentation as part of
-the same logical change. Preserve coverage for behavior that remains; redundant
-tests can be removed when retained coverage protects the same contract. Then use
-what the change revealed to select the next candidate.
+Judge the complete result. Fewer lines alone are insufficient. Deleting
+a file does not simplify the system if its job is now spread across
+callers. Name what becomes easier to understand or maintain, and account
+for any new work the replacement introduces.
 
-Finish with [post-implementation-review](../post-implementation-review/SKILL.md)
-on the cumulative affected system. Verification failures must be resolved or
-reported with evidence; do not attribute them to the baseline without checking.
+## Carry the change through
 
-## Protect load-bearing information
+Establish the starting state so your changes remain distinguishable from
+existing edits.
 
-Read [durable contracts](references/durable-contracts.md) before editing affected
-storage, sync, auth, or public-contract code, and verify its claims against
-current source. Preserve stored data, unsaved input, and real consumer contracts.
+An implementation pass authorizes routine simplifications within its
+scope. Make those changes without asking about each one. Give short
+updates explaining meaningful findings and changes in direction.
 
-Surface consequential changes that exceed the authorized outcome: product
-behavior, durable formats, externally consumed contracts, or unresolved
-ownership decisions. Existing authorization may already settle the decision;
-do not ask again merely because files merge or an internal signature changes.
-Preserve documented invariants when moving code instead of treating the presence
-of JSDoc as a reason to pause.
+When a simpler design would change a product promise, use
+[product-collapse](../product-collapse/SKILL.md) to develop the experience
+with the user. Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when
+judging whether giving up one small promise would remove much larger
+complexity.
 
-## Finish a useful pass
+Carry settled decisions forward. Bring back consequential choices that
+exceed existing authorization, including changes to stored formats or
+externally consumed contracts. Do not ask again merely because files
+merge or an internal signature changes.
 
-Continue while grounded opportunities remain in the relevant subsystem. Stop
-when further exploration yields no convincing simplifications, remaining changes
-need a consequential decision from the user, or an explicit budget is reached.
-A few unproductive files are evidence to change the search; they are not an
-automatic stopping rule unless the user chose one. Resolve regressions introduced
-by the pass before proceeding to unrelated candidates.
+Implement the connected change through its affected callers. Moving a
+guarantee must not leave an old path that silently loses it. Use
+[clean breaks](../rethink/references/clean-breaks.md) to retire superseded
+paths. Keep temporary compatibility only for a named consumer or
+migration, with a retirement condition.
 
-Report each logical simplification and its files, why it helped, what was
-verified, and any meaningful remaining decision. For a broad pass, show the
-inventory before and after, what disappeared, and why the remaining distinctions
-matter. A review-only pass shows the proposed change. Mention important rejected
-candidates when they prevent repeat work. Use
-[report guidance](references/report-format.md) for a longer campaign; routine
-passes need a concise result.
+Preserve stored data, unfinished input, unrelated work, and real consumer
+contracts. Applied migrations are durable history. Read
+[durable contracts](references/durable-contracts.md) when changing storage,
+sync, auth, or public contracts.
 
-A plain "collapse pass" needs no goal, checkpoint count, or scope form. For a
-sustained campaign, honor any explicit budget or commit preference. Use
-[agent-goal](../agent-goal/SKILL.md) when asked to draft a goal.
+Verify external library behavior against official documentation or
+installed types when correctness depends on it. Read
+[library refusal](references/library-refusal.md) before reshaping or
+reimplementing a library's public surface.
+
+Use [refactoring methods](references/refactoring-methods.md) for local
+techniques and leftover-reference cleanup. Remove obsolete exports,
+comments, tests, and documentation with the replacement. Preserve
+coverage for behavior that remains.
+
+Run checks appropriate to the changed behavior. Resolve failures or
+report them with evidence; do not blame the baseline without checking.
+Fix regressions introduced by the pass before moving to unrelated work.
+Review the cumulative result with
+[post-implementation-review](../post-implementation-review/SKILL.md).
+
+If a change no longer earns its place when reread, undo only that change
+while preserving unrelated and unsaved work.
+
+## Look again, then stop
+
+After a fix works, consider the whole again. Knowing what you know now,
+would you choose these parts and this division of work?
+
+“Another pass” starts from that reassessment. The user's settled intent
+carries forward; earlier implementation choices remain open to question.
+Use previous findings and rejected ideas to choose new places to look.
+Revisit a rejected idea when new evidence changes its justification.
+
+Continue through the relevant subsystem while convincing opportunities
+remain. A few unproductive files are a reason to change the search, not
+an automatic stopping rule.
+
+Stop when further investigation yields no convincing simplification,
+the remaining work needs a consequential decision, or an explicit budget
+is reached. Do not manufacture changes to make a pass look productive.
+
+Report what caused the extra work, what replaced it, what disappeared,
+what was verified, and any remaining decisions. Use
+[report guidance](references/report-format.md) for a longer campaign.
+
+A plain “collapse pass” needs no goal, checkpoint count, or scope form.
+Honor explicit budgets and commit preferences. Use
+[agent-goal](../agent-goal/SKILL.md) when asked to draft a goal. Stage,
+commit, push, or create a PR only when authorized.

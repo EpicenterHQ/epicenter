@@ -1,6 +1,6 @@
 # Static Workspace API Guide
 
-> **Historical: API has moved.** This guide describes `defineWorkspace(...)` + `createWorkspace(definition)`, both of which have since been removed. Workspaces are now composed via `defineDocument((id) => ({ ydoc, tables, ... }))`: one closure that constructs the Y.Doc and calls `attach*` primitives inline. The versioning, schema, and migration patterns described below still apply; only the outer `defineWorkspace` / `createWorkspace` wrapping is gone. See `packages/cli/README.md` and `packages/workspace/README.md` for current composition patterns, and commit `b62cc5ae3` for the removal record.
+> **Historical.** This guide records the retired `defineWorkspace` and `createWorkspace` API. Its successor, `defineDocument`, also belonged to the folder-sync product. To define collections and actions today, see the [app package](../../packages/app/README.md). To run or serve them, see the [CLI](../../packages/cli/README.md).
 
 Type-safe schema definitions and workspace clients for local-first apps with versioned data.
 

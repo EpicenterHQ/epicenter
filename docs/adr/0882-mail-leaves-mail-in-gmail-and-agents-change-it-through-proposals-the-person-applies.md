@@ -3,6 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-11-12
 - **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync fills an account's cache in place, its `meta` saying how complete it is, and no sync removes a message until Gmail says it is gone; every read answers with each account's freshness and never refuses for one account; cache writes commute, so syncs and reads apply history at once and only a full sync takes the account's lock; a sync waits out Gmail's quota and a read does not; `connect` finishes in the terminal it waits in, then copies the account, and answers only once it is searchable.
+- **Amended:** 2026-11-15: Gmail connects from Mail's private HTTPS page on any device. One Web application OAuth client replaces the Desktop client and temporary loopback listener. The browser keeps state and a PKCE verifier in sessionStorage; Google returns to the same static Mail page, which scrubs its query and calls `finish`. The Studio keeps the client secret and refresh tokens. No application login, callback server, or server-side pending-attempt store is added. Authorization finishes before the browser starts the existing resumable sync. Changing OAuth client requires reconnecting each account once, preserving caches and proposals.
+- **Amended:** 2026-11-15: Mail shows one row per account and conversation. The person uses Archive, Read/Unread, and Move to Trash directly in its reader. These explicit choices create no proposal; Gmail holds their result. Proposals remain agent suggestions requiring review. Both paths share one live message operation. Reader actions capture the displayed message ids, leave later replies alone, and update cached labels using Gmail's message version without advancing the history cursor. Message search remains available to agents.
+- **Amended:** 2026-11-15: The Studio owns each browser-started download through the existing experimental action-run API. Mail starts one `sync` run per account and observes its yielded progress. Closing the page stops only observation; reopening the same browser attaches to its pending receipts without starting another copy. Pause explicitly cancels the host run, including Gmail quota waits. The account's resumable cache survives an interrupted host, but restarting the server does not automatically rerun the action. Mail adds no job store or schedule.
 - **Amended:** 2026-11-13: the review UI reads account caches, binds approval to the reviewed file and selected ids, and keeps outside edits behind a new review.
 - **Amended:** 2026-11-13: Mail opens the inbox, with account and label selection, bounded search pages, and a plain-text conversation reader; proposal review stays intact across reading and workspace switches. Read catch-up cancels after three seconds per account and answers from the cache.
 - **Unbuilt:** `draft`. Built: `connect`, `sync`, `status`, `mailboxes`, `search`, `thread`, proposals, `apply`, the mailbox UI, and the proposal review UI, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
@@ -26,11 +29,12 @@ Gmail on every read makes each agent query a network call.
 ## Decision
 
 **Gmail is the authority for mail. Mail keeps a cache of each account that is
-never committed, and commits only what the person or an agent decided.**
+never committed. Agent proposals and their reviewed outcomes are committed;
+the person's direct reader actions leave their result in Gmail.**
 
 ```txt
 ~/Epicenter/apps/mail/
-  epicenter.ts  package.json  ui/            the code repository
+  code/                                     epicenter.ts, package.json, ui/
   data/
     google.local.md                          the person's OAuth client, one for every account
     accounts/
@@ -54,21 +58,33 @@ the only code that knows the provider. Its `meta` says how far to trust it:
 complete through, and `filling`, present while a full sync runs, is `first`
 (partial) or `refill` (complete through `cursor`, some rows newer).
 
-- **`epicenter mail connect`** signs one Gmail account in on the computer that
-  runs `serve`, in a terminal there. It starts Google's consent for the
-  person's own OAuth client (ADR-0847), a Desktop-app client, asking once for
-  `gmail.modify`, which covers every later step, with a PKCE verifier it keeps
-  in memory, and redirects to `http://127.0.0.1:<port>/`. When the browser runs
-  on that computer, or reaches it through `ssh -L`, `connect` receives the code
-  on that port. From any other browser the redirect fails to load, and the
-  person pastes the address it landed on into the terminal `connect` waits in.
-  `connect` exchanges the code, learns the account's address, and writes the
-  refresh token to `data/accounts/gmail-<address>.local.md`, made or replaced;
-  then it copies that account, and answers only once the account is
-  searchable; a copy that stops keeps the sign-in, and `sync` finishes it. Connecting an account again replaces its sign-in and keeps its cache.
-  The author's client is the Desktop-app client in Infisical at
-  `/apps/local-mail` (`VITE_GMAIL_CLIENT_ID`, `VITE_GMAIL_CLIENT_SECRET`),
-  copied into `data/google.local.md`; nothing reads Infisical at run time.
+- **Connect Gmail and Reconnect live in Mail's browser UI.** One Web application
+  OAuth client registers the home's exact private HTTPS Mail address, including
+  its trailing slash. Tailscale Serve can expose that page to the person's
+  devices without exposing it publicly. `connect` takes the browser's random
+  state and S256 PKCE challenge and returns Google's consent address. The
+  browser keeps its verifier, expected account, and ten-minute expiry in
+  sessionStorage. On Google's return, Mail removes the authorization query,
+  checks and consumes the matching attempt, and calls `finish` with the code
+  and verifier. The Studio exchanges it with the configured client and return
+  address, verifies the granted scope and actual mailbox address, and saves
+  only that account's refresh token and issuing client id. A reconnect to a
+  different address is refused before saving. Google owns single-use code
+  consumption; Mail keeps no server-side pending sign-in record. The page
+  sends no referrer and loads no third-party resources. The phone needs only
+  its browser and access to the Studio, with no SSH port forwarding.
+  `finish` returns before downloading. The browser then starts one Studio-owned
+  `sync` run for that account and observes the action's yielded progress.
+  Accepted work continues after the tab closes. The existing run client keeps
+  a browser-local receipt; returning attaches to that id and replays progress
+  or the final result. Pause explicitly cancels the host run. Another browser
+  sees account-level progress from the cache but has no receipt for Pause.
+  The host owns its event log outside Git; Mail keeps no job database or
+  timer. A server restart interrupts the run without rerunning it. Continue
+  download resumes its saved cache. Reconnect never deletes a
+  cache or a proposal. The former interactive terminal command, temporary
+  listener, and paste-URL path are removed. A new OAuth client requires a
+  one-time reconnect for every existing mailbox; its files remain readable.
 - **`epicenter mail sync`** brings each account's cache up to date. An
   account's first sync lists every message and fetches each page's messages
   as it lists them, into the cache, so recent mail is searchable first; a
@@ -91,10 +107,11 @@ complete through, and `filling`, present while a full sync runs, is `first`
   (ADR-0879), reads Gmail, and writes only `.local` files, so it commits
   nothing.
 - **Reads catch up; nothing syncs on a schedule** (ADR-0849).
-  `epicenter mail search <query>` and `epicenter mail thread <id>` first apply
+  `epicenter mail search '{"query":"is:unread"}'` and
+  `epicenter mail thread '{"id":"<id>"}'` first apply
   Gmail's history since each account's last sync, one request an account when
   nothing changed, then answer from the caches: every account, or the one
-  `--account <address>` names, each row naming its account. A read never
+  named by the optional `account` input, each row naming its account. A read never
   starts a full sync and never refuses because of one account: it answers
   with each account's freshness, when its cache last synced, whether it is
   complete, and why it may be behind, with what to run. Catch-up has a
@@ -130,7 +147,23 @@ complete through, and `filling`, present while a full sync runs, is `first`
   only a Gmail message id: the UI shows each message's sender and subject
   from that account's cache, so no email text is committed and a line cannot
   claim to be a message it is not.
-- **`epicenter mail apply <proposal>`** is the only action that changes Gmail.
+- **The person changes a conversation directly in the reader.** `change`
+  requires one account, one thread, a verb, and the displayed message ids.
+  It validates the complete selection against that account's cache before
+  contacting Gmail, verifies the signed-in address, then checks each message's
+  live state before changing it. A later reply is never added to the selection.
+  Archive removes Inbox from the shown messages. Mark read clears Unread;
+  Mark unread marks the newest shown received message, or the newest non-draft
+  message if all are sent. Move to Trash asks for confirmation. Drafts are
+  left alone. These choices create no proposal file or committed click record.
+  The shared message operation also serves `apply`, which retains its file
+  recheck between reading live state and sending a change. Reader changes
+  update cached labels using Gmail's message version without changing the
+  history cursor or sync time, so an older concurrent sync cannot undo them.
+  A write response without a version is fetched again before caching.
+  Partial failures retain completed changes and offer a retry. Interactive
+  actions report quota failures instead of waiting indefinitely.
+- **`epicenter mail apply '{"time":"<time>"}'`** applies an agent's reviewed suggestion.
   It runs the proposal's verb on its listed messages, signed in as the
   proposal's account, and refuses a proposal whose account Mail is not
   signed in to. It skips a message whose
@@ -150,7 +183,7 @@ complete through, and `filling`, present while a full sync runs, is `first`
   Rejecting a proposal deletes its file; its commit keeps what was proposed.
   Rejecting does not undo completed Gmail changes.
 - **Mail is one app with a mailbox and proposal review.** The mailbox is its
-  front door: account choice, inbox and other mail views, search, and full
+  front door: All accounts, an account filter, inbox and other views, search, and full
   thread reading over the same caches the proposal previews use. Proposals
   are another view in that app. Opening mail does not mark it read or change
   Gmail. A proposal's message can open in the reader and return to the same
@@ -159,8 +192,11 @@ complete through, and `filling`, present while a full sync runs, is `first`
   Mail restores its open conversation and originating list. Clicked labels
   match exact names in each account, independently of typed Gmail search
   syntax. The first reader uses the plain text the
-  cache already holds; formatted HTML and manual triage controls need later
-  decisions.
+  cache already holds. Its lists group matching messages before paging, using
+  the newest match as the row and combining matching unread state and labels.
+  A search cursor belongs to its message or conversation mode. The reader's
+  controls act directly; the proposal reader remains a review preview.
+  Formatted HTML needs a later decision.
 - **The proposal review UI** at `/mail/` groups pending proposals by run and folds
   applied records away. `review` and `preview` read local caches only, join
   ids within the named account, and show cache completeness and when it last
@@ -173,10 +209,11 @@ complete through, and `filling`, present while a full sync runs, is `first`
   dispatch; there is no cancellation, polling, or persistent job record.
   A reload recovers outcomes from the proposal file. Fully resolved records
   show outcomes without Apply or Reject controls.
-- **Agents never apply.** The `epicenter-app` skill and Mail's README say so;
+- **Agents never call `apply` or `change`.** They write proposals for review.
+  Mail's action descriptions and README say so;
   `epicenter` does not enforce it, since every action is open to whoever can
   reach the Epicenter (ADR-0880).
-- **Replies are Gmail drafts.** `epicenter mail draft <thread> <text>` creates a
+- **Replies are Gmail drafts.** The proposed `draft` action would create a
   draft in the thread through Gmail's API. Its text stays in Gmail, out of
   `data/`. The person reviews and sends it in Gmail, on any device. Mail has no
   `send` action.
@@ -211,7 +248,7 @@ complete through, and `filling`, present while a full sync runs, is `first`
   undo the change.
 - Mail needs no composer, no outbox, and no send path; a person sends from
   Gmail.
-- "Agents never apply" is guidance. An agent that calls `apply` changes Gmail
+- "Agents never call `apply` or `change`" is guidance. An agent that calls either changes Gmail
   as the person would. If that happens, an action only a person may call is
   the next record.
 - Each person brings a Google OAuth client (ADR-0847). In Google's Testing

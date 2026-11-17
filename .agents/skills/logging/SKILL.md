@@ -1,12 +1,12 @@
 ---
 name: logging
-description: 'wellcrafted/logger for library diagnostics: 5 levels, typed errors, injected sinks, and host-owned durability. Use for attach primitives, background errors, durable host logs, or replacing console.* in library code.'
+description: 'wellcrafted/logger for library diagnostics: 5 levels, typed errors, injected sinks, and host-owned durability. Use for library diagnostics, background errors, durable host logs, or replacing console.* in library code.'
 metadata:
   author: epicenter
   version: '2.2'
 ---
 
-# Workspace Logger
+# Library logging
 
 Structured, level-keyed, field-oriented logging for library code. Modeled on Rust's `tracing`. Completes the `defineErrors` story: errors are structured data; level lives at the call site.
 
@@ -20,15 +20,14 @@ All of it ships from **`wellcrafted/logger`**: `createLogger`, `consoleSink`, `m
 
 ## Quickstart
 
+The [browser OAuth client](../../../packages/account/src/browser-oauth.ts) defaults its `log` parameter to `createLogger('auth/browser-oauth')`. A listener can fail after the client has changed state. Log the failure and continue notifying the remaining listeners.
+
 ```ts
-import { createLogger } from 'wellcrafted/logger';
-
-const log = createLogger('markdown-materializer'); // defaults to consoleSink
-
-log.info('materializer ready');
-
-const result = await writeProjection();
-if (result.error !== null) log.warn(result.error);
+try {
+	listener();
+} catch (cause) {
+	log.error(BrowserOAuthDiagnostic.ListenerFailed({ cause }));
+}
 ```
 
 ## The 5 levels
@@ -51,35 +50,17 @@ tagged variant when the layer owns a stable failure vocabulary.
 
 ## Level is a call-site decision, not a variant property
 
-```ts
-// Right: same error, different levels in different contexts
-log.warn(SyncError.ConnectionFailed({ cause }));  // inside retry loop
-log.error(SyncError.ConnectionFailed({ cause })); // last attempt, giving up
-```
+The [billing client](../../../apps/api/worker/billing/autumn.ts) logs a rejected provider request at `error` when the provider reports a client-side failure. A transient provider or transport failure goes to `warn`. Both paths return `BillingError.ProviderRequestFailed()` to the caller.
 
 Do NOT attach a `severity` to `defineErrors` variants. That's `miette`'s pattern; `tracing`, `log`, and every production Rust logger put level on the call. Context-dependent data belongs at the context.
 
-## The dominant call-site shape
+## Log where the failure is understood
 
-In epicenter, the typical pattern is **branch on the Result, log inside the branch, then take action**. The Result's data is usually needed on the Ok branch, so a chain combinator wouldn't earn its keep:
-
-```ts
-const walResult = trySync({
-  try: () => db.query('PRAGMA journal_mode = WAL').get(),
-  catch: (cause) => SqliteWriterError.PragmaSetupFailed({ pragma: 'WAL', cause }),
-});
-if (walResult.error !== null) {
-  log.warn(walResult.error);
-} else if (walResult.data !== 'wal') {
-  log.warn(SqliteWriterError.WalSilentFallback({ actualMode: walResult.data }));
-}
-```
-
-You can also mint-and-log a tagged variant directly inside a `.catch` tail when there's no Result to branch on:
+When a call returns a Result, branch on `result.error` if the caller also needs to act on the success value. For a background operation with no awaiting caller, handle the rejection where the work starts. The [browser OAuth client](../../../packages/account/src/browser-oauth.ts) records why automatic renewal failed:
 
 ```ts
-}).catch((cause) => {
-  log.warn(MaterializerWriteError.TableWriteFailed({ tableName, cause }));
+void authorizeOnce(true).catch((cause) => {
+	log.error(BrowserOAuthDiagnostic.RenewalFailed({ cause }));
 });
 ```
 
@@ -99,7 +80,7 @@ Whispering did exactly this and grew a parallel `log` whose `warn(error: Error, 
 
 Mint a `defineErrors` variant instead, owned by the module that owns the failure.
 
-**The tell to watch for**: a boundary that types a failure callback as `(cause: unknown)` and ships no vocabulary with it. Every implementer must then invent a message, and `new Error` is the shortest way. If you declare such a callback, export the variants for it from the same file:
+**The tell to watch for**: a boundary that types a failure callback as `(cause: unknown)` and ships no vocabulary with it. Every implementer must then invent a message, and `new Error` is the shortest way. If you declare such a callback, export its variants from the same file. An earlier Whispering callback illustrates the contract:
 
 ```ts
 export const WhisperingBackgroundError = defineErrors({
@@ -128,11 +109,11 @@ Minting a variant is not the same as publishing one. Two kinds:
 |---|---|---|
 | Who sees it | Consumers, who branch on `.name` | A log sink |
 | Export it? | Yes; renaming a variant is a breaking change | No, `const` at module scope |
-| Examples | `ReplicaError`, `DocumentPullError`, `DataReadError` | `SyncSupervisorError`, `BrowserWorkerError`, `ObservationCarrierError` |
+| Examples | `AuthError.StartSignInFailed` | `BrowserOAuthDiagnostic.ListenerFailed` |
 
 Exporting a log-only set publishes a name no one can import for a reason and freezes a string you should stay free to reword. Keep log-only sets private for exactly this; only errors that leave in a `Result` are in the published failure surface. Export a log-only set solely when a second file in the same package logs the same failure, and even then, only within the package.
 
-**Name the variant key for the log line, not for the set.** `defineErrors` stamps `name` from the key alone; the `const` you assign the set to never reaches the sink. `createLogger`'s `source` supplies the namespace, so `[data/sync] { name: 'StatusSubscriberThrew' }` reads fine and the key stays short.
+**Name the variant key for the log line, not for the set.** `defineErrors` stamps `name` from the key alone; the `const` you assign the set to never reaches the sink. `createLogger`'s `source` supplies the namespace, so `[auth/browser-oauth] { name: 'ListenerFailed' }` reads fine and the key stays short.
 
 **Prefer a field over interpolation.** `` new Error(`could not ${what}`) `` produces a message no two calls share. `ContainedStepFailed({ step: what, cause })` gives one constant message and a structured `step`.
 
@@ -140,16 +121,7 @@ Exporting a log-only set publishes a name no one can import for a reason and fre
 
 `log.warn(Variant({ cause }))` passes the `Err` wrapper, and `createLogger` unwraps it. A hand-narrowed reporter type does not:
 
-```ts
-// packages/lens: deliberately not `Logger`, so published declarations never
-// reach AsyncDisposable and never dictate a consumer's logging stack
-export type InvalidationErrorReporter = { error(error: unknown): void };
-```
-
-Anything reaching a reporter like this must be plain readable data, so extract
-the error payload at the call site: `log.error(ObservationCarrierError.FrameNotText().error)`.
-A stranger's `{ error(e) { ... } }` then reads `name`, `message`, and `cause`
-off the object instead of finding a wrapper.
+An earlier `packages/lens` API accepted only `{ error(error: unknown): void }`. The reporter could read `name`, `message`, and `cause` directly when the caller passed `variant.error`. When maintaining a reporter with this contract, unwrap the Result before calling it.
 
 ## Sinks
 
@@ -199,33 +171,7 @@ Do NOT assert on `console.*` output. Inject a `memorySink` and inspect the event
 
 ## DI, not globals
 
-No module-level logger registry. No `setDefaultLogger()`. Each attach primitive takes an optional `log?: Logger` option and defaults to `createLogger(<source>)` (console sink). Caller wires sinks explicitly.
-
-```ts
-const markdown = attachMarkdownExport(workspace, { dir, tables, log });
-const sqlite = attachBunSqliteMaterializer(workspace, { filePath, log });
-const collaboration = openCollaboration(workspace.ydoc, {
-	url,
-	openWebSocket,
-	onReconnectSignal,
-	log,
-});
-```
-
-Share one sink across loggers when you build a custom one:
-
-```ts
-const sink = composeSinks(consoleSink, myCustomSink);
-const markdown = attachMarkdownExport(workspace, {
-	dir,
-	tables,
-	log: createLogger('workspace/markdown', sink),
-});
-const sqlite = attachBunSqliteMaterializer(workspace, {
-	filePath,
-	log: createLogger('workspace/sqlite', sink),
-});
-```
+Let the caller supply a logger when it needs a different sink. The [OAuth tests](../../../packages/account/src/browser-oauth.test.ts) give each test world its own `memorySink()` and pass `log: createLogger('auth/browser-oauth', logs.sink)` to the client options. Opening two tabs in that world sends both clients’ events to the same sink. A separate test world gets its own event list.
 
 ## Browser
 
