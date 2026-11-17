@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Amends:** [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) at "A UI is optional and any framework": a UI no longer runs as it sits on disk; actions still do. [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) at `serve` building `ui/dist/` and `epicenter build`. [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) and [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) at `epicenter build`. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at "build, fingerprint, and serve `ui/dist/`".
+- **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at "build, fingerprint, and serve `ui/dist/`": `serve` serves `ui/dist/` as the app's own build left it. ADR-0854, ADR-0860, ADR-0868, and ADR-0880 are Proposed and were edited in place: a UI no longer runs as it sits on disk; actions still do.
 - **Relates:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) (one workspace, so one `bun run build` reaches every app), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the same move for keeping serve running).
 
 ## Context
@@ -34,7 +34,8 @@ with its own scripts. Bun already builds a page from an `index.html`, and
 - `epicenter new` runs a copied app's `bun run build` after installing, so its
   page opens straight away.
 - A page load for an app with `ui/` and no `ui/dist/index.html` answers 404
-  with `Run: cd <code> && bun run build`.
+  with `Run: cd <code> && bun run build`, and `new` prints the same line for a
+  copied UI it could not build.
 - `epicenter build` is removed.
 
 ## Consequences
@@ -45,8 +46,9 @@ with its own scripts. Bun already builds a page from an `index.html`, and
 - A UI bundles `@epicenter/app/client`. After upgrading Epicenter, `bun run
   build` at the top rebuilds every UI against the new client; until then a
   page may speak an older protocol than its `serve`.
-- A build writes into `ui/dist/` in place, so a page loaded during a build can
-  see half of it. Reloading after the build fixes it.
+- A build writes into `ui/dist/` in place, and Tasks' build empties it first,
+  so a page loaded during a build may find it missing or partial. Reloading
+  after the build fixes it.
 - Epicenter keeps no stamp, fingerprint, or failure memory for UIs.
 - `new` runs copied code's `build` script when it copies the app, not when its
   page first opens. The code is its owner's to trust (ADR-0864), and
@@ -54,7 +56,7 @@ with its own scripts. Bun already builds a page from an `index.html`, and
 - A home made before this change has no `build` script at its top, and an app
   whose UI was a bare `ui/index.html` has none of its own. Add
   `"build": "bun run --filter '*' --if-present build"` to the home's
-  `package.json` and a `build` to each such app; the 404 page names the line.
+  `package.json`, and a `build` like the plain page's line to each such app.
   `init` does not rewrite an existing `AGENTS.md`, so an older home's copy
   still says serve rebuilds until it is refreshed by hand.
 
