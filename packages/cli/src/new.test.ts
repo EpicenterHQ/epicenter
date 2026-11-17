@@ -25,6 +25,18 @@ async function setup() {
 	return f;
 }
 
+/** Point a GitHub repository at a local one, through Git's own URL rewriting. */
+function github(
+	f: Awaited<ReturnType<typeof setup>>,
+	repo: string,
+	path: string,
+) {
+	const n = Number(f.env.GIT_CONFIG_COUNT ?? 0);
+	f.env[`GIT_CONFIG_KEY_${n}`] = `url.file://${path}.insteadOf`;
+	f.env[`GIT_CONFIG_VALUE_${n}`] = `https://github.com/${repo}.git`;
+	f.env.GIT_CONFIG_COUNT = String(n + 1);
+}
+
 async function noNestedGit(folder: string): Promise<void> {
 	const { readdir } = await import('node:fs/promises');
 	for (const entry of await readdir(folder, { withFileTypes: true })) {
@@ -91,8 +103,8 @@ test('new creates code and empty data without repositories and refuses taken and
 
 for (const form of [
 	'root',
-	'url-root',
-	'url-folder',
+	'github-root',
+	'github-folder',
 	'local-folder',
 	'container',
 ] as const) {
@@ -100,7 +112,7 @@ for (const form of [
 		const f = await setup();
 		const source = join(f.root, 'source');
 		const prefix =
-			form === 'root' || form === 'url-root'
+			form === 'root' || form === 'github-root'
 				? ''
 				: form === 'container'
 					? 'apps/x/code/'
@@ -126,20 +138,22 @@ for (const form of [
 			join(source, prefix, 'epicenter.ts'),
 			'uncommitted bad code',
 		);
+		github(f, 'owner/source', source);
 		const from =
-			form === 'url-root'
-				? `file://${source}`
-				: form === 'root'
-					? source
-					: form === 'local-folder'
-						? join(source, 'sub/folder')
-						: `file://${source}#${form === 'container' ? 'apps/x' : 'sub/folder'}`;
+			form === 'github-root'
+				? 'owner/source'
+				: form === 'github-folder'
+					? 'owner/source/sub/folder'
+					: form === 'root'
+						? source
+						: join(source, form === 'container' ? 'apps/x' : 'sub/folder');
+		const local = !form.startsWith('github');
 		const result = await f.run('new', 'copy', '--from', from, '--json');
 		expect(result).toMatchObject({ code: 0 });
-		expect(JSON.parse(result.stdout).source).toEqual({
-			commit: await gitIn(source, 'rev-parse', 'HEAD'),
-			notCopied: ['epicenter.ts', 'tool.sh'],
-		});
+		const commit = await gitIn(source, 'rev-parse', 'HEAD');
+		expect(JSON.parse(result.stdout).source).toEqual(
+			local ? { commit, notCopied: ['epicenter.ts', 'tool.sh'] } : { commit },
+		);
 		const dest = join(f.apps, 'copy');
 		expect(await readFile(join(dest, 'code/epicenter.ts'), 'utf8')).toBe(code);
 		for (const path of [
@@ -152,7 +166,7 @@ for (const form of [
 			expect(await Bun.file(join(dest, path)).exists()).toBe(false);
 		expect((await lstat(join(dest, 'code/tool.sh'))).mode & 0o111).not.toBe(0);
 		expect(await readFile(join(dest, 'code/SOURCE.md'), 'utf8')).toContain(
-			`Source: ${from}\nSource-Commit:`,
+			`Repository: ${local ? await realpath(source) : 'https://github.com/owner/source'}\nFolder: ${prefix.replace(/\/$/, '') || '.'}\nCommit: ${commit}\n`,
 		);
 		expect((await f.run('install', 'copy')).code).toBe(0);
 		expect((await f.run('build', 'copy')).code).toBe(0);
@@ -278,7 +292,7 @@ test('source warnings include staged, deleted, and untracked code while excludin
 	expect(text.stderr).toContain('"new file\\n雪.ts"');
 });
 
-test('excluded changes do not warn and a bare repository has no working tree report', async () => {
+test('excluded changes do not warn and a GitHub folder has no working tree report', async () => {
 	const f = await setup();
 	const source = join(f.root, 'source');
 	await f.folder(
@@ -298,11 +312,12 @@ test('excluded changes do not warn and a bare repository has no working tree rep
 	expect(JSON.parse(clean.stdout).source.notCopied).toEqual([]);
 	const bare = join(f.root, 'source.git');
 	await gitIn(f.root, 'clone', '--bare', source, bare);
+	github(f, 'owner/bare', bare);
 	const remote = await f.run(
 		'new',
 		'from-bare',
 		'--from',
-		`file://${bare}`,
+		'owner/bare',
 		'--json',
 	);
 	expect(remote.code).toBe(0);
@@ -383,7 +398,7 @@ for (const hasTheme of [true, false]) {
 			'new',
 			'copy',
 			'--from',
-			`file://${source}#apps/x`,
+			join(source, 'apps/x'),
 			'--json',
 		);
 		expect(result.code).toBe(0);
@@ -426,8 +441,98 @@ test('copy failure removes only the created container and reports the source fol
 	);
 	const failed = await f.run('new', 'copy', '--from', source, '--json');
 	expect(failed.code).toBe(2);
-	expect(failed.stdout).toContain('#<folder>');
+	expect(failed.stdout).toContain(
+		"has no epicenter.ts that Git tracks; name the app's folder",
+	);
 	expect(await Bun.file(join(f.apps, 'copy')).exists()).toBe(false);
+});
+
+test('a folder holding several apps lists them and names one', async () => {
+	const f = await setup();
+	const app = (description: string) =>
+		`${header}export default defineApp({description:'${description}',collections:{},actions:{}});`;
+	const source = await f.folder(
+		join(f.root, 'shared'),
+		{
+			'examples/writing/epicenter.ts': app('Writing'),
+			'examples/tasks/code/epicenter.ts': app('Tasks'),
+			'examples/notes.md': 'not an app',
+		},
+		{ git: true },
+	);
+	const local = await f.run('new', 'copy', '--from', join(source, 'examples'));
+	expect(local.code).toBe(2);
+	expect(local.stderr).toContain(
+		`holds 2 apps: tasks, writing. Run: epicenter new copy --from ${join(await realpath(source), 'examples/tasks')}`,
+	);
+	await gitIn(source, 'tag', 'v1');
+	github(f, 'owner/shared', source);
+	const remote = await f.run(
+		'new',
+		'copy',
+		'--from',
+		'owner/shared/examples#v1',
+	);
+	expect(remote.code).toBe(2);
+	expect(remote.stderr).toContain(
+		'Run: epicenter new copy --from owner/shared/examples/tasks#v1',
+	);
+	expect(await Bun.file(join(f.apps, 'copy')).exists()).toBe(false);
+});
+
+test('a GitHub folder is copied at a branch, a tag, or a full commit', async () => {
+	const f = await setup();
+	const app = (description: string) =>
+		`${header}export default defineApp({description:'${description}',collections:{},actions:{}});`;
+	const source = await f.folder(
+		join(f.root, 'versions'),
+		{ 'apps/journal/epicenter.ts': app('First') },
+		{ git: true },
+	);
+	const first = await gitIn(source, 'rev-parse', 'HEAD');
+	await gitIn(source, 'tag', 'v1');
+	await gitIn(source, 'checkout', '-qb', 'feature/second');
+	await writeFile(join(source, 'apps/journal/epicenter.ts'), app('Second'));
+	await gitIn(source, 'commit', '-qam', 'second');
+	const second = await gitIn(source, 'rev-parse', 'HEAD');
+	await gitIn(source, 'checkout', '-q', '-');
+	github(f, 'owner/versions', source);
+	for (const [name, ref, commit] of [
+		['tagged', 'v1', first],
+		['branched', 'feature/second', second],
+		['pinned', first, first],
+	] as const) {
+		const made = await f.run(
+			'new',
+			name,
+			'--from',
+			`owner/versions/apps/journal#${ref}`,
+			'--json',
+		);
+		expect(made.code).toBe(0);
+		expect(JSON.parse(made.stdout).source).toEqual({ commit });
+		expect(
+			await readFile(join(f.apps, name, 'code/SOURCE.md'), 'utf8'),
+		).toContain(`Folder: apps/journal\nRef: ${ref}\nCommit: ${commit}\n`);
+	}
+});
+
+test('--from refuses addresses that are neither a path nor a GitHub folder', async () => {
+	const f = await setup();
+	for (const [from, hint] of [
+		[
+			'https://gitlab.com/someone/apps.git',
+			'clone https://gitlab.com/someone/apps.git with git clone',
+		],
+		['git@github.com:someone/apps.git', 'with git clone'],
+		['writing', 'write a folder on disk as ./writing'],
+		['owner/repo/../escape', 'without ..'],
+		['owner/repo#', 'names no ref after #'],
+	] as const) {
+		const refused = await f.run('new', 'copy', '--from', from);
+		expect(refused.code).toBe(2);
+		expect(refused.stderr).toContain(hint);
+	}
 });
 
 test('new --from keeps folder pathspecs literal and filenames with tabs and newlines intact', async () => {
@@ -448,7 +553,7 @@ test('new --from keeps folder pathspecs literal and filenames with tabs and newl
 		'new',
 		'copy',
 		'--from',
-		`file://${source}#${prefix}`,
+		join(source, prefix),
 		'--json',
 	);
 	expect(run.code).toBe(0);
@@ -479,7 +584,7 @@ test('new --from descends into a code container and preserves a linked declarati
 		'new',
 		'copy',
 		'--from',
-		`file://${source}#apps/original`,
+		join(source, 'apps/original'),
 		'--json',
 	);
 	expect(run.code).toBe(0);

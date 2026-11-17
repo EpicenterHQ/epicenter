@@ -60,13 +60,13 @@ jobs:
         run: codesign --verify packages/cli/dist/release/epicenter-${{ matrix.target }}
       - name: Try onboarding in a fresh home
         env:
-          EPICENTER_SMOKE_SOURCE: file://${{ github.workspace }}#examples/writing
+          EPICENTER_SMOKE_SOURCE: ${{ github.workspace }}/examples/writing
         run: bun packages/cli/scripts/smoke-release.ts packages/cli/dist/release "$EPICENTER_SMOKE_SOURCE"
       - name: Try the published installer without credentials
         if: inputs.verify-published
         run: |
           version=$(bun -e 'console.log((await Bun.file("packages/cli/package.json").json()).version)')
-          bun packages/cli/scripts/smoke-release.ts packages/cli/dist/release 'https://github.com/EpicenterHQ/epicenter#examples/writing' "https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v$version"
+          bun packages/cli/scripts/smoke-release.ts packages/cli/dist/release EpicenterHQ/epicenter/examples/writing "https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v$version"
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
@@ -100,7 +100,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Try Writing from the public default branch before creating the draft
-        run: bun packages/cli/scripts/smoke-release.ts release-assets 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+        run: bun packages/cli/scripts/smoke-release.ts release-assets EpicenterHQ/epicenter/examples/writing
       - name: Create draft with verified downloads
         env:
           GH_TOKEN: ${{ github.token }}

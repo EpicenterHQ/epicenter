@@ -20,10 +20,13 @@ With --from, clone the root repository and install each app's code packages.
 The destination must be missing or empty. Epicenters cannot nest.`,
 	},
 	new: {
-		usage: 'epicenter new <name> [--from <git url|path>]',
+		usage:
+			'epicenter new <name> [--from <folder> | --from <owner/repo/folder>[#<ref>]]',
 		help: `Makes apps/<name>/code/ from blank code or committed source code and creates empty data/.
-With --from <path|url>[#<folder>], copy the selected app's code without its Git history or records.
-Copies the source commit, not its working files; local differences are reported and left out.
+With --from, copy one app's code without its Git history or records, from a folder in a Git
+checkout (a path: /, ./, ../, ~/) or a folder on GitHub at a branch, tag, or full commit.
+To copy from another host, clone it first. Copies the source commit, not its working files;
+local differences are reported and left out.
 serve builds code/ui/ when it is opened.`,
 	},
 	export: {

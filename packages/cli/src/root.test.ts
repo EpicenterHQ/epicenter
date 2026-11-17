@@ -62,7 +62,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	const shown = await f.run('init', join(f.root, 'shown'));
 	expect(shown.stdout).toContain(`Made Epicenter at ${join(f.root, 'shown')}`);
 	expect(shown.stderr).toBe(
-		"Run: epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'\n",
+		'Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing\n',
 	);
 	// A folder that already holds an app is pointed at its listing instead.
 	const holding = join(f.root, 'holding');

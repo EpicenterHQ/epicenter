@@ -4,6 +4,7 @@
 - **Date:** 2026-11-15
 - **Amends:** [ADR-0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) at "Every starter is a repository of its own": shared app code can be an exported folder in a public repository.
 - **Unbuilt:** publishing the exported Writing code and CLI downloads.
+- **Amended by:** [ADR-0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md): `--from` takes a folder on disk or `owner/repo/folder#ref` on GitHub, and `SOURCE.md` records repository, folder, ref, and commit as fields.
 
 ## Context
 

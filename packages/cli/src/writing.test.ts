@@ -21,7 +21,7 @@ test('an exported writing app copied as journal captures and finds text, sources
 					'new',
 					'journal',
 					'--from',
-					`file://${await writingSource(f)}#writing`,
+					join(await writingSource(f), 'writing'),
 				)
 			).code,
 		).toBe(0);
@@ -69,7 +69,7 @@ test('an exported writing app copied as journal captures and finds text, sources
 		expect((await f.run('build', 'journal')).code).toBe(0);
 		expect(
 			await readFile(join(f.apps, 'journal/code/SOURCE.md'), 'utf8'),
-		).toContain('Source-Commit:');
+		).toMatch(/^Commit: [0-9a-f]{40}$/m);
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}
@@ -84,7 +84,7 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 					'new',
 					'writing',
 					'--from',
-					`file://${await writingSource(f)}#writing`,
+					join(await writingSource(f), 'writing'),
 				)
 			).code,
 		).toBe(0);

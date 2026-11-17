@@ -8,7 +8,7 @@ Use the latest Epicenter CLI for a new home. Writing runs on 0.2.0 or later.
 To add Writing to your home, run
 
 ```sh
-epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+epicenter new writing --from EpicenterHQ/epicenter/examples/writing
 epicenter serve
 ```
 

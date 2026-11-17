@@ -103,7 +103,7 @@ try {
 		join(folder, 'apps/writing/code/SOURCE.md'),
 		'utf8',
 	);
-	if (!/Source-Commit: [a-f0-9]{40}/.test(provenance))
+	if (!/^Commit: [a-f0-9]{40}$/m.test(provenance))
 		throw new Error('Missing source provenance');
 	const answer = JSON.parse(
 		await run(

@@ -48,6 +48,6 @@ case ":$PATH:" in *":$install_dir:"*) command_name=epicenter ;; *)
 printf '\nNext, with Git user.name and user.email configured:\n'
 printf '  "%s" init "$HOME/Epicenter"\n' "$command_name"
 printf '  cd "$HOME/Epicenter"\n'
-printf "  \"%s\" new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'\n" "$command_name"
+printf "  \"%s\" new writing --from EpicenterHQ/epicenter/examples/writing\n" "$command_name"
 printf '  "%s" serve\n' "$command_name"
 printf '\nOpen http://127.0.0.1:4747/writing/ while serve runs. MCP: http://127.0.0.1:4747/\n'

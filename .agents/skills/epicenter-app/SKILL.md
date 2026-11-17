@@ -34,9 +34,12 @@ such as one per person. `epicenter serve` offers MCP at `/` and each UI at
       google.local.md           this computer only
 ```
 
-`new --from <path|url>[#folder]` copies committed code into a new container's
-`code/`, without records, Git history, or a remote. It accepts a repository
-root, a subfolder, or an app container's code subtree. Provenance is in
+`new --from` copies committed code into a new container's `code/`, without
+records, Git history, or a remote. It takes a folder in a Git checkout, written
+as a path (`./shared/tasks`, `~/Code/apps/tasks`), or a folder on GitHub,
+written `owner/repo/folder#ref` (`#ref` optional: branch, tag, or full commit).
+For any other host, clone first and pass the folder. The folder may be a
+repository root, a subfolder, or an app container's code subtree. Provenance is in
 `code/SOURCE.md`. Later source changes are work for the app's owner; there is
 no merge-based updater. A copied symlink stays a link. For example,
 `code/ui/src/theme.css -> ../../../../../theme.css` uses the destination's palette.
@@ -506,12 +509,12 @@ bun test ./epicenter.test.ts                # from code/: actions over memory
 source_path=/absolute/path/to/source        # choose a repository or subfolder
 test_home=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitconfig"
-HOME="$test_home" epicenter init "$test_home/Epicenter"
+HOME="$test_home" epicenter init "$test_home/Epicenter" --port 4799
 cd "$test_home/Epicenter"
 HOME="$test_home" epicenter new example --from "$source_path"
 HOME="$test_home" epicenter build example
 HOME="$test_home" epicenter example --help
-HOME="$test_home" epicenter serve --port 4799   # drive /example/ in this test home
+HOME="$test_home" epicenter serve               # drive /example/ on port 4799
 ```
 
 In the monorepo, the source CLI is `bun <repo>/packages/cli/src/bin.ts`.
@@ -523,7 +526,7 @@ Run tests one file or package at a time.
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
-- `epicenter new <app> --from <path|url>[#folder]` takes committed code into
+- `epicenter new <app> --from <folder | owner/repo/folder#ref>` takes committed code into
   apps/<app>/code/ and creates empty data/. It installs but does not build;
   run `epicenter build <app>` to check it before opening its page.
 - To adapt later code, inspect a committed copy in a temporary home, then
@@ -586,7 +589,7 @@ Exporting files does not commit them to the publication repository.
 To publish several apps, `epicenter export --all ~/Code/shared-apps/apps`
 generates one child per committed app under `apps/`. A recipient can copy one
 published app with
-`epicenter new tasks --from https://github.com/OWNER/shared-apps#apps/tasks`,
+`epicenter new tasks --from OWNER/shared-apps/apps/tasks`,
 replacing `OWNER` with the publication owner's username. See
 [the CLI's export contract](../../../packages/cli/README.md#export-app-code)
 for destination rules, shared files, and symlinks.

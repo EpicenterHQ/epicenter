@@ -502,7 +502,7 @@ test('an exported collection is accepted by new --from and does not copy the exp
 		'new',
 		'copy',
 		'--from',
-		`file://${f.output}#apps/tasks`,
+		join(f.output, 'apps/tasks'),
 		'--json',
 	);
 	expect(copied.code).toBe(0);
