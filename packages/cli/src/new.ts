@@ -12,17 +12,17 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { extractErrorMessage } from 'wellcrafted/error';
 import {
 	checkoutCodeFiles,
 	isCopiedCodePath,
 	readCodeFiles,
 } from './code-copy.ts';
 import { misuse, nameProblem, parseWords } from './commands.ts';
-import { ENGINES } from './engines.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
-import { installApp } from './install.ts';
+import { type InstallProblem, installHome } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { appsDir, epicenterDir, epicenterRoot, folderPath } from './root.ts';
 import { uiSource } from './ui.ts';
@@ -67,7 +67,7 @@ async function locateSource(
 		if (located.code !== 0)
 			return {
 				error: CliError.Usage({
-					message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run epicenter install <name>`,
+					message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run epicenter install`,
 				}).error,
 			};
 		const [repository = '', prefix = ''] = located.stdout.split('\n');
@@ -123,11 +123,15 @@ async function recordedRepository(source: Source) {
 		: source.repository;
 }
 
-/** Blank app code is one Bun project whose records live beside code/. */
+/**
+ * Blank app code: one package in the home's workspace, named for the app,
+ * whose records live beside code/. It lists no packages: `@epicenter/app`
+ * comes from the home.
+ */
 function blank(name: string) {
 	return {
 		'.gitignore': 'node_modules/\nui/dist/\n',
-		'package.json': `${JSON.stringify({ name, private: true, engines: ENGINES }, null, 2)}\n`,
+		'package.json': `${JSON.stringify({ name, private: true }, null, 2)}\n`,
 		'epicenter.ts': `import { defineApp } from '@epicenter/app';
 
 export default defineApp({
@@ -208,8 +212,8 @@ export async function newCommand(
 		} catch (error) {
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
-		const installed = await installApp(join(appsDir(), name, 'code'), name);
-		if ('error' in installed) return installFailed(name, installed.error, json);
+		const failed = await installHome(epicenterDir());
+		if (failed) return installFailed(name, failed, json);
 		return made(name, json);
 	}
 	const source = await locateSource(from);
@@ -227,9 +231,19 @@ export async function newCommand(
 		if (created) await rm(folder, { recursive: true, force: true });
 		return fail(copied.error, json);
 	}
-	const installed = await installApp(join(folder, 'code'), name);
-	if ('error' in installed)
-		return installFailed(name, installed.error, json, copied);
+	try {
+		await joinWorkspace(join(folder, 'code'), name);
+	} catch (cause) {
+		await rm(folder, { recursive: true, force: true });
+		return fail(
+			CliError.Usage({
+				message: `${from} has a package.json that is not a JSON object: ${extractErrorMessage(cause)}`,
+			}).error,
+			json,
+		);
+	}
+	const failed = await installHome(epicenterDir());
+	if (failed) return installFailed(name, failed, json, copied);
 	const { data: located, error } = await loadHomeApp(name);
 	const loadProblem =
 		error ??
@@ -490,6 +504,54 @@ async function preserveLfs(folder: string, name: string, paths: string[]) {
 	);
 }
 
+/**
+ * Make copied code a package of this home's workspace. Its `package.json` is
+ * named for the app, since two packages in one workspace cannot share a name;
+ * it lists no `@epicenter/app`, which the home supplies as one copy; and its
+ * own `bun.lock` goes, since the home has one lock. Code with no
+ * `package.json` gets the one blank code has.
+ */
+async function joinWorkspace(code: string, name: string) {
+	for (const lock of ['bun.lock', 'bun.lockb'])
+		await rm(join(code, lock), { force: true });
+	const file = join(code, 'package.json');
+	const text = await readFile(file, 'utf8').catch(
+		(error: NodeJS.ErrnoException) => {
+			if (error.code === 'ENOENT') return undefined;
+			throw error;
+		},
+	);
+	if (text === undefined) {
+		await writeFile(file, blank(name)['package.json']);
+		return;
+	}
+	const manifest: unknown = JSON.parse(text);
+	if (
+		typeof manifest !== 'object' ||
+		manifest === null ||
+		Array.isArray(manifest)
+	)
+		throw new Error('it is not an object');
+	const fields = manifest as Record<string, unknown>;
+	for (const key of [
+		'dependencies',
+		'devDependencies',
+		'peerDependencies',
+		'optionalDependencies',
+	]) {
+		const listed = fields[key];
+		if (typeof listed !== 'object' || listed === null) continue;
+		delete (listed as Record<string, unknown>)['@epicenter/app'];
+		if (Object.keys(listed).length === 0) delete fields[key];
+	}
+	// Written with the indent it was read with, so the copy differs only where it must.
+	const indent = /^[ \t]+(?=")/m.exec(text)?.[0] ?? 2;
+	await writeFile(
+		file,
+		`${JSON.stringify({ ...fields, name }, null, indent)}\n`,
+	);
+}
+
 /** The caller has checked that the container name is free. */
 async function makeApp(name: string) {
 	const container = join(appsDir(), name);
@@ -504,7 +566,7 @@ async function makeApp(name: string) {
 /** Keep the app on disk so its packages can be repaired and installed again. */
 function installFailed(
 	name: string,
-	error: { message: string; next?: string },
+	error: InstallProblem,
 	json: boolean,
 	source?: CopiedSource,
 ) {
@@ -518,7 +580,7 @@ function installFailed(
 	else {
 		writeSourceWarning(name, source);
 		writeErr(`${name}: ${error.message}`);
-		if (error.next) writeErr(`Run: ${error.next}`);
+		writeErr(`Run: ${error.next}`);
 	}
 	return 1;
 }

@@ -9,13 +9,14 @@ import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import { isName } from '@epicenter/app';
 import { CliError } from './errors.ts';
 
-/** Whether this `epicenter` is the compiled binary, which is Bun itself under `BUN_BE_BUN=1`. */
-export const COMPILED = Bun.main.startsWith('/$bunfs/');
-
 export const COMMANDS = {
 	init: {
-		usage: 'epicenter init [<folder>] [--port <n>]',
-		help: `Makes a folder an Epicenter with one root Git repository, EPICENTER.md, and starter AGENTS.md.
+		usage: 'epicenter init [<folder>] [--port <n>] [--no-install]',
+		help: `Makes a folder an Epicenter: one root Git repository with EPICENTER.md, a starter
+AGENTS.md, and a package.json that makes it a Bun workspace depending on this
+version of @epicenter/cli and @epicenter/app. Then runs bun install there, which
+writes bun.lock and node_modules/. With --no-install it writes the files and
+leaves the install to you. A package.json already there is kept as it is.
 Epicenters cannot nest.`,
 	},
 	new: {
@@ -26,6 +27,9 @@ With --from, copy one app's code without its Git history or records, from a fold
 checkout (a path: /, ./, ../, ~/) or a folder on GitHub at a branch, tag, or full commit.
 To copy from another host, clone it first. Copies the source commit, not its working files;
 local differences are reported and left out.
+The app's code/package.json is named <name> and lists only its own packages: the copy's
+name is rewritten, and its bun.lock and any @epicenter/app entry are left out, since the
+home has one lock and one @epicenter/app. Then runs bun install at the top of the home.
 serve builds code/ui/ when it is opened.`,
 	},
 	export: {
@@ -42,12 +46,13 @@ Unrelated nonempty destinations and Git metadata inside them are refused. All co
 refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
 	},
 	install: {
-		usage: 'epicenter install [<app>]',
-		help: `Installs each app's code/package.json, or one app's, with bun install
-(--frozen-lockfile when bun.lock exists), then links node_modules/@epicenter/app
-to this epicenter's own copy, which no app lists. new runs it;
-a call never installs. After bun add, run epicenter install <app> to restore
-the supplied link if Bun removed it.`,
+		usage: 'epicenter install',
+		help: `Runs bun install at the top of the home, the folder with EPICENTER.md, from
+anywhere inside it. The home is one Bun workspace: its package.json names the
+version of @epicenter/cli and @epicenter/app it runs and takes each
+apps/<app>/code as a package, so one install serves the command and every app.
+init and new run it; a call never installs. Restart serve after it changes
+packages: serve keeps the packages it has loaded.`,
 	},
 	build: {
 		usage: 'epicenter build [<app>]',
@@ -81,7 +86,9 @@ such as: tailscale serve --bg 4747`,
 	},
 	service: {
 		usage: 'epicenter service <install|uninstall|restart|status>',
-		help: `Installs a macOS login job that keeps serve running for this Epicenter.
+		help: `Installs a macOS login job that keeps serve running for this Epicenter. The job
+runs the home's own install, node_modules/.bin/epicenter, with the Bun that ran
+service install, so run bun install at the top of the home first.
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
 	},

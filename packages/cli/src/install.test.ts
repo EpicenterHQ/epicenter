@@ -1,12 +1,23 @@
 /**
- * App installation runs from code/, respects the frozen lock, and
- * supplies the command's @epicenter/app link even without a lockfile.
- * Fixtures use local workspaces so no registry or person's home is touched.
+ * `epicenter install` and the workspace a home is.
+ *
+ * A home is one Bun workspace, so one `bun install` at its top serves every
+ * app. Fixture packages name nothing to fetch, so no registry is asked.
+ *
+ * Key behaviors:
+ * - Install runs at the top of the home from anywhere inside it, and writes
+ *   the home's one lock, naming each app's package.
+ * - A failed install is reported with the command that tries it again.
+ * - A package the owner added to `workspaces`, nested inside an app, is
+ *   installed with the rest and is not taken for an app.
+ * - An app that would load a second copy of `@epicenter/app` is a problem
+ *   that names both copies.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { realpath, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, gitIn } from './runner.test-support.ts';
+import { bareApp, fixture } from './runner.test-support.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -15,176 +26,124 @@ afterEach(async () => {
 	);
 });
 
-/** Generate a lock for a package with no dependencies and one local workspace. */
 async function setup() {
 	const f = await fixture();
 	roots.push(f.root);
-	f.env.BUN_INSTALL = join(f.root, 'bun');
-	const app = await f.folder(join(f.apps, 'notes'), {
-		'code/.gitignore': 'data/\nnode_modules/\n',
+	const notes = await f.folder(join(f.apps, 'notes'), {
 		'code/epicenter.ts': bareApp('notes'),
-		'code/package.json': JSON.stringify({
-			name: 'notes',
-			version: '1.0.0',
-			workspaces: ['local'],
-		}),
-		'code/local/package.json': JSON.stringify({
-			name: 'offline-local',
-			version: '1.0.0',
-		}),
-		'code/extra/package.json': JSON.stringify({
-			name: 'offline-extra',
-			version: '1.0.0',
-		}),
+		'code/package.json': '{ "name": "notes", "private": true }\n',
 	});
-	const child = Bun.spawn([process.execPath, 'install'], {
-		cwd: join(app, 'code'),
-		env: f.env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [code, stderr] = await Promise.all([
-		child.exited,
-		new Response(child.stderr).text(),
-		new Response(child.stdout).text(),
-	]);
-	expect({ code, stderr }).toMatchObject({ code: 0 });
-	expect(await Bun.file(join(app, 'code/bun.lock')).exists()).toBe(true);
-	return { ...f, dir: join(app, 'code') };
+	return { ...f, notes };
 }
 
-test('install uses bun.lock in code/ and links the supplied package', async () => {
+test('install runs bun install at the top of the home from inside an app, and takes no app name', async () => {
 	const f = await setup();
-	const result = await f.run('install', 'notes', '--json');
+	const result = await f.runIn(join(f.notes, 'code'), 'install', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({
-		apps: [{ app: 'notes', folder: f.dir, installed: true }],
+		folder: f.home,
+		installed: true,
 	});
-	expect(await realpath(join(f.dir, 'node_modules/@epicenter/app'))).toBe(
-		await realpath(join(import.meta.dir, '../../app')),
+	expect(await readFile(join(f.home, 'bun.lock'), 'utf8')).toContain(
+		'"apps/notes/code"',
 	);
-	expect((await f.run('install', 'notes')).stdout).toBe(
-		'notes: installed packages and linked @epicenter/app\n',
+	expect(existsSync(join(f.notes, 'code/bun.lock'))).toBe(false);
+	expect((await f.run('install')).stdout).toBe(
+		`Installed the packages of ${f.home}\n`,
+	);
+	const named = await f.run('install', 'notes');
+	expect(named.code).toBe(2);
+	expect(named.stderr).toContain('Usage: epicenter install\n');
+});
+
+test('a failed install is reported with the command that tries it again', async () => {
+	const f = await setup();
+	// Two packages of one name: Bun refuses the workspace.
+	await f.folder(join(f.apps, 'other'), {
+		'code/epicenter.ts': bareApp('other'),
+		'code/package.json': '{ "name": "notes" }\n',
+	});
+	const next = `cd ${f.home} && bun install`;
+	const failed = await f.run('install', '--json');
+	expect(failed.code).toBe(1);
+	expect(JSON.parse(failed.stdout)).toEqual({
+		folder: f.home,
+		installed: false,
+		error: { message: expect.stringContaining('notes'), next },
+	});
+	expect((await f.run('install')).stderr).toEndWith(`Run: ${next}\n`);
+
+	// A home from before it was a workspace is told what it needs.
+	await rm(join(f.home, 'package.json'));
+	const missing = await f.run('install');
+	expect(missing.code).toBe(1);
+	expect(missing.stderr).toContain(
+		`${f.home} has no package.json. A home is a Bun workspace`,
 	);
 });
 
-test('install without bun.lock only links the supplied package', async () => {
-	const f = await fixture();
-	roots.push(f.root);
-	const app = await f.app(
+test('a package nested inside an app, added to workspaces by hand, installs with the home and is not an app', async () => {
+	const f = await setup();
+	await writeFile(
+		join(f.home, 'package.json'),
+		`${JSON.stringify({ private: true, workspaces: ['apps/*/code', 'apps/notes/code/render'] })}\n`,
+	);
+	await f.folder(join(f.notes, 'code/render'), {
+		'package.json': '{ "name": "notes-render", "private": true }\n',
+		'index.ts': 'export const frames = 24;\n',
+	});
+	expect((await f.run('install')).code).toBe(0);
+	const lock = await readFile(join(f.home, 'bun.lock'), 'utf8');
+	expect(lock).toContain('"apps/notes/code"');
+	expect(lock).toContain('"apps/notes/code/render"');
+
+	const listed = JSON.parse((await f.run('--json')).stdout);
+	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'notes',
-		"export default defineApp({ description: 'Notes', actions: {} });",
-	);
-	const result = await f.run('install', '--json');
-	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout)).toEqual({
-		apps: [{ app: 'notes', folder: join(app, 'code'), installed: false }],
-	});
-	expect(await realpath(join(app, 'code/node_modules/@epicenter/app'))).toBe(
-		await realpath(join(import.meta.dir, '../../app')),
-	);
-	expect((await f.run('install', 'notes')).stdout).toBe(
-		'notes: linked @epicenter/app\n',
-	);
-});
-
-test('install without bun.lock installs code/package.json', async () => {
-	const f = await fixture();
-	roots.push(f.root);
-	const app = await f.folder(join(f.apps, 'notes'), {
-		'code/.gitignore': 'data/\nnode_modules/\n',
-		'code/epicenter.ts': bareApp('notes'),
-		'code/package.json': JSON.stringify({
-			name: 'notes',
-			version: '1.0.0',
-			workspaces: ['local'],
-		}),
-		'code/local/package.json': JSON.stringify({
-			name: 'offline-local',
-			version: '1.0.0',
-		}),
-	});
-	const result = await f.run('install', 'notes', '--json');
-	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout).apps[0].installed).toBe(true);
-	expect(await Bun.file(join(app, 'code/bun.lock')).exists()).toBe(true);
-	expect(await realpath(join(app, 'code/node_modules/@epicenter/app'))).toBe(
-		await realpath(join(import.meta.dir, '../../app')),
-	);
-});
-
-test('a frozen mismatch fails with a repair command and does not stop the other apps', async () => {
-	const f = await setup();
-	await writeFile(
-		join(f.dir, 'package.json'),
-		JSON.stringify({
-			name: 'notes',
-			version: '1.0.0',
-			workspaces: ['local'],
-			dependencies: { 'offline-extra': 'file:./extra' },
-		}),
-	);
-	const other = await f.app(
-		'other',
-		"export default defineApp({ description: 'Other', actions: {} });",
-	);
-	const result = await f.run('install', '--json');
-	expect(result.code).toBe(1);
-	const apps = JSON.parse(result.stdout).apps;
+	]);
+	expect(listed.problems).toEqual([]);
+	// `new` installs through the same list, and leaves the owner's entry alone.
+	expect((await f.run('new', 'garden')).code).toBe(0);
 	expect(
-		apps.find((app: { app: string }) => app.app === 'notes'),
-	).toMatchObject({
-		installed: false,
-		error: {
-			message: expect.stringContaining('frozen'),
-			next: `cd ${f.dir} && bun install && epicenter install notes`,
-		},
-	});
-	expect(apps.find((app: { app: string }) => app.app === 'other')).toEqual({
-		app: 'other',
-		folder: join(other, 'code'),
-		installed: false,
-	});
-	const text = await f.run('install', 'notes');
-	expect(text.code).toBe(1);
-	expect(text.stderr).toContain('notes: ');
-	expect(text.stderr).toContain(
-		`Run: cd ${f.dir} && bun install && epicenter install notes`,
-	);
+		(await Bun.file(join(f.home, 'package.json')).json()).workspaces,
+	).toEqual(['apps/*/code', 'apps/notes/code/render']);
+	expect(
+		JSON.parse((await f.run('--json')).stdout).apps.map(
+			(app: { name: string }) => app.name,
+		),
+	).toEqual(['garden', 'notes']);
 });
 
-test('new keeps a cloned app when its frozen install fails', async () => {
+test('an app that would load a second copy of @epicenter/app is a problem naming both copies; an uninstalled home says to install', async () => {
 	const f = await setup();
+	// A copy of its own in the app's folder, as a per-app install left one.
+	const own = join(f.notes, 'code/node_modules/@epicenter/app');
+	await mkdir(join(own, 'src'), { recursive: true });
 	await writeFile(
-		join(f.dir, 'package.json'),
-		JSON.stringify({
-			name: 'notes',
-			workspaces: ['local'],
-			dependencies: { 'offline-extra': 'file:./extra' },
-		}),
+		join(own, 'package.json'),
+		'{ "name": "@epicenter/app", "exports": { ".": "./src/index.ts" } }\n',
 	);
-	await gitIn(f.dir, 'init', '-q');
-	await gitIn(
-		f.dir,
-		'add',
-		'package.json',
-		'bun.lock',
-		'epicenter.ts',
-		'.gitignore',
-		'local',
-		'extra',
-	);
-	await gitIn(f.dir, 'commit', '-qm', 'mismatched lock');
-	const made = await f.run('new', 'copy', '--from', f.dir, '--json');
-	expect(made.code).toBe(1);
-	const copy = join(f.apps, 'copy');
-	expect(JSON.parse(made.stdout)).toMatchObject({
-		name: 'copy',
-		folder: copy,
-		error: {
-			message: expect.stringContaining('frozen'),
-			next: `cd ${copy}/code && bun install && epicenter install copy`,
+	await writeFile(join(own, 'src/index.ts'), 'export {};\n');
+	const ours = await realpath(join(import.meta.dir, '../../app'));
+	const next = 'run bun install at the top of the home';
+	expect(JSON.parse((await f.run('--json')).stdout).problems).toEqual([
+		{
+			entry: 'notes',
+			folder: f.notes,
+			problems: [
+				`apps/notes resolves @epicenter/app at ${await realpath(own)}, and epicenter runs ${ours}; ${next}`,
+			],
 		},
-	});
-	expect(await Bun.file(join(copy, 'code/epicenter.ts')).exists()).toBe(true);
+	]);
+
+	await rm(join(f.notes, 'code/node_modules'), { recursive: true });
+	await rm(join(f.home, 'node_modules'), { recursive: true });
+	const uninstalled = JSON.parse((await f.run('--json')).stdout);
+	expect(uninstalled.version).toBeNull();
+	expect(uninstalled.problems[0].problems).toEqual([
+		`apps/notes finds no @epicenter/app; ${next}`,
+	]);
+	expect((await f.run()).stdout).toContain(
+		'Version: not installed. Run: epicenter install\n',
+	);
 });

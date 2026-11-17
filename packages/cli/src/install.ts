@@ -1,91 +1,72 @@
 /**
- * Install an app's packages from its lock in code/, then link the
- * command's own @epicenter/app (ADR-0880). Calls never install packages.
- * Installation runs outside the app's lock, including after new.
+ * `epicenter install`: one `bun install` at the top of the home. A home is
+ * one Bun workspace whose `package.json` depends on `@epicenter/cli` and
+ * `@epicenter/app` and takes each `apps/<app>/code` as a package, so one
+ * install, one `bun.lock` and one `node_modules/` serve the command and every
+ * app. A call never installs.
  */
 import { existsSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { linkAppPackage } from './app-package.ts';
-import { COMPILED, misuse, parseWords } from './commands.ts';
-import { chooseApps } from './home.ts';
+import { misuse, parseWords } from './commands.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
+import { epicenterDir } from './root.ts';
 
-/** Install the locked packages, when present, and link the command's app package. */
-export async function installApp(
+/** Why `bun install` failed, and the command that tries it again. */
+export type InstallProblem = { message: string; next: string };
+
+/**
+ * Run `bun install` in `folder`, the top of a home, with the Bun that runs
+ * this command. Answers what went wrong, or undefined when it installed.
+ */
+export async function installHome(
 	folder: string,
-	app = basename(folder),
-): Promise<
-	{ installed: boolean } | { error: { message: string; next?: string } }
-> {
-	const next = `cd ${folder} && bun install && epicenter install ${app}`;
+): Promise<InstallProblem | undefined> {
+	const next = `cd ${folder} && bun install`;
+	if (!existsSync(join(folder, 'package.json')))
+		return {
+			message: `${folder} has no package.json. A home is a Bun workspace: its package.json lists "workspaces": ["apps/*/code"] and depends on @epicenter/cli and @epicenter/app. Write it, then install.`,
+			next,
+		};
 	try {
-		const frozen = existsSync(join(folder, 'bun.lock'));
-		const installed = existsSync(join(folder, 'package.json'));
-		if (installed) {
-			const child = Bun.spawn(
-				[process.execPath, 'install', ...(frozen ? ['--frozen-lockfile'] : [])],
-				{
-					cwd: folder,
-					env: { ...process.env, ...(COMPILED ? { BUN_BE_BUN: '1' } : {}) },
-					stdin: 'ignore',
-					stdout: 'pipe',
-					stderr: 'pipe',
-				},
-			);
-			const [code, stdout, stderr] = await Promise.all([
-				child.exited,
-				new Response(child.stdout).text(),
-				new Response(child.stderr).text(),
-			]);
-			if (code !== 0)
-				return {
-					error: {
-						message:
-							stderr.trim() ||
-							stdout.trim() ||
-							`bun install exited with code ${code}`,
-						next,
-					},
-				};
-		}
-		await linkAppPackage(folder);
-		return { installed };
+		const child = Bun.spawn([process.execPath, 'install'], {
+			cwd: folder,
+			env: process.env,
+			stdin: 'ignore',
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		const [code, stdout, stderr] = await Promise.all([
+			child.exited,
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+		]);
+		if (code === 0) return undefined;
+		return {
+			message:
+				stderr.trim() ||
+				stdout.trim() ||
+				`bun install exited with code ${code}`,
+			next,
+		};
 	} catch (cause) {
-		return { error: { message: extractErrorMessage(cause), next } };
+		return { message: extractErrorMessage(cause), next };
 	}
 }
 
-/** Install each app, or the named app, without loading its actions. */
+/** Install the home's packages without loading any app. */
 export async function installCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	const given = parseWords(words, {}, [0, 1]);
-	if (!given) return fail(misuse('install'), json);
-	const { data: chosen, error } = await chooseApps(given.positionals[0]);
-	if (error) return fail(error, json);
-	const apps = [];
-	for (const { entry: app, codePath: folder, problem } of chosen) {
-		const result = problem
-			? { error: { message: problem } }
-			: await installApp(folder, app);
-		const row = {
-			app,
-			folder,
-			installed: 'installed' in result ? result.installed : false,
-			...('error' in result ? { error: result.error } : {}),
-		};
-		apps.push(row);
-		if (json) continue;
-		if (row.error) {
-			writeErr(`${app}: ${row.error.message}`);
-			if (row.error.next) writeErr(`Run: ${row.error.next}`);
-		} else
-			writeOut(
-				`${app}: ${row.installed ? 'installed packages and linked @epicenter/app' : 'linked @epicenter/app'}`,
-			);
-	}
-	if (json) writeJson({ apps });
-	return apps.some((app) => app.error) ? 1 : 0;
+	if (!parseWords(words, {}, [0, 0])) return fail(misuse('install'), json);
+	const folder = epicenterDir();
+	const error = await installHome(folder);
+	if (json)
+		writeJson({ folder, installed: !error, ...(error ? { error } : {}) });
+	else if (error) {
+		writeErr(error.message);
+		writeErr(`Run: ${error.next}`);
+	} else writeOut(`Installed the packages of ${folder}`);
+	return error ? 1 : 0;
 }

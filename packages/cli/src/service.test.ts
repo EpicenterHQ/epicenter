@@ -5,14 +5,16 @@
  * CLI with a temporary HOME and a launchctl script first on PATH.
  *
  * Key behaviors:
- * - Install writes the shell's PATH and replaces a loaded job.
+ * - Install runs the home's own command through Bun, puts the home's commands
+ *   and Bun first on the job's PATH, and replaces a loaded job.
+ * - Install refuses a home with no install.
  * - Uninstall accepts a job that is not loaded; restart needs an install.
  * - Status parses running and stopped jobs; other platforms get a clear error.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fixture } from './runner.test-support.ts';
 import { launchAgent, serviceCommand } from './service.ts';
 
@@ -27,9 +29,6 @@ async function setup() {
 	roots.push(f.root);
 	const bin = join(f.root, 'bin');
 	await mkdir(bin);
-	const program = join(bin, 'epicenter');
-	await writeFile(program, '#!/bin/sh\n');
-	await chmod(program, 0o755);
 	const script = join(bin, 'launchctl');
 	await writeFile(
 		script,
@@ -57,7 +56,6 @@ esac
 	return {
 		...f,
 		bin,
-		program,
 		calls: async () => {
 			try {
 				return (await readFile(join(f.root, 'calls'), 'utf8'))
@@ -74,7 +72,7 @@ esac
 test('launchAgent escapes values and writes the serve job', () => {
 	const plist = launchAgent({
 		label: `com.epicenter.serve.rock&roll<"'>`,
-		program: `/bin/epicenter&<"'>`,
+		program: ['/bin/bun', '--no-install', `/home/.bin/epicenter&<"'>`],
 		folder: `/tmp/My & <Epicenter>`,
 		path: `/bin:/tmp/A&B<"'>`,
 		log: `/tmp/log&<"'>`,
@@ -83,7 +81,7 @@ test('launchAgent escapes values and writes the serve job', () => {
 		'<string>com.epicenter.serve.rock&amp;roll&lt;&quot;&apos;&gt;</string>',
 	);
 	expect(plist).toContain(
-		'<string>/bin/epicenter&amp;&lt;&quot;&apos;&gt;</string>\n\t\t<string>serve</string>',
+		'<string>/bin/bun</string>\n\t\t<string>--no-install</string>\n\t\t<string>/home/.bin/epicenter&amp;&lt;&quot;&apos;&gt;</string>\n\t\t<string>serve</string>',
 	);
 	expect(plist).toContain('<string>/tmp/My &amp; &lt;Epicenter&gt;</string>');
 	expect(plist).toContain(
@@ -97,7 +95,7 @@ test('launchAgent escapes values and writes the serve job', () => {
 });
 
 test.skipIf(process.platform !== 'darwin')(
-	'install writes PATH and replaces a loaded job on the second install',
+	"install runs the home's own command through Bun and replaces a loaded job on the second install",
 	async () => {
 		const f = await setup();
 		const first = await f.run('service', 'install', '--json');
@@ -116,9 +114,20 @@ test.skipIf(process.platform !== 'darwin')(
 		expect(await readFile(plistPath, 'utf8')).toBe(
 			launchAgent({
 				label,
-				program: f.program,
+				program: [
+					process.execPath,
+					'--no-install',
+					join(f.home, 'node_modules', '.bin', 'epicenter'),
+				],
 				folder: f.home,
-				path: f.env.PATH!,
+				// The home's commands and Bun come first, for a routine's script.
+				path: [
+					...new Set([
+						join(f.home, 'node_modules', '.bin'),
+						dirname(process.execPath),
+						...f.env.PATH!.split(':'),
+					]),
+				].join(':'),
 				log: logPath,
 			}),
 		);
@@ -212,14 +221,15 @@ test.skipIf(process.platform !== 'darwin')(
 );
 
 test.skipIf(process.platform !== 'darwin')(
-	'install fails clearly when epicenter is missing from PATH',
+	'install refuses a home with no install, and says to run bun install',
 	async () => {
 		const f = await setup();
-		await rm(f.program);
-		f.env.PATH = f.bin;
+		await rm(join(f.home, 'node_modules'), { recursive: true });
 		const result = await f.run('service', 'install');
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain('No epicenter command found on PATH');
+		expect(result.stderr).toBe(
+			`${join(f.home, 'node_modules', '.bin', 'epicenter')} is missing. Run bun install at the top of the home, then install the service again.\n`,
+		);
 		expect(await f.calls()).toEqual([]);
 	},
 );

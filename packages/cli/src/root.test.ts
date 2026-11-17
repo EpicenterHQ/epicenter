@@ -2,7 +2,14 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, freePort, gitIn } from './runner.test-support.ts';
+import { VERSION } from './engines.ts';
+import {
+	bareApp,
+	fixture,
+	freePort,
+	gitIn,
+	homePackage,
+} from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -23,7 +30,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	await mkdir(folder);
 	await writeFile(join(folder, 'AGENTS.md'), 'Keep this guidance.\n');
 	await writeFile(join(folder, 'theme.css'), '/* personal palette */');
-	const result = await f.run('init', folder, '--port', '4748', '--json');
+	const result = await f.init(folder, '--port', '4748', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ folder, port: 4748 });
 	expect(await readFile(join(folder, 'EPICENTER.md'), 'utf8')).toBe(
@@ -44,7 +51,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect((await f.run('init', join(alias, 'nested'), '--json')).code).toBe(2);
 
 	const fresh = join(f.root, 'fresh');
-	const defaulted = await f.runIn(f.root, 'init', fresh, '--json');
+	const defaulted = await f.init(fresh, '--json');
 	expect(defaulted.code).toBe(0);
 	expect(JSON.parse(defaulted.stdout).port).toBe(4747);
 	expect(await readFile(join(fresh, 'EPICENTER.md'), 'utf8')).toStartWith(
@@ -57,30 +64,81 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(await gitIn(fresh, 'check-ignore', 'apps/x/local/google.md')).toBe(
 		'apps/x/local/google.md',
 	);
+	// The home is a workspace that runs this command's version, and says so in Git.
+	const written = {
+		private: true,
+		workspaces: ['apps/*/code'],
+		dependencies: { '@epicenter/cli': VERSION, '@epicenter/app': VERSION },
+	};
+	expect(JSON.parse(await gitIn(fresh, 'show', 'HEAD:package.json'))).toEqual(
+		written,
+	);
+	expect(await gitIn(fresh, 'check-ignore', 'node_modules/x')).toBe(
+		'node_modules/x',
+	);
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('one private Git repository');
+	expect(starter).toContain('This folder is one Bun workspace');
 	// The guidance shows the two files as init wrote them.
 	for (const path of ['routines/checkpoint.md', 'scripts/checkpoint.sh'])
 		for (const line of (await readFile(join(fresh, path), 'utf8'))
 			.trimEnd()
 			.split('\n'))
 			expect(starter).toContain(`    ${line}\n`);
-	const shown = await f.run('init', join(f.root, 'shown'));
+	const shown = await f.init(join(f.root, 'shown'));
 	expect(shown.stdout).toContain(`Made Epicenter at ${join(f.root, 'shown')}`);
 	expect(shown.stderr).toBe(
-		'Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing\n',
+		`Run: cd ${join(f.root, 'shown')} && bun install\nRun: epicenter new writing --from EpicenterHQ/epicenter/examples/writing\n`,
 	);
 	// A folder that already holds an app is pointed at its listing instead.
 	const holding = join(f.root, 'holding');
 	await f.folder(join(holding, 'apps', 'journal'), {
 		'code/epicenter.ts': bareApp('journal'),
 	});
-	expect((await f.run('init', holding)).stderr).toBe('Run: epicenter\n');
+	expect((await f.init(holding)).stderr).toBe(
+		`Run: cd ${holding} && bun install\nRun: epicenter\n`,
+	);
 	const current = join(f.root, 'current');
 	await mkdir(current);
 	expect(
-		JSON.parse((await f.runIn(current, 'init', '--json')).stdout).folder,
+		JSON.parse(
+			(await f.runIn(current, 'init', '--no-install', '--json')).stdout,
+		).folder,
 	).toBe(current);
+});
+
+test('init installs the packages its package.json names, keeps a package.json already there, and leaves a home whose install failed ready to install again', async () => {
+	const f = await setup();
+	// A package.json already there is kept; this one names nothing to fetch.
+	const kept = join(f.root, 'kept');
+	await mkdir(kept);
+	await f.folder(kept, {
+		'package.json': homePackage,
+		'apps/notes/code/package.json': '{ "name": "notes" }\n',
+	});
+	const installed = await f.run('init', kept, '--json');
+	expect(installed.code).toBe(0);
+	expect(JSON.parse(installed.stdout)).toEqual({
+		folder: kept,
+		port: 4747,
+	});
+	expect(await readFile(join(kept, 'package.json'), 'utf8')).toBe(homePackage);
+	// The install ran before the first commit, which holds the lock it wrote.
+	expect(await gitIn(kept, 'show', 'HEAD:bun.lock')).toContain(
+		'"apps/notes/code"',
+	);
+
+	const broken = join(f.root, 'broken');
+	await mkdir(broken);
+	await writeFile(join(broken, 'package.json'), '{ "dependencies": ');
+	const failed = await f.run('init', broken);
+	expect(failed.code).toBe(1);
+	expect(failed.stdout).toBe(`Made Epicenter at ${broken}.\n`);
+	expect(failed.stderr).toStartWith('Its packages did not install: ');
+	expect(failed.stderr).toEndWith(`Run: cd ${broken} && bun install\n`);
+	// The home is made and committed, so the repair is the install alone.
+	expect((await f.runIn(broken, '--json')).code).toBe(0);
+	expect(await gitIn(broken, 'log', '--format=%s')).toBe('start the Epicenter');
 });
 
 test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () => {
@@ -89,7 +147,9 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 		'code/epicenter.ts': bareApp('reading'),
 	});
 	const other = join(f.root, 'other');
-	expect((await f.run('init', other, '--json')).code).toBe(0);
+	expect((await f.init(other, '--json')).code).toBe(0);
+	// `new` installs, so this home names nothing the registry would be asked for.
+	await writeFile(join(other, 'package.json'), homePackage);
 	await f.folder(join(other, 'apps', 'tasks'), {
 		'code/epicenter.ts': bareApp('tasks'),
 	});
@@ -165,8 +225,8 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	expect(
 		JSON.parse((await f.runIn(elsewhere, '--json')).stdout).epicenter,
 	).toBe(f.home);
-	expect((await f.run('init', join(f.root, 'beside'), '--json')).code).toBe(0);
-	const over = await f.run('init', f.root, '--json');
+	expect((await f.init(join(f.root, 'beside'), '--json')).code).toBe(0);
+	const over = await f.run('init', f.root, '--no-install', '--json');
 	if (insensitive) {
 		expect(over.code).toBe(2);
 		expect(JSON.parse(over.stdout).error.message).toBe(
@@ -303,7 +363,7 @@ test("serve reads the marker's port when no command port is given", async () => 
 test('a new home commits itself: the script init writes commits, pushes, waits out a rebase and refuses a nested repository', async () => {
 	const f = await setup();
 	const home = join(f.root, 'home');
-	expect((await f.run('init', home)).code).toBe(0);
+	expect((await f.init(home)).code).toBe(0);
 	expect(await gitIn(home, 'status', '--porcelain')).toBe('');
 	expect(
 		await gitIn(home, 'ls-files', '-s', 'scripts/checkpoint.sh'),

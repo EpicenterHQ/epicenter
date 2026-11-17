@@ -9,13 +9,12 @@
  *
  * The fingerprint is the path, size and modified time of every file under
  * `ui/` (but `ui/dist/`, any `node_modules/`, and names starting with `.`),
- * with the app's `package.json` and `bun.lock`, this `epicenter`'s version,
- * and where its own `@epicenter/app` is with the path, size and modified time
- * of every file in its `src/`. So an upgraded `epicenter`, one run from
- * another checkout, or an edit to the client rebuilds every UI against the
- * client of the `serve` that answers it, and the build relinks the app to it.
+ * with the app's `package.json`, the home's `bun.lock`, this `epicenter`'s
+ * version, and where its `@epicenter/app` is with the path, size and modified
+ * time of every file in its `src/`. So a changed install or an edit to the
+ * client rebuilds every UI against the client of the `serve` that answers it.
  *
- * An app is one Bun project, so a UI builds in the app's folder:
+ * An app is one package in the home's workspace, so a UI builds in the app's folder:
  *
  * - When the app's `package.json` has a `build` script, it runs with
  *   `EPICENTER_OUT` naming the folder to build into.
@@ -23,11 +22,11 @@
  *   `index.html` and the files beside it are a UI with no `package.json`.
  *
  * Either writes relative URLs, so a build is never told where it is served.
- * Neither installs: an app whose `package.json` names packages and that has
- * no `node_modules/` is not built until `epicenter install` installs them.
- * Before either, `node_modules/@epicenter/app` links to this command's own
- * (`linkAppPackage`), so a UI's client always matches the `serve` that
- * answers it. Both run with the Bun that runs `epicenter`. The finished build
+ * Neither installs: an app whose `package.json` names packages is not built
+ * while the home has no `node_modules/`, until `epicenter install` installs
+ * them. A UI imports `@epicenter/app/client` from the home's one install, the
+ * copy `serve` runs, so a UI's client always matches the `serve` that answers
+ * it. Both run with the Bun that runs `epicenter`. The finished build
  * replaces `ui/dist/` by rename, on the same volume, so `serve` never answers
  * from half a build, and a failed build leaves the last one in place.
  */
@@ -42,10 +41,10 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { appPackageFolder, linkAppPackage } from './app-package.ts';
-import { COMPILED } from './commands.ts';
-import { enginesProblem, VERSION } from './engines.ts';
+import { VERSION } from './engines.ts';
+import { LIBRARY } from './library.ts';
 import { writeErr } from './output.ts';
+import { epicenterDir } from './root.ts';
 
 /** Where an app's built UI lives, relative to its folder. */
 export const UI_DIST = join('ui', 'dist');
@@ -102,8 +101,8 @@ async function missingPackages(app: string, folder: string) {
 		...manifest?.devDependencies,
 	};
 	if (Object.keys(names).length === 0) return undefined;
-	if (await exists(join(folder, 'node_modules'))) return undefined;
-	return `the UI needs ${app}'s packages, which are not installed\nRun: epicenter install ${app}`;
+	if (await exists(join(epicenterDir(), 'node_modules'))) return undefined;
+	return `the UI needs ${app}'s packages, which are not installed\nRun: epicenter install`;
 }
 
 /** Every file under `dir` the fingerprint covers, as `path size mtime` lines. */
@@ -141,11 +140,11 @@ async function statLine(file: string, path: string) {
 
 /** The fingerprint of the app's UI sources, as the stamp in `ui/dist/` records it. */
 async function fingerprintOf(folder: string): Promise<string> {
-	const client = await appPackageFolder();
+	const client = LIBRARY;
 	const lines = [
 		...(await sourceLines(join(folder, 'ui'), 'ui/')),
 		await statLine(join(folder, 'package.json'), 'package.json'),
-		await statLine(join(folder, 'bun.lock'), 'bun.lock'),
+		await statLine(join(epicenterDir(), 'bun.lock'), 'bun.lock'),
 		...(await sourceLines(join(client, 'src'), '@epicenter/app/src/')),
 	].sort();
 	const hasher = new Bun.CryptoHasher('sha256');
@@ -165,9 +164,8 @@ async function builtFrom(folder: string, fingerprint: string) {
 }
 
 /**
- * Run Bun, the program running now (itself when compiled, else the `bun` it
- * runs under), with `args` in `cwd` and `env` added to this process's,
- * throwing with its output when it fails.
+ * Run the Bun that runs this command, with `args` in `cwd` and `env` added
+ * to this process's, throwing with its output when it fails.
  */
 async function runBun(
 	cwd: string,
@@ -176,11 +174,7 @@ async function runBun(
 ) {
 	const child = Bun.spawn([process.execPath, ...args], {
 		cwd,
-		env: {
-			...process.env,
-			...env,
-			...(COMPILED ? { BUN_BE_BUN: '1' } : {}),
-		},
+		env: { ...process.env, ...env },
 		stdin: 'ignore',
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -220,8 +214,6 @@ async function bundleIndex(folder: string, outdir: string) {
 export async function buildUi(app: string, folder: string): Promise<boolean> {
 	const source = await uiSource(folder);
 	if (!source) return false;
-	const refused = await enginesProblem(folder);
-	if (refused) throw new Error(refused);
 	const missing = await missingPackages(app, folder);
 	if (missing) throw new Error(missing);
 	const fingerprint = await fingerprintOf(folder);
@@ -230,7 +222,6 @@ export async function buildUi(app: string, folder: string): Promise<boolean> {
 	);
 	const built = join(staging, 'dist');
 	try {
-		await linkAppPackage(folder);
 		if (source === 'script')
 			await runBun(folder, ['--bun', 'run', 'build'], {
 				EPICENTER_OUT: built,

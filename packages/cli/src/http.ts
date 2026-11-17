@@ -44,7 +44,6 @@ import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { linkAppPackage } from './app-package.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
@@ -442,14 +441,8 @@ export async function serveHttp(port: number): Promise<number> {
 			}).error,
 			false,
 		);
-	// Asked before anything changes, so a second serve leaves the links alone.
 	const holder = await whoAnswers(port);
 	if (holder) return portTaken(holder);
-	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
-	// that answers it, even when the `epicenter` they linked to is gone.
-	for (const { codePath: realPath, problem } of await homeEntries())
-		if (!problem && (await exists(join(realPath, 'node_modules'))))
-			await linkAppPackage(realPath);
 	let server: ReturnType<typeof startHttpServer>;
 	try {
 		server = startHttpServer(port);

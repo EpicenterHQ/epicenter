@@ -1,7 +1,6 @@
 {
 	"name": "@epicenter/theme",
 	"version": "0.0.1",
-	"private": true,
 	"description": "Graphite + blue CSS variables for Epicenter interfaces, with an optional Tailwind CSS 4 mapping.",
 	"repository": {
 		"type": "git",
@@ -27,6 +26,9 @@
 		"tailwindcss": {
 			"optional": true
 		}
+	},
+	"publishConfig": {
+		"access": "public"
 	},
 	"license": "AGPL-3.0-or-later"
 }

@@ -1,10 +1,19 @@
-/** Install and inspect the macOS LaunchAgent for one Epicenter (ADR-0878). */
+/**
+ * Install and inspect the macOS LaunchAgent for one Epicenter (ADR-0878).
+ *
+ * The job runs the home's own install of the command: Bun, then
+ * `<home>/node_modules/.bin/epicenter`, from the home. That path is the
+ * link `bun install` keeps, not the file it points at, so after an upgrade
+ * the job runs the version the home's `package.json` names. Its PATH starts
+ * with the home's `node_modules/.bin` and Bun's folder, so a routine's
+ * script finds `epicenter` and `bun`.
+ */
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
-import { COMPILED, misuse, parseWords } from './commands.ts';
+import { basename, delimiter, dirname, join } from 'node:path';
+import { misuse, parseWords } from './commands.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { epicenterRoot } from './root.ts';
 
@@ -43,7 +52,8 @@ export function launchAgent({
 	log,
 }: {
 	label: string;
-	program: string;
+	/** The words that start the command, before `serve`: Bun, its flags, the command's file. */
+	program: string[];
 	folder: string;
 	path: string;
 	log: string;
@@ -56,8 +66,7 @@ export function launchAgent({
 <dict>
 ${element('Label', label)}\t<key>ProgramArguments</key>
 \t<array>
-\t\t<string>${xml(program)}</string>
-\t\t<string>serve</string>
+${[...program, 'serve'].map((word) => `\t\t<string>${xml(word)}</string>`).join('\n')}
 \t</array>
 ${element('WorkingDirectory', folder)}\t<key>RunAtLoad</key><true/>
 \t<key>KeepAlive</key><true/>
@@ -124,11 +133,14 @@ export async function serviceCommand(
 	try {
 		switch (action) {
 			case 'install': {
-				const found = COMPILED ? process.execPath : Bun.which('epicenter');
-				if (!found)
+				const bin = join(root.folder, 'node_modules', '.bin');
+				const command = join(bin, 'epicenter');
+				if (!existsSync(command))
 					throw new Error(
-						'No epicenter command found on PATH. Install @epicenter/cli first.',
+						`${command} is missing. Run bun install at the top of the home, then install the service again.`,
 					);
+				// The Bun running this command, which the job runs the home's command with.
+				const bun = process.execPath;
 				const path = process.env.PATH;
 				if (path === undefined)
 					throw new Error(
@@ -140,9 +152,11 @@ export async function serviceCommand(
 					plistPath,
 					launchAgent({
 						label,
-						program: resolve(found),
+						program: [bun, '--no-install', command],
 						folder: root.folder,
-						path,
+						path: [
+							...new Set([bin, dirname(bun), ...path.split(delimiter)]),
+						].join(delimiter),
 						log: logPath,
 					}),
 				);

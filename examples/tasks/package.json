@@ -32,8 +32,5 @@
 		"svelte-check": "^4.3.4",
 		"typescript": "^5.9.3"
 	},
-	"license": "AGPL-3.0-or-later",
-	"engines": {
-		"epicenter": ">=0.2.0"
-	}
+	"license": "AGPL-3.0-or-later"
 }

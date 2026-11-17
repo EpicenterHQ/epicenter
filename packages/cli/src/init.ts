@@ -1,11 +1,13 @@
-/** Initialize one root repository, with apps in code/data containers. */
+/** Initialize one root repository and Bun workspace, with apps in code/data containers. */
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import defaultTheme from '@epicenter/theme/theme.css' with { type: 'text' };
 import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
+import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git, isRepositoryTop } from './git.ts';
+import { installHome } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	APPS,
@@ -22,6 +24,22 @@ port: ${port}
 ---
 This folder is an Epicenter. Each folder in its \`apps/\` is an app: its code in \`code/\`, its records in \`data/\`. Run \`epicenter\` here to list them.
 `;
+
+/**
+ * What makes a home one Bun workspace that runs this version of Epicenter:
+ * `bun install` at its top installs the command and the library every app
+ * imports, once, and takes each app's code as a package. An owner adds a
+ * package nested inside an app to `workspaces` by hand.
+ */
+const HOME_PACKAGE = `${JSON.stringify(
+	{
+		private: true,
+		workspaces: ['apps/*/code'],
+		dependencies: { '@epicenter/cli': VERSION, '@epicenter/app': VERSION },
+	},
+	null,
+	2,
+)}\n`;
 
 /** The routine a new home commits itself with: the script under a lock, every five minutes. */
 const CHECKPOINT_ROUTINE = `---
@@ -63,10 +81,26 @@ code and records. Each folder in apps/ is an app:
   apps/<app>/data/   its records and settings
   apps/<app>/local/  what stays on this computer: tokens, caches, databases
 
-An app's code/ is one Bun project: its package.json names everything
-epicenter.ts and ui/ import, except @epicenter/app, which epicenter supplies.
-After \`bun add\` in code/, run \`epicenter install <app>\`. Never put records in
-code/. An action writes only under data/ and local/, and names a file by its
+This folder is one Bun workspace. Its package.json names the version of
+Epicenter it runs, as the dependencies @epicenter/cli and @epicenter/app, and
+takes each apps/<app>/code as a package. Run \`bun install\` here, at the top;
+\`epicenter install\` does the same from anywhere inside. It writes one
+bun.lock, which is committed, and one node_modules/, which is not. After
+\`git clone\`, \`bun install\` is all a restore needs. The version of Epicenter
+is the one in package.json: upgrade with
+\`bun update --latest @epicenter/cli @epicenter/app\`, both together. Restart
+serve after changing packages (\`epicenter service restart\`): serve keeps the
+packages it has loaded. An edit to an app's own files shows on the next call.
+
+An app's code/package.json is named for the app and names everything
+epicenter.ts and ui/ import, except @epicenter/app, which comes from the top
+package.json. Add a package with \`bun add <package>\` in code/. A package
+nested inside an app, such as apps/films/code/render/ with its own
+package.json, gets its packages only once you add its path to the top
+package.json by hand:
+  "workspaces": ["apps/*/code", "apps/films/code/render"]
+
+Never put records in code/. An action writes only under data/ and local/, and names a file by its
 path from the app's folder, such as data/tasks/<time>.md or local/google.md.
 local/ appears when an action first writes there.
 
@@ -138,7 +172,11 @@ export async function initCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	const given = parseWords(words, { port: { type: 'string' } }, [0, 1]);
+	const given = parseWords(
+		words,
+		{ port: { type: 'string' }, 'no-install': { type: 'boolean' } },
+		[0, 1],
+	);
 	if (!given) return fail(misuse('init'), json);
 	const [path] = given.positionals;
 	const port =
@@ -194,6 +232,7 @@ export async function initCommand(
 		wrote.push('AGENTS.md');
 	}
 	for (const [path, text, mode] of [
+		['package.json', HOME_PACKAGE, 0o644],
 		['theme.css', defaultTheme, 0o644],
 		['routines/checkpoint.md', CHECKPOINT_ROUTINE, 0o644],
 		['scripts/checkpoint.sh', CHECKPOINT_SCRIPT, 0o755],
@@ -206,10 +245,28 @@ export async function initCommand(
 			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 		}
 	}
+	// Installed before the first commit, so that commit holds the lock.
+	const hadLock = existsSync(join(folder, 'bun.lock'));
+	const failed = given.values['no-install']
+		? undefined
+		: await installHome(folder);
+	if (!hadLock && existsSync(join(folder, 'bun.lock'))) wrote.push('bun.lock');
 	await startEpicenterRepository(folder, wrote);
+	if (failed) {
+		// The home is made; only its packages are missing, and installing again is the repair.
+		if (json) writeJson({ folder, port, error: failed });
+		else {
+			writeOut(`Made Epicenter at ${folder}.`);
+			writeErr(`Its packages did not install: ${failed.message}`);
+			writeErr(`Run: ${failed.next}`);
+		}
+		return 1;
+	}
 	if (json) writeJson({ folder, port });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
+		if (given.values['no-install'])
+			writeErr(`Run: cd ${folder} && bun install`);
 		const apps = join(folder, APPS);
 		const hasApps = (
 			await readdir(apps, { withFileTypes: true }).catch(() => [])
