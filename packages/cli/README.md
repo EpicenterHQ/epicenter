@@ -252,10 +252,18 @@ refusals contain no supplied input values.
 This is an input-handling policy: HTTP access follows the server's existing
 rules, and the app owns what it returns, throws, reports, and stores.
 
-## A call runs where it arrives
+## Serve runs every action while it is running
 
-The CLI runs a call in its own process, and serve runs calls in its process.
-Each load drops cached modules under `codePath`, dependencies included, then
+`epicenter <app> <action>` sends its call to serve at the port in
+`EPICENTER.md`, the same `POST /<app>/<action>` a page makes, and prints the
+updates and the answer it reads back. When nothing answers that port, the CLI
+runs the action in its own process. A call names its home in an
+`x-epicenter-home` header, and serve refuses one meant for another home, so a
+command in a second home runs alone instead of writing here.
+
+An action sent to serve runs in serve's environment: it does not see
+variables exported in the caller's shell, and what it prints goes to serve's
+log. Each load drops cached modules under `codePath`, dependencies included, then
 imports `code/epicenter.ts`. The next call reads edits to code or its imports
 without restarting serve. On the CLI, an action's prints go to stderr so
 stdout contains only the answer.
@@ -381,21 +389,17 @@ result alone.
 
 ## Coordinate writes
 
-A call's first write or delete through `folder` takes a flock on the real app
-container. It waits up to 30 seconds, then throws that the app is busy. The
-lock stays held until the action returns, throws, or stops. There is no lock
-file to clean up. A process exit closes the descriptor. A call that does not
-write through `folder` takes no lock.
+Nothing locks a call. While serve is running, one process runs every action,
+so two actions never replace one file at the same moment. With serve stopped,
+two commands started together both run and can interleave their writes.
 
-`folder.update` computes from the text read and retries when an outside writer
-changes it before replacement. Every collection write uses it. Plain
-`folder.write` is last-write-wins. Fetch or compute before the first write
-to keep other writes from waiting on slow work.
+`folder.update` computes from the text read and retries when an outside
+writer, such as an editor or a `git pull`, changes it before replacement.
+Every collection write uses it. Plain `folder.write` is last-write-wins.
 
 Writes through `folder` stay under `data/` and reject `.git*` path segments.
 The container remains `folder.path`. Reads may reach another app's records
-at `../tasks/data/tasks/<time>.md`. Direct `node:fs` operations do not obtain
-the call's lock; the app owns their coordination.
+at `../tasks/data/tasks/<time>.md`.
 
 A read-only call takes no lock. Folder writes throw except on `.local` paths
 under `data/`. These files have owner-only permissions when created through

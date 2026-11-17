@@ -1,9 +1,8 @@
-/** Run actions with a lazy container write lock, released when the call ends. */
+/** Run actions: find one, check its input, and answer what it did. */
 
 import {
 	type Action,
 	encodeActionResult,
-	type Folder,
 	inRun,
 	isActionResult,
 } from '@epicenter/app';
@@ -12,7 +11,6 @@ import { Err } from 'wellcrafted/result';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
-import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
 import { type Answer, type RunAnswer, refused } from './output.ts';
 import { setRoutine } from './routine-set.ts';
 
@@ -54,33 +52,7 @@ function threwOf(cause: unknown): {
 	return { message };
 }
 
-/**
- * `folder` for one call: each write or delete first takes the app's lock,
- * once, through `own`. A read-only run takes no lock; `folder` refuses
- * any non-local write itself.
- */
-function forCall(
-	folder: Folder,
-	own: () => Promise<void>,
-	readOnly: boolean,
-): Folder {
-	const writing =
-		<A extends [string, ...unknown[]], R>(method: (...args: A) => Promise<R>) =>
-		async (...args: A) => {
-			if (!readOnly) await own();
-			return method(...args);
-		};
-	return {
-		...folder,
-		write: writing(folder.write),
-		writeBytes: writing(folder.writeBytes),
-		edit: writing(folder.edit),
-		update: writing(folder.update),
-		delete: writing(folder.delete),
-	};
-}
-
-/** Run a checked action; its first write owns the container until it ends. */
+/** Run a checked action. Nothing locks it: one process runs actions (ADR-0936). */
 export async function runAction(
 	located: Runnable,
 	key: string,
@@ -89,20 +61,8 @@ export async function runAction(
 	{ onUpdate }: Following = {},
 ): Promise<RunAnswer> {
 	const readOnly = action.annotations?.readOnlyHint === true;
-	let owning: Promise<void> | undefined;
-	let held: Held | undefined;
-	const own = () =>
-		(owning ??= (async () => {
-			held = await hold(located.realPath, LOCK_WAIT_MS);
-			if (!held)
-				throw new Error(
-					`${located.name} is busy: another write held it for ${LOCK_WAIT_MS / 1000} seconds`,
-				);
-		})());
-	const folder = forCall(located.context.folder, own, readOnly);
 	const context = {
 		...located.context,
-		folder,
 		routines: {
 			set: (
 				name: string,
@@ -130,8 +90,6 @@ export async function runAction(
 			: Err({ kind: 'returned', reason: encoded.error });
 	} catch (cause) {
 		return Err({ kind: 'fault', ...threwOf(cause) });
-	} finally {
-		held?.release();
 	}
 }
 

@@ -22,15 +22,12 @@ import { dirname, join } from 'node:path';
 import {
 	ActionError,
 	createMemoryContext,
-	defineAction,
 	defineCollection,
 	field,
 	inRun,
 	Ok,
 } from '@epicenter/app';
 import { folderOnDisk } from './disk.ts';
-import { hold } from './lock.ts';
-import { runAction } from './run.ts';
 import { gitIn } from './runner.test-support.ts';
 
 const roots: string[] = [];
@@ -364,61 +361,4 @@ test('collection edits through a read-only run decide only on local paths', asyn
 		expect((await cache.update(decide)).data?.body).toBe('seen');
 	});
 	expect(decisions).toBe(1);
-});
-
-test('the runner first takes its lock on a collection edit and releases it after a returned refusal', async () => {
-	const { root, folder } = await setup();
-	const path = 'data/state.md';
-	const state = defineCollection({ path, fields: {} });
-	const refusal = ActionError.Refused({
-		message: 'stop after the first write',
-	});
-	const canTakeLock = async () => {
-		const held = await hold(root, 0);
-		held?.release();
-		return Boolean(held);
-	};
-	const locks: boolean[] = [];
-	const run = defineAction({
-		description: 'Edit the state',
-		input: {},
-		run: async () => {
-			await state.get();
-			locks.push(await canTakeLock());
-			await state.set({ body: 'saved' });
-			locks.push(await canTakeLock());
-			return state.update(() => refusal);
-		},
-	});
-	const app = {
-		description: 'Test app',
-		actions: { run },
-		collections: { state },
-	};
-	const answer = await runAction(
-		{
-			ok: true,
-			entry: 'test',
-			name: 'test',
-			realPath: root,
-			folder: root,
-			codePath: join(root, 'code'),
-			app,
-			actions: app.actions,
-			context: { folder },
-		},
-		'run',
-		run,
-		{},
-	);
-	expect(locks).toEqual([true, false]);
-	expect(answer).toMatchObject({
-		data: null,
-		error: {
-			kind: 'returned',
-			reason: { name: 'Refused', message: 'stop after the first write' },
-		},
-	});
-	expect(await canTakeLock()).toBe(true);
-	expect(await folder.read(path)).toBe('---\n---\nsaved');
 });

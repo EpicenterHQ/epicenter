@@ -32,6 +32,7 @@ import {
 import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { routinesCommand } from './routines.ts';
 import { runAction } from './run.ts';
+import { sendToServe } from './serve-call.ts';
 import { serviceCommand } from './service.ts';
 
 const HELP = `epicenter                              your apps
@@ -185,11 +186,13 @@ export async function runCli(argv: string[]): Promise<number> {
 		// What the action prints goes to stderr, so stdout holds only the answer.
 		invoked = true;
 		// Each update is one line of JSON on stderr, as it arrives.
-		const answer = await printingToStderr(() =>
-			runAction(located, matched.key, action, given.input, {
-				onUpdate: (value) => writeErr(JSON.stringify(value)),
-			}),
-		);
+		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
+		// While serve is running it runs every action; otherwise this process does.
+		const answer =
+			(await sendToServe(name, matched.key, given.input, onUpdate)) ??
+			(await printingToStderr(() =>
+				runAction(located, matched.key, action, given.input, { onUpdate }),
+			));
 		return presentAnswer(answer, json);
 	} catch (error) {
 		if (invoked) {

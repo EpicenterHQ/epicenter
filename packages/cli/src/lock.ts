@@ -1,14 +1,15 @@
 /**
- * The container directory's flock serializes calls from their first write
- * until they end. Root checkpoints independently hold(root). A descriptor
- * owns the lock, so closing it or exiting releases it without a lock file.
- * Routine children inherit fd 3 to keep exclusion after supervisor death.
+ * A flock on a directory, for commands that must not overlap: a root
+ * checkpoint, an export, and a routine's attempt. An action takes none
+ * (ADR-0936). A descriptor owns the lock, so closing it or exiting releases
+ * it without a lock file. Routine children inherit fd 3 to keep exclusion
+ * after supervisor death.
  */
 
 import { dlopen, FFIType } from 'bun:ffi';
 import { closeSync, openSync } from 'node:fs';
 
-/** How long a call's first write waits for the app's lock before it gives up. */
+/** How long a command waits for a lock before it gives up. */
 export const LOCK_WAIT_MS = 30_000;
 
 const LOCK_EX = 2;
@@ -38,7 +39,7 @@ function flockOf() {
 	return flock;
 }
 
-/** The app's lock, held; `release` closes its descriptor, which releases it. */
+/** A lock, held; `release` closes its descriptor, which releases it. */
 export type Held = {
 	/** A routine passes this as child fd 3 so exclusion survives supervisor death. */
 	fd: number;

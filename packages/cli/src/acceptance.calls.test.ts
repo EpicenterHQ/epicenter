@@ -15,7 +15,20 @@ import {
 	fixture,
 	gitignore,
 	header,
+	startServe,
 } from './runner.test-support.js';
+
+/** A port nothing listens on, for a home whose commands must find its serve. */
+async function freePort() {
+	const probe = Bun.listen({
+		hostname: '127.0.0.1',
+		port: 0,
+		socket: { data() {} },
+	});
+	const { port } = probe;
+	probe.stop(true);
+	return port;
+}
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -221,7 +234,7 @@ test('C10 a read-only action cannot write through folder, except a .local file, 
 	);
 });
 
-test('C11 concurrent sets of different fields on one file all land', async () => {
+test('C11 concurrent sets of different fields on one file all land while serve is running', async () => {
 	const f = await setup();
 	const fields = Array.from({ length: 10 }, (_, i) => `f${i}`);
 	await f.folder(join(f.apps, 'many'), {
@@ -232,12 +245,21 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 `,
 		'data/items/one.md': '---\n---\n',
 	});
-	const runs = await Promise.all(
-		fields.map((key, i) =>
-			f.run('many', 'items', 'set', JSON.stringify({ id: 'one', [key]: i })),
-		),
-	);
-	// Calls serialize read-modify-write operations across processes.
+	// While serve is running it runs every action, so ten commands at once are
+	// ten calls in one process, and no write is lost between them (ADR-0936).
+	const port = await freePort();
+	await writeFile(join(f.home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
+	const served = await startServe(f);
+	let runs: Awaited<ReturnType<typeof f.run>>[];
+	try {
+		runs = await Promise.all(
+			fields.map((key, i) =>
+				f.run('many', 'items', 'set', JSON.stringify({ id: 'one', [key]: i })),
+			),
+		);
+	} finally {
+		await served.stop();
+	}
 	expect(runs.filter((run) => run.code !== 0 || run.stderr !== '')).toEqual([]);
 	const text = await readFile(
 		join(f.apps, 'many', 'data/items/one.md'),
@@ -245,6 +267,43 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 	);
 	for (const [i, key] of fields.entries())
 		expect(text).toContain(`${key}: ${i}\n`);
+});
+
+test('a command sends its action to serve while serve runs, and runs it itself when serve is stopped', async () => {
+	const f = await setup();
+	await f.folder(join(f.apps, 'where'), {
+		'code/.gitignore': gitignore,
+		'code/epicenter.ts': `${header}
+export default defineApp({ description: 'Where', collections: {}, actions: {
+	am: defineAction({ description: 'Say which process ran this', input: {}, run: async (_input, update) => { update('here'); return Ok(process.pid); } }),
+} });
+`,
+	});
+	const pidOf = async () => {
+		const run = await f.run('where', 'am', '--json');
+		expect(run.stderr).toBe('"here"\n');
+		return (JSON.parse(run.stdout) as { data: number }).data;
+	};
+	const port = await freePort();
+	await writeFile(join(f.home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
+	const served = await startServe(f);
+	let inServe: number;
+	try {
+		inServe = await pidOf();
+		expect(await pidOf()).toBe(inServe);
+		// A call that names another home is refused before the action runs.
+		const other = await fetch(`${served.base}/where/am`, {
+			method: 'POST',
+			headers: { 'x-epicenter-home': 'elsewhere' },
+			body: '{}',
+		});
+		expect(other.status).toBe(409);
+	} finally {
+		await served.stop();
+	}
+	const alone = await pidOf();
+	expect(alone).not.toBe(inServe);
+	expect(await pidOf()).not.toBe(alone);
 });
 
 test('C12 runs leave no temporary file and no lock file, and hold no lock once they answer', async () => {

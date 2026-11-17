@@ -1,20 +1,12 @@
 /** Container identity survives code replacement; CLI and HTTP writes preserve root HEAD and never create nested repositories. */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rename,
-	rm,
-	writeFile,
-} from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { connect } from '@epicenter/app/client';
 import type { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { checkpoint } from './checkpoint.js';
-import { hold } from './lock.js';
-import { fixture, gitIn, header, startServe } from './runner.test-support.js';
+import { fixture, gitIn, startServe } from './runner.test-support.js';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -65,36 +57,6 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 	} finally {
 		await served.stop();
 	}
-});
-
-test('a waiting action keeps locking the container when code is replaced', async () => {
-	const f = await fixture();
-	roots.push(f.root);
-	const app = await f.app('x', code);
-	const held = await hold(app, 0);
-	expect(held).toBeDefined();
-	let done = false;
-	const start = Date.now();
-	const call = f.run('x', 'put', '--json');
-	void call.then(() => {
-		done = true;
-	});
-	try {
-		await Bun.sleep(200);
-		expect(done).toBe(false);
-		await rename(join(app, 'code'), join(app, 'old-code'));
-		await mkdir(join(app, 'code'));
-		await writeFile(join(app, 'code/epicenter.ts'), header + code);
-		await Bun.sleep(200);
-		expect(done).toBe(false);
-	} finally {
-		held?.release();
-	}
-	const result = await call;
-	expect(result.code).toBe(0);
-	expect(Date.now() - start).toBeGreaterThanOrEqual(400);
-	expect(JSON.parse(result.stdout)).toEqual({ data: app, error: null });
-	expect(await readFile(join(app, 'data/record.md'), 'utf8')).toBe('record');
 });
 
 test('legacy, missing, and broken code entries list problems without hiding valid apps', async () => {

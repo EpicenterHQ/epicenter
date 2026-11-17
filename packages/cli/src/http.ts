@@ -48,6 +48,7 @@ import { refused, writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
+import { HOME_HEADER, homeName } from './serve-call.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
@@ -269,6 +270,21 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
  * can be a piece of text the next extends, and are dropped once it is gone.
  */
 async function call(request: Request): Promise<Response> {
+	// Every answer names this home, and a call meant for another is refused,
+	// so a command in a second home cannot write into this one (ADR-0936).
+	const home = await homeName();
+	const meant = request.headers.get(HOME_HEADER);
+	if (meant !== null && meant !== home)
+		return new Response('This call is for another Epicenter', {
+			status: 409,
+			headers: { [HOME_HEADER]: home },
+		});
+	const answered = await callAnswer(request);
+	answered.headers.set(HOME_HEADER, home);
+	return answered;
+}
+
+async function callAnswer(request: Request): Promise<Response> {
 	const parts = new URL(request.url).pathname.split('/');
 	let app: string;
 	let words: string[];
