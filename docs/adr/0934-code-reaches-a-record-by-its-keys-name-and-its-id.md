@@ -97,7 +97,8 @@ await data['settings.md'].set({ level: 'HSK 3' });       // creates the file whe
   where it got an empty record, and shows its own default, as zhongwen's
   pinyin switch already does with `?? false`.
 - A call's `folder` stays underneath every method, so the handle writes only
-  under `data/` and refuses whatever the call's folder refuses
+  under `data/`. Nothing else refuses a write: an action's `readOnlyHint` is a
+  hint, and no call is read-only
   ([ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md)).
 - The single-file handle and the folder handle keep their two shapes; the type
   that chose between them by counting placeholders now reads whether the key
