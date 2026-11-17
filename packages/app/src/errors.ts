@@ -31,6 +31,7 @@ const fields = {
 			Type.Literal('empty'),
 			Type.Literal('was'),
 			Type.Literal('kept'),
+			Type.Literal('there'),
 		]),
 	}),
 	Missing: Type.Object({ path: Type.String() }),
@@ -65,6 +66,7 @@ const WHY = {
 	empty: "'s body is no longer empty; get it again",
 	was: ' no longer holds a value named in was; it changed since it was read, so get it again',
 	kept: ' kept changing while it was updated',
+	there: ' is already there',
 } satisfies Record<Static<typeof fields.Changed>['why'], string>;
 
 /** The enumerable marker survives the runner's JSON serialization. It is not proof of origin. */

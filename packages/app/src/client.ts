@@ -45,6 +45,7 @@ import {
 
 export { partitionResults } from 'wellcrafted/result';
 export type { ActionError } from './errors.ts';
+export { timeId } from './time.ts';
 export { type PendingRun, pendingRuns, type Run, type RunEvent };
 
 /** `T` flattened into one object type. */
