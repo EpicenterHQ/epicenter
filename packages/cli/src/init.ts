@@ -264,8 +264,7 @@ export async function initCommand(
 	if (json) writeJson({ folder, port });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
-		if (given.values['no-install'])
-			writeErr(`Run: ${installNext(folder)}`);
+		if (given.values['no-install']) writeErr(`Run: ${installNext(folder)}`);
 		const apps = join(folder, APPS);
 		const hasApps = (
 			await readdir(apps, { withFileTypes: true }).catch(() => [])

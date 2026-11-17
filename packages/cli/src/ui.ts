@@ -42,9 +42,9 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { VERSION } from './engines.ts';
+import { installNext } from './install.ts';
 import { LIBRARY } from './library.ts';
 import { writeErr } from './output.ts';
-import { installNext } from './install.ts';
 import { epicenterDir } from './root.ts';
 
 /** Where an app's built UI lives, relative to its folder. */
