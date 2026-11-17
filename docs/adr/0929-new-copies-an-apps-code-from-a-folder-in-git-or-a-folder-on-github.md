@@ -1,6 +1,6 @@
 # 0929. `new` copies an app's code from a folder in Git or a folder on GitHub
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-16)
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) at "`epicenter new <name> --from <git url>[#<folder>]`" and at "`Source` holds the `--from` argument": a source is a folder on disk or `owner/repo/folder#ref` on GitHub, and `SOURCE.md` records repository, folder, ref, and commit as fields. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at "`new --from <path|url>[#folder]`". [ADR-0912](0912-shared-app-code-comes-from-the-app-we-maintain.md) at "Recipients use `new <name> --from <repository>#<folder>`".
 - **Relates:** [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) (export writes app code to a folder), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (the same move for the network: `serve` stops choosing addresses and the owner's tools bring devices in).
