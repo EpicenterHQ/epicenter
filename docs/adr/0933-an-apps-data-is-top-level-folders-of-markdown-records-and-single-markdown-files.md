@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) (a collection selects a record by its keys) and [ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) (file slots), once accepted.
 - **Amends:** [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md): a ref names its target by key name and holds one id. [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md): the check's rules below, with no count of skipped files.
 - **Unbuilt:** all of it. No runtime has `defineData`, no app has moved, and `defineCollection` is not deleted.
-- **Relates:** [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (how code reaches these records); [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md) (the actions generated for them); [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) (refs); [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) (the check); [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) (absent switches and lists); [ADR-0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) (front matter grammar); [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files).
+- **Relates:** [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (how code reaches these records); [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md) (the actions generated for them); [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) (refs); [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) (the check); [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) (absent switches and lists); [ADR-0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) (front matter grammar).
 
 ## Context
 
@@ -40,6 +40,9 @@ the front matter of its Markdown records. How an app arranges anything else
 
 **An app's data is one `defineData({...})`. A key that ends in `.md` is one file in `data/`; any other key is a folder in `data/` whose records are the `.md` files directly inside it.**
 
+An app's `local/` folder holds files that stay on this computer.
+`defineData` does not describe it; the app reads and writes those files through `folder`.
+
 ```ts
 // code/data.ts
 import { defineData, field } from '@epicenter/app';
@@ -49,7 +52,6 @@ export const data = defineData({
 	watches:           { fields: { from: field.list(field.text()), to: field.list(field.text()) } },
 	checks:            { fields: { watch: field.ref('watches'), day: field.date() } },
 	'settings.md':     { fields: { level: field.select(levels) } },
-	'google.local.md': { fields: { clientId: field.text(), clientSecret: field.text() } },
 });
 ```
 
@@ -67,17 +69,12 @@ data/
   watches/sfo-nyc.md                           a record of watches, id sfo-nyc
   checks/sfo-nyc.2026-11-16.md                 a record of checks
   settings.md                                  the one file of settings.md
-  google.local.md                              stays on this computer
 ```
 
 - A key is a name as `isName` defines one (lowercase letters, digits, and
   dashes, starting with a letter: `notes`, `device-drafts`), then optionally
-  `.local`, then, for one file, `.md`. So two keys never share a name on a
+  `.md` for one file. So two keys never share a name on a
   disk that ignores case.
-- A key ending in `.local` (`accounts.local`) or `.local.md`
-  (`google.local.md`) holds files that stay on this computer, as
-  [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)
-  says.
 - Each value is `{ description?, fields }`. `description` says what one file
   is ("a word I'm learning") for the generated actions and for
   `epicenter list`. Field kinds, optional fields, absent switches and
@@ -97,10 +94,8 @@ An id is not empty, is at most 200 UTF-8 bytes, has no `/`, `\`, or control
 character, does not start with `.`, does not start or end with a space, and is
 in Unicode NFC. The library refuses an id that breaks a rule and never tidies
 one: `Dune` and ` Dune` are not the same request, and an accented word typed
-two ways cannot become two files. In a key that is not `.local`, an id that
-`isLocalPath` calls local (`token.local`) is refused, and such a file is not a
-record. `field.id()` is the input field an action uses for an id, refusing
-what the rule refuses.
+two ways cannot become two files. `field.id()` is the input field an action
+uses for an id, refusing what the rule refuses.
 
 Whoever adds a record names it: a word by the word, a book by its title, a
 note by `timeId()`. The declaration says nothing about how ids are chosen.
@@ -112,16 +107,16 @@ the `watch` and `day` fields, never the id's parts.
 **The lens is Markdown front matter and nothing else.**
 
 In a folder key's folder, a `.md` file is a record. A subfolder, a file with
-another extension, a name starting with `.`, and a local file in a key that is
-not `.local` are the app's own: no handle names them and `epicenter check`
-does not read them. `pages/intro.md` beside `pages/intro/final.mp4` is one
+another extension, and a name starting with `.` are the app's own: no handle
+names them and `epicenter check` does not read them.
+`pages/intro.md` beside `pages/intro/final.mp4` is one
 record and a folder the app arranges. An entry in `data/` that no key names,
 such as a cache, is the app's own too.
 
 **A relation is a field: `field.ref(key)` holds the id of a record in folder key `key`.**
 
 `field.ref('watches')` holds `"sfo-nyc"` for `data/watches/sfo-nyc.md`. The key
-is a folder key of the same `defineData` and does not end in `.local`.
+is a folder key of the same `defineData`.
 `field.list(field.ref('watches'))` holds several. A read never opens the
 record a ref names; `epicenter check` is where a ref is resolved.
 
@@ -144,14 +139,12 @@ flights
   field.
 - A `.md` file in a folder key's folder whose name is not a valid id is a
   problem: it looks like a record and nothing can reach it. A name starting
-  with `.` and a local file in a key that is not `.local` are the app's own,
-  not problems.
+  with `.` is the app's own, not a problem.
 - Two names in one folder that are equal under NFC and case folding are a
   problem, because they become one file on a Mac.
 - A ref is a problem unless it equals, byte for byte, the id of a listed
   record in its key.
 - A one-file key whose file is absent is not a problem.
-- A `.local` record's problems name fields, never values.
 
 ## Consequences
 
@@ -197,7 +190,7 @@ deletes `defineCollection`.
 - **File slots and `field.file()` naming a record's files ([ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md), Astro's `image()`).** A file the app names the same for every record is not data; one the record chooses is the app's to arrange.
 - **Glob loaders, as Astro's `glob()`.** A glob tests a path but cannot make one from an id, and the cases that needed `**` hold files nobody validates.
 - **A count of skipped files in the check.** It kept files a key used to cover from dropping out of view, but named none of them and changed nothing a person could do.
-- **An absent one-file key reading as an empty record.** It let a page read settings before the file existed, at the cost of a rule that every field of a one-file key be optional, which this record's own `google.local.md` broke.
+- **An absent one-file key reading as an empty record.** It let a page read settings before the file existed, at the cost of a rule that every field of a one-file key be optional.
 - **`defineRecords`.** More exact about what is declared, but `data.watches` reads as `data/watches/` at every call site, and the call site is what code reads.
 - **No app-owned JSON.** Front matter breaks on top-level arrays and large nested values; JSON stays a plain file the app reads.
 - **Only folder keys, with `settings/settings.md`.** Moves the cost of one rule into every one-file app as a folder of one file and an id repeated at every call.

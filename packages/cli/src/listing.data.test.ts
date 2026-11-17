@@ -25,8 +25,6 @@ const data = defineData({
   watches: { description: 'A flight I watch', fields: { from: field.text() } },
   checks: { fields: { watch: field.ref('watches'), many: field.list(field.ref('watches')) } },
   'settings.md': { description: 'My settings', fields: { level: field.integer() } },
-  'google.local.md': { description: 'Local credentials', fields: { token: field.text() } },
-  'accounts.local': { fields: {} },
 });
 export default defineApp({ description: 'Flights', data, actions: {} });
 `,
@@ -38,10 +36,6 @@ export default defineApp({ description: 'Flights', data, actions: {} });
 	);
 	expect(human.stdout).toContain(
 		'  settings.md  data/settings.md\n    My settings\n',
-	);
-	expect(human.stdout).toContain('  accounts.local  data/accounts.local/');
-	expect(human.stdout).toContain(
-		'  google.local.md  data/google.local.md\n    Local credentials\n',
 	);
 	expect(human.stdout).toContain('"properties":{"from":{"type":"string"}}');
 	const json = await f.run('flights', '--json');
@@ -72,11 +66,6 @@ export default defineApp({ description: 'Flights', data, actions: {} });
 			},
 		},
 		'settings.md': { path: 'data/settings.md', description: 'My settings' },
-		'google.local.md': {
-			path: 'data/google.local.md',
-			fields: { properties: { token: { type: 'string' } } },
-		},
-		'accounts.local': { path: 'data/accounts.local/' },
 	});
 	const home = await f.run('--json');
 	expect(home.code).toBe(0);

@@ -49,8 +49,7 @@ export default defineApp({
 
 - Verbs are always named. There is no default set, so adding a verb is a
   line in `epicenter.ts`, and a key offers nothing it was not given.
-- A one-file key offers `get`, `set`, and `delete`. A `.local` key offers no
-  actions, so its values never leave this computer through one. Naming a verb
+- A one-file key offers `get`, `set`, and `delete`. Naming a verb
   a key does not offer is a type error.
 - Every generated action has `openWorldHint: false`.
 - Each action is described by the key's `description` and returns the

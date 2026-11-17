@@ -94,10 +94,10 @@ function appProblems(app: unknown): string[] {
 		problems.push('An app needs data: the value returned by defineData(...)');
 	if (isObject(data)) {
 		for (const [key, handle] of Object.entries(data)) {
-			const name = key.replace(/\.md$/, '').replace(/\.local$/, '');
+			const name = key.replace(/\.md$/, '');
 			if (!isName(name))
 				problems.push(
-					`data has the key ${JSON.stringify(key)}, which must be a name, optionally followed by .local and .md`,
+					`data has the key ${JSON.stringify(key)}, which must be a name, optionally followed by .md`,
 				);
 			if (
 				!isObject(handle) ||

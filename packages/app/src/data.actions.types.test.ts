@@ -28,8 +28,6 @@ const data = defineData({
 	'settings.md': {
 		fields: { level: field.integer(), note: field.text({ optional: true }) },
 	},
-	'private.local': { fields: {} },
-	'private.local.md': { fields: {} },
 });
 const actions = data.words.actions('list', 'get', 'add', 'set', 'delete');
 const settings = data['settings.md'].actions('get', 'set', 'delete');
@@ -177,10 +175,6 @@ describe('type errors', () => {
 		() => data['settings.md'].actions('list');
 		// @ts-expect-error one-file keys have no add
 		() => data['settings.md'].actions('get', 'add');
-		// @ts-expect-error local folders have no generated actions
-		() => data['private.local'].actions('get');
-		// @ts-expect-error local one-file keys have no generated actions
-		() => data['private.local.md'].actions('get');
 		// @ts-expect-error update is only on the handle
 		() => data.words.actions('update');
 		// @ts-expect-error an unselected verb is absent

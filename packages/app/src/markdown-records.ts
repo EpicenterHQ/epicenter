@@ -41,12 +41,12 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 /** Read and patch declared Markdown fields without changing undeclared lines. */
 export function createMarkdownRecords({
 	fields,
-	local,
+	local = false,
 	keysOf,
 	single = false,
 }: {
 	fields: Fields;
-	local: boolean;
+	local?: boolean;
 	keysOf: (path: string) => Record<string, string> | undefined;
 	/** Collections alone read an absent one-file record as empty. */
 	single?: boolean;

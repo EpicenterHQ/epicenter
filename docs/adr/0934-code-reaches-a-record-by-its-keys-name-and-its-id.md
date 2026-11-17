@@ -78,8 +78,7 @@ await data['settings.md'].set({ level: 'HSK 3' });       // creates the file whe
   changing the same file at the same moment: Epicenter presumes one
   ([ADR-0936](0936-serve-runs-every-action-while-it-is-running.md)).
 - Failures are the four `ActionError` variants: `Missing`, `Misfit`,
-  `Changed`, `Refused`. `Changed` gains `why: 'there'`. A `.local` record's
-  `Misfit` carries no values.
+  `Changed`, `Refused`. `Changed` gains `why: 'there'`.
 
 ## Consequences
 

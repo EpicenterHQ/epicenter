@@ -50,6 +50,6 @@ test('an app refuses plain definitions and malformed data keys as handles', () =
 	expect(() =>
 		defineApp({ description: 'Bad', data: { Notes: data.notes }, actions: {} }),
 	).toThrow(
-		'data has the key "Notes", which must be a name, optionally followed by .local and .md',
+		'data has the key "Notes", which must be a name, optionally followed by .md',
 	);
 });

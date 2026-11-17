@@ -8,7 +8,7 @@ import {
 import { Ok, type Result } from 'wellcrafted/result';
 import { type Action, defineAction } from './action.ts';
 import { isName } from './app.ts';
-import { folder, isLocalPath } from './context.ts';
+import { folder } from './context.ts';
 import { ActionError } from './errors.ts';
 import { defaultIn, field, refKeyOf } from './field.ts';
 import { isFieldKey, type JsonValue, readMarkdown } from './front-matter.ts';
@@ -118,7 +118,7 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	/** The file path for this id, without checking the id or the disk. */
 	pathOf(id: string): string;
 };
-/** Data metadata and reads; key names determine paths, file or folder shape, and locality. */
+/** Data metadata and reads; key names determine paths and file or folder shape. */
 export type AnyData = Record<
 	string,
 	DataDef &
@@ -129,13 +129,9 @@ export type AnyData = Record<
 >;
 
 type Verb = 'list' | 'get' | 'add' | 'set' | 'delete';
-type Offered<TKey extends string> = TKey extends
-	| `${string}.local`
-	| `${string}.local.md`
-	? never
-	: TKey extends `${string}.md`
-		? 'get' | 'set' | 'delete'
-		: Verb;
+type Offered<TKey extends string> = TKey extends `${string}.md`
+	? 'get' | 'set' | 'delete'
+	: Verb;
 type IdInput<TKey extends string> = TKey extends `${string}.md`
 	? Record<string, never>
 	: { id: string };
@@ -191,7 +187,7 @@ export type Data<TSpec extends Spec> = {
 		(K extends `${string}.md`
 			? OneFile<K, TSpec[K]>
 			: FolderHandle<K, TSpec[K]>) & {
-			/** Expose only the named verbs; local keys offer none. */
+			/** Expose only the named verbs. */
 			actions<V extends Offered<K>>(
 				...verbs: [V, ...V[]]
 			): DataActions<K, TSpec[K], V>;
@@ -211,10 +207,7 @@ type RefTargets<TSchema> = TSchema extends {
 			: TSchema extends { anyOf: infer TChoices extends readonly unknown[] }
 				? RefTargets<TChoices[number]>
 				: never;
-type RefKeys<TSpec> = Exclude<
-	keyof TSpec & string,
-	`${string}.md` | `${string}.local`
->;
+type RefKeys<TSpec> = Exclude<keyof TSpec & string, `${string}.md`>;
 type ValidRefs<TSpec extends Spec> = {
 	[K in keyof TSpec]: {
 		fields: {
@@ -223,7 +216,7 @@ type ValidRefs<TSpec extends Spec> = {
 				RefKeys<TSpec>
 			> extends never
 				? unknown
-				: `Data ref "${Exclude<RefTargets<TSpec[K]['fields'][F]>, RefKeys<TSpec>>}" must name a non-local folder key in this defineData`;
+				: `Data ref "${Exclude<RefTargets<TSpec[K]['fields'][F]>, RefKeys<TSpec>>}" must name a folder key in this defineData`;
 		};
 	};
 };
@@ -233,10 +226,10 @@ export function defineData<const TSpec extends Spec>(
 	spec: TSpec & ValidRefs<TSpec>,
 ): Data<TSpec> {
 	for (const [key, { fields }] of Object.entries(spec)) {
-		const name = key.replace(/\.md$/, '').replace(/\.local$/, '');
+		const name = key.replace(/\.md$/, '');
 		if (!isName(name))
 			throw new Error(
-				`The data key ${JSON.stringify(key)} must be a name, optionally followed by .local and .md`,
+				`The data key ${JSON.stringify(key)} must be a name, optionally followed by .md`,
 			);
 		JSON.stringify(fields);
 		for (const [field, schema] of Object.entries(fields)) {
@@ -266,12 +259,10 @@ export function defineData<const TSpec extends Spec>(
 		const target = refKeyOf(schema);
 		if (
 			target !== undefined &&
-			(!Object.hasOwn(spec, target) ||
-				target.endsWith('.md') ||
-				isLocalPath(target))
+			(!Object.hasOwn(spec, target) || target.endsWith('.md'))
 		)
 			throw new Error(
-				`The data key ${key}'s field "${field}" refers to ${JSON.stringify(target)}, which must name a non-local folder key in this defineData`,
+				`The data key ${key}'s field "${field}" refers to ${JSON.stringify(target)}, which must name a folder key in this defineData`,
 			);
 		for (const child of Object.values(schema)) checkRefs(child, key, field);
 	}
@@ -288,8 +279,6 @@ function createHandle(key: string, def: DataDef) {
 	return {
 		...handle,
 		actions(...verbs: string[]) {
-			if (isLocalPath(key))
-				throw new Error(`The data key ${key} is local and offers no actions`);
 			if (!verbs.length)
 				throw new Error(`Name the action verbs for the data key ${key}`);
 			const offered =
@@ -308,18 +297,16 @@ function createHandle(key: string, def: DataDef) {
 
 function createRecordHandle(key: string, def: DataDef) {
 	const single = key.endsWith('.md');
-	const local = isLocalPath(key);
 	const base = `data/${key}`;
 	const records = createMarkdownRecords({
 		fields: def.fields,
-		local,
 		keysOf: (path): Record<string, string> =>
 			single ? {} : { id: path.slice(base.length + 1, -3) },
 	});
 	/** The path for `id`, or Refused when the id breaks ADR-0933's rule. */
 	function place(id?: string) {
 		if (single) return base;
-		const problem = idProblem(id, local);
+		const problem = idProblem(id);
 		return problem
 			? ActionError.Refused({ message: `${key}: ${problem}` })
 			: `${base}/${id}.md`;
@@ -398,7 +385,7 @@ function createRecordHandle(key: string, def: DataDef) {
 			for (const path of (await folder.list(base)).sort()) {
 				if (!path.startsWith(`${base}/`) || !path.endsWith('.md')) continue;
 				const id = path.slice(base.length + 1, -3);
-				if (idProblem(id, local) !== undefined) continue;
+				if (idProblem(id) !== undefined) continue;
 				const text = await folder.read(path);
 				if (text !== undefined)
 					found.push(records.project(path, readMarkdown(text)).result);
@@ -424,7 +411,7 @@ function dataAction(
 	);
 	const id = field.id({ description: `The name of the ${what}` });
 	const keys: Record<string, typeof id> = keyed ? { id } : {};
-	const local = { openWorldHint: false } as const;
+	const hints = { openWorldHint: false } as const;
 	const body = Type.Optional(
 		Type.String({ description: 'The text after the front matter' }),
 	);
@@ -435,14 +422,14 @@ function dataAction(
 			return defineAction({
 				description: `Every ${what}: one result per file with its path, fields, and body; a file that does not fit its fields is an error beside the records`,
 				input: {},
-				annotations: { readOnlyHint: true, ...local },
+				annotations: { readOnlyHint: true, ...hints },
 				run: async () => Ok(await handle.list()),
 			});
 		case 'get':
 			return defineAction({
 				description: `Read one ${what}: its fields and body; a file that does not fit its fields is an error`,
 				input: keys,
-				annotations: { readOnlyHint: true, ...local },
+				annotations: { readOnlyHint: true, ...hints },
 				run: async ({ id }) => {
 					const found = await (keyed ? handle.get(id as string) : handle.get());
 					if (keyed && found.error === null && found.data === undefined)
@@ -463,7 +450,7 @@ function dataAction(
 					readOnlyHint: false,
 					destructiveHint: false,
 					idempotentHint: true,
-					...local,
+					...hints,
 				},
 				run: ({ id, ...record }) => handle.add(id, record),
 			});
@@ -507,7 +494,7 @@ function dataAction(
 					readOnlyHint: false,
 					destructiveHint: true,
 					idempotentHint: true,
-					...local,
+					...hints,
 				},
 				run: async (input) => {
 					// The dynamic keys schema supplies id only for folder keys.
@@ -548,7 +535,7 @@ function dataAction(
 					readOnlyHint: false,
 					destructiveHint: true,
 					idempotentHint: true,
-					...local,
+					...hints,
 				},
 				run: ({ id }) =>
 					keyed ? handle.delete(id as string) : handle.delete(),

@@ -1,7 +1,7 @@
 /**
  * Data checks run the real CLI against records in a temporary home.
- * Counts, filename rules, aliases, exact references, single files, and local
- * redaction stay consistent between human reports and JSON.
+ * Counts, filename rules, aliases, exact references, and single files stay
+ * consistent between human reports and JSON.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
@@ -27,8 +27,6 @@ const data = defineData({
   watches: { fields: { from: field.text() } },
   checks: { fields: { watch: field.ref('watches'), day: field.date(), many: field.list(field.ref('watches')) } },
   'settings.md': { fields: { level: field.integer() } },
-  'google.local.md': { fields: { token: field.text(), watch: field.ref('watches') } },
-  'accounts.local': { fields: { token: field.text(), many: field.list(field.ref('watches')) } },
 });
 ${
 	aliasInventory
@@ -54,13 +52,14 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 	await f.folder(f.dataPath, {
 		'watches/sfo-nyc.md': '---\nfrom: "SFO"\n---\n',
 		'watches/.hidden.md': '---\nnot front matter\n',
-		'watches/token.Local.md': '---\nnot front matter\n',
+		'watches/token.local.md': '---\nfrom: "SFO"\n---\n',
 		'watches/nested/deep.md': '---\nnot front matter\n',
 		'watches/folder.md/deep.md': '---\nnot front matter\n',
 		'watches/image.png': 'not Markdown',
 		'watches/upper.MD': 'not Markdown',
 		'cache/other.md': 'not a record',
-		'checks/one.md': '---\nwatch: "sfo-nyc"\nday: "2026-11-16"\n---\n',
+		'checks/one.md':
+			'---\nwatch: "sfo-nyc"\nday: "2026-11-16"\nmany: ["token.local"]\n---\n',
 	});
 	const human = await f.run('check', 'flights');
 	expect(human).toEqual({
@@ -68,11 +67,9 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 		stderr: '',
 		stdout: [
 			'flights',
-			'  watches  1 file, none with problems',
+			'  watches  2 files, none with problems',
 			'  checks  1 file, none with problems',
 			'  settings.md  fits',
-			'  google.local.md  fits',
-			'  accounts.local  0 files, none with problems',
 			'',
 		].join('\n'),
 	});
@@ -80,7 +77,7 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 	expect(json.code).toBe(0);
 	const report = JSON.parse(json.stdout);
 	expect(report.apps.flights.watches).toMatchObject({
-		files: 1,
+		files: 2,
 		withProblems: 0,
 		records: [],
 	});
@@ -90,7 +87,6 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 	});
 	expect(json.stdout).not.toContain('skipped');
 });
-
 test('misfit fields and malformed front matter reuse handle diagnostics and exit 1', async () => {
 	const f = await setup();
 	await f.folder(f.dataPath, {
@@ -107,7 +103,7 @@ test('misfit fields and malformed front matter reuse handle diagnostics and exit
 		{
 			path: 'checks/bad.md',
 			problems: [
-				'watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, boundary spaces, or .local',
+				'watch: 3 is not a record id: non-empty NFC text of at most 200 UTF-8 bytes, without slashes, control characters, a leading dot, or boundary spaces',
 				'day: "soon" is not a day like 2026-11-12',
 			],
 		},
@@ -197,7 +193,6 @@ test('refs require byte-exact ids of listed records, including list refs and mis
 	await f.folder(f.dataPath, {
 		'watches/Exact.md': '---\nfrom: "SFO"\n---\n',
 		'watches/misfit.md': '',
-		'watches/ignored.local.md': '',
 		'watches/nested/hidden.md': '',
 		'checks/one.md':
 			'---\nwatch: "exact"\nday: "2026-11-16"\nmany: ["Exact", "misfit", "absent", "hidden"]\n---\n',
@@ -214,26 +209,4 @@ test('refs require byte-exact ids of listed records, including list refs and mis
 			],
 		},
 	]);
-});
-
-test('local files and folders name fields while omitting bad values and missing ref values', async () => {
-	const f = await setup();
-	await f.folder(f.dataPath, {
-		'google.local.md': '---\ntoken: 987654321\nwatch: "secret-watch"\n---\n',
-		'accounts.local/account.local.md':
-			'---\ntoken: "token-secret"\nmany: ["secret-ref"]\n---\n',
-	});
-	for (const flags of [[], ['--json']]) {
-		const result = await f.run('check', 'flights', ...flags);
-		expect(result.code).toBe(1);
-		for (const value of [
-			'987654321',
-			'secret-watch',
-			'token-secret',
-			'secret-ref',
-		])
-			expect(result.stdout).not.toContain(value);
-		expect(result.stdout).toContain('token is not text');
-		expect(result.stdout).toContain('many[0] names no file in watches/');
-	}
 });

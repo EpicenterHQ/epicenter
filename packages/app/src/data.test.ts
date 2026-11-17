@@ -1,6 +1,6 @@
 /**
  * Data handles read and patch top-level Markdown records through the current run.
- * Covers both key shapes, strict ids, create-only adds, repairs, local diagnostics,
+ * Covers both key shapes, strict ids, create-only adds, repairs, diagnostics,
  * list membership, and the separation between app writes and reference checks.
  */
 import { expect, test } from 'bun:test';
@@ -254,8 +254,6 @@ const invalidIds = [
 	'e\u0301',
 	'界'.repeat(67),
 	'a'.repeat(201),
-	'token.local',
-	'token.LOCAL.extra',
 ];
 test.each(invalidIds)(
 	'every folder verb refuses the id %j without touching the folder',
@@ -307,11 +305,29 @@ test('ids retain internal spaces, case, NFC accents, and the byte limit', async 
 	});
 });
 
+test('token.local is a valid id in a folder key', async () => {
+	const {
+		context,
+		data: { notes },
+	} = setup();
+	expect(Value.Check(field.id(), 'token.local')).toBe(true);
+	await inRun(context, async () => {
+		expect(
+			expectOk(await notes.add('token.local', { title: 'Token' })).id,
+		).toBe('token.local');
+		expect(expectOk(await notes.get('token.local'))?.path).toBe(
+			'data/notes/token.local.md',
+		);
+	});
+});
+
 test.each([
 	'Notes',
 	'two_words',
 	'two/parts',
 	'notes.txt',
+	'notes.local',
+	'notes.local.md',
 	'notes.md.local',
 	'notes.local.local',
 	'.local',
@@ -331,52 +347,7 @@ test.each(['path', 'body', 'id', 'edit'])(
 	},
 );
 
-test('local keys admit local ids and never include stored or supplied values in Misfit', async () => {
-	const data = defineData({
-		'accounts.local': { fields: { token: field.text(), n: field.integer() } },
-		'secret.local.md': { fields: { token: field.text(), n: field.integer() } },
-	});
-	const stored =
-		'---\ntoken: "secret-token"\nn: "secret-invalid"\n---\nsecret-body';
-	const context = createMemoryContext({
-		'data/accounts.local/a.local.md': stored,
-		'data/secret.local.md': stored,
-	});
-	await inRun(context, async () => {
-		for (const result of [
-			await data['accounts.local'].get('a.local'),
-			await data['accounts.local'].set('a.local', { token: 'new-secret' }),
-			await data['accounts.local'].update('a.local', () => {
-				throw new Error('must not call');
-			}),
-			await data['secret.local.md'].get(),
-			await data['secret.local.md'].set({ token: 'new-secret' }),
-		]) {
-			expect(expectErr<import('./errors.ts').ActionError>(result).name).toBe(
-				'Misfit',
-			);
-			expect(
-				expectErr<import('./errors.ts').ActionError>(result),
-			).not.toHaveProperty('record');
-			expect(JSON.stringify(result)).not.toContain('secret-');
-		}
-		expect(
-			expectOk(
-				await data['accounts.local'].add('another.local', {
-					token: 'ok',
-					n: 1,
-				}),
-			).id,
-		).toBe('another.local');
-		expect(
-			(await data['accounts.local'].list()).flatMap((row) =>
-				row.error ? [] : [expectOk(row).id],
-			),
-		).toEqual(['another.local']);
-	});
-});
-
-test('list reads only directly contained Markdown files with valid non-local ids, sorted by path', async () => {
+test('list reads only directly contained Markdown files with valid ids, sorted by path', async () => {
 	const text = '---\ntitle: "valid"\n---\n';
 	const files = [
 		'z.md',
@@ -415,6 +386,8 @@ test('list reads only directly contained Markdown files with valid non-local ids
 		expect(rows.map((r) => r.error?.path ?? r.data?.path)).toEqual([
 			'data/notes/a.md',
 			'data/notes/bad.md',
+			'data/notes/token.LOCAL.extra.md',
+			'data/notes/token.local.md',
 			'data/notes/z.md',
 		]);
 		for (const row of rows) {
@@ -424,6 +397,8 @@ test('list reads only directly contained Markdown files with valid non-local ids
 	expect(opened).toEqual([
 		'data/notes/a.md',
 		'data/notes/bad.md',
+		'data/notes/token.LOCAL.extra.md',
+		'data/notes/token.local.md',
 		'data/notes/z.md',
 	]);
 });
@@ -477,14 +452,13 @@ test('data refs validate their target at runtime while collection refs keep work
 		fields: {},
 	});
 	expect(Value.Check(field.ref(collection), 'dune')).toBe(true);
-	for (const target of ['missing', 'settings.md', 'secret.local']) {
+	for (const target of ['missing', 'settings.md']) {
 		// Dynamic schemas exercise runtime validation without bypassing the public types.
 		const ref = Type.String({ 'x-epicenter-ref': { key: target } });
 		expect(() =>
 			defineData({
 				notes: { fields: { ref } },
 				'settings.md': { fields: {} },
-				'secret.local': { fields: {} },
 			}),
 		).toThrow(target);
 	}
