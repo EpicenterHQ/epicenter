@@ -76,7 +76,9 @@ Prefer call-site callbacks for UI consequences:
 </Button>
 ```
 
-Each interaction can do exactly what its UI context needs. A table row can show a small toast. A bulk action can update selection state. A dialog can close itself.
+Clearing the field here assumes the dialog still owns the submitted selection.
+For what happened when people could start another selection during a save, see
+[A save can finish after the person has moved on](../articles/a-save-can-finish-after-the-person-has-moved-on.md).
 
 ## Hook-Local Result Mutations
 
@@ -94,7 +96,8 @@ const startRecording = createMutation(() =>
 );
 ```
 
-Use a shared `resultMutations` entry only when the mutation has reusable identity or several observers. Refreshing reads after a write is the QueryClient's invalidation rule, not a reason to share one.
+For the choice between local and shared entries, see
+[the query-layer skill](../../.agents/skills/query-layer/SKILL.md#compose-a-service-in-two-maps).
 
 ## Rule
 
