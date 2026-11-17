@@ -1,4 +1,5 @@
 /** Create an app container from blank code or a committed code copy. */
+import { existsSync } from 'node:fs';
 import {
 	mkdir,
 	mkdtemp,
@@ -22,10 +23,14 @@ import { misuse, nameProblem, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
-import { type InstallProblem, installHome } from './install.ts';
+import {
+	type BunProblem,
+	buildApp,
+	buildNext,
+	installHome,
+} from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { appsDir, epicenterDir, epicenterRoot, folderPath } from './root.ts';
-import { uiSource } from './ui.ts';
 
 type CopiedSource = { commit: string; notCopied?: string[] | null };
 
@@ -172,11 +177,14 @@ async function made(name: string, json: boolean, source?: CopiedSource) {
 	else {
 		writeOut(folder);
 		writeSourceWarning(name, source);
-		if (await uiSource(join(folder, 'code'))) {
+		const code = join(folder, 'code');
+		if (existsSync(join(code, 'ui', 'dist', 'index.html'))) {
 			const { port } = epicenterRoot();
 			writeErr('Run: epicenter serve');
 			writeErr(`Open http://127.0.0.1:${port}/${name}/ in your browser.`);
-		} else writeErr(`Run: epicenter ${name}`);
+		} else if (existsSync(join(code, 'ui')))
+			writeErr(`Run: ${buildNext(code)}`);
+		else writeErr(`Run: epicenter ${name}`);
 	}
 	return 0;
 }
@@ -213,7 +221,7 @@ export async function newCommand(
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
 		const failed = await installHome(epicenterDir());
-		if (failed) return installFailed(name, failed, json);
+		if (failed) return unfinished(name, failed, json);
 		return made(name, json);
 	}
 	const source = await locateSource(from);
@@ -243,7 +251,7 @@ export async function newCommand(
 		);
 	}
 	const failed = await installHome(epicenterDir());
-	if (failed) return installFailed(name, failed, json, copied);
+	if (failed) return unfinished(name, failed, json, copied);
 	const { data: located, error } = await loadHomeApp(name);
 	const loadProblem =
 		error ??
@@ -254,6 +262,8 @@ export async function newCommand(
 		await rm(folder, { recursive: true, force: true });
 		return fail(loadProblem, json);
 	}
+	const unbuilt = await buildApp(join(folder, 'code'));
+	if (unbuilt) return unfinished(name, unbuilt, json, copied);
 	return made(name, json, copied);
 }
 
@@ -563,10 +573,10 @@ async function makeApp(name: string) {
 		await writeFile(join(folder, path), text);
 }
 
-/** Keep the app on disk so its packages can be repaired and installed again. */
-function installFailed(
+/** Keep the app on disk so its install or build can be repaired and run again. */
+function unfinished(
 	name: string,
-	error: InstallProblem,
+	error: BunProblem,
 	json: boolean,
 	source?: CopiedSource,
 ) {

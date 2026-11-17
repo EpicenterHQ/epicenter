@@ -1,7 +1,6 @@
 /** Dispatch commands, and send each checked app action to the home's serve, which runs it. */
 import { isName } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { buildCommand } from './build.ts';
 import { checkCommand } from './check.ts';
 import { COMMANDS, type Command, misuse, parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
@@ -55,7 +54,6 @@ const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
 	new: newCommand,
 	export: exportCommand,
-	build: buildCommand,
 	check: checkCommand,
 	async serve(words, json) {
 		if (json)

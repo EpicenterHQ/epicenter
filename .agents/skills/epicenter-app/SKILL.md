@@ -185,8 +185,8 @@ packages only once its path is added by hand to `workspaces` in the home's
 `epicenter init` and `epicenter new` run it, and a call never installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
-the restart. Upgrade Epicenter with
-`bun update --latest @epicenter/cli @epicenter/app`: the two are released at
+the restart. Upgrade Epicenter by editing both versions in the home's `package.json`, then
+running `bun install && bun run build` at the top: the two are released at
 one version, and `epicenter` refuses to load apps while the home names two.
 Write each action with `defineAction`, which types its
 `run` from its `input`. Every action returns one Result. Return `Ok(value)`,
@@ -404,21 +404,18 @@ packages in `code/package.json` with versions resolvable from npm.
 Build paths are relative to code/. Component paths starting with src/ or
 static/ are relative to code/ui/.
 
-`serve` builds the UI itself from `ui/` as it sits on disk, committed or
-not (ADR-0880). The build runs in the app's `code/`
-folder: when the app's `package.json` has a `build` script, `serve` runs it
-with `EPICENTER_OUT` naming the folder to write; otherwise it bundles
-`ui/index.html` and the TypeScript and CSS beside it, so a tiny UI needs no
-`package.json`. Either way the build writes relative URLs and is never told
-where it is served, and `@epicenter/app/client` comes from the home's install;
-never list `@epicenter/app` in the app. `serve` serves `ui/dist/`
-and looks nowhere else. A build never installs: `bun add` in `code/` installs
-the package, then restart `serve`.
+The app builds its own UI: its `code/package.json` has a `build` script that
+writes `ui/dist/`, and `serve` serves `ui/dist/` as it is and never builds. A
+plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`.
+The build writes relative URLs and is never told where it is served, and
+`@epicenter/app/client` comes from the home's install; never list
+`@epicenter/app` in the app. `bun add` in `code/` installs a package, then
+restart `serve`.
 
-A change under `ui/` shows at `/<app>/` on the next page load after its
-build, and the last good build stays up meanwhile. A build that fails is not
-tried again until a file under `ui/`, `package.json`, or the home's `bun.lock` changes;
-run `epicenter build <app>` to build now and see the build's errors. Never
+After any change under `ui/`, run `bun run build` in `code/`, read its errors,
+and fix them before saying the page changed: an unbuilt edit does not show.
+After upgrading Epicenter, run `bun run build` at the top of the home, which
+builds every app against the new client. Never
 commit `ui/dist/`. The UI owns unfinished input and local interaction state.
 Actions own stored records; the UI shows what serve answers and sends what the
 person submits.
@@ -568,8 +565,9 @@ use the replacement action rather than add conflict machinery by default.
 ## Verify without touching the person's data
 
 Never run anything against the real `~/Epicenter` until the person asks.
-Use a temporary home and a committed source. `new --from` copies code and
-creates empty sibling data/; then build it as serve would. Uncommitted edits
+Use a temporary home and a committed source. `new --from` copies code,
+creates empty sibling data/, installs, and runs the app's `bun run build`;
+read its errors. Uncommitted edits
 are not copied. To test them, commit in a disposable copy outside the live
 Epicenter, without changing the live branch or index.
 
@@ -581,7 +579,6 @@ printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitc
 HOME="$test_home" epicenter init "$test_home/Epicenter" --port 4799
 cd "$test_home/Epicenter"
 HOME="$test_home" epicenter new example --from "$source_path"
-HOME="$test_home" epicenter build example
 HOME="$test_home" epicenter example --help
 HOME="$test_home" epicenter serve               # drive /example/ on port 4799
 ```
@@ -602,8 +599,8 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - `epicenter new <app> --from <folder | owner/repo/folder#ref>` takes committed code into
   apps/<app>/code/ and creates empty data/. It names the copy's package.json
   for the app, leaves out a copied bun.lock and any @epicenter/app entry, and
-  runs the home's install. It does not build;
-  run `epicenter build <app>` to check it before opening its page.
+  runs the home's install, then the app's `bun run build` when it has one,
+  so its page opens straight away.
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
@@ -626,13 +623,11 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   and push the outer repository with Git. Recipients can read its history and
   notes as well as its code: keep private record content out of those messages,
   notes, and source files. Never publish the private root history.
-- `epicenter build [<app>]` rebuilds from code/ui/ while retaining the last
-  good build. The project's own build script may empty its output first.
 - Run from inside the app's Epicenter. Another person's Epicenter is a
   different folder with its own port.
 
-A running serve loads edited code on the next call and checks code/ui/ on a
-page load. It serves code/ui/dist/ and keeps the last good build while rebuilding.
+A running serve loads edited code on the next call. It serves code/ui/dist/
+as the app's last `bun run build` left it.
 
 ### Export code for sharing
 

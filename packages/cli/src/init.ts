@@ -28,13 +28,15 @@ This folder is an Epicenter. Each folder in its \`apps/\` is an app: its code in
 /**
  * What makes a home one Bun workspace that runs this version of Epicenter:
  * `bun install` at its top installs the command and the library every app
- * imports, once, and takes each app's code as a package. An owner adds a
- * package nested inside an app to `workspaces` by hand.
+ * imports, once, and takes each app's code as a package, and `bun run build`
+ * there runs every app's own `build`. An owner adds a package nested inside
+ * an app to `workspaces` by hand.
  */
 const HOME_PACKAGE = `${JSON.stringify(
 	{
 		private: true,
 		workspaces: ['apps/*/code'],
+		scripts: { build: "bun run --filter '*' --if-present build" },
 		dependencies: { '@epicenter/cli': VERSION, '@epicenter/app': VERSION },
 	},
 	null,
@@ -85,10 +87,10 @@ This folder is one Bun workspace. Its package.json names the version of
 Epicenter it runs, as the dependencies @epicenter/cli and @epicenter/app, and
 takes each apps/<app>/code as a package. Run \`bun install\` here, at the top.
 It writes one bun.lock, which is committed, and one node_modules/, which is
-not. After \`git clone\`, \`bun install\` is all a restore needs. The version of Epicenter
-is the one in package.json: upgrade with
-\`bun update --latest @epicenter/cli @epicenter/app\`, both together. Restart
-serve after changing packages, by stopping it and starting it again: serve keeps the
+not. After \`git clone\`, \`bun install\` then \`bun run build\` is all a restore needs. The version of Epicenter
+is the one in package.json. To upgrade, edit both versions there, then run
+\`bun install && bun run build\`, which rebuilds every app's UI against the new
+client. Restart serve after changing packages, by stopping it and starting it again: serve keeps the
 packages it has loaded. An edit to an app's own files shows on the next call.
 
 An app's code/package.json is named for the app and names everything
@@ -109,9 +111,9 @@ palette from theme.css. Keep its components and layout in code/.
 Change records with \`epicenter <app> <action>\` when an action fits;
 \`epicenter <app>\` lists them. You may also edit code and records directly.
 Apps run from the files on disk: the next call uses the code/epicenter.ts
-there, and serve rebuilds code/ui/ when a page opens after its files change,
-keeping the last good build until a new one succeeds; \`epicenter build <app>\`
-shows a build's errors. A record that no longer fits the code still reads,
+there. A UI is what the app's own build writes to code/ui/dist/, and serve
+serves only that: after changing code/ui/, run \`bun run build\` in code/.
+A record that no longer fits the code still reads,
 with its problems listed: when you change a field, change the code, then
 repair the records that no longer fit.
 

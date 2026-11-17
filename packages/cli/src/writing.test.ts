@@ -66,7 +66,9 @@ test('an exported writing app copied as journal captures and finds text, sources
 			).data,
 		).toEqual([]);
 		expect((await f.run('journal', 'add', '{"body":"   "}')).code).toBe(2);
-		expect((await f.run('build', 'journal')).code).toBe(0);
+		expect(existsSync(join(f.apps, 'journal/code/ui/dist/index.html'))).toBe(
+			true,
+		);
 		expect(
 			await readFile(join(f.apps, 'journal/code/SOURCE.md'), 'utf8'),
 		).toMatch(/^Commit: [0-9a-f]{40}$/m);

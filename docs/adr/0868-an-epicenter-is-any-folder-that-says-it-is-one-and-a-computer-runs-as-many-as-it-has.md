@@ -112,16 +112,15 @@ epicenter <app>                            what the app does
 epicenter <app> <verb> [<positionals>] [--field value | --field null] [--input <json>|-] [--json]
 epicenter init [<folder>] [--port <n>]     make a folder an Epicenter: EPICENTER.md and AGENTS.md
 epicenter new <app> [--from <git url>[#<folder>] | <path>]   --from copies another app's code (ADR-0904)
-epicenter build [<app>]                    build the UI, keeping the last one that built
 epicenter sync [<app>]                     snapshot what is pending, push to origin (ADR-0851)
 epicenter serve [--port <n>] [--host <address>] [--stdio]
 epicenter connectors [revoke <connector>]   the connectors that reach the public address (ADR-0881)
 epicenter --help | --version
 ```
 
-`build` is its own verb because the UI project's own `bun run build` empties
-`ui/dist/` before writing it, so a page served meanwhile is missing, and a
-failed build leaves none; `epicenter build` keeps the last one that built.
+There is no `build` verb: the UI project's own `bun run build` writes
+`ui/dist/` (ADR-0944). A page served while it runs may be missing, and a
+failed build may leave none.
 
 **On the tailnet, separation is ports, not sign-in.** Each Epicenter is
 served on its own port, and the tailnet's access rules say who reaches which

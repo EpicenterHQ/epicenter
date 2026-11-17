@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `serve` builds into `ui/dist/` from the code repository's `HEAD` when a page load or its clock finds the view stamped with another commit, and `epicenter build` builds on demand, by a `build` script in a detached worktree of `HEAD` or by Bun bundling `ui/index.html`, replacing the last view only once complete, with `EPICENTER_BASE=/<app>` given to a `build` script (`packages/cli/src/ui.ts`); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
+- **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which each app's own `bun run build` writes to `ui/dist/` (ADR-0944); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
 
 ## Context
 
@@ -36,29 +36,14 @@ nothing for a view.
 serves `ui/dist/` at `/<app>/` and looks nowhere else. `ui/dist/` is
 rebuildable, ignored by `ui/.gitignore`, and never committed (ADR-0854).
 
-**`ui/dist/` is a cache of the code's last commit.** It is stamped with the
-commit it was built from. When a page load or `serve`'s clock finds that
-`HEAD` has moved, `serve` builds the new commit in the background and serves
-the last view until the build is done; a commit whose build fails is not
-retried, and `epicenter build` builds now and shows why. A build checks out
-`HEAD` into a detached worktree, so it builds exactly the commit, with Git LFS
-files as files, and never a half-edited working tree: a change to the view
-shows once it is committed, by whoever made it or by `serve`'s snapshot within
-5 minutes. Nobody has to remember to build, and `new` and `update` do not.
-Seeing a change live while making it is the build tool's job (`vite dev`), not
-`serve`'s.
-
-- When `ui/package.json` has a `build` script, it installs from the UI's
-  committed `bun.lock` and run it. `dist` is the default output of Vite,
-  Astro, Parcel, and Rsbuild; SvelteKit's static adapter is pointed at it with
-  `adapter({ pages: 'dist', assets: 'dist' })`.
-- Otherwise it bundles `ui/index.html` with Bun's bundler, which `epicenter`
-  carries, so a single `index.html`, with TypeScript, TSX, and CSS beside it,
-  is a view with no `package.json` and no setting.
-
-A build writes beside the last view and replaces it only once it is complete,
-so `serve` never answers from half a build, and a failed build leaves the last
-view in place. A view routes with the hash. It refers to its own files by
+**`ui/dist/` is what the app's own build wrote.** The app's `package.json`
+has a `build` script, and `bun run build` writes `ui/dist/`; `serve` serves it
+as it is and never builds (ADR-0944). A single `index.html`, with TypeScript,
+TSX, and CSS beside it, needs one line:
+`"build": "bun build ui/index.html --outdir ui/dist"`. `dist` is also the
+default output of Vite, Astro, Parcel, and Rsbuild. A page loaded during a
+build may find `ui/dist/` missing or partial; a reload after the build fixes
+it. A view routes with the hash. It refers to its own files by
 relative paths where its build can, as Bun's bundler and Vite's `base: './'`
 do. A build that cannot is told the path the view is served at:
 `epicenter` runs a `build` script with `EPICENTER_BASE=/<app>`, since the

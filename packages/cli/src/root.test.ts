@@ -68,6 +68,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	const written = {
 		private: true,
 		workspaces: ['apps/*/code'],
+		scripts: { build: "bun run --filter '*' --if-present build" },
 		dependencies: { '@epicenter/cli': VERSION, '@epicenter/app': VERSION },
 	};
 	expect(JSON.parse(await gitIn(fresh, 'show', 'HEAD:package.json'))).toEqual(
@@ -245,64 +246,6 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	).toBe(`${marker}: prot is not a field; the only field is port`);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
 	expect((await f.runIn(f.home, '--json')).code).toBe(0);
-});
-
-test('build reports each app and keeps the last good UI after a failed build', async () => {
-	const f = await setup();
-	await f.folder(join(f.apps, 'capture'), {
-		'code/epicenter.ts': bareApp('capture'),
-	});
-	const tasks = await f.folder(join(f.apps, 'tasks'), {
-		'code/epicenter.ts': bareApp('tasks'),
-		'code/.gitignore': 'data/\nnode_modules/\nui/dist/\n',
-		'code/package.json': JSON.stringify({
-			private: true,
-			scripts: { build: 'bun ui/build.ts' },
-		}),
-		'code/ui/build.ts': `await Bun.write(\`\${process.env.EPICENTER_OUT}/index.html\`, 'good');\n`,
-	});
-	const first = await f.run('build', '--json');
-	expect(first.code).toBe(0);
-	expect(
-		JSON.parse(first.stdout).apps.map(
-			(app: { app: string; built: boolean }) => [app.app, app.built],
-		),
-	).toEqual([
-		['capture', false],
-		['tasks', true],
-	]);
-	expect(await readFile(join(tasks, 'code/ui/dist/index.html'), 'utf8')).toBe(
-		'good',
-	);
-	await writeFile(
-		join(tasks, 'code/ui/build.ts'),
-		`throw new Error('build broke');\n`,
-	);
-	const failed = await f.run('build', 'tasks', '--json');
-	expect(failed.code).toBe(1);
-	expect(JSON.parse(failed.stdout).apps[0].error.message).toContain(
-		'build broke',
-	);
-	expect(await readFile(join(tasks, 'code/ui/dist/index.html'), 'utf8')).toBe(
-		'good',
-	);
-	expect((await f.run('build', 'capture')).stdout).toBe(
-		'capture: nothing to build\n',
-	);
-	// A UI written by hand has no build script, and building leaves it alone.
-	const capture = join(f.apps, 'capture');
-	await mkdir(join(capture, 'code', 'ui', 'dist'), { recursive: true });
-	await writeFile(
-		join(capture, 'code', 'ui', 'package.json'),
-		JSON.stringify({ name: 'ui', private: true }),
-	);
-	await writeFile(join(capture, 'code', 'ui', 'dist', 'index.html'), 'by hand');
-	expect((await f.run('build', 'capture')).stdout).toBe(
-		'capture: nothing to build\n',
-	);
-	expect(
-		await readFile(join(capture, 'code', 'ui', 'dist', 'index.html'), 'utf8'),
-	).toBe('by hand');
 });
 
 test('port 0 names no port a command could find serve at, so the marker and init refuse it', async () => {

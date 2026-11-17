@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-11
 - **Amended:** 2026-11-11: a call runs in the process that received it, the command line's or `serve`'s, not in a child `epicenter` per call; each load first drops the modules the process loaded from under the app's folder, so the next import reads the files as they are now. Deleted with the child: its report file, the `--report` and `--read-only-call` flags, signal forwarding, its IPC channel for yields, and `serve --stdio`. Given up: a call that outlives the `serve` that started it, and isolation from an action that exits, hangs, or changes the process's working directory or environment; the code is its owner's (ADR-0864), and `serve`'s job restarts it.
-- **Built:** imports and module invalidation under code/, code-package installation, UI fingerprint builds, the compiled app package, the container write lock, and root checkpoints in packages/cli.
+- **Built:** imports and module invalidation under code/, code-package installation, the compiled app package, the container write lock, and root checkpoints in packages/cli.
 - **Migrated:** the live Epicenter history import and code/data directory cutover described in [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md).
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call's commit; the lock; the clock), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's UI), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app`), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (historical repository split).
 
@@ -56,22 +56,11 @@ sharing, never deployment.**
   it carries (its source, `/client`, types and `exports`) to a folder of its
   own, once per version, and links to that.
 - **A UI is optional and any framework.** An app with no `ui/` is its actions
-  over its files. When an app has one, `serve` builds it when its fingerprint
-  changes and serves `code/ui/dist/` at `/<app>/`:
-  - The fingerprint is the path, size and modified time of every file under
-    `ui/`, with `package.json`, `bun.lock`, the `epicenter` version, and where
-    its own `@epicenter/app` is with the files in its `src/`, so an upgraded
-    `epicenter`, one run from another checkout, or an edit to the client
-    rebuilds every UI against the client of the `serve` that answers it.
-    `serve` relinks every installed app to its own `@epicenter/app` when it
-    starts.
-  - `serve` checks it on a request for the UI's `index.html`, builds in the
-    background, and serves the last good build meanwhile. A failed build is
-    remembered by fingerprint and not retried until something changes.
-  - The app's `build` script builds it when `package.json` has one, into the
-    folder `EPICENTER_OUT` names; otherwise Bun bundles `ui/index.html`. The
-    finished folder replaces `ui/dist/` by rename. A build writes relative
-    URLs, so it is never told where it is served.
+  over its files. When an app has one, its own `bun run build` writes
+  `code/ui/dist/`, and `serve` serves that folder at `/<app>/` as it is and
+  never builds (ADR-0944). A build writes relative URLs, so it is never told
+  where it is served. `bun run build` at the top of the home runs every app's
+  build, which is how UIs pick up a new client after an upgrade.
   - The word for it is UI; "view" is retired.
 - **A call runs where it arrives, from the files as they are.** The command
   line runs a call itself, and so does `serve`. Each load of an app first
@@ -107,9 +96,7 @@ sharing, never deployment.**
   until it ends: fetch first, write last.
 - Direct edits and interrupted writes remain pending for a root checkpoint.
   No code trailer attributes those bytes to an action.
-- A UI edit shows within about a second of the next page load, committed or
-  not. Deleting a file under `ui/`, or moving one in with an old modified
-  time, changes the fingerprint, since its paths and sizes are part of it.
+- A UI edit shows once the app's `bun run build` has run, committed or not.
 - The first-party UIs move off SvelteKit and Vite to Bun's bundler, with a
   Svelte compile plugin and a hash router of their own. Measured on Tasks:
   a build in 0.6 s instead of 2.6 s, 65 packages instead of 113, the same
