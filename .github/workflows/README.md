@@ -18,10 +18,10 @@ Web apps (Cloudflare Workers) deploy **together in one workflow** because deploy
 
 ### CLI releases
 
-No workflow builds or publishes the CLI. `@epicenter/cli`, `@epicenter/app`
-and `@epicenter/theme` are packages a home depends on; the owner packs and
-publishes them by hand. See
-[packing the packages](../../packages/cli/README.md#pack-the-packages-and-try-an-unreleased-change).
+No workflow builds or publishes the CLI. `@epicenter/cli` and
+`@epicenter/app` are packages a home depends on, released together at one
+version; the owner packs and publishes them by hand. See
+[releasing](../../packages/cli/README.md#release).
 
 ### Web Deployment (Cloudflare Workers)
 

@@ -1,11 +1,14 @@
-/** Checks that the palette stays plain CSS and the Tailwind bridge maps its colors. */
+/**
+ * Checks that the palette stays plain CSS and the Tailwind bridge maps its
+ * colors. `epicenter init` writes a copy of this palette into each new home,
+ * where a page may link it with no Tailwind build, so it must be custom
+ * properties and nothing else.
+ */
 import { expect, test } from 'bun:test';
 
-const theme = await Bun.file(
-	new URL('./src/theme.css', import.meta.url),
-).text();
+const theme = await Bun.file(new URL('./theme.css', import.meta.url)).text();
 const tailwind = await Bun.file(
-	new URL('./src/tailwind.css', import.meta.url),
+	new URL('./tailwind.css', import.meta.url),
 ).text();
 const names = (body = '') =>
 	[...body.matchAll(/--([a-z0-9-]+):/g)].map((match) => match[1]);

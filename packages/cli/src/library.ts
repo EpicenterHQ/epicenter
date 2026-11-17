@@ -6,9 +6,15 @@
  * through state the library keeps per call (`packages/app/src/context.ts`),
  * which works only when the command that starts the call and the app that
  * runs it loaded the same copy.
+ *
+ * The command names the library as a peer at its own exact version, so an
+ * install gives a home one copy, the one its `package.json` asks for. That
+ * copy can be another version when the home asks for one, and Bun only
+ * warns; the two are released together, so the command refuses it here.
  */
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { VERSION } from './engines.ts';
 
 /** The package folder of a resolved `@epicenter/app` entry, `src/index.ts`, with links followed. */
 const packageFolder = (entry: string) => dirname(dirname(realpathSync(entry)));
@@ -17,6 +23,11 @@ const packageFolder = (entry: string) => dirname(dirname(realpathSync(entry)));
 export const LIBRARY = packageFolder(
 	Bun.fileURLToPath(import.meta.resolve('@epicenter/app')),
 );
+
+/** The version of that `@epicenter/app`, which must be this command's own. */
+const LIBRARY_VERSION: unknown = JSON.parse(
+	readFileSync(join(LIBRARY, 'package.json'), 'utf8'),
+).version;
 
 const NEXT = 'run bun install at the top of the home';
 
@@ -40,8 +51,11 @@ export function libraryProblem(
 			? `apps/${app} is a link to ${link}, where no @epicenter/app is found: code finds packages from where it is, not from this home. Keep the app's code inside this home`
 			: `apps/${app} finds no @epicenter/app; ${NEXT}`;
 	}
-	if (found === LIBRARY) return undefined;
-	return `apps/${app} resolves @epicenter/app at ${found}, and epicenter runs ${LIBRARY}; ${NEXT}`;
+	if (found !== LIBRARY)
+		return `apps/${app} resolves @epicenter/app at ${found}, and epicenter runs ${LIBRARY}; ${NEXT}`;
+	if (LIBRARY_VERSION !== VERSION)
+		return `apps/${app} would run @epicenter/app ${LIBRARY_VERSION} under epicenter ${VERSION}, and the two are released together; set @epicenter/cli and @epicenter/app to one version in the home's package.json, then ${NEXT}`;
+	return undefined;
 }
 
 /**
