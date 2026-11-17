@@ -10,7 +10,7 @@
 
 A collection's `set` merges as JSON Merge Patch (RFC 7396) does: a field not
 given is kept, and a field given as `null` is removed
-(`packages/app/src/collection.ts`). Every field's description says "null
+([packages/app/src/collection.ts at cd25fe8fa8](https://github.com/EpicenterHQ/epicenter/blob/cd25fe8fa8/packages/app/src/collection.ts)). Every field's description says "null
 removes it", and the command line prints it. But on 2026-11-10 the command
 line stored the string `"null"` for `--reading null`, and removed a field
 only through a whole JSON object given in a separate option that no help

@@ -55,7 +55,7 @@ Hugging Face cache               local models, shared with other programs
   than…". Nothing deletes audio on its own.
 - **A record's audio is a file beside it with the same id.** The contract
   declares that a recording may have one; `defineCollection` takes `.md`
-  paths only (`packages/app/src/path.ts:79`), so how it declares a file
+  paths only ([packages/app/src/path.ts:79 at cd25fe8fa8](https://github.com/EpicenterHQ/epicenter/blob/cd25fe8fa8/packages/app/src/path.ts#L79)), so how it declares a file
   beside a record is decided when it is built.
 - **This computer's settings stay this computer's.** The microphone, the
   global shortcut, the window, the folder, and a home's address (ADR-0900)
