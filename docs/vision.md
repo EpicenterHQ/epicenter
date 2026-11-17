@@ -282,8 +282,8 @@ Claude Code on the home, and for a program writing there.
 action.** That is true for Claude Desktop, an agent on another computer, and a
 UI.
 
-**History comes from root checkpoints.** Actions make no commits. A call
-holds the container lock from its first write until it ends. The command
+**History comes from root checkpoints.** Actions make no commits, and nothing
+takes a lock: one serve runs every action ([ADR-0936], Proposed). The command
 `epicenter checkpoint -m "<what changed>"` records all included pending files.
 A home that wants automatic history adds a routine that runs it, for example
 every five minutes ([ADR-0937]); serve runs no checkpoint of its own. It
@@ -362,7 +362,7 @@ setup; Epicenter hosting anything new.
 
 **Never:** reconciling two writable copies or keeping two lists in step; a
 queue of edits made while the truth was unreachable; an event bus, triggers,
-or a workflow engine between apps; a scheduler of its own; a
+or a workflow engine between apps; a
 collection form that `serve` acts on; conflict markers or conflict files; an
 Epicenter app on every device holding a copy of each app; a folder kept in a
 browser; a third-party sign-in stored anywhere but the home; running other people's
@@ -409,6 +409,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0903]: adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md
 [ADR-0904]: adr/0904-copying-is-the-only-way-to-take-an-apps-code.md
 [ADR-0908]: adr/0908-serve-runs-the-homes-daily-routines.md
+[ADR-0936]: adr/0936-one-serve-per-home-runs-every-action.md
 [ADR-0937]: adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md
 
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md

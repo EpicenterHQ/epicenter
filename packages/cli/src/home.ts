@@ -86,12 +86,10 @@ async function entryAt(folder: string) {
 		const runnable = await isFile(join(realPath, CODE));
 		const problem = runnable
 			? undefined
-			: (await isFile(join(realPath, 'epicenter.ts')))
-				? "epicenter.ts is at the app's top; move the app's code into code/ (apps/<name>/code/epicenter.ts)"
-				: (await lstat(join(realPath, 'code')).catch(() => undefined)) ||
-						(await lstat(join(realPath, 'data')).catch(() => undefined))
-					? 'code/epicenter.ts is missing'
-					: undefined;
+			: (await lstat(join(realPath, 'code')).catch(() => undefined)) ||
+					(await lstat(join(realPath, 'data')).catch(() => undefined))
+				? 'code/epicenter.ts is missing'
+				: undefined;
 		if (!runnable && !problem) return undefined;
 		const codePath = runnable
 			? await realpath(join(realPath, 'code'))

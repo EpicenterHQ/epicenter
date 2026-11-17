@@ -14,10 +14,9 @@ export const COMPILED = Bun.main.startsWith('/$bunfs/');
 
 export const COMMANDS = {
 	init: {
-		usage: 'epicenter init [<folder>] [--port <n> | --from <git url>]',
+		usage: 'epicenter init [<folder>] [--port <n>]',
 		help: `Makes a folder an Epicenter with one root Git repository, EPICENTER.md, and starter AGENTS.md.
-With --from, clone the root repository and install each app's code packages.
-The destination must be missing or empty. Epicenters cannot nest.`,
+Epicenters cannot nest.`,
 	},
 	new: {
 		usage:
