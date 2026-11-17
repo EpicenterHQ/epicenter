@@ -6,7 +6,8 @@
  * and an action that calls another stays in the same run; outside any run
  * they throw. What an app can rebuild lives in files it gitignores inside the
  * folder, such as `code/ui/dist/`, and is never committed. A run writes only under
- * `data/`; reads may reach any app file.
+ * `data/` and `local/`; reads may reach any app file. What is in `local/`
+ * stays on this computer.
  *
  * An action changes files and never commits. Root checkpoints record pending
  * code and records together. A change that depends on what it
@@ -50,8 +51,8 @@ export function textUpdate(edit: EditFile): Folder['update'] {
  * An app's folder as an object. Paths are relative to the folder, with `/`
  * between parts; one that is absolute, climbs out with `..`, or reaches into
  * `.git` throws. It is a convenience, not a sandbox: an action may use `path`
- * and `node:fs` directly. A run writes only under `data/` and never into a
- * path with a `.git*` segment; reads may reach other app files.
+ * and `node:fs` directly. A run writes only under `data/` and `local/`, and
+ * never into `.git`; reads may reach other app files.
  */
 export type Folder = {
 	edit: EditFile;
@@ -137,14 +138,15 @@ export const routines = {
 
 /**
  * The folder of the run this code is in, to write or delete `path` in. Every
- * write stays under `data/`.
+ * write stays under `data/`, which is committed, or `local/`, which stays on
+ * this computer.
  */
 function writableFolder(path: string): Folder {
 	const context = currentRun();
 	const normal = normalizePath(path);
-	if (!normal.startsWith('data/'))
+	if (!normal.startsWith('data/') && !isUnderLocal(normal))
 		throw new Error(
-			`${path} is outside data/, and an action writes only there`,
+			`${path} is outside data/ and local/, and an action writes only there`,
 		);
 	return context.folder;
 }
@@ -166,15 +168,25 @@ export const folder: Folder = {
 };
 
 /**
+ * Whether `path`, as `normalizePath` returns it, is in the app's `local/`.
+ * What is there stays on this computer: it is never committed, and a new file
+ * there is readable by its owner alone.
+ */
+export function isUnderLocal(path: string): boolean {
+	return path.startsWith('local/');
+}
+
+/**
  * A file or folder name matching `*.local` or `*.local.*`, in any case, so a
  * name the ignore file keeps out on a case-insensitive disk is local anywhere.
  */
 const LOCAL = /\.local(\.|$)/i;
 
 /**
- * Whether `path` stays on this computer: one of its parts matches `*.local`
- * or `*.local.*`, as an app's `.gitignore` names them (ADR-0870). Such a file
- * is never committed, and a new one is made readable by its owner alone.
+ * Whether one of `path`'s parts matches `*.local` or `*.local.*`. This is
+ * the old way to say a file stays on this computer, by its name; the place,
+ * `local/`, says it now (`isUnderLocal`). It is kept for the data layer and
+ * the checkpoint refusal until every app has moved its files to `local/`.
  */
 export function isLocalPath(path: string): boolean {
 	return path.split('/').some((part) => LOCAL.test(part));

@@ -9,8 +9,9 @@
  *
  * The folder has no `path`; an action that needs one runs only on a computer.
  * There is no Git: a test checks the folder's files, not commits. A secret is
- * a `.local` file, so a test seeds one as it seeds any other (ADR-0870). Files
- * have no modes here, so a `.local` file's `0600` is the disk's alone.
+ * a file under `local/`, so a test seeds one as it seeds any other. Files
+ * have no modes here, so the `0600` of a file under `local/` is the disk's
+ * alone.
  */
 import { Ok } from 'wellcrafted/result';
 import {

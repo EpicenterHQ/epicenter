@@ -3,7 +3,8 @@
 What an app's `code/epicenter.ts` imports
 ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md),
 [ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
-An app container under `apps/` holds code/ and data/ siblings. Its
+An app container under `apps/` holds code/, data/ and local/ siblings; what
+is in local/ stays on this computer. Its
 `code/epicenter.ts` default-exports `defineApp(...)`. The
 `epicenter` command turns each of its actions into a command for the person
 and an MCP tool for their agent, and its UI calls the same actions.
@@ -356,8 +357,10 @@ objects. No field name is reserved: the command line reads the input as one
 JSON object, so `json`, `help`, and `input` are keys like any other.
 
 A secret, such as a token, is ordinary input: the app's page sends it once
-and the action keeps it in a `.local` file under `data/`, which never enters
-Git. Epicenter treats that input as any other, so give it from the page or
+and the action keeps it under `local/`, which never enters Git:
+`await folder.write('local/google.md', token)`, read back with
+`await folder.read('local/google.md')`. An action writes only under `data/`
+and `local/`. Epicenter treats that input as any other, so give it from the page or
 piped on stdin, not as a command argument or through an agent.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as

@@ -81,7 +81,7 @@ export default defineApp({
 			description: 'Say it only reads, then keep a token on this computer',
 			input: {},
 			annotations: { readOnlyHint: true },
-			run: async () => { await folder.write('data/token.local.md', 'kept'); return Ok(undefined); },
+			run: async () => { await folder.write('local/token.md', 'kept'); return Ok(undefined); },
 		}),
 		tagged: defineAction({
 			description: 'Throw a tagged error',
@@ -206,7 +206,7 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
-test('C10 a read-only hint refuses nothing, and a .local file is readable by its owner alone', async () => {
+test('C10 a read-only hint refuses nothing, and a file under local/ is readable by its owner alone', async () => {
 	const f = await setup();
 	const peek = await f.json('notes', 'peek');
 	expect(peek).toMatchObject({ code: 0, answer: { data: null, error: null } });
@@ -216,12 +216,8 @@ test('C10 a read-only hint refuses nothing, and a .local file is readable by its
 		code: 0,
 		answer: { data: null, error: null },
 	});
-	expect(await readFile(join(f.dir, 'data/token.local.md'), 'utf8')).toBe(
-		'kept',
-	);
-	expect((await stat(join(f.dir, 'data/token.local.md'))).mode & 0o777).toBe(
-		0o600,
-	);
+	expect(await readFile(join(f.dir, 'local/token.md'), 'utf8')).toBe('kept');
+	expect((await stat(join(f.dir, 'local/token.md'))).mode & 0o777).toBe(0o600);
 });
 
 test('C11 concurrent sets of different fields on one file all land', async () => {
@@ -467,11 +463,7 @@ test('C12 runs leave no temporary file and no lock file', async () => {
 	expect((await readdir(temp)).filter((name) => name !== 'xcrun_db')).toEqual(
 		[],
 	);
-	expect(
-		(await readdir(f.dir, { recursive: true })).filter((name) =>
-			name.endsWith('.tmp.local'),
-		),
-	).toEqual([]);
+	expect(await readdir(join(f.dir, 'local/.tmp'))).toEqual([]);
 });
 
 test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or an MCP answer', async () => {

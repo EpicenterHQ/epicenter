@@ -67,7 +67,7 @@ describe('createMemoryContext', () => {
 });
 
 describe('writes in a run', () => {
-	test('refuses every folder write outside data/ while leaving reads open', async () => {
+	test('refuses every folder write outside data/ and local/ while leaving reads open', async () => {
 		const context = createMemoryContext({ 'README.md': 'code' });
 		const attempts: (() => Promise<unknown>)[] = [
 			() => folder.write('report.md', 'text'),
@@ -77,10 +77,23 @@ describe('writes in a run', () => {
 		];
 		for (const attempt of attempts)
 			await expect(inRun(context, attempt)).rejects.toThrow(
-				'report.md is outside data/, and an action writes only there',
+				'report.md is outside data/ and local/, and an action writes only there',
 			);
+		await expect(
+			inRun(context, () => folder.write('locals/x.md', 'text')),
+		).rejects.toThrow('locals/x.md is outside data/ and local/');
 		expect(await inRun(context, () => folder.read('README.md'))).toBe('code');
 		expect(await context.folder.list()).toEqual(['README.md']);
+	});
+
+	test('writes under local/, which stays on this computer', async () => {
+		const context = createMemoryContext();
+		await inRun(context, async () => {
+			await folder.write('local/google.md', 'token');
+			await folder.update('local/cache/seen.txt', (text = '') => `${text}a`);
+			await folder.delete('local/google.md');
+		});
+		expect(await context.folder.list()).toEqual(['local/cache/seen.txt']);
 	});
 });
 

@@ -33,7 +33,8 @@ such as `tailscale serve`.
       node_modules/             supplied @epicenter/app link, ignored
     data/                       records and settings
       tasks/<time>.md
-      google.local.md           this computer only
+    local/                      this computer only; made by the first write
+      google.md
 ```
 
 `new --from` copies committed code into a new container's `code/`, without
@@ -141,16 +142,16 @@ refused, so write the default where the value is read (`limit ?? 50`).
   and nothing is written, fields included. So a page that saves a record's
   fields and its notes sends one `set`. In code, `set` carries `body`, as
   data or from a function of the record.
-- A secret, such as a sign-in token, is a collection with no placeholder at a
-  `.local.md` path (`data/google.local.md`), its fields declared like any other
-  (ADR-0870). A `.local` file stays on the computer that runs the app:
-  the root `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
-  and its `actions()` throws, so no generated verb hands it to an MCP client.
-  Read it with `google.get()` and forward the Err before using the token.
-  The read succeeds with an empty record before sign-in. A local `Misfit`
-  omits the partial record and never quotes field values. Use a computed
-  write to compare the old token when refreshing it.
-  A fresh clone has none, so the person signs in again.
+- An app is `code/`, `data/` and `local/`. What is in `local/` stays on the
+  computer that runs the app: the root `.gitignore` leaves it out of every
+  commit, a checkpoint refuses a file there that Git would commit, and
+  `folder` makes a new file there `0600`. It holds plain files, not
+  collections: a token, a cache, a database. Keep a secret, such as a sign-in
+  token, with `folder.write('local/google.md', token)` and read it with
+  `folder.read('local/google.md')`, which gives `undefined` before sign-in.
+  Use `folder.update` to compare the old token when refreshing it. No
+  generated verb reaches `local/`, so no MCP client is handed the token. A
+  fresh clone has no `local/`, so the person signs in again.
 - The collections are the contract between code and records. Reads tolerate
   disagreement: undeclared keys are kept by every write and left out of a
   read, and a missing optional field is no problem. Rename or tighten a field

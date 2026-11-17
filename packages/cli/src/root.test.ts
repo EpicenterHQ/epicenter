@@ -55,6 +55,8 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(seeded).toContain('--primary:');
 	expect(seeded).toContain('.dark {');
 	expect(await gitIn(fresh, 'show', 'HEAD:theme.css')).toBe(seeded.trimEnd());
+	const kept = ['apps/x/local/google.md', 'apps/x/data/token.local.md'];
+	expect(await gitIn(fresh, 'check-ignore', ...kept)).toBe(kept.join('\n'));
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('one private Git repository');
 	expect(starter).toContain('Actions make no commits.');
@@ -315,7 +317,9 @@ test('init --from clones one root and installs code packages without nested repo
 		installed: ['apps/x'],
 		failed: [],
 	});
-	expect(result.stderr).toContain('*.local must be recreated');
+	expect(result.stderr).toContain(
+		"Each app's local/ and files named *.local must be recreated",
+	);
 	expect(await readFile(join(restored, 'theme.css'), 'utf8')).toBe(
 		'/* restored palette */',
 	);

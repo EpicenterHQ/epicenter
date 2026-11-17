@@ -120,8 +120,6 @@ for (const form of [
 			{
 				[`${prefix}epicenter.ts`]: code,
 				[`${prefix}data/record.md`]: 'private',
-				[`${prefix}key.local`]: 'private',
-				[`${prefix}key.local.json`]: 'private',
 				[`${prefix}node_modules/unused/x`]: 'dependency',
 				[`${prefix}ui/dist/index.html`]: 'old build',
 				[`${prefix}SOURCE.md`]: 'old provenance',
@@ -155,8 +153,6 @@ for (const form of [
 		expect(await readFile(join(dest, 'code/epicenter.ts'), 'utf8')).toBe(code);
 		for (const path of [
 			'code/data/record.md',
-			'code/key.local',
-			'code/key.local.json',
 			'code/node_modules/unused/x',
 			'code/ui/dist/index.html',
 		])
@@ -246,7 +242,6 @@ test('source warnings include staged, deleted, and untracked code while excludin
 			[`${prefix}/deleted.ts`]: 'original',
 			[`${prefix}/.gitignore`]: 'ignored.txt\n',
 			[`${prefix}/data/record.md`]: 'private',
-			[`${prefix}/settings.local.md`]: 'private',
 			[`${prefix}/node_modules/unused/index.js`]: 'dependency',
 			[`${prefix}/ui/dist/index.html`]: 'old build',
 			[`${prefix}/SOURCE.md`]: 'old provenance',
@@ -262,7 +257,6 @@ test('source warnings include staged, deleted, and untracked code while excludin
 	await writeFile(join(source, prefix, 'ignored.txt'), 'ignored file');
 	for (const path of [
 		'data/record.md',
-		'settings.local.md',
 		'node_modules/unused/index.js',
 		'ui/dist/index.html',
 		'SOURCE.md',
@@ -302,7 +296,6 @@ test('excluded changes do not warn and a GitHub folder has no working tree repor
 		{ git: true },
 	);
 	await writeFile(join(source, 'data/private.md'), 'changed private data');
-	await writeFile(join(source, 'settings.local.md'), 'local settings');
 	await writeFile(join(source, 'ignored.txt'), 'ignored file');
 	const clean = await f.run('new', 'clean', '--from', source, '--json');
 	expect(clean.code).toBe(0);

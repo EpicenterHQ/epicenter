@@ -141,7 +141,7 @@ export function epicenterDir(): string {
 	return folder;
 }
 
-/** The folder in an Epicenter that holds its apps, each holding code/ and data/. */
+/** The folder in an Epicenter that holds its apps, each holding code/, data/ and local/. */
 export const APPS = 'apps';
 
 /** The selected Epicenter's `apps/`. */

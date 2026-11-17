@@ -13,7 +13,8 @@ all apps' code and records. Each folder in `apps/` is a stable app container:
       node_modules/             ignored
       ui/                       source
         dist/                   ignored build
-    data/                       records, settings, local credentials
+    data/                       records and settings
+    local/                      stays on this computer: tokens, caches, databases
 ```
 
 [ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
@@ -436,14 +437,26 @@ no other update between. Every collection write uses it. Plain `folder.write`
 is last-write-wins. Neither guards against a writer outside Epicenter, such
 as an editor or a `git pull`.
 
-Writes through `folder` stay under `data/`.
+Writes through `folder` stay under `data/` and `local/`.
 The container remains `folder.path`. Reads may reach another app's records
 at `../tasks/data/tasks/<time>.md`.
 
 An action's MCP annotations, `readOnlyHint` among them, are forwarded to MCP
-clients and refuse nothing. A `.local` path under `data/` has owner-only
-permissions when created through folder methods. Atomic replacement files have local names too, so the root
-ignore rules keep them out of checkpoints. `folder` is not a sandbox.
+clients and refuse nothing. `folder` is not a sandbox.
+
+What is in an app's `local/` stays on this computer: the root `.gitignore`
+names `/apps/*/local/`, and a checkpoint refuses a file there that Git would
+commit. A file made under `local/` through folder methods is readable by its
+owner alone (`0600`), and a directory made there is `0700`; one already there
+keeps its mode. An action keeps a token with
+`folder.write('local/google.md', token)`. `local/` appears when an action
+first writes there. A write replaces a file by writing `local/.tmp/<uuid>`
+and renaming it over the target, so nothing unfinished is ever under `data/`.
+
+A file named `*.local` or `*.local.*` was the earlier way to say this. The
+root `.gitignore` and the checkpoint refusal still keep such a file out of
+every commit, because older homes hold tokens named that way under `data/`.
+The name no longer changes a file's mode.
 
 ## What a run answers
 

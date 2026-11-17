@@ -36,8 +36,8 @@ export default defineApp({
 			input: {},
 			run: async () => {
 				const { Database } = await import('bun:sqlite');
-				await folder.write('data/seen.local.txt', 'local');
-				const db = new Database(folder.path + '/data/index.local.sqlite');
+				await folder.write('local/seen.txt', 'local');
+				const db = new Database(folder.path + '/local/index.sqlite');
 				db.run('CREATE TABLE IF NOT EXISTS pages (name TEXT)');
 				db.close();
 				return Ok(folder.path);
@@ -58,7 +58,7 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	const result = await f.run('journal', 'context', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ data: folder, error: null });
-	expect(existsSync(join(folder, 'data/index.local.sqlite'))).toBe(true);
+	expect(existsSync(join(folder, 'local/index.sqlite'))).toBe(true);
 
 	// Bun keeps its own transpiler cache under ~/Library/Caches/bun; epicenter keeps none there.
 	expect(existsSync(join(f.root, 'Library/Caches/so.epicenter.apps'))).toBe(

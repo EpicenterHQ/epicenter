@@ -381,7 +381,7 @@ export const reading = `export default defineApp({ description: 'The reading app
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => Ok(({minutes:210})) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text()), done: field.boolean() }, run: (input) => Ok(input) }),
 	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text()) }, run: (input) => Ok(input) }),
-	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('data/index.local.json', '{}'); return Ok({folder:folder.path}); } }),
+	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('local/index.json', '{}'); return Ok({folder:folder.path}); } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } });`;
 

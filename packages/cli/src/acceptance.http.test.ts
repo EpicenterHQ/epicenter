@@ -636,7 +636,7 @@ test('serve keeps nothing about a call: a second call runs the action again', as
 			'counter',
 			`export default defineApp({ description: 'Counter', collections: {}, actions: {
  bump: defineAction({ description: 'Count one more', input: {}, async run() {
-  await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
+  await folder.update('local/count', (value = '0') => String(Number(value) + 1));
   return Ok(null);
  } }),
 } });`,
@@ -651,7 +651,7 @@ test('serve keeps nothing about a call: a second call runs the action again', as
 			{ answer: { data: null, error: null } },
 		]);
 		expect(
-			await readFile(join(f.apps, 'counter', 'data', 'count.local'), 'utf8'),
+			await readFile(join(f.apps, 'counter', 'local', 'count'), 'utf8'),
 		).toBe(expected);
 	}
 	expect((await fetch(`${f.base}/.runs/counter/bump/x`)).status).toBe(404);

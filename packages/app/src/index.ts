@@ -37,6 +37,7 @@ export {
 	folder,
 	inRun,
 	isLocalPath,
+	isUnderLocal,
 	normalizePath,
 	type Routine,
 	routines,

@@ -67,35 +67,39 @@ test('a write keeps the mode of the file it replaces', async () => {
 	expect(await folder.read('run.sh')).toBe('echo two\n');
 });
 
-test('a new .local file is readable by its owner alone, made by write or update', async () => {
+test('a new file under local/ is readable by its owner alone and a new directory there is open to its owner alone', async () => {
 	const { root, folder } = await setup();
 	const mode = async (path: string) =>
 		(await stat(join(root, path))).mode & 0o777;
-	await folder.write('google.local.md', '---\nrefreshToken: "a"\n---\n');
-	await folder.update('tokens.local/mail.md', () => 'b');
-	await folder.write('notes.md', 'shared');
-	expect(await mode('google.local.md')).toBe(0o600);
-	expect(await mode('tokens.local/mail.md')).toBe(0o600);
-	expect(await mode('notes.md')).not.toBe(0o600);
-	// A .local file whose owner widened it keeps what they chose.
-	await chmod(join(root, 'google.local.md'), 0o640);
-	await folder.write('google.local.md', 'again');
-	expect(await mode('google.local.md')).toBe(0o640);
+	await folder.write('local/google.md', 'a');
+	await folder.update('local/tokens/mail.md', () => 'b');
+	expect(await mode('local')).toBe(0o700);
+	expect(await mode('local/tokens')).toBe(0o700);
+	expect(await mode('local/google.md')).toBe(0o600);
+	expect(await mode('local/tokens/mail.md')).toBe(0o600);
+	// A name says nothing: only the place does.
+	await folder.write('data/keys.local/google.local.md', 'c');
+	expect(await mode('data/keys.local')).toBe(0o755);
+	expect(await mode('data/keys.local/google.local.md')).toBe(0o644);
+	// What the owner widened keeps what they chose.
+	await chmod(join(root, 'local/google.md'), 0o640);
+	await folder.write('local/google.md', 'again');
+	expect(await mode('local/google.md')).toBe(0o640);
+	await chmod(join(root, 'local/tokens'), 0o755);
+	await folder.write('local/tokens/calendar.md', 'd');
+	expect(await mode('local/tokens')).toBe(0o755);
+	expect(await mode('local/tokens/calendar.md')).toBe(0o600);
 });
 
-test('a new directory on a .local path is open to its owner alone, and one there already keeps its mode', async () => {
+test('a write under data/ keeps its temporary file in local/, and a failed write removes it', async () => {
 	const { root, folder } = await setup();
-	const mode = async (path: string) =>
-		(await stat(join(root, path))).mode & 0o777;
-	await folder.write('accounts/keys.local/mail/token.md', 'a');
-	expect(await mode('accounts')).toBe(0o755);
-	expect(await mode('accounts/keys.local')).toBe(0o700);
-	expect(await mode('accounts/keys.local/mail')).toBe(0o700);
-	await mkdir(join(root, 'shared.local'), { mode: 0o755 });
-	await folder.update('shared.local/token.md', () => 'b');
-	expect(await mode('shared.local')).toBe(0o755);
-	await folder.write('notes/today.md', 'c');
-	expect(await mode('notes')).toBe(0o755);
+	await folder.write('data/a.md', 'first');
+	await folder.update('data/a.md', (text) => `${text} second`);
+	// A file cannot take the name of a directory, so this rename fails.
+	await mkdir(join(root, 'data/taken'));
+	await expect(folder.write('data/taken', 'no')).rejects.toThrow();
+	expect(await folder.list()).toEqual(['data/a.md']);
+	expect((await stat(join(root, 'local/.tmp'))).mode & 0o777).toBe(0o700);
 });
 
 test('normalization refuses climbing, absolute and Git paths on every file method', async () => {
@@ -145,7 +149,7 @@ test('update changes a file that starts with a byte order mark, comparing what i
 });
 
 test('concurrent updates of one file each land, and leave nothing beside it', async () => {
-	const { root, folder } = await setup();
+	const { folder } = await setup();
 	await folder.write('log.txt', '');
 	await Promise.all(
 		Array.from({ length: 8 }, (_, n) =>
@@ -154,7 +158,7 @@ test('concurrent updates of one file each land, and leave nothing beside it', as
 	);
 	const lines = (await folder.read('log.txt'))?.trimEnd().split('\n');
 	expect(lines?.sort()).toEqual(['0', '1', '2', '3', '4', '5', '6', '7']);
-	expect((await readdir(root)).sort()).toEqual(['.git', 'log.txt']);
+	expect(await folder.list()).toEqual(['log.txt']);
 });
 
 test('concurrent updates of one collection file each land, each computed from the record it replaces', async () => {
@@ -198,11 +202,11 @@ test('update runs its change once and does not look at the file again', async ()
 	});
 	expect([runs, written]).toEqual([1, 'mine']);
 	expect(await folder.read('once.txt')).toBe('mine');
-	expect((await readdir(root)).sort()).toEqual(['.git', 'once.txt']);
+	expect(await folder.list()).toEqual(['once.txt']);
 });
 
 test('update whose change throws writes nothing', async () => {
-	const { root, folder } = await setup();
+	const { folder } = await setup();
 	await folder.write('kept.txt', 'kept');
 	await expect(
 		folder.update('kept.txt', () => {
@@ -215,7 +219,7 @@ test('update whose change throws writes nothing', async () => {
 		}),
 	).rejects.toThrow('no file');
 	expect(await folder.read('kept.txt')).toBe('kept');
-	expect((await readdir(root)).sort()).toEqual(['.git', 'kept.txt']);
+	expect(await folder.list()).toEqual(['kept.txt']);
 });
 
 test('a collection forwards returned Changed and lets a thrown Changed escape, including on an absent file', async () => {
