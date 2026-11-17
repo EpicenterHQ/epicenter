@@ -1,14 +1,16 @@
 ---
 name: logging
-description: 'wellcrafted/logger for library diagnostics: 5 levels, typed errors, injected sinks, and host-owned durability. Use for library diagnostics, background errors, durable host logs, or replacing console.* in library code.'
+description: 'wellcrafted/logger for library diagnostics: what to record, 5 levels, typed errors, injected sinks, and host-owned durability. Use for library diagnostics, deciding whether and where a failure is logged, background errors, durable or per-request host logs, or replacing console.* in library code.'
 metadata:
   author: epicenter
-  version: '2.2'
+  version: '2.3'
 ---
 
 # Library logging
 
 Structured, level-keyed, field-oriented logging for library code. Modeled on Rust's `tracing`. Completes the `defineErrors` story: errors are structured data; level lives at the call site.
+
+Logging records that something happened. It never settles a failure. The code responsible for an interaction settles each error once, by recovering, presenting it to a person, or answering another program; the [error-handling](../error-handling/SKILL.md) skill owns that path. This skill owns the record.
 
 Ground API and behavior claims in the official `wellcrafted-dev/wellcrafted`
 source and logger declarations for Epicenter's installed version. Ground call
@@ -54,7 +56,11 @@ The [billing client](../../../apps/api/worker/billing/autumn.ts) logs a rejected
 
 Do NOT attach a `severity` to `defineErrors` variants. That's `miette`'s pattern; `tracing`, `log`, and every production Rust logger put level on the call. Context-dependent data belongs at the context.
 
-## Log where the failure is understood
+## What to record, and where
+
+Not every error belongs on the record. An expected outcome that a caller will present or handle, such as a missing API key or a file that is too large, is the person's situation, not an incident. Return it and let the caller settle it. Record failures nobody is waiting for, and unexpected failures the owner would want to hear about. The call site knows which one it has.
+
+Record a failure once, at the last place that still holds its detail. Usually that is where the failure is settled, or where it stops because nobody is waiting. Do not log at each layer as an error passes upward. The billing client above is the other case: it replaces the provider's error with a vendor-neutral `ProviderRequestFailed()`, so it records the detail it discards.
 
 When a call returns a Result, branch on `result.error` if the caller also needs to act on the success value. For a background operation with no awaiting caller, handle the rejection where the work starts. The [browser OAuth client](../../../packages/account/src/browser-oauth.ts) records why automatic renewal failed:
 
@@ -136,15 +142,19 @@ import {
 } from 'wellcrafted/logger';
 ```
 
+Presentation is not a sink. A toast or other message to a person stays a separate call at the UI boundary: it needs a title only the call site knows, and not every recorded failure should be shown. See [toast on error](../error-handling/references/toast-on-error.md).
+
 ### Durability is the host's job
 
-For a long-running daemon or CLI that needs durable logs, the library still emits to `consoleSink`; the operator decides where the stream goes:
+For a long-running daemon or CLI that needs durable logs, packages still emit through the logger they are given, which defaults to `consoleSink`. The host chooses the sink; the operator decides where the stream goes:
 
 ```bash
 bun run start                          # dev: console
-bun run start 2>> ~/.app/app.jsonl     # ad-hoc file capture
+bun run start 2>> ~/.app/app.log       # ad-hoc file capture
 systemd-run --user bun run start       # journal (structured queries via journalctl)
 ```
+
+`consoleSink` writes text for people, so redirecting it does not produce JSON lines. A host that wants searchable records passes a JSON-line sink; see [Event shape](#event-shape).
 
 This used to be `jsonlFileSink`; that primitive was removed because owning a file writer in-process bought complexity (backpressure, dispose semantics, error fallbacks) that shell redirection already solves.
 
@@ -177,6 +187,27 @@ Let the caller supply a logger when it needs a different sink. The [OAuth tests]
 
 The whole surface is pure JS and browser-safe.
 
+## One record per unit of work, in hosts only
+
+A host whose work has a clear start and end can write one record when each unit ends, instead of several lines along the way. One action run in `epicenter serve` and one HTTP request in the hosted API are units of work. The record carries the outcome, the duration, and the error if there was one. This is the [canonical log line](https://stripe.com/blog/canonical-log-lines) pattern.
+
+It needs no new logger API, only one `info` call when the work ends. `epicenter serve` writes one for each action run in [`runAction`](../../../packages/cli/src/run.ts), through a [JSON-line sink on stderr](../../../packages/cli/src/output.ts):
+
+```ts
+log.info('action run ended', {
+	app: located.name,
+	action: key,
+	durationMs: Math.round(performance.now() - started),
+	...outcomeOf(answer),
+});
+```
+
+The record leaves out the action's input and result, which can hold personal data.
+
+The record goes out at `info` even when the work failed, because `warn` and `error` take only the error. Filter on `outcome`, not level. When the failure stops at the host, this record is its one recording; do not also log it at `error`.
+
+Packages never do this. A package has no unit of work and does not choose where records go.
+
 ## Event shape
 
 Every sink receives:
@@ -191,7 +222,7 @@ type LogEvent = {
 };
 ```
 
-Custom sinks that serialize for the wire should convert `ts` to ISO-8601 and flatten native `Error` instances (otherwise they JSON.stringify to `{}`).
+Serialize at the sink. A host that wants searchable records uses a sink that writes one JSON line per event. That sink converts `ts` to ISO-8601 and flattens native `Error` values wherever they appear, including a tagged error's `cause` and `info` data, because `JSON.stringify` turns an `Error` into `{}`.
 
 ## See also
 
