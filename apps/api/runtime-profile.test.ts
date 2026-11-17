@@ -124,6 +124,14 @@ const PROFILE: Surface[] = [
 		why: "Billing is the deployed hosted Worker's concern: it needs the Autumn secret and the after-response drain. The dev host meters nothing, which is also why its inference and transcription gateways carry no policy.",
 	},
 	{
+		surface: 'hosted homes',
+		method: 'GET',
+		url: `${ORIGIN}/homes/admin/status`,
+		worker: 'absent',
+		bun: 'absent',
+		why: 'The hosted experiment is disabled in normal deployments; only an explicit experiment config enables it.',
+	},
+	{
 		surface: 'dashboard SPA',
 		method: 'GET',
 		url: `${ORIGIN}/dashboard`,

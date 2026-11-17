@@ -1,3 +1,4 @@
+import { HOME_ORIGIN, HOME_LOCAL_ORIGIN } from './hosted-home-config.js';
 import { APPS, localUrl } from '@epicenter/definition/site';
 
 /**
@@ -79,10 +80,17 @@ export function isLocalDeployment(baseURL: string): boolean {
  * across requests. Typed `string[]` (not `readonly string[]`) because Better
  * Auth's `trustedOrigins` option expects a mutable array type.
  */
-export function buildEpicenterTrustedOrigins(baseURL: string): string[] {
+export function buildEpicenterTrustedOrigins(
+	baseURL: string,
+	{ hostedHomes = false } = {},
+): string[] {
 	return Object.freeze(
 		isLocalDeployment(baseURL)
-			? [...PRODUCTION_TRUSTED_ORIGINS, ...DEVELOPMENT_TRUSTED_ORIGINS]
-			: [...PRODUCTION_TRUSTED_ORIGINS],
+			? [
+					...PRODUCTION_TRUSTED_ORIGINS,
+					...DEVELOPMENT_TRUSTED_ORIGINS,
+					...(hostedHomes ? [HOME_ORIGIN, HOME_LOCAL_ORIGIN] : []),
+				]
+			: [...PRODUCTION_TRUSTED_ORIGINS, ...(hostedHomes ? [HOME_ORIGIN] : [])],
 	) as string[];
 }

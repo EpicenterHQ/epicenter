@@ -41,6 +41,11 @@ import {
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
+import { mountHostedHomes, type HostedHomesGateway } from './hosted-home.js';
+import {
+	hostedAudiences,
+	homeExperimentEnabled,
+} from './hosted-home-config.js';
 import { buildFirstPartyClients } from './oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
@@ -48,6 +53,11 @@ import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 // binding the library reads. A missing or mistyped binding fails here,
 // not deep inside library files compiled in this program.
 ({}) as Cloudflare.Env satisfies ServerBindings;
+
+const homeExperiment = (env: ServerBindings) =>
+	homeExperimentEnabled(
+		env as ServerBindings & { HOSTED_HOMES_EXPERIMENT?: string },
+	);
 
 const resolveApiOrigin = (env: CloudEnv['Bindings']) =>
 	(env as Cloudflare.Env).API_PUBLIC_ORIGIN ?? PRODUCTION_API_URL;
@@ -61,10 +71,13 @@ const app = createServerApp<CloudEnv>({
 	// deployment-owned config, not a binding `ServerBindings` names, so casting
 	// to this deployment's own `Cloudflare.Env` is the honest edge (ADR-0066).
 	resolveOrigin: resolveApiOrigin,
-	resolveTrustedOrigins: buildEpicenterTrustedOrigins,
-	// Both audiences are on this origin: the API at it, the folders at
-	// `/folders` (ADR-0326, ADR-0828).
-	resolveAudiences: resolveOAuthAudiences,
+	resolveTrustedOrigins: (origin, env) =>
+		buildEpicenterTrustedOrigins(origin, { hostedHomes: homeExperiment(env) }),
+	// The hosted experiment adds a separate audience only when explicitly enabled.
+	resolveAudiences: (origin, env) =>
+		homeExperiment(env)
+			? hostedAudiences(origin)
+			: resolveOAuthAudiences(origin),
 });
 
 // The cloud UI (apps/api/ui) is one root-based SvelteKit SPA whose fallback
@@ -130,7 +143,9 @@ const registerClientsOnce = createMiddleware<CloudEnv>(async (c, next) => {
 		await c.var.auth.$context;
 		await registerFirstPartyClients(c.var.db, {
 			audiences: c.var.audiences,
-			clients: buildFirstPartyClients(c.var.authBaseURL),
+			clients: buildFirstPartyClients(c.var.authBaseURL, {
+				hostedHomes: homeExperiment(c.env),
+			}),
 		});
 		firstPartyClientsRegistered = true;
 	}
@@ -152,6 +167,14 @@ mountAuthRoutes(app, {
 const resource = (audience: 'api' | 'folders', scope: OAuthScope) =>
 	every(cloudContext, requireAccessToken({ audience, scope }));
 const accountSession = every(cloudContext, requireSessionCookie());
+
+mountHostedHomes(app, {
+	setup: cloudContext,
+	enabled: homeExperiment,
+	resolveGateway: (env) =>
+		(env as ServerBindings & { HOSTED_HOMES?: HostedHomesGateway })
+			.HOSTED_HOMES,
+});
 
 // Folders at api.epicenter.so/folders/<id> (ADR-0811, ADR-0824): each one's
 // log in Postgres through Hyperdrive, its bytes over 16 KiB in R2 (`BLOBS`),

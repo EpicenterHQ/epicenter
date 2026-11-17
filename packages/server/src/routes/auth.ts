@@ -67,15 +67,15 @@ export function mountAuthRoutes(
 		const issuer = `${new URL(c.var.authBaseURL).origin}/auth`;
 		const { audiences } = c.var;
 		for (const kind of Object.keys(audiences) as (keyof OAuthAudiences)[]) {
-			const metadataUrl = new URL(
-				protectedResourceMetadataUrl(audiences[kind]),
-			);
+			const identifier = audiences[kind];
+			if (!identifier) continue;
+			const metadataUrl = new URL(protectedResourceMetadataUrl(identifier));
 			if (
 				metadataUrl.origin === requested.origin &&
 				metadataUrl.pathname === requested.pathname
 			)
 				return c.json(
-					protectedResourceMetadata(kind, audiences[kind], issuer),
+					protectedResourceMetadata(kind, identifier, issuer),
 					200,
 					{ 'Cache-Control': 'public, max-age=3600' },
 				);

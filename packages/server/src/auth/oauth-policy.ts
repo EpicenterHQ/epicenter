@@ -22,6 +22,11 @@ export const OAUTH_SCOPES = [
 	'folders:read',
 	'folders:write',
 	'folders:all',
+	'home:read',
+	'home:source',
+	'home:build',
+	'home:run',
+	'home:manage',
 ] as const;
 export type OAuthScope = (typeof OAUTH_SCOPES)[number];
 
@@ -44,6 +49,8 @@ export type OAuthAudiences = {
 	api: string;
 	/** Every folder's log, files, and bytes, at `<origin>/folders`, and `/api/folders`. */
 	folders: string;
+	/** Hosted deployments may offer per-person app homes. */
+	homes?: string;
 };
 
 /**
@@ -54,6 +61,7 @@ export type OAuthAudiences = {
 export const SCOPES_SUPPORTED = {
 	api: ['ai'],
 	folders: ['folders:read', 'folders:write', 'folders:all'],
+	homes: ['home:read', 'home:source', 'home:build', 'home:run', 'home:manage'],
 } as const satisfies Record<keyof OAuthAudiences, readonly OAuthScope[]>;
 
 /**
@@ -69,11 +77,13 @@ export const SCOPES_SUPPORTED = {
 export function oauthResourceInputs(
 	audiences: OAuthAudiences,
 ): OAuthResourceInput[] {
-	return Object.values(audiences).map((identifier) => ({
-		identifier,
-		accessTokenTtl: ACCESS_TOKEN_TTL_SECONDS,
-		allowedScopes: [...OAUTH_SCOPES],
-	}));
+	return Object.values(audiences)
+		.filter((value): value is string => typeof value === 'string')
+		.map((identifier) => ({
+			identifier,
+			accessTokenTtl: ACCESS_TOKEN_TTL_SECONDS,
+			allowedScopes: [...OAUTH_SCOPES],
+		}));
 }
 
 /** SHA-256, base64url without padding: the provider's stored token form. */

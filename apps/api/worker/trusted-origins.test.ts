@@ -60,3 +60,24 @@ describe('buildEpicenterTrustedOrigins', () => {
 		expect(Object.isFrozen(LOCAL)).toBe(true);
 	});
 });
+
+test('hosted home trust is explicit and local redirects never reach production', () => {
+	const home =
+		'https://epicenter-tasks-workers-prototype.epicenter.workers.dev';
+	expect(PROD).not.toContain(home);
+	expect(
+		buildEpicenterTrustedOrigins('https://api.epicenter.so', {
+			hostedHomes: true,
+		}),
+	).toContain(home);
+	expect(
+		buildEpicenterTrustedOrigins('https://api.epicenter.so', {
+			hostedHomes: true,
+		}),
+	).not.toContain('http://localhost:8799');
+	expect(
+		buildEpicenterTrustedOrigins('http://localhost:8787', {
+			hostedHomes: true,
+		}),
+	).toContain('http://localhost:8799');
+});

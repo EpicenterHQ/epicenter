@@ -190,7 +190,7 @@ export async function startBunApiServer(): Promise<void> {
 
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
-		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
+		resolveTrustedOrigins: (origin) => buildEpicenterTrustedOrigins(origin),
 		resolveAudiences: () => audiences,
 	});
 

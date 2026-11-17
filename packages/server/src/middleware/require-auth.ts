@@ -40,11 +40,14 @@ export function requireAccessToken({
 	scope: OAuthScope;
 }): MiddlewareHandler<CloudEnv> {
 	return createMiddleware<CloudEnv>(async (c, next) => {
+		const identifier = c.var.audiences[audience];
+		if (!identifier)
+			return c.json({ error: 'This resource is unavailable.' }, 503);
 		let decided: Awaited<ReturnType<typeof authorizeAccountRequest>>;
 		try {
 			decided = await authorizeAccountRequest(c.var.db, {
 				token: readAccessToken(c.req.header('authorization')),
-				audience: c.var.audiences[audience],
+				audience: identifier,
 				scope,
 			});
 		} catch {

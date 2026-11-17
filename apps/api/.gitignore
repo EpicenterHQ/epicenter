@@ -2,3 +2,5 @@
 # Never committed.
 .data/
 wrangler.dev.generated.json
+
+wrangler.homes.generated.json

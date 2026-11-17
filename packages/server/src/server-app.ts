@@ -52,13 +52,13 @@ export type Identity = {
 	resolveTrustedOrigins: (baseURL: string, env: ServerBindings) => string[];
 	/**
 	 * This deployment's OAuth token audiences, which the deployment names
-	 * (ADR-0326). Receives the resolved `baseURL`: `apps/api` passes
+	 * (ADR-0326). Receives the resolved `baseURL` and deployment bindings: `apps/api` passes
 	 * `resolveOAuthAudiences`, which puts the hosted cloud's audiences on
 	 * their own hosts and any other deployment's under its origin. Every
 	 * resource guard, mount, and the authorization server reads the result
 	 * from `c.var.audiences`.
 	 */
-	resolveAudiences: (baseURL: string) => OAuthAudiences;
+	resolveAudiences: (baseURL: string, env: ServerBindings) => OAuthAudiences;
 };
 
 /**
@@ -92,7 +92,7 @@ export function createServerApp<E extends Env = Env>({
 		const baseURL = resolveOrigin(c.env);
 		c.set('authBaseURL', baseURL);
 		c.set('trustedOrigins', resolveTrustedOrigins(baseURL, c.env));
-		c.set('audiences', resolveAudiences(baseURL));
+		c.set('audiences', resolveAudiences(baseURL, c.env));
 		await next();
 	});
 

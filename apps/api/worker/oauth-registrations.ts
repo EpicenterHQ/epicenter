@@ -14,6 +14,14 @@ import {
 	resolveOAuthAudiences,
 } from '@epicenter/definition/site';
 import type { FirstPartyClient } from '@epicenter/server';
+import {
+	HOME_ORIGIN,
+	HOME_LOCAL_ORIGIN,
+	HOME_CLIENT,
+	HOME_AGENT_CLIENT,
+	HOME_SCOPES,
+	hostedAudiences,
+} from './hosted-home-config.js';
 import { isLocalDeployment } from './trusted-origins.js';
 
 /** Each browser build signs in as its own app id; these are those ids. */
@@ -110,11 +118,50 @@ function nativeClient(
  * Every first-party client this deployment registers. The dashboard is not
  * one: it is the authorization server's own page and uses its session cookie.
  */
-export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
-	const audiences = resolveOAuthAudiences(origin);
+export function buildFirstPartyClients(
+	origin: string,
+	{ hostedHomes = false } = {},
+): FirstPartyClient[] {
+	const audiences = hostedHomes
+		? hostedAudiences(origin)
+		: resolveOAuthAudiences(origin);
 	const local = isLocalDeployment(origin);
 	const firstPartyResources = [audiences.api, audiences.folders];
 	return [
+		...(hostedHomes
+			? ([
+					{
+						clientId: HOME_CLIENT,
+						name: 'Epicenter Home',
+						redirectUris: [
+							HOME_ORIGIN,
+							...(local ? [HOME_LOCAL_ORIGIN] : []),
+						].map((origin) => origin + '/auth/callback'),
+						grantTypes: ['authorization_code', 'refresh_token'],
+						scopes: [
+							'openid',
+							'offline_access',
+							'profile',
+							'email',
+							...HOME_SCOPES,
+							'home:manage',
+						],
+						resources: [hostedAudiences(origin).homes],
+						skipConsent: true,
+						applicationType: 'web',
+					},
+					{
+						clientId: HOME_AGENT_CLIENT,
+						name: 'Epicenter hosted agent',
+						redirectUris: [],
+						grantTypes: ['urn:ietf:params:oauth:grant-type:device_code'],
+						scopes: [...HOME_SCOPES],
+						resources: [hostedAudiences(origin).homes],
+						skipConsent: false,
+						applicationType: 'native',
+					},
+				] satisfies FirstPartyClient[])
+			: []),
 		...BROWSER_APPS.map(({ clientId, name, app }) =>
 			browserClient({ clientId, name, resources: firstPartyResources }, [
 				app.url,
