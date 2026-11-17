@@ -1,6 +1,6 @@
 # 0930. An action call is a function call, and serve keeps nothing about it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-16
 - **Supersedes:** [ADR-0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) (serve-owned runs and temporary file uploads) and [ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) (every page call is a durable run), once accepted.
 - **Amends:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on HTTP and replay: its answer table stands, and its `/.runs/` routes, admission header, replay and `runs.start(...).result()` go. [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) on serve keeping runs: serve keeps none. [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) on how an action reports: `run` takes an `update` function in place of being an `async function*`, and the CLI may show updates. Its rule that only the return is the answer stands.
