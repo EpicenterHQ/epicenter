@@ -4,7 +4,6 @@
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) on how a file is marked as staying here: by its place, not its name. Its rule that such a file never leaves its computer stands. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on an app's layout: `local/` sits beside `code/` and `data/`.
 - **Relates:** [ADR-0938](0938-an-action-says-whether-agents-are-offered-it.md) (a secret is ordinary input the first time), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (where an action writes).
-- **Unbuilt:** removing the old names. `isLocalPath` still matches `*.local` and `*.local.*` for `collection.ts`, `path.ts` and `field.ts`, and the root still ignores them, until Mail, Messages and Flights have moved their 14 such files from `data/` to `local/`.
 
 ## Context
 

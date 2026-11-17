@@ -4,7 +4,6 @@
 - **Date:** 2026-11-17
 - **Supersedes:** [ADR-0907](0907-private-input-is-a-whole-call-handling-policy.md) (private input as a whole-call policy), once accepted.
 - **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (where a secret is kept), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (one way to call an action).
-- **Unbuilt:** the owner's Messages app still declares `privateInput` on four actions and does not load until it is moved.
 
 ## Context
 

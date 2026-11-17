@@ -1,6 +1,6 @@
 /**
  * Data handles read and patch top-level Markdown records through the current run.
- * Covers both key shapes, strict ids, create-only adds, repairs, diagnostics,
+ * Covers both key shapes, tidied and refused ids, create-only adds, repairs, diagnostics,
  * list membership, and the separation between app writes and reference checks.
  */
 import { expect, test } from 'bun:test';
@@ -241,16 +241,14 @@ test('computed refusals and faults leave a fitting file unchanged', async () => 
 // Each refusal happens before any folder operation; pathOf checks nothing.
 const invalidIds = [
 	'',
+	'   ',
 	'a/b',
 	'a\\b',
-	'a\n',
 	'a\u0000b',
 	'a\u007fb',
 	'a\u0085b',
 	'.hidden',
-	' leading',
-	'trailing ',
-	'e\u0301',
+	' .hidden',
 	'界'.repeat(67),
 	'a'.repeat(201),
 ];
@@ -288,6 +286,52 @@ test.each(invalidIds)(
 		expect(Value.Check(field.id(), id)).toBe(false);
 	},
 );
+
+test('an id with surrounding whitespace or a decomposed accent reaches the same record through every verb', async () => {
+	const {
+		context,
+		data: { notes },
+	} = setup();
+	const typed = '  Cafe\u0301  au lait\n';
+	const id = 'Caf\u00e9  au lait';
+	const path = `data/notes/${id}.md`;
+	await inRun(context, async () => {
+		expect(notes.pathOf(typed)).toBe(path);
+		expect(expectOk(await notes.add(typed, { title: 'first' }))).toMatchObject({
+			path,
+			id,
+		});
+		expect(await folder.list('data/notes')).toEqual([path]);
+		expect(expectOk(await notes.get(typed))?.id).toBe(id);
+		expect(expectOk(await notes.set(typed, { title: 'second' })).id).toBe(id);
+		expect(
+			expectOk(await notes.update(typed, () => Ok({ count: 1 }))).title,
+		).toBe('second');
+		// One inner space is another id.
+		expect(expectOk(await notes.get('Caf\u00e9 au lait'))).toBeUndefined();
+		expect(expectOk(await notes.delete(typed))).toBe(true);
+		expect(await folder.list('data/notes')).toEqual([]);
+	});
+});
+
+test('a Misfit carries the id of a folder record and none for a one-file key', async () => {
+	const text = '---\ntitle: 123\n---\nbody';
+	const { context, data } = setup({
+		'data/notes/a.md': text,
+		'data/settings.md': text,
+	});
+	await inRun(context, async () => {
+		expect(expectErr(await data.notes.get('a'))).toMatchObject({
+			name: 'Misfit',
+			path: 'data/notes/a.md',
+			id: 'a',
+		});
+		expect(expectErr((await data.notes.list())[0] ?? Ok(null)).id).toBe('a');
+		const single = expectErr(await data['settings.md'].get());
+		expect(single.path).toBe('data/settings.md');
+		expect(single).not.toHaveProperty('id');
+	});
+});
 
 test('ids retain internal spaces, case, NFC accents, and the byte limit', async () => {
 	const {

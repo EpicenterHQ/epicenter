@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on the generated `get` of a one-file key whose file is absent: it answers `Ok(undefined)`.
-- **Unbuilt:** no app calls `data.<key>.actions(...verbs)` yet; the apps still use `collection.actions()`.
 - **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (the handle these are built from); [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (a caller whose answer was lost reads the record); [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one writer).
 
 ## Context
@@ -62,10 +61,12 @@ export default defineApp({
 
 **What an action adds to its verb is its input:**
 
-- **`id`.** `add` requires `id`, as `field.id()`, described from the key's
-  `description` ("the name of the new word I'm learning"). Whoever adds a
-  record names it: a page that wants records sorted by time sends
-  `timeId()`, exported from `@epicenter/app/client`; an agent sends a name.
+- **`id`.** `add` takes an optional `id`, described from the key's
+  `description` ("the name of the new word I'm learning"). Given one, the
+  record has that name. Given none, it is named by the moment it is made,
+  with `timeId()`, so an agent can add a record without inventing a name.
+  Every generated verb takes `id` as text and the handle tidies it
+  ([ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md)).
   When a file is already there, `add` answers `Changed` (`there`), because
   that is what creating means.
 - **`edit`.** `set` takes `{ old, new }`, with `old` not empty, and replaces
@@ -107,8 +108,11 @@ a handle. A refusal returns an `Err`, and a throw means a bug.
   into title and notes) need not change it the same way every time.
 - An agent that adds a word it already has learns that from `Changed`
   (`there`) instead of making a second file.
-- Mail's proposals, the one collection whose generated `add` filled `{time}`,
-  are named by the page with `timeId()`; an agent adding one over MCP names it.
+- A key whose records are named by time needs no `add` of its own: Mail's
+  proposals, and Capture's, Tasks' and Writing's records, use the generated
+  one.
+- An `add` sent twice with no id makes two records. That is accepted: the
+  platform does not make a repeated call safe (ADR-0930).
 - A ref an agent mistypes is written, and `epicenter check` reports it.
 - Nine apps keep about 60 actions they would otherwise write by hand.
 
@@ -122,5 +126,6 @@ a handle. A refusal returns an `Err`, and a throw means a bug.
 - **Generated reads only; every write written by hand.** Each app would restate `edit` and id handling in its own actions.
 - **A default verb set when none is named.** It needed a rule per verb (`delete` only when named, `add` only for keys whose records a caller names) that a reader had to know.
 - **The generated `add` answering `Ok` when the same fields and body are there.** It decided for the caller what "already there" meant, and an agent adding a word it already had would not learn that.
-- **An optional `id` defaulting to `timeId()`, with an `id` option on a key to require it.** The default served one key (Mail's proposals), about ten keys named by a word, title, or slug would each have declared the option, and a caller that left the id out added twice when it sent the call again.
+- **A required `id` on every generated `add`.** An earlier form of this record. Four apps then wrote their own `add` only to fill in a time, and an agent could not add a time-named record at all.
+- **An `id` option on a key to say whether `add` requires one.** A declaration to prevent a second record when a call is sent twice, which the owner accepts.
 - **One `effect: 'read' | 'add' | 'change' | 'delete'` on `defineAction` in place of the four hints.** It rules out contradictions such as read-only and destructive, but the four hints are MCP's own names, which agents already read.

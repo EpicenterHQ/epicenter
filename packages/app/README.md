@@ -102,10 +102,14 @@ letter), optionally followed by `.md`. Each key gives `fields`, and may give a
 
 An id is the file's name exactly as it is on disk: non-empty NFC text of at
 most 200 UTF-8 bytes, without `/`, control characters, a leading dot, or
-spaces at either end (ADR-0933). A method or verb given another id returns
-`Refused`, and `list` skips a file whose name is not an id. `field.id()` is
-an input field that takes one. A new record's id comes from the caller or the
-app: Tasks and Writing name each new record with `timeId()`.
+spaces at either end (ADR-0933). Every method and generated verb that takes
+an id first tidies it: it normalises it to NFC and removes whitespace at
+either end, and keeps inner spaces, so an app passes what a person typed.
+An id that still does not fit returns `Refused`, and `list` skips a file
+whose name is not an id. `field.id()` is an input field that takes an id
+that already fits. A new record's id comes from the caller or the app. A
+generated `add` takes `id` optionally and names the record with `timeId()`
+when it is left out; the `add(id, record)` method always takes one.
 
 Each file's fields are its front matter, as `key: <JSON>` lines, and its body
 is the text after it. Each line is read on its own, and no YAML is read
@@ -142,7 +146,7 @@ the change second. A one-file key's methods take no id.
 | `set(id, change)` | patches an existing record; an absent id returns `Missing`. A one-file `set(change)` creates its file |
 | `update(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it |
 | `delete(id)` | returns whether a file existed |
-| `pathOf(id)` | the record's path, without checking the id or the disk |
+| `pathOf(id)` | the record's path for the tidied id, without checking it or the disk |
 
 Writes return the fitting record in Ok. Check a write's Result before
 continuing work that depends on it. A malformed record produces `Misfit`.
@@ -208,7 +212,8 @@ if (!read.data) return ActionError.Missing({ path: data.watches.pathOf(id) });
 return Ok(read.data.from);
 ```
 
-`Misfit` carries the file path and its diagnostic lines and kinds. When
+`Misfit` carries the file path, the record's `id` in a folder key (a one-file
+key has none), and its diagnostic lines and kinds. When
 front matter is readable, it also carries `record`: the path, id, body, and
 the fields that fit, for a repair form. `partitionResults(await data.watches.list())`
 from `@epicenter/app` separates fitting records from files that need repair.

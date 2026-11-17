@@ -82,9 +82,9 @@ function actionLines(located: Runnable) {
 	]);
 }
 
-/** A routine as the report shows it: its schedule and next occurrence, or why its file is refused. */
+/** A routine as the report shows it: its schedule, next occurrence, and command to copy into a terminal, or why its file is refused. */
 export type RoutineRow =
-	| { name: string; cron: string; next: string | undefined }
+	| { name: string; cron: string; next: string | undefined; command: string }
 	| { name: string; problem: string };
 
 /**
@@ -134,10 +134,13 @@ export function homeListing(
 	else
 		lines.push(
 			'Routines:',
-			...routines.map((row) =>
+			...routines.flatMap((row) =>
 				'problem' in row
-					? `  ${row.name}: ${row.problem}`
-					: `  ${row.name}: cron ${row.cron}, next ${row.next ?? 'never'}`,
+					? [`  ${row.name}: ${row.problem}`]
+					: [
+							`  ${row.name}: cron ${row.cron}, next ${row.next ?? 'never'}`,
+							`    ${row.command}`,
+						],
 			),
 		);
 	lines.push('', `Git: ${repositoryLine(found.epicenter, repository)}`);

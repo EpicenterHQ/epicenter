@@ -73,8 +73,8 @@ export async function checkData(data: AnyData) {
 			const listed = await handle.list();
 			ids.set(key, new Set());
 			for (const result of listed) {
-				const path = result.error ? result.error.path : result.data.path;
-				ids.get(key)?.add(path.slice(base.length + 1, -3));
+				const { path, id } = result.error ?? result.data;
+				ids.get(key)?.add(id);
 				if (result.error) {
 					report(key, [path], result.error.problems);
 					if (result.error.record)

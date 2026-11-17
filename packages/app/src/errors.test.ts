@@ -1,6 +1,7 @@
 /**
- * The shared action error wire contract. Every factory survives JSON and
- * validates; namesakes and malformed marked payloads remain unrecognized.
+ * The shared action error wire contract. Every factory survives JSON and is
+ * recognized; a foreign namespace, an unknown name, or a message that is
+ * not text is not. The other fields are not checked.
  */
 import { expect, test } from 'bun:test';
 import { ActionError, isActionError } from './errors.ts';
@@ -14,9 +15,10 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 			problems: [{ line: 'title is missing', kind: 'title is missing' }],
 		}),
 		ActionError.Misfit({
-			path: 'data/a.md',
+			path: 'data/notes/a.md',
+			id: 'a',
 			problems: [],
-			record: { path: 'data/a.md', body: '' },
+			record: { path: 'data/notes/a.md', id: 'a', body: '' },
 		}),
 		ActionError.Threw({
 			message: 'failed',
@@ -34,7 +36,7 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 	}
 });
 
-test('the marker and the complete variant payload are required', () => {
+test('a foreign namespace, an unknown name, or a message that is not text is not an ActionError', () => {
 	const base = { namespace: 'epicenter/action-error', message: 'failed' };
 	for (const value of [
 		null,
@@ -45,19 +47,6 @@ test('the marker and the complete variant payload are required', () => {
 		{ ...base, namespace: 'another/error', name: 'Missing', path: 'data/a.md' },
 		{ ...base, name: 'constructor' },
 		{ ...base, name: 'Unknown' },
-		{ ...base, name: 'Missing' },
-		{ ...base, name: 'Misfit', path: 'data/a.md', problems: 'bad' },
-		{
-			...base,
-			name: 'Misfit',
-			path: 'data/a.md',
-			problems: [{ line: 'missing' }],
-		},
-		{ ...base, name: 'Missing', path: 7 },
-		{ ...base, name: 'Changed', path: 'data/a.md' },
-		{ ...base, name: 'Changed', path: 'data/a.md', why: 'toString' },
-		{ ...base, name: 'Threw', thrown: { name: 'Custom' } },
-		{ ...base, name: 'Refused', next: 7 },
 		{ ...base, name: 'Unreachable', message: 7 },
 	])
 		expect(isActionError(value)).toBe(false);

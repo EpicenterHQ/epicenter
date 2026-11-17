@@ -12,7 +12,7 @@ import { folder } from './context.ts';
 import { ActionError } from './errors.ts';
 import { defaultIn, field, refKeyOf } from './field.ts';
 import { isFieldKey, type JsonValue, readMarkdown } from './front-matter.ts';
-import { idProblem } from './id.ts';
+import { idProblem, tidyId } from './id.ts';
 import {
 	containsFileMarker,
 	type Fields,
@@ -26,6 +26,7 @@ import {
 	createMarkdownRecords,
 } from './markdown-records.ts';
 import { edited } from './text-edit.ts';
+import { timeId } from './time.ts';
 
 /** One folder or one file's declared Markdown fields. */
 export type DataDef = { description?: string; fields: Fields };
@@ -52,9 +53,10 @@ export type DataRecord<TKey extends string, TDef extends DataDef> = Flat<
 	Named<TKey> & Fitting<TDef['fields']>
 >;
 type Misfit<TKey extends string, TDef extends DataDef> = Flat<
-	Omit<Extract<ActionError, { name: 'Misfit' }>, 'record'> & {
-		record?: Flat<Named<TKey> & Loose<TDef['fields']>>;
-	}
+	Omit<Extract<ActionError, { name: 'Misfit' }>, 'id' | 'record'> &
+		(TKey extends `${string}.md` ? unknown : { id: string }) & {
+			record?: Flat<Named<TKey> & Loose<TDef['fields']>>;
+		}
 >;
 type Refused = Extract<ActionError, { name: 'Refused' }>;
 type Changed = Extract<ActionError, { name: 'Changed' }>;
@@ -93,7 +95,10 @@ type OneFile<TKey extends string, TDef extends DataDef> = {
 	pathOf(): string;
 };
 type FolderHandle<TKey extends string, TDef extends DataDef> = {
-	/** Read one id, or undefined when absent. */
+	/**
+	 * Read one id, or undefined when absent. Every method that takes an id
+	 * first tidies it: Unicode NFC, with surrounding whitespace removed.
+	 */
 	get(
 		id: string,
 	): Promise<
@@ -115,7 +120,7 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	update: Update<TKey, TDef, [id: string]>;
 	/** Delete one id, returning whether its file existed. */
 	delete(id: string): Promise<Result<boolean, Refused>>;
-	/** The file path for this id, without checking the id or the disk. */
+	/** The file path for this id, tidied, without checking it or the disk. */
 	pathOf(id: string): string;
 };
 /** Data metadata and reads; key names determine paths and file or folder shape. */
@@ -142,7 +147,7 @@ type ActionInput<
 > = TVerb extends 'list'
 	? Record<string, never>
 	: TVerb extends 'add'
-		? Flat<{ id: string } & Input<TDef['fields']>>
+		? Flat<{ id?: string } & Input<TDef['fields']>>
 		: TVerb extends 'set'
 			? Flat<
 					(TKey extends `${string}.md` ? unknown : { id: string }) &
@@ -303,13 +308,14 @@ function createRecordHandle(key: string, def: DataDef) {
 		keysOf: (path): Record<string, string> =>
 			single ? {} : { id: path.slice(base.length + 1, -3) },
 	});
-	/** The path for `id`, or Refused when the id breaks ADR-0933's rule. */
+	const pathOf = (id: string) => `${base}/${tidyId(id)}.md`;
+	/** The path for `id` once tidied, or Refused when it still breaks ADR-0933's rule. */
 	function place(id?: string) {
 		if (single) return base;
-		const problem = idProblem(id);
+		const problem = idProblem(tidyId(id));
 		return problem
 			? ActionError.Refused({ message: `${key}: ${problem}` })
-			: `${base}/${id}.md`;
+			: pathOf(id as string);
 	}
 	async function get(id?: string) {
 		const path = place(id);
@@ -360,7 +366,7 @@ function createRecordHandle(key: string, def: DataDef) {
 	return {
 		...def,
 		get,
-		pathOf: (id: string) => `${base}/${id}.md`,
+		pathOf,
 		set,
 		update,
 		delete: remove,
@@ -409,7 +415,8 @@ function dataAction(
 		/^(?:a|an|the)\s+/i,
 		'',
 	);
-	const id = field.id({ description: `The name of the ${what}` });
+	// Text, not field.id: the handle tidies an id before it checks it.
+	const id = field.text({ description: `The name of the ${what}` });
 	const keys: Record<string, typeof id> = keyed ? { id } : {};
 	const hints = { openWorldHint: false } as const;
 	const body = Type.Optional(
@@ -433,16 +440,19 @@ function dataAction(
 				run: async ({ id }) => {
 					const found = await (keyed ? handle.get(id as string) : handle.get());
 					if (keyed && found.error === null && found.data === undefined)
-						return ActionError.Missing({ path: `data/${key}/${id}.md` });
+						return ActionError.Missing({ path: handle.pathOf(id as string) });
 					return found;
 				},
 			});
 		case 'add':
 			if (!keyed) throw new Error(`The data key ${key} offers no action "add"`);
 			return defineAction({
-				description: `Make a new ${what}; Changed (there) when one is already at its path`,
+				description: `Make a new ${what}, named by id or, without one, by the moment it is made; Changed (there) when one is already at its path`,
 				input: {
-					id: field.id({ description: `The name of the new ${what}` }),
+					id: field.text({
+						optional: true,
+						description: `The name of the new ${what}; left out, it is named by the moment it is made`,
+					}),
 					...def.fields,
 					body,
 				},
@@ -452,7 +462,7 @@ function dataAction(
 					idempotentHint: true,
 					...hints,
 				},
-				run: ({ id, ...record }) => handle.add(id, record),
+				run: ({ id, ...record }) => handle.add(id ?? timeId(), record),
 			});
 		case 'set': {
 			const patch: Record<string, TSchema> = {};
@@ -514,7 +524,7 @@ function dataAction(
 					const replace = (
 						record: AnyRecord | undefined,
 					): Result<Change<JsonDef['fields']>, Changed | Missing> => {
-						const path = keyed ? `data/${key}/${id}.md` : `data/${key}`;
+						const path = keyed ? handle.pathOf(id) : handle.pathOf();
 						if (keyed && record === undefined)
 							return ActionError.Missing({ path });
 						const next = edited(path, record?.body ?? '', edit.old, edit.new);

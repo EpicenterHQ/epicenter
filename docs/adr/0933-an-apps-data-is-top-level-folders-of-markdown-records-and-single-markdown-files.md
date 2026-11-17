@@ -4,7 +4,6 @@
 - **Date:** 2026-11-16
 - **Supersedes:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) (a collection selects a record by its keys) and [ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) (file slots), once accepted.
 - **Amends:** [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md): a ref names its target by key name and holds one id. [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md): the check's rules below, with no count of skipped files.
-- **Unbuilt:** all of it. No runtime has `defineData`, no app has moved, and `defineCollection` is not deleted.
 - **Relates:** [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (how code reaches these records); [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md) (the actions generated for them); [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) (refs); [ADR-0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) (the check); [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) (absent switches and lists); [ADR-0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) (front matter grammar).
 
 ## Context
@@ -92,13 +91,17 @@ data/
 
 An id is not empty, is at most 200 UTF-8 bytes, has no `/`, `\`, or control
 character, does not start with `.`, does not start or end with a space, and is
-in Unicode NFC. The library refuses an id that breaks a rule and never tidies
-one: `Dune` and ` Dune` are not the same request, and an accented word typed
-two ways cannot become two files. `field.id()` is the input field an action
-uses for an id, refusing what the rule refuses.
+in Unicode NFC. A handle tidies an id before it checks it: surrounding
+whitespace is removed and the text is put in NFC, so ` Dune` reaches `Dune`
+and an accented word typed two ways is one file. It changes nothing else:
+inner spaces and case are the app's to decide. An id that still breaks a rule
+is refused. `field.id()` is the input field a hand-written action uses to
+refuse an untidy id at the door.
 
 Whoever adds a record names it: a word by the word, a book by its title, a
-note by `timeId()`. The declaration says nothing about how ids are chosen.
+note by `timeId()`. A generated `add` given no id uses `timeId()`
+([ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md)).
+The declaration says nothing about how ids are chosen.
 
 An id names a file; the fields hold the meaning. A composite id such as
 `sfo-nyc.2026-11-16` is opaque: code that needs the watch and the day reads

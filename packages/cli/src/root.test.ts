@@ -310,7 +310,13 @@ test('a new home commits itself: the script init writes commits, pushes, waits o
 	).toStartWith('100755 ');
 	// The routine file init wrote is one serve accepts.
 	expect(JSON.parse((await f.runIn(home, '--json')).stdout).routines).toEqual([
-		{ name: 'checkpoint', cron: '*/5 * * * *', next: expect.any(String) },
+		{
+			name: 'checkpoint',
+			cron: '*/5 * * * *',
+			next: expect.any(String),
+			command:
+				'/usr/bin/lockf -t 0 .git/checkpoint.lock sh scripts/checkpoint.sh',
+		},
 	]);
 	// As the routine runs it, without the lock: serve starts routines in the home.
 	const checkpoint = async () => {

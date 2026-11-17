@@ -347,18 +347,25 @@ wake. An occurrence that passes while `serve` is not running does not run; a
 routine that must not miss a day uses a wider schedule, such as
 `0 8-22 * * *`, and a command that exits when today's work is done.
 
-`run` is executable and arguments, with no shell. The working directory is the
+`run` is a program and its arguments, with no shell. The program is text. An
+argument is text or any other JSON value, which reaches the command as one
+word of JSON text, so an action's input needs no escaping:
+
+```yaml
+run: ["epicenter", "flights", "daily", "run", {"recheck": false}]
+```
+
+The working directory is the
 Epicenter folder. `epicenter` and `bun` use the running CLI and its runtime;
 other executables use the service's PATH. `EPICENTER_COMMAND` holds the CLI argv
-as JSON for scripts calling back into it.
-`EPICENTER_SERVICE_URL` names this serve listener's loopback URL, including an
-overridden port. A script
+as JSON for scripts calling back into it. A script
 calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
 Unknown fields and malformed declarations are refused. To stop a
 routine, remove its file; the home's history keeps it.
 
-`epicenter` on its own lists each routine's schedule and next occurrence, or
-why its file is refused, whether or not `serve` is running.
+`epicenter` on its own lists each routine's schedule, next occurrence, and
+command as one shell-quoted line to copy into a terminal, or why its file is
+refused, whether or not `serve` is running.
 
 A person or their agent writes the file. Installing or importing an app
 schedules nothing.
@@ -482,7 +489,7 @@ body: |
   The deck is in Drive.
 ```
 
-`id` prints as a field: the command reads only the answer. A folder key's `get`, `set`, `add`, and `delete` take `id` flat in the input object, beside the fields.
+`id` prints as a field: the command reads only the answer. A folder key's `get`, `set`, `add`, and `delete` take `id` flat in the input object, beside the fields. `add` without `id` names the record by the moment it is made and returns that id.
 
 ## Check records
 

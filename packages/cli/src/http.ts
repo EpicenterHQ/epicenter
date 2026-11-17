@@ -403,10 +403,7 @@ export function startHttpServer(port: number) {
 		maxRequestBodySize: MAX_INPUT_BYTES,
 		fetch: answer,
 	});
-	const routines = createRoutines({
-		folder: epicenterDir(),
-		serviceUrl: `http://127.0.0.1:${server.port}/`,
-	});
+	const routines = createRoutines({ folder: epicenterDir() });
 	const checkRoutines = () =>
 		routines
 			.check()

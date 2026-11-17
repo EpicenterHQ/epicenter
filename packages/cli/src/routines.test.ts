@@ -1,8 +1,8 @@
 /**
  * Home routine tests. A check starts each routine whose schedule had an
  * occurrence since the previous check, never waits for it, and records
- * nothing. Commands run as argv with no shell; files the runner refuses do
- * not stop the others.
+ * nothing. Commands run as argv with no shell, a JSON value in `run` is one
+ * word of JSON text, and files the runner refuses do not stop the others.
  */
 import { afterEach, expect, test } from 'bun:test';
 import {
@@ -31,7 +31,7 @@ const mark = [
 	"require('fs').mkdirSync('ran',{recursive:true});require('fs').writeFileSync('ran/'+crypto.randomUUID(),'')",
 ];
 
-async function setup(run: string[] = mark, cron = '0 8 * * *') {
+async function setup(run: unknown[] = mark, cron = '0 8 * * *') {
 	const f = await fixture();
 	roots.push(f.root);
 	const directory = join(f.home, 'routines');
@@ -110,12 +110,19 @@ test('refused files are listed with their problem and do not stop valid routines
 		join(f.directory, 'extra.md'),
 		'---\ncron: "0 8 * * *"\nrun: ["bun", "--version"]\ntimeout: "1m"\n---\n',
 	);
+	await writeFile(
+		join(f.directory, 'unnamed.md'),
+		'---\ncron: "0 8 * * *"\nrun: [{"program": "bun"}, "--version"]\n---\n',
+	);
 	await f.routines.check(new Date(Date.now() + DAY));
 	await eventually(async () => (await f.runs()) === 1);
 	const rows = await f.routines.list();
 	expect(rows.filter((row) => 'problem' in row).map((row) => row.name)).toEqual(
-		['extra', 'invalid'],
+		['extra', 'invalid', 'unnamed'],
 	);
+	expect(rows.find((row) => row.name === 'unnamed')).toMatchObject({
+		problem: expect.stringContaining('the program is text'),
+	});
 	expect(rows.find((row) => row.name === 'review')).toMatchObject({
 		cron: '0 8 * * *',
 	});
@@ -133,6 +140,25 @@ test('arguments are passed without a shell', async () => {
 	await eventually(async () =>
 		readFile(join(f.home, 'argument'), 'utf8').then(
 			(t) => t === literal,
+			() => false,
+		),
+	);
+});
+
+test('a JSON value in run reaches the command as one word of JSON text', async () => {
+	const f = await setup([
+		process.execPath,
+		'-e',
+		"require('fs').writeFileSync('arguments', JSON.stringify(process.argv.slice(-3)))",
+		{ recheck: false, tags: ['a b'] },
+		7,
+		null,
+	]);
+	await f.routines.check(new Date(Date.now() + DAY));
+	await eventually(async () =>
+		readFile(join(f.home, 'arguments'), 'utf8').then(
+			(t) =>
+				t === '["{\\"recheck\\":false,\\"tags\\":[\\"a b\\"]}","7","null"]',
 			() => false,
 		),
 	);

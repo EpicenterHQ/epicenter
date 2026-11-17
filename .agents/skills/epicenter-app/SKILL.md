@@ -97,8 +97,12 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   things made in passing (Tasks and Writing name each new record with it). An
   id the caller gives suits things named by what they are (`data/words/<id>.md`
   for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
-  control characters, a leading dot, or spaces at either end; anything else is
-  `Refused`. `field.id()` takes one as action input.
+  control characters, a leading dot, or spaces at either end. Every method and
+  generated verb tidies the id it is given (NFC, whitespace at either end
+  removed, inner spaces kept), so pass what a person typed; an id that still
+  does not fit is `Refused`. A generated `add` names the record with
+  `timeId()` when `id` is left out. `field.id()` takes an id that already
+  fits as action input.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
   as `field.date` and `field.datetime` hold them; `toISOString()` gives UTC's
@@ -123,8 +127,8 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   and `body`. An absent switch reads as `false` and an absent list as `[]`. A
   missing file gives `Ok(undefined)` to the method and `Missing` to the
   generated action.
-- A malformed file gives `Err(Misfit)`. Its error carries a path and
-  diagnostic lines. When the front matter is readable it also carries a
+- A malformed file gives `Err(Misfit)`. Its error carries a path, the
+  record's `id` in a folder key, and diagnostic lines. When the front matter is readable it also carries a
   partial `record` for repair. A computed write refuses before its callback runs.
   A direct patch can repair readable front matter if the whole result fits.
   Unreadable front matter needs a file edit.
@@ -316,7 +320,12 @@ commits staged work along with everything else, and it samples files, not
 intent, so it can capture a partial edit or part of a running action. Make a
 named commit before a risky change.
 
-`epicenter` on its own shows each routine with its next occurrence, how long
+A routine's `run` is a program and its arguments. An argument may be a JSON
+value, which reaches the command as one word of JSON text:
+`run: ["epicenter", "flights", "daily", "run", {"recheck": false}]`.
+
+`epicenter` on its own shows each routine with its next occurrence and its
+command as a line to copy into a terminal, how long
 ago the last commit was, how many files are uncommitted, how many commits are
 not on origin, and any nested Git repository under `apps/`.
 
