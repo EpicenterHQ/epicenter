@@ -45,10 +45,9 @@ written `owner/repo/folder#ref` (`#ref` optional: branch, tag, or full commit).
 For any other host, clone first and pass the folder. The folder may be a
 repository root, a subfolder, or an app container's code subtree. Provenance is in
 `code/SOURCE.md`. Later source changes are work for the app's owner; there is
-no merge-based updater. A copied symlink stays a link. For example,
-`code/ui/src/theme.css -> ../../../../../theme.css` uses the destination's palette.
-Fresh homes get that file from `init`. `new` reports a missing target if the
-receiving home lacks that file.
+no merge-based updater. A copied symlink stays a link, and one leading
+outside `code/` breaks unless the receiving home has that file; `new` reports
+it. Keep everything an app uses, its palette too, as files in `code/`.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
 the smallest whole example. Keep private records out of code publication;
@@ -182,7 +181,8 @@ second copy is refused when the app loads. A package nested inside an app,
 such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the home's
 `package.json`. `bun install` at the top of the home installs its packages;
-`epicenter init` and `epicenter new` run it, and a call never installs.
+`epicenter init` runs it once, `epicenter new` prints it, and a call never
+installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter by editing both versions in the home's `package.json`, then
@@ -389,9 +389,10 @@ risky work so the original files remain recoverable.
 
 ## Build the UI as a client
 
-Add `code/ui/` when the app needs a browser view. The view can keep its own
-colors or import the home's `theme.css`. Finance uses the home variables in
-plain CSS. Tasks maps them to Tailwind utilities. Fonts, layout, and components
+Add `code/ui/` when the app needs a browser view. The app owns its colors:
+keep them in a `theme.css` under `ui/`, copied from a sibling app rather than
+linked, and change the copy freely. Tasks maps its palette to Tailwind
+utilities. Fonts, layout, and components
 belong to the app.
 
 For a Svelte UI like Tasks, copy its `ui/build.ts`, `ui/svelte-plugin.ts`, and
@@ -566,8 +567,8 @@ use the replacement action rather than add conflict machinery by default.
 
 Never run anything against the real `~/Epicenter` until the person asks.
 Use a temporary home and a committed source. `new --from` copies code,
-creates empty sibling data/, installs, and runs the app's `bun run build`;
-read its errors. Uncommitted edits
+creates empty sibling data/, and prints `Run: cd <home> && bun install && bun
+run build`; run it and read its errors. Uncommitted edits
 are not copied. To test them, commit in a disposable copy outside the live
 Epicenter, without changing the live branch or index.
 
@@ -579,6 +580,7 @@ printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitc
 HOME="$test_home" epicenter init "$test_home/Epicenter" --port 4799
 cd "$test_home/Epicenter"
 HOME="$test_home" epicenter new example --from "$source_path"
+bun install && bun run build
 HOME="$test_home" epicenter example --help
 HOME="$test_home" epicenter serve               # drive /example/ on port 4799
 ```
@@ -598,9 +600,8 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 
 - `epicenter new <app> --from <folder | owner/repo/folder#ref>` takes committed code into
   apps/<app>/code/ and creates empty data/. It names the copy's package.json
-  for the app, leaves out a copied bun.lock and any @epicenter/app entry, and
-  runs the home's install, then the app's `bun run build` when it has one,
-  so its page opens straight away.
+  for the app, leaves out a copied bun.lock and any @epicenter/app entry, and prints
+  the one command to run next: `cd <home> && bun install && bun run build`.
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
@@ -613,8 +614,6 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - Back up the root to one optional private origin. The home's checkpoint
   script commits all pending files and pushes only there. Restore with one root clone
   and `bun install` at its top, then recreate what each app kept in `local/`.
-  An app's pages may link to the home's root `theme.css`, so a clone used to
-  rehearse a move must include that file.
 - Sharing code requires a separate code-only history, deliberately made and
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:

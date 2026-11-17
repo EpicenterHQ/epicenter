@@ -6,10 +6,11 @@ repository checkpoints both, separately from actions. `epicenter serve`
 serves its UI at `/tasks/`.
 
 Use the latest Epicenter CLI for a new home. Tasks runs on 0.2.0 or later.
-To add Tasks to your home, run
+To add Tasks to your home, run these at the top of the home
 
 ```sh
 epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
+bun install && bun run build
 epicenter serve
 ```
 

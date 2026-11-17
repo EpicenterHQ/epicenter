@@ -48,6 +48,7 @@ bun x @epicenter/cli init ~/Epicenter
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
 epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+bun install && bun run build
 epicenter serve
 ```
 
@@ -61,6 +62,7 @@ To add
 
 ```sh
 epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
+bun install && bun run build
 ```
 
 For CLI commands, MCP setup, and keeping `serve` running in the background, see
