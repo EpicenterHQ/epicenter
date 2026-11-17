@@ -1,8 +1,8 @@
 /**
  * The container directory's flock serializes calls from their first write
- * until they end. Root checkpoints independently hold(root). A descriptor
- * owns the lock, so closing it or exiting releases it without a lock file.
- * Routine children inherit fd 3 to keep exclusion after supervisor death.
+ * until they end. A descriptor owns the lock, so closing it or exiting
+ * releases it without a lock file. An action call is its only user; it goes
+ * when calls stop taking it.
  */
 
 import { dlopen, FFIType } from 'bun:ffi';

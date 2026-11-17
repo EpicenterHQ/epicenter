@@ -1,9 +1,13 @@
-/** One root checkpoint for manual calls and the host schedule. Never imports apps. */
+/**
+ * One root checkpoint for a person, an agent, or a routine. Never imports
+ * apps. It takes no lock of its own: Git's index lock is the only one, and a
+ * checkpoint that finds another's commit already took its changes reports
+ * nothing to commit.
+ */
 import { access, lstat, readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isLocalPath, isName } from '@epicenter/app';
 import { git, gitMessage } from './git.js';
-import { type Held, hold } from './lock.js';
 
 type Problem = { message: string; next?: string };
 export type Checkpoint = {
@@ -188,7 +192,7 @@ function embedded(path: string, next: string): Problem {
 	};
 }
 
-/** Upload only the inspected commit, independently of the local snapshot lock. */
+/** Upload only the inspected commit, after the local snapshot. */
 async function backup(
 	root: string,
 	{ head, branch }: Pick<Snapshot, 'head' | 'branch'>,
@@ -270,8 +274,8 @@ function checkpointMessage(paths: string[]) {
 }
 
 /**
- * Stage all included root files and consume the shared index in one commit.
- * Capture HEAD and its branch before releasing the lock. No network work runs here.
+ * Stage all included root files and consume the shared index in one commit,
+ * then capture HEAD and its branch. No network work runs here.
  */
 export async function snapshot(
 	root: string,
@@ -285,18 +289,12 @@ export async function snapshot(
 		failed?: Problem;
 		trackedLocal?: boolean;
 	} = { committed: null };
-	let held: Held | undefined;
 	try {
 		if (!(await isRepositoryTop(root))) {
 			result.failed = {
 				message: `${root} is not a Git repository`,
 				next: `git -C ${root} init`,
 			};
-			return result;
-		}
-		held = await hold(root, 30_000);
-		if (!held) {
-			result.deferred = { message: 'another checkpoint is running' };
 			return result;
 		}
 		for (const state of [
@@ -366,6 +364,12 @@ export async function snapshot(
 				]))
 			)
 				committedFiles = paths.length;
+			// Another checkpoint committed these changes between our add and commit.
+			else if (
+				paths.length &&
+				(await git(root, ['diff', '--cached', '--quiet'])).code === 0
+			)
+				delete result.failed;
 		}
 		const head = await git(root, ['rev-parse', '--verify', 'HEAD']);
 		if (head.code === 0) {
@@ -380,15 +384,13 @@ export async function snapshot(
 		result.failed = {
 			message: error instanceof Error ? error.message : String(error),
 		};
-	} finally {
-		held?.release();
 	}
 	return result;
 }
 
 export type Snapshot = Awaited<ReturnType<typeof snapshot>>;
 
-/** Save locally, then retry the private backup without holding the repository lock. */
+/** Save locally, then retry the private backup. */
 export async function checkpoint(
 	root: string,
 	{

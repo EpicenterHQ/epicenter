@@ -518,10 +518,11 @@ when no file has a problem, and 1 when any does or an app could not be checked.
 ## Checkpoint the root
 
 `epicenter checkpoint [-m <message>] [--json]` requires the selected Epicenter
-to be the top of its repository. It serializes on the root directory lock,
-waiting up to 30 seconds for another local snapshot. It releases the lock before
-uploading the backup. That lock is independent of app write locks. A checkpoint can capture a partial agent edit or some of a
-running action's writes; it does not establish transaction boundaries.
+to be the top of its repository. It takes no lock of its own; Git's index lock
+is the only one. Two checkpoints at once commit the changes once: the one that
+finds them already committed reports nothing to commit. A checkpoint can
+capture a partial agent edit or some of a running action's writes; it does not
+establish transaction boundaries.
 
 Before staging, it defers during a merge, rebase, revert, or cherry-pick.
 An index-lock collision is retried for about two seconds, then deferred if
@@ -545,8 +546,8 @@ It makes no commit when nothing changed. The shared branch
 and index belong to every app; make a named commit before risky work.
 
 The optional root origin receives an ordinary push of the exact saved commit
-to its captured branch. Uploading holds no root lock, so another local snapshot
-can proceed while the network is slow.
+to its captured branch. Another local snapshot can proceed while an upload is
+slow.
 It stays private because it receives every app's records. Checkpoints never
 pull, merge, rebase, or force-push. A non-fast-forward refusal leaves the remote
 unchanged and suggests fetching and inspecting it by hand. Unpushed history
@@ -712,15 +713,16 @@ name. `new --from` accepts a repository with this `code/` wrapper too.
 Export first saves a local checkpoint of the whole private Epicenter, including
 pending code, records, and staged files. It then reads that exact commit for
 the invocation. You do not need to wait for the scheduled checkpoint or run one
-manually. Export does not upload the private backup; the normal checkpoint
-clock or a later `epicenter checkpoint` can upload it. A backup connection
+manually. Export does not upload the private backup; a checkpoint routine or
+a later `epicenter checkpoint` can upload it. A backup connection
 problem does not block export.
 
 If the local checkpoint fails or is deferred, export stops before changing the
 output. It never falls back to older code. Destination checks happen before the
 checkpoint, so a mistaken target does not create a private commit. Export never
 imports apps or edits source working files. Concurrent edits after the snapshot
-are left for the next export; pending source changes are reported. `--all`
+are left for the next export; pending source changes are reported. Export
+takes no lock: two exports into one directory at once can mix their output. `--all`
 reports on-disk apps whose code is excluded from the checkpoint.
 
 The copy excludes `data/`, `.local` paths, `node_modules`, `ui/dist`, `.DS_Store`,
