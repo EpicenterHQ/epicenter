@@ -88,10 +88,10 @@ status --json reports whether the job is installed and running, its pid, and por
 	routines: {
 		usage: 'epicenter routines [run <name>]',
 		help: `Lists the home's routines and their last outcomes, even while serve is stopped.
-A routines/<name>.md declares daily: "08:00" and run: [executable, ...arguments].
-serve checks at startup and once a minute, catching up once to the latest due time.
-run explicitly runs one now, including a failed or interrupted attempt. It may
-repeat effects. State and output stay in routines/<name>.local/.`,
+A routines/<name>.md declares cron: "0 8 * * *" and run: [executable, ...arguments].
+serve checks at startup and once a minute and runs a routine once when its schedule
+has had an occurrence since its last attempt. run explicitly runs one now; it may
+repeat effects. State and the latest output stay in routines/<name>.local/.`,
 	},
 } as const;
 

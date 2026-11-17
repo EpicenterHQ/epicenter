@@ -327,13 +327,13 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 		} });`,
 		);
 		await mkdir(join(f.home, 'routines'));
-		for (const run of [
-			['epicenter', 'hello', 'greet'],
-			['bun', '-e', 'console.log("compiled runtime")'],
-		]) {
+		for (const [run, printed] of [
+			[['epicenter', 'hello', 'greet'], 'compiled action'],
+			[['bun', '-e', 'console.log("compiled runtime")'], 'compiled runtime'],
+		] as const) {
 			await writeFile(
 				join(f.home, 'routines/review.md'),
-				`---\ndaily: "08:00"\nrun: ${JSON.stringify(run)}\n---\n`,
+				`---\ncron: "0 8 * * *"\nrun: ${JSON.stringify(run)}\n---\n`,
 			);
 			const child = Bun.spawn([bin, 'routines', 'run', 'review', '--json'], {
 				cwd: f.home,
@@ -352,13 +352,14 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 			]);
 			expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
 			expect(JSON.parse(stdout).attempt.outcome).toBe('succeeded');
+			// The log holds the latest attempt only.
+			expect(
+				await readFile(
+					join(f.home, 'routines/review.local/output.log'),
+					'utf8',
+				),
+			).toContain(printed);
 		}
-		const log = await readFile(
-			join(f.home, 'routines/review.local/output.log'),
-			'utf8',
-		);
-		expect(log).toContain('compiled action');
-		expect(log).toContain('compiled runtime');
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}

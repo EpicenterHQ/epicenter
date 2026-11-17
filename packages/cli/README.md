@@ -282,62 +282,62 @@ it changes and cleared after success. Serve begins listening while its first
 checkpoint runs. Shutdown waits at most ten seconds for the final pass.
 The clock stays in serve; the service job only keeps serve running.
 
-## Daily routines
+## Routines
 
 The home opts into recurring work with `routines/<name>.md`, outside `apps/`.
 A routine is an instruction to this computer, so sharing an app schedules
-nothing. `serve` checks on startup and once a minute, independently of backups:
+nothing. `serve` checks on startup and once a minute:
 
 ```yaml
 ---
-daily: "08:00"
+cron: "0 8 * * *"
 run: ["epicenter", "my-app", "review"]
 ---
 Prepare my morning review.
 ```
 
-`daily` is a local calendar time. A first check with no state runs the latest
-due occurrence; after several days offline it runs once, not once per missed
-day. A success satisfies the slot captured when it started. Timing is approximate
-while the service is awake and available. Clock gaps normalize forward, and a
-repeated clock time uses its first occurrence. Changing the daily time can make
-a new occurrence due on the same day.
+`cron` is a five-field expression or nickname such as `@hourly`, read in the
+computer's local time by `Bun.cron.parse`. A routine is due when it has never
+run, or when its schedule has had an occurrence since its last attempt
+started. After several days offline it runs once, not once per missed
+occurrence. Timing is approximate while the service is awake and available.
+A skipped clock time moves forward through the gap.
 
 `run` is executable and arguments, with no shell. The working directory is the
 Epicenter folder. `epicenter` and `bun` use the running CLI and its runtime;
 other executables use the service's PATH. `EPICENTER_COMMAND` holds the CLI argv
-as JSON for scripts calling back into it, `EPICENTER_ROUTINE_SLOT` is the due
-instant as UTC ISO, and `EPICENTER_ROUTINE_NAME` is the routine's name.
+as JSON for scripts calling back into it, and `EPICENTER_ROUTINE_NAME` is the
+routine's name.
 `EPICENTER_SERVICE_URL` names this serve listener's loopback URL, including an
 overridden port. A script
 calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
-Optional `paused: true` stops scheduled attempts. Optional `timeout: "30m"`
+Optional `timeout: "30m"`
 bounds each attempt; the default is 30 minutes, with seconds, minutes, or hours
-accepted. Unknown fields and malformed declarations are refused.
+accepted. Unknown fields and malformed declarations are refused. To stop a
+routine, remove its file; the home's history keeps it.
 
 `epicenter routines` lists declarations and last outcomes, even while the
-server is stopped; `--json` includes completion, the last attempt, and its log.
-`epicenter routines run <name>` explicitly runs one now, including while paused.
-It also repairs failed or interrupted work and can repeat effects.
+server is stopped; `--json` includes the last attempt and its log.
+`epicenter routines run <name>` explicitly runs one now and can repeat effects.
 
 A person or their agent writes the file. Installing or importing an app
 schedules nothing.
 
-State is atomically replaced in `routines/<name>.local/state.json`. Output
-appends to `routines/<name>.local/output.log`. Both stay local and owner-only.
+State is atomically replaced in `routines/<name>.local/state.json`. The latest
+attempt's output replaces `routines/<name>.local/output.log`. Both stay local
+and owner-only.
 The kernel lock on that folder covers the entire attempt, including foreground
 runs. The command inherits the lock as fd 3, so a command that survives its
 supervisor still prevents overlap. Commands must keep fd 3 open and remain in
 their process group. Shutdown and timeout terminate that group, escalating to
 SIGKILL after two seconds. This uses macOS/Linux facilities, not a sandbox.
 
-Failures wait for the next daily slot or an explicit run. Interrupted work
-blocks automatic execution until an explicit run: its effects may already have
-happened. Inspect the state and log first. Corrupted state also blocks execution
-without overwriting it. A failure to signal descendants records interruption
-and the signalling error, so uncertain cleanup cannot advance completion.
-Deleting runtime state makes the latest occurrence due
-again. Commands must tolerate repetition; there is no exactly-once guarantee.
+An attempt that fails, times out, or is interrupted waits for the schedule's
+next occurrence or an explicit run; nothing blocks a routine until a person
+repairs it. Corrupted state blocks execution without overwriting it. A failure
+to signal descendants records interruption and the signalling error. Deleting
+runtime state makes the routine due again. Commands must tolerate repetition;
+there is no exactly-once guarantee.
 
 The [daily task review example](examples/daily-task-review.md) runs
 [an ordinary script](examples/daily-task-review.ts) that reads `tasks list`
@@ -346,7 +346,8 @@ uses no model, and preserves an existing draft. Copy the declaration to
 <!-- doc-path-check: ignore-next-line -->
 `routines/daily-task-review.md` and the script to `scripts/daily-task-review.ts`
 in the home. The home's repository backs up the declaration, script, and drafts.
-See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md).
+See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md) and
+[ADR-0937](../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md).
 
 ## Serve-owned runs
 

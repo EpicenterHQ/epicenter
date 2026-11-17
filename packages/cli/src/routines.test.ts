@@ -2,7 +2,8 @@
  * Home routine acceptance tests.
  *
  * Exercise real CLI commands, process groups, local state, and serve startup.
- * Catch-up coalesces missed days; failed or interrupted attempts remain visible.
+ * Catch-up coalesces missed occurrences; an attempt that did not succeed stays
+ * visible until the schedule's next occurrence.
  * Manual runs share exclusion with scheduled runs, and drafts survive reruns.
  */
 import { afterEach, expect, spyOn, test } from 'bun:test';
@@ -29,7 +30,7 @@ async function setup(
 	await mkdir(directory);
 	await writeFile(
 		join(directory, 'review.md'),
-		`---\ndaily: "08:00"\nrun: ${JSON.stringify(run)}\n${extra}---\nA daily review.\n`,
+		`---\ncron: "0 8 * * *"\nrun: ${JSON.stringify(run)}\n${extra}---\nA daily review.\n`,
 	);
 	const routines = createRoutines({ folder: f.home });
 	const state = () =>
@@ -62,7 +63,7 @@ test('serve catches up once, runs an app action in isolation, and keeps completi
 	await mkdir(join(f.directory, 'review.local'));
 	await writeFile(
 		join(f.directory, 'review.local/state.json'),
-		'{"completed":"2000-01-01T08:00:00.000Z"}\n',
+		'{"attempt":{"started":"2000-01-01T08:00:00.000Z","outcome":"succeeded"}}\n',
 	);
 	const served = await startServe(f);
 	try {
@@ -70,7 +71,7 @@ test('serve catches up once, runs an app action in isolation, and keeps completi
 			async () => (await f.routines.list())[0]?.status === 'succeeded',
 		);
 		expect(await readFile(join(app, 'data/count.txt'), 'utf8')).toBe('1');
-		expect((await f.state()).completed).not.toStartWith('2000');
+		expect((await f.state()).attempt.started).not.toStartWith('2000');
 		expect((await fetch(served.base)).status).toBe(200);
 	} finally {
 		await served.stop();
@@ -85,7 +86,7 @@ test('serve catches up once, runs an app action in isolation, and keeps completi
 	}
 }, 30_000);
 
-test('a failed command is not retried by checks and an explicit run can repair it', async () => {
+test('a failed command waits for the next occurrence and an explicit run can repair it', async () => {
 	const f = await setup([
 		process.execPath,
 		'-e',
@@ -106,7 +107,7 @@ test('a failed command is not retried by checks and an explicit run can repair i
 	expect(await f.state()).toEqual(failed);
 	await writeFile(
 		join(f.directory, 'review.md'),
-		'---\ndaily: "08:00"\nrun: ["bun", "-e", "console.log(123)"]\n---\n',
+		'---\ncron: "0 8 * * *"\nrun: ["bun", "-e", "console.log(123)"]\n---\n',
 	);
 	const result = await f.run('routines', 'run', 'review', '--json');
 	expect(result.code).toBe(0);
@@ -115,7 +116,8 @@ test('a failed command is not retried by checks and an explicit run can repair i
 		join(f.directory, 'review.local/output.log'),
 		'utf8',
 	);
-	expect(log).toContain('offline');
+	// The log holds the latest attempt only.
+	expect(log).not.toContain('offline');
 	expect(log).toContain('123');
 });
 
@@ -158,10 +160,12 @@ test('manual and scheduled attempts exclude one another and cancellation records
 	// Shutdown starts first; a timeout during the termination grace cannot rename it.
 	await f.routines.stop();
 	expect((await f.state()).attempt.outcome).toBe('interrupted');
+	// An interrupted attempt blocks nothing: the next occurrence makes it due.
 	const restarted = createRoutines({ folder: f.home });
-	await restarted.check(new Date(2030, 0, 1, 10));
+	expect((await restarted.list(new Date(2030, 0, 1, 10)))[0]?.status).toBe(
+		'due',
+	);
 	await restarted.stop();
-	expect((await f.state()).attempt.outcome).toBe('interrupted');
 });
 
 test('a killed supervisor leaves a visible unknown outcome and cannot overlap its surviving command', async () => {
@@ -251,12 +255,12 @@ test('invalid definitions and corrupted state block execution without stopping v
 	const f = await setup();
 	await writeFile(
 		join(f.directory, 'invalid.md'),
-		'---\ndaily: "25:00"\nrun: ["bun", "--version"]\n---\n',
+		'---\ncron: "61 * * * *"\nrun: ["bun", "--version"]\n---\n',
 	);
-	// A line that is not JSON is not read as absent here: paused: yes must not run.
+	// A line that is not JSON is not read as absent here: timeout: 1s must not run.
 	await writeFile(
 		join(f.directory, 'bare.md'),
-		'---\ndaily: "08:00"\nrun: ["bun", "--version"]\npaused: yes\n---\n',
+		'---\ncron: "0 8 * * *"\nrun: ["bun", "--version"]\ntimeout: 1s\n---\n',
 	);
 	await mkdir(join(f.directory, 'review.local'));
 	await writeFile(
@@ -265,7 +269,7 @@ test('invalid definitions and corrupted state block execution without stopping v
 	);
 	await writeFile(
 		join(f.directory, 'working.md'),
-		'---\ndaily: "08:00"\nrun: ["bun", "--version"]\n---\n',
+		'---\ncron: "0 8 * * *"\nrun: ["bun", "--version"]\n---\n',
 	);
 	await f.routines.check();
 	await eventually(async () =>
@@ -283,7 +287,7 @@ test('invalid definitions and corrupted state block execution without stopping v
 	).toBe('{"completed":"yesterday"}');
 });
 
-test('the daily occurrence uses calendar dates and arguments are passed without a shell', async () => {
+test('arguments are passed without a shell', async () => {
 	const literal = '$(echo accidental-shell)';
 	const f = await setup([
 		process.execPath,
@@ -291,32 +295,13 @@ test('the daily occurrence uses calendar dates and arguments are passed without 
 		'console.log(process.argv.at(-1))',
 		literal,
 	]);
-	const now = new Date(2026, 10, 14, 7, 59);
-	const result = await f.routines.run('review', now);
-	expect(result?.attempt?.slot).toBe(new Date(2026, 10, 13, 8).toISOString());
+	await f.routines.run('review');
 	const log = await readFile(
 		join(f.directory, 'review.local/output.log'),
 		'utf8',
 	);
 	expect(log.split('\n').filter((line) => line === literal)).toHaveLength(1);
 	await f.routines.stop();
-});
-
-test('paused routines do not run on checks but can be run explicitly', async () => {
-	const f = await setup(undefined, 'paused: true\n');
-	await f.routines.check();
-	expect((await f.routines.list())[0]?.status).toBe('paused');
-	// A check launches asynchronously. Let it release its lock before the
-	// foreground runner attempts the explicit invocation, as a later CLI does.
-	await f.routines.stop();
-	const foreground = createRoutines({ folder: f.home });
-	try {
-		const ran = await foreground.run('review');
-		expect(ran?.attempt?.outcome).toBe('succeeded');
-		expect((await foreground.list())[0]?.status).toBe('paused');
-	} finally {
-		await foreground.stop();
-	}
 });
 
 test('the daily task review writes a draft, excludes completed tasks, and preserves edits on rerun', async () => {
@@ -352,67 +337,59 @@ test('the daily task review writes a draft, excludes completed tasks, and preser
 	expect(await readFile(draft, 'utf8')).toBe('My edited draft\n');
 });
 
-test('daily catch-up respects daylight-saving gaps and calendar days', async () => {
+test('the next occurrence follows local calendar days and daylight-saving gaps', async () => {
 	const f = await setup();
 	const modulePath = join(import.meta.dir, 'routines.ts');
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			'-e',
-			`
+	// Run once, then read the status just before and just after the next occurrence.
+	const statuses = async (started: string, before: string, after: string) => {
+		const child = Bun.spawn(
+			[
+				process.execPath,
+				'-e',
+				`
     import { createRoutines } from ${JSON.stringify(modulePath)};
     const routines = createRoutines({ folder: ${JSON.stringify(f.home)} });
-    const before = await routines.run('review', new Date('2026-03-08T14:59:00Z'));
-    const after = await routines.run('review', new Date('2026-03-08T15:01:00Z'));
-    console.log(JSON.stringify([before.attempt.slot, after.attempt.slot]));
+    await routines.run('review', new Date(${JSON.stringify(started)}));
+    const at = async (when) => (await routines.list(new Date(when)))[0].status;
+    console.log(JSON.stringify([await at(${JSON.stringify(before)}), await at(${JSON.stringify(after)})]));
     await routines.stop();
   `,
-		],
-		{
-			env: { ...process.env, TZ: 'America/Los_Angeles' },
-			stdout: 'pipe',
-			stderr: 'pipe',
-		},
-	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
-	expect(JSON.parse(stdout)).toEqual([
-		'2026-03-07T16:00:00.000Z',
-		'2026-03-08T15:00:00.000Z',
-	]);
+			],
+			{
+				env: { ...process.env, TZ: 'America/Los_Angeles' },
+				stdout: 'pipe',
+				stderr: 'pipe',
+			},
+		);
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+		return JSON.parse(stdout);
+	};
+	// 08:00 local is 16:00Z before the change and 15:00Z after it.
+	expect(
+		await statuses(
+			'2026-03-07T16:01:00Z',
+			'2026-03-08T14:59:00Z',
+			'2026-03-08T15:01:00Z',
+		),
+	).toEqual(['succeeded', 'due']);
+	// 02:30 does not exist on 2026-03-08; the occurrence moves forward to 03:30 PDT.
 	await writeFile(
 		join(f.directory, 'review.md'),
-		'---\ndaily: "02:30"\nrun: ["bun", "--version"]\n---\n',
+		'---\ncron: "30 2 * * *"\nrun: ["bun", "--version"]\n---\n',
 	);
-	const gap = Bun.spawn(
-		[
-			process.execPath,
-			'-e',
-			`
-    import { createRoutines } from ${JSON.stringify(modulePath)};
-    const routines = createRoutines({ folder: ${JSON.stringify(f.home)} });
-    const before = await routines.run('review', new Date('2026-03-08T10:00:00Z'));
-    const after = await routines.run('review', new Date('2026-03-08T10:31:00Z'));
-    console.log(JSON.stringify([before.attempt.slot, after.attempt.slot]));
-    await routines.stop();
-  `,
-		],
-		{
-			env: { ...process.env, TZ: 'America/Los_Angeles' },
-			stdout: 'pipe',
-			stderr: 'pipe',
-		},
-	);
-	const result = JSON.parse(await new Response(gap.stdout).text());
-	expect(await gap.exited).toBe(0);
-	expect(result).toEqual([
-		'2026-03-07T10:30:00.000Z',
-		'2026-03-08T10:30:00.000Z',
-	]);
+	await rm(join(f.directory, 'review.local'), { recursive: true });
+	expect(
+		await statuses(
+			'2026-03-07T10:31:00Z',
+			'2026-03-08T10:29:00Z',
+			'2026-03-08T10:31:00Z',
+		),
+	).toEqual(['succeeded', 'due']);
 });
 
 test('the kernel lock excludes simultaneous attempts in the same runner', async () => {
@@ -474,12 +451,12 @@ test('one shutdown signal stops all owned routine groups', async () => {
 	).toBe(true);
 });
 
-test('a failed manual rerun stays visible after a success for the same slot', async () => {
+test('a failed manual run stays visible until the next occurrence', async () => {
 	const f = await setup();
 	await f.routines.run('review');
 	await writeFile(
 		join(f.directory, 'review.md'),
-		'---\ndaily: "08:00"\nrun: ["bun", "-e", "process.exit(4)"]\n---\n',
+		'---\ncron: "0 8 * * *"\nrun: ["bun", "-e", "process.exit(4)"]\n---\n',
 	);
 	await f.routines.run('review');
 	const failed = await f.state();
@@ -493,7 +470,7 @@ test('a failed manual rerun stays visible after a success for the same slot', as
 	expect((await restarted.list(nextDay))[0]?.status).toBe('due');
 	await restarted.check(nextDay);
 	await eventually(
-		async () => (await f.state()).attempt.slot !== failed.attempt.slot,
+		async () => (await f.state()).attempt.started !== failed.attempt.started,
 	);
 	await restarted.stop();
 });
@@ -503,19 +480,13 @@ test('invalid saved fields block execution without rewriting the state', async (
 	const local = join(f.directory, 'review.local');
 	await mkdir(local);
 	for (const state of [
-		{ completde: '2026-11-14T08:00:00.000Z' },
-		{ completed: '2026-13-14T08:00:00.000Z' },
-		{ completed: '2026-11-14T08:00:00Z' },
+		// The state shape before ADR-0937 is refused, not guessed at.
+		{ completed: '2026-11-14T08:00:00.000Z' },
+		{ attempt: { started: '2026-13-14T08:01:00.000Z', outcome: 'failed' } },
+		{ attempt: { started: '2026-11-14T08:01:00Z', outcome: 'failed' } },
+		{ attempt: { started: '2026-11-14T08:01:00.000Z', outcome: 'done' } },
 		{
 			attempt: {
-				slot: '2026-11-14T08:00:00.000Z',
-				started: '2026-11-14T08:01:00.000Z',
-				outcome: 'done',
-			},
-		},
-		{
-			attempt: {
-				slot: '2026-11-14T08:00:00.000Z',
 				started: '2026-11-14T08:01:00.000Z',
 				outcome: 'running',
 				pid: -1,
@@ -538,21 +509,21 @@ test('inspection reports an abandoned attempt coherently without rewriting its r
 	await mkdir(local);
 	const raw = JSON.stringify({
 		attempt: {
-			slot: '2026-11-14T08:00:00.000Z',
 			started: '2026-11-14T08:01:00.000Z',
 			outcome: 'running',
 		},
 	});
 	await writeFile(join(local, 'state.json'), raw);
 	const [row] = await f.routines.list();
-	expect(row?.status).toBe('interrupted');
+	// Abandoned, and a later occurrence has passed, so it is due again.
+	expect(row?.status).toBe('due');
 	expect(row && 'attempt' in row && row.attempt?.outcome).toBe('interrupted');
 	expect(await readFile(join(local, 'state.json'), 'utf8')).toBe(raw);
 	expect((await f.routines.run('review'))?.attempt?.outcome).toBe('succeeded');
 	await f.routines.stop();
 });
 
-test('unconfirmed descendant cleanup remains inspectable and never advances completion', async () => {
+test('unconfirmed descendant cleanup remains inspectable', async () => {
 	const f = await setup();
 	const kill = process.kill.bind(process);
 	const signalling = spyOn(process, 'kill').mockImplementation(
@@ -565,7 +536,6 @@ test('unconfirmed descendant cleanup remains inspectable and never advances comp
 	try {
 		const state = await f.routines.run('review');
 		expect(state?.attempt?.outcome).toBe('interrupted');
-		expect(state?.completed).toBeUndefined();
 		expect((await f.state()).attempt.message).toContain('EPERM');
 		expect(
 			await readFile(join(f.directory, 'review.local/output.log'), 'utf8'),

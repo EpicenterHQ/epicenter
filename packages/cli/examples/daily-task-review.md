@@ -1,5 +1,5 @@
 ---
-daily: "08:00"
+cron: "0 8 * * *"
 run: ["bun", "scripts/daily-task-review.ts"]
 ---
 Prepare a draft review of open tasks in drafts/task-review-<day>.md.

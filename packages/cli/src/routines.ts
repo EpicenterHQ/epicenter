@@ -1,9 +1,10 @@
 /**
- * Home-owned daily commands (ADR-0908). `serve` checks on startup and once a
- * minute; commands run in their own process groups. The directory lock covers
- * an entire attempt, shared by scheduled and foreground runs. State is replaced
- * atomically before and after execution; an unfinished attempt needs a person's
- * explicit rerun, because its effects may already have happened.
+ * Home-owned scheduled commands (ADR-0908, ADR-0937). `serve` checks on
+ * startup and once a minute; commands run in their own process groups. The
+ * directory lock covers an entire attempt, shared by scheduled and foreground
+ * runs. State is replaced atomically before and after execution. A routine is
+ * due when its cron schedule has had an occurrence since its last attempt
+ * started, so an attempt that did not succeed waits for the next occurrence.
  * The lock owns exclusion; one shutdown signal cancels this runner's work.
  * Pending promises exist only so shutdown can wait for it to settle.
  */
@@ -22,15 +23,13 @@ import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { epicenterDir, epicenterRoot } from './root.ts';
 
 type Routine = {
-	daily: string;
+	cron: string;
 	run: [string, ...string[]];
-	paused: boolean;
 	timeoutMs: number;
 };
 
 const attemptSchema = Type.Object(
 	{
-		slot: Type.String(),
 		started: Type.String(),
 		outcome: Type.Union([
 			Type.Literal('running'),
@@ -47,7 +46,6 @@ const attemptSchema = Type.Object(
 );
 const stateSchema = Type.Object(
 	{
-		completed: Type.Optional(Type.String()),
 		attempt: Type.Optional(attemptSchema),
 	},
 	{ additionalProperties: false },
@@ -55,7 +53,6 @@ const stateSchema = Type.Object(
 type Attempt = Static<typeof attemptSchema>;
 type State = Static<typeof stateSchema>;
 
-const DAILY = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
 const missing = (error: unknown) =>
 	(error as NodeJS.ErrnoException).code === 'ENOENT';
 const messageOf = (error: unknown) =>
@@ -65,30 +62,24 @@ const isMoment = (value: unknown): value is string =>
 	Number.isFinite(Date.parse(value)) &&
 	new Date(value).toISOString() === value;
 
-/** A daily occurrence is a local calendar time, not 24 hours after a run. */
-function latestSlot(daily: string, now: Date) {
-	const slot = new Date(now);
-	const hour = Number(daily.slice(0, 2));
-	const minute = Number(daily.slice(3));
-	slot.setHours(hour, minute, 0, 0);
-	if (slot > now) {
-		slot.setDate(slot.getDate() - 1);
-		// A skipped time may have normalized the hour on today's date.
-		slot.setHours(hour, minute, 0, 0);
-	}
-	return slot.toISOString();
+/**
+ * The schedule's first occurrence after the last attempt started, in local
+ * time. Missed occurrences collapse into this one.
+ */
+function nextAfter(routine: Routine, state: State) {
+	return state.attempt
+		? Bun.cron.parse(routine.cron, new Date(state.attempt.started))
+		: null;
 }
 
-/** A scheduled check may run exactly when the status shown to the person is due. */
-function statusOf(routine: Routine, state: State, slot: string) {
+/** A scheduled check runs exactly when the status shown to the person is due. */
+function statusOf(routine: Routine, state: State, now: Date) {
 	const attempt = state.attempt;
 	if (attempt?.outcome === 'running') return 'running';
-	if (routine.paused) return 'paused';
-	if (attempt?.outcome === 'interrupted') return 'interrupted';
-	if (attempt?.slot === slot) return attempt.outcome;
-	if (state.completed && Date.parse(state.completed) >= Date.parse(slot))
-		return 'succeeded';
-	return 'due';
+	if (!attempt) return 'due';
+	const next = nextAfter(routine, state);
+	if (next && next <= now) return 'due';
+	return attempt.outcome;
 }
 
 async function readState(directory: string): Promise<State> {
@@ -101,12 +92,9 @@ async function readState(directory: string): Promise<State> {
 	}
 	if (
 		!Value.Check(stateSchema, value) ||
-		![
-			value.completed,
-			value.attempt?.slot,
-			value.attempt?.started,
-			value.attempt?.finished,
-		].every((moment) => moment === undefined || isMoment(moment))
+		![value.attempt?.started, value.attempt?.finished].every(
+			(moment) => moment === undefined || isMoment(moment),
+		)
 	)
 		throw new Error(
 			'state.json has invalid fields or timestamps; inspect it before running again',
@@ -137,21 +125,29 @@ export function readRoutine(name: string, text: string): Routine {
 			'A routine name must be lowercase letters, digits, and dashes',
 		);
 	const parsed = readMarkdown(text);
-	const { daily, run, paused, timeout = '30m', ...other } = parsed.fields;
+	const { cron, run, timeout = '30m', ...other } = parsed.fields;
 	if (
 		!parsed.readable ||
 		parsed.notJson.length ||
 		Object.keys(other).length ||
-		typeof daily !== 'string' ||
-		!DAILY.test(daily) ||
+		typeof cron !== 'string' ||
 		!Array.isArray(run) ||
 		!run.length ||
 		run[0] === '' ||
-		!run.every((word) => typeof word === 'string' && !word.includes('\0')) ||
-		(paused !== undefined && typeof paused !== 'boolean')
+		!run.every((word) => typeof word === 'string' && !word.includes('\0'))
 	)
 		throw new Error(
-			`${name}.md needs daily: "HH:MM", run: [executable, ...arguments], and only optional paused and timeout fields`,
+			`${name}.md needs cron: "<minute hour day month weekday>", run: [executable, ...arguments], and only an optional timeout field`,
+		);
+	let next: Date | null;
+	try {
+		next = Bun.cron.parse(cron);
+	} catch {
+		next = null;
+	}
+	if (!next)
+		throw new Error(
+			`${name}.md cron must be a five-field cron expression such as "0 8 * * *" with a future occurrence`,
 		);
 	const duration =
 		typeof timeout === 'string' ? /^([1-9][0-9]*)(s|m|h)$/.exec(timeout) : null;
@@ -167,12 +163,7 @@ export function readRoutine(name: string, text: string): Routine {
 		throw new Error(
 			`${name}.md timeout must be a positive duration such as "30m" (at most 596 hours)`,
 		);
-	return {
-		daily,
-		run: run as [string, ...string[]],
-		paused: paused === true,
-		timeoutMs,
-	};
+	return { cron, run: run as [string, ...string[]], timeoutMs };
 }
 
 /**
@@ -241,21 +232,20 @@ export function createRoutines({
 					'The previous supervisor stopped; outcome unknown. Inspect the log before rerunning.';
 				await writeState(local, state);
 			}
-			const slot = latestSlot(routine.daily, now);
 			if (
 				!manual &&
-				(stopping.signal.aborted || statusOf(routine, state, slot) !== 'due')
+				(stopping.signal.aborted || statusOf(routine, state, now) !== 'due')
 			)
 				return;
 
 			const attempt: Attempt = {
-				slot,
 				started: now.toISOString(),
 				outcome: 'running',
 			};
 			state.attempt = attempt;
 			await writeState(local, state);
-			const log = await open(join(local, 'output.log'), 'a', 0o600);
+			// The log holds the latest attempt only.
+			const log = await open(join(local, 'output.log'), 'w', 0o600);
 			let child: ReturnType<typeof spawn> | undefined;
 			let exited:
 				| Promise<{ code: number | null; signal: NodeJS.Signals | null }>
@@ -284,7 +274,7 @@ export function createRoutines({
 			stopping.signal.addEventListener('abort', onStop);
 			try {
 				await log.writeFile(
-					`\n${attempt.started} slot ${slot}\n${JSON.stringify(routine.run)}\n`,
+					`${attempt.started}\n${JSON.stringify(routine.run)}\n`,
 				);
 				stopping.signal.throwIfAborted();
 				const [program, ...args] = routine.run;
@@ -302,7 +292,6 @@ export function createRoutines({
 						EPICENTER_ROOT: folder,
 						EPICENTER_COMMAND: JSON.stringify(epicenter),
 						...(serviceUrl ? { EPICENTER_SERVICE_URL: serviceUrl } : {}),
-						EPICENTER_ROUTINE_SLOT: slot,
 						EPICENTER_ROUTINE_NAME: name,
 					},
 					detached: true,
@@ -361,7 +350,6 @@ export function createRoutines({
 					await log.close();
 				}
 			}
-			if (attempt.outcome === 'succeeded') state.completed = slot;
 			attempt.finished = new Date().toISOString();
 			await writeState(local, state);
 			return state;
@@ -387,7 +375,6 @@ export function createRoutines({
 					try {
 						const routine = await read(name);
 						let state = await readState(stateDirectory(name));
-						const slot = latestSlot(routine.daily, now);
 						if (state.attempt?.outcome === 'running') {
 							const held = await hold(stateDirectory(name), 0);
 							if (held) {
@@ -406,10 +393,8 @@ export function createRoutines({
 						}
 						return {
 							name,
-							daily: routine.daily,
-							paused: routine.paused,
-							status: statusOf(routine, state, slot),
-							slot,
+							cron: routine.cron,
+							status: statusOf(routine, state, now),
 							...state,
 							log,
 						};
@@ -430,7 +415,7 @@ export function createRoutines({
 				});
 			}
 		},
-		/** An explicit rerun may repeat effects; the same lock prevents simultaneous attempts. */
+		/** An explicit run may repeat effects; the same lock prevents simultaneous attempts. */
 		async run(name: string, now = new Date()) {
 			return await start(name, true, now);
 		},
@@ -459,10 +444,10 @@ export async function routinesCommand(words: string[], json: boolean) {
 					? rows
 							.map(
 								(row) =>
-									`${row.name}: ${row.status}${'daily' in row ? ` (daily ${row.daily})` : ''}\n  ${'problem' in row ? row.problem : JSON.stringify(row.attempt ?? { completed: row.completed })}\n  Log: ${row.log}`,
+									`${row.name}: ${row.status}${'cron' in row ? ` (cron ${row.cron})` : ''}\n  ${'problem' in row ? row.problem : JSON.stringify(row.attempt ?? {})}\n  Log: ${row.log}`,
 							)
 							.join('\n')
-					: 'No routines. Add routines/<name>.md with daily and run.',
+					: 'No routines. Add routines/<name>.md with cron and run.',
 			);
 		return rows.some((row) => row.status === 'invalid') ? 1 : 0;
 	}
