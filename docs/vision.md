@@ -108,8 +108,8 @@ elsewhere: recordings, arrivals in an inbox, received mail.
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
 in a personal app. Scheduling belongs to the home: a routine in `routines/`
-runs a command at a time each day while `serve` runs, and runs once to catch up
-after the home was off ([ADR-0908]). launchd or cron can call
+runs a command on a cron schedule while `serve` runs, and runs once to catch up
+after the home was off ([ADR-0908], [ADR-0937]). launchd or cron can call
 `epicenter <app> <action>` too.
 
 | You want | Reach for |
@@ -284,10 +284,10 @@ UI.
 
 **History comes from root checkpoints.** Actions make no commits. A call
 holds the container lock from its first write until it ends. The command
-`epicenter checkpoint -m "<what changed>"` records all included pending files,
-and serve runs the same operation at startup, every five minutes after a
-scheduled pass completes, and on stop. It pushes only the optional private
-root origin. Checkpoints can contain partial direct edits or part of a
+`epicenter checkpoint -m "<what changed>"` records all included pending files.
+A home that wants automatic history adds a routine that runs it, for example
+every five minutes ([ADR-0937]); serve runs no checkpoint of its own. It
+pushes only the optional private root origin. Checkpoints can contain partial direct edits or part of a
 running call. Make a named commit before a risky change ([ADR-0910]).
 Exit codes say what happened: 0 returned, 1 threw, 2 did not run ([ADR-0867]).
 
@@ -409,6 +409,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0903]: adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md
 [ADR-0904]: adr/0904-copying-is-the-only-way-to-take-an-apps-code.md
 [ADR-0908]: adr/0908-serve-runs-the-homes-daily-routines.md
+[ADR-0937]: adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md
 
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md
 [ADR-0927]: adr/0927-serve-listens-only-on-this-computer.md

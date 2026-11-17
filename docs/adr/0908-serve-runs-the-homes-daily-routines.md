@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-15)
 - **Date:** 2026-11-14
+- **Proposed amendment:** [ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md): the schedule becomes `cron`; an attempt that did not succeed waits for the next occurrence; `paused` and `routines.set` go.
 - **Amends:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md), [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md), and [ADR-0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) at their refusal of recurring work and command supervision inside `serve`.
 - **Relates:** [ADR-0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) (the OS keeps the service alive) and [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) (one private root history holds app code, records, and routine declarations).
 

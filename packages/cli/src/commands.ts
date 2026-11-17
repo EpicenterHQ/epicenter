@@ -74,8 +74,8 @@ file has a problem or an app could not be checked.`,
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
 action to its UI as a serve-owned run at POST /.runs/<app>/<action>/<id>, on
 127.0.0.1 at the port in EPICENTER.md (default 4747). It runs every call itself,
-from the app's code as it is on disk then. It backs up the root with checkpoint
-when it starts, every 5 minutes, and when it stops. It has no sign-in and answers
+from the app's code as it is on disk then, and runs the home's routines. It
+commits nothing itself: add a routine that runs checkpoint. It has no sign-in and answers
 only this computer. To reach it from your other devices, run a private proxy
 such as: tailscale serve --bg 4747`,
 	},

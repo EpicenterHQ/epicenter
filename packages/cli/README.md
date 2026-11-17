@@ -275,12 +275,12 @@ A page calls actions through `@epicenter/app/client`. Serve admits each call
 at `POST /.runs/<app>/<action>/<id>` and streams its events. An unreloaded
 page using the retired `POST /<app>/<action>` receives a reload message.
 
-Serve runs a root checkpoint at startup, five minutes after each scheduled
-pass completes, and when it receives SIGINT or SIGTERM. It uses the same
-operation as the manual checkpoint command. A failure is logged once until
-it changes and cleared after success. Serve begins listening while its first
-checkpoint runs. Shutdown waits at most ten seconds for the final pass.
-The clock stays in serve; the service job only keeps serve running.
+Serve commits nothing itself. A home checkpoints through a routine that runs
+`epicenter checkpoint`, such as `cron: "*/5 * * * *"`; a new routine runs at
+the first check, so it also checkpoints soon after serve starts. Without one,
+the home keeps no history of records and pushes nothing. On SIGINT or SIGTERM
+serve stops its routine commands and exits. The service job only keeps serve
+running.
 
 ## Routines
 

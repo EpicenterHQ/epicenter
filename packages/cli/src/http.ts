@@ -30,10 +30,10 @@
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
  * mistake reaches only refusals.
  *
- * Calls leave their writes pending (`run.ts`).
- * The serve-owned clock checkpoints the root at startup, every five minutes
- * after completion, and on shutdown. Daily routines are checked at startup
- * and once a minute, independently of checkpoints (ADR-0908).
+ * Calls leave their writes pending (`run.ts`). Serve keeps one clock: it
+ * checks routines at startup and once a minute (ADR-0908). It commits nothing
+ * itself; a home checkpoints through a routine that runs `epicenter
+ * checkpoint` (ADR-0937).
  */
 
 import { realpath, stat } from 'node:fs/promises';
@@ -41,9 +41,7 @@ import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { extractErrorMessage } from 'wellcrafted/error';
 import { linkAppPackage } from './app-package.ts';
-import { type Checkpoint, checkpoint } from './checkpoint.js';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
@@ -52,24 +50,11 @@ import { createRoutines } from './routines.ts';
 import { createRunHost } from './runs.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
-/** How often `serve` backs up every app. */
-const BACKUP_EVERY_MS = 5 * 60_000;
-
-/** How long `serve` waits for the checkpoint it runs when it stops. */
-const BACKUP_WAIT_MS = 10_000;
-
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
-
-/** Whether `work` finished within `ms`; it runs on after `false`. */
-function within(ms: number, work: Promise<unknown>) {
-	const { promise: late, resolve } = Promise.withResolvers<false>();
-	setTimeout(() => resolve(false), ms).unref();
-	return Promise.race([work.then(() => true as const), late]);
-}
 
 const escapeHtml = (text: string) =>
 	text.replace(
@@ -285,63 +270,14 @@ function isPrivateHost(host: string | null) {
 const forbidden = () => new Response('Forbidden', { status: 403 });
 
 /**
- * Start the listener and its checkpoint clock, which checkpoints once now and every
- * 5 minutes after. The listener answers everything for a request from this
- * computer or the tailnet whose `Origin`, if any, is its own host. The caller
- * owns its lifetime and ends it with `stop`. Port 0 asks Bun for a free port.
- * `tick` runs one checkpoint now, after any already running, and answers what it
- * did for the root.
+ * Start the listener and the routine clock. The listener answers everything
+ * for a request from this computer or the tailnet whose `Origin`, if any, is
+ * its own host. The caller owns its lifetime and ends it with `stop`. Port 0
+ * asks Bun for a free port.
  */
 export function startHttpServer(port: number) {
 	const runs = createRunHost();
-	/** Log an unchanged root checkpoint failure only once. */
-	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
-	/** Log `failures` for the repository at `folder`, unless they are what was logged last. */
-	const report = (
-		folder: string,
-		failures: { message: string; next?: string }[],
-	) => {
-		const failure = failures
-			.map(({ message, next }) => `${message}${next ? `\nRun: ${next}` : ''}`)
-			.join('\n');
-		if (!failure) lastFailure.delete(folder);
-		else if (lastFailure.get(folder) !== failure) {
-			writeErr(failure);
-			lastFailure.set(folder, failure);
-		}
-	};
-	const runCheckpoint = async () => {
-		const root = epicenterDir();
-		const result = await checkpoint(root);
-		report(
-			root,
-			[result.deferred, result.failed, result.pushFailed].filter(
-				(problem) => problem !== undefined,
-			),
-		);
-		return result;
-	};
-	let previous: Promise<unknown> = Promise.resolve();
-	const tick = (): Promise<Checkpoint> => {
-		const next = previous.then(runCheckpoint);
-		previous = next.catch(() => undefined);
-		return next;
-	};
-	const tickLogged = () =>
-		tick().catch((error) => {
-			writeErr(`Checkpoint failed: ${extractErrorMessage(error)}`);
-		});
-	let clock: ReturnType<typeof setTimeout> | undefined;
-	let stopping = false;
-	const schedule = () => {
-		if (stopping) return;
-		clock = setTimeout(() => {
-			void tickLogged().finally(schedule);
-		}, BACKUP_EVERY_MS);
-		clock.unref();
-	};
-	void tickLogged().finally(schedule);
 	const site = createSite(refreshUi);
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
@@ -393,29 +329,19 @@ export function startHttpServer(port: number) {
 	routineClock.unref();
 	return {
 		port: server.port as number,
-		tick,
-		/**
-		 * Stop listening and both clocks, then stop routines and run the last
-		 * checkpoint, waiting at most 10 seconds; `false` when it gave up waiting.
-		 */
+		/** Stop listening and the routine clock, then stop routine commands. */
 		stop() {
 			runs.stop();
-			stopping = true;
-			clearTimeout(clock);
 			clearInterval(routineClock);
 			void server.stop();
-			return within(
-				BACKUP_WAIT_MS,
-				Promise.all([routines.stop(), tickLogged()]),
-			);
+			return routines.stop();
 		},
 	};
 }
 
 /**
- * Serve until the process receives SIGINT or SIGTERM, then checkpoint once
- * more: a host stops `serve` with SIGTERM and allows it time for that
- * checkpoint (ADR-0883).
+ * Serve until the process receives SIGINT or SIGTERM, then stop routine
+ * commands and exit.
  */
 export async function serveHttp(port: number): Promise<number> {
 	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
@@ -429,11 +355,6 @@ export async function serveHttp(port: number): Promise<number> {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	const finished = await server.stop();
-	if (!finished) {
-		// A push still waiting on the network would keep the process alive.
-		writeErr('Stopped without waiting longer for the last backup.');
-		process.exit(0);
-	}
+	await server.stop();
 	return 0;
 }
