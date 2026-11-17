@@ -119,29 +119,6 @@ test('a failed command is not retried by checks and an explicit run can repair i
 	expect(log).toContain('123');
 });
 
-// Only serve runs an action now, so the routine's `epicenter crash now` is
-// sent to serve and its `process.exit` ends serve. What this test asserts no
-// longer holds; it is skipped until routines decide what should.
-test.skip('a routine action exiting its process cannot stop the HTTP server', async () => {
-	const f = await setup(['epicenter', 'crash', 'now']);
-	await f.app(
-		'crash',
-		`export default defineApp({ description: 'Crash', collections: {}, actions: {
-    now: defineAction({ description: 'Exit', input: {}, run: () => process.exit(9) })
-  } });`,
-	);
-	const served = await startServe(f);
-	try {
-		await eventually(
-			async () => (await f.routines.list())[0]?.status === 'failed',
-		);
-		expect((await f.state()).attempt.exitCode).toBe(9);
-		expect((await fetch(served.base)).status).toBe(200);
-	} finally {
-		await served.stop();
-	}
-}, 30_000);
-
 test('manual and scheduled attempts exclude one another and cancellation records interruption', async () => {
 	const f = await setup(
 		[
