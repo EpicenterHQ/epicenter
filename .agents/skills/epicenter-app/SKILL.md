@@ -282,9 +282,12 @@ After direct edits, `epicenter checkpoint -m "<what changed>"` records pending
 code and records in one root commit and pushes origin when set. A plain named
 Git commit works too. The branch and index are shared: checkpoints consume
 staged work along with other included files. Make a named commit before a
-risky change. Serve runs the same checkpoint at startup, every five minutes
-after a scheduled pass completes, and on stop. It samples files, not intent,
-and can capture a partial edit or part of a running action.
+risky change. Serve runs no checkpoint of its own: a home that wants history
+and backup has a routine that runs `epicenter checkpoint`, such as
+`routines/checkpoint.md` with `cron: "*/5 * * * *"` and
+`run: ["epicenter", "checkpoint"]`. Without one, nothing is committed or
+pushed automatically. A checkpoint samples files, not intent, and can capture
+a partial edit or part of a running action.
 
 The root origin is optional and private. It receives all apps' records.
 Checkpoints never pull, merge, rebase, or force-push. A failed push leaves

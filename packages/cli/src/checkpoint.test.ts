@@ -56,11 +56,7 @@ test('checkpoint requires a marker and suggests initializing the selected folder
 test('actions leave HEAD unchanged and checkpoint commits pending code and data with the requested subject', async () => {
 	const f = await setup();
 	const app = await f.app('x', reading);
-	// Serve checkpoints once as it starts. Wait for that commit, so the only
-	// later one is this test's.
-	await f.serve();
-	while ((await gitIn(f.home, 'status', '--porcelain')) !== '')
-		await Bun.sleep(20);
+	await checkpoint(f.home);
 	const before = await head(f.home);
 	expect((await f.run('x', 'log', '{"minutes":30}')).code).toBe(0);
 	expect(await head(f.home)).toBe(before);

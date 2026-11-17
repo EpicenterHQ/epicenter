@@ -12,7 +12,6 @@ import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { type RunAnswer, refused } from './output.ts';
-import { setRoutine } from './routine-set.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -62,12 +61,6 @@ export async function runAction(
 ): Promise<RunAnswer> {
 	const context = {
 		...located.context,
-		routines: {
-			set: (
-				name: string,
-				routine: Parameters<typeof setRoutine>[0]['routine'],
-			) => setRoutine({ app: located, name, routine }),
-		},
 	};
 	try {
 		const result = await inRun(context, () => action(input, { onUpdate }));

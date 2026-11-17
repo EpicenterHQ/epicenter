@@ -17,16 +17,6 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Ok, type Result, unwrap } from 'wellcrafted/result';
-import type { Action } from './action.ts';
-
-/** A home-owned daily invocation of an action exposed by the current app. */
-export type Routine<TAction extends Action = Action> = {
-	daily: string;
-	action: TAction;
-	input: Parameters<NoInfer<TAction>>[0];
-	paused?: boolean;
-	timeout?: string;
-};
 
 /** Decide synchronously from the current text. Omit text to leave the path as it was. */
 type EditFile = <T, E extends object>(
@@ -91,13 +81,6 @@ export type Folder = {
 /** What whatever runs an action opens its run with. */
 export type Context = {
 	folder: Folder;
-	/** Supplied by a host that can save recurring work in the current Epicenter. */
-	routines?: {
-		set(
-			name: string,
-			routine: Routine,
-		): Promise<{ name: string; path: string }>;
-	};
 };
 
 const runs = new AsyncLocalStorage<Context>();
@@ -119,22 +102,6 @@ function currentRun(): Context {
 		);
 	return context;
 }
-
-/** Save recurring work explicitly, inside an action such as an app's setup. */
-export const routines = {
-	/**
-	 * Create or update routines/<name>.md in the current home. The name is
-	 * home-wide; the host infers this app and resolves the action in its table.
-	 * Input must survive JSON.
-	 * Keeps notes, attempt history, and unspecified paused/timeout settings.
-	 * A new unpaused routine catches up to the latest daily occurrence.
-	 */
-	async set<TAction extends Action>(name: string, routine: Routine<TAction>) {
-		const context = currentRun();
-		if (!context.routines) throw new Error('This host cannot save routines');
-		return context.routines.set(name, routine);
-	},
-};
 
 /**
  * The folder of the run this code is in, to write or delete `path` in. Every

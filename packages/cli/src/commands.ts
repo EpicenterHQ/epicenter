@@ -76,8 +76,8 @@ action to its UI at POST /<app>/<action>, on 127.0.0.1 at the port in
 EPICENTER.md (default 4747). A home has one serve, and it runs every action:
 epicenter <app> <action> sends its call here and is refused while serve is
 stopped. Each call runs from the app's code as it is on disk then, to its end,
-and serve keeps nothing about it. It backs up the root with checkpoint
-when it starts, every 5 minutes, and when it stops. It has no sign-in and answers
+and serve keeps nothing about it. It runs the home's routines. It commits
+nothing itself: add a routine that runs checkpoint. It has no sign-in and answers
 only this computer. To reach it from your other devices, run a private proxy
 such as: tailscale serve --bg 4747`,
 	},
@@ -88,12 +88,11 @@ The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
 	},
 	routines: {
-		usage: 'epicenter routines [run <name>]',
-		help: `Lists the home's routines and their last outcomes, even while serve is stopped.
-A routines/<name>.md declares daily: "08:00" and run: [executable, ...arguments].
-serve checks at startup and once a minute, catching up once to the latest due time.
-run explicitly runs one now, including a failed or interrupted attempt. It may
-repeat effects. State and output stay in routines/<name>.local/.`,
+		usage: 'epicenter routines',
+		help: `Lists the home's routines with each schedule and next occurrence, or why a file
+is refused. A routines/<name>.md declares cron: "0 8 * * *" and run: [executable,
+...arguments]. Once a minute serve starts each routine whose schedule had an
+occurrence since its last check. It records nothing; the command owns its output.`,
 	},
 } as const;
 

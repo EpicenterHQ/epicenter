@@ -39,8 +39,6 @@ export {
 	isLocalPath,
 	isUnderLocal,
 	normalizePath,
-	type Routine,
-	routines,
 	textUpdate,
 } from './context.ts';
 export {
