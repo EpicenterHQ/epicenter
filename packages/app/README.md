@@ -508,6 +508,7 @@ Producers import the shared `ActionError` factories from `@epicenter/app`:
 - `Misfit` carries diagnostics about a malformed record.
 - `Missing` (`{ path }`): the file is not there.
 - `Refused` (`{ message, next? }`): an operation declined the request.
+- `Problems` (`{ message, report }`): it ran, `report` is what it found, and the job is not clean. The command line prints `report` on stdout, where data would be, and `message` on stderr.
 
 Three more belong to the platform's handling of a call, and each says whether
 the action ran:
@@ -629,7 +630,7 @@ gives the error object itself:
 - **A page that matched `Refused` to catch a call that never ran** matches `NotStarted`. `Refused` now comes only from an action.
 - **An action that returned `ActionError.Unreachable`**, or its own error named `NotStarted` or `Unreachable`, now answers `Threw`. Return another name, or `Ok` with a field saying the result was not confirmed.
 - **Exit codes:** 2 is exactly `NotStarted`. A connection that dropped after the call was sent still exits 1, now as `Unreachable`.
-- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, `epicenter <app> --json`, `check --json`, `new --json`, `init --json` or `export --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word or a refused export, answers `NotStarted` and exits 2. One that failed partway, such as an `init` whose install failed, answers an error and exits 1. `check` exits 0 whatever it finds.
+- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, `epicenter <app> --json`, `check --json`, `new --json`, `init --json` or `export --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word or a refused export, answers `NotStarted` and exits 2. One that failed partway, such as an `init` whose install failed, answers an error and exits 1. A `check` that finds problems and an `export --all` that leaves apps out ran and still exit 1: they answer `Problems`, and the report that was `data` is `.error.report`, so a script that read `jq .apps` reads `jq '.data // .error.report | .apps'`.
 - **A page that compares an error name its action cannot return** gets a compile error. A call's error is now exactly the action's errors and `NotStarted`, `Threw` and `Unreachable`, so a branch for a name that never arrives is dead: delete it.
 
 ### An action's input is one JSON Schema object

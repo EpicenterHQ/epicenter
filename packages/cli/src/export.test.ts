@@ -288,22 +288,29 @@ test('--all adds future committed apps and removes absent apps without importing
 		'export default defineApp({ description: "Reading", actions: {} });',
 	);
 	// An app that was never committed is left out and named, not committed.
-	// It ran, so it is not NotStarted: Refused, exit 1, with what it exported.
+	// It ran, so it is not NotStarted: Problems, exit 1, its report naming what
+	// it exported and what it left out.
 	const pending = await f.run('export', '--all', output, '--json');
 	expect(pending.code).toBe(1);
 	const exported = await gitIn(f.home, 'rev-parse', 'HEAD');
 	expect(JSON.parse(pending.stdout)).toEqual({
 		data: null,
 		error: {
-			name: 'Refused',
-			message: `Exported 2 apps to ${output}\nExported source: ${exported}\nreading: no committed code tree; not exported`,
+			name: 'Problems',
+			message: 'reading: no committed code tree; not exported',
+			report: {
+				commit: exported,
+				directory: output,
+				apps: ['broken', 'tasks'],
+				omitted: ['reading'],
+			},
 			namespace: 'epicenter/action-error',
 		},
 	});
 	expect(await f.run('export', '--all', output)).toEqual({
 		code: 1,
-		stdout: '',
-		stderr: `Exported 2 apps to ${output}\nExported source: ${exported}\nreading: no committed code tree; not exported\n`,
+		stdout: `Exported 2 apps to ${output}\nExported source: ${exported}\n`,
+		stderr: 'reading: no committed code tree; not exported\n',
 	});
 	await commit(f.home);
 	expect((await f.run('export', '--all', output)).code).toBe(0);

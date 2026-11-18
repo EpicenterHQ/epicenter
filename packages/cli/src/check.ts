@@ -6,7 +6,14 @@
  * rather than as many broken files. The read runs in a run of the app's
  * folder, as an action's does, and writes nothing.
  */
-import { type Answer, checkData, Err, inRun, Ok } from '@epicenter/app';
+import {
+	ActionError,
+	type Answer,
+	checkData,
+	Err,
+	inRun,
+	Ok,
+} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { parseWords } from './commands.ts';
 import { discoverAll, loadHomeApp, type Runnable } from './home.ts';
@@ -86,9 +93,10 @@ function render(
 }
 
 /**
- * Check one app, or every app when none is named. The report is the answer,
- * whatever it finds: the records with problems, and the apps that could not
- * be checked. A named app that does not load is `NotStarted`.
+ * Check one app, or every app when none is named. The report is what it
+ * found: the records with problems, and the apps that could not be checked.
+ * A clean report is `Ok`; any problem makes it `Problems`, carrying the same
+ * report. A named app that does not load is `NotStarted`.
  */
 export async function checkCommand(
 	words: string[],
@@ -123,5 +131,22 @@ export async function checkCommand(
 			unchecked.push({ entry, folder, problems: [extractErrorMessage(error)] });
 		}
 	}
-	return Ok(json ? { apps, problems: unchecked } : render(apps, unchecked));
+	const report = json ? { apps, problems: unchecked } : render(apps, unchecked);
+	const files = Object.values(apps)
+		.flatMap((keys) => Object.values(keys))
+		.reduce((sum, each) => sum + each.withProblems, 0);
+	if (!files && !unchecked.length) return Ok(report);
+	const counted = (count: number, one: string, many: string) =>
+		count ? [`${count} ${count === 1 ? one : many}`] : [];
+	return ActionError.Problems({
+		message: [
+			...counted(files, 'file has problems', 'files have problems'),
+			...counted(
+				unchecked.length,
+				'app could not be checked',
+				'apps could not be checked',
+			),
+		].join('; '),
+		report,
+	});
 }

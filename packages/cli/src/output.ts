@@ -150,7 +150,8 @@ function readable(value: unknown): string {
 /**
  * Present an answer and return its exit code. With `json`, stdout is the one
  * JSON answer. Without it, success data renders on stdout, and an error's
- * message and next step go to stderr.
+ * message and next step go to stderr. An error that carries a `report`, as
+ * `Problems` does, renders that report on stdout the way data renders.
  */
 export function presentAnswer(answer: Answer, json: boolean): number {
 	const result = outcome(answer);
@@ -159,6 +160,10 @@ export function presentAnswer(answer: Answer, json: boolean): number {
 			`${JSON.stringify({ data: answer.data, error: answer.error })}\n`,
 		);
 	else if (result.code === 0) process.stdout.write(readable(result.data));
-	else process.stderr.write(result.stderr);
+	else {
+		const { report } = answer.error as { report?: unknown };
+		if (report !== undefined) process.stdout.write(readable(report));
+		process.stderr.write(result.stderr);
+	}
 	return result.code;
 }

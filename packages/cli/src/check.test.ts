@@ -8,8 +8,9 @@
  * Key behaviors:
  * - With no app named, every app is checked and one that does not load is
  *   listed under its problems without stopping the rest
- * - The report is the answer, `{ data, error: null }`, exit 0, whatever it
- *   finds
+ * - A clean report is `{ data, error: null }`, exit 0; one with a problem is
+ *   `Problems` carrying the same report, exit 1, and a person still reads the
+ *   report on stdout
  * - A named app that does not load or does not exist did not run: `NotStarted`,
  *   exit 2
  */
@@ -57,9 +58,21 @@ test('with no app named, checks every app and lists one that does not load under
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
 	const result = await f.run('check', '--json');
-	expect(result.code).toBe(0);
-	const { data: report, error } = JSON.parse(result.stdout);
-	expect(error).toBeNull();
+	expect(result.code).toBe(1);
+	const { data, error } = JSON.parse(result.stdout);
+	expect(data).toBeNull();
+	expect(error).toMatchObject({
+		name: 'Problems',
+		message: '1 file has problems; 1 app could not be checked',
+		namespace: 'epicenter/action-error',
+	});
+	expect(Object.keys(error).sort()).toEqual([
+		'message',
+		'name',
+		'namespace',
+		'report',
+	]);
+	const { report } = error;
 	expect(Object.keys(report.apps)).toEqual(['books', 'tasks']);
 	expect(report.apps.books.books.withProblems).toBe(0);
 	expect(report.apps.tasks.items.withProblems).toBe(1);
@@ -70,14 +83,35 @@ test('with no app named, checks every app and lists one that does not load under
 			problems: ['code/epicenter.ts: import exploded'],
 		},
 	]);
+	// A person reads the report on stdout, as a clean check prints it, and
+	// what is wrong on stderr.
 	const human = await f.run('check');
-	expect(human.code).toBe(0);
+	expect(human.code).toBe(1);
 	expect(human.stdout).toStartWith(
 		'books\n  books  1 file, none with problems\n\ntasks\n',
 	);
 	expect(human.stdout).toEndWith(
 		`Problems:\n  broken\n    ${join(f.apps, 'broken')}\n    code/epicenter.ts: import exploded\n`,
 	);
+	expect(human.stderr).toBe(
+		'1 file has problems; 1 app could not be checked\n',
+	);
+});
+
+test('a clean check answers its report as data, exit 0', async () => {
+	const f = await setup();
+	const result = await f.run('check', 'books', '--json');
+	expect(result.code).toBe(0);
+	const { data, error } = JSON.parse(result.stdout);
+	expect(error).toBeNull();
+	expect(Object.keys(data)).toEqual(['apps', 'problems']);
+	expect(data.apps.books.books).toMatchObject({ files: 1, withProblems: 0 });
+	expect(data.problems).toEqual([]);
+	expect(await f.run('check', 'books')).toEqual({
+		code: 0,
+		stdout: 'books\n  books  1 file, none with problems\n',
+		stderr: '',
+	});
 });
 
 test('a named app that does not load or does not exist did not run, exit 2', async () => {

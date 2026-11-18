@@ -546,6 +546,7 @@ The error's name says whether the action ran:
 | --- | --- |
 | `NotStarted` | no; it is safe to call again once its cause is fixed |
 | the action's own error, such as `Missing` or `Refused` | yes |
+| `Problems` | yes; `report` is what it found, and the job is not clean |
 | `Threw` | yes, partly |
 | `Unreachable` | unknown; reread the records before calling again |
 
@@ -639,8 +640,10 @@ them all. `records` holds only files with problems. Without an app named, an
 app that does not load is listed under `problems`, as in the Epicenter
 listing, and the other apps are still checked; a read that fails lists its
 app there too. A named app that does not load did not run: `NotStarted`,
-exit 2. Otherwise the report is the answer, and the exit code is 0 whatever
-it finds; a script reads `data.apps` and `data.problems` to decide.
+exit 2. A clean report is `data`, exit 0. When a file has a problem or an
+app could not be checked, the answer is `Problems`, exit 1, carrying the same
+report as `error.report` and a one-line summary as its message. Without
+`--json` the report prints on stdout either way, and the summary on stderr.
 
 ## The home's report
 
@@ -931,8 +934,8 @@ With `--json`, a completed export answers
 `{ "data": { commit, directory, apps }, "error": null }` and exits 0. `commit`
 names the exported commit, and `apps` lists the exported app names. When an
 on-disk app has no code tree in that commit, the export still writes the
-others and answers `Refused`, exit 1: its message lists what was exported and
-each omitted app. An export that never began, such as one whose destination
+others and answers `Problems`, exit 1, with the report
+`{ commit, directory, apps, omitted }`; its message names each omitted app. An export that never began, such as one whose destination
 it does not own, answers `NotStarted` (`refused` or `usage`) and exits 2.
 
 ## Recover selected paths

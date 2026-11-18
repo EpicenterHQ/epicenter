@@ -134,7 +134,19 @@ D1 left the CLI's own commands outside the answer. They printed `{"error": ...}`
 | `Internal` | `NotStarted`, cause `internal` |
 | `GitFailed` | `NotStarted`, cause `internal`, when `new` failed before it kept anything; `Threw` when it failed partway |
 
-`refused` means the command was understood and doing it would lose or guess: `export` into a folder it does not own, or a port another serve holds. A command that ran in part answers the error that says so with exit 1: an `init` whose install failed and an `export` that omitted apps answer `Refused`.
+`refused` means the command was understood and doing it would lose or guess: `export` into a folder it does not own, or a port another serve holds. A command that ran in part answers the error that says so with exit 1: an `init` whose install failed answers `Refused`.
+
+**`Problems` says a command ran and found something wrong.** A `check` that finds records with problems, or an `export --all` that leaves apps out, did its job, and what it found is the point; but a script gating on the exit code must still see that the result is not clean. `ActionError.Problems({ message, report })` carries both: `report` is the structured value a clean run answers as `data` (`{ apps, problems }` for `check`, `{ commit, directory, apps, omitted }` for `export`), and `message` is a one-line summary. It is not reserved, so an app's action may return it too. With it, D1's table of names reads:
+
+| Error | What it means | Exit |
+| --- | --- | --- |
+| `NotStarted` | it never began | 2 |
+| `Problems` | it ran; here is what it found; not clean | 1 |
+| an app's error, such as `Missing` or `Refused` | it ran and answered that error | 1 |
+| `Threw` | it began and threw | 1 |
+| `Unreachable` | the outcome is unknown | 1 |
+
+Without `--json`, the presenter applies one rule by field, not by name: an error that carries a `report` renders it on stdout the way `data` renders, and its message goes to stderr. So `epicenter check` prints the same report whether or not it is clean, and exits 1 when it is not. Rendering by name would have made the presenter know one error; an error that carries a report is a shape any action can use.
 
 **`NotStarted` is one name whose fields depend on `cause`.** `ActionError.NotStarted` takes a union body, so narrowing on `cause` types the fields: `app` and `problems` for `app-problems`, an optional `next` for `usage`, `refused` and `unavailable`. `checkAnswer` checks each cause's fields. One name with a cause beats one variant per cause:
 

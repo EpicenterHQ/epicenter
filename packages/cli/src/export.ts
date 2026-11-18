@@ -187,8 +187,8 @@ async function checkLinks(
  * A refusal, or a failure before the directory is filled, changes nothing
  * and is `NotStarted`. A failure while filling it throws, and the CLI answers
  * `Threw`: the directory may be partly filled, and a rerun repairs it. An
- * `--all` export that left out apps with no committed code is `Refused`: it
- * exported the others.
+ * `--all` export that left out apps with no committed code is `Problems`: it
+ * exported the others, and its report names the apps it left out.
  */
 export async function exportCommand(
 	words: string[],
@@ -360,13 +360,13 @@ export async function exportCommand(
 			`Exported source: ${commit}`,
 		];
 		if (omitted.length)
-			return ActionError.Refused({
-				message: [
-					...exported,
-					...omitted.map(
-						(name) => `${name}: no committed code tree; not exported`,
-					),
-				].join('\n'),
+			return ActionError.Problems({
+				message: omitted
+					.map((name) => `${name}: no committed code tree; not exported`)
+					.join('\n'),
+				report: json
+					? { commit, directory, apps: apps.map(({ app }) => app), omitted }
+					: exported.join('\n'),
 			});
 		return Ok(
 			json

@@ -210,6 +210,23 @@ test('an error renders its message and next step, and exits 2 only for NotStarte
 			stderr: 'm\n',
 			code: 2,
 		});
+	// An error that carries a report renders it where data would be, by the
+	// field and not the name, and its message still goes to stderr.
+	expect(
+		present(
+			ActionError.Problems({
+				message: '1 file has problems',
+				report: { checked: 3, bad: ['a.md'] },
+			}),
+		),
+	).toEqual({
+		stdout: 'checked: 3\nbad: ["a.md"]\n',
+		stderr: '1 file has problems\n',
+		code: 1,
+	});
+	expect(
+		present(Err({ name: 'Partial', message: 'm', report: 'what it did' })),
+	).toEqual({ stdout: 'what it did\n', stderr: 'm\n', code: 1 });
 	// The name is what counts: an app's own `NotStarted` never reaches here,
 	// because serve answers it as `Threw`.
 	expect(present(Err({ name: 'Refused', message: 'm' })).code).toBe(1);
