@@ -183,6 +183,8 @@ Do NOT assert on `console.*` output. Inject a `memorySink` and inspect the event
 
 Let the caller supply a logger when it needs a different sink. The [OAuth tests](../../../packages/account/src/browser-oauth.test.ts) give each test world its own `memorySink()` and pass `log: createLogger('auth/browser-oauth', logs.sink)` to the client options. Opening two tabs in that world sends both clients’ events to the same sink. A separate test world gets its own event list.
 
+Add a `log` option to a package factory only when a caller needs records to go somewhere other than the default. Do not add one to every factory ahead of that need.
+
 ## Browser
 
 The whole surface is pure JS and browser-safe.
@@ -203,6 +205,8 @@ log.info('action run ended', {
 ```
 
 The record leaves out the action's input and result, which can hold personal data.
+
+Open question: the record keeps the error's message, and a message can quote what the person typed. Whether a record should keep only the error's name is undecided.
 
 The record goes out at `info` even when the work failed, because `warn` and `error` take only the error. Filter on `outcome`, not level. When the failure stops at the host, this record is its one recording; do not also log it at `error`.
 
