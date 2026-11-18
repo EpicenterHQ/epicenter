@@ -56,9 +56,8 @@ instructions, so anything written there reaches each agent that connects.
 in one process, with no sandbox
 ([ADR-0880](adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)).
 An action can read any file you can, and `folder` is a convenience, not a
-boundary. An app taken with `epicenter new --from` runs its author's
-committed code into your app's `code/`, without an upstream or automatic
-merge. Inspect incoming code before copying later changes. Trust it as you
+boundary. An app you copy into your home runs its author's code. The copy
+has no upstream or automatic merge. Inspect incoming code before copying later changes. Trust it as you
 would any program you install.
 
 ## Sign-ins are files that stay on the home

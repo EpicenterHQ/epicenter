@@ -172,9 +172,9 @@ a file under Mail's `local/`, on the computer that runs Mail's actions
 ([ADR-0939]).
 
 Agents make apps: you start Claude Code on the home, ask for an app, and it
-writes its code and records. An app can start with committed code copied by
-`epicenter new --from`, from a folder in Git or `owner/repo/folder` on GitHub,
-without a remote or later merge ([ADR-0929]). The agent adapts any later source
+writes its code and records. An app can also start as a copy of another app's
+`code/` folder, taken with ordinary file tools and kept without a remote or
+later merge ([ADR-0955]). The agent adapts any later source
 changes in place ([ADR-0910]).
 
 ## What it is like
@@ -450,8 +450,8 @@ fields are written one `key: <JSON>` line each.
 
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md
 [ADR-0927]: adr/0927-serve-listens-only-on-this-computer.md
-[ADR-0929]: adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md
 [ADR-0930]: adr/0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md
 [ADR-0936]: adr/0936-one-serve-per-home-runs-every-action.md
 [ADR-0939]: adr/0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md
 [ADR-0943]: adr/0943-epicenters-core-invariants.md
+[ADR-0955]: adr/0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md

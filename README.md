@@ -47,7 +47,8 @@ Epicenter and copy the Writing app:
 bun x @epicenter/cli init ~/Epicenter
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
-epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
 bun install && bun run build
 epicenter serve
 ```
@@ -61,7 +62,8 @@ To add
 [Tasks](examples/tasks/README.md) to your home, run
 
 ```sh
-epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
+mkdir -p apps/tasks/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 epicenter-main/examples/tasks
 bun install && bun run build
 ```
 

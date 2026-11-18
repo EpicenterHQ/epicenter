@@ -276,11 +276,7 @@ export async function initCommand(
 			entry.isDirectory() &&
 			existsSync(join(apps, entry.name, 'code', 'epicenter.ts')),
 	);
-	writeErr(
-		hasApps
-			? 'Run: epicenter'
-			: 'Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing',
-	);
+	writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
 	return Ok(`Made Epicenter at ${folder}.`);
 }
 

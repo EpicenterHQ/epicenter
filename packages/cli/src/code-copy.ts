@@ -1,4 +1,4 @@
-/** The file boundary shared by taking an app and exporting one. */
+/** Which committed files `export` copies, and how it checks them out. */
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { checkedGit, git } from './git.js';
@@ -26,7 +26,7 @@ export function isCopiedCodePath(path: string) {
 
 /**
  * Keep the full index for inherited attributes, but ask Git for only this
- * subtree. Both copiers use the same relative path when selecting its code.
+ * subtree, selecting its code by the same relative path.
  * Raw entries remain available for their caller's gitlink refusal.
  */
 export async function readCodeFiles(repository: string, folder: string) {

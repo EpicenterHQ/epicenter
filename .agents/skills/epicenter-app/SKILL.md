@@ -37,16 +37,31 @@ such as `tailscale serve`.
       google.md
 ```
 
-`new --from` copies committed code into a new container's `code/`, without
-records, Git history, or a remote. It takes a folder in a Git checkout, written
-as a path (`./shared/tasks`, `~/Code/apps/tasks`), or a folder on GitHub,
-written `owner/repo/folder#ref` (`#ref` optional: branch, tag, or full commit).
-For any other host, clone first and pass the folder. The folder may be a
-repository root, a subfolder, or an app container's code subtree. Provenance is in
-`code/SOURCE.md`. Later source changes are work for the app's owner; there is
-no merge-based updater. A copied symlink stays a link, and one leading
-outside `code/` breaks unless the receiving home has that file; `new` reports
-it. Keep everything an app uses, its palette too, as files in `code/`.
+`epicenter new <app>` makes only a blank app. Taking an existing app is
+copying its `code/` folder into `apps/<app>/code/`, without records, Git
+history, or a remote
+([ADR-0955](../../../docs/adr/0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md)).
+From GitHub, run at the top of the home:
+
+```sh
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
+```
+
+From a folder on this computer, or a clone from any other host:
+
+```sh
+mkdir -p apps/journal
+cp -R ~/Code/shared-apps/apps/notes/code apps/journal/code
+```
+
+When the name differs from the source's, set `"name"` in the copy's
+`package.json` to the new app name; `bun install` refuses two workspace
+packages with one name. Then run `bun install && bun run build`. Copy only
+`code/`, never someone's `data/`. Later source changes are work for the app's
+owner; there is no merge-based updater. A copied symlink stays a link, and one
+leading outside `code/` breaks unless the receiving home has that file. Keep
+everything an app uses, its palette too, as files in `code/`.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
 the smallest whole example. Keep private records out of code publication;
@@ -581,20 +596,19 @@ use the replacement action rather than add conflict machinery by default.
 ## Verify without touching the person's data
 
 Never run anything against the real `~/Epicenter` until the person asks.
-Use a temporary home and a committed source. `new --from` copies code,
-creates empty sibling data/, and prints `Run: cd <home> && bun install && bun
-run build`; run it and read its errors. A source with
-uncommitted edits is refused. To test them, commit in a disposable copy outside the live
-Epicenter, without changing the live branch or index.
+Use a temporary home. Copy the source's code into it, rename its package,
+then run `bun install && bun run build` and read the errors.
 
 ```sh
 bun test ./epicenter.test.ts                # from code/: actions over memory
-source_path=/absolute/path/to/source        # choose a repository or subfolder
+source_path=/absolute/path/to/source/code   # the folder that holds epicenter.ts
 test_home=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitconfig"
 HOME="$test_home" epicenter init "$test_home/Epicenter" --port 4799
 cd "$test_home/Epicenter"
-HOME="$test_home" epicenter new example --from "$source_path"
+mkdir -p apps/example
+cp -R "$source_path" apps/example/code
+# set "name" in apps/example/code/package.json to "example"
 bun install && bun run build
 HOME="$test_home" epicenter example --help
 HOME="$test_home" epicenter serve               # drive /example/ on port 4799
@@ -613,15 +627,14 @@ Run tests one file or package at a time.
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
-- `epicenter new <app> --from <folder | owner/repo/folder#ref>` takes committed code into
-  apps/<app>/code/ and creates empty data/. It names the copy's package.json
-  for the app, leaves out a copied bun.lock and any @epicenter/app entry, and prints
-  the one command to run next: `cd <home> && bun install && bun run build`.
+- `epicenter new <app>` makes a blank app: apps/<app>/code/ and empty data/.
+  It prints the one command to run next: `cd <home> && bun install && bun run build`.
+- To take an existing app, copy its `code/` into apps/<app>/code/ as shown
+  above, set the package name to `<app>`, and run that same command.
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
-  Inspect the source commit recorded in `code/SOURCE.md`, compare incoming
-  code outside the live Epicenter, and test compatibility with the existing
+  Compare incoming code outside the live Epicenter, and test compatibility with the existing
   records before a named commit. A refreshed publication does not update
   apps people have already copied. Bring contributions back into the maintained
   app before refreshing an export, which would overwrite edits made in the
@@ -674,8 +687,9 @@ Exporting files does not commit them to the publication repository.
 
 To publish several apps, `epicenter export --all ~/Code/shared-apps/apps`
 generates one child per committed app under `apps/`. A recipient can copy one
-published app with
-`epicenter new tasks --from OWNER/shared-apps/apps/tasks`,
+published app by copying its folder, for example
+`curl -L https://github.com/OWNER/shared-apps/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 shared-apps-main/apps/tasks`
+after `mkdir -p apps/tasks/code`,
 replacing `OWNER` with the publication owner's username. See
 [the CLI's export contract](../../../packages/cli/README.md#export-app-code)
 for destination rules and symlinks.

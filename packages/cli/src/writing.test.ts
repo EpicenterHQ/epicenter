@@ -1,30 +1,38 @@
 /**
- * Copy an exported writing app from a committed repository through real CLI and MCP calls. Captures retain sources,
+ * Copy an exported writing app into a home through real CLI and MCP calls. Captures retain sources,
  * search reads bodies, and a stale edit cannot replace a note changed by another caller.
  * Also check that a missing Git identity leaves init retryable in a fresh home.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm } from 'node:fs/promises';
+import { cp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { connectMcp, fixture } from './runner.test-support.ts';
 import { writingSource } from './writing.test-support.ts';
 
 setDefaultTimeout(30_000);
 
+/**
+ * Take the exported writing app as `name`, the way the README says: copy its
+ * folder into apps/<name>/code and name its package for the app.
+ */
+async function take(f: Awaited<ReturnType<typeof fixture>>, name: string) {
+	const code = join(f.apps, name, 'code');
+	await cp(join(await writingSource(f), 'writing'), code, {
+		recursive: true,
+		verbatimSymlinks: true,
+	});
+	const file = join(code, 'package.json');
+	await writeFile(
+		file,
+		`${JSON.stringify({ ...(await Bun.file(file).json()), name }, null, 2)}\n`,
+	);
+}
+
 test('an exported writing app copied as journal captures and finds text, sources, and projects', async () => {
 	const f = await fixture();
 	try {
-		expect(
-			(
-				await f.run(
-					'new',
-					'journal',
-					'--from',
-					join(await writingSource(f), 'writing'),
-				)
-			).code,
-		).toBe(0);
+		await take(f, 'journal');
 		const added = await f.run(
 			'journal',
 			'add',
@@ -75,9 +83,6 @@ test('an exported writing app copied as journal captures and finds text, sources
 		});
 		expect(await build.exited).toBe(0);
 		expect(existsSync(join(code, 'ui/dist/index.html'))).toBe(true);
-		expect(
-			await readFile(join(f.apps, 'journal/code/SOURCE.md'), 'utf8'),
-		).toMatch(/^Commit: [0-9a-f]{40}$/m);
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}
@@ -86,16 +91,7 @@ test('an exported writing app copied as journal captures and finds text, sources
 test('MCP discovers the writing actions and refuses a stale body edit without losing newer text', async () => {
 	const f = await fixture();
 	try {
-		expect(
-			(
-				await f.run(
-					'new',
-					'writing',
-					'--from',
-					join(await writingSource(f), 'writing'),
-				)
-			).code,
-		).toBe(0);
+		await take(f, 'writing');
 		const { client, close } = await connectMcp(f);
 		try {
 			expect(
