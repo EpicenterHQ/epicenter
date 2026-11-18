@@ -115,10 +115,7 @@ describe('an app author', () => {
 			>
 		>();
 		assertType<
-			Equal<
-				In<Actions['edit']>,
-				{ id: string; old: string; new: string }
-			>
+			Equal<In<Actions['edit']>, { id: string; old: string; new: string }>
 		>();
 		// @ts-expect-error an edit names both old and new
 		() => made.actions.edit({ id: 'a', old: 'x' });
@@ -156,8 +153,7 @@ describe('an app author', () => {
 
 	test('an app is a function of its folder, and its actions are functions of their input', () => {
 		assertType<Equal<Parameters<typeof vocab>, [{ folder: Folder }]>>();
-		() =>
-			vocab({ folder: {} as Folder }).actions.create({ word: '你好' });
+		() => vocab({ folder: {} as Folder }).actions.create({ word: '你好' });
 		// @ts-expect-error an app is called with its folder
 		() => vocab();
 	});

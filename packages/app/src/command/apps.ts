@@ -79,7 +79,6 @@ async function isFile(path: string) {
 const appsIn = ({ folder }: Pick<EpicenterRoot, 'folder'>) =>
 	join(folder, 'apps');
 
-
 /** An entry's problems: it did not load, a read failed, or its `local/` could reach Git. */
 export type AppProblems = { entry: string; problems: string[] };
 
