@@ -50,7 +50,8 @@ and no account. Audio is never deleted unless the person asks.**
     recordings/k3x9.webm         audio, kept, sharing its record's id
     transcriptions/r7p2.md       one transcript of a recording
     settings.md                  the person's settings, as Markdown
-  recording/k3x9.webm            the take being recorded, until Stop places it
+  staging/                       files on their way into the folder: the take
+                                 being recorded, a note being saved
   local-transcription.json       the local engine's own state
 Keychain                         secrets: provider API keys, Epicenter's among them
 WebView localStorage             the rest of this computer's state: where the
@@ -69,8 +70,10 @@ Hugging Face cache               local models, shared with other programs
   (`app.fs_scope().is_allowed`). The default folder is granted by the app's
   capabilities. On the computer that runs the home, it may be
   `~/Epicenter/apps/whispering/data`: Whispering then writes its records
-  there and stays their one writer, the inside app reads them and writes
-  only its own data keys (ADR-0896), and the home's Git keeps the audio
+  there and stays their one writer. The inside app reads them and never
+  writes a file Whispering writes; anything it adds is its own file, named
+  by the recording's id, in a collection of its own (ADR-0896). The home's
+  Git keeps the audio
   through Git LFS (ADR-0856). When the folder is inside a Git repository
   with no LFS rule for `webm`, Settings says the audio would go into Git
   whole. The browser build's folder is always its OPFS directory.
@@ -189,39 +192,39 @@ Hugging Face cache               local models, shared with other programs
   browser-safe subpath, `@epicenter/app/markdown`, and Whispering imports
   it, so a note Whispering writes is one `epicenter check` reads.
 - `tauri-plugin-epicenter-folder` goes without a replacement.
-- **`write` replaces a file whole.** On the desktop it creates a new
-  temporary file beside the target (`.ep-<random>.save`), writes and syncs
-  it, renames it over the target, and syncs the directory. The rename
-  replaces the file in one step on macOS and Linux; on Windows it replaces
-  the file without that promise. Opening the folder removes a temporary
-  file a crash left. In a browser `write` uses `createWritable()`, whose
-  changes reach the file only when the stream closes. A failed write keeps
-  the unsaved text on screen and offers to retry.
-- **A take is recorded outside the folder, and the folder only ever holds
-  finished audio.** The recorder plugin keeps its capture and encoding
-  unchanged, and writes the take as it records into one fixed directory of
-  this computer's own, `recording/` in the app's local data directory. Stop
-  places it in the folder:
+- **The folder only ever receives finished files, each by one rename.**
+  Every file on its way into the folder waits in one directory of this
+  computer's own, `staging/` in the app's local data directory, and one
+  place step, shared by `files_write` and the recorder, moves it in. A
+  home's checkpoint (`git add -A`), Git LFS, a file syncer, and
+  Whispering's own listing therefore never see a half-written file. Only
+  when the folder is on another volume, where a rename cannot reach, does
+  the place step copy to a temporary file beside the target
+  (`.ep-<random>.save`), sync it, and rename that. Opening the folder
+  clears `staging/` of everything but takes.
+- **`write` replaces a file whole.** On the desktop it writes and syncs the
+  bytes in `staging/`, renames them over the target, and syncs the
+  directory. The rename replaces the file in one step on macOS and Linux;
+  on Windows it replaces the file without that promise. In a browser
+  `write` uses `createWritable()`, whose changes reach the file only when
+  the stream closes. A failed write keeps the unsaved text on screen and
+  offers to retry.
+- **A take is recorded in `staging/` and placed at Stop.** The recorder
+  plugin keeps its capture and encoding unchanged:
 
   ```ts
-  recorder.start({ dir, id, device }) // records into <appLocalDataDir>/recording/<id>.webm
+  recorder.start({ dir, id, device }) // records into <appLocalDataDir>/staging/<id>.webm
   recorder.stop()                     // → { id, durationMs }, placed at <dir>/recordings/<id>.webm
   recorder.recover({ dir })           // → { recovered, unplaced }: takes a crash cut short
   ```
 
-  Placing replaces nothing. On the same volume it is one rename that
-  refuses to replace; when the folder is on another volume, the recorder
-  copies the take to a temporary file beside the target, syncs it, renames
-  it the same way, and only then deletes the take. `start` refuses an id
-  whose audio or take already exists. If placing fails, `stop` answers
-  `Unplaced` and the take stays where it is, so nothing recorded is lost,
-  and `recover` places it later. The recorder and `files_write` share that
-  one place step, and the path check is the one `Files` uses. A growing
-  take never sits in the folder, so a home's checkpoint (`git add -A`),
-  Git LFS, a file syncer, and Whispering's own listing see only finished
-  files. In a browser the recorder keeps a take in memory and writes it
-  once at Stop through `Files`; a tab that crashes while recording loses
-  that take.
+  Placing a take replaces nothing: the rename refuses an existing target,
+  and `start` refuses an id whose audio or take already exists. If placing
+  fails, `stop` answers `Unplaced` and the take stays in `staging/`, so
+  nothing recorded is lost, and `recover` places it later. The path check
+  is the one `Files` uses. In a browser the recorder keeps a take in memory
+  and writes it once at Stop through `Files`; a tab that crashes while
+  recording loses that take.
 - **Whispering runs in one place at a time, so the app is one writer.** On
   the desktop, the Tauri single-instance plugin focuses the open window
   instead of starting a second. In a browser, the open tab holds a Web Lock
@@ -230,8 +233,8 @@ Hugging Face cache               local models, shared with other programs
   first tab closes. Nothing steals the lock, so nothing interrupts a
   recording.
 - **Another program may write the folder, so Whispering checks before it
-  replaces.** The folder can be the home's, or synced by iCloud Drive or
-  Syncthing. Whispering lists the folder again when its window regains
+  replaces.** A file syncer such as iCloud Drive or Syncthing may change a
+  note, and in a home a Git command such as a checkout or a revert may. Whispering lists the folder again when its window regains
   focus, and re-reads only the notes whose size or modified time changed.
   Before it replaces a note it re-reads the file; if the bytes differ from
   what it showed, it does not write, and shows the newer text.
@@ -330,6 +333,9 @@ none.
   a new hosted service with its own record.
 - A person using Whispering alone may sync its folder with iCloud Drive or
   Syncthing: no `.git`, and each file has its own id.
+- In a home, audio Whispering deletes stays in the home's Git history, so
+  "Delete audio older than…" frees space in the folder, not in the home.
+  Settings says so when the folder is inside a Git repository.
 - Removing Whispering's app data, through an uninstaller or a cleaner, loses
   the recordings and their audio. Settings and the README say so, and say
   where the folder is. ADR-0858 rejected the app data directory for this
@@ -397,6 +403,12 @@ none.
 - **A hidden staging directory inside the folder, with its own
   `.gitignore`.** A file Whispering plants in the person's folder, and a
   file syncer still uploads the growing take.
+- **A temporary file beside its target for every save.** A home's
+  checkpoint can commit it mid-write or after a crash; the home's own
+  writes stage in `local/.tmp/` for the same reason.
+- **The inside app writes its own fields into Whispering's notes.** Two
+  writers of one file, which a re-read before replacing narrows but does
+  not close.
 - **Staging in the home's `local/` directory beside the folder.** It exists
   only when the folder is a home's, and writes outside what the person
   picked.
