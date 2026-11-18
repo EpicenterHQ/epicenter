@@ -111,20 +111,18 @@ changed elsewhere offers Keep mine and Show the newer text. Leaving the page
 with unsaved typing asks first.
 
 Deleting a recording deletes its note, its audio, and its transcripts. It
-is refused while a request for it runs or its answer waits to be saved
-again, and while a transcript does not read (it might be this recording's).
+is refused while it is being transcribed, and while a transcript does not
+read (it might be this recording's).
 
 ### Transcription
 
 **Transcribe** sends the recording's audio to the transcription model and
 keeps the transcript as a new note when the answer arrives. Nothing is
 transcribed until you press it. While the request is out, the recording says
-so. If no answer comes, it says why with **Run again** (the same request, to
-the same endpoint and model, and only while that endpoint is still where it
-was) and
-**Dismiss**. When the answer arrives its transcript is saved. If it cannot
-be saved, the answer stays on screen with **Save again**, which writes it
-without a second request, and **Discard answer**.
+so. If no answer comes, or the transcript cannot be saved, it says why
+where you pressed it, with **Try again** (sends the recording's audio
+again, to the model chosen then) and **Dismiss**. Nothing is kept for a
+failed transcription.
 
 ### Under the recorder
 

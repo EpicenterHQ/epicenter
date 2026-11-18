@@ -3,9 +3,8 @@
  * the person exactly that, and delete those files.
  *
  * Deleting a recording removes its note, its audio, and its transcripts, in
- * Whispering's files. It is refused while a request for it runs or a
- * transcript of it is being kept, and while a transcript does not read,
- * since it might be this recording's.
+ * Whispering's files. It is refused while it is being transcribed, and
+ * while a transcript does not read, since it might be this recording's.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -18,7 +17,6 @@ import {
 	titleOf,
 	unnotedOf,
 } from './folder.js';
-import type { FolderQuery } from './folder-query.js';
 
 /** What a confirmed deletion removes, captured when the person was asked. */
 export type Deletion =
@@ -158,12 +156,17 @@ export function captureDeletion(
  * undefined.
  */
 export async function runDeletion(
-	query: Pick<FolderQuery, 'removeNote' | 'deleteAudio'>,
+	writes: {
+		/** Delete one note. */
+		deleteNote(note: NoteRef): Promise<Result<unknown, { message: string }>>;
+		/** Delete recording `id`'s audio. */
+		deleteAudio(id: string): Promise<Result<unknown, { message: string }>>;
+	},
 	snapshot: FolderSnapshot,
 	deletion: Deletion,
 ): Promise<string | undefined> {
 	const remove = async (note: NoteRef) =>
-		(await query.removeNote(note)).error?.message;
+		(await writes.deleteNote(note)).error?.message;
 	if (deletion.kind !== 'recording') return remove(deletedNote(deletion));
 	const { id } = deletion;
 	const { data: now, error } = resultsOf(snapshot, id);
@@ -178,7 +181,7 @@ export async function runDeletion(
 	}
 	const problem = await remove({ collection: 'recordings', id });
 	if (problem !== undefined) return problem;
-	return (await query.deleteAudio(id)).error?.message;
+	return (await writes.deleteAudio(id)).error?.message;
 }
 
 const count = (n: number, one: string, many: string) =>

@@ -1,39 +1,42 @@
 /**
- * One kind of Whispering's notes (`recordings/{id}.md` and the like) over
- * `Files` (ADR-0894). It keeps nothing between calls: `list()` lists the
- * kind's directory and reads every note in it in one `readMany`, and the
- * query layer (`folder-query.ts`) lists again after every write and when
- * the window regains focus. There is no watcher.
+ * Whispering's notes (`recordings/{id}.md` and the like) over `Files`
+ * (ADR-0894), every kind through one service: the kind is part of each
+ * call. It keeps nothing between calls: `list()` lists a kind's directory
+ * and reads every note in it in one `readMany`, and the query layer
+ * (`folder-query.ts`) lists again after every write and when the window
+ * regains focus. There is no watcher.
  *
  * Notes are read and written in the home's Markdown grammar
  * (`format/note.ts`, from `@epicenter/app/markdown`); each kind's fields
  * are declared in `format/folder.ts`.
  *
  * Another program may write the folder (a file syncer, a Git command in a
- * home), so a write never replaces what the person has not seen: it carries
- * the text that was shown (`seen`, from the listing's `texts`), reads the
- * file again first, and when the file differs it writes nothing and
- * answers `NoteError.Changed`; the next listing shows the newer text.
- *
- * The service does not order writes: callers write through the query
- * layer, whose mutations of one kind share a scope and so run one at a
- * time, in the order made.
+ * home). A change to a note's fields rewrites only those lines of the file
+ * as it is now, so it never loses what another program wrote. Only a write
+ * that replaces text the person typed (a body, or a repair's whole text)
+ * says what it replaces (`seen`), and when the file differs it writes
+ * nothing and answers `NoteError.Changed`; the next listing shows the
+ * newer text.
  */
 import type { Static, TObject } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
-	decode,
 	type Entry,
 	encode,
 	type Files,
 	type FilesError,
 } from './files/files.js';
-import { checkNote, fieldNamesOf, type NoteIssue } from './format/folder.js';
+import {
+	checkNote,
+	fieldNamesOf,
+	NOTES,
+	type NoteIssue,
+} from './format/folder.js';
 import { changeNote, newNote, parseNote } from './format/note.js';
 
 export const NoteError = defineErrors({
-	/** The file changed since it was shown, so nothing was written; the newer text is shown now. */
+	/** The text being replaced changed since it was shown, so nothing was written; the newer text is shown now. */
 	Changed: ({ path }: { path: string }) => ({
 		message: `${path} changed since it was shown, so this change was not saved. The newer text is shown now.`,
 		path,
@@ -50,6 +53,11 @@ export type NoteError = InferErrors<typeof NoteError>;
 /** Why a note write did not happen. */
 export type NoteWriteError = NoteError | FilesError;
 
+type Collections = typeof NOTES;
+
+/** The kinds of note with an id, by name. */
+export type NoteName = keyof Collections;
+
 /** A kind of note with an id: its notes are `<dir>/<id>.md`, with `fields`. */
 export type IdCollection = { readonly dir: string; readonly fields: TObject };
 
@@ -61,10 +69,22 @@ export type NoteOf<C extends IdCollection> = Flat<
 	{ id: string } & Static<C['fields']> & { body: string }
 >;
 
-/** What a note write changes: some fields (`undefined` removes one), the body, or both. */
+/** Fields of a note to change: those named take these values, and `undefined` removes one. */
+export type FieldPatch<C extends IdCollection> = Partial<Static<C['fields']>>;
+
+/** What an editor changes: some fields, the body, or both. */
 export type NotePatch<C extends IdCollection> = Partial<
 	Static<C['fields']> & { body: string }
 >;
+
+/**
+ * A new body for a note, and the body it replaces as the person saw it:
+ * null when there was no note.
+ */
+export type BodyChange = {
+	readonly seen: string | null;
+	readonly text: string;
+};
 
 /**
  * A note at one of a kind's paths that does not read: its front matter does
@@ -78,16 +98,11 @@ export type InvalidNote = {
 	readonly text: string | null;
 };
 
-/** A kind's notes as listed: those that read, those that do not, and the text of each. */
+/** A kind's notes as listed: those that read, and those that do not. */
 export type NoteListing<C extends IdCollection> = {
 	readonly items: readonly NoteOf<C>[];
 	readonly invalid: readonly InvalidNote[];
-	/** Each note's text as read, by id: what a write of it says was seen. */
-	readonly texts: Readonly<Record<string, string>>;
 };
-
-/** A note write's `seen`: the note's text as the person saw it, or null when none was shown. */
-type Seen = { seen: string | null };
 
 const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 /** A note's text, or null when its bytes are not UTF-8. */
@@ -119,137 +134,142 @@ export function readNote(
 	return { kind: 'note', ...checked.data };
 }
 
-/** The notes of `collection` over `files`. */
-export function createNotes<const C extends IdCollection>(
-	files: Files,
-	collection: C,
-) {
-	const { dir, fields } = collection;
-	const fieldNames = fieldNamesOf(fields);
-	const pathOf = (id: string) => `${dir}/${id}.md`;
+/** The fields `collection` declares, in its order. */
+export const fieldNamesFor = (collection: NoteName) =>
+	fieldNamesOf(NOTES[collection].fields);
 
-	/** The id a listed name in the directory is the note of, or null. A listing holds only plain names, so the stem is one. */
-	const idOf = (name: string) =>
-		name.endsWith('.md') ? name.slice(0, -'.md'.length) : null;
+/** The id a listed name in a kind's directory is the note of, or null. A listing holds only plain names, so the stem is one. */
+const idOf = (name: string) =>
+	name.endsWith('.md') ? name.slice(0, -'.md'.length) : null;
 
-	/**
-	 * Read note `id` again, and refuse when it is not what was `seen`:
-	 * the file's bytes now, or `Changed`.
-	 */
-	async function unchanged(
-		id: string,
-		seen: string | null,
-	): Promise<Result<Uint8Array | null, NoteWriteError>> {
-		const path = pathOf(id);
-		const read = await files.read(path);
-		if (read.error !== null) return Err(read.error);
-		const now = read.data === null ? null : decode(read.data);
-		if (now !== seen) return NoteError.Changed({ path });
-		return Ok(read.data);
-	}
+/** A note's path: `<dir>/<id>.md`. */
+const pathOf = (collection: NoteName, id: string) =>
+	`${NOTES[collection].dir}/${id}.md`;
 
-	async function write(id: string, bytes: Uint8Array | null) {
-		const path = pathOf(id);
+/** Every kind's notes over `files`. */
+export function createNotes(files: Files) {
+	async function write(path: string, text: string | null) {
 		const done =
-			bytes === null
+			text === null
 				? await files.remove(path)
-				: await files.write(path, bytes);
+				: await files.write(path, encode(text));
 		if (done.error !== null) return Err(done.error);
 		return Ok(undefined);
 	}
 
 	return {
-		/** The fields the kind declares, in its order. */
-		fieldNames,
 		/**
-		 * List the directory and read every note in it, in one `readMany`.
-		 * `listed` is the directory's listing when the caller has it.
+		 * List `collection`'s directory and read every note in it, in one
+		 * `readMany`. `listed` is the directory's listing when the caller has it.
 		 */
-		async list(
+		async list<K extends NoteName>(
+			collection: K,
 			listed?: readonly Entry[],
-		): Promise<Result<NoteListing<C>, FilesError>> {
+		): Promise<Result<NoteListing<Collections[K]>, FilesError>> {
 			let entries = listed;
 			if (entries === undefined) {
-				const list = await files.list(dir);
+				const list = await files.list(NOTES[collection].dir);
 				if (list.error !== null) return Err(list.error);
 				entries = list.data;
 			}
 			const ids = entries.flatMap((entry) => idOf(entry.name) ?? []);
-			const read = await files.readMany(ids.map(pathOf));
+			const read = await files.readMany(
+				ids.map((id) => pathOf(collection, id)),
+			);
 			if (read.error !== null) return Err(read.error);
-			const items: NoteOf<C>[] = [];
+			const items: NoteOf<Collections[K]>[] = [];
 			const invalid: InvalidNote[] = [];
-			const texts: Record<string, string> = {};
 			for (const id of ids) {
-				const path = pathOf(id);
+				const path = pathOf(collection, id);
 				const bytes = read.data.get(path);
 				// Removed between the listing and the read.
 				if (bytes === undefined) continue;
-				texts[id] = decode(bytes);
-				const note = readNote(fields, bytes);
+				const note = readNote(NOTES[collection].fields, bytes);
 				if (note.kind === 'note')
-					items.push({ ...note.fields, id, body: note.body } as NoteOf<C>);
+					items.push({ ...note.fields, id, body: note.body } as NoteOf<
+						Collections[K]
+					>);
 				else invalid.push({ id, path, issues: note.issues, text: note.text });
 			}
-			return Ok({ items, invalid, texts });
+			return Ok({ items, invalid });
 		},
 		/**
-		 * Give note `id` `changes`: the fields named take these values
-		 * (`undefined` removes one), the body is replaced when given, and the
-		 * rest stay. The note is made when none is there. Refused when the
-		 * file is not what was `seen`.
+		 * Give note `id` of `collection` `fields` (`undefined` removes one),
+		 * over the file as it is now; the rest stay. `body` replaces its body
+		 * when that is still the body seen, and is refused otherwise. The note
+		 * is made when none is there.
 		 */
-		async set({
+		async set<K extends NoteName>({
+			collection,
 			id,
-			seen,
-			changes,
-		}: Seen & {
+			fields = {},
+			body,
+		}: {
+			collection: K;
 			id: string;
-			changes: NotePatch<C>;
+			fields?: FieldPatch<Collections[K]>;
+			body?: BodyChange;
 		}): Promise<Result<undefined, NoteWriteError>> {
-			const path = pathOf(id);
-			const now = await unchanged(id, seen);
-			if (now.error !== null) return now;
-			const { body: newBody, ...named } = changes as Record<string, unknown>;
-			const body = typeof newBody === 'string' ? newBody : undefined;
-			if (now.data === null)
-				return write(id, encode(newNote(named, body ?? '', fieldNames)));
+			const path = pathOf(collection, id);
+			const read = await files.read(path);
+			if (read.error !== null) return Err(read.error);
+			const named = fields as Record<string, unknown>;
+			if (read.data === null) {
+				if (body !== undefined && body.seen !== null)
+					return NoteError.Changed({ path });
+				return write(
+					path,
+					newNote(named, body?.text ?? '', fieldNamesFor(collection)),
+				);
+			}
 			// A note whose fields do not fit still reads, and takes the change.
-			const text = textOf(now.data);
-			const parsed = text === null ? null : parseNote(text);
-			if (text === null || parsed === null)
+			const text = textOf(read.data);
+			if (text === null)
 				return NoteError.Unreadable({
 					path,
 					reason: 'The note is not UTF-8 text',
 				});
+			const parsed = parseNote(text);
 			if (parsed.error !== null)
 				return NoteError.Unreadable({ path, reason: parsed.error.reason });
-			return write(id, encode(changeNote(text, named, body)));
+			if (body !== undefined && parsed.data.body !== body.seen)
+				return NoteError.Changed({ path });
+			return write(path, changeNote(text, named, body?.text));
 		},
-		/** Write `text` as note `id`, as typed: a repair. It lists as invalid while it does not read. */
+		/**
+		 * Write `text` as note `id`, as typed: a repair. Refused when the file
+		 * is no longer the text `seen` (null for a note that is not UTF-8). It
+		 * lists as invalid while it does not read.
+		 */
 		async replace({
+			collection,
 			id,
 			seen,
 			text,
-		}: Seen & {
+		}: {
+			collection: NoteName;
 			id: string;
+			seen: string | null;
 			text: string;
 		}): Promise<Result<undefined, NoteWriteError>> {
-			const now = await unchanged(id, seen);
-			if (now.error !== null) return now;
-			return write(id, encode(text));
+			const path = pathOf(collection, id);
+			const read = await files.read(path);
+			if (read.error !== null) return Err(read.error);
+			if (read.data === null || textOf(read.data) !== seen)
+				return NoteError.Changed({ path });
+			return write(path, text);
 		},
-		/** Remove note `id`. One already gone is gone. */
+		/** Remove note `id` of `collection`. One already gone is gone. */
 		async delete({
+			collection,
 			id,
-			seen,
-		}: Seen & { id: string }): Promise<Result<undefined, NoteWriteError>> {
-			const now = await unchanged(id, seen);
-			if (now.error !== null) return now;
-			if (now.data === null) return Ok(undefined);
-			return write(id, null);
+		}: {
+			collection: NoteName;
+			id: string;
+		}): Promise<Result<undefined, FilesError>> {
+			return write(pathOf(collection, id), null);
 		},
 	};
 }
 
-export type Notes<C extends IdCollection> = ReturnType<typeof createNotes<C>>;
+export type Notes = ReturnType<typeof createNotes>;

@@ -100,7 +100,6 @@
 	const order = $derived(orders.find(({ sort }) => orderValue(sort) === orderValue(ui.recordingSort)));
 
 	const statusTone: Record<RecordingStatus, string> = {
-		failed: 'text-destructive',
 		transcribing: 'text-foreground',
 		untranscribed: 'text-muted-foreground',
 		transcribed: 'text-muted-foreground',

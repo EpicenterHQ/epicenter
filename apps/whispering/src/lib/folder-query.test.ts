@@ -4,10 +4,11 @@
  *
  * Key behaviors:
  * - An outside edit shows when the window regains focus
- * - A write is refused when the file changed since it was shown: nothing is
- *   written, and the newer text shows once the write settles
- * - Writes to one kind run one at a time, in the order made; another kind's
- *   writes do not wait for them
+ * - A field change is written over the file as it is now, keeping what
+ *   another program wrote, and settles once the folder on screen shows it
+ * - A body typed over a body changed on disk writes nothing, and the newer
+ *   text shows once the write settles
+ * - The folder's writes run one at a time, in the order made
  * - A read that a write overtakes never shows older data than the write
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -21,8 +22,12 @@ import { openPage } from './services.test-support.js';
 const ID = '2026-11-01T09-00-00-000Z-standup1';
 const OTHER = '2026-11-02T09-00-00-000Z-standup2';
 const PATH = `recordings/${ID}.md`;
-const note = (title: string) =>
-	`---\ntitle: "${title}"\nrecordedAt: "2026-11-01T09:00:00.000Z"\n---\n`;
+const note = (title: string, body = '') =>
+	`---\ntitle: "${title}"\nrecordedAt: "2026-11-01T09:00:00.000Z"\n---\n${body}`;
+const text = async (files: Files, path: string) =>
+	new TextDecoder().decode(
+		expectOk(await files.read(path)) ?? new Uint8Array(),
+	);
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -73,28 +78,52 @@ test('an outside edit shows when the window regains focus', async () => {
 	await until(() => titleOf(page, ID) === 'Edited elsewhere');
 });
 
-test('a write over a note that changed since it was shown writes nothing, and the newer text shows', async () => {
+test('a field change over a note changed on disk keeps what the other program wrote', async () => {
 	const files = memoryFiles({ [PATH]: encode(note('Standup')) });
 	const page = await open(files);
-	const shown = page.query.snapshot()?.recordings.texts[ID] ?? null;
-	expectOk(await files.write(PATH, encode(note('Edited elsewhere'))));
+	expectOk(await files.write(PATH, encode(note('Standup', 'their notes\n'))));
+
+	expectOk(
+		await runMutation(page.query.queryClient, page.query.noteMutations.set, {
+			collection: 'recordings',
+			id: ID,
+			fields: { title: 'Mine' },
+		}),
+	);
+
+	expect(await text(files, PATH)).toBe(note('Mine', 'their notes\n'));
+	// The write stayed pending until the folder on screen was read again.
+	expect(titleOf(page, ID)).toBe('Mine');
+	expect(
+		page.query.snapshot()?.recordings.items.find((item) => item.id === ID)
+			?.body,
+	).toBe('their notes\n');
+});
+
+test('a body typed over a body changed on disk writes nothing, and the newer text shows', async () => {
+	const files = memoryFiles({ [PATH]: encode(note('Standup', 'notes\n')) });
+	const page = await open(files);
+	expectOk(await files.write(PATH, encode(note('Standup', 'their notes\n'))));
 
 	const { error } = await runMutation(
 		page.query.queryClient,
-		page.query.noteMutations.recordings.set,
-		{ id: ID, seen: shown, changes: { title: 'Mine' } },
+		page.query.noteMutations.set,
+		{
+			collection: 'recordings',
+			id: ID,
+			body: { seen: 'notes\n', text: 'my notes\n' },
+		},
 	);
 
 	expect(error?.name).toBe('Changed');
-	const now = expectOk(await files.read(PATH));
-	expect(new TextDecoder().decode(now ?? new Uint8Array())).toBe(
-		note('Edited elsewhere'),
-	);
-	// The write stayed pending until the folder on screen was read again.
-	expect(titleOf(page, ID)).toBe('Edited elsewhere');
+	expect(await text(files, PATH)).toBe(note('Standup', 'their notes\n'));
+	expect(
+		page.query.snapshot()?.recordings.items.find((item) => item.id === ID)
+			?.body,
+	).toBe('their notes\n');
 });
 
-test('writes to one kind run one at a time in the order made, and another kind does not wait', async () => {
+test('the folder’s writes run one at a time, in the order made', async () => {
 	const inner = memoryFiles({
 		[PATH]: encode(note('Standup')),
 		[`recordings/${OTHER}.md`]: encode(note('Retro')),
@@ -114,47 +143,46 @@ test('writes to one kind run one at a time in the order made, and another kind d
 		},
 	};
 	const page = await open(files);
-	const { queryClient, noteMutations, snapshot } = page.query;
-	const seen = (id: string) => snapshot()?.recordings.texts[id] ?? null;
+	const { queryClient, noteMutations } = page.query;
 	events.length = 0;
 
-	const first = runMutation(queryClient, noteMutations.recordings.set, {
+	const first = runMutation(queryClient, noteMutations.set, {
+		collection: 'recordings',
 		id: ID,
-		seen: seen(ID),
-		changes: { title: 'First' },
+		fields: { title: 'First' },
 	});
-	const second = runMutation(queryClient, noteMutations.recordings.set, {
+	const second = runMutation(queryClient, noteMutations.set, {
+		collection: 'recordings',
 		id: OTHER,
-		seen: seen(OTHER),
-		changes: { title: 'Second' },
+		fields: { title: 'Second' },
 	});
-	const transcript = runMutation(
-		queryClient,
-		noteMutations.transcriptions.set,
-		{
-			id: 'tx1',
-			seen: null,
-			changes: {
-				recordingId: ID,
-				createdAt: '2026-11-01T09:01:00.000Z',
-				model: 'whisper-1',
-				endpoint: 'stub',
-				body: 'a steady tone\n',
-			},
+	const transcript = runMutation(queryClient, noteMutations.set, {
+		collection: 'transcriptions',
+		id: 'tx1',
+		fields: {
+			recordingId: ID,
+			createdAt: '2026-11-01T09:01:00.000Z',
+			model: 'whisper-1',
+			endpoint: 'stub',
 		},
-	);
-	expectOk(await transcript);
+		body: { seen: null, text: 'a steady tone\n' },
+	});
 
-	// The first write is held; the second has not even read its note.
-	expect(events).toContain(`write ${PATH}`);
+	// The first write is held; the others have not even read their notes.
+	await until(() => events.includes(`write ${PATH}`));
+	await Bun.sleep(10);
 	expect(events).not.toContain(`read recordings/${OTHER}.md`);
-	expect(events).toContain('write transcriptions/tx1.md');
+	expect(events).not.toContain('read transcriptions/tx1.md');
 
 	held.open();
 	expectOk(await first);
 	expectOk(await second);
-	const order = events.filter((event) => event.startsWith('write recordings/'));
-	expect(order).toEqual([`write ${PATH}`, `write recordings/${OTHER}.md`]);
+	expectOk(await transcript);
+	expect(events.filter((event) => event.startsWith('write '))).toEqual([
+		`write ${PATH}`,
+		`write recordings/${OTHER}.md`,
+		'write transcriptions/tx1.md',
+	]);
 	expect(titleOf(page, ID)).toBe('First');
 	expect(titleOf(page, OTHER)).toBe('Second');
 });
@@ -177,8 +205,7 @@ test('a read that a finished write overtakes never shows older data than the wri
 		},
 	};
 	const page = await open(files);
-	const { queryClient, noteMutations, snapshot } = page.query;
-	const shown = snapshot()?.recordings.texts[ID] ?? null;
+	const { queryClient, noteMutations } = page.query;
 
 	// A read starts, takes the old note, and is held there.
 	const late = gate();
@@ -187,10 +214,10 @@ test('a read that a finished write overtakes never shows older data than the wri
 	await reading.opened;
 
 	expectOk(
-		await runMutation(queryClient, noteMutations.recordings.set, {
+		await runMutation(queryClient, noteMutations.set, {
+			collection: 'recordings',
 			id: ID,
-			seen: shown,
-			changes: { title: 'Renamed' },
+			fields: { title: 'Renamed' },
 		}),
 	);
 	expect(titleOf(page, ID)).toBe('Renamed');

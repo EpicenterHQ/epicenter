@@ -23,15 +23,10 @@ import {
 } from './folder.js';
 import type { Library } from './library.svelte.js';
 
-export type RecordingStatus =
-	| 'transcribing'
-	| 'failed'
-	| 'transcribed'
-	| 'untranscribed';
+export type RecordingStatus = 'transcribing' | 'transcribed' | 'untranscribed';
 
 /** What the table says for each status, and the order the Status column sorts in. */
 export const STATUS_LABELS: Record<RecordingStatus, string> = {
-	failed: 'Transcription failed',
 	transcribing: 'Transcribing',
 	untranscribed: 'Not transcribed',
 	transcribed: 'Transcribed',
@@ -64,14 +59,11 @@ export const DEFAULT_SORT: RecordingSort = {
 
 type Source = Pick<
 	Library,
-	'entries' | 'resultsFor' | 'transcriptionRun' | 'audioOf'
+	'entries' | 'resultsFor' | 'transcribing' | 'audioOf'
 >;
 
 function statusOf(whispering: Source, id: string): RecordingStatus {
-	const state = whispering.transcriptionRun(id)?.state;
-	if (state?.kind === 'running' || state?.kind === 'saving')
-		return 'transcribing';
-	if (state !== undefined) return 'failed';
+	if (whispering.transcribing(id)) return 'transcribing';
 	return whispering.resultsFor(id).length > 0 ? 'transcribed' : 'untranscribed';
 }
 
@@ -323,18 +315,9 @@ export async function transcribeRows(
 			skip('More than one audio file has its id. Keep one.');
 		else if (audio?.kind !== 'here') skip('Its audio cannot be read here.');
 		else {
-			const refused = await whispering.transcribe(id);
-			const state = whispering.transcriptionRun(id)?.state;
-			if (whispering.resultsFor(id).length > 0) outcome.transcribed.push(title);
-			else
-				outcome.failed.push({
-					title,
-					reason:
-						refused ??
-						(state?.kind === 'failed'
-							? state.message
-							: 'No transcript is listed for it. Open the recording to see why.'),
-				});
+			const { error } = await whispering.transcribe(id);
+			if (error === null) outcome.transcribed.push(title);
+			else outcome.failed.push({ title, reason: error.message });
 		}
 		onProgress?.(++done);
 	}

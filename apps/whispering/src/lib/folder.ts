@@ -17,11 +17,12 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import type { Entry, Files, FilesError } from './files/files.js';
-import { NOTES } from './format/folder.js';
+import type { NOTES } from './format/folder.js';
 import { timeOf } from './format/ids.js';
 import {
 	createNotes,
 	type NoteListing,
+	type NoteName,
 	type NoteOf,
 	type NoteWriteError,
 } from './notes.js';
@@ -33,8 +34,7 @@ import {
 
 type Collections = typeof NOTES;
 
-/** The kinds of note with an id, by name. */
-export type NoteName = keyof Collections;
+export type { NoteName } from './notes.js';
 
 /** A note of `name` as the lists show it: its fields and body. */
 type Listed<TName extends NoteName> = NoteOf<Collections[TName]>;
@@ -102,7 +102,7 @@ export type FolderSnapshot = {
 	readonly settings: SettingsSnapshot;
 };
 
-const NO_NOTES = { items: [], invalid: [], texts: {} } as const;
+const NO_NOTES = { items: [], invalid: [] } as const;
 
 /** The folder before its first read answers: nothing in it. */
 export const EMPTY_FOLDER: FolderSnapshot = {
@@ -175,10 +175,7 @@ export const audioSizeOf = (snapshot: Pick<FolderSnapshot, 'audio'>) =>
 
 /** Whispering's folder over `files`. */
 export function openFolder(files: Files) {
-	const notes = {
-		recordings: createNotes(files, NOTES.recordings),
-		transcriptions: createNotes(files, NOTES.transcriptions),
-	};
+	const notes = createNotes(files);
 	const settings = createSettings(files);
 
 	async function listAudio(): Promise<Result<AudioFile[], FilesError>> {
@@ -203,7 +200,7 @@ export function openFolder(files: Files) {
 	}
 
 	return {
-		/** Each kind's notes. */
+		/** Every kind's notes. */
 		notes,
 		/** `settings.md`. */
 		settings,
@@ -212,8 +209,8 @@ export function openFolder(files: Files) {
 			const listed = await files.list(RECORDINGS);
 			if (listed.error !== null) return Err(listed.error);
 			const [recordings, transcriptions, read] = await Promise.all([
-				notes.recordings.list(listed.data),
-				notes.transcriptions.list(),
+				notes.list('recordings', listed.data),
+				notes.list('transcriptions'),
 				settings.read(),
 			]);
 			for (const result of [recordings, transcriptions, read])
@@ -224,6 +221,12 @@ export function openFolder(files: Files) {
 				settings: read.data!,
 				audio: listed.data.flatMap((entry) => audioFileOf(entry) ?? []),
 			});
+		},
+		/** Where recording `id`'s audio is now, from a fresh listing. */
+		async findAudio(id: string): Promise<Result<RecordingAudio, FilesError>> {
+			const audio = await listAudio();
+			if (audio.error !== null) return audio;
+			return Ok(audioOf({ audio: audio.data }, id));
 		},
 		/** The bytes of `file`, a recording's audio. */
 		async readAudio(file: AudioFile): Promise<Result<AudioBytes, string>> {
@@ -256,7 +259,7 @@ export function openFolder(files: Files) {
 			const before = cutoff.toISOString();
 			const listed = await files.list(RECORDINGS);
 			if (listed.error !== null) return Err(listed.error);
-			const noted = await notes.recordings.list(listed.data);
+			const noted = await notes.list('recordings', listed.data);
 			if (noted.error !== null) return Err(noted.error);
 			const byId = new Map(noted.data.items.map((note) => [note.id, note]));
 			const invalid = new Set(noted.data.invalid.map(({ id }) => id));
@@ -267,10 +270,10 @@ export function openFolder(files: Files) {
 					old.set(file.id, file);
 			for (const [id, file] of old) {
 				if (!byId.has(id) && !invalid.has(id)) {
-					const made = await notes.recordings.set({
+					const made = await notes.set({
+						collection: 'recordings',
 						id,
-						seen: null,
-						changes: { title: '', recordedAt: recordedAtOf(file) },
+						fields: { title: '', recordedAt: recordedAtOf(file) },
 					});
 					if (made.error !== null) return Err(made.error);
 				}

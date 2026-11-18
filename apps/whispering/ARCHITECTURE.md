@@ -18,7 +18,7 @@ src/lib/settings.ts          settings.md: the transcription model, the connectio
 src/lib/folder.ts            the folder: one read of every note, settings and the audio
 src/lib/folder-query.ts      the page's QueryClient over the folder: one query, writes as mutations
 src/lib/note-editor.svelte.ts one note as an editor: typing, its save, and a failed save kept
-src/lib/runs.svelte.ts       transcriptions in this window, until their answer is saved
+src/lib/runs.ts              a transcription: find the audio, send it, write the transcript
 src/lib/this-computer.ts     what stays on this computer: localStorage, secrets, the request fetch
 src/lib/app.ts               the capabilities, opened once: folder, ai, speech, recorder, shortcut
 src/lib/whispering.svelte.ts models, microphone, recorder: Whispering over the capabilities
@@ -80,18 +80,20 @@ as the person types.
 The services keep nothing between calls, return `Result`s, and are not
 Svelte.
 
-- `createNotes` (`notes.ts`) is one collection. `list()` lists its
-  directory and reads every note in one `readMany`: the notes that read,
-  those that do not (with why and their text), and each note's text by
-  id. `set({ id, seen, changes })` merges fields and body into the note;
-  `replace({ id, seen, text })` writes text as typed, for repair;
-  `delete({ id, seen })` removes it. `seen` is the note's text as the
-  person saw it: each write reads the file first and refuses with
-  `NoteError.Changed`, writing nothing, when it differs.
-- `createSettings` (`settings.ts`) is `settings.md`, with the same `seen`
-  check before each write: the transcription model, the connections (never
-  a key), and the shortcut. A `settings.md` that does not read is named in
-  Settings and replaced by the next save.
+- `createNotes` (`notes.ts`) is every kind of note; the kind is part of
+  each call. `list(collection)` lists its directory and reads every note
+  in one `readMany`: the notes that read, and those that do not (with why
+  and their text). `set({ collection, id, fields, body })` rewrites only
+  the named fields' lines over the file as it is now, and makes the note
+  when there is none; `body` is `{ seen, text }`, refused with
+  `NoteError.Changed`, writing nothing, when the body is no longer `seen`.
+  `replace({ collection, id, seen, text })` writes text as typed, for
+  repair, refused the same way when the file is no longer `seen`.
+  `delete({ collection, id })` removes it.
+- `createSettings` (`settings.ts`) is `settings.md`: the transcription
+  model, the connections (never a key), and the shortcut. A change rewrites
+  only its key's line over the file as it is now. A `settings.md` that does
+  not read is named in Settings and replaced by the next save.
 - `openFolder` (`folder.ts`) reads the whole folder as one snapshot: the
   two collections, the settings, and the audio in `recordings/`. A
   recording is its id: `unnotedOf` lists audio no note names as an
@@ -107,9 +109,10 @@ Svelte.
   that a write overtakes is cancelled, so the folder shown is never older
   than a finished write. It is read again when the window regains focus,
   since another program may write the folder.
-- Every write is a mutation. A kind's writes share a `scope`, so they run
-  one at a time in the order made. `setNote` and `removeNote` take `seen`
-  from the snapshot shown.
+- Every write is a mutation: `noteMutations`, `audioMutations` and the
+  settings' are the services' functions through `resultMutations`, with
+  nothing added. They share one `scope` (a default by key prefix), so the
+  folder's writes run one at a time in the order made.
 - `settings` reads `settings.md` from the query's answer for code that is
   not a component (the connections `ai` merges, the shortcut, the model
   choices), says when it changes, and writes through the client.
@@ -118,8 +121,10 @@ Svelte.
 purpose: what the person typed belongs to the page until it is saved.
 Field accessors save 300 ms after typing, one save at a time. A failed
 save keeps the typing and says why (`problem()`), with `retry()` and
-`discard()`; after `Changed` the newer note shows under the typing and
-nothing saves until the person picks one (`SaveProblem.svelte`).
+`discard()`. A field saves over the file as it is now. A typed body says
+which body it replaces (the one shown when typing began); after `Changed`
+the newer note shows under the typing and nothing saves until the person
+picks one (`SaveProblem.svelte`).
 `unsaved()` counts editors holding typing, which the root's leave guard
 reads.
 
@@ -195,15 +200,20 @@ one owner of at most one open microphone. The choice is in `localStorage`
 
 ## Requests and results
 
-`runs.svelte.ts` owns transcriptions. A run is keyed by the recording it
-transcribes, so the same run does not go twice at once, and gets its
-result's id and its target (the endpoint and model chosen then) when it
-starts. Sending is a plain call; saving the answer is a note write through
-the folder query. Its state lives in this window as Svelte state, like an
-editor's typing, until the answer is saved: `running`, `saving`, `failed` (Run
-again sends the same request to the same target, and refuses when that
-endpoint was removed or moved), or `unsaved` (the answer arrived and its
-note could not be written; Save again writes it and sends nothing).
+`runs.ts`'s `transcribe({ recordingId })` is one service function that
+answers one `Result`: it chooses the target (the endpoint and model chosen
+now), finds the recording's audio, sends it, and writes the transcript as
+a new note. The library wraps it as a mutation (`resultMutations(['runs'],
+...)`). A component that starts one shows its error, with a toast, and
+Try again calls `mutate` with the same variables; nothing is kept for a
+failed run, and a failure does not follow the person to another page. An
+answer whose transcript cannot be written fails the same way. Which
+recordings are being transcribed is read from the mutation cache
+(`useMutationState`), so a run started anywhere shows everywhere. The
+service refuses a second run of the same recording while one is out, and
+deleting a recording while it is transcribed; it decides that
+synchronously, because a mutation's pending status is set only after it
+starts.
 
 Transcription reads the audio only once the target's endpoint is known to
 be where it was, and checks again before it sends (`inference.ts`).
@@ -239,8 +249,8 @@ Whispering's files, logs or errors.
 `deletion.ts` captures what a deletion removes from what the lists show, for
 the person to confirm, then deletes exactly that, stopping at the first
 failure. A recording takes its transcripts, its note if it has one, then
-its audio. It is refused while a run for it is under way or waits to be
-saved again, and while any transcript does not read.
+its audio. It is refused while it is being transcribed, and while any
+transcript does not read.
 
 ## Settings and export
 

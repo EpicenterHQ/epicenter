@@ -24,6 +24,7 @@
  */
 import type { Ai, ModelChoice } from '@epicenter/ai';
 import { createContext } from 'svelte';
+import { runMutation } from 'wellcrafted/query';
 import type { Result } from 'wellcrafted/result';
 import type { Capture, CaptureDevice } from './capture.js';
 import type { FolderQuery, Settings } from './folder-query.js';
@@ -70,7 +71,7 @@ function defaultTitle(at: Date): string {
 /** What Whispering is made over: the capabilities `src/lib/app.ts` opened, or a test's. */
 export type WhisperingCapabilities = {
 	/** Whispering's folder as the page's client writes it: every recording's note goes through it. */
-	readonly query: Pick<FolderQuery, 'setNote' | 'reread'>;
+	readonly query: Pick<FolderQuery, 'queryClient' | 'noteMutations' | 'reread'>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
 	/** The model chosen for each job, in `settings.md`. */
@@ -213,10 +214,14 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		}
 		// The audio is at its path, so its note goes after it; writing the
 		// note reads the folder again, the audio with it.
-		const kept = await query.setNote('recordings', take.id, {
-			title: defaultTitle(at),
-			recordedAt: at.toISOString(),
-			durationMs: Math.max(0, Math.round(stopped.durationMs)),
+		const kept = await runMutation(query.queryClient, query.noteMutations.set, {
+			collection: 'recordings',
+			id: take.id,
+			fields: {
+				title: defaultTitle(at),
+				recordedAt: at.toISOString(),
+				durationMs: Math.max(0, Math.round(stopped.durationMs)),
+			},
 		});
 		if (kept.error !== null && !disposed)
 			recorderError = `The recording's audio is saved, but its note was not: ${kept.error.message} It is listed as an untitled recording.`;

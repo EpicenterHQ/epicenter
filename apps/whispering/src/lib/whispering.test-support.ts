@@ -28,7 +28,7 @@ export async function createTestWhispering({
 		library.repairs,
 		library.transcriptions,
 		library.entries.map((note) => library.audioOf(note.id)),
-		library.entries.map((note) => library.transcriptionRun(note.id)),
+		library.entries.map((note) => library.transcribing(note.id)),
 	]);
 	return {
 		/** The folder the app reads and writes, as `app.ts`'s. */

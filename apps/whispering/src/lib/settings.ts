@@ -6,11 +6,11 @@
  * alone reads and writes it.
  *
  * `read()` reads it; the query layer reads it with the rest of the folder.
- * Nothing is kept between calls. A change carries the text that was shown
- * (`seen`, the snapshot's `text`), reads the file again first and, when it
- * differs, writes nothing and answers `NoteError.Changed`; the next read
- * shows the newer settings. A `settings.md` that does not read is named
- * (`problem`), its values are not used, and saving a setting replaces it.
+ * Nothing is kept between calls. A change reads the file first and
+ * rewrites only the lines of the keys it changes, so what another program
+ * wrote to the other keys stays. A `settings.md` that does not read is
+ * named (`problem`), its values are not used, and saving a setting
+ * replaces it.
  */
 import type { ConnectionRecord, ModelChoice } from '@epicenter/ai';
 import type { Static } from 'typebox';
@@ -19,7 +19,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { decode, encode, type Files, type FilesError } from './files/files.js';
 import { fieldNamesOf, SETTINGS } from './format/folder.js';
 import { changeNote, newNote } from './format/note.js';
-import { NoteError, type NoteWriteError, readNote } from './notes.js';
+import { readNote } from './notes.js';
 
 const SETTINGS_PATH = SETTINGS.path;
 
@@ -54,7 +54,7 @@ export type SettingsSnapshot = {
 	readonly body: string;
 	/** Why it does not read, or null. */
 	readonly problem: string | null;
-	/** The file's text as read, which a change says it saw; null when there is no file. */
+	/** The file's text as read; null when there is no file. */
 	readonly text: string | null;
 };
 
@@ -85,9 +85,6 @@ function snapshotOf(bytes: Uint8Array | null): SettingsSnapshot {
 	};
 }
 
-/** A settings change's `seen`: `settings.md`'s text as shown, or null when there was none. */
-type Seen = { seen: string | null };
-
 /** The choice for `job` in `settings`, or why there is none. */
 export function chosenIn(
 	settings: SettingsSnapshot,
@@ -114,18 +111,13 @@ export const connectionsIn = (
 export function createSettings(files: Files) {
 	const fieldNames = fieldNamesOf(SETTINGS.fields);
 
-	/**
-	 * Change the settings with `change`, over what `settings.md` holds now,
-	 * unless it is not what was `seen`.
-	 */
+	/** Change the settings with `change`, over what `settings.md` holds now. */
 	async function update(
-		seen: string | null,
 		change: (now: SettingsFields) => SettingsFields,
-	): Promise<Result<undefined, NoteWriteError>> {
+	): Promise<Result<undefined, FilesError>> {
 		const read = await files.read(SETTINGS_PATH);
 		if (read.error !== null) return Err(read.error);
 		const now = snapshotOf(read.data);
-		if (now.text !== seen) return NoteError.Changed({ path: SETTINGS_PATH });
 		const before: Record<string, unknown> = now.fields ?? {};
 		const after: Record<string, unknown> = change(now.fields ?? {});
 		// Only the lines of the keys that changed are rewritten; one that
@@ -157,8 +149,8 @@ export function createSettings(files: Files) {
 			return Ok(snapshotOf(read.data));
 		},
 		/** Choose `choice` for `job`; replaces a `settings.md` that does not read. */
-		setChoice({ seen, job, choice }: Seen & { job: Job; choice: ModelChoice }) {
-			return update(seen, (now) => ({
+		setChoice({ job, choice }: { job: Job; choice: ModelChoice }) {
+			return update((now) => ({
 				...now,
 				models: {
 					...now.models,
@@ -168,19 +160,18 @@ export function createSettings(files: Files) {
 		},
 		/** Keep `connections` as the person's connections. */
 		setConnections({
-			seen,
 			connections,
-		}: Seen & {
+		}: {
 			connections: readonly ConnectionRecord[];
 		}) {
-			return update(seen, (now) => ({
+			return update((now) => ({
 				...now,
 				connections: connections.map((record) => ({ ...record })),
 			}));
 		},
 		/** Make `key` the global shortcut. */
-		setShortcut({ seen, key }: Seen & { key: string }) {
-			return update(seen, (now) => ({ ...now, shortcut: key }));
+		setShortcut({ key }: { key: string }) {
+			return update((now) => ({ ...now, shortcut: key }));
 		},
 	};
 }

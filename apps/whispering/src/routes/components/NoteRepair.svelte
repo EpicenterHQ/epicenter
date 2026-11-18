@@ -23,10 +23,8 @@
 
 	/** The text as the person changed it; until then the note's. */
 	let typed = $state<string | null>(null);
-	/** Writes the text as typed, in the scope of its kind's writes. */
-	const replaceNote = createMutation(
-		() => query.noteMutations[repair.collection].replace,
-	);
+	/** Writes the text as typed, one at a time with the folder's other writes. */
+	const replaceNote = createMutation(() => query.noteMutations.replace);
 
 	const text = $derived(typed ?? repair.text ?? '');
 	/** What is wrong with the text as it stands, each with its line when it has one. */
@@ -41,7 +39,7 @@
 	function save() {
 		const saved = text;
 		replaceNote.mutate(
-			{ id: repair.id, seen: repair.text, text: saved },
+			{ collection: repair.collection, id: repair.id, seen: repair.text, text: saved },
 			{
 				onSuccess: () => {
 					if (typed === saved) typed = null;

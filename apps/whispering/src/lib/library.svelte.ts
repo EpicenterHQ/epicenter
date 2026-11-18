@@ -7,17 +7,22 @@
  * read are listed to edit; the rest are named, with why and their text, for
  * repair. A recording's audio with no note lists as an untitled recording.
  * Nothing here holds text ahead of the folder: what a person types is an
- * editor's (`note-editor.svelte.ts`), an answer not yet saved is its run's
- * (`runs.svelte.ts`), and a write that fails says why.
+ * editor's (`note-editor.svelte.ts`), and a write that fails says why.
+ *
+ * A transcription is a mutation over the runs service (`runs.ts`): which
+ * recordings are being transcribed is read from the mutation cache, so a
+ * run started anywhere shows everywhere. A failed run is its mutation's
+ * error, shown where it was started.
  *
  * The library is made when the app's pages open and let go when they
  * close. Leaving waits for nothing and refuses nothing: a run under way
  * still keeps its answer in the files, unless Whispering itself is closing.
  */
 
-import { createQuery } from '@tanstack/svelte-query';
+import { createQuery, useMutationState } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
+import { resultMutations, runMutation } from 'wellcrafted/query';
 import { Err, type Result } from 'wellcrafted/result';
 import {
 	captureDeletion,
@@ -41,15 +46,13 @@ import {
 } from './folder.js';
 import type { FolderQuery } from './folder-query.js';
 import type { NOTES } from './format/folder.js';
-import { timeId } from './format/ids.js';
 import { editNote, type NoteEditor } from './note-editor.svelte.js';
-import type { NotePatch } from './notes.js';
+import { fieldNamesFor, type NotePatch } from './notes.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
-import { createRuns } from './runs.svelte.js';
+import { createRuns } from './runs.js';
 import type { Whispering } from './whispering.svelte.js';
 
 export type { AudioFile, RecordingAudio } from './folder.js';
-export type { Run } from './runs.svelte.js';
 
 type Collections = typeof NOTES;
 
@@ -72,10 +75,6 @@ const repairsOf = <TName extends NoteName>(
 
 const BEING_DELETED = 'This recording is being deleted.';
 
-/** A transcription's key, by the recording it transcribes. */
-const transcriptionKey = (recordingId: string) =>
-	`transcriptions:${recordingId}`;
-
 export function createLibrary({
 	whispering,
 	query,
@@ -86,7 +85,13 @@ export function createLibrary({
 	query: FolderQuery;
 }) {
 	const { refused } = whispering;
-	const { queryClient: client, folder, folderQueries } = query;
+	const {
+		queryClient: client,
+		folder,
+		folderQueries,
+		noteMutations,
+		audioMutations,
+	} = query;
 	/** What the pages show. Held here so no page owns it. */
 	const ui = $state({
 		/** The recordings search. Notes needing repair are never searched out. */
@@ -163,16 +168,38 @@ export function createLibrary({
 
 	// --- runs ------------------------------------------------------------------
 
-	const runs = createRuns({
-		folder,
-		query,
-		transcribe: whispering.transcribe,
-		refused,
-	});
-	const runList = $derived(runs.list());
-
 	/** Recordings whose deletion is under way, by id, so no request starts for one. */
 	const deleting = new SvelteSet<string>();
+
+	const runs = createRuns({
+		folder,
+		chosen: () => whispering.chosen('transcription'),
+		transcribe: whispering.transcribe,
+		refused: (recordingId) =>
+			refused() ??
+			(recordingId !== undefined && deleting.has(recordingId)
+				? BEING_DELETED
+				: undefined),
+	});
+	const runMutations = resultMutations(['runs'], {
+		transcribe: runs.transcribe,
+	});
+
+	/** The recordings being transcribed now, by id, from the mutation cache. */
+	let transcribingIds: readonly string[] = [];
+	const stopFollowingRuns = $effect.root(() => {
+		transcribingIds = useMutationState(
+			{
+				filters: {
+					mutationKey: runMutations.transcribe.mutationKey,
+					status: 'pending',
+				},
+				select: (mutation) =>
+					(mutation.state.variables as { recordingId: string }).recordingId,
+			},
+			client,
+		);
+	});
 
 	// --- pages -----------------------------------------------------------------
 
@@ -270,13 +297,18 @@ export function createLibrary({
 			{ create }: { create?: () => NotePatch<Collections[K]> } = {},
 		): NoteEditor<Collections[K]> {
 			return editNote<Collections[K]>({
-				fieldNames: folder.notes[kind].fieldNames,
+				fieldNames: fieldNamesFor(kind),
 				get: () =>
 					(snapshot[kind].items as readonly Record<string, unknown>[]).find(
 						(note) => note.id === id,
 					),
-				// Typing is saved over the note as shown under it now.
-				save: (changes) => query.setNote(kind, id, changes),
+				save: ({ fields, body }) =>
+					runMutation(client, noteMutations.set, {
+						collection: kind,
+						id,
+						fields,
+						body,
+					}),
 				create,
 			});
 		},
@@ -285,54 +317,17 @@ export function createLibrary({
 		// Requests and their results
 		// ------------------------------------------------------------------
 
-		/** The transcription of recording `id` under way, or what became of it. */
-		transcriptionRun(id: string) {
-			return runList.find((run) => run.key === transcriptionKey(id));
-		},
-		/** Run a failed run again, or save an unsaved answer again; why nothing was tried. */
-		runAgain: runs.again,
-		/** Forget a failed run, or an answer that was not saved. */
-		dismissRun: runs.dismiss,
-
+		/** Transcribe a recording, as a mutation a component observes. */
+		transcription: runMutations.transcribe,
+		/** Whether recording `id` is being transcribed, wherever that was started. */
+		transcribing: (id: string): boolean => transcribingIds.includes(id),
 		/**
-		 * Transcribe recording `id`: send its audio to the transcription model
-		 * chosen now, then create its transcript. Answers why nothing was sent.
+		 * Transcribe recording `id` through the page's client, for a caller
+		 * that wants its outcome rather than to observe it (the table's
+		 * action on several recordings).
 		 */
-		async transcribe(id: string): Promise<string | undefined> {
-			const why = refused();
-			if (why !== undefined) return why;
-			const key = transcriptionKey(id);
-			if (runs.underWay(key))
-				return 'This recording is already being transcribed.';
-			if (deleting.has(id)) return BEING_DELETED;
-			const choice = whispering.chosen('transcription');
-			if (choice.kind !== 'ready') return choice.reason;
-			const recording = entries.find((note) => note.id === id);
-			if (recording === undefined)
-				return snapshot.recordings.invalid.some((note) => note.id === id)
-					? 'The recording needs repair before it is transcribed.'
-					: 'The recording is no longer listed.';
-			const audio = audioOf(snapshot, id);
-			if (audio.kind !== 'here')
-				return audio.kind === 'ambiguous'
-					? `More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one before transcribing.`
-					: 'This recording has no audio to transcribe.';
-			const { target } = choice;
-			const at = new Date();
-			await runs.start({
-				fields: {
-					recordingId: id,
-					createdAt: at.toISOString(),
-					model: target.model,
-					endpoint: target.address,
-				},
-				audio: audio.file,
-				key,
-				noteId: timeId(at),
-				target,
-			});
-			return undefined;
-		},
+		transcribe: (id: string) =>
+			runMutation(client, runMutations.transcribe, { recordingId: id }),
 
 		/**
 		 * Capture what deleting `ref` would remove, for the person to confirm,
@@ -355,17 +350,28 @@ export function createLibrary({
 			if (refusal) return refusal;
 			if (recording) deleting.add(recording);
 			try {
-				const problem = await runDeletion(query, snapshot, deletion);
+				const problem = await runDeletion(
+					{
+						deleteNote: (note) =>
+							runMutation(client, noteMutations.delete, note),
+						deleteAudio: (id) =>
+							runMutation(client, audioMutations.delete, { id }),
+					},
+					snapshot,
+					deletion,
+				);
 				if (problem !== undefined) return problem;
 			} finally {
 				if (recording) deleting.delete(recording);
 			}
 			deleted(deletedNote(deletion));
-			if (recording) runs.forgetRecording(recording);
 			return undefined;
 		},
 		/** Stop following the lists. Runs under way still keep their answers. */
-		dispose: stopPruning,
+		dispose() {
+			stopPruning();
+			stopFollowingRuns();
+		},
 	};
 }
 

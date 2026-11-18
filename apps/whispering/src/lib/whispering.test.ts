@@ -13,18 +13,18 @@
  *   recording; what it cannot complete is said
  * - A transcription sends the recording's audio to the model chosen for it,
  *   and its transcript names that model and where it went
- * - A request goes only to the endpoint it was prepared for: one whose
- *   connection was edited or removed since is not sent, and says why
- * - A result is kept when its answer arrives, even if the pages have since
- *   closed
- * - Deleting a recording deletes its transcripts and its audio; it is
- *   refused while work for it runs or waits to be saved
- * - Run again after a failure sends the same request to the same model
- * - A recording is kept when a result for it was saved after the person
- *   confirmed deleting it
- * - An answer whose result cannot be written stays in the window, and
- *   Save again writes it without sending another request; dismissing it
- *   lets its recording go
+ * - A connection removed since is not sent to, and says why (a connection
+ *   moved while a request is prepared: `inference.test.ts`)
+ * - A transcript is kept when its answer arrives, even if the pages have
+ *   since closed
+ * - A failed transcription shows its error; Try again sends the same audio
+ *   to the same model. An answer whose transcript cannot be written fails
+ *   too, and nothing is kept for it
+ * - The same recording is not transcribed twice at once, and is not
+ *   deleted while it is transcribed
+ * - Deleting a recording deletes its transcripts and its audio
+ * - A recording is kept when a transcript for it was saved after the
+ *   person confirmed deleting it
  * - A note that does not read is listed for repair and repaired as text
  *
  * Run with `--conditions=browser` (`bun run test`): the library is Svelte
@@ -33,6 +33,7 @@
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { RecorderError } from '@epicenter/recorder';
+import { MutationObserver } from '@tanstack/query-core';
 import { runMutation } from 'wellcrafted/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -375,7 +376,7 @@ test('a transcription sends the recording’s audio and keeps its transcript bes
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 
-	expect(await library.transcribe(recording.id)).toBeUndefined();
+	expectOk(await library.transcribe(recording.id));
 
 	expect(test.transcribed).toHaveLength(1);
 	expect(test.transcribed[0]).toMatchObject({
@@ -392,21 +393,29 @@ test('a transcription sends the recording’s audio and keeps its transcript bes
 	expect(
 		test.outside.paths('transcriptions').filter((path) => path.endsWith('.md')),
 	).toHaveLength(1);
-	expect(library.transcriptionRun(recording.id)).toBeUndefined();
+	expect(library.transcribing(recording.id)).toBe(false);
 });
 
-/** A transcription that failed once, so Run again would send the same request. */
+/**
+ * A transcription that failed once, observed as a component observes it:
+ * its error and the variables Try again sends.
+ */
 async function failedOnce(opened: Awaited<ReturnType<typeof fixture>>) {
-	const { library } = opened;
+	const { query, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
-	await library.transcribe(recording.id);
-	const run = library.transcriptionRun(recording.id);
-	expect(run?.state.kind).toBe('failed');
-	return { key: run!.key, id: recording.id };
+	const observer = new MutationObserver(
+		query.queryClient,
+		library.transcription,
+	);
+	cleanups.push(() => observer.reset());
+	await observer.mutate({ recordingId: recording.id }).catch(() => undefined);
+	const failed = observer.getCurrentResult();
+	expect(failed.status).toBe('error');
+	return { observer, failed, id: recording.id };
 }
 
-test('Run again after a failure sends the same audio to the same model, and keeps the transcript', async () => {
+test('a failed transcription shows its error, and Try again sends the same audio to the same model', async () => {
 	let answers = 0;
 	const opened = await fixture({
 		transcribe: async () =>
@@ -415,57 +424,33 @@ test('Run again after a failure sends the same audio to the same model, and keep
 				: Ok({ text: 'a steady tone' }),
 	});
 	const { test, library } = opened;
-	const failed = await failedOnce(opened);
+	const { observer, failed, id } = await failedOnce(opened);
+	expect(failed.error?.message).toContain('busy, try later');
+	expect(library.resultsFor(id)).toEqual([]);
 
-	expect(await library.runAgain(failed.key)).toBeUndefined();
+	await observer.mutate(failed.variables!);
 
+	expect(observer.getCurrentResult().status).toBe('success');
 	expect(test.transcribed).toHaveLength(2);
 	expect(test.transcribed[1]).toEqual(test.transcribed[0]!);
-	await eventually(() => library.resultsFor(failed.id).length === 1);
-	expect(library.resultsFor(failed.id)[0]?.body).toBe('a steady tone\n');
-	expect(library.transcriptionRun(failed.id)).toBeUndefined();
+	await eventually(() => library.resultsFor(id).length === 1);
+	expect(library.resultsFor(id)[0]?.body).toBe('a steady tone\n');
 });
 
-test('a request whose connection was edited since it was prepared is not sent there, and says where it moved', async () => {
+test('Try again after the connection was removed is not sent anywhere, and says why', async () => {
 	const opened = await fixture({
 		transcribe: async () => Err({ message: 'busy, try later' }),
 	});
-	const { test, library } = opened;
-	const failed = await failedOnce(opened);
-	expect(test.transcribed).toHaveLength(1);
-
-	await test.connections.update(test.connectionId, {
-		baseUrl: 'http://127.0.0.1:18081/v1',
-	});
-	expect(await library.runAgain(failed.key)).toBeUndefined();
-
-	const state = library.transcriptionRun(failed.id)?.state;
-	expect(state?.kind).toBe('failed');
-	expect(state?.kind === 'failed' && state.message).toContain(
-		`prepared for Test endpoint at ${TEST_BASE_URL}, which now sends to http://127.0.0.1:18081/v1, so nothing was sent`,
-	);
-	expect(test.transcribed).toHaveLength(1);
-});
-
-test('a request whose connection was removed since it was prepared is not sent anywhere else, and names it', async () => {
-	const opened = await fixture({
-		transcribe: async () => Err({ message: 'busy, try later' }),
-	});
-	const { test, library } = opened;
-	const failed = await failedOnce(opened);
+	const { test } = opened;
+	const { observer, failed } = await failedOnce(opened);
 
 	await test.connections.remove(test.connectionId);
-	expect(await library.runAgain(failed.key)).toBeUndefined();
+	await observer.mutate(failed.variables!).catch(() => undefined);
 
-	const state = library.transcriptionRun(failed.id)?.state;
-	expect(state?.kind === 'failed' && state.message).toContain(
-		'Test endpoint is no longer set up, so nothing was sent',
-	);
-	expect(test.transcribed).toHaveLength(1);
-	// Nothing is chosen at an endpoint that is gone, so a new request is refused before it starts.
-	expect(await library.transcribe(failed.id)).toContain(
+	expect(observer.getCurrentResult().error?.message).toContain(
 		'not set up on this computer',
 	);
+	expect(test.transcribed).toHaveLength(1);
 });
 
 test('an answer that arrives after the pages closed is still kept', async () => {
@@ -480,9 +465,7 @@ test('an answer that arrives after the pages closed is still kept', async () => 
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	const transcribing = library.transcribe(recording.id);
-	await eventually(
-		() => library.transcriptionRun(recording.id)?.state.kind === 'running',
-	);
+	await eventually(() => library.transcribing(recording.id));
 
 	// The person leaves: the pages close.
 	library.dispose();
@@ -540,7 +523,7 @@ test('a recording is kept when a result for it was saved after the person was as
 	expect(test.outside.paths('recordings')).toHaveLength(2);
 });
 
-test('a recording cannot be deleted while its transcription runs', async () => {
+test('a recording cannot be deleted, or transcribed again, while its transcription runs', async () => {
 	const held = deferred<void>();
 	const opened = await fixture({
 		transcribe: async () => {
@@ -548,30 +531,31 @@ test('a recording cannot be deleted while its transcription runs', async () => {
 			return Ok({ text: 'late' });
 		},
 	});
-	const { library } = opened;
+	const { test, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
-	const transcribing = library.transcribe(recording.id);
-	await eventually(
-		() => library.transcriptionRun(recording.id)?.state.kind === 'running',
+	// Two presses in one moment: the second is refused, whichever page made it.
+	const first = library.transcribe(recording.id);
+	const second = library.transcribe(recording.id);
+	expect(expectErr(await second).message).toBe(
+		'This recording is already being transcribed.',
 	);
+	await eventually(() => library.transcribing(recording.id));
 
 	expect(
 		expectErr(
 			library.deletionFor({ collection: 'recordings', id: recording.id }),
 		),
-	).toContain('still running');
-	// The same run does not go twice at once.
-	expect(await library.transcribe(recording.id)).toBe(
-		'This recording is already being transcribed.',
-	);
+	).toContain('still being transcribed');
 
 	held.resolve();
-	await transcribing;
+	expectOk(await first);
+	expect(test.transcribed).toHaveLength(1);
+	await eventually(() => !library.transcribing(recording.id));
 	expectOk(library.deletionFor({ collection: 'recordings', id: recording.id }));
 });
 
-test('an answer whose result cannot be written stays in the window, and Save again writes it without another request', async () => {
+test('an answer whose transcript cannot be written fails, keeps nothing, and Try again sends again', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;
 	const recording = await record(opened);
@@ -580,44 +564,16 @@ test('an answer whose result cannot be written stays in the window, and Save aga
 		under: 'transcriptions',
 	});
 
-	expect(await library.transcribe(recording.id)).toBeUndefined();
-	const run = library.transcriptionRun(recording.id);
-	expect(run?.state).toMatchObject({
-		kind: 'unsaved',
-		text: 'um so a steady tone',
-	});
-	expect(run?.state.kind === 'unsaved' && run.state.message).toContain(
-		'The disk is full',
-	);
-	// The answer is not saved, so the recording is not deleted from under it.
-	expect(
-		expectErr(
-			library.deletionFor({ collection: 'recordings', id: recording.id }),
-		),
-	).toContain('was not saved');
+	const failed = expectErr(await library.transcribe(recording.id));
+	expect(failed.name).toBe('NotSaved');
+	expect(failed.message).toContain('The disk is full');
+	// Nothing waits to be saved, so the recording can be deleted.
+	expectOk(library.deletionFor({ collection: 'recordings', id: recording.id }));
 
 	undo();
-	expect(await library.runAgain(run!.key)).toBeUndefined();
-	expect(library.transcriptionRun(recording.id)).toBeUndefined();
+	expectOk(await library.transcribe(recording.id));
+	expect(test.transcribed).toHaveLength(2);
 	await eventually(() => library.resultsFor(recording.id).length === 1);
-	// Saved without another request.
-	expect(test.transcribed).toHaveLength(1);
-});
-
-test('dismissing an answer whose result was not written lets its recording be deleted', async () => {
-	const opened = await fixture();
-	const { test, library } = opened;
-	const recording = await record(opened);
-	await eventually(() => library.audioOf(recording.id).kind === 'here');
-	test.outside.refuse('The disk is full', { under: 'transcriptions' });
-	await library.transcribe(recording.id);
-	const run = library.transcriptionRun(recording.id);
-	expect(run?.state.kind).toBe('unsaved');
-
-	library.dismissRun(run!.key);
-
-	expect(library.transcriptionRun(recording.id)).toBeUndefined();
-	expectOk(library.deletionFor({ collection: 'recordings', id: recording.id }));
 });
 
 test('a note that does not read is listed for repair, and repaired as text', async () => {
@@ -637,7 +593,8 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 
 	// Text that still does not read is written as typed, and stays listed for repair.
 	expectOk(
-		await runMutation(queryClient, noteMutations.recordings.replace, {
+		await runMutation(queryClient, noteMutations.replace, {
+			collection: 'recordings',
 			id,
 			seen: library.repairs[0]!.text,
 			text: 'not a recording',
@@ -649,7 +606,8 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 	expect(library.entries).toHaveLength(0);
 
 	expectOk(
-		await runMutation(queryClient, noteMutations.recordings.replace, {
+		await runMutation(queryClient, noteMutations.replace, {
+			collection: 'recordings',
 			id,
 			seen: 'not a recording',
 			text: '---\ntitle: "Fixed"\nrecordedAt: "2026-10-31T09:30:00.000Z"\n---\nnotes\n',

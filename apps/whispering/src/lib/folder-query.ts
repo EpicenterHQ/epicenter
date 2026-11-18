@@ -1,17 +1,19 @@
 /**
  * Whispering's folder as TanStack Query observes it: one `QueryClient` for
  * the page, its one rule that every query goes stale after every write, the
- * folder as one query, and the folder's writes as mutations.
+ * folder as one query, and the folder's writes as mutations over its
+ * services, as they are.
  *
  * - The folder query answers the snapshot `folder.read()` makes. It never
  *   goes stale by time: a write makes it stale (the `MutationCache` rule),
  *   and the window regaining focus reads it again, since another program
  *   may write the folder. A read that a write overtakes is cancelled and
  *   read again, so the folder shown is never older than a finished write.
- * - A note's writes share a scope with the other writes of its kind, so
- *   they run one at a time, in the order made. Each carries the text that
- *   was shown (`seen`), and is refused when the file differs. A write that
- *   settles keeps pending until the folder on screen has been read again.
+ *   A write that settles keeps pending until the folder on screen has been
+ *   read again.
+ * - The folder's writes (notes, settings, audio) share one scope, so they
+ *   run one at a time, in the order made. The scope is a default by key,
+ *   so the mutations are the services' functions with nothing added.
  * - `settings` is `settings.md` for code that is not a component (the
  *   connections `ai` merges, the global shortcut, the model choices
  *   Whispering reads): it reads the folder query's answer and says when it
@@ -23,9 +25,7 @@
 import type { ConnectionStore, ModelChoice } from '@epicenter/ai';
 import { MutationCache, QueryClient } from '@tanstack/query-core';
 import { resultMutations, resultQueries, runMutation } from 'wellcrafted/query';
-import type { NoteName, NoteRef, WhisperingFolder } from './folder.js';
-import type { NOTES } from './format/folder.js';
-import type { IdCollection, NotePatch, Notes } from './notes.js';
+import type { WhisperingFolder } from './folder.js';
 import {
 	chosenIn,
 	connectionsIn,
@@ -35,30 +35,8 @@ import {
 	shortcutIn,
 } from './settings.js';
 
-type Collections = typeof NOTES;
-
-/** `writes`, each in scope `id`, so they run one at a time in the order made. */
-const inScope = <T extends Record<string, object>>(id: string, writes: T): T =>
-	Object.fromEntries(
-		Object.entries(writes).map(([name, write]) => [
-			name,
-			{ ...write, scope: { id } },
-		]),
-	) as T;
-
-/** A kind's writes, in the kind's scope. */
-const noteMutationsOf = <C extends IdCollection>(
-	kind: NoteName,
-	notes: Notes<C>,
-) =>
-	inScope(
-		kind,
-		resultMutations(['notes', kind], {
-			set: notes.set,
-			replace: notes.replace,
-			delete: notes.delete,
-		}),
-	);
+/** Every write to the folder runs in this scope, one at a time. */
+const FOLDER_WRITES = { scope: { id: 'folder' } };
 
 export function createFolderQuery(folder: WhisperingFolder) {
 	const queryClient = new QueryClient({
@@ -86,36 +64,28 @@ export function createFolderQuery(folder: WhisperingFolder) {
 	});
 
 	const { notes } = folder;
-	const noteMutations = {
-		recordings: noteMutationsOf('recordings', notes.recordings),
-		transcriptions: noteMutationsOf('transcriptions', notes.transcriptions),
-	};
-
-	const settingsMutations = inScope(
-		'settings',
-		resultMutations(['settings'], {
-			setChoice: folder.settings.setChoice,
-			setConnections: folder.settings.setConnections,
-			setShortcut: folder.settings.setShortcut,
-		}),
-	);
-	// Audio is in `recordings/`, and deleting old audio writes recordings' notes.
-	const audioMutations = inScope(
-		'recordings',
-		resultMutations(['audio'], {
-			delete: folder.deleteAudio,
-			deleteBefore: folder.deleteAudioBefore,
-		}),
-	);
+	const noteMutations = resultMutations(['notes'], {
+		set: notes.set,
+		replace: notes.replace,
+		delete: notes.delete,
+	});
+	const settingsMutations = resultMutations(['settings'], {
+		setChoice: folder.settings.setChoice,
+		setConnections: folder.settings.setConnections,
+		setShortcut: folder.settings.setShortcut,
+	});
+	const audioMutations = resultMutations(['audio'], {
+		delete: folder.deleteAudio,
+		deleteBefore: folder.deleteAudioBefore,
+	});
+	for (const key of [['notes'], ['settings'], ['audio']])
+		queryClient.setMutationDefaults(key, FOLDER_WRITES);
 
 	/** The folder as last read, or undefined before the first read answers. */
 	const snapshot = () =>
 		queryClient.getQueryData(folderQueries.read().queryKey);
 	const settingsNow = (): SettingsSnapshot =>
 		snapshot()?.settings ?? NO_SETTINGS;
-	/** Note `id` of `kind` as last read, which a write of it says was seen. */
-	const seenOf = (kind: NoteName, id: string) =>
-		snapshot()?.[kind].texts[id] ?? null;
 
 	/**
 	 * Call `listener` whenever the settings read differ; returns the
@@ -144,7 +114,7 @@ export function createFolderQuery(folder: WhisperingFolder) {
 			const saved = await runMutation(
 				queryClient,
 				settingsMutations.setConnections,
-				{ seen: settingsNow().text, connections: list },
+				{ connections: list },
 			);
 			if (saved.error !== null) throw new Error(saved.error.message);
 		},
@@ -163,11 +133,7 @@ export function createFolderQuery(folder: WhisperingFolder) {
 			require: (job: Job) => chosenIn(settingsNow(), job),
 			/** Choose `choice` for `job`; replaces a `settings.md` that does not read. */
 			set: (job: Job, choice: ModelChoice) =>
-				runMutation(queryClient, settingsMutations.setChoice, {
-					seen: settingsNow().text,
-					job,
-					choice,
-				}),
+				runMutation(queryClient, settingsMutations.setChoice, { job, choice }),
 		},
 		/** The connections, for `customEndpoints`. */
 		connections,
@@ -175,40 +141,13 @@ export function createFolderQuery(folder: WhisperingFolder) {
 		shortcut: (): string => shortcutIn(settingsNow()),
 		/** Make `key` the global shortcut. */
 		setShortcut: (key: string) =>
-			runMutation(queryClient, settingsMutations.setShortcut, {
-				seen: settingsNow().text,
-				key,
-			}),
+			runMutation(queryClient, settingsMutations.setShortcut, { key }),
 		subscribe,
 	};
 
 	return {
 		queryClient,
 		folder,
-		/**
-		 * Give note `id` of `kind` `changes`, over the note as last read: it is
-		 * refused when the file changed since. A note not yet listed is made.
-		 */
-		setNote: <K extends NoteName>(
-			kind: K,
-			id: string,
-			changes: NotePatch<Collections[K]>,
-		) =>
-			runMutation(
-				queryClient,
-				// Every kind's `set` takes its own fields; `kind` picks which.
-				noteMutations[kind].set as unknown as SetNote,
-				{ id, seen: seenOf(kind, id), changes: changes as Changes },
-			),
-		/** Remove note `ref`, as last read: refused when the file changed since. */
-		removeNote: ({ collection, id }: NoteRef) =>
-			runMutation(queryClient, noteMutations[collection].delete, {
-				id,
-				seen: seenOf(collection, id),
-			}),
-		/** Delete recording `id`'s audio files. */
-		deleteAudio: (id: string) =>
-			runMutation(queryClient, audioMutations.delete, { id }),
 		/**
 		 * Read the folder again after something that is not a mutation wrote
 		 * it: audio the recorder placed.
@@ -222,11 +161,6 @@ export function createFolderQuery(folder: WhisperingFolder) {
 		settings,
 	};
 }
-
-type SetNote = ReturnType<
-	typeof noteMutationsOf<Collections['recordings']>
->['set'];
-type Changes = NotePatch<Collections['recordings']>;
 
 export type FolderQuery = ReturnType<typeof createFolderQuery>;
 export type Settings = FolderQuery['settings'];

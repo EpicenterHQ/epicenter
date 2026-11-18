@@ -123,10 +123,10 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 	const id = timeId(at);
 	await outside.write(`recordings/${id}.m4a`, new Uint8Array([1, 2, 3]));
 	expectOk(
-		await notes.recordings.set({
+		await notes.set({
+			collection: 'recordings',
 			id,
-			seen: null,
-			changes: {
+			fields: {
 				title: 'Standup',
 				recordedAt: at.toISOString(),
 				durationMs: 1500,
@@ -135,21 +135,20 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 	);
 	const transcription = timeId();
 	expectOk(
-		await notes.transcriptions.set({
+		await notes.set({
+			collection: 'transcriptions',
 			id: transcription,
-			seen: null,
-			changes: {
+			fields: {
 				recordingId: id,
 				createdAt: new Date().toISOString(),
 				model: 'whisper-1',
 				endpoint: 'https://api.openai.com/v1',
-				body: 'um so a steady tone\n',
 			},
+			body: { seen: null, text: 'um so a steady tone\n' },
 		}),
 	);
 	expectOk(
 		await settings.setConnections({
-			seen: null,
 			connections: [
 				{
 					id: 'openai',
@@ -161,20 +160,14 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 			],
 		}),
 	);
-	const shown = async () => {
-		const { text } = expectOk(await settings.read());
-		return text;
-	};
 	expectOk(
 		await settings.setChoice({
-			seen: await shown(),
 			job: 'transcribe',
 			choice: { endpoint: 'openai', model: 'whisper-1' },
 		}),
 	);
 	expectOk(
 		await settings.setShortcut({
-			seen: await shown(),
 			key: 'CommandOrControl+Shift+K',
 		}),
 	);

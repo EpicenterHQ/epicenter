@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as SectionHeader from '@epicenter/ui/section-header';
+	import { createMutation } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { goto } from '$app/navigation';
@@ -11,7 +12,7 @@
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { copyText, formatTime, titleOf } from './file-actions.js';
 	import RecorderCard from './RecorderCard.svelte';
-	import RunStatus from './RunStatus.svelte';
+	import RunFailure from './RunFailure.svelte';
 
 	const whispering = getWhispering();
 	const library = getLibrary();
@@ -22,15 +23,16 @@
 	/** Where its audio is. */
 	const audio = $derived(latest ? library.audioOf(latest.id) : undefined);
 	const transcript = $derived(latest ? library.resultsFor(latest.id)[0] : undefined);
-	/** A transcription of it in this window, and what became of it. */
-	const run = $derived(latest ? library.transcriptionRun(latest.id) : undefined);
-	const transcribing = $derived(run?.state.kind === 'running' || run?.state.kind === 'saving');
+	/** A transcription started here; its error shows while it is of the latest recording. */
+	const transcription = createMutation(() => ({
+		...library.transcription,
+		onError: (error) => toast.error('The recording was not transcribed', { description: error.message }),
+	}));
+	const failed = $derived(
+		latest !== undefined && transcription.error !== null && transcription.variables?.recordingId === latest.id,
+	);
+	const transcribing = $derived(latest !== undefined && library.transcribing(latest.id));
 	const model = $derived(whispering.choice('transcription')?.model);
-
-	async function transcribe(id: string) {
-		const problem = await library.transcribe(id);
-		if (problem && library.transcriptionRun(id) === undefined) toast.error('Nothing was sent', { description: problem });
-	}
 
 	/** Show the recording on the Recordings page. */
 	async function openRecording(id: string) {
@@ -62,8 +64,13 @@
 					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.recordedAt, 'short')}</span>
 				</div>
 
-				{#if run && run.state.kind !== 'running'}
-					<RunStatus {run} />
+				{#if failed && transcription.error && transcription.variables}
+					{@const variables = transcription.variables}
+					<RunFailure
+						message={transcription.error.message}
+						onRetry={() => transcription.mutate(variables)}
+						onDismiss={() => transcription.reset()}
+					/>
 				{/if}
 				{#if transcript}
 					<div class="flex items-start gap-2 rounded-md border p-3 text-sm">
@@ -74,7 +81,7 @@
 							Copy
 						</Button>
 					</div>
-				{:else if audio?.kind === 'here' && !(run && run.state.kind !== 'running')}
+				{:else if audio?.kind === 'here' && !failed}
 					<p class="text-sm text-muted-foreground">
 						{#if transcribing}
 							Transcribing…
@@ -101,11 +108,11 @@
 						<Button
 							size="sm"
 							disabled={audio?.kind !== 'here' || transcribing}
-							onclick={() => void transcribe(latest.id)}
+							onclick={() => transcription.mutate({ recordingId: latest.id })}
 							data-testid="transcribe-latest"
 						>
 							{#if transcribing}<Spinner class="size-3.5" />{/if}
-							{run?.state.kind === 'failed' ? 'Try again' : 'Transcribe'}
+							Transcribe
 						</Button>
 					{/if}
 					<Button size="sm" variant="outline" onclick={() => void openRecording(latest.id)} data-testid="open-latest">Open</Button>

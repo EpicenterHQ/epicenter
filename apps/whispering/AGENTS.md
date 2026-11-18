@@ -35,19 +35,22 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   calls; `folder-query.ts` holds the page's one `QueryClient`. The folder
   is read before the app renders (`src/routes/(app)/+layout.svelte`), after
   every write (one `MutationCache` rule), and when the window regains
-  focus. A kind's writes share a mutation `scope`. Do not add a watcher, a
-  second cache, or an `invalidateQueries` call after a write. Typing and
-  unsaved answers are Svelte state (`note-editor.svelte.ts`,
-  `runs.svelte.ts`), not cache entries.
-- **Never replace a note that changed since it was shown.** A write carries
-  the text the person saw (`seen`), re-reads the file first, and refuses
-  with `NoteError.Changed` when it differs; the person sees the newer text.
-  `settings.md` follows the same rule.
+  focus. The services' functions are the mutations, with nothing between
+  (`resultMutations`); the folder's writes share one mutation `scope`. Do
+  not add a watcher, a second cache, or an `invalidateQueries` call after a
+  write. Typing is Svelte state (`note-editor.svelte.ts`), not a cache
+  entry; a transcription's state is its mutation's (`runs.ts`).
+- **Never write over what another program wrote.** A change to fields
+  rewrites only their lines in the file as it is now; `settings.md` too.
+  Only a write that replaces text the person typed (an editor's body, a
+  repair) says what it replaces (`seen`), and refuses with
+  `NoteError.Changed`, writing nothing, when the file differs; the person
+  sees the newer text.
 - **Every write answers a `Result`; a failure keeps what the person typed.**
   An editor keeps unsaved text and offers Try again or Discard
-  (`SaveProblem.svelte`); an answer whose result was not written stays in
-  the window with Save again, which sends nothing (`runs.svelte.ts`). Do not
-  add an outbox or a queue that writes later on its own.
+  (`SaveProblem.svelte`). A transcription whose answer cannot be written
+  fails like one with no answer: nothing is kept, and Try again sends
+  again. Do not add an outbox or a queue that writes later on its own.
 - **One writer.** The desktop app is single-instance; a browser tab holds a
   Web Lock (`one-tab.svelte.ts`) and a second tab waits. Nothing steals the
   lock.

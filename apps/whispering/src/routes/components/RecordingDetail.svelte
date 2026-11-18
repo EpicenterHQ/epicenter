@@ -12,6 +12,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Collapsible from '@epicenter/ui/collapsible';
+	import { createMutation } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -25,7 +26,7 @@
 	import { confirmDelete } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import NoteRepair from './NoteRepair.svelte';
-	import RunStatus from './RunStatus.svelte';
+	import RunFailure from './RunFailure.svelte';
 	import SaveProblem from './SaveProblem.svelte';
 	import TranscriptCard from './TranscriptCard.svelte';
 
@@ -60,8 +61,12 @@
 	const shown = $derived(recording.exists() || listed !== undefined);
 
 	const results = $derived(library.resultsFor(own));
-	const run = $derived(library.transcriptionRun(own));
-	const transcribing = $derived(run?.state.kind === 'running' || run?.state.kind === 'saving');
+	/** This recording's transcription as started here: its error stays until it is tried again or dismissed. */
+	const transcription = createMutation(() => ({
+		...library.transcription,
+		onError: (error) => toast.error('The recording was not transcribed', { description: error.message }),
+	}));
+	const transcribing = $derived(library.transcribing(own));
 	const audio = $derived(library.audioOf(own));
 
 	function when(value: string) {
@@ -69,10 +74,6 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	async function transcribe() {
-		const problem = await library.transcribe(own);
-		if (problem && library.transcriptionRun(own) === undefined) toast.error('Nothing was sent', { description: problem });
-	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Recording" data-testid="recording-detail" data-recording-id={own}>
@@ -120,20 +121,25 @@
 						class="ml-auto"
 						size="sm"
 						disabled={audio.kind !== 'here' || transcribing}
-						onclick={() => void transcribe()}
+						onclick={() => transcription.mutate({ recordingId: own })}
 						data-testid="transcribe"
 					>
 						{#if transcribing}<Spinner class="size-3.5" />{/if}
 						{results.length > 0 ? 'Transcribe again' : 'Transcribe'}
 					</Button>
 				</div>
-				{#if run && run.state.kind !== 'running'}
-					<RunStatus {run} />
+				{#if transcription.error && transcription.variables}
+					{@const variables = transcription.variables}
+					<RunFailure
+						message={transcription.error.message}
+						onRetry={() => transcription.mutate(variables)}
+						onDismiss={() => transcription.reset()}
+					/>
 				{/if}
 				{#each results as result (result.id)}
 					<TranscriptCard id={result.id} />
 				{:else}
-					{#if run === undefined}
+					{#if !transcription.error}
 						<p class="text-sm text-muted-foreground">No transcription yet.</p>
 					{/if}
 				{/each}
