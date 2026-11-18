@@ -180,9 +180,7 @@ export function findWords(
 		const { data: app, error } = await loadApp(root, name);
 		if (error) return Err(error);
 		const matched = matchAction(app.actions, words);
-		const action = matched && app.actions[matched.key];
-		if (matched && action)
-			return Ok({ app, key: matched.key, action, rest: matched.rest });
+		if (matched) return Ok({ app, ...matched });
 		// The words that could name an action: those before the input.
 		const end = words.findIndex((word) => !isName(word));
 		const asked = words.slice(0, end < 0 ? undefined : end).join(' ');

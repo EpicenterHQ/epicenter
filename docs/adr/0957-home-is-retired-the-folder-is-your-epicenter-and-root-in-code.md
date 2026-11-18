@@ -32,7 +32,8 @@ only it.**
   `EpicenterRoot`; it keeps its name. Each other identifier with "home" in
   it takes "root" or loses the word: `loadHomeApp` is `loadApp`,
   `homeEntries` is `rootEntries`, `installHome` is `installRoot`,
-  `homeName` is `rootName`.
+  `homeName` is `rootHeaderValue`, since it returns the header's encoded
+  path and not a name.
 - In tests, `fixture()` in `packages/app/src/command/runner.test-support.ts` returns
   `root`, the temporary folder `$HOME` points to, and `home`, the Epicenter
   inside it. They become `userDir` and `epicenter`, so `root` names no test

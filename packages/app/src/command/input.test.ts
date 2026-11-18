@@ -18,13 +18,15 @@ const helpOf = (app: string, key: string, action: Action) =>
 	actionHelp(JSON.parse(JSON.stringify(actionTool(app, key, action))));
 
 test('action matching stops at the first word that cannot name an action', () => {
-	const actions = { log: {}, 'calendar show': {}, 'calendar add': {} };
+	const actions = { log: 1, 'calendar show': 2, 'calendar add': 3 };
 	expect(matchAction(actions, ['log', '{"minutes":3}'])).toEqual({
 		key: 'log',
+		action: 1,
 		rest: ['{"minutes":3}'],
 	});
 	expect(matchAction(actions, ['calendar', 'show', '-'])).toEqual({
 		key: 'calendar show',
+		action: 2,
 		rest: ['-'],
 	});
 	expect(matchAction(actions, ['--json'])).toBeUndefined();

@@ -13,12 +13,7 @@ import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
-import {
-	type ActionTool,
-	actionHelp,
-	appReport,
-	rootReport,
-} from './listing.ts';
+import { actionHelp, appReport, isActionTool, rootReport } from './listing.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import { epicenterRoot } from './root.ts';
 import { fetchListing, sendWords } from './send.ts';
@@ -154,7 +149,11 @@ export async function runCli(argv: string[]): Promise<number> {
 				help: true,
 			});
 			if (error) return Err(error);
-			return Ok(json ? tool : actionHelp(tool as ActionTool));
+			if (!isActionTool(tool))
+				return ActionError.Unreachable({
+					message: 'serve sent an invalid action',
+				});
+			return Ok(json ? tool : actionHelp(tool));
 		}
 		// Only this process can read its stdin, so it reads `-` and sends the text.
 		const typed =

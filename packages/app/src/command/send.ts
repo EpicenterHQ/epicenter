@@ -28,7 +28,9 @@ export const ROOT_HEADER = 'x-epicenter-root';
 export const SERVE_HEADER = 'x-epicenter';
 
 /** This Epicenter as the header carries it: its root's real path, percent-encoded. */
-export function rootName({ folder }: Pick<EpicenterRoot, 'folder'>): string {
+export function rootHeaderValue({
+	folder,
+}: Pick<EpicenterRoot, 'folder'>): string {
 	return encodeURIComponent(folder);
 }
 
@@ -61,7 +63,7 @@ async function reach(
 	try {
 		response = await fetch(`http://127.0.0.1:${root.port}${path}`, {
 			...init,
-			headers: { ...init.headers, [ROOT_HEADER]: rootName(root) },
+			headers: { ...init.headers, [ROOT_HEADER]: rootHeaderValue(root) },
 		});
 	} catch (error) {
 		// Refused means nothing listens. Any other end came after the request

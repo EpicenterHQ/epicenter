@@ -77,7 +77,12 @@ import {
 	readCall,
 	runAction,
 } from './run.ts';
-import { answeredBy, ROOT_HEADER, rootName, SERVE_HEADER } from './send.ts';
+import {
+	answeredBy,
+	ROOT_HEADER,
+	rootHeaderValue,
+	SERVE_HEADER,
+} from './send.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
@@ -452,7 +457,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * something else holds throws before the clock starts.
  */
 function startHttpServer(root: EpicenterRoot) {
-	const name = rootName(root);
+	const ours = rootHeaderValue(root);
 	const answer = async (request: Request): Promise<Response> => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();
@@ -492,7 +497,7 @@ function startHttpServer(root: EpicenterRoot) {
 		// ADR-0961). A page or an MCP client names none and is not compared.
 		const meant = request.headers.get(ROOT_HEADER);
 		const { pathname } = new URL(request.url);
-		if (meant !== null && meant !== name)
+		if (meant !== null && meant !== ours)
 			return new Response('This call is for another Epicenter', {
 				status: 409,
 			});
@@ -581,7 +586,7 @@ async function whoAnswers(root: EpicenterRoot) {
 		// This one reads no app: serve answers OPTIONS / with 405, or 409.
 		const response = await fetch(`http://${LOOPBACK}:${root.port}/`, {
 			method: 'OPTIONS',
-			headers: { [ROOT_HEADER]: rootName(root) },
+			headers: { [ROOT_HEADER]: rootHeaderValue(root) },
 			signal: AbortSignal.timeout(2_000),
 		});
 		await response.body?.cancel().catch(() => undefined);

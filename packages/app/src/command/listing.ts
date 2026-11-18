@@ -56,6 +56,17 @@ export type ActionTool = {
 	mcp?: false;
 };
 
+/** Whether `value`, as serve sent it, has what `actionHelp` reads from a tool. */
+export function isActionTool(value: unknown): value is ActionTool {
+	const tool = value as Partial<ActionTool> | null;
+	return (
+		typeof tool?.name === 'string' &&
+		typeof tool.description === 'string' &&
+		typeof tool.inputSchema?.properties === 'object' &&
+		Array.isArray(tool.inputSchema.required)
+	);
+}
+
 export function actionTool(
 	app: string,
 	key: string,

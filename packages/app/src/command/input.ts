@@ -20,15 +20,16 @@ import { isName } from '../index.ts';
  * Action words are name words, so the first word that cannot be one ends the
  * search.
  */
-export function matchAction(
-	actions: object,
+export function matchAction<A>(
+	actions: Record<string, A>,
 	words: string[],
-): { key: string; rest: string[] } | undefined {
+): { key: string; action: A; rest: string[] } | undefined {
 	let end = words.findIndex((word) => !isName(word));
 	if (end < 0) end = words.length;
 	for (; end > 0; end--) {
 		const key = words.slice(0, end).join(' ');
-		if (Object.hasOwn(actions, key)) return { key, rest: words.slice(end) };
+		if (Object.hasOwn(actions, key))
+			return { key, action: actions[key] as A, rest: words.slice(end) };
 	}
 	return undefined;
 }
