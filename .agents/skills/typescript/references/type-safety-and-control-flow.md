@@ -39,13 +39,29 @@ function isWorkspaceHandle(value: unknown): value is WorkspaceHandle {
 
 When two copies of a package can create and inspect the same value, `Symbol('name')` gives each copy a different key. Use `Symbol.for` with a namespaced key if those copies must agree. For a live example of the same identity requirement, [the sidebar context](../../../../packages/ui/src/sidebar/context.svelte.ts) uses `Symbol.for(SYMBOL_KEY)` for both `setContext` and `getContext`.
 
+The context setters and readers use the same registered key. `SidebarState` and `SidebarStateProps` are declared in the linked module; this excerpt keeps the complete setter and reader:
+
+```typescript
+const SYMBOL_KEY = 'scn-sidebar';
+
+export function setSidebar(props: SidebarStateProps): SidebarState {
+	return setContext(Symbol.for(SYMBOL_KEY), new SidebarState(props));
+}
+
+export function useSidebar(): SidebarState {
+	return getContext(Symbol.for(SYMBOL_KEY));
+}
+```
+
+Even if these functions come from separate copies of the module, both `Symbol.for` calls return the same symbol for `scn-sidebar`.
+
 Convention: namespace the key (`epicenter.action`, `epicenter.document-handle`), and centralize cross-package brand keys in one `brands.ts` per package so the duplication-safe identity set is visible and reviewable. The brand constant itself is an implementation detail: consumers import the `isX` guard, never the raw symbol.
 
 **When the brand can be local**: if the factory and the check both live in the same file and the type never crosses a package boundary, plain `Symbol()` is fine. The `Symbol.for` rule is specifically for cross-package identity.
 
 **This rule is narrow. It does NOT apply to:**
 
-- **Union narrowing via presence**: `'data' in result` / `'error' in result` on a wellcrafted `Result`, or `'error' in response` on an OAuth response union. The union *is* the contract; the presence check discriminates it.
+- **Result narrowing**: `result.error !== null` on a Wellcrafted Result distinguishes failure from success. Both variants contain `data` and `error`; checking whether either property exists does not distinguish them.
 - **Discriminated union tags**: `switch (change.type)`. The tag is already a brand.
 - **Protocol / feature detection**: `Symbol.dispose in x`, `Symbol.asyncIterator in x`, `typeof x.then === 'function'`. These check *capability*, not identity.
 - **Single-or-function config**: `typeof baseURL === 'function'` to distinguish a value from a getter. A config API pattern, not a broken contract.
@@ -87,32 +103,81 @@ Legitimate cast exceptions:
 - **Generics ceremony in typed builders**: `Object.assign(handler, {...}) as unknown as Query<T, U>` when `Object.assign` erases the generic overload inference. Acceptable when the overload signature is the real contract; keep the cast at the innermost scope.
 - **Test fixtures casting mocks**: acceptable in `*.test.ts`, never leaked out of a test file.
 
-### Optional properties: `?.` over `in` or truthiness
+### Optional values and defaults
 
-When a property is optional in the type (`foo?: () => void`, including symbol keys like `[Symbol.asyncDispose]?: () => Promise<void>`), access it with optional chaining. Don't `in`-check, don't cast, don't truthiness-check. The type already proves the call is safe; runtime probes are redundant and invite casts.
+Make required values required, and keep values optional when their absence is meaningful. Put defaults where they belong, usually in the function that defines the behavior, rather than repeating them across callers. Use optional chaining and `??` when they express an intentional choice.
+
+If a default belongs to the function, define it there so callers can omit the value:
 
 ```ts
-// Bad: runtime `in` check + cast
-if (Symbol.asyncDispose in sink) {
-  await (sink as AsyncDisposable)[Symbol.asyncDispose]();
+function previewItems(items: string[], limit = 20) {
+	return items.slice(0, limit);
 }
 
-// Bad: truthiness check before call
-if (handler.onError) handler.onError(err);
-
-// Good: optional chaining handles it
-await sink[Symbol.asyncDispose]?.();
-handler.onError?.(err);
+previewItems(items, settings.limit);
 ```
 
-`Partial<AsyncDisposable>` and optional-function property types compose cleanly with `?.()`: no casts needed, and it works identically for string, symbol, and computed keys. Real example from the workspace-logger:
+Callers do not need to repeat `settings.limit ?? 20`. If the default belongs to one screen rather than the function, choose it at that call site. Parameter defaults apply to omitted arguments and `undefined`; `??` also replaces `null`.
+
+A display function can choose a label for a missing name:
 
 ```ts
-type LogSink = ((event: LogEvent) => void) & Partial<AsyncDisposable>;
+type User = { name?: string };
 
-for (const sink of sinks) await sink[Symbol.asyncDispose]?.();
-// consoleSink has no dispose -> no-op; stateful sinks (file, network) get awaited
+function displayName(user: User) {
+	return user.name ?? 'Anonymous';
+}
 ```
+
+This default makes sense if an unnamed user should appear as anonymous. If a name is required, ask for it or reject the input instead. `??` leaves empty strings, zero, and false unchanged.
+
+If no error handler was supplied, there is nothing to call:
+
+```ts
+type Handler = { onError?: (error: Error) => void };
+
+function report(handler: Handler, error: Error) {
+	handler.onError?.(error);
+}
+```
+
+Optional symbol methods work the same way: `sink[Symbol.asyncDispose]?.()`.
+
+### Discriminated unions
+
+When different cases require different data, model them as a discriminated union. Checking the discriminator should make the corresponding data available.
+
+A connected connection requires a socket. A disconnected connection does not:
+
+```ts
+type Connection =
+	| { status: 'connected'; socket: WebSocket }
+	| { status: 'disconnected' };
+
+if (connection.status === 'connected') {
+	connection.socket.send(message);
+}
+```
+
+Checking `status` narrows the union and makes `socket` available. There is no need to make it optional or check whether the property exists. See the [TypeScript handbook](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions). An optional name alone does not require separate variants; the `User` type above is enough.
+
+Keep a property-presence check when presence itself matters, or when an external shape has no discriminant. For example, `'name' in {}` is false, while `'name' in { name: undefined }` is true. Both reads return undefined, so a value check would lose that distinction. `in` also includes inherited properties; use an own-property check when the contract requires one. See [MDN's description of in](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/in#description).
+
+### Wellcrafted Results
+
+Check `error !== null` for failure:
+
+```ts
+const { data, error } = await service.load();
+
+if (error !== null) {
+	return handleError(error);
+}
+
+return data;
+```
+
+Both variants contain `data` and `error`, and a successful Result can contain `null` data. Use the error channel to distinguish failure from success. See [error handling](../../error-handling/SKILL.md) for propagation, recovery, and presentation.
 
 ## Boolean Naming: `is`/`has`/`can` Prefix
 

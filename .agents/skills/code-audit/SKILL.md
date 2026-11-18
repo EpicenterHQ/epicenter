@@ -14,92 +14,77 @@ Recurring smell categories worth hunting periodically. Each category has a grep 
 
 The categories below were validated against the actual codebase by repeated agent audits. They're not generic style nits: each one signals a specific kind of contract problem in a TypeScript-heavy framework codebase.
 
-## 1. Duck-Typing at System Boundaries
+## 1. Hunt for duck typing
 
-**Pattern**: `(x as { foo?: unknown }).foo` or `as Record<string, unknown>` accesses where the shape isn't statically known.
+Actively search the audited scope for runtime shape checks, casts to
+locally invented object shapes, and property access through
+`Record<string, unknown>`. Use the search recipes in
+[the duck-typing reference](references/duck-typing.md), then follow relevant
+producers and consumers.
 
-```bash
-grep -rn "as\s*{" packages apps --include="*.ts" -B2 -A2
-```
+For each candidate, establish what the caller needs to know and why
+the existing type does not provide it. Look for missing declarations,
+copied contracts, repeated capability checks, and casts that assume
+more than the code verifies.
 
-**Why it matters**: Each duck-type is a contract gap. The receiver doesn't know what it's getting; the producer doesn't know what's expected. Often justified at literal system boundaries (e.g., parsing user-provided configs, reading from third-party APIs), but unjustified inside the framework's own code.
+Prefer fixing the contract at its owner. Import or derive an existing
+type when it already expresses the agreement. For external input,
+validate what the consumer needs before relying on it.
 
-**Example (justified)**: a loader that duck-types fields off a user-authored module it imports at runtime, because the module's shape is arbitrary by design. What makes it justified is the comment block above the access explaining exactly why static typing is impossible there.
+Keep runtime checks that recognize a supported capability or validate
+input whose shape is not yet known. Verify that the check establishes
+what the following code assumes. A comment explains the decision;
+it does not establish correctness.
 
-**Historical folder-sync audit.** `if (entry.handle.whenReady)` was duck-typing `whenReady` until it became a typed optional on `Document`. The diagnostic told us the contract was incomplete; the fix was to declare the field.
+Explain concrete problems, their consequences, and the proposed repair.
+A search match alone is not a finding.
 
-**How to triage a hit**: read the ~30 lines above the duck-type. If there's a comment explaining why static typing isn't possible at this boundary, leave it. If there's no explanation and the producer is an internal type, either widen the producer's type to include the field, or consolidate the access into a duck-typing helper that's itself well-documented.
+## 2. Hunt for unnecessary promise conversions
 
-## 2. Promise-Shape Ceremony (`.then(() => {})`)
+Actively search the audited scope for empty fulfillment callbacks such
+as `.then(() => {})` and `.then(() => undefined)`, including equivalent
+callbacks written across several lines. Use
+[the promise-shape reference](references/promise-shape.md) for search
+recipes and examples.
 
-**Pattern**: explicit value-discarding tails on promise chains.
+Trace the original promise, the callback, the receiving declaration,
+and the consumers. Establish whether the callback only discards a
+value, performs work, or enforces an intentional result contract.
 
-```bash
-grep -rn "\.then\s*\(\s*(\(\)|=> \{\}|=> undefined)" packages --include="*.ts"
-```
+When a consumer only waits for completion and ignores the value,
+consider accepting `Promise<unknown>` at that boundary. Remove a
+value-discarding adapter when the contract no longer requires it.
 
-**Why it matters**: usually indicates the type at the receiving end is too narrow. Authors write `.then(() => {})` to convert `Promise<T>` into `Promise<void>` because the field accepting the promise is typed `Promise<void>` instead of `Promise<unknown>`. The ceremony adds zero semantic value.
+Keep deliberate `Promise<void>` contracts when callers should receive
+no result. Keep callbacks that perform work or transform results.
+Check fulfillment and rejection handling, cleanup, and ordering
+before removing a promise-chain step.
 
-**Recipe**: when you see this pattern, look at where the promise is being assigned. If the consumer awaits-and-discards (typical for readiness/teardown barriers), widen the field type to `Promise<unknown>`. The tail disappears.
+Explain the unnecessary conversion and the contract that makes its
+removal sound. A `.then(...)` match alone is not a finding.
 
-**False positive**: if the `.then(() => result)` returns a *meaningful* transformed value, leave it. The smell is specifically the "discard the value" form.
+## 3. Hunt for logging bypasses
 
-## 3. Unstructured Logging in Library Code
+Hunt for library diagnostics that bypass `wellcrafted/logger`, including
+direct console calls, custom logging wrappers, and direct sink emission.
+Use [the logging audit reference](references/logging.md) for search recipes
+and a real migration example.
 
-**Pattern**: `console.log` / `console.error` / `console.warn` in library code. Biome's `noConsole` refuses it under `packages/*/src` in `bun run check`. Biome does not read `.svelte` files, so the grep covers those:
+Use [the logging skill](../logging/SKILL.md) to move those diagnostics onto
+the shared logger. Preserve the original cause, useful context, and
+surrounding behavior. Remove redundant logging machinery once its callers
+use the shared path.
 
-```bash
-grep -rnE "console\.(log|error|warn)" packages --include="*.svelte"
-```
+Distinguish diagnostics from deliberate application or command output.
 
-**Why it matters**: library code that calls `console` directly can't be redirected, silenced, or piped to a custom sink (in-memory test introspection, telemetry shipping). Every `console.log` is a hardcoded output decision the consumer can't override.
+## 4. Check switches for missing cases
 
-**The framework's logger**: `wellcrafted/logger` provides `createLogger(name)` plus pluggable sinks (`consoleSink`, `memorySink`, `composeSinks`). Common injection patterns:
+Find switches that are responsible for every case of a closed union. Give
+each case an explicit branch and end with `default: value satisfies never`
+so adding a variant fails typechecking until the switch handles it.
 
-```ts
-// Module-scoped (default)
-const log = createLogger('module-name');
-
-// Optional parameter (for libraries that may want a caller-supplied logger)
-function createX({ log = createLogger('x') }: { log?: Logger } = {}) { ... }
-
-// A caller selects the sink (packages/account/src/browser-oauth.test.ts)
-const logs = memorySink();
-const log = createLogger('auth/browser-oauth', logs.sink);
-```
-
-**Triage**: this category is verified periodically: the codebase has historically been clean. Treat any hit as a regression and route through `wellcrafted/logger` before merging. A deliberate call carries a `biome-ignore lint/suspicious/noConsole` with its reason; question one whose reason does not say why that code must print.
-
-**Two evasions the `console\.` grep misses.** Both import from `wellcrafted/logger` and are therefore invisible to the pattern above, and both were found live in `apps/whispering`:
-
-```bash
-grep -rn "consoleSink({" apps packages --include="*.ts" --include="*.svelte"
-grep -rn "log\.(warn|error)(new Error" apps packages --include="*.ts" --include="*.svelte"
-```
-
-A direct `consoleSink({ ... })` call skips `createLogger`, and with it the `Logger` type that makes `warn`/`error` unary over a `LoggableError`. Whispering's `$lib/report` did this and grew a parallel `log` whose extra `data` argument silently discarded the error object. The only legitimate mention of `consoleSink` is composing it into a sink passed to `createLogger`.
-
-A `new Error(...)` inside a `warn`/`error` call type-checks (native `Error` satisfies `LoggableError` structurally) but hands the sink a message string and no filterable `name`. It usually means the boundary above types its failure callback `(cause: unknown)` and ships no vocabulary, so each implementer invents one. Fix it at the boundary: export the `defineErrors` variants from the file that declares the callback. See the `logging` skill.
-
-## 4. Exhaustive `never` Checks as Union-Churn Signals
-
-**Pattern**: `const _exhaustive: never = x` after a switch on a discriminated union.
-
-```bash
-grep -rn ": never\s*=" packages --include="*.ts" -B10
-```
-
-**Why it matters**: each `never` check is a contract promise: "if this union grows a variant, every consumer with this check will break." That's *good*: it's the type system catching missed cases. But if adding a single variant breaks five different switches, the variants are probably overlapping, the union is too broad, or the same logic is being implemented in too many places.
-
-**Example (justified)**: one canonical formatter that exhaustively switches over a tagged error union with well under five variants, which every other consumer delegates to rather than re-implementing. Single point of enforcement, healthy use of the pattern.
-
-**Triage**: count call sites on the discriminated type. If 1-2 switches enforce exhaustiveness, fine. 5+ is a smell: consider:
-
-- Moving the switch into a method on the union members themselves (each variant exports its own behavior).
-- Splitting the union if some switches only care about a subset of variants.
-- Extracting a single canonical handler that other consumers delegate to.
-
-**False positive**: type-narrowing on a result type at a boundary is healthy, even if there are several. Look for the pattern of "every consumer has to know about every variant" as the actual signal.
+Use [the exhaustive-unions reference](references/exhaustive-unions.md) to
+find candidate switches and recognize when a runtime fallback is needed.
 
 ## 5. Single-Method `Pick` Dependencies
 

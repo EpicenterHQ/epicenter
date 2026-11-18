@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at "build, fingerprint, and serve `ui/dist/`": `serve` serves `ui/dist/` as the app's own build left it. Also amends [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) at "`epicenter init` and `epicenter new` run `bun install` there" and "the command carries the starter palette", [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at its root `theme.css`, and [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) at "`new --from` installs the app's packages and loads its `epicenter.ts`": `new` runs nothing, and a home has no shared theme. ADR-0854, ADR-0860, ADR-0868, and ADR-0880 are Proposed and were edited in place: a UI no longer runs as it sits on disk; actions still do.
+- **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at "build, fingerprint, and serve `ui/dist/`": `serve` serves `ui/dist/` as the app's own build left it. Also amends [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) at "`epicenter init` and `epicenter new` run `bun install` there" and "the command carries the starter palette", [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at its root `theme.css`, [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) at "`new --from` installs the app's packages and loads its `epicenter.ts`", and [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) at "copied by value, so a root theme can travel with an app": `new` runs nothing, a home has no shared theme, and export refuses a link out of the app. ADR-0854, ADR-0860, ADR-0868, and ADR-0880 are Proposed and were edited in place: a UI no longer runs as it sits on disk; actions still do.
 - **Relates:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) (one workspace, so one `bun run build` reaches every app), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the same move for keeping serve running).
 
 ## Context
@@ -34,11 +34,16 @@ with its own scripts. Bun already builds a page from an `index.html`, and
 - `epicenter new` runs nothing. It writes the app and prints the one command
   that installs its packages and builds its UI:
   `Run: cd <home> && bun install && bun run build`. `epicenter init` still
-  installs once, so a new home's first commit holds `bun.lock`.
+  installs once, which puts the `epicenter` command in the new home.
 - A page load for an app with no `ui/dist/index.html` answers a plain 404.
 - An app owns its palette. `init` writes no root `theme.css`; an app keeps its
   colors in a file under `code/ui/`, copied from a sibling app rather than
   linked. A link out of `code/` breaks when the app is copied or exported.
+- `export` refuses a link that leaves the app's `code/` and says to copy the
+  file in. It no longer copies a shared file by value, and its report drops
+  `materialized` and `uncommitted`: `apps` is a list of names. `new` no
+  longer reports links that do not resolve; a build that needs the file says
+  so.
 - `epicenter build` is removed.
 
 ## Consequences
@@ -61,7 +66,8 @@ with its own scripts. Bun already builds a page from an `index.html`, and
 - Two apps that share colors hold two copies, which drift apart once either
   is edited. That is the cost of an app that copies, exports, and travels
   whole. Existing homes keep working: a root `theme.css` that apps link to is
-  left alone, and those links still resolve in that home.
+  left alone, and those links still resolve in that home. Such an app cannot
+  be exported until its link is replaced by a copy.
 - A home made before this change has no `build` script at its top, and an app
   whose UI was a bare `ui/index.html` has none of its own. Add
   `"build": "bun run --filter '*' --if-present build"` to the home's

@@ -11,159 +11,23 @@ Before starting, check current code, dirty work, and the named continuation.
 Several chats share this checkout. A backlog entry preserves an outcome; it does
 not create a second implementation assignment.
 
-## Current plan
-
-### Verify remaining companion-task findings
-
-- Desired result: Close the remaining verification and documentation gaps from
-  the archived Folder migration companions, against the current integrated
-  code rather than rerunning obsolete migration briefs.
-- Grounding: Cleanup on 2026-10-26 verified the companions' reported commits
-  exist. `claude/folder-mirror` contains the finished C2 Whispering commits;
-  interrupted and contradictory earlier runs have later completed replacements.
-  The source chats and their final reports are indexed in the
-  [cleanup checkpoint](/Users/braden/.codex/visualizations/2026/10/26/01a17718-6b8e-7741-a605-0635f216a8f1/companion-archive-checkpoint.json).
-- Remaining outcomes: Determine whether the two Folder smoke failures
-  (independent paragraphs and concurrent saves), root consultation/skill-routing
-  failures, and Svelte `derived_inert` teardown warnings still reproduce on the
-  integrated branch. Verify Whispering retains failed field drafts after an
-  outside deletion; an earlier sweep omitted that mounted scenario. Reconcile
-  stale CLI row-creation and `docs/CONTEXT.md` repository/schema descriptions
-  with source. Verify older reads cannot overwrite newer reads of the same path;
-  an early mirror review reproduced that ordering failure before later rewrites.
-  Check same-size desktop audio replacement detection and document
-  the rename limit when outside edits have not yet been observed. Complete the
-  previously unverified manual desktop editing, Settings, and ignore-file checks
-  if they are still relevant to the current app. Earlier Rust and window-close failures have subsequent fixes;
-  confirm their current coverage rather than treating those old failures as open.
-- Continuation: This backlog entry owns these bounded checks. Review the
-  current branch and ongoing work first; archiving does not schedule
-  implementation or authorize discarding any files, branches, or worktrees.
-
-- October 27 continuation, updated after the later companion results:
-  `9d1611c67f`, `24857743d4`, and `b434f9007c` replace local based-write merging
-  with writes by smallest unit and `Folder.replace`, including three checked
-  patch attempts and refusal to replace a missing file. Earlier base-tracking,
-  body-base, and switch-gate proposals are superseded; do not implement them from
-  archived reviews. Verify stale Svelte skill guidance and the Messages
-  create/Exists/retry close interval only if still applicable.
-  Sync spike commit `974f6876c5` preserves local-only sync and desktop evidence in
-  `packages/folder/evidence/sync-spike/` on `claude/sync-spike`. Investigate its
-  1 MB editing slowdown: 100 keystrokes took about another 30 seconds to finish
-  landing after typing stopped, with high WebKit CPU and memory use. Decide checkpoint cadence
-  during continuous editing and how the UI exposes and restores overridden Git
-  versions; the spike recommends these but does not implement product policy.
-  Full reports and archive results are in the
-  [October 27 checkpoint](/Users/braden/.codex/visualizations/2026/10/27/01a17b6d-30c3-73b2-be2c-bf72edd6ca38/companion-cleanup.json).
-
-- Older companion acceptance, reviewed October 27: The old Rust-owner,
-  page-engine, guarded edit-session, account-relaunch, and Quit-flush proposals
-  no longer describe this checkout. Current native Cmd-Q/menu Quit acceptance
-  already exists in `apps/whispering/docs/desktop-verification.md` and the
-  Todos README; do not repeat the old blocked smoke attempts as unfinished work.
-  The existing manual desktop checks may include current app/root reuse and
-  native Git lock contention/recovery; these have source tests, not reproduced
-  bugs. The sibling sync spike supplies additional Honeycrisp Cmd-W and browser
-  transfer evidence, not acceptance of this checkout or hosted credentials.
-  Keep physical microphone recovery
-  under [native capture acceptance](#finish-native-capture-interruption-acceptance).
-  The existing [cross-device journey](#prove-a-cross-device-folder-journey)
-  owns authenticated transfer and redirect/credential isolation. Detailed
-  per-chat decisions are in `older-companion-review.json` beside the checkpoint.
-
-Architecture entries reviewed against committed source on 2026-10-22; the
-other chat continuations retain their recorded assignments. Folder-owned
-sources, unconditional local publication, app migrations, Whispering app owner,
-and the current Close/Quit policy have landed.
-Their source, tests, READMEs and ADRs own the implementation and acceptance
-evidence. Do not resume the obsolete createRowEdit/createTextEdit migration or
-recreate a page action registry. Commit `bd78bfb52b` replaced guarded edit
-conflicts and direct-write merging; Git sync and history retain content merging.
-
-| State | Remaining outcome | Continuation |
-| --- | --- | --- |
-| Implementation under review | One Markdown interpretation and folder-owned sources | [ADR-0665](docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) records framing; the [Folder guide](packages/folder/README.md#editors) describes retained sources and unconditional local publication. The guarded-source proposal in ADR-0666 and the buffer interface in ADR-0667 are historical implementation context. No second editor owner is needed. |
-| Underway | Messages draft previews and send recovery | “Rethink Epicenter’s content model”, `01a15c9c-a592-7b50-9ded-f8d4b9e0a5d7`, owns the Messages app integration. Keep checks on fictional data and preserve uncertain-send recovery. |
-| Underway | Evaluate an unparented application Quit alert | “Review native save-close flow”, `01a15c9a-215d-7222-86b9-5e0f2670d9af`, owns the disposable native experiment and any authorized adoption. Keep startup and other work separate. |
-| Remaining investigation | [Bound browser Git transfer costs](#preserve-local-only-files-during-git-exchange) | Preserve the delivered ignore and retry behavior; measure before replacing transport. |
-
-Resolve integration with `braden-w/data-folders` after active changes settle.
-Preserve this branch's newer architecture and intentional deletions; assess
-incoming fixes against current source. A backlog edit is not a message to
-another chat and does not create an implementation assignment.
-
-## Folder correctness and transfer
-
-### Preserve local-only files during Git exchange
-
-- Desired result: Files excluded from publication remain on this device, never
-  enter an outgoing snapshot, and survive remote adoption. Saved local content,
-  exact uncertain sends, and acknowledged remote content retain distinct roles.
-- Delivered behavior: Ordinary .gitignore rules govern publication while
-  remote adoption retains local-only files. Current Folder regressions cover
-  ignored audio, authored rule changes, pending deletions and uncertain-send
-  retries. Keep those guarantees; the former declaration-local-policy
-  migration is no longer the next implementation step.
-- Transfer cost: Measure a small edit against a large folder and long remote
-  ancestry. The current adapter rebuilds temporary Git storage and may expand
-  historical file contents. Keep ancestry evidence while avoiding unnecessary
-  payload retention; establish peak-memory evidence before replacing transport.
-- Older review continuation: Keep ignore selection and native checkpoint safety
-  checks on one captured rule map. Capture currently recognizes only lowercase
-  `.gitignore`, while Git on this Mac honors `.GITIGNORE`; check root and nested
-  case variants, native temporary capture, and Whispering's exclusion defaults
-  before claiming ignored payloads cannot be selected. The checkpoint preflight
-  and commit capture also read rules separately. Preserve native info/exclude
-  and configured excludes behavior when deciding the correction.
-
-### Prove a cross-device Folder journey
-
-- Desired result: Open existing local files without sign-in, attach a chosen
-  remote deliberately, and exchange edits with another device without moving
-  or uploading data as a side effect of signing in. Distinguish saved locally,
-  committed, and sent outcomes.
-- Current basis: [Folder](packages/folder/README.md) opens locally; the
-  [CLI](packages/cli/README.md) already implements authentication, repository
-  listing, cloning, and native Git exchange. The browser has internal sync
-  machinery, but persisted attachment and app scheduling remain unbuilt. The
-  former account-folder pairing plan is not the current implementation plan.
-- Finish: After the active browser decisions and integration settle, prove one
-  designated two-device text-folder journey, including offline edits, concurrent
-  changes, failed transfer, restart, and an existing folder gaining a remote.
-  Verify the intended account and repository receive the transfer, and that
-  redirects or credential helpers cannot send its credential elsewhere.
-  Choose discovery and attachment from the current repository model. Do not
-  restore account-scoped local storage or old OPFS paths to satisfy this item.
-- Scope: Audio capacity and provider limits need separate evidence. No live
-  account changes, deployment, or transfer of personal files is authorized here.
-
-### Measure OPFS startup at thousands of notes
-
-- Measure the OPFS store's startup at thousands of notes, and add a parsed-row
-  cache only if it is slow ([evidence](packages/folder/evidence/two-worlds-and-storage-shape/RESULTS.md)).
-
-## Remaining app acceptance
+## Whispering acceptance
 
 ### Keep AI connection rows and machine keys consistent
 
 - Desired result: Sending, adding, removing, or failing to read one connection
   leaves an understandable and recoverable state on this machine.
-- Current evidence: The old send path (`epicenter send`, deleted in `ed0a915fc8`)
-  checked the stored endpoint and key, but not whether the synced connection row
-  still existed with the expected kind, so deleting a row outside Settings could
-  leave an unlisted key usable. Each standalone app now keeps its own
-  connections through `epicenter-account`; confirm whether that gap survives
-  there. Establish the row/key lifecycle and intentional trust boundary before
-  changing how a request uses a key.
+- Current basis: The [Whispering README](apps/whispering/README.md) says a
+  request is refused, with nothing sent, if its connection was removed. Keys
+  live in the site's `connection-keys.json` on the web and in `credentials.json`
+  on the desktop.
 - Remaining recovery: Keep one attempted connection ID through a failed Add/key
-  save, so retry does not create another row. Show a safe keychain failure message
-  instead of blindly displaying external store error text. Resolve Whispering's
+  save, so retry does not create another row. Show a safe keychain failure
+  message instead of external store error text. Resolve Whispering's
   transcription and text connections independently when one read fails.
-- Scope: The arbitrary installed-app capability model is gone; do not restore it.
-  Provider responses are currently forwarded as received, so a provider echoing
-  request credentials remains a separate trust-contract question, not proof that
-  the local key store leaks them. The historical reports remain in the cleanup
-  checkpoint; this item owns the remaining connection decisions.
+- Scope: Provider responses are forwarded as received, so a provider echoing
+  request credentials is a separate trust-contract question, not proof that the
+  local key store leaks them.
 
 ### Verify Whispering's recordings table and detail pane
 
@@ -177,88 +41,58 @@ another chat and does not create an implementation assignment.
   keyboard focus, and detail navigation at 320 and 390 pixels. Exercise bulk
   transcription with a test endpoint and verify skips, failures, and saved
   results. Automated tests do not establish visual or listening behavior.
-- Historical evidence: `40cf833314` and archived implementation chat
-  `01a0fd21-5251-7201-a40b-1aa104733d90`. Recheck current UI before reusing its
-  older Home-layout patch; it is not an outstanding implementation requirement.
 
 ### Finish native capture interruption acceptance
 
 - Desired result: A physical recording interrupted by window destruction or
   application exit releases the microphone, retains captured desktop audio,
   and permits another recording after reopening.
-- Current basis: The [recorder](packages/recorder/README.md) streams desktop
-  WAV files through Rust. Its plugin tests cover destroyed-window finalization
-  and recovery. The former account-change restart scenario belongs to the
-  deleted runtime.
+- Current basis: The [recorder](packages/recorder/README.md) writes desktop
+  audio as Opus in WebM from the first sample, and `recover()` finishes
+  recordings a quit or crash cut off.
 - Remaining acceptance: With a real input device, exercise interruption,
-  reacquisition, and recovery of the WAV header. Browser recording remains an
-  in-memory capture until stop and has different interruption behavior.
+  reacquisition, and `recover()`. Browser recording remains an in-memory
+  capture until stop and has different interruption behavior.
 
 ### Complete Whispering's local transcription handoff
 
 - Desired result: Select on-device transcription when available; otherwise
   explain what is missing and open the model settings. Keep endpoint
   transcription available as an explicit alternative.
-- Grounding: [Whispering's desktop services](apps/whispering/src/lib/platform/services.tauri.ts)
-  send a recording to a local model, and the
-  [connection form](apps/whispering/src/routes/components/ConnectionForm.svelte)
-  offers it as **Use this computer**, with models administered in Settings
-  ([Whispering README](apps/whispering/README.md)). The web build has no
+- Grounding: [SpeechSettings](apps/whispering/src/lib/components/SpeechSettings.svelte)
+  offers on-device models under **On this computer**. The web build has no
   local transcription.
 - Revisit when: Next Whispering connection or first-run pass. Verify model
   selection, unavailable state, and a real transcription through the host.
 - Older cache review: The resolver trusts Hugging Face cache layout rather than
   hashing cached bytes. Preserve that narrowed claim and provide a repair path
-  for a damaged existing file. Reconcile current model support with superseded
-  records, and direct shared-cache cleanup through Hugging Face's cache tools
-  rather than suggesting deletion of a folder other applications may use.
+  for a damaged existing file. Direct shared-cache cleanup through Hugging
+  Face's cache tools rather than suggesting deletion of a folder other
+  applications may use.
 
-### Show where Whispering keeps audio and resulting text
+### Show where Whispering keeps audio and resulting text, in the app
 
-- Desired result: A person can locate the recording's audio and saved transcript
-  or transformation, identify the endpoint and model used, and understand any
-  deliberate handoff of text to another app.
-- Grounding: Current recordings and transformations are folder files. The old
-  Local/Personal split, automatic cleanup terminology, and Capture promotion
-  plan do not describe current behavior.
-- Revisit when: Next recording-results or file-navigation pass. Verify existing
-  provenance and path displays before adding UI. Any Capture handoff needs an
-  explicit destination and product decision; keep audio in its original folder.
+- Desired result: From a recording, a person can open its audio and saved
+  transcript or transformation, and see the endpoint and model used, without
+  reading the README.
+- Grounding: The [Whispering README](apps/whispering/README.md) documents where
+  files live, and each transcript records its model and endpoint. The app does
+  not show either.
+- Revisit when: Next recording-results pass. Any handoff of text to another app
+  needs an explicit destination and product decision.
 
 ## Conditional products and capabilities
-
-### Reconsider Local Mail only as a deliberate product
-
-- Desired result: If Mail returns, provide readable local mail, durable offline
-  triage, and explicit write-back to the chosen provider.
-- Grounding: Local Mail was deleted in `280bdf4d44`; no current Mail code exists
-  to patch. Recover implementation evidence and the Mail transcript review
-  (docs/transcript-reviews.md at `280bdf4d44`, section "Mail: preserve the
-  product, finish execution") from history before choosing a new
-  implementation.
-- Retained acceptance: Reconnect wins over an older credential refresh; pending
-  actions get delivery opportunities during downloads; throttling and retry
-  waits are cancellable; restart retains progress and pending changes. Establish
-  an explicit large-message limit or storage path without advancing past unsaved
-  mail. Verify real sign-in, restart, offline triage, and provider-specific Undo
-  with designated test messages.
-- Optional follow-ups: Named saved views support ordinary triage actions;
-  LLM cleanup previews exact messages before recoverable Trash; an Outlook-only
-  journey precedes a combined inbox. These are conditional on choosing Mail,
-  not separate current implementation assignments.
 
 ### Define Zhongwen's saved-word review loop
 
 - Desired result: Save Chinese words, return through review, and retain learning
   progress in an independently maintained app.
-- Grounding: Vocab already saves exact phrases and supports generated practice;
-  that does not establish a review-history or scheduling product. Settle the
-  first retrieval interaction before choosing a scheduler or schema.
-- Distribution: If Zhongwen becomes the first external app, decide how a person
-  obtains and opens it against today's packaging and licensing. Epicenter
-  currently bundles known apps and has no arbitrary-app installer. The former
-  prebuilt-release installer and Personal-store model are deleted; do not assume
-  they must return or that an MIT dependency closure is available.
+- Grounding: Vocab, an app in the home, saves exact phrases and supports
+  generated practice; that does not establish a review-history or scheduling
+  product. Settle the first retrieval interaction before choosing a scheduler or
+  schema.
+- Distribution: A person gets an app by copying its code into their home with
+  `epicenter new` ([ADR-0929](docs/adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md)).
 - Revisit when: Chinese study becomes the next product milestone.
 
 ### Make Whispering's dictation loop clear from speech to delivered text
@@ -266,14 +100,12 @@ another chat and does not create an implementation assignment.
 - Desired result: Start dictation from another app, see capture and processing
   state, and know whether text reached the intended field or remains copyable.
   Failed delivery preserves the transcript.
-- Current basis: Whispering records and transcribes in its own window. Its
-  current implementation has no global dictation shortcuts, overlay, or automatic
-  cursor delivery. This is a future product capability, not an acceptance pass
-  over an existing delivery system.
+- Current basis: The desktop app has one global shortcut, `toggleRecording`
+  ([Whispering README](apps/whispering/README.md)). It has no overlay and no
+  automatic delivery into another app's field.
 - Revisit when: System-wide dictation is chosen as a product milestone. Define
-  start, stop, delivery, and fallback first; make configured shortcuts visible
-  where their actions appear. Onboarding, time-saved feedback, and optional
-  gamification can follow evidence from that journey.
+  start, stop, delivery, and fallback first. Onboarding and time-saved feedback
+  can follow evidence from that journey.
 
 ### Let a spoken instruction revise selected text
 
@@ -291,54 +123,16 @@ another chat and does not create an implementation assignment.
   dictionary cannot provide. Text-assisted spelling and image-based questions
   are different needs; choose the one the task establishes.
 
-### Add TikTok Direct Post
+### Decide what sharing with another person means for a home
 
-- Desired result: Explicit approval of one post to a connected creator account
-  produces at most one TikTok post.
-- Grounding: Historical implementation and review corrections are preserved in
-  `51335f22ec` on `codex/tiktok-direct-post`. They are evidence to reassess against
-  the current publishing product, not current behavior.
-- Revisit when: TikTok publishing becomes a priority and API access is available.
-
-### Re-earn a headless Epicenter runner
-
-- Desired result: Keep a chosen folder available for a concrete unattended
-  workflow without requiring an open editor window.
-- Current basis: The CLI can operate on directories and exchange Git history;
-  it has no resident runner. The deleted `epicenter up` lifecycle is historical
-  evidence for shutdown and process management, not an API to restore.
-- Revisit when: A homelab, automation, or always-on workflow needs it. Decide
-  which operation must stay live before introducing a daemon or watcher.
-
-### Publish a deliberately selected file as a durable URL
-
-- Desired result: An authenticated script or agent can explicitly publish a
-  chosen local file and receive a durable URL.
-- Current basis: CLI authentication already exists; do not rebuild a machine
-  session for this outcome. The former blob-hosting API is deleted, and current
-  recordings remain local files.
-- Revisit when: A concrete publishing workflow needs this. Choose the storage,
-  access, and retention contract before adding an upload command.
-
-### Define user-controlled page types for a knowledge app
-
-- Desired result: A knowledge app lets a page carry prose and user-defined typed
-  fields, without forcing every page into a fixed worldview.
-- Current basis: Folder already provides schema interpretation and Epicenter
-  already reads and edits tables over Markdown. Reuse those capabilities; the
-  deleted Wiki and Matter implementations are historical evidence only.
-- Revisit when: A concrete knowledge workflow needs behavior beyond Files,
-  Tables, and saved views. Decide that product behavior before adding a page
-  type system. A tag does not need to become another page.
-
-### Decide collaboration needs from a concrete shared-folder workflow
-
-- Desired result: If collaboration is chosen, define membership, invitations,
-  access, and data ownership for the people actually sharing files.
-- Current basis: The old Skills app and sync laboratory were removed in
-  `280bdf4d44`. Their deferred-purpose review is not a reason to restore them.
-- Revisit when: A real shared workflow needs more than ordinary file or Git
-  exchange. Keep this separate from local opening and app migration.
+- Desired result: If sharing is chosen, define who can see or change which
+  records, how they are invited, and whose home owns the data.
+- Current basis: A home is one private Git repository per person
+  ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
+  The Folder sync product that framed earlier collaboration plans is retired
+  ([ADR-0899](docs/adr/0899-the-folder-sync-product-is-retired.md)).
+- Revisit when: A real case of two people sharing data needs more than one
+  person's home.
 
 ### Track photographs used in Vault publications
 
@@ -346,12 +140,13 @@ another chat and does not create an implementation assignment.
   person and their agents can find the photos in a publication, the publications
   using a photo, and unused photos within a chosen trip, date range, or topic.
 - Grounding: [Model photo identity and lineage from Google Takeout](thread://019f779e-59f7-7bc0-a101-b1b4ee603f54?hostId=local)
-  ends with this request. Vault ADR-0290 records asset-use tracking as
-  unimplemented. Keep durable use references in authored Vault or publication
-  records; the ignored SQLite catalog may index them, but cannot be their only
-  home. Settle how Google items, Takeout occurrences, selected downloads, and
-  publication derivatives relate without assuming a filename, thumbnail, or
-  matching bytes establishes one logical photo. Preserve uncertain matches.
+  ends with this request. The Vault repository's own ADR-0290 (not this
+  repository's) records asset-use tracking as unimplemented. Keep durable use
+  references in authored Vault or publication records; the ignored SQLite
+  catalog may index them, but cannot be their only home. Settle how Google
+  items, Takeout occurrences, selected downloads, and publication derivatives
+  relate without assuming a filename, thumbnail, or matching bytes establishes
+  one logical photo. Preserve uncertain matches.
 - Revisit when: Connecting photo selection to a real Vault page or video.
   [This Google Photos import chat](thread://01a1e0a7-325a-7cb2-97ea-40a645f185f7?hostId=local)
   continues the import into `~/Epicenter`; do not revive superseded command,
@@ -366,8 +161,8 @@ another chat and does not create an implementation assignment.
   export completed on a 1 TB Crucial X8. It reported moving 41 older partial
   downloads to that drive's Trash without emptying it. These are historical
   observations, not the drive's current inventory. [Explain Google Photos Takeout size](thread://019f77dc-273f-78a1-8d7c-71bc0bebf79e?hostId=local)
-  supplies export-size context; Vault ADR-0261 preserves the remote-retention
-  proposal, not evidence of a completed backup.
+  supplies export-size context; the Vault repository's ADR-0261 preserves the
+  remote-retention proposal, not evidence of a completed backup.
 - Revisit when: Choosing to retain originals independently of Google Photos.
   Inspect surviving downloads, integrity, available storage, and Trash before
   deciding the destination or remaining import work. Preserve existing sources;
@@ -411,11 +206,14 @@ another chat and does not create an implementation assignment.
 
 - Desired result: Old clients and redirects no longer authorize grants, while
   the current CLI and desktop registrations remain functional.
-- Grounding: Current registrations use `so.epicenter.cli` and `so.epicenter`.
-  The old `epicenter-cli` row may survive in deployments that once seeded it;
-  [registration](packages/server/src/auth/oauth-registrations.ts) updates known
-  clients but does not remove all unknown rows. No deployed inventory was read
-  during this backlog review, so existence is unverified.
+- Grounding: [The registrations](apps/api/worker/oauth-registrations.ts)
+  declare the clients, and [registration](packages/server/src/auth/oauth-registrations.ts)
+  writes them to the database; it updates known clients but does not remove
+  unknown rows. The old `epicenter-cli` row may survive in deployments that once
+  seeded it. `so.epicenter` (the deleted desktop app), `so.epicenter.todos`, and
+  `so.epicenter.capture` belong to apps no longer in this repository and may
+  now be obsolete too. No deployed inventory was read, so existence is
+  unverified.
 - Revisit when: Next production registration audit. Inspect exact rows and
   historical redirects before disabling obsolete clients; keep legitimate
   external registrations. This entry does not authorize production changes.
@@ -425,8 +223,62 @@ another chat and does not create an implementation assignment.
 - Desired result: Published legacy versions explain their status without
   breaking existing installs or mislabeling packages restored in this repo.
 - Grounding: The earlier retirement list included `@epicenter/workspace`,
-  `@epicenter/filesystem`, and `@epicenter/cli`. CLI source exists again. Check
-  current registry metadata and intended version ranges before proposing any
-  deprecation; preserve the license of each previously published version.
+  `@epicenter/filesystem`, and `@epicenter/cli`. `@epicenter/cli` and
+  `@epicenter/app` are published again; `@epicenter/folder` is private now, and
+  whether it was ever published is unchecked. Check current registry metadata
+  and intended version ranges before proposing any deprecation; preserve the
+  license of each previously published version.
 - Revisit when: Next package release. Do not unpublish or deprecate a whole
   package name merely because an earlier implementation was deleted.
+
+## Repository upkeep
+
+### Bring the public pages in line with the home
+
+- Desired result: Public pages describe Epicenter as the home where one
+  person's software lives, as `README.md` and `docs/positioning.md` now do, and
+  no longer promise the retired Folder sync product.
+- Grounding: On 2026-11-17, `apps/landing/src/pages/privacy.astro` and
+  `terms.astro` still call Epicenter "local-first software". The blog posts
+  `apps/landing/src/content/blog/launch.md` and
+  `second-brain-infrastructure.md` describe the earlier product. The plan
+  comparison in `apps/api/ui/src/lib/components/PlanComparison.svelte` says
+  "All plans include cloud sync, unlimited workspaces". The front-door rewrite
+  in `98a9930ac1` left these for a deliberate decision.
+- Revisit when: Before the next public announcement or pricing change. Privacy
+  and terms wording is a legal statement; change what it promises, not only its
+  vocabulary. An old blog post may stay as dated history with a note.
+
+### Finish the logging cleanup the logging skill describes
+
+- Desired result: No package builds an error only to log it, and the hosted API
+  writes one record per request the way `epicenter serve` writes one per action
+  run.
+- Grounding: The [logging skill](.agents/skills/logging/SKILL.md) forbids a
+  `new Error` at a log call site, yet six subscriber loops still do it:
+  `packages/ai/src/open-ai.ts`, `packages/ai/src/local-servers.ts`,
+  `packages/ai/src/agent/loop.ts`, and in the retired Folder package
+  `packages/folder/src/folder.ts` (two) and `note-edit.ts`. The six are the
+  same catch-and-log loop copied; one shared helper may replace them. The
+  skill names one hosted API request as a unit of work, but no per-request
+  record exists.
+- Revisit when: The next logging pass. Before the hosted API record, check how
+  Cloudflare Workers keep and query logs. The Folder sites go away with that
+  package rather than being fixed.
+
+### Triage the open pull requests against the current code
+
+- Desired result: Each open pull request is merged, rebuilt, or closed with a
+  note, and community ideas worth keeping survive the closing.
+- Grounding: On 2026-11-17, 68 pull requests were open. A branch review found
+  most of them change code that `main` no longer has (the retired Folder product
+  and the old Whispering source). Six community Whispering pull requests hold
+  ideas worth keeping or rebuilding, though their code is out of date: #2515
+  (Silero VAD tuning in settings), #2486 (Linux Super-key shortcuts), #2475
+  (working tray icon, menu-bar-only mode), #2495 (quick-release push-to-talk),
+  #2453 (audio compression on by default), and #2314 (WebKit hardware
+  acceleration off under remote displays). The current Whispering source does
+  not mention push-to-talk, VAD, or compression.
+- Revisit when: A Whispering pass, or before closing stale pull requests. Close
+  nothing on the strength of this entry alone; a community pull request gets a
+  comment that says what happened to its idea.

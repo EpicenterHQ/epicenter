@@ -119,32 +119,22 @@ export function createMarkdownRecords({
 		return Ok({ set: inDeclaredOrder(set, fields), removed });
 	}
 
-	/** Decide a record and its replacement together, once per attempt at the current file. */
+	/**
+	 * Decide a record and its replacement together, once per attempt at the
+	 * current file. `need` refuses an absent file with Missing and a present
+	 * one with Changed (there).
+	 */
 	function write(
 		path: string,
 		need: Need,
 		computed: boolean,
 		change: (record: AnyRecord | undefined) => Result<Write, CallbackError>,
 	) {
-		return folder.edit<AnyRecord, CallbackError>(
-			path,
-			decide(path, need, computed, change),
-		);
-	}
-
-	function decide(
-		path: string,
-		need: Need,
-		computed: boolean,
-		change: (record: AnyRecord | undefined) => Result<Write, CallbackError>,
-	): (
-		before: string | undefined,
-	) => Result<{ value: AnyRecord; text?: string }, CallbackError> {
-		return (before) => {
+		return folder.edit<AnyRecord, CallbackError>(path, (before) => {
 			if (before === undefined && need === 'present')
 				return ActionError.Missing({ path });
 			if (before !== undefined && need === 'absent')
-				return ActionError.Refused({ message: `${path} is already there` });
+				return ActionError.Changed({ path, why: 'there' });
 
 			const found = readMarkdown(before ?? '');
 			const current = before !== undefined ? project(path, found) : undefined;
@@ -185,21 +175,20 @@ export function createMarkdownRecords({
 			if (next.error !== null)
 				return current?.result.error ? current.result : next;
 			return Ok({ value: next.data, text: after });
-		};
+		});
 	}
 
 	/** A computed change must explicitly return Ok(change) or Err(error). */
 	const computed =
 		(
 			change: (record: AnyRecord | undefined) => unknown,
-			method: 'set' | 'update',
 			identity: readonly string[] = [],
 		) =>
 		(now: AnyRecord | undefined): Result<Write, CallbackError> => {
 			const result = change(structuredClone(now));
 			if (!isActionResult(result))
 				throw new Error(
-					`The change given to ${method} must return a Result: Ok(change) or Err(error)`,
+					'The change given to edit must return a Result: Ok(change) or Err(error)',
 				);
 			if (result.error !== null) return result;
 			if (
@@ -208,12 +197,12 @@ export function createMarkdownRecords({
 				Array.isArray(result.data)
 			)
 				throw new Error(
-					`The change given to ${method} must return a record patch inside Ok`,
+					'The change given to edit must return a record patch inside Ok',
 				);
 			const { body, ...given } = result.data as Record<string, unknown>;
 			for (const key of identity) delete given[key];
 			return Ok({ fields: given, body });
 		};
 
-	return { project, write, decide, computed, unknownField };
+	return { project, write, computed, unknownField };
 }

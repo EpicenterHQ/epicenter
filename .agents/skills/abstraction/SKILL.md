@@ -10,14 +10,11 @@ Help the person see how something works in a form they can reason with.
 Start with what they are trying to understand or decide. Build on the concepts
 they already know, including technical terms.
 
-Choose a form that makes the relationships easy to see. A timeline can show
-the order of events, a comparison can show how alternatives differ, and the
-actual before and after can show what a change does. Use prose, a diagram,
-or an example when it makes the idea easier to follow.
+If someone is trying to understand a process, walk through one example
+from start to finish and show how the parts work together to produce
+the result. If they’re weighing two approaches, show how each handles
+the same situation. If they want to understand a change, show what
+happens before and after.
 
-Show how the parts connect and what follows from them. Use the actual material
-when the person needs to inspect it, rather than making them reconstruct it
-from a description.
-
-If something unresolved changes how the idea should be understood,
-say so.
+Use the actual material when the person needs to inspect it, rather
+than making them reconstruct it from a description.

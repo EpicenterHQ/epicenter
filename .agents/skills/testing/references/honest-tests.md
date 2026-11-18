@@ -15,8 +15,8 @@ interface-required members can remain without implying behavioral coverage.
 
 ## The Two Questions
 
-Ask both of these for every `test(...)` block. If either answer is "no"
-or "nothing real," trim or rewrite.
+Ask both of these for each test in scope. If an answer reveals no meaningful
+protection, improve, combine, or delete the test.
 
 ```
 1. What would have to break in production for this test to fail?
@@ -42,9 +42,9 @@ test('initial status is offline or connecting', () => {
 
 Inside `setup()`, the supervisor reaches `connecting` synchronously
 before the call returns. `connected` and `failed` require a handshake
-that the fake never delivers. The remaining options are both green. The
-test cannot fail. Delete it or rewrite it to pin one specific phase
-with a specific cause.
+that the fake never delivers. The remaining options are both green. The assertion permits either state without checking which transition
+happened, so a wrong initial state can still pass. Delete it or rewrite it to
+pin the required state and its cause.
 
 ### 2. The pass-through getter
 
@@ -56,10 +56,10 @@ test('exposes the supplied installationId', () => {
 });
 ```
 
-`openCollaboration` does `installationId: config.installationId`. This
-tests that property assignment works. Keep only if the field is part of
-a documented contract callers depend on, and even then prefer folding
-the check into a richer test that exercises real behavior.
+`openCollaboration` does `installationId: config.installationId`. A check
+can earn its place when it detects a plausible change that breaks a field
+contract callers depend on. Trace the production value and what the assertion
+would catch. The check may fit a richer scenario that exercises that contract.
 
 ### 3. The fake that stalls past the interesting part
 
@@ -142,9 +142,10 @@ test('dispose destroys the underlying ydoc', () => {
 });
 ```
 
-Keep only when the wrapper is documented contract (here:
-`[Symbol.dispose]() === ydoc.destroy()`) that consumers rely on. If
-the wrapper is implementation detail subject to change, skip the test.
+This check catches a disposal wrapper that stops calling `ydoc.destroy()`.
+It earns its place when callers rely on that disposal contract and other
+coverage would miss the regression. A documented wrapper alone is not a reason
+to add a separate test.
 
 ## The audit pass
 
@@ -158,14 +159,15 @@ Re-read the file docstring and test names against what the suite actually
 exercises. Repair a real but unreachable scenario rather than treating its
 weak setup as permission to lose the required coverage.
 
-## What Honest Looks Like
+## What honest coverage establishes
 
-The trimmed `open-collaboration.test.ts`: four tests, 10-line fake.
-One test (action-key validation) drives real branching logic. Three
-tests pin documented contract pass-throughs. The fake's three
-properties are all reached on the teardown path. The docstring names
-both what's in scope and what isn't.
+A test earns its place when its setup can expose a plausible production failure
+and its assertions detect that failure. A documented pass-through can still
+matter: if disposal stops reaching the underlying resource, the test should
+fail for that reason. A test that merely compares fixture values adds no such
+protection.
 
-An honest suite would fail for the required production regressions, and its
-setup makes those failures reachable. A shorter file is useful only when that
-confidence survives.
+Review setup, assertions, and teardown together. Delete tests and fake behavior
+that add no useful protection. Repair meaningful scenarios whose setup prevents
+them from exercising the failure. A shorter suite is useful when its retained
+checks still catch the mistakes that matter.

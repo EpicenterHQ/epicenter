@@ -68,7 +68,7 @@ export function checkInput(
 	);
 	const field = at[0] || params?.requiredProperties?.[0];
 	const name = field ?? 'input';
-	// A key missing inside an object is named by its path: `edit.new is needed`.
+	// A key missing inside an object is named by its path: `address.city is needed`.
 	if (first?.keyword === 'required')
 		return {
 			error: `${[...at, params?.requiredProperties?.[0]].filter(Boolean).join('.') || name} is needed`,

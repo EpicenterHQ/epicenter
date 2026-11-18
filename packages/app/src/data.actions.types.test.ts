@@ -29,20 +29,29 @@ const data = defineData({
 		fields: { level: field.integer(), note: field.text({ optional: true }) },
 	},
 });
-const actions = data.words.actions('list', 'get', 'add', 'set', 'delete');
-const settings = data['settings.md'].actions('get', 'set', 'delete');
+const actions = data.words.actions(
+	'list',
+	'get',
+	'create',
+	'patch',
+	'edit',
+	'delete',
+);
+const settings = data['settings.md'].actions('get', 'patch', 'edit', 'delete');
 type Word = DataRecord<'words', typeof data.words>;
 type Settings = DataRecord<'settings.md', (typeof data)['settings.md']>;
 
 test('returned keys are exactly the requested verbs and actions send no updates', () => {
-	const selected = data.words.actions('get', 'set');
-	assertType<Equal<keyof typeof selected, 'get' | 'set'>>();
-	assertType<Equal<keyof typeof settings, 'get' | 'set' | 'delete'>>();
-	assertType<Equal<ActionUpdate<typeof actions.add>, never>>();
-	expect(Object.keys(selected)).toEqual(['get', 'set']);
+	const selected = data.words.actions('get', 'patch');
+	assertType<Equal<keyof typeof selected, 'get' | 'patch'>>();
+	assertType<
+		Equal<keyof typeof settings, 'get' | 'patch' | 'edit' | 'delete'>
+	>();
+	assertType<Equal<ActionUpdate<typeof actions.create>, never>>();
+	expect(Object.keys(selected)).toEqual(['get', 'patch']);
 });
 
-test('action inputs retain required add fields and optional nullable patches', () => {
+test('action inputs retain required create fields, optional nullable patches, and a bare passage edit', () => {
 	assertType<
 		Equal<Parameters<typeof actions.list>[0], Record<string, never>>
 	>();
@@ -50,7 +59,7 @@ test('action inputs retain required add fields and optional nullable patches', (
 	assertType<Equal<Parameters<typeof actions.delete>[0], { id: string }>>();
 	assertType<
 		Equal<
-			Parameters<typeof actions.add>[0],
+			Parameters<typeof actions.create>[0],
 			{
 				id?: string;
 				meaning: string;
@@ -66,7 +75,7 @@ test('action inputs retain required add fields and optional nullable patches', (
 	>();
 	assertType<
 		Equal<
-			Parameters<typeof actions.set>[0],
+			Parameters<typeof actions.patch>[0],
 			{
 				id: string;
 				meaning?: string;
@@ -77,8 +86,13 @@ test('action inputs retain required add fields and optional nullable patches', (
 				choice?: 'yes' | 'no';
 				raw?: number;
 				body?: string;
-				edit?: { old: string; new: string };
 			}
+		>
+	>();
+	assertType<
+		Equal<
+			Parameters<typeof actions.edit>[0],
+			{ id: string; old: string; new: string }
 		>
 	>();
 	assertType<
@@ -89,14 +103,12 @@ test('action inputs retain required add fields and optional nullable patches', (
 	>();
 	assertType<
 		Equal<
-			Parameters<typeof settings.set>[0],
-			{
-				level?: number;
-				note?: string | null;
-				body?: string;
-				edit?: { old: string; new: string };
-			}
+			Parameters<typeof settings.patch>[0],
+			{ level?: number; note?: string | null; body?: string }
 		>
+	>();
+	assertType<
+		Equal<Parameters<typeof settings.edit>[0], { old: string; new: string }>
 	>();
 });
 
@@ -108,9 +120,11 @@ test('action answers retain precise record, absence, and error types', () => {
 	assertType<
 		Equal<Answer<typeof settings.get>['data'], Settings | undefined | null>
 	>();
-	assertType<Equal<Answer<typeof actions.add>['data'], Word | null>>();
-	assertType<Equal<Answer<typeof actions.set>['data'], Word | null>>();
-	assertType<Equal<Answer<typeof settings.set>['data'], Settings | null>>();
+	assertType<Equal<Answer<typeof actions.create>['data'], Word | null>>();
+	assertType<Equal<Answer<typeof actions.patch>['data'], Word | null>>();
+	assertType<Equal<Answer<typeof actions.edit>['data'], Word | null>>();
+	assertType<Equal<Answer<typeof settings.patch>['data'], Settings | null>>();
+	assertType<Equal<Answer<typeof settings.edit>['data'], Settings | null>>();
 	assertType<Equal<Answer<typeof actions.delete>['data'], boolean | null>>();
 	assertType<Equal<Answer<typeof settings.delete>, Result<boolean, never>>>();
 	assertType<
@@ -124,22 +138,30 @@ test('action answers retain precise record, absence, and error types', () => {
 	>();
 	assertType<
 		Equal<
-			NonNullable<Answer<typeof actions.add>['error']>['name'],
+			NonNullable<Answer<typeof actions.create>['error']>['name'],
 			'Changed' | 'Refused'
 		>
 	>();
 	assertType<
 		Equal<
-			NonNullable<Answer<typeof actions.set>['error']>['name'],
+			NonNullable<Answer<typeof actions.patch>['error']>['name'],
 			'Changed' | 'Refused' | 'Misfit' | 'Missing'
 		>
 	>();
 	assertType<
 		Equal<
-			NonNullable<Answer<typeof settings.set>['error']>['name'],
+			NonNullable<Answer<typeof settings.patch>['error']>['name'],
 			'Changed' | 'Refused' | 'Misfit'
 		>
 	>();
+	// A passage edit of an absent file is Missing for both key shapes.
+	for (const edit of [actions.edit, settings.edit])
+		assertType<
+			Equal<
+				NonNullable<Answer<typeof edit>['error']>['name'],
+				'Changed' | 'Refused' | 'Misfit' | 'Missing'
+			>
+		>();
 	type Listed = NonNullable<Answer<typeof actions.list>['data']>[number];
 	assertType<Equal<Listed['data'], Word | null>>();
 	assertType<Equal<NonNullable<Listed['error']>['name'], 'Misfit'>>();
@@ -173,12 +195,12 @@ describe('type errors', () => {
 		() => data['settings.md'].actions();
 		// @ts-expect-error one-file keys have no list
 		() => data['settings.md'].actions('list');
-		// @ts-expect-error one-file keys have no add
-		() => data['settings.md'].actions('get', 'add');
-		// @ts-expect-error update is only on the handle
-		() => data.words.actions('update');
+		// @ts-expect-error one-file keys have no create
+		() => data['settings.md'].actions('get', 'create');
+		// @ts-expect-error the old verbs are gone
+		() => data.words.actions('set');
 		// @ts-expect-error an unselected verb is absent
-		() => data.words.actions('get').add;
+		() => data.words.actions('get').create;
 	});
 
 	test('calling an action rejects the wrong input shape', () => {
@@ -190,25 +212,31 @@ describe('type errors', () => {
 		() => actions.delete({});
 		// @ts-expect-error list takes no fields
 		() => actions.list({ id: 'a' });
-		// @ts-expect-error add requires all required fields
-		() => actions.add({ id: 'a', meaning: 'a' });
+		// @ts-expect-error create requires all required fields
+		() => actions.create({ id: 'a', meaning: 'a' });
 		// @ts-expect-error required numbers stay numbers
-		() => actions.set({ id: 'a', rank: 'one' });
+		() => actions.patch({ id: 'a', rank: 'one' });
 		// @ts-expect-error required fields cannot be removed
-		() => actions.set({ id: 'a', meaning: null });
+		() => actions.patch({ id: 'a', meaning: null });
 		// @ts-expect-error body cannot be removed
-		() => actions.set({ id: 'a', body: null });
+		() => actions.patch({ id: 'a', body: null });
+		// @ts-expect-error patch takes no passage
+		() => actions.patch({ id: 'a', edit: { old: 'x', new: 'y' } });
 		// @ts-expect-error edits need old and new
-		() => actions.set({ id: 'a', edit: { old: 'x' } });
-		// @ts-expect-error set has no was guard
-		() => actions.set({ id: 'a', was: {} });
+		() => actions.edit({ id: 'a', old: 'x' });
+		// @ts-expect-error a passage edit carries no fields
+		() => actions.edit({ id: 'a', old: 'x', new: 'y', rank: 2 });
+		// @ts-expect-error one-file edits take no id
+		() => settings.edit({ id: 'a', old: 'x', new: 'y' });
+		// @ts-expect-error patch has no was guard
+		() => actions.patch({ id: 'a', was: {} });
 		// @ts-expect-error one-file reads take no id
 		() => settings.get({ id: 'a' });
 		// @ts-expect-error one-file deletes take no id
 		() => settings.delete({ id: 'a' });
 		// @ts-expect-error one-file changes take no id
-		() => settings.set({ id: 'a', level: 2 });
+		() => settings.patch({ id: 'a', level: 2 });
 		// @ts-expect-error one-file fields retain their declared types
-		() => settings.set({ level: 'two' });
+		() => settings.patch({ level: 'two' });
 	});
 });

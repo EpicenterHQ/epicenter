@@ -25,7 +25,7 @@ const add = defineAction({
 		const body = [rest.join("\n").trim(), notes?.trim() ?? ""]
 			.filter((part) => part !== "")
 			.join("\n\n");
-		return data.tasks.add(timeId(), {
+		return data.tasks.create(timeId(), {
 			title: heading,
 			done: false,
 			due,
@@ -39,5 +39,5 @@ export default defineApp({
 		"Things I mean to do: a note per task, its title, whether it is done, and when it is due; its notes in the body",
 	data,
 	// One data key: its verbs are the app's own, `tasks add` rather than `tasks tasks add`.
-	actions: { ...data.tasks.actions("list", "get", "set", "delete"), add },
+	actions: { ...data.tasks.actions("list", "get", "patch", "edit", "delete"), add },
 });

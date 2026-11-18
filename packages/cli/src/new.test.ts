@@ -142,12 +142,15 @@ for (const form of [
 						? source
 						: join(source, form === 'container' ? 'apps/x' : 'sub/folder');
 		const local = !form.startsWith('github');
+		if (local) {
+			// A local source must be the commit it gives.
+			expect((await f.run('new', 'copy', '--from', from)).code).toBe(2);
+			await gitIn(source, 'checkout', '-q', '--', '.');
+		}
 		const result = await f.run('new', 'copy', '--from', from, '--json');
 		expect(result).toMatchObject({ code: 0 });
 		const commit = await gitIn(source, 'rev-parse', 'HEAD');
-		expect(JSON.parse(result.stdout).source).toEqual(
-			local ? { commit, notCopied: ['epicenter.ts', 'tool.sh'] } : { commit },
-		);
+		expect(JSON.parse(result.stdout).source).toEqual({ commit });
 		const dest = join(f.apps, 'copy');
 		expect(await readFile(join(dest, 'code/epicenter.ts'), 'utf8')).toBe(code);
 		for (const path of [
@@ -164,7 +167,7 @@ for (const form of [
 	});
 }
 
-test('a refreshed export warns until its publication commit exists, and a later copy leaves the first app alone', async () => {
+test('a refreshed export is refused until its publication commit exists, and a later copy leaves the first app alone', async () => {
 	const f = await setup();
 	const sourceCode = (version: string) =>
 		`${header}export default defineApp({description:'${version}',actions:{}});`;
@@ -196,16 +199,17 @@ test('a refreshed export warns until its publication commit exists, and a later 
 	await gitIn(f.home, 'commit', '--no-verify', '-qm', 'second source version');
 	expect((await f.run('export', '--all', output)).code).toBe(0);
 	const from = join(output, 'writing');
+	expect((await f.run('new', 'my-writing', '--from', from)).code).toBe(2);
+	expect(existsSync(join(f.apps, 'my-writing'))).toBe(false);
+	await gitIn(publication, 'stash', '-q');
 	const first = await f.run('new', 'my-writing', '--from', from, '--json');
 	expect(first.code).toBe(0);
-	expect(JSON.parse(first.stdout).source).toEqual({
-		commit: firstCommit,
-		notCopied: ['epicenter.ts'],
-	});
+	expect(JSON.parse(first.stdout).source).toEqual({ commit: firstCommit });
 	expect(
 		await readFile(join(f.apps, 'my-writing/code/epicenter.ts'), 'utf8'),
 	).toBe(sourceCode('First version'));
 	await writeFile(join(f.apps, 'my-writing/data/keep.md'), 'My own note');
+	await gitIn(publication, 'stash', 'pop', '-q');
 	await gitIn(publication, 'add', '--', 'apps/writing/epicenter.ts');
 	await gitIn(
 		publication,
@@ -217,7 +221,6 @@ test('a refreshed export warns until its publication commit exists, and a later 
 	expect((await f.run('new', 'my-writing', '--from', from)).code).toBe(2);
 	const second = await f.run('new', 'another-copy', '--from', from, '--json');
 	expect(second.code).toBe(0);
-	expect(JSON.parse(second.stdout).source.notCopied).toEqual([]);
 	expect(
 		await readFile(join(f.apps, 'another-copy/code/epicenter.ts'), 'utf8'),
 	).toBe(sourceCode('Second version'));
@@ -226,138 +229,56 @@ test('a refreshed export warns until its publication commit exists, and a later 
 	);
 });
 
-test('source warnings include staged, deleted, and untracked code while excluding records and generated files', async () => {
+test('a local source with uncommitted code is refused and nothing is kept; ignored files, its records and changes outside it are not', async () => {
 	const f = await setup();
 	const source = join(f.root, 'source');
 	const prefix = 'apps/original/code';
-	const code = `${header}export default defineApp({description:'Source',actions:{}});`;
 	await f.folder(
 		source,
 		{
-			[`${prefix}/epicenter.ts`]: code,
-			[`${prefix}/staged.ts`]: 'original',
-			[`${prefix}/deleted.ts`]: 'original',
+			[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Source',actions:{}});`,
+			[`${prefix}/kept.ts`]: 'original',
 			[`${prefix}/.gitignore`]: 'ignored.txt\n',
-			[`${prefix}/data/record.md`]: 'private',
-			[`${prefix}/node_modules/unused/index.js`]: 'dependency',
-			[`${prefix}/ui/dist/index.html`]: 'old build',
-			[`${prefix}/SOURCE.md`]: 'old provenance',
+			'apps/original/data/record.md': 'committed record',
 			'README.md': 'outside selected code',
 		},
 		{ git: true },
 	);
-	await writeFile(join(source, prefix, 'staged.ts'), 'staged change');
-	await gitIn(source, 'add', '--', `${prefix}/staged.ts`);
-	await writeFile(join(source, prefix, 'staged.ts'), 'original');
-	await rm(join(source, prefix, 'deleted.ts'));
-	await writeFile(join(source, prefix, 'new file\n雪.ts'), 'untracked code');
-	await writeFile(join(source, prefix, 'ignored.txt'), 'ignored file');
-	for (const path of [
-		'data/record.md',
-		'node_modules/unused/index.js',
-		'ui/dist/index.html',
-		'SOURCE.md',
-	])
-		await writeFile(join(source, prefix, path), 'changed excluded content');
-	await writeFile(join(source, 'README.md'), 'changed outside code');
 	const from = join(source, 'apps/original');
-	const result = await f.run('new', 'copy', '--from', from, '--json');
-	expect(result.code).toBe(0);
-	expect(result.stderr).toBe('');
-	expect(JSON.parse(result.stdout).source.notCopied).toEqual([
-		'deleted.ts',
-		'new file\n雪.ts',
-		'staged.ts',
-	]);
-	const text = await f.run('new', 'second-copy', '--from', from);
-	expect(text.code).toBe(0);
-	expect(text.stderr).toContain(
-		`copied source commit ${await gitIn(source, 'rev-parse', 'HEAD')}`,
-	);
-	expect(text.stderr).toContain(
-		'3 source file(s) differ from it and were not copied',
-	);
-	expect(text.stderr).toContain('"new file\\n雪.ts"');
-});
-
-test('excluded changes do not warn and a GitHub folder has no working tree report', async () => {
-	const f = await setup();
-	const source = join(f.root, 'source');
-	await f.folder(
-		source,
-		{
-			'epicenter.ts': `${header}export default defineApp({description:'Source',actions:{}});`,
-			'.gitignore': 'ignored.txt\n',
-			'data/private.md': 'private',
+	const restore = () => gitIn(source, 'checkout', '-q', '--', '.');
+	for (const change of [
+		() => writeFile(join(source, prefix, 'kept.ts'), 'edited'),
+		async () => {
+			await writeFile(join(source, prefix, 'kept.ts'), 'staged');
+			await gitIn(source, 'add', '--', `${prefix}/kept.ts`);
 		},
-		{ git: true },
-	);
-	await writeFile(join(source, 'data/private.md'), 'changed private data');
-	await writeFile(join(source, 'ignored.txt'), 'ignored file');
-	const clean = await f.run('new', 'clean', '--from', source, '--json');
-	expect(clean.code).toBe(0);
-	expect(JSON.parse(clean.stdout).source.notCopied).toEqual([]);
-	const bare = join(f.root, 'source.git');
-	await gitIn(f.root, 'clone', '--bare', source, bare);
-	github(f, 'owner/bare', bare);
-	const remote = await f.run(
-		'new',
-		'from-bare',
-		'--from',
-		'owner/bare',
-		'--json',
-	);
-	expect(remote.code).toBe(0);
-	expect(JSON.parse(remote.stdout).source).toEqual({
+		() => rm(join(source, prefix, 'kept.ts')),
+		() => writeFile(join(source, prefix, 'new file\n雪.ts'), 'untracked'),
+	]) {
+		await change();
+		const refused = await f.run('new', 'copy', '--from', from, '--json');
+		expect(refused.code).toBe(2);
+		expect(JSON.parse(refused.stdout).error.message).toBe(
+			`${from} has uncommitted changes; commit them, then copy.`,
+		);
+		expect(existsSync(join(f.apps, 'copy'))).toBe(false);
+		await gitIn(source, 'reset', '-q');
+		await restore();
+		await rm(join(source, prefix, 'new file\n雪.ts'), { force: true });
+	}
+	await writeFile(join(source, prefix, 'ignored.txt'), 'ignored file');
+	await writeFile(join(source, 'README.md'), 'changed outside code');
+	// A live app's records change all the time; the copy takes only code/.
+	await writeFile(join(source, 'apps/original/data/record.md'), 'edited');
+	await writeFile(join(source, 'apps/original/data/new.md'), 'untracked');
+	const copied = await f.run('new', 'copy', '--from', from, '--json');
+	expect(copied.code).toBe(0);
+	expect(JSON.parse(copied.stdout).source).toEqual({
 		commit: await gitIn(source, 'rev-parse', 'HEAD'),
 	});
 });
 
-test('a source commit made after cloning is reported against the commit actually copied', async () => {
-	const f = await setup();
-	const source = await f.folder(
-		join(f.root, 'source'),
-		{
-			'epicenter.ts': `${header}export default defineApp({description:'Source',actions:{}});`,
-		},
-		{ git: true },
-	);
-	const copiedCommit = await gitIn(source, 'rev-parse', 'HEAD');
-	const realGit = Bun.which('git');
-	if (!realGit) throw new Error('Git is required for this test');
-	const wrapper = join(f.root, 'bin');
-	await mkdir(wrapper);
-	await writeFile(
-		join(wrapper, 'git'),
-		`#!/bin/sh
-"$EPICENTER_TEST_GIT" "$@" || exit "$?"
-for word do
-  if [ "$word" = clone ]; then
-    printf '%s\\n' 'new committed code' > "$EPICENTER_TEST_SOURCE/added.ts"
-    "$EPICENTER_TEST_GIT" -C "$EPICENTER_TEST_SOURCE" add -- added.ts
-    "$EPICENTER_TEST_GIT" -C "$EPICENTER_TEST_SOURCE" -c commit.gpgsign=false commit --no-verify -qm 'advance source after clone'
-    break
-  fi
-done
-`,
-		{ mode: 0o755 },
-	);
-	f.env.PATH = `${wrapper}:${process.env.PATH}`;
-	f.env.EPICENTER_TEST_GIT = realGit;
-	f.env.EPICENTER_TEST_SOURCE = source;
-	const result = await f.run('new', 'copy', '--from', source, '--json');
-	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout).source).toEqual({
-		commit: copiedCommit,
-		notCopied: ['added.ts'],
-	});
-	expect(await gitIn(source, 'status', '--porcelain')).toBe('');
-	expect(await Bun.file(join(f.apps, 'copy/code/added.ts')).exists()).toBe(
-		false,
-	);
-});
-
-test('a copied link that leads outside code/ stays a link and is reported', async () => {
+test('a copied link stays a link exactly as stored', async () => {
 	const f = await setup();
 	const source = join(f.root, 'source');
 	const prefix = 'apps/x/code';
@@ -384,12 +305,7 @@ test('a copied link that leads outside code/ stays a link and is reported', asyn
 	expect(await readlink(join(f.apps, 'copy/code/ui/src/theme.css'))).toBe(
 		'../../../../../theme.css',
 	);
-	expect(JSON.parse(result.stdout).links).toEqual([
-		{ path: 'ui/src/theme.css', target: '../../../../../theme.css' },
-	]);
-	expect(result.stderr).toContain(
-		'copy: code/ui/src/theme.css links to ../../../../../theme.css, which this Epicenter does not have',
-	);
+	expect(JSON.parse(result.stdout).links).toBeUndefined();
 	await noNestedGit(f.apps);
 });
 
