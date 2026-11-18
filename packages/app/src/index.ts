@@ -33,5 +33,5 @@ export {
 } from './errors.ts';
 export { field, type ObjectSchema, objectSchema } from './field.ts';
 export { type Folder, folderOnDisk } from './folder.ts';
-export type { Fields } from './markdown-fields.ts';
+export type { Fields } from './markdown-records.ts';
 export { localDay, localTime, timeId } from './time.ts';

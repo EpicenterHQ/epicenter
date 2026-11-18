@@ -15,17 +15,14 @@ import { type Folder, filesIn, readText } from './folder.ts';
 import { isFieldKey, type JsonValue, readMarkdown } from './front-matter.ts';
 import { idProblem } from './id.ts';
 import {
+	type AnyRecord,
+	type CallbackError,
+	createMarkdownRecords,
 	type Fields,
 	type Fitting,
 	isOptional,
 	type Loose,
-} from './markdown-fields.ts';
-import {
-	type AnyRecord,
-	type CallbackError,
-	createMarkdownRecords,
 } from './markdown-records.ts';
-import { edited } from './text-edit.ts';
 import { timeId } from './time.ts';
 
 /** One folder or one file's declared Markdown fields. */
@@ -460,8 +457,14 @@ function replacing(path: string, passage: unknown) {
 	if (old === '') return unfit('the passage to replace must be non-empty text');
 	return (record: AnyRecord | undefined) => {
 		if (record === undefined) return ActionError.Missing({ path });
-		const body = edited(path, record.body, old, replacement);
-		return body.error === null ? Ok({ body: body.data }) : body;
+		const { body } = record;
+		const at = body.indexOf(old);
+		if (at < 0) return ActionError.Changed({ path, cause: 'quote' });
+		if (body.indexOf(old, at + 1) >= 0)
+			return ActionError.Changed({ path, cause: 'twice' });
+		return Ok({
+			body: body.slice(0, at) + replacement + body.slice(at + old.length),
+		});
 	};
 }
 
