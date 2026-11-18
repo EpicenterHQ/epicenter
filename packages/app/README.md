@@ -252,9 +252,10 @@ the fields that fit, for a repair form. `partitionResults(await data.watches.lis
 from `@epicenter/app` separates fitting records from files that need repair.
 UI code can import the same helper from `@epicenter/app/client`.
 
-`checkData(data)`, which `epicenter check` runs, reads every key and reports
-each file that does not fit, each name that is not an id, names that are one
-file on a disk that ignores case, and each reference that names no file.
+`checkData(folder.path, data)`, which `epicenter check` runs, reads every key
+and reports each file that does not fit, each name that is not an id, names
+that are one file on a disk that ignores case, and each reference that names
+no file, each as one line.
 
 ### What a definition may say
 

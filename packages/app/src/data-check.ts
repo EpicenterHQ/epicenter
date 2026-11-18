@@ -7,12 +7,33 @@ import { filesIn } from './folder.ts';
 import { idProblem } from './id.ts';
 import type { AnyRecord } from './markdown-records.ts';
 
+/** One data key as `checkData` found it. */
+export type CheckedKey = {
+	/** True for a one-file key. */
+	single: boolean;
+	/** The key's file, or its folder ending in `/`. */
+	path: string;
+	/** How many files it matched. */
+	files: number;
+	/** How many of them have problems. */
+	withProblems: number;
+	/** Each kind of problem and how many files have it, most frequent first. */
+	kinds: { kind: string; count: number }[];
+	/** Each file with problems, by its path under `data/`, with its problem lines. */
+	records: { path: string; problems: string[] }[];
+};
+
 /**
  * Check declared data through its handles, including filenames and exact
  * reference ids. `root` is the app's folder on disk, the one `data` was
- * defined with.
+ * defined with. Each key's report counts its files and the kinds of problem
+ * among them, and lists each file with problems by its path under `data/`
+ * and its problem lines.
  */
-export async function checkData(root: string, data: AnyData) {
+export async function checkData(
+	root: string,
+	data: AnyData,
+): Promise<Record<string, CheckedKey>> {
 	const checked: Record<
 		string,
 		{
@@ -159,5 +180,16 @@ export async function checkData(root: string, data: AnyData) {
 			a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
 		);
 	}
-	return checked;
+	return Object.fromEntries(
+		Object.entries(checked).map(([key, each]) => [
+			key,
+			{
+				...each,
+				records: each.records.map(({ path, problems }) => ({
+					path,
+					problems: problems.map(({ line }) => line),
+				})),
+			},
+		]),
+	);
 }

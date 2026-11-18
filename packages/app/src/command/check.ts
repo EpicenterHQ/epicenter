@@ -8,7 +8,8 @@
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
-import { ActionError, type Answer, checkData, Err, Ok } from '../index.ts';
+import { type CheckedKey, checkData } from '../data-check.ts';
+import { ActionError, type Answer, Err, Ok } from '../index.ts';
 import { parseWords } from './commands.ts';
 import {
 	discoverAll,
@@ -17,45 +18,18 @@ import {
 	type Runnable,
 } from './home.ts';
 
-/** One data key as the check found it. */
-type Checked = {
-	/** True for a one-file key. */
-	single: boolean;
-	/** The key's file, or its folder ending in `/`. */
-	path: string;
-	/** How many files it matched. */
-	files: number;
-	/** How many of them have problems. */
-	withProblems: number;
-	/** Each kind of problem and how many files have it, most frequent first. */
-	kinds: { kind: string; count: number }[];
-	/** Each file with problems, by path, with its problem lines. */
-	records: { path: string; problems: string[] }[];
-};
-
 /** An app with a problem outside its records: it did not load, a read failed, or its `local/` could reach Git. */
 type Unchecked = { entry: string; folder: string; problems: string[] };
 
 /** Every data key of `located`, read from its folder; nothing is written. */
 async function checkApp(located: Runnable) {
 	const { data } = located.app;
-	if (!data) return {};
-	const found = await checkData(located.realPath, data);
-	const checked: Record<string, Checked> = {};
-	for (const [key, each] of Object.entries(found))
-		checked[key] = {
-			...each,
-			records: each.records.map(({ path, problems }) => ({
-				path,
-				problems: problems.map(({ line }) => line),
-			})),
-		};
-	return checked;
+	return data ? checkData(located.realPath, data) : {};
 }
 
 /** The report as a person reads it: each app, then each data key. */
 function render(
-	apps: Record<string, Record<string, Checked>>,
+	apps: Record<string, Record<string, CheckedKey>>,
 	unchecked: Unchecked[],
 ) {
 	const lines: string[] = [];
@@ -123,7 +97,7 @@ export async function checkCommand(
 				problems: [local],
 			});
 	}
-	const apps: Record<string, Record<string, Checked>> = {};
+	const apps: Record<string, Record<string, CheckedKey>> = {};
 	for (const located of runnable) {
 		try {
 			apps[located.entry] = await checkApp(located);
