@@ -1,0 +1,163 @@
+# 0961. The command sends an action's input to serve, and serve alone reads it
+
+- **Status:** Proposed
+- **Date:** 2026-11-18
+- **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at what the command does before it sends a call, and at how a call names its Epicenter. The command no longer loads the app or checks the input; it names the action by its words and sends the input as typed, and serve reads it. Serve no longer stamps its root's path on every answer; the command sends its path on the request. That an action runs only in serve, and that serve refuses a call meant for another Epicenter, are unchanged.
+- **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
+- **Unbuilt:** All of it. `packages/app/src/command/cli.ts` loads the app, matches the words, reads the input and prints help before it calls serve. Serve has no HTTP request that takes the words as typed or answers an action's help; its only listing is the MCP tool list. Serve still sets `x-epicenter-home` to its root's path on every answer (`HOME_HEADER` in `packages/app/src/command/send.ts`, set in `packages/app/src/command/serve.ts`). The first thing to exist is `GET /` answering the listing as JSON.
+
+## Context
+
+`epicenter reading log '{"minutes":30}'` loads the app twice. The command
+imports the Reading app's `code/epicenter.ts`, finds the action its words name,
+checks the input, and prints help or a usage error. Then it sends the call to
+serve, which loads the app and checks the input again (ADR-0936).
+
+Two processes decide the same thing from two loads of the code. Under
+ADR-0959 those loads differ after any edit: the command reads the files as
+they are, and serve runs what it loaded at start. The command could accept an
+input that serve refuses, or list an action serve does not have.
+
+Rule 3 of ADR-0943 says an action is described in plain JSON. A program
+that can read JSON needs none of the app's code to list actions or show an
+input.
+
+The command finds out whether the serve on its port belongs to its own
+Epicenter from a header. Serve sets `x-epicenter-home` (`HOME_HEADER`) to
+its root's real path on every answer (`serve.ts`), and the command and a
+second `serve` compare it with their own.
+Serve listens only on this computer (ADR-0927), but a phone or laptop reaches
+it through the owner's private network, so every device that loads a page or
+calls an action is shown a path such as `/Users/<account>/Epicenter`.
+ADR-0957 renamed the header and left "a name or a hash" open.
+
+## Decision
+
+**A command that calls or describes an action loads no app code. It names
+the action by its words and sends the input as typed, and serve alone reads
+the input.**
+
+- **A call.** The command splits its words without loading anything. An
+  action's words are names and an input never is, so the leading words that
+  are names are the action, and after them comes at most one word, the
+  input: `{...}`, or `-` to read it from stdin. More than one word after the
+  action is refused by the command. It calls `POST /<app>/<action>`, the
+  request a page makes, with the action's words joined by `.` and the
+  input's text as the body: the typed text, stdin's text for `-`, or `{}`
+  when there is none. Serve finds the action, reads and checks the input,
+  runs it, and answers. "No such action" and "this input does not fit" are
+  answers from serve, the same to a page, an agent and the command, and
+  they state the fact with no command line in them. The command adds the
+  terminal help: under "no such action" it lists the app's actions from the
+  listing.
+- **Help and listings.** `epicenter <app>`, `--help` on an action, and bare
+  `epicenter` print from serve's listing. `--help` on an action the listing
+  does not have answers as the command does for a call to one.
+- **`check` loads apps itself.** It runs in its own process and imports each
+  app as it is on disk. That makes it the way to try changed code before a
+  restart. No other command loads an app.
+
+**Serve answers one JSON listing, and every view of the apps prints from
+it.** `GET /` with `accept: application/json` answers each app's
+description, its data keys, its problems and each action as the MCP tool
+`serve` offers (`actionTool` in `packages/app/src/command/listing.ts`), with the
+changed-code fields of ADR-0959.
+
+| Reader | What it prints from the listing |
+| --- | --- |
+| MCP `tools/list` | each action not marked `mcp: false` |
+| the launcher page, `GET /` as HTML | each app with a UI |
+| bare `epicenter` and `epicenter --json` | every app, its problems, and the routines |
+| `epicenter <app>` and `--help` on an action | one app, or one action and its input |
+
+**The command names its Epicenter on the request, and serve's answers name
+none.**
+
+- The command sends `x-epicenter-root` with its root's real path,
+  percent-encoded, on every request it makes. The request goes to
+  `127.0.0.1`, so the path never leaves the computer.
+- Serve compares that header, when present, with its own root. When they
+  differ it answers `409` with the body `This call is for another
+  Epicenter`, which does not name its root. A request without the header,
+  from a page or an MCP client, is not compared.
+- Serve sets `x-epicenter: 1` and no path on every answer to a request it
+  accepts, a `500` included. A caller tells an Epicenter's serve from
+  another program by that header alone. A tunnelled request's `403` and
+  Bun's own `413` for a body past the limit carry nothing; the command
+  refuses an input past the limit before it sends it.
+- A second `serve` whose port is taken probes the same way: `OPTIONS /` with
+  its own `x-epicenter-root`. A `409` means another Epicenter's serve holds
+  the port, any other answer with `x-epicenter: 1` means its own serve is
+  already running, and an answer without it means another program.
+- A serve started before this decision sets no `x-epicenter`, so it reads
+  as another program. The refusal says that a serve from before an upgrade
+  is stopped and started again; the owner restarts serve after upgrading
+  (ADR-0953). An earlier version of this record recognized the old
+  `x-epicenter-home` header for one release; the owner chose a clean break.
+- What serve sends hides this computer's folders in its messages: the
+  error of every HTTP and MCP answer, a refusal before a call, and the
+  listing's problems and routines read the Epicenter's real path as `.` and
+  the home folder as `~`. A path outside both, and what an action returns
+  as data, are left as they are.
+
+## Consequences
+
+- The command and serve cannot disagree about an app, because only serve has
+  loaded it.
+- Listing apps and reading help need serve running. With serve stopped, the
+  command says so, as it does for a call today.
+- Bare `epicenter` reports what serve loaded, not what is on disk. An app
+  added since serve started appears after a restart.
+- The command no longer imports `@epicenter/app` to read an app. It still
+  shares the answer shape with serve.
+- The MCP tool list, the launcher, the listing and help cannot disagree,
+  because they print one answer.
+- No device on the private network learns the account name from a header.
+  A command or serve from another Epicenter learns only that the port is
+  taken by an Epicenter that is not its own.
+- `whoAnswers` in `serve.ts` and `reach` in `send.ts` read `x-epicenter` and
+  the status, not a path; `rootHeaderValue` builds the request header.
+- Deleted from `cli.ts`: the load, the input read and the help built from a
+  loaded app. Serve has two ways in for an action, a call at
+  `POST /<app>/<action>` and MCP at `POST /`, and no request that takes a
+  command's words.
+- Stdin is the input and never a word, so text read for `-` cannot name an
+  action.
+- A name typed where the input goes is read as part of the action:
+  `epicenter tasks add hello` answers that `tasks` has no action
+  `add hello`, with its actions listed, rather than that the input is not
+  JSON.
+- ADR-0956 is `Proposed` and says bare `epicenter` reads the apps itself. It
+  is edited to match when this decision lands, not amended.
+
+## Considered alternatives
+
+- **Send the words as typed, and let serve match them.** The first build
+  had `POST /<app>` take `{"words": [...]}` and match the longest run of
+  them that names an action, with a `help` flag for an action's tool. It
+  was a second request shape beside a page's, help could come from the
+  listing instead, and the command put stdin's text among the words, so
+  `printf all | epicenter notes archive -` ran `archive all`. Splitting
+  needs no app loaded, because an action's words are names and an input
+  never is.
+- **Keep the command's own load.** Help and listings work with serve
+  stopped. Two loads can disagree once serve loads at start.
+- **Keep the command's load, and warn when the files are newer than serve.**
+  Serve states when it loaded each app and the command compares. It reports
+  the disagreement and keeps the second load that causes it. ADR-0959's
+  changed-code line reports the same fact from serve, with no second load.
+- **A listing per reader.** Each of the four readers builds its own view
+  from the loaded apps, as `mcp.ts`, `serve.ts` and `listing.ts` did.
+  Four builders can drift apart.
+- **Stamp a hash of the root's path on each answer.** It hides the account
+  name, but every device can still compare two Epicenters, and the command
+  still needs the hash of its own path. Sending the path on a loopback
+  request hides it from every device and needs no hash.
+- **Stamp a name from `EPICENTER.md`.** A second setting beside the port,
+  and two Epicenters given one name would accept each other's calls.
+- **Let the command run an action when serve is down.** ADR-0936 and
+  ADR-0943 refuse a second action runner.
+- **No command for actions: use `curl` or MCP.** A call is one HTTP request.
+  The command still earns its place by finding the port, naming the root so
+  another Epicenter's serve refuses the call, and printing updates and the
+  answer in the forms people and agents read.

@@ -1,6 +1,6 @@
 /**
- * Find the Epicenter for this process and read its marker, `EPICENTER.md`
- * (ADR-0868): a note for people whose optional front matter says the port
+ * Find the Epicenter a command runs in and read its marker, `EPICENTER.md`
+ * (ADR-0868, ADR-0965): a note for people whose optional front matter says the port
  * `serve` listens on:
  *
  * ```yaml
@@ -9,50 +9,35 @@
  *
  * Commands validate the marker's settings before running.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
+import { Ok, type Result } from 'wellcrafted/result';
 import { readMarkdown } from '../front-matter.ts';
+import { ActionError, type NotStarted } from '../index.ts';
 
 export const MARKER = 'EPICENTER.md';
 const DEFAULT_PORT = 4747;
 
-type EpicenterRoot = {
+/** The Epicenter a command acts on, found once and passed to everything that reads it. */
+export type EpicenterRoot = {
+	/** Its real path. */
 	folder: string;
 	/** The port `serve` listens on: the marker's, else 4747. */
 	port: number;
 };
 
-export class RootUsageError extends Error {
-	constructor(
-		message: string,
-		public next?: string,
-	) {
-		super(message);
-	}
-}
-
-/** Expand a person's `~` and make a folder path absolute. */
-function folderPath(path: string): string {
-	return resolve(
-		path === '~'
-			? homedir()
-			: path.startsWith('~/')
-				? join(homedir(), path.slice(2))
-				: path,
-	);
-}
-
 /**
- * Whether `folder` holds `EPICENTER.md`, by its exact name; `false` for a
- * folder that cannot be listed. A case-insensitive disk opens `Epicenter.md`
- * as `EPICENTER.md`, so the name is looked up in the folder's listing rather
- * than opened.
+ * Whether `folder` holds the file `EPICENTER.md`, by its exact name; `false`
+ * for a folder that cannot be listed. A case-insensitive disk opens
+ * `Epicenter.md` as `EPICENTER.md`, so the name is looked up in the folder's
+ * listing rather than opened.
  */
 function isMarked(folder: string): boolean {
 	try {
-		return readdirSync(folder).includes(MARKER);
+		return readdirSync(folder, { withFileTypes: true }).some(
+			(entry) => entry.name === MARKER && !entry.isDirectory(),
+		);
 	} catch {
 		return false;
 	}
@@ -94,7 +79,7 @@ function markerProblems(fields: Record<string, unknown>): string[] {
 	return problems;
 }
 
-function readRoot(folder: string): EpicenterRoot {
+function readRoot(folder: string): Result<EpicenterRoot, NotStarted> {
 	const marker = join(folder, MARKER);
 	// Decoded as an app's files are, which drops a byte order mark an editor saved.
 	const read = readMarkdown(new TextDecoder().decode(readFileSync(marker)));
@@ -109,49 +94,40 @@ function readRoot(folder: string): EpicenterRoot {
 				'its front matter is not key: value lines between two --- lines, each key once',
 			];
 	if (problems.length)
-		throw new RootUsageError(
-			problems.map((problem) => `${marker}: ${problem}`).join('\n'),
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: problems.map((problem) => `${marker}: ${problem}`).join('\n'),
+		});
 	const { port } = read.fields as { port?: number };
-	return { folder, port: port ?? DEFAULT_PORT };
+	return Ok({ folder, port: port ?? DEFAULT_PORT });
 }
 
-let selected: EpicenterRoot | undefined;
-
-/** Read and validate the selected Epicenter's serving settings. */
-export function epicenterRoot(): EpicenterRoot {
-	selected ??= readRoot(epicenterDir());
-	return selected;
+/**
+ * The Epicenter a command run in `start` acts on, its marker read and
+ * checked: the nearest folder at or above `start` that holds `EPICENTER.md`,
+ * as Git finds the nearest `.git` (ADR-0965). There is no other way to choose
+ * one. A command finds it once and passes it down.
+ */
+export function epicenterRoot(
+	start = process.cwd(),
+): Result<EpicenterRoot, NotStarted> {
+	const folder = ancestorWithMarker(start);
+	if (folder === undefined)
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `There is no ${MARKER} here or above; cd into your Epicenter`,
+		});
+	return readRoot(realpathSync(folder));
 }
 
-/** Select a marked folder without reading its settings: nearest ancestor, then EPICENTER_ROOT, then $HOME/Epicenter. */
-export function epicenterDir(): string {
-	if (selected) return selected.folder;
-	const folder =
-		ancestorWithMarker(process.cwd()) ??
-		(process.env.EPICENTER_ROOT !== undefined
-			? folderPath(process.env.EPICENTER_ROOT)
-			: join(homedir(), 'Epicenter'));
-	if (!isMarked(folder))
-		throw new RootUsageError(
-			`There is no ${MARKER} in ${folder}`,
-			`mkdir -p ${folder} && touch ${join(folder, MARKER)}`,
-		);
-	return folder;
-}
-
-/** The folder in an Epicenter that holds its apps, each holding code/, data/ and local/. */
-const APPS = 'apps';
-
-/** The selected Epicenter's `apps/`. */
-export function appsDir(): string {
-	return join(epicenterDir(), APPS);
-}
-
-/** A folder's optional agent guidance, sent in MCP initialize. */
-export async function rootInstructions(): Promise<string | undefined> {
+/** The Epicenter's optional agent guidance, sent in MCP initialize. */
+export async function rootInstructions({
+	folder,
+}: {
+	folder: string;
+}): Promise<string | undefined> {
 	try {
-		return await readFile(join(epicenterDir(), 'AGENTS.md'), 'utf8');
+		return await readFile(join(folder, 'AGENTS.md'), 'utf8');
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
 		throw error;

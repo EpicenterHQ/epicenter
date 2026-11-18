@@ -10,7 +10,7 @@
 
 Epicenter's packages reach each other directly. The browser recorder
 imports `deviceFiles` from `@epicenter/folder/browser`
-(`packages/recorder/src/browser.ts`), so building the recorder builds a
+(`apps/whispering/packages/recorder/src/browser.ts`), so building the recorder builds a
 folder leaf with it. `@epicenter/ai` imports the `Account` type from
 `@epicenter/auth`.
 
@@ -21,7 +21,7 @@ and the person's connections with `createAiConnections`; an app calls the
 ones its platform and sign-in allow.
 
 The auth package already has the shape the other packages need. The client
-`createBrowserOAuth` returns (`packages/account/src/browser-oauth.ts`) reads
+`createBrowserOAuth` returns (`folder-package:packages/account/src/browser-oauth.ts`) reads
 through `getState()` and notifies through `onStateChange(fn)`. `fromAuth`
 (`29ff550894^:packages/account/src/svelte/auth.svelte.ts`) wraps it for Svelte: a `state`
 getter that subscribes through `createSubscriber` only while something reads

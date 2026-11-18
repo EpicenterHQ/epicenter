@@ -252,7 +252,7 @@ describe('an app author', () => {
 		const vocabUi = {} as AppClient<Actions>;
 		// @ts-expect-error an action that only returns takes no onUpdate
 		() => vocabUi.review({ word: 'a' }, { onUpdate: () => {} });
-		// The same two arguments call it in the home.
+		// The same two arguments call it in the Epicenter.
 		() => say({ message: 'hi' }, { onUpdate: (value) => void value });
 		// In the library every action takes options; one that only returns never calls onUpdate.
 		() => tag({}, { onUpdate: () => {} });

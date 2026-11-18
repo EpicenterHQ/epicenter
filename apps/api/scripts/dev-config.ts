@@ -1,4 +1,4 @@
-import { APPS, localUrl } from '@epicenter/definition/site';
+import { APPS, localUrl } from '../site.js';
 
 /** The public issuer used by the local Worker and its sign-in pages. */
 export function localPublicOrigin(override: string | undefined): string {

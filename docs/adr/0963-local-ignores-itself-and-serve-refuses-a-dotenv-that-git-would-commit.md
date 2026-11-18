@@ -70,7 +70,7 @@ apps/<app>/local/
 - These are the only Git commands the command runs. Epicenter still makes no
   commit (ADR-0940).
 - The command's answer when serve is not running says
-  `serve is not running; its output says why it stopped`, so a refused start
+  `serve is not running; if it stopped, its output says why`, so a refused start
   is found where it was printed.
 
 ## Consequences

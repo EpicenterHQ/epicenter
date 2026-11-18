@@ -1,9 +1,10 @@
 <!--
 	One recording: its audio, transcripts, and notes. Its fields are one
-	editor of the note the lists show (`folder.recordings.edit`): what was typed
-	shows until its save lands, then the note again. A save never fails; the
-	folder keeps it until it lands. A recording whose note does not read shows
-	its text, to repair.
+	editor of the note the lists show (`library.edit`): what was
+	typed shows until its save lands, then the note again; a save that fails
+	says why and keeps the typing. A recording whose audio has no note gets
+	one when its title or notes are first typed. A recording whose note does
+	not read shows its text, to repair.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -11,19 +12,23 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Collapsible from '@epicenter/ui/collapsible';
+	import { createMutation } from '@tanstack/svelte-query';
+	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { folder } from '$lib/app.js';
+	import { folderLocation } from '$lib/app.js';
+	import { timeOf } from '$lib/format/ids.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
-	import { confirmDelete } from './file-actions.js';
+	import { confirmDelete } from './actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import NoteRepair from './NoteRepair.svelte';
-	import RunStatus from './RunStatus.svelte';
+	import RunFailure from './RunFailure.svelte';
+	import SaveProblem from './SaveProblem.svelte';
 	import TranscriptCard from './TranscriptCard.svelte';
 
 	let {
@@ -43,17 +48,28 @@
 	} = $props();
 	const whispering = getWhispering();
 	/** The transcription model chosen now, where Transcribe would send. */
-	const transcriber = $derived(whispering.chosen('transcription'));
+	const transcriber = $derived(whispering.chosen());
 	const library = getLibrary();
 
 	// The parent keys this view by the recording.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const recording = folder.recordings.edit({ id: own });
+	/** The recording as listed: its note, or its audio alone as an untitled one. */
+	const listed = $derived(library.entries.find((note) => note.id === own));
+	// Audio with no note gets one dated as the list shows it.
+	const recording = library.edit('recordings', own, {
+		create: () => ({ title: '', recordedAt: listed?.recordedAt ?? (timeOf(own) ?? new Date()).toISOString() }),
+	});
+	onDestroy(recording.dispose);
+	const shown = $derived(recording.exists() || listed !== undefined);
 
-	const results = $derived(library.resultsFor(own));
-	const run = $derived(library.transcriptionRun(own));
-	const transcribing = $derived(run?.state.kind === 'running' || run?.state.kind === 'saving');
+	const transcripts = $derived(library.transcriptsFor(own));
+	/** This recording's transcription as started here: its error stays until it is tried again or dismissed. */
+	const transcription = createMutation(() => ({
+		...library.transcription,
+		onError: (error) => toast.error('The recording was not transcribed', { description: error.message }),
+	}));
+	const transcribing = $derived(library.transcribing(own));
 	const audio = $derived(library.audioOf(own));
 
 	function when(value: string) {
@@ -61,10 +77,6 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	async function transcribe() {
-		const problem = await library.transcribe(own);
-		if (problem && library.transcriptionRun(own) === undefined) toast.error('Nothing was sent', { description: problem });
-	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Recording" data-testid="recording-detail" data-recording-id={own}>
@@ -74,7 +86,7 @@
 				<ArrowLeftIcon />
 			</IconButton>
 		{/if}
-		{#if recording.exists()}
+		{#if shown}
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={recording.fields.title}
@@ -94,10 +106,11 @@
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<NoteRepair {repair} />
 		</div>
-	{:else if !recording.exists()}
+	{:else if !shown}
 		<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status">This recording is no longer listed.</p>
 	{:else}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 sm:px-4">
+			<SaveProblem editor={recording} />
 			{#if audio.kind === 'here'}
 				<AudioPlayer id={own} file={audio.file} label="Audio of {recording.fields.title || own}" />
 			{:else}
@@ -111,20 +124,25 @@
 						class="ml-auto"
 						size="sm"
 						disabled={audio.kind !== 'here' || transcribing}
-						onclick={() => void transcribe()}
+						onclick={() => transcription.mutate({ recordingId: own })}
 						data-testid="transcribe"
 					>
 						{#if transcribing}<Spinner class="size-3.5" />{/if}
-						{results.length > 0 ? 'Transcribe again' : 'Transcribe'}
+						{transcripts.length > 0 ? 'Transcribe again' : 'Transcribe'}
 					</Button>
 				</div>
-				{#if run && run.state.kind !== 'running'}
-					<RunStatus {run} />
+				{#if transcription.error && transcription.variables}
+					{@const variables = transcription.variables}
+					<RunFailure
+						message={transcription.error.message}
+						onRetry={() => transcription.mutate(variables)}
+						onDismiss={() => transcription.reset()}
+					/>
 				{/if}
-				{#each results as result (result.id)}
-					<TranscriptCard id={result.id} />
+				{#each transcripts as transcript (transcript.id)}
+					<TranscriptCard id={transcript.id} />
 				{:else}
-					{#if run === undefined}
+					{#if !transcription.error}
 						<p class="text-sm text-muted-foreground">No transcription yet.</p>
 					{/if}
 				{/each}
@@ -152,26 +170,28 @@
 				<Collapsible.Content class="pt-2">
 					<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 						<dt class="text-muted-foreground">Recorded</dt>
-						<dd>{when(recording.fields.recordedAt ?? '')}</dd>
+						<dd>{when(recording.fields.recordedAt ?? listed?.recordedAt ?? '')}</dd>
 						<dt class="text-muted-foreground">Length</dt>
 						<dd>{recording.fields.durationMs === undefined ? 'Not recorded' : `${(recording.fields.durationMs / 1000).toFixed(1)} s`}</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
-							{folder.reveal === null ? 'Your repository' : 'Your data folder'}
+							{folderLocation() ?? 'This browser’s storage for this site'}
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
-							{#if transcriber.kind === 'ready'}
-								{transcriber.target.model} at {transcriber.target.name}
-							{:else}
+							{#if transcriber.error === null}
+								{transcriber.data.model} at {transcriber.data.name}
+							{:else if whispering.choice() === null}
 								No model chosen
+							{:else}
+								{transcriber.error}
 							{/if}
 						</dd>
 						<dt class="text-muted-foreground">ID</dt>
 						<dd class="min-w-0 font-mono text-xs break-all">{own}</dd>
 						<dt class="text-muted-foreground">Files</dt>
 						<dd class="min-w-0 font-mono text-xs break-all">
-							recordings/{own}.md{#if audio.kind === 'here'}<br />recordings/{own}.{audio.file.ext}{/if}{#each results as result (result.id)}<br />transcriptions/{result.id}.md{/each}
+							{#if recording.exists()}recordings/{own}.md<br />{/if}{#if audio.kind === 'here'}recordings/{own}.{audio.file.ext}{/if}{#each transcripts as transcript (transcript.id)}<br />transcriptions/{transcript.id}.md{/each}
 						</dd>
 					</dl>
 				</Collapsible.Content>

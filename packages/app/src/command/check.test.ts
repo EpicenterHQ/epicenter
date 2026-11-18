@@ -45,7 +45,7 @@ return { description: 'Books', data, actions: {} };
 
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	const tasksFolder = await f.app('tasks', tasks);
 	await f.folder(join(tasksFolder, 'data'), {
 		'items/a.md': '---\ntitle: "A"\ndue: "next week"\n---\n',

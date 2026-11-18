@@ -18,7 +18,7 @@ v7.11.0 has no sign-in and calls no Epicenter service.
 
 On `main`, unreleased, Whispering writes through `@epicenter/folder`, the
 client of the folder sync product (`apps/whispering/src/lib/app.ts:44`).
-`home()` (`packages/folder/src/home.ts`) opens the data folder through
+`home()` (`folder-package:packages/folder/src/home.ts`) opens the data folder through
 `tauri-plugin-epicenter-folder` on the desktop, and in a browser joins a
 folder on the hosted server at `api.epicenter.so/folders/<id>`, which needs
 the `folders` OAuth audience. The browser build is not deployed. Its
@@ -31,7 +31,7 @@ through `@epicenter/local`, which `@epicenter/account` and `@epicenter/ai`
 also import. `@epicenter/definition` holds Whispering's contract and ids and
 the site constants (`APPS`, `localUrl`, `resolveOAuthAudiences`) that
 `apps/api` and `@epicenter/account` read. Local models live in the shared
-Hugging Face cache (`packages/transcription/src/lib.rs:5-8`).
+Hugging Face cache (`apps/whispering/packages/transcription/src/lib.rs:5-8`).
 
 ADR-0887 gave a program a Git clone of its app's data. A clone needs Git on
 every device, and a phone or a browser tab has none.
@@ -239,15 +239,19 @@ Hugging Face cache               local models, shared with other programs
 - **Another program may write the folder, so Whispering checks before it
   replaces.** A file syncer such as iCloud Drive or Syncthing may change a
   note, and in a home a Git command such as a checkout or a revert may. Whispering lists the folder again when its window regains
-  focus, and re-reads only the notes whose size or modified time changed.
+  focus, and reads its notes again.
   Before it replaces a note it re-reads the file; if the bytes differ from
   what it showed, it does not write, and shows the newer text.
 - **Whispering reads its folder through plain services and TanStack
   Query.** The services read and write over `Files`, keep nothing between
   calls, and answer `Result`s. TanStack Query holds what they read: the
   folder is one query, read again when the window regains focus and after
-  every write, and the writes are mutations, one at a time per kind of
-  note. There is no watcher and no store per collection.
+  every write. Every write `folderMutations` makes (a note, `settings.md`,
+  deleting audio) waits in one queue and runs alone, so two changes to one
+  note never interleave. A transcription's request stays outside the
+  queue, so a slow model never holds up a save; the transcript it writes
+  and the browser's finished audio are new files. There is no watcher and
+  no store per collection.
 - **No import from v7.** A person who wants their v7 recordings copies the
   Markdown files.
 - **First run asks one question:** where transcription runs, a local model,
@@ -295,7 +299,7 @@ none.
   `@epicenter/transcription`, `@epicenter/vite-config`,
   `tauri-epicenter-standalone`, `tauri-plugin-epicenter-recorder`, and
   `epicenter-transcription-build`) move into `apps/whispering`, with
-  `scripts/first-load.test.ts`, which reads vite-config's module graph. The
+  `apps/whispering/scripts/first-load.test.ts`, which reads vite-config's module graph. The
   hosted API loses its `/folders` routes, the `folders` audience and scopes,
   and the R2 binding; dropping their production tables is a later,
   separate step.
@@ -372,7 +376,7 @@ none.
 - **Sync API keys with the folder.** A copied folder or a Git backup would
   carry every key.
 - **Provider keys in `credentials.json`,** as built
-  (`packages/tauri-epicenter-account/src/credentials.rs`). A plain file on a
+  (`folder-package:packages/tauri-epicenter-account/src/credentials.rs`). A plain file on a
   laptop.
 - **A settings file per capability** (`models.md`, `connections.md`,
   `shortcuts.md`). Three files because three modules kept one each; with

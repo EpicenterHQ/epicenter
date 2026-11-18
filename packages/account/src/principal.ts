@@ -2,11 +2,7 @@ import { type } from 'arktype';
 import type { Brand } from 'wellcrafted/brand';
 
 /**
- * The authenticated principal id, and the partition key everything derives from.
- *
- * It is the principal Better Auth resolved for the request. By definition,
- * every server path, R2 key, local database name, and HKDF derivation label
- * uses this value as the partition key.
+ * The principal ID Better Auth resolves for a hosted request.
  *
  * The type is declared first and the validator is annotated to it, so the brand
  * is written once and the schema conforms to it rather than the reverse. Both
@@ -18,8 +14,7 @@ export type PrincipalId = string & Brand<'PrincipalId'>;
 export const PrincipalId = type('string').as<PrincipalId>();
 
 /**
- * The stable identity of one account, without credentials or network access.
- * A device store may use this identity without any transport or synchronization.
+ * The identity of the account attached to the dashboard session.
  */
 export type AccountIdentity = {
 	readonly authorityId: string;

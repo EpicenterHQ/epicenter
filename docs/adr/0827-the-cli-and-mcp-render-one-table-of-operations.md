@@ -11,6 +11,7 @@
 ## Context
 
 The CLI hand-wrote each command three times: its grammar in
+<!-- doc-path-check: ignore-next-line (folded into packages/app/src/command/cli.ts, ADR-0961) -->
 `packages/app/src/command/commands.ts`, its handler in `cli.ts`, and its help text
 beside them, with each handler printing as it went. An MCP server written
 the same way would be a fourth copy, and the two surfaces would drift. A

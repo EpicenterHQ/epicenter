@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	return f;
 }
 
@@ -38,8 +38,8 @@ ${words}return { description: 'The vocab app', data, actions: {} };
 	const linked = await f.app(
 		'journal',
 		`export default defineApp(() => ({ description: 'The journal app', actions: {} }));\n`,
-		// Inside the home: linked code finds packages from where it really is.
-		join(f.home, 'elsewhere'),
+		// Inside the Epicenter: linked code finds packages from where it really is.
+		join(f.epicenter, 'elsewhere'),
 	);
 	await symlink(linked, join(f.apps, 'journal'));
 	await f.folder(join(f.apps, 'readme-only'), { 'README.md': 'not an app\n' });
@@ -96,7 +96,7 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
 	const listing = JSON.parse(result.stdout).data;
-	expect(listing.epicenter).toBe(f.home);
+	expect(listing.epicenter).toBe(f.epicenter);
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'clash',
 		'journal',
@@ -251,7 +251,7 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	/** Run with stdin open: `text` is written to it, and it is closed only when `close` is true. */
 	const piped = async (text: string, close: boolean, ...args: string[]) => {
 		const child = Bun.spawn([process.execPath, f.bin, ...args], {
-			cwd: f.root,
+			cwd: f.epicenter,
 			env: f.env,
 			stdin: 'pipe',
 			stdout: 'pipe',
@@ -296,11 +296,23 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	expect(
 		await piped('{"minutes":5}', false, 'reading', 'week', 'show'),
 	).toMatchObject({ code: 0, stdout: '210\n' });
+	// Stdin is the input, never a word: `show` from stdin does not make `week show`.
+	const stdinWord = await piped('show', true, 'reading', 'week', '-', '--json');
+	expect(stdinWord.code).toBe(2);
+	expect(JSON.parse(stdinWord.stdout).error.message).toStartWith(
+		'reading has no action "week". Its actions:',
+	);
 
 	for (const [args, message] of [
 		[['between', '2026-11-01', '2026-11-08'], 'The input is one argument'],
-		[['between', '--from', '2026-11-01'], 'The input is one argument'],
-		[['between', '--input', between], 'The input is one argument'],
+		// A word that is a name belongs to the action, so it is no input.
+		[['between', 'today'], 'reading has no action "between today"'],
+		[[between], 'Name an action of reading before its input'],
+		// No word starts with -, so a flag is refused before serve is asked.
+		[['between', '--from', '2026-11-01'], '--from is not an option'],
+		[['between', '--input', between], '--input is not an option'],
+		[['between', '--', between], '-- is not an option'],
+		[['--', 'between', between], '-- is not an option'],
 		[['between', '2026-11-01'], 'The input is not JSON'],
 		[['between', '[]'], 'The input is not a JSON object'],
 		[['between', '{"from":"2026-11-01"}'], 'to is needed'],
@@ -327,7 +339,7 @@ Example:
 	);
 });
 
-test("D5 an epicenter.ts importing @epicenter/app loads from the home's install, with no node_modules of its own", async () => {
+test("D5 an epicenter.ts importing @epicenter/app loads from the Epicenter's install, with no node_modules of its own", async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	expect(existsSync(join(folder, 'node_modules'))).toBe(false);
@@ -363,16 +375,6 @@ test('D6 serve answers initialize, lists the same tools as --json, and runs a ca
 		await close();
 	}
 	expect((await f.run('mcp')).code).toBe(2);
-});
-
-test('D7 discovery defaults to $HOME/Epicenter', async () => {
-	const f = await setup();
-	await f.folder(join(f.apps, 'reading'), readingApp);
-	const listing = JSON.parse((await f.run('--json')).stdout).data;
-	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
-	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
-		'reading',
-	]);
 });
 
 /** Capture: an app whose actions are only its one data key's verbs. */

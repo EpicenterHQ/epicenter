@@ -5,8 +5,8 @@ import {
 	bareApp,
 	fixture,
 	freePort,
-	homePackage,
 	installPackages,
+	rootPackage,
 } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
@@ -18,44 +18,53 @@ afterEach(async () => {
 
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	return f;
 }
 
-test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () => {
+test('a command acts on the nearest Epicenter at or above it, and refuses outside any', async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), {
 		'code/epicenter.ts': bareApp('reading'),
 	});
-	const other = join(f.root, 'other');
-	await f.folder(other, { 'EPICENTER.md': '', 'package.json': homePackage });
+	const other = join(f.userDir, 'other');
+	await f.folder(other, { 'EPICENTER.md': '', 'package.json': rootPackage });
 	await installPackages(other);
 	await f.folder(join(other, 'apps', 'tasks'), {
 		'code/epicenter.ts': bareApp('tasks'),
 	});
+	// The variable that once chose an Epicenter from anywhere is ignored.
 	f.env.EPICENTER_ROOT = other;
-	const fromOutside = JSON.parse((await f.run('--json')).stdout).data;
-	expect(fromOutside.epicenter).toBe(other);
-	expect((await f.run()).stdout).toContain(`Epicenter: other (${other})`);
-	expect(fromOutside.apps.map((app: { name: string }) => app.name)).toEqual([
-		'tasks',
-	]);
 	const fromInside = JSON.parse(
 		(await f.runIn(join(f.apps, 'reading'), '--json')).stdout,
 	).data;
-	expect(fromInside.epicenter).toBe(f.home);
+	expect(fromInside.epicenter).toBe(f.epicenter);
 	expect(fromInside.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
 	]);
-	const unmarked = join(f.root, 'unmarked');
-	f.env.EPICENTER_ROOT = unmarked;
-	const make = `mkdir -p ${unmarked} && touch ${join(unmarked, 'EPICENTER.md')}`;
-	const missing = await f.run('--json');
-	expect(missing.code).toBe(2);
-	expect(JSON.parse(missing.stdout).error.next).toBe(make);
-	expect(
-		JSON.parse((await f.run('invalid_name', '--json')).stdout).error.next,
-	).toBe(make);
+	for (const words of [
+		['--json'],
+		['reading', '--json'],
+		['check', '--json'],
+	]) {
+		const outside = await f.runIn(f.userDir, ...words);
+		expect(outside.code).toBe(2);
+		expect(JSON.parse(outside.stdout).error).toEqual({
+			name: 'NotStarted',
+			cause: 'usage',
+			message: 'There is no EPICENTER.md here or above; cd into your Epicenter',
+		});
+	}
+});
+
+test('serve starts only in its Epicenter, and from below it names the folder to start in', async () => {
+	const f = await setup();
+	const below = await f.folder(join(f.apps, 'reading'), {
+		'code/epicenter.ts': bareApp('reading'),
+	});
+	const refused = await f.runIn(below, 'serve');
+	expect(refused.code).toBe(2);
+	expect(refused.stderr).toContain(`Run: cd ${f.epicenter} && epicenter serve`);
 });
 
 test('the marker is found from inside an app, and its front matter is checked field by field', async () => {
@@ -64,10 +73,10 @@ test('the marker is found from inside an app, and its front matter is checked fi
 		'code/epicenter.ts': bareApp('reading'),
 		'notes/today.md': 'x',
 	});
-	const marker = join(f.home, 'EPICENTER.md');
+	const marker = join(f.epicenter, 'EPICENTER.md');
 	const listed = async () => f.runIn(join(inside, 'notes'), '--json');
 	await writeFile(marker, '---\nport: 4800\n---\nNotes for people.\n');
-	expect(JSON.parse((await listed()).stdout).data.epicenter).toBe(f.home);
+	expect(JSON.parse((await listed()).stdout).data.epicenter).toBe(f.epicenter);
 	await writeFile(marker, '---\nport: 70000\nprot: 4748\n---\n');
 	const refused = await listed();
 	expect(refused.code).toBe(2);
@@ -88,25 +97,26 @@ test('the marker is found from inside an app, and its front matter is checked fi
 test('the marker is matched by its exact name, and a byte order mark before its front matter is ignored', async () => {
 	const f = await setup();
 	// A note above the Epicenter whose name differs from the marker's by case alone.
-	await writeFile(join(f.root, 'Epicenter.md'), 'A note about Epicenter.\n');
-	const elsewhere = join(f.root, 'elsewhere');
+	await writeFile(join(f.userDir, 'Epicenter.md'), 'A note about Epicenter.\n');
+	const elsewhere = join(f.userDir, 'elsewhere');
 	await mkdir(elsewhere);
 	expect(
-		JSON.parse((await f.runIn(elsewhere, '--json')).stdout).data.epicenter,
-	).toBe(f.home);
+		JSON.parse((await f.runIn(elsewhere, '--json')).stdout).error.message,
+	).toBe('There is no EPICENTER.md here or above; cd into your Epicenter');
 
-	const marker = join(f.home, 'EPICENTER.md');
+	const marker = join(f.epicenter, 'EPICENTER.md');
 	await writeFile(marker, '\uFEFF---\nprot: 4748\n---\n');
 	expect(
-		JSON.parse((await f.runIn(f.home, '--json')).stdout).error.message,
+		JSON.parse((await f.runIn(f.epicenter, '--json')).stdout).error.message,
 	).toBe(`${marker}: prot is not a field; the only field is port`);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
-	expect((await f.runIn(f.home, '--json')).code).toBe(0);
+	// check asks no serve, so it shows the marker reads alone.
+	expect((await f.runIn(f.epicenter, 'check', '--json')).code).toBe(0);
 });
 
 test('port 0 names no port a command could find serve at, so the marker refuses it', async () => {
 	const f = await setup();
-	const marker = join(f.home, 'EPICENTER.md');
+	const marker = join(f.epicenter, 'EPICENTER.md');
 	await writeFile(marker, '---\nport: 0\n---\n');
 	for (const words of [['serve'], ['--json']]) {
 		const refused = await f.run(...words);
@@ -117,12 +127,15 @@ test('port 0 names no port a command could find serve at, so the marker refuses 
 	}
 });
 
-test("serve reads the marker's port when no command port is given", async () => {
+test("serve listens at the marker's port", async () => {
 	const f = await setup();
 	const port = await freePort();
-	await writeFile(join(f.home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
+	await writeFile(
+		join(f.epicenter, 'EPICENTER.md'),
+		`---\nport: ${port}\n---\n`,
+	);
 	const child = Bun.spawn([process.execPath, f.bin, 'serve'], {
-		cwd: f.root,
+		cwd: f.epicenter,
 		env: f.env,
 		stdout: 'ignore',
 		stderr: 'pipe',
