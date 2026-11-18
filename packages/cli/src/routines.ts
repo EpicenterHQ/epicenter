@@ -7,7 +7,6 @@
  * inherit serve's output and process group, and find programs on serve's
  * `PATH` with the home's `node_modules/.bin` and Bun's folder first.
  */
-import { spawn } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { delimiter, dirname, join } from 'node:path';
 import { isName, readMarkdown } from '@epicenter/app';
@@ -117,14 +116,18 @@ export function createRoutines({ folder }: { folder: string }) {
 	}
 
 	function start(name: string, { run }: Routine) {
-		const [program, ...args] = run;
-		spawn(program, args, {
-			cwd: folder,
-			env: { ...process.env, PATH, EPICENTER_ROOT: folder },
-			stdio: 'inherit',
-		}).once('error', (error) =>
-			writeErr(`Routine ${name} could not start: ${messageOf(error)}`),
-		);
+		// The working directory already names the Epicenter, so the command
+		// needs no variable to find it. The failure is only reported here, so
+		// a plain catch is the whole handling: no caller receives it.
+		try {
+			Bun.spawn(run, {
+				cwd: folder,
+				env: { ...process.env, PATH },
+				stdio: ['ignore', 'inherit', 'inherit'],
+			});
+		} catch (error) {
+			writeErr(`Routine ${name} could not start: ${messageOf(error)}`);
+		}
 	}
 
 	return {
