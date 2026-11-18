@@ -15,12 +15,17 @@
  * on this computer; the command adds the folders it knows.
  */
 
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import type { TSchemaOptions } from 'typebox';
 import packageJson from '../../package.json' with { type: 'json' };
 import { type ObjectSchema, objectSchema, whatTakes } from '../field.ts';
 import { type Action, ActionError, type Answer, Ok } from '../index.ts';
-import { discoverAll, type LoadedApp } from './apps.ts';
+import {
+	type AppProblems,
+	appPath,
+	discoverAll,
+	type LoadedApp,
+} from './apps.ts';
 import { exampleCommand, usageLine } from './input.ts';
 import type { EpicenterRoot } from './root.ts';
 import { createRoutines, type RoutineRow } from './routines.ts';
@@ -82,7 +87,7 @@ export type Listing = {
 	version: string;
 	apps: AppListing[];
 	/** Each app folder with a problem: one that did not load, or a `local/` that could reach Git. */
-	problems: { entry: string; problems: string[] }[];
+	problems: AppProblems[];
 	routines: RoutineRow[];
 };
 
@@ -123,17 +128,37 @@ export async function listApps(
 	return {
 		version: packageJson.version,
 		apps: found.apps.map(appListing),
-		problems: found.problems.map(({ name, problems }) => ({
-			entry: name,
-			problems,
-		})),
+		problems: found.problems,
 		routines,
 	};
 }
 
-/** Where the app `name` lives in the Epicenter, which the command knows and serve does not say. */
-const appPath = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
-	join(root.folder, 'apps', name);
+/** Each app's problems as `--json` prints them, with the folder serve does not say. */
+export function withFolders(
+	root: Pick<EpicenterRoot, 'folder'>,
+	problems: AppProblems[],
+) {
+	return problems.map(({ entry, problems }) => ({
+		entry,
+		folder: appPath(root, entry),
+		problems,
+	}));
+}
+
+/** The `Problems:` block a report prints after its apps: each app, its folder, and its problems. */
+export function problemLines(
+	root: Pick<EpicenterRoot, 'folder'>,
+	problems: AppProblems[],
+): string[] {
+	return [
+		'Problems:',
+		...problems.flatMap(({ entry, problems }) => [
+			`  ${entry}`,
+			`    ${appPath(root, entry)}`,
+			...problems.map((problem) => `    ${problem}`),
+		]),
+	];
+}
 
 /** " (read-only)" for an action that says it changes nothing; the other hints are for MCP clients. */
 function readOnly(tool: ActionTool) {
@@ -161,11 +186,7 @@ export function rootReport(
 			epicenter: root.folder,
 			version,
 			apps: apps.map((app) => withFolder(app, root)),
-			problems: problems.map(({ entry, problems }) => ({
-				entry,
-				folder: appPath(root, entry),
-				problems,
-			})),
+			problems: withFolders(root, problems),
 			routines,
 		};
 	const width = Math.max(0, ...apps.map(({ name }) => name.length));
@@ -179,15 +200,7 @@ export function rootReport(
 		`Epicenter: ${basename(root.folder)} (${root.folder})`,
 		`Version: ${version}`,
 	);
-	if (problems.length) {
-		lines.push('', 'Problems:');
-		for (const { entry, problems: each } of problems)
-			lines.push(
-				`  ${entry}`,
-				`    ${appPath(root, entry)}`,
-				...each.map((problem) => `    ${problem}`),
-			);
-	}
+	if (problems.length) lines.push('', ...problemLines(root, problems));
 	lines.push('');
 	if (!routines.length)
 		lines.push('No routines. Add routines/<name>.md with cron and run.');

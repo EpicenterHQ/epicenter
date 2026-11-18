@@ -84,12 +84,19 @@ async function isFile(path: string) {
 const appsIn = ({ folder }: Pick<EpicenterRoot, 'folder'>) =>
 	join(folder, 'apps');
 
+/** Where the app `name` is in the Epicenter, before following a link. */
+export const appPath = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
+	join(appsIn(root), name);
+
+/** An app folder's problems: it did not load, a read failed, or its `local/` could reach Git. */
+export type AppProblems = { entry: string; problems: string[] };
+
 /** The app folder `name` in `apps/`, or undefined when that folder does not look like an app. */
 async function appFolder(
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 ): Promise<AppFolder | undefined> {
-	const folder = join(appsIn(root), name);
+	const folder = appPath(root, name);
 	try {
 		if (!(await stat(folder)).isDirectory()) return undefined;
 		const realPath = await realpath(folder);
@@ -228,7 +235,9 @@ export async function localProblem({
  * An app whose `local/` does not ignore itself still runs, and is also
  * listed with that problem.
  */
-export async function discoverAll(root: Pick<EpicenterRoot, 'folder'>) {
+export async function discoverAll(
+	root: Pick<EpicenterRoot, 'folder'>,
+): Promise<{ apps: LoadedApp[]; problems: AppProblems[] }> {
 	const loaded = await Promise.all(
 		(await rootEntries(root)).map(async (found) => ({
 			name: found.name,
@@ -240,7 +249,7 @@ export async function discoverAll(root: Pick<EpicenterRoot, 'folder'>) {
 		apps: loaded.flatMap(({ result }) => (result.data ? [result.data] : [])),
 		problems: loaded.flatMap(({ name, result, local }) => {
 			const problems = [...(result.error ?? []), ...(local ? [local] : [])];
-			return problems.length ? [{ name, problems }] : [];
+			return problems.length ? [{ entry: name, problems }] : [];
 		}),
 	};
 }
