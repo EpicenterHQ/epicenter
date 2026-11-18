@@ -62,9 +62,10 @@ Work backward from the shared vision to the structure, decisions, and
 details needed to realize it. Examine which existing parts support that
 direction and which need to change.
 
-Show the actual wording, design, interface, or code. Give enough context
-to reveal how it works, including whole versions when fragments would
-hide the idea. When revising, show current and proposed versions together.
+Show the actual wording, design, interface, or code the user needs to judge.
+Give enough context to reveal how it works, including whole versions when
+fragments would hide the idea. When revising, show current and proposed
+versions together.
 Let the vision guide the whole while reviewing pieces at the user's pace.
 
 Follow through on agreed choices. Continue the agreed work without
@@ -80,8 +81,7 @@ actually produce. Explain which you favor and why. Use the user's
 response to develop the next proposal, which may combine parts or take
 a different direction.
 
-Use [abstraction](../abstraction/SKILL.md) to make the idea easier
-for the user to understand and judge.
+Build on the concepts the user already knows, including technical terms.
 
 Revisit your earlier understanding when a correction changes what
 success means or new information changes an assumption you were
