@@ -639,13 +639,12 @@ Epicenter runs actions and serves pages. Git stores the home, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. `init` gives a
 new home two files of its own, which the owner may change.
 
-`routines/checkpoint.md` runs the script every five minutes while serve runs,
-one run at a time:
+`routines/checkpoint.md` runs the script every five minutes while serve runs:
 
 ```yaml
 ---
 cron: "*/5 * * * *"
-run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
+run: ["sh", "scripts/checkpoint.sh"]
 ---
 Commit everything pending and push to the backup.
 ```
@@ -672,8 +671,8 @@ The script commits everything pending as one commit named `checkpoint`,
 including what is already staged, and pushes when there is an origin. It
 waits out a merge, rebase, revert or cherry-pick. It refuses while a nested
 Git repository is staged, because the commit would hold only a pointer to it.
-`/usr/bin/lockf` is macOS; on Linux the routine's `run` starts with
-`"flock", "-n", ".git/checkpoint.lock"` instead.
+It takes no lock: Git refuses a second commit while one is being made, and a
+push still running when the next run starts costs an error line.
 
 A commit made this way samples files, not intent: it can hold a partial edit
 or part of a running action's writes. The branch and index belong to every
