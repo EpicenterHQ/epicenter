@@ -207,6 +207,43 @@ describe('defineApp', () => {
 	});
 });
 
+describe('an app with fetch', () => {
+	const mail = defineApp(({ folder }) => ({
+		description: 'Mail',
+		actions: {},
+		fetch: async (request: Request) => {
+			const url = new URL(request.url);
+			if (url.pathname !== '/oauth/callback')
+				return new Response('Not found', { status: 404 });
+			await folder.write('local/code.txt', url.searchParams.get('code') ?? '');
+			return new Response('signed in');
+		},
+	}));
+
+	test('answers a request with no server, writing into the folder it was given', async () => {
+		const { folder, read } = await tempFolder();
+		const app = mail({ folder });
+		const answer = await app.fetch(
+			new Request('http://localhost/oauth/callback?code=abc'),
+		);
+		expect(await answer.text()).toBe('signed in');
+		expect(await read('local/code.txt')).toBe('abc');
+		expect(
+			(await app.fetch(new Request('http://localhost/other'))).status,
+		).toBe(404);
+	});
+
+	test('refuses a fetch that is not a function', () => {
+		expect(
+			problems(() =>
+				made({ description: 'Mail', actions: {}, fetch: 'no' } as never),
+			),
+		).toEqual([
+			"An app's fetch is a function: (request: Request) => Response | Promise<Response>",
+		]);
+	});
+});
+
 describe('defineData', () => {
 	test('rejects cyclic schemas at declaration before they can break discovery', () => {
 		const schema: { type: string; properties: Record<string, TSchema> } = {

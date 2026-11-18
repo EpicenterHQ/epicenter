@@ -29,6 +29,13 @@
  * code, `epicenter vocab words create` on the command line, `vocab_words_create`
  * over MCP. An app's name is its folder's. Serve calls the function with the
  * app's folder; a test calls it with a folder on a temporary directory.
+ *
+ * An app may also return `fetch`, a web-standard handler that answers the
+ * requests under its address, `/apps/<app>/`, that no built file in
+ * `code/ui/dist/` answers (ADR-0945). It is for protocols someone else
+ * defined: an OAuth redirect, a download, a feed, an upload. Anything a
+ * person or an agent should be able to do is an action, since the command
+ * line and MCP never see `fetch`.
  */
 import { type Action, isAction } from './action.ts';
 import type { AnyData } from './data.ts';
@@ -44,6 +51,13 @@ export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
 	readonly data?: D;
 	/** Each action, nested under its words. */
 	readonly actions: A;
+	/**
+	 * Answer a web request under `/apps/<app>/` that no built file answers.
+	 * Serve removes `/apps/<app>` from the URL, so `/apps/mail/oauth/callback`
+	 * arrives as `/oauth/callback`, and sets `X-Forwarded-Prefix: /apps/<app>`.
+	 * A Hono or Elysia app's `fetch` fits as it is.
+	 */
+	readonly fetch?: (request: Request) => Response | Promise<Response>;
 };
 
 /** What an app's function is called with: the one thing it is handed. */
@@ -98,10 +112,14 @@ function appProblems(app: unknown): string[] {
 		return [
 			'An app returns an object: defineApp(({ folder }) => ({ description, data, actions }))',
 		];
-	const { description, data, actions } = app as Partial<App>;
+	const { description, data, actions, fetch } = app as Partial<App>;
 	const problems: string[] = [];
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('An app needs a description');
+	if (fetch !== undefined && typeof fetch !== 'function')
+		problems.push(
+			'An app\'s fetch is a function: (request: Request) => Response | Promise<Response>',
+		);
 	if (data !== undefined && !isObject(data))
 		problems.push('An app needs data: the value returned by defineData(...)');
 	if (isObject(data)) {
