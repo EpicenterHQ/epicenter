@@ -640,11 +640,23 @@ TypeScript flags a read of a field from the map, since the schema has no key
 of that name. `Object.keys(action.input)` and `toHaveProperty` in a test still
 compile, so search each app's code and tests for `.input`.
 
+### Serve no longer checks its version
+
+0.6's serve stated its version on every answer, and a command warned when it
+reached a serve older than itself. 0.7 drops that check: upgrading is the
+owner's step, not Epicenter's. After `bun install`, restart `epicenter serve`
+yourself. Nothing warns you if you forget; the old serve keeps answering with
+the old code. `epicenter` still refuses to load apps while the home names two
+different versions of `@epicenter/app` and `@epicenter/cli`.
+
+A data field whose schema carried `x-epicenter-file` used to be refused. No
+field helper made that marker, so the check is gone.
+
 ### Steps
 
 1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the home's `package.json`.
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass.
 4. Run `bun run build` in each app that has a UI.
-5. Restart `epicenter serve`.
+5. Restart `epicenter serve`. Nothing reminds you; until you do, the old version answers every call.
 6. Commit the result as one commit, so reverting it returns the home to 0.6.
