@@ -142,7 +142,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   `id`, the change's keys beside it. The `edit` verb takes `{ id, old, new }`
   and no fields, and replaces the passage `old` of the body the caller last
   saw. `old` must be non-empty and occur exactly once: when the passage is
-  gone or appears twice, it is refused with `Changed` (`why` is `quote` or
+  gone or appears twice, it is refused with `Changed` (`cause` is `quote` or
   `twice`) and nothing is written. It answers `Missing` for an absent record,
   for a one-file key too. `edit` is not safe to repeat, so a page that changes
   fields and notes sends a `patch` and an `edit`. In code,

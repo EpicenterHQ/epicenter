@@ -119,7 +119,7 @@ test('folder get and patch answer Missing while a duplicate create answers Chang
 			),
 		).toMatchObject({
 			name: 'Changed',
-			why: 'there',
+			cause: 'there',
 			path: 'data/notes/same.md',
 		});
 		expect(expectOk(await notes.get({ id: 'same' })).title).toBe('first');
@@ -188,13 +188,13 @@ test.each(['folder', 'one-file'] as const)(
 					? notes.patch({ id: 'a', body: 'again again' })
 					: settings.patch({ title: 'old', body: 'again again' })),
 			);
-			for (const [old, why] of [
+			for (const [old, cause] of [
 				['missing', 'quote'],
 				['again', 'twice'],
 			] as const) {
 				expect(
 					expectErr<ActionError>(await edit({ old, new: 'new' })),
-				).toMatchObject({ name: 'Changed', why });
+				).toMatchObject({ name: 'Changed', cause });
 			}
 			expect(
 				expectErr<ActionError>(await edit({ old: '', new: 'new' })).name,

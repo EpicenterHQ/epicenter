@@ -8,7 +8,7 @@ import { ActionError, isActionError } from './errors.ts';
 
 test('every shared factory carries its namespace and fields through JSON', () => {
 	for (const { error } of [
-		ActionError.Changed({ path: 'data/a.md', why: 'quote' }),
+		ActionError.Changed({ path: 'data/a.md', cause: 'quote' }),
 		ActionError.Missing({ path: 'data/a.md' }),
 		ActionError.Misfit({
 			path: 'data/a.md',

@@ -608,7 +608,7 @@ export default defineApp({ description: 'Shared failures', actions: {
 			await folder.write('data/' + how + '-' + kind + '.md', kind);
 			const custom = { name: 'ProposalChanged', message: 'Review again', proposal: 'p' };
 			const cases = {
-				Changed: ActionError.Changed({ path: 'data/a.md', why: 'quote' }).error,
+				Changed: ActionError.Changed({ path: 'data/a.md', cause: 'quote' }).error,
 				Missing: ActionError.Missing({ path: 'data/a.md' }).error,
 				Threw: ActionError.Threw({ message: custom.message, thrown: custom }).error,
 				Refused: ActionError.Refused({ message: 'Dependency declined', next: 'Inspect dependency' }).error,

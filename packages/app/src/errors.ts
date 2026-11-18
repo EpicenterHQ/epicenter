@@ -33,7 +33,7 @@ export type NotStartedCause = NotStartedBody['cause'];
 /** The names only Epicenter answers. An action that returns one answers `Threw` instead. */
 export const RESERVED_NAMES: readonly string[] = ['NotStarted', 'Unreachable'];
 
-const WHY = {
+const CHANGED = {
 	quote:
 		"'s body does not have that text; it may have changed since it was read, so get it again",
 	twice:
@@ -76,8 +76,8 @@ export const ActionError = defineErrors({
 			...(record === undefined ? {} : { record }),
 		}),
 	/** The quoted passage changed or is not in one place, or a new file is already there. */
-	Changed: ({ path, why }: { path: string; why: keyof typeof WHY }) =>
-		marked({ message: `${path}${WHY[why]}`, path, why }),
+	Changed: ({ path, cause }: { path: string; cause: keyof typeof CHANGED }) =>
+		marked({ message: `${path}${CHANGED[cause]}`, path, cause }),
 	/** There is no file at this path. It may be a dependency of the requested action. */
 	Missing: ({ path }: { path: string }) =>
 		marked({ message: `There is no ${path}`, path }),

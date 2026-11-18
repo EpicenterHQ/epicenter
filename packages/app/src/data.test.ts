@@ -122,13 +122,13 @@ test('create refuses an existing file even when another create supplies identica
 		const there = expectErr(collision);
 		expect(there).toMatchObject({
 			name: 'Changed',
-			why: 'there',
+			cause: 'there',
 			path: 'data/notes/same.md',
 			message: 'data/notes/same.md is already there',
 		});
 		expect(
 			expectErr(await notes.create('same', { title: 'first' })),
-		).toMatchObject({ name: 'Changed', why: 'there' });
+		).toMatchObject({ name: 'Changed', cause: 'there' });
 		expect(expectOk(await notes.get('same'))).toMatchObject({ title: 'first' });
 	});
 });
@@ -442,12 +442,12 @@ test.each(['folder', 'one-file'] as const)(
 		await inRun(context, async () => {
 			expect(expectErr(await edit({ old: 'three', new: 'x' }))).toMatchObject({
 				name: 'Changed',
-				why: 'quote',
+				cause: 'quote',
 				path,
 			});
 			expect(expectErr(await edit({ old: 'two', new: 'x' }))).toMatchObject({
 				name: 'Changed',
-				why: 'twice',
+				cause: 'twice',
 				path,
 			});
 			expect(expectErr(await edit({ old: '', new: 'x' })).name).toBe('Misfit');
@@ -699,7 +699,7 @@ test('create respects a case-insensitive memory folder', async () => {
 		);
 		expect(
 			expectErr(await notes.create('dune', { body: 'second' })),
-		).toMatchObject({ name: 'Changed', why: 'there' });
+		).toMatchObject({ name: 'Changed', cause: 'there' });
 	});
 	expect(await context.folder.read('data/notes/dune.md')).toContain('first');
 });

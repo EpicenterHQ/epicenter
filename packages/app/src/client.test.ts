@@ -108,7 +108,7 @@ test('a listener that throws or rejects is reported and does not end the call', 
 
 test('an error in the answer is the error itself, whole', async () => {
 	for (const error of [
-		{ ...ActionError.Changed({ path: 'x', why: 'quote' }).error, extra: 7 },
+		{ ...ActionError.Changed({ path: 'x', cause: 'quote' }).error, extra: 7 },
 		ActionError.Missing({ path: 'x' }).error,
 		ActionError.Refused({ message: 'no title', next: 'retry' }).error,
 		{ name: 'NoRoute', message: 'no', airport: 'LAX' },

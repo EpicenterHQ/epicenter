@@ -185,7 +185,7 @@ file, bodies included; `delete` returns the boolean in Ok.
 The `edit` verb takes `id`, `old`, and `new`, and no fields. `old` is a
 non-empty passage of the body the caller last saw, and `new` replaces it.
 When `old` is not in the body now, or is there twice, the answer is `Changed`
-with `why` `quote` or `twice`, and nothing is written. A caller that changes
+with `cause` `quote` or `twice`, and nothing is written. A caller that changes
 fields and a passage makes two calls:
 
 ```sh
@@ -504,7 +504,7 @@ Epicenter answers, `NotStarted`, `Threw` and `Unreachable`, which
 exhaustive, and comparing a name the action cannot return is a compile error.
 Producers import the shared `ActionError` factories from `@epicenter/app`:
 
-- `Changed` (`{ path, why }`): a quoted passage changed or is there twice, or a new record's file is already there.
+- `Changed` (`{ path, cause }`): a quoted passage changed or is there twice, or a new record's file is already there.
 - `Misfit` carries diagnostics about a malformed record.
 - `Missing` (`{ path }`): the file is not there.
 - `Refused` (`{ message, next? }`): an operation declined the request.

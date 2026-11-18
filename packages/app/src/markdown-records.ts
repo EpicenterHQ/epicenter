@@ -141,7 +141,7 @@ export function createMarkdownRecords({
 			if (before === undefined && need === 'present')
 				return ActionError.Missing({ path });
 			if (before !== undefined && need === 'absent')
-				return ActionError.Changed({ path, why: 'there' });
+				return ActionError.Changed({ path, cause: 'there' });
 
 			const found = readMarkdown(before ?? '');
 			const current = before !== undefined ? project(path, found) : undefined;
