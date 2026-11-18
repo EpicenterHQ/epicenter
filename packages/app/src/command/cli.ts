@@ -12,7 +12,7 @@
 import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
-import { ActionError, type Answer, Err, Ok } from '../index.ts';
+import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
 import { checkCommand } from './check.ts';
 import {
 	type ActionTool,
@@ -138,6 +138,9 @@ export async function runCli(argv: string[]): Promise<number> {
 			begun = true;
 			return serveHttp(root);
 		}
+		// A word that is no name names no app, and would not reach POST /<app>: `..` is `/`.
+		if (name !== undefined && !isName(name))
+			return usage(`Unknown app "${name}"`, 'epicenter');
 		if (name === undefined || !rest.length) {
 			const { data: listing, error } = await fetchListing(root);
 			if (error) return Err(error);

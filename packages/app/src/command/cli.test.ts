@@ -153,6 +153,11 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['setup'], 'Unknown app "setup"'],
 		[['Setup', 'add'], 'Unknown app "Setup"'],
 		[['setup', 'add'], 'Unknown app "setup"'],
+		// Not names: sent as they are, they would reach / or the root.
+		[['..', 'add'], 'Unknown app ".."'],
+		[['.', 'add'], 'Unknown app "."'],
+		[['', 'add'], 'Unknown app ""'],
+		[['..'], 'Unknown app ".."'],
 	];
 	for (const [args, message] of cases) {
 		const result = await f.run(...args, '--json');
