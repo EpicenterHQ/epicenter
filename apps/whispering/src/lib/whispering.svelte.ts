@@ -26,7 +26,7 @@ import type { Ai, ModelChoice } from '@epicenter/ai';
 import { createQuery } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
 import { runMutation } from 'wellcrafted/query';
-import type { Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Capture, CaptureDevice } from './capture.js';
 import type { FolderQuery } from './folder-query.js';
 import { timeId } from './format/ids.js';
@@ -46,11 +46,6 @@ export type Operation = 'transcription';
 
 /** What a model must be able to do to be chosen for each operation. */
 export const CAN = { transcription: 'transcribe' } as const;
-
-/** The model chosen for an operation now, as a target, or why there is none. */
-export type Chosen =
-	| { readonly kind: 'ready'; readonly target: Target }
-	| { readonly kind: 'unset'; readonly reason: string };
 
 export type RecorderState =
 	| { readonly phase: 'idle' }
@@ -112,34 +107,28 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	const connectionsProblem = () => ai.custom()?.problem()?.message;
 
 	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
-	function chosen(operation: Operation): Chosen {
-		const decided = chosenIn(settings(), CAN[operation]);
-		if (decided.error?.name === 'Invalid')
-			return { kind: 'unset', reason: decided.error.message };
-		const choice = decided.data;
+	function chosen(operation: Operation): Result<Target, string> {
+		const { data: choice, error } = chosenIn(settings(), CAN[operation]);
+		if (error?.name === 'Invalid') return Err(error.message);
 		if (choice === null)
-			return {
-				kind: 'unset',
-				reason:
-					'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.',
-			};
+			return Err(
+				'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.',
+			);
 		const endpoint = ai
 			.endpoints()
 			.find((candidate) => candidate.id === choice.endpoint);
 		if (endpoint === undefined)
-			return {
-				kind: 'unset',
-				reason: `The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this computer${
+			return Err(
+				`The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this computer${
 					connectionsProblem() === undefined ? '' : ` (${connectionsProblem()})`
 				}. Choose a model in Settings.`,
-			};
-		const target: Target = {
+			);
+		return Ok({
 			endpoint: endpoint.id,
 			model: choice.model,
 			name: endpoint.name,
 			address: addressOf(endpoint),
-		};
-		return { kind: 'ready', target };
+		});
 	}
 
 	/** Choose the model `operation` uses from now on. Nothing is sent. */
@@ -163,11 +152,9 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		return saved.error?.message;
 	}
 
-	/** Send audio to `target`, through the endpoints merged when it is sent. */
-	const transcribe = (
-		target: Target,
-		audio: () => Promise<Result<Audio, string>>,
-	) => transcribeAt(() => ai, target, audio);
+	/** Send `audio` to `target`, through the endpoints merged when it is sent. */
+	const transcribe = (target: Target, audio: Audio) =>
+		transcribeAt(() => ai, target, audio);
 
 	/** A capture under way, writing recording `id`'s audio. */
 	type Take = { id: string; capture: Capture };

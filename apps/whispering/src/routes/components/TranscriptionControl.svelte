@@ -16,11 +16,10 @@
 	let content = $state<HTMLElement | null>(null);
 
 	const whispering = getWhispering();
-	const chosen = $derived(whispering.chosen('transcription'));
-	const ready = $derived(chosen.kind === 'ready');
+	const target = $derived(whispering.chosen('transcription').data);
 	const summary = $derived(
-		chosen.kind === 'ready'
-			? `Transcription model: ${chosen.target.model}, at ${chosen.target.name}`
+		target
+			? `Transcription model: ${target.model}, at ${target.name}`
 			: 'No transcription model is chosen. Choose one to transcribe.',
 	);
 </script>
@@ -35,7 +34,7 @@
 				variant="ghost"
 				data-testid="transcription-control"
 			>
-				<AudioLinesIcon class={ready ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
+				<AudioLinesIcon class={target ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
 			</IconButton>
 		{/snippet}
 	</Popover.Trigger>

@@ -17,7 +17,7 @@
  */
 import type { Ai, AiError } from '@epicenter/ai';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { refusedBeforeSend } from './request-refusal.js';
 import { sentences } from './sentences.js';
 
@@ -58,11 +58,6 @@ export const InferenceError = defineErrors({
 	/** Something certain stopped the request before it left. */
 	NotSent: ({ reason }: { reason: string }) => ({
 		message: `Nothing was sent: ${reason}`,
-		reason,
-	}),
-	/** The audio was not read, so no request was made. */
-	AudioUnreadable: ({ reason }: { reason: string }) => ({
-		message: `The recording’s audio could not be read: ${reason}`,
 		reason,
 	}),
 	/**
@@ -107,7 +102,8 @@ export type InferenceError = InferErrors<typeof InferenceError>;
 /** The recording's audio, as a file is uploaded. */
 export type Audio = {
 	readonly bytes: Uint8Array;
-	readonly filename: string;
+	/** The file's name, as the request names it. */
+	readonly name: string;
 	readonly mimeType: string;
 };
 
@@ -168,30 +164,32 @@ function failureOf(target: Target, error: AiError): InferenceError {
 }
 
 /**
- * Transcribe a recording at `target`. The endpoint is checked, then the
- * audio read, then checked again, so a connection changed while the audio
- * was read is not sent to either.
+ * Transcribe `audio` at `target`, through the endpoints merged now: an
+ * endpoint removed or moved since `target` was prepared is not sent to.
+ * It never throws: a request that throws leaves the outcome unknown.
  */
 export async function transcribeAt(
 	current: CurrentAi,
 	target: Target,
-	audio: () => Promise<Result<Audio, string>>,
+	audio: Audio,
 ): Promise<Result<{ text: string }, InferenceError>> {
-	const before = moved(current(), target);
-	if (before) return Err(before);
-	const { data: upload, error: readError } = await audio();
-	if (readError !== null)
-		return InferenceError.AudioUnreadable({ reason: readError });
 	const ai = current();
-	const after = moved(ai, target);
-	if (after) return Err(after);
-	const { data, error } = await ai.transcribe({
-		endpoint: target.endpoint,
-		model: target.model,
-		file: new File([upload.bytes as Uint8Array<ArrayBuffer>], upload.filename, {
-			type: upload.mimeType,
-		}),
+	const gone = moved(ai, target);
+	if (gone) return Err(gone);
+	const file = new File([audio.bytes as Uint8Array<ArrayBuffer>], audio.name, {
+		type: audio.mimeType,
 	});
+	const sent = await tryAsync({
+		try: () =>
+			ai.transcribe({ endpoint: target.endpoint, model: target.model, file }),
+		catch: (cause) =>
+			InferenceError.OutcomeUnknown({
+				name: target.name,
+				reason: cause instanceof Error ? cause.message : String(cause),
+			}),
+	});
+	if (sent.error !== null) return sent;
+	const { data, error } = sent.data;
 	if (error !== null) return Err(failureOf(target, error));
 	return Ok({ text: data.text.trim() });
 }

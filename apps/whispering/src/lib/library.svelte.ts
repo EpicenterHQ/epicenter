@@ -32,7 +32,6 @@ import {
 	runDeletion,
 } from './deletion.js';
 import {
-	type AudioBytes,
 	audioOf,
 	audioSizeOf,
 	describeIssues,
@@ -271,16 +270,8 @@ export function createLibrary({
 		},
 		/** Where recording `id`'s audio is, read reactively. */
 		audioOf: (id: string) => audioOf(snapshot, id),
-		/** Recording `id`'s audio bytes. */
-		async readAudio(id: string): Promise<Result<AudioBytes, string>> {
-			const audio = audioOf(snapshot, id);
-			if (audio.kind === 'here') return folder.readAudio(audio.file);
-			return Err(
-				audio.kind === 'ambiguous'
-					? `More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one.`
-					: 'This recording has no audio file.',
-			);
-		},
+		/** Recording `id`'s audio bytes, or why they cannot be read. */
+		readAudio: folder.readAudio,
 
 		// ------------------------------------------------------------------
 		// Editing

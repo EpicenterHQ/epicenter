@@ -2,7 +2,7 @@
  * A transcription: send a recording's audio to the transcription model, and
  * keep the transcript beside it.
  *
- * `transcribe` answers one `Result`: it finds the recording's audio as it is
+ * `transcribe` answers one `Result`: it reads the recording's audio as it is
  * now, sends it to the model chosen now, and writes the answer as a new
  * transcript note (every field fixed, the answer as its body). So a
  * transcript always holds an answer. A run that fails at any step answers
@@ -15,11 +15,10 @@
  * two presses in one moment cannot both pass.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingFolder } from './folder.js';
 import { timeId } from './format/ids.js';
 import type { Audio, Target } from './inference.js';
-import type { Chosen } from './whispering.svelte.js';
 
 export const RunError = defineErrors({
 	/** Nothing was sent: the run could not be prepared, or is refused now. */
@@ -37,16 +36,11 @@ export const RunError = defineErrors({
 });
 export type RunError = InferErrors<typeof RunError>;
 
-type Answer = Result<{ text: string }, { message: string }>;
-
 /**
  * A received answer as its note's body: the text, ending in one newline of
  * its own. An empty answer is a newline.
  */
 const resultBody = (text: string) => (text.endsWith('\n') ? text : `${text}\n`);
-
-const describe = (cause: unknown) =>
-	cause instanceof Error ? cause.message : String(cause);
 
 export function createRuns({
 	folder,
@@ -55,79 +49,23 @@ export function createRuns({
 	refused,
 }: {
 	/** Where the audio is read from and the transcripts are written. */
-	folder: Pick<WhisperingFolder, 'findAudio' | 'readAudio' | 'notes'>;
-	/** The transcription model chosen now, as where a request would go. */
-	chosen: () => Chosen;
-	/** Send a recording's audio to `target`. Nothing is written by this. */
+	folder: Pick<WhisperingFolder, 'readAudio' | 'notes'>;
+	/** The transcription model chosen now, as where a request would go, or why there is none. */
+	chosen: () => Result<Target, string>;
+	/** Send `audio` to `target`. Nothing is written by this, and it never throws. */
 	transcribe: (
 		target: Target,
-		audio: () => Promise<Result<Audio, string>>,
-	) => Promise<Answer>;
+		audio: Audio,
+	) => Promise<Result<{ text: string }, { message: string }>>;
 	/** Why nothing new starts now, for recording `recordingId` or at all. */
 	refused: (recordingId?: string) => string | undefined;
 }) {
 	/** The recordings being transcribed now. */
 	const running = new Set<string>();
 
-	async function run(
-		recordingId: string,
-	): Promise<Result<undefined, RunError>> {
-		const choice = chosen();
-		if (choice.kind !== 'ready')
-			return RunError.NotSent({ reason: choice.reason });
-		const { target } = choice;
-		const found = await folder.findAudio(recordingId);
-		if (found.error !== null)
-			return RunError.NotSent({ reason: found.error.message });
-		const audio = found.data;
-		if (audio.kind !== 'here')
-			return RunError.NotSent({
-				reason:
-					audio.kind === 'ambiguous'
-						? `More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one before transcribing.`
-						: 'This recording has no audio to transcribe.',
-			});
-		const at = new Date();
-		let answer: Answer;
-		try {
-			answer = await transcribe(target, async () => {
-				const read = await folder.readAudio(audio.file);
-				if (read.error !== null) return Err(read.error);
-				return Ok({
-					bytes: read.data.bytes,
-					filename: read.data.name,
-					mimeType: read.data.mimeType,
-				});
-			});
-		} catch (cause) {
-			return RunError.NoAnswer({
-				reason: `The request could not be made: ${describe(cause)}`,
-			});
-		}
-		if (answer.error !== null)
-			return RunError.NoAnswer({ reason: answer.error.message });
-		// A page closing keeps nothing that arrives after it.
-		const closing = refused();
-		if (closing !== undefined) return RunError.NotSaved({ reason: closing });
-		const saved = await folder.notes.set({
-			collection: 'transcriptions',
-			id: timeId(at),
-			fields: {
-				recordingId,
-				createdAt: at.toISOString(),
-				model: target.model,
-				endpoint: target.address,
-			},
-			body: { seen: null, text: resultBody(answer.data.text) },
-		});
-		if (saved.error !== null)
-			return RunError.NotSaved({ reason: saved.error.message });
-		return Ok(undefined);
-	}
-
 	return {
 		/**
-		 * Transcribe recording `recordingId`: find its audio, send it to the
+		 * Transcribe recording `recordingId`: read its audio, send it to the
 		 * transcription model chosen now, and keep the transcript beside it.
 		 * Refused while it is already being transcribed.
 		 */
@@ -144,7 +82,33 @@ export function createRuns({
 				});
 			running.add(recordingId);
 			try {
-				return await run(recordingId);
+				const { data: target, error: unchosen } = chosen();
+				if (unchosen !== null) return RunError.NotSent({ reason: unchosen });
+				const audio = await folder.readAudio(recordingId);
+				if (audio.error !== null)
+					return RunError.NotSent({ reason: audio.error });
+				const at = new Date();
+				const answer = await transcribe(target, audio.data);
+				if (answer.error !== null)
+					return RunError.NoAnswer({ reason: answer.error.message });
+				// A page closing keeps nothing that arrives after it.
+				const closing = refused();
+				if (closing !== undefined)
+					return RunError.NotSaved({ reason: closing });
+				const saved = await folder.notes.set({
+					collection: 'transcriptions',
+					id: timeId(at),
+					fields: {
+						recordingId,
+						createdAt: at.toISOString(),
+						model: target.model,
+						endpoint: target.address,
+					},
+					body: { seen: null, text: resultBody(answer.data.text) },
+				});
+				if (saved.error !== null)
+					return RunError.NotSaved({ reason: saved.error.message });
+				return Ok(undefined);
 			} finally {
 				running.delete(recordingId);
 			}

@@ -41,12 +41,12 @@
 		/>
 	</div>
 	<p class="text-xs text-muted-foreground" data-testid="model-{operation}-status">
-		{#if chosen.kind === 'ready'}
-			{chosen.target.model} at {chosen.target.name}.
+		{#if chosen.error === null}
+			{chosen.data.model} at {chosen.data.name}.
 		{:else if choice === null}
 			Not chosen. Nothing is sent until you choose one.
 		{:else}
-			{chosen.reason}
+			{chosen.error}
 		{/if}
 		{copy[operation].sends}
 	</p>

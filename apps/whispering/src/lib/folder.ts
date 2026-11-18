@@ -215,14 +215,21 @@ export function openFolder(files: Files) {
 				audio: listed.data.flatMap((entry) => audioFileOf(entry) ?? []),
 			});
 		},
-		/** Where recording `id`'s audio is now, from a fresh listing. */
-		async findAudio(id: string): Promise<Result<RecordingAudio, FilesError>> {
-			const audio = await listAudio();
-			if (audio.error !== null) return audio;
-			return Ok(audioOf({ audio: audio.data }, id));
-		},
-		/** The bytes of `file`, a recording's audio. */
-		async readAudio(file: AudioFile): Promise<Result<AudioBytes, string>> {
+		/**
+		 * Recording `recordingId`'s audio as it is now, from a fresh listing,
+		 * or why it cannot be read: it has none, or more than one file has
+		 * its id.
+		 */
+		async readAudio(recordingId: string): Promise<Result<AudioBytes, string>> {
+			const listed = await listAudio();
+			if (listed.error !== null) return Err(listed.error.message);
+			const audio = audioOf({ audio: listed.data }, recordingId);
+			if (audio.kind === 'absent') return Err('This recording has no audio.');
+			if (audio.kind === 'ambiguous')
+				return Err(
+					`More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one.`,
+				);
+			const { file } = audio;
 			const name = `${file.id}.${file.ext}`;
 			const read = await files.read(`${RECORDINGS}/${name}`);
 			if (read.error !== null) return Err(read.error.message);

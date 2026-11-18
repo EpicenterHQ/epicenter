@@ -8,20 +8,14 @@
  * Key behaviors:
  * - A transcription uploads the audio with the target's model
  * - A request goes only to the endpoint it was prepared for: one removed or
- *   moved since, even while the audio was read, is not sent anywhere
+ *   moved since is not sent anywhere
  * - A refusal before sending says nothing was sent; an endpoint that never
  *   answered leaves the outcome unknown; neither carries the key
  */
 import { expect, test } from 'bun:test';
 import { custom, openAi } from '@epicenter/ai';
-import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import {
-	addressOf,
-	type CurrentAi,
-	type Target,
-	transcribeAt,
-} from './inference.js';
+import { addressOf, type Target, transcribeAt } from './inference.js';
 
 const KEY = 'sk-local-test-key';
 const BASE_URL = 'http://127.0.0.1:18080/v1';
@@ -64,12 +58,11 @@ const targetOf = (
 	address: addressOf(endpoint),
 });
 
-const audio = async () =>
-	Ok({
-		bytes: new Uint8Array([1, 2, 3]),
-		filename: 'a.webm',
-		mimeType: 'audio/webm',
-	});
+const audio = {
+	bytes: new Uint8Array([1, 2, 3]),
+	name: 'a.webm',
+	mimeType: 'audio/webm',
+};
 
 test('a transcription uploads the audio with the target’s model and reads the text', async () => {
 	const { endpoint, seen } = provider(() =>
@@ -111,28 +104,6 @@ test('an endpoint removed or moved since the request was prepared is not sent an
 	);
 	expect(seen).toEqual([]);
 	expect(moved.seen).toEqual([]);
-});
-
-test('a connection moved while the audio was read is not sent to either', async () => {
-	const before = provider(() => Response.json({ text: 'no' }));
-	const after = provider(() => Response.json({ text: 'no' }), {
-		baseUrl: 'https://elsewhere.test/v1',
-	});
-	let current = openAi([before.endpoint]);
-	const merged: CurrentAi = () => current;
-	const error = expectErr(
-		await transcribeAt(
-			merged,
-			targetOf(before.endpoint, 'whisper-1'),
-			async () => {
-				current = openAi([after.endpoint]);
-				return audio();
-			},
-		),
-	);
-	expect(error.name).toBe('EndpointMoved');
-	expect(before.seen).toEqual([]);
-	expect(after.seen).toEqual([]);
 });
 
 test('a refusal before sending says nothing was sent; no answer leaves the outcome unknown', async () => {
