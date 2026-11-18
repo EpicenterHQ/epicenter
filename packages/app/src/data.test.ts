@@ -17,7 +17,7 @@ async function setup(seed: Record<string, string> = {}) {
 	const { folder, read, files } = await tempFolder(seed);
 	const data = defineData(folder, {
 		notes: {
-			description: 'notes',
+			description: 'note',
 			fields: {
 				title: field.text(),
 				count: field.integer({ optional: true }),
@@ -26,7 +26,7 @@ async function setup(seed: Record<string, string> = {}) {
 			},
 		},
 		settings: {
-			description: 'settings',
+			description: 'settings record',
 			fields: { title: field.text(), count: field.integer({ optional: true }) },
 		},
 	});
@@ -205,7 +205,7 @@ test('concurrent edits of one data file each land, each computed from the record
 	});
 	const { counters } = defineData(folder, {
 		counters: {
-			description: 'counters',
+			description: 'counter',
 			fields: { n: field.integer({ optional: true }) },
 		},
 	});
@@ -272,7 +272,7 @@ test.each(invalidIds)(
 			delete: untouched,
 		};
 		const { notes } = defineData(guarded, {
-			notes: { description: 'notes', fields: { title: field.text() } },
+			notes: { description: 'note', fields: { title: field.text() } },
 		});
 		for (const result of [
 			await notes.get(id),
@@ -389,7 +389,7 @@ test.each([
 test.each(['path', 'body', 'id'])('definitions reserve the field %s', (key) => {
 	expect(() =>
 		defineData(unusedFolder, {
-			notes: { description: 'notes', fields: { [key]: field.text() } },
+			notes: { description: 'note', fields: { [key]: field.text() } },
 		}),
 	).toThrow(`"${key}"`);
 });
@@ -398,7 +398,7 @@ test('a field may be named edit, old, or new, since no verb folds a passage besi
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
-				description: 'notes',
+				description: 'note',
 				fields: { edit: field.text(), old: field.text(), new: field.text() },
 			},
 		}),
@@ -515,7 +515,7 @@ test('definitions refuse cyclic schemas before they can break discovery', () => 
 	schema.properties.self = schema;
 	expect(() =>
 		defineData(unusedFolder, {
-			records: { description: 'records', fields: { value: schema } },
+			records: { description: 'record', fields: { value: schema } },
 		}),
 	).toThrow(TypeError);
 });
@@ -524,7 +524,7 @@ test('definitions refuse readOnly fields', () => {
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
-				description: 'notes',
+				description: 'note',
 				fields: {
 					created: Type.String({ format: 'date-time', readOnly: true }),
 				},
@@ -537,9 +537,9 @@ test('handles write refs as given without opening the referenced file', async ()
 	// A file where the target's folder would be: opening anything in it throws.
 	const { folder } = await tempFolder({ 'data/watches': 'not a folder' });
 	const data = defineData(folder, {
-		watches: { description: 'watches', fields: {} },
+		watches: { description: 'watch', fields: {} },
 		checks: {
-			description: 'checks',
+			description: 'check',
 			fields: {
 				watch: field.ref('watches'),
 				many: field.list(field.ref('watches'), { optional: true }),
@@ -570,7 +570,7 @@ test('defineData refuses a ref to a key it does not declare, in a list or option
 		expect(() =>
 			defineData(unusedFolder, {
 				notes: { description: 'note', fields: { target } },
-				settings: { description: 'settings', fields: {} },
+				settings: { description: 'settings record', fields: {} },
 			}),
 		).toThrow(
 			'The data key notes\'s field "target" refers to "missing", which must name a key in this defineData',
@@ -659,7 +659,7 @@ test('edit of an absent record that returns an empty change makes it, as create 
 test('a key named like a file says every key is a folder now, and what to write', () => {
 	expect(() =>
 		defineData(unusedFolder, {
-			'settings.md': { description: 'settings', fields: {} },
+			'settings.md': { description: 'settings record', fields: {} },
 		}),
 	).toThrow(
 		'The data key "settings.md" must be a name: every key is a folder of records now, so write "settings" and give the one record a fixed id',
@@ -687,7 +687,7 @@ test('data definitions refuse defaults', () => {
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
-				description: 'notes',
+				description: 'note',
 				fields: {
 					nested: Type.Object({ number: Type.Number({ default: 1 }) }),
 				},
@@ -701,7 +701,7 @@ test.skipIf(!foldsCase)(
 	async () => {
 		const { folder, read } = await tempFolder();
 		const { notes } = defineData(folder, {
-			notes: { description: 'notes', fields: {} },
+			notes: { description: 'note', fields: {} },
 		});
 		expect(expectOk(await notes.create('Dune', { body: 'first' })).body).toBe(
 			'first',

@@ -27,7 +27,7 @@ test.skipIf(foldsCase)(
 		});
 		const report = await checkData(
 			folder.path,
-			defineData(folder, { notes: { description: 'notes', fields: {} } }),
+			defineData(folder, { notes: { description: 'note', fields: {} } }),
 		);
 		expect(report.notes).toMatchObject({
 			files: 11,
@@ -56,7 +56,7 @@ test('an id that is not NFC is counted and never read', async () => {
 	});
 	const report = await checkData(
 		folder.path,
-		defineData(folder, { notes: { description: 'notes', fields: {} } }),
+		defineData(folder, { notes: { description: 'note', fields: {} } }),
 	);
 	expect(report.notes).toMatchObject({
 		files: 1,
@@ -72,7 +72,7 @@ test('an id over 200 UTF-8 bytes is counted and never read', async () => {
 	const { folder } = await tempFolder({ [path]: '---\nnot parsed\n' });
 	const report = await checkData(
 		folder.path,
-		defineData(folder, { notes: { description: 'notes', fields: {} } }),
+		defineData(folder, { notes: { description: 'note', fields: {} } }),
 	);
 	expect(report.notes).toMatchObject({
 		files: 1,
@@ -89,13 +89,13 @@ test('refs in a fixed-id record and nested lists resolve targets declared later'
 	});
 	const data = defineData(folder, {
 		settings: {
-			description: 'settings',
+			description: 'settings record',
 			fields: {
 				watch: field.ref('watches'),
 				nested: field.list(field.list(field.ref('watches'))),
 			},
 		},
-		watches: { description: 'watches', fields: {} },
+		watches: { description: 'watch', fields: {} },
 	});
 	const report = await checkData(folder.path, data);
 	expect(report.settings).toMatchObject({
@@ -118,7 +118,7 @@ test('a union of refs fits when the id is listed in either target', async () => 
 	});
 	const data = defineData(folder, {
 		notes: {
-			description: 'notes',
+			description: 'note',
 			fields: { target: Type.Union([field.ref('first'), field.ref('second')]) },
 		},
 		first: { description: 'first', fields: {} },

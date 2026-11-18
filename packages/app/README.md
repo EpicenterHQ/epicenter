@@ -114,9 +114,9 @@ drops its call; `defineApp` refuses it and says to use `defineAction`.
 function. Each key is a folder under `data/`: `notes` holds every `.md` file
 directly in `data/notes/`, and a record's id is its file name without `.md`.
 A key is a name (lowercase letters, digits, and dashes, starting with a
-letter). Each key gives a `description`, what one record is as a noun such
-as `"task"`, which its verbs' descriptions use (`Read one task`), and
-`fields`.
+letter). Each key gives a `description`, what one record is as a singular
+noun without "a" or "the", such as `"task"` (not `"tasks"`), which its verbs'
+descriptions use (`Read one task`, `Every task`), and `fields`.
 
 An app with one record of a kind, such as its settings, gives it a fixed id:
 the key `settings` and the id `settings` are the file
@@ -667,12 +667,16 @@ Some other names 0.7.0 exported are gone:
 ### Data and fields
 
 Every data key is a folder, nothing is filled in, and the library invents no
-value. The compiler flags each row except where the table says so.
+value. The compiler flags the rows that change a key, a call or a type, at
+each place the code breaks, except where a row says it does not. For the
+`done` and `tags` rows it flags only code that leaves the field out of a
+record it passes or reads it as always there; the callers and files it
+cannot see are in the next section.
 
 | 0.7.0 | 0.8.0 |
 | --- | --- |
-| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md` |
-| one-file `data['settings.md'].patch(change)`, which made the file | `data.settings.edit('settings', () => Ok(change))`, which may make it; `patch` refuses an absent record |
+| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings record', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md` |
+| one-file `data['settings.md'].patch(change)`, which made the file and repaired one that did not fit | no one call does both now: `data.settings.edit('settings', () => Ok(change))` makes an absent record but answers the `Misfit` for one that does not fit, and `data.settings.patch('settings', change)` repairs one that does not fit but answers `Missing` for an absent one |
 | `tasks: { fields }` | `tasks: { description: 'task', fields }`: a description is required, a noun without "a" or "the" |
 | `create({ title })` through the generated action, named by the moment | `create({ id: timeId(), title })` |
 | `done: field.boolean()`, absent read as `false` | `done: field.boolean({ optional: true })` and `({ done = false })` where it is read, or `field.boolean()` and every file and caller gives it |
@@ -690,9 +694,27 @@ value. The compiler flags each row except where the table says so.
 - A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
 - The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
 - `checkAnswer` refuses a `Threw` whose `thrown` is not a plain object, such as an `Error` instance a test passes in, and answers `Unreachable`. An answer read from serve is parsed JSON, so it is unaffected.
-- A record read from disk no longer has `false` for an absent switch or `[]` for an absent list: an optional one is absent, and a required one that is absent makes the file a `Misfit` with "<field> is missing". Code that reads `record.tags.length` on an optional list reads `(record.tags ?? []).length`.
+- `field.boolean()` and `field.list(item)` are required now. In 0.7.0 they were optional and filled in with `false` and `[]`. Two kinds of caller the compiler cannot see change with them:
+  - A JSON caller that leaves one out, such as the command, an agent over MCP, a script or a routine, is refused before `run`.
+  - A record file without the line is a `Misfit` with "<field> is missing".
+
+  To keep 0.7.0's behavior, say `optional` and write the default where the value is read:
+
+  ```ts
+  // 0.7.0
+  done: field.boolean(),
+  tags: field.list(field.text()),
+  // 0.8.0
+  done: field.boolean({ optional: true }), // read as ({ done = false })
+  tags: field.list(field.text(), { optional: true }), // read as ({ tags = [] })
+  ```
+
+  An optional switch or list absent from a file reads as absent, so code that read `record.tags.length` reads `(record.tags ?? []).length`.
 - The generated `create` no longer writes `done: false` and `tags: []` into a new file for fields the caller left out; it writes what `data.<key>.create(id, record)` writes.
-- A data action's description uses the key's `description` as written, so `description: 'a note'` reads "Read one a note". Write `'note'`.
+- A data action's description uses the key's `description` as written, so `description: 'a note'` reads "Read one a note" and `'notes'` reads "Every notes". Write `'note'`.
+- A misspelled field option beside a correct one, such as `field.text({ description: 'Title', optinal: true })`, is not a type error; the helper throws when the app loads. The compiler flags only an options object that shares no key with the helper's.
+- The generated `create` declares `idempotentHint: true`, where 0.7.0 declared `false`: it takes an id, so a repeat answers `Changed` (`there`) and writes nothing.
+- An agent can no longer make a record named by the moment: the generated `create` takes an id the caller chooses, and `timeId()` runs only in an app's code. An app that wants that writes its own action that calls `timeId()`.
 - `epicenter serve` will not start while a `.env` at the root of the Epicenter is tracked by Git or not ignored ([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)). It says which, and the fix: `git rm --cached .env`, or add `.env*` to `.gitignore`.
 - The folder writes `local/.gitignore` when it makes `local/`. A `local/` made another way runs, and is listed as a problem with the one-line fix.
 

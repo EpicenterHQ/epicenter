@@ -28,7 +28,7 @@ async function setup() {
   data: defineData(folder, {
     watches: { description: 'watch', fields: { from: field.text() } },
     checks: { description: 'check', fields: { watch: field.ref('watches'), day: field.date(), many: field.list(field.ref('watches'), { optional: true }) } },
-    settings: { description: 'settings', fields: { level: field.integer() } },
+    settings: { description: 'settings record', fields: { level: field.integer() } },
   }),
   actions: {},
 }));

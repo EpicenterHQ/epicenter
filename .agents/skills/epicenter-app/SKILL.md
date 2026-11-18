@@ -86,7 +86,7 @@ app's function in `code/epicenter.ts`, one key per kind of record under
 `data/tasks/<id>.md`, one record per file, named by its id. One record of a
 kind, such as settings, is an ordinary key with a fixed id:
 `data/settings/settings.md`, read with `data.settings.get('settings')`. Each
-key gives a `description`, what one record is as a noun (`'task'`), and
+key gives a `description`, what one record is as a singular noun (`'task'`, not `'tasks'`), and
 `fields`, the front matter of each file.
 `data.tasks.actions('list', 'get', 'create', 'patch', 'edit', 'delete')`
 gives the verbs it names and only those. An app with one key spreads its verbs at the top, so they are its

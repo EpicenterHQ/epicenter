@@ -200,9 +200,9 @@ test('list retains full fitting records and Misfit Results', async () => {
 test('generated writes accept refs as given and expose a declared was field as ordinary data', async () => {
 	const { folder } = await tempFolder();
 	const data = defineData(folder, {
-		targets: { description: 'targets', fields: {} },
+		targets: { description: 'target', fields: {} },
 		notes: {
-			description: 'notes',
+			description: 'note',
 			fields: { target: field.ref('targets'), was: field.text() },
 		},
 	});

@@ -12,7 +12,7 @@ import { assertType, type Equal, tempFolder } from './library.test-support.ts';
 const { folder } = await tempFolder();
 const data = defineData(folder, {
 	notes: {
-		description: 'notes',
+		description: 'note',
 		fields: {
 			title: field.text(),
 			note: field.text({ optional: true }),
@@ -24,10 +24,13 @@ const data = defineData(folder, {
 			created: field.datetime(),
 		},
 	},
-	settings: { description: 'settings', fields: { level: field.integer() } },
-	watches: { description: 'watches', fields: {} },
+	settings: {
+		description: 'settings record',
+		fields: { level: field.integer() },
+	},
+	watches: { description: 'watch', fields: {} },
 	checks: {
-		description: 'checks',
+		description: 'check',
 		fields: {
 			watch: field.ref('watches'),
 			many: field.list(field.ref('watches')),

@@ -15,7 +15,7 @@ import {
 // Only types are checked here, so the folder is never used.
 const data = defineData(unusedFolder, {
 	words: {
-		description: 'words',
+		description: 'word',
 		fields: {
 			meaning: field.text(),
 			note: field.text({ optional: true }),

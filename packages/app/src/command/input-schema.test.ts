@@ -44,7 +44,7 @@ const data = defineData(folder, {
 		},
 	},
 	settings: {
-		description: 'settings',
+		description: 'settings record',
 		fields: { theme: field.select(['light', 'dark']), size: field.integer({ optional: true }) },
 	},
 });

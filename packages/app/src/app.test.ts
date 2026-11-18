@@ -21,7 +21,7 @@ import { tempFolder, unusedFolder } from './library.test-support.ts';
 
 const reading = defineApp(({ folder }) => {
 	const data = defineData(folder, {
-		books: { description: 'books', fields: { title: field.text() } },
+		books: { description: 'book', fields: { title: field.text() } },
 	});
 	const log = defineAction({
 		description: 'Record minutes read today',
@@ -141,7 +141,7 @@ describe('defineApp', () => {
 
 	test('keeps the data handles it is given', () => {
 		const data = defineData(unusedFolder, {
-			notes: { description: 'notes', fields: { title: field.text() } },
+			notes: { description: 'note', fields: { title: field.text() } },
 		});
 		const app = made({ description: 'Notes', data, actions: {} });
 		expect(app.data.notes).toBe(data.notes);
@@ -158,13 +158,13 @@ describe('defineApp', () => {
 			problems(() =>
 				made({
 					description: 'Bad',
-					data: { notes: { description: 'notes', fields: {} } },
+					data: { notes: { description: 'note', fields: {} } },
 					actions: {},
 				} as never),
 			),
 		).toEqual(['data.notes is not a handle from defineData(...)']);
 		const data = defineData(unusedFolder, {
-			notes: { description: 'notes', fields: {} },
+			notes: { description: 'note', fields: {} },
 		});
 		expect(
 			problems(() =>

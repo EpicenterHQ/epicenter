@@ -29,11 +29,11 @@ import {
 const vocab = defineApp(({ folder }) => {
 	const data = defineData(folder, {
 		words: {
-			description: 'words',
+			description: 'word',
 			fields: { meaning: field.text({ optional: true }) },
 		},
 		settings: {
-			description: 'settings',
+			description: 'settings record',
 			fields: { dailyGoal: field.integer({ optional: true }) },
 		},
 	});
