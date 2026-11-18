@@ -169,7 +169,7 @@ function readable(value: unknown): { stdout: string; stderr: string } {
 /** Present an answer, as one JSON value or for a person, and return its exit code. */
 export function presentAnswer(answer: Answer, json: boolean): number {
 	if (json) {
-		writeJson(answer);
+		writeJson({ data: answer.data, error: answer.error });
 		return outcome(answer).code;
 	}
 	const { stdout, stderr, code } = renderAnswer(answer);

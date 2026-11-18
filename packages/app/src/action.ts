@@ -285,11 +285,14 @@ function actionProblems(def: object): string[] {
 		);
 	if (typeof input !== 'object' || input === null)
 		return [...problems, 'has no input'];
+	if ((input as { type?: unknown }).type === 'object')
+		return [
+			...problems,
+			"has another action's input schema as its input; write `input: other.input.properties`",
+		];
 	for (const [key, schema] of Object.entries(input as Input)) {
 		if (typeof schema !== 'object' || schema === null || Array.isArray(schema))
-			problems.push(
-				`has "${key}" in its input, which is not a field; to reuse another action's input, write \`input: other.input.properties\``,
-			);
+			problems.push(`has "${key}" in its input, which is not a field`);
 		else if (defaultIn(schema))
 			problems.push(
 				`has a default in "${key}"; no field has one, so write the default in run, where the value is read, such as \`limit ?? 50\``,

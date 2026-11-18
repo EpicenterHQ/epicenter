@@ -326,7 +326,7 @@ describe('defineAction', () => {
 				run: () => Ok(true),
 			}),
 		).toThrow(
-			`has "type" in its input, which is not a field; to reuse another action's input, write \`input: other.input.properties\``,
+			"has another action's input schema as its input; write `input: other.input.properties`",
 		);
 		const again = defineAction({
 			description: 'Show again',
