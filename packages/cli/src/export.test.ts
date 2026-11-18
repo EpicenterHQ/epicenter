@@ -96,6 +96,7 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 	const staged = await gitIn(f.home, 'diff', '--cached', '--name-only');
 	for (const args of [['tasks'], ['--all']]) {
 		const refused = await f.run('export', ...args, f.output, '--json');
+		// Returned, not thrown: a throw once export began would answer Threw, exit 1.
 		expect(refused.code).toBe(2);
 		expect(JSON.parse(refused.stdout)).toEqual({
 			data: null,

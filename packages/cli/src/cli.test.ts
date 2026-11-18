@@ -163,6 +163,49 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 	expect((await f.run('mcp', 'nope')).code).toBe(2);
 });
 
+test("every command's --json is one { data, error } answer, and its exit code follows the error's name", async () => {
+	const f = await setup();
+	const answered: [string[], 0 | 2][] = [
+		[[], 0],
+		[['reading'], 0],
+		[['reading', 'log', '--help'], 0],
+		[['--version'], 0],
+		[['--help'], 0],
+		[['check', '--help'], 0],
+		[['check'], 0],
+		[['new', 'garden'], 0],
+		[['init', join(f.root, 'other'), '--no-install'], 0],
+		[['nope'], 2],
+		[['check', 'nope'], 2],
+		[['new'], 2],
+		[['init', f.home], 2],
+		[['export', 'reading'], 2],
+		[['serve'], 2],
+	];
+	for (const [words, code] of answered) {
+		const result = await f.run(...words, '--json');
+		const answer = JSON.parse(result.stdout);
+		expect({ words, code: result.code, keys: Object.keys(answer) }).toEqual({
+			words,
+			code,
+			keys: ['data', 'error'],
+		});
+		if (code === 0) expect(answer.error).toBeNull();
+		else
+			expect({ words, data: answer.data, name: answer.error.name }).toEqual({
+				words,
+				data: null,
+				name: 'NotStarted',
+			});
+	}
+	// Text prints a command's own text as it is.
+	expect(await f.run('new', 'notes')).toEqual({
+		code: 0,
+		stdout: `${join(f.apps, 'notes')}\n`,
+		stderr: `Run: cd ${f.home} && bun install && bun run build\n`,
+	});
+});
+
 test('bare epicenter reports routines and the repository after the apps, and changes nothing', async () => {
 	const f = await setup();
 	await gitIn(f.home, 'init', '-q');
