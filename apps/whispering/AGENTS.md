@@ -36,9 +36,9 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   and audio are one query and `settings.md` another, each read before the
   app renders (`src/routes/(app)/+layout.svelte`), after every write (one
   `MutationCache` rule), and when the window regains focus. The services'
-  functions are the mutations, with nothing between (`resultMutations`);
-  the notes' and audio's writes share one mutation `scope`, and
-  `settings.md`'s have their own. Code that is not a component hears a
+  functions are the mutations, with nothing between (`resultMutations`),
+  keyed under `['folder']` (`folderMutations`) so every write to the
+  folder shares one mutation `scope`. Code that is not a component hears a
   query through a `QueryObserver`. Do not add a watcher, a second cache,
   or an `invalidateQueries` call after a write. Typing is Svelte state
   (`note-editor.svelte.ts`), not a cache entry; a transcription's state is

@@ -86,11 +86,15 @@ test('a field change over a note changed on disk keeps what the other program wr
 	expectOk(await files.write(PATH, encode(note('Standup', 'their notes\n'))));
 
 	expectOk(
-		await runMutation(page.query.queryClient, page.query.noteMutations.set, {
-			collection: 'recordings',
-			id: ID,
-			fields: { title: 'Mine' },
-		}),
+		await runMutation(
+			page.query.queryClient,
+			page.query.folderMutations.notes.set,
+			{
+				collection: 'recordings',
+				id: ID,
+				fields: { title: 'Mine' },
+			},
+		),
 	);
 
 	expect(await text(files, PATH)).toBe(note('Mine', 'their notes\n'));
@@ -109,7 +113,7 @@ test('a body typed over a body changed on disk writes nothing, and the newer tex
 
 	const { error } = await runMutation(
 		page.query.queryClient,
-		page.query.noteMutations.set,
+		page.query.folderMutations.notes.set,
 		{
 			collection: 'recordings',
 			id: ID,
@@ -145,20 +149,20 @@ test('the folder’s writes run one at a time, in the order made', async () => {
 		},
 	};
 	const page = await open(files);
-	const { queryClient, noteMutations } = page.query;
+	const { queryClient, folderMutations } = page.query;
 	events.length = 0;
 
-	const first = runMutation(queryClient, noteMutations.set, {
+	const first = runMutation(queryClient, folderMutations.notes.set, {
 		collection: 'recordings',
 		id: ID,
 		fields: { title: 'First' },
 	});
-	const second = runMutation(queryClient, noteMutations.set, {
+	const second = runMutation(queryClient, folderMutations.notes.set, {
 		collection: 'recordings',
 		id: OTHER,
 		fields: { title: 'Second' },
 	});
-	const transcript = runMutation(queryClient, noteMutations.set, {
+	const transcript = runMutation(queryClient, folderMutations.notes.set, {
 		collection: 'transcriptions',
 		id: 'tx1',
 		fields: {
@@ -168,6 +172,9 @@ test('the folder’s writes run one at a time, in the order made', async () => {
 			endpoint: 'stub',
 		},
 		body: { seen: null, text: 'a steady tone\n' },
+	});
+	const shortcut = runMutation(queryClient, folderMutations.settings.set, {
+		shortcut: 'Alt+R',
 	});
 
 	// The first write is held; the others have not even read their notes.
@@ -180,10 +187,12 @@ test('the folder’s writes run one at a time, in the order made', async () => {
 	expectOk(await first);
 	expectOk(await second);
 	expectOk(await transcript);
+	expectOk(await shortcut);
 	expect(events.filter((event) => event.startsWith('write '))).toEqual([
 		`write ${PATH}`,
 		`write recordings/${OTHER}.md`,
 		'write transcriptions/tx1.md',
+		'write settings.md',
 	]);
 	expect(titleOf(page, ID)).toBe('First');
 	expect(titleOf(page, OTHER)).toBe('Second');
@@ -207,7 +216,7 @@ test('a read that a finished write overtakes never shows older data than the wri
 		},
 	};
 	const page = await open(files);
-	const { queryClient, noteMutations } = page.query;
+	const { queryClient, folderMutations } = page.query;
 
 	// A read starts, takes the old note, and is held there.
 	const late = gate();
@@ -216,7 +225,7 @@ test('a read that a finished write overtakes never shows older data than the wri
 	await reading.opened;
 
 	expectOk(
-		await runMutation(queryClient, noteMutations.set, {
+		await runMutation(queryClient, folderMutations.notes.set, {
 			collection: 'recordings',
 			id: ID,
 			fields: { title: 'Renamed' },

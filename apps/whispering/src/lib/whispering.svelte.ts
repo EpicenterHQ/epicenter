@@ -75,11 +75,7 @@ export type WhisperingCapabilities = {
 	/** Whispering's folder as the page's client reads and writes it: every recording's note, and `settings.md`, go through it. */
 	readonly query: Pick<
 		FolderQuery,
-		| 'queryClient'
-		| 'noteMutations'
-		| 'reread'
-		| 'settingsQueries'
-		| 'settingsMutations'
+		'queryClient' | 'folderMutations' | 'reread' | 'settingsQueries'
 	>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
@@ -156,7 +152,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		const job = CAN[operation];
 		const saved = await runMutation(
 			query.queryClient,
-			query.settingsMutations.set,
+			query.folderMutations.settings.set,
 			{
 				models: {
 					...settings().fields.models,
@@ -242,15 +238,19 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		}
 		// The audio is at its path, so its note goes after it; writing the
 		// note reads the folder again, the audio with it.
-		const kept = await runMutation(query.queryClient, query.noteMutations.set, {
-			collection: 'recordings',
-			id: take.id,
-			fields: {
-				title: defaultTitle(at),
-				recordedAt: at.toISOString(),
-				durationMs: Math.max(0, Math.round(stopped.durationMs)),
+		const kept = await runMutation(
+			query.queryClient,
+			query.folderMutations.notes.set,
+			{
+				collection: 'recordings',
+				id: take.id,
+				fields: {
+					title: defaultTitle(at),
+					recordedAt: at.toISOString(),
+					durationMs: Math.max(0, Math.round(stopped.durationMs)),
+				},
 			},
-		});
+		);
 		takeInProgress = undefined;
 		if (kept.error !== null && !disposed)
 			recorderError = `The recording's audio is saved, but its note was not: ${kept.error.message} It is listed as an untitled recording.`;

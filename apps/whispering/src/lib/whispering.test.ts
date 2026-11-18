@@ -478,7 +478,7 @@ test('an answer whose transcript cannot be written fails, keeps nothing, and Try
 
 test('a note that does not read is listed for repair, and repaired as text', async () => {
 	const { test, query, library } = await fixture();
-	const { queryClient, noteMutations } = query;
+	const { queryClient, folderMutations } = query;
 	const id = '2026-10-31T09-30-00-000Z-brokenaa';
 	await test.outside.write(
 		`recordings/${id}.md`,
@@ -493,7 +493,7 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 
 	// Text that still does not read is written as typed, and stays listed for repair.
 	expectOk(
-		await runMutation(queryClient, noteMutations.replace, {
+		await runMutation(queryClient, folderMutations.notes.replace, {
 			collection: 'recordings',
 			id,
 			seen: library.repairs[0]!.text,
@@ -506,7 +506,7 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 	expect(library.entries).toHaveLength(0);
 
 	expectOk(
-		await runMutation(queryClient, noteMutations.replace, {
+		await runMutation(queryClient, folderMutations.notes.replace, {
 			collection: 'recordings',
 			id,
 			seen: 'not a recording',

@@ -24,7 +24,7 @@
 	/** The text as the person changed it; until then the note's. */
 	let typed = $state<string | null>(null);
 	/** Writes the text as typed, one at a time with the folder's other writes. */
-	const replaceNote = createMutation(() => query.noteMutations.replace);
+	const replaceNote = createMutation(() => query.folderMutations.notes.replace);
 
 	const text = $derived(typed ?? repair.text ?? '');
 	/** What is wrong with the text as it stands, each with its line when it has one. */

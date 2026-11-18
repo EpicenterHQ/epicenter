@@ -302,7 +302,7 @@ export async function openTestServices({
 	const { files, outside } = testFiles();
 	// The settings as the app reads them: its folder's `settings.md`.
 	const page = await openPage(files);
-	const { settings, queryClient, settingsMutations } = page.query;
+	const { settings, queryClient, folderMutations } = page.query;
 
 	const transcribed: TranscribedRequest[] = [];
 
@@ -349,7 +349,7 @@ export async function openTestServices({
 		baseUrl: TEST_BASE_URL,
 		models: [TEST_MODELS.transcription],
 	});
-	const chosen = await runMutation(queryClient, settingsMutations.set, {
+	const chosen = await runMutation(queryClient, folderMutations.settings.set, {
 		models: {
 			transcribe: { endpoint: connectionId, model: TEST_MODELS.transcription },
 		},

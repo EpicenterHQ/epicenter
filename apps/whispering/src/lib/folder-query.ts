@@ -10,10 +10,11 @@
  *   write the folder. A read that a write overtakes is cancelled and read
  *   again, so what is shown is never older than a finished write. A write
  *   that settles keeps pending until what is on screen has been read again.
- * - The notes' and audio's writes share one scope, so they run one at a
- *   time, in the order made; `settings.md`'s writes have their own. A scope
- *   is a default by key, so the mutations are the services' functions with
- *   nothing added.
+ * - Every write to the folder (`folderMutations`: its notes, `settings.md`,
+ *   and its audio) is keyed under `['folder']` and shares one scope, so
+ *   they run one at a time, in the order made. A scope is a default by key
+ *   prefix, so the mutations are the services' functions with nothing
+ *   added.
  * - `settings` is `settings.md` for the two readers that are not
  *   components: the connections `ai` merges (a `ConnectionStore`) and the
  *   global shortcut. Each reads the settings query's answer, hears it
@@ -37,10 +38,6 @@ import {
 	shortcutIn,
 } from './settings.js';
 
-/** Every write to the notes and audio runs in this scope, one at a time. */
-const FOLDER_WRITES = { scope: { id: 'folder' } };
-/** Every write to `settings.md` runs in this scope, one at a time. */
-const SETTINGS_WRITES = { scope: { id: 'settings' } };
 /** Read when a write made it stale or the window regains focus, never by time. */
 const READ_ON_CHANGE = {
 	staleTime: Number.POSITIVE_INFINITY,
@@ -74,21 +71,22 @@ export function createFolderQuery(folder: WhisperingFolder) {
 	queryClient.setQueryDefaults(settingsQueries.get.key, READ_ON_CHANGE);
 
 	const { notes } = folder;
-	const noteMutations = resultMutations(['notes'], {
-		set: notes.set,
-		replace: notes.replace,
-		delete: notes.delete,
-	});
-	const settingsMutations = resultMutations(['settings'], {
-		set: folder.settings.set,
-	});
-	const audioMutations = resultMutations(['audio'], {
-		delete: folder.deleteAudio,
-		deleteBefore: folder.deleteAudioBefore,
-	});
-	for (const key of [['notes'], ['audio']])
-		queryClient.setMutationDefaults(key, FOLDER_WRITES);
-	queryClient.setMutationDefaults(['settings'], SETTINGS_WRITES);
+	const folderMutations = {
+		notes: resultMutations(['folder', 'notes'], {
+			set: notes.set,
+			replace: notes.replace,
+			delete: notes.delete,
+		}),
+		settings: resultMutations(['folder', 'settings'], {
+			set: folder.settings.set,
+		}),
+		audio: resultMutations(['folder', 'audio'], {
+			delete: folder.deleteAudio,
+			deleteBefore: folder.deleteAudioBefore,
+		}),
+	};
+	// Every write to the folder runs in one scope, one at a time, in order.
+	queryClient.setMutationDefaults(['folder'], { scope: { id: 'folder' } });
 
 	/** The folder as last read, or undefined before the first read answers. */
 	const snapshot = () =>
@@ -98,7 +96,7 @@ export function createFolderQuery(folder: WhisperingFolder) {
 		queryClient.getQueryData(settingsQueries.get().queryKey) ?? NO_SETTINGS;
 	/** Change `settings.md`: the keys `patch` names, over the file as it is now. */
 	const setSettings = (patch: Parameters<typeof folder.settings.set>[0]) =>
-		runMutation(queryClient, settingsMutations.set, patch);
+		runMutation(queryClient, folderMutations.settings.set, patch);
 
 	/**
 	 * Call `listener` whenever the settings read differ; answers the
@@ -153,9 +151,7 @@ export function createFolderQuery(folder: WhisperingFolder) {
 			queryClient.invalidateQueries({ queryKey: folderQueries.read.key }),
 		folderQueries,
 		settingsQueries,
-		noteMutations,
-		settingsMutations,
-		audioMutations,
+		folderMutations,
 		snapshot,
 		settings,
 	};

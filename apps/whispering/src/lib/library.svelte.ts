@@ -85,13 +85,7 @@ export function createLibrary({
 	query: FolderQuery;
 }) {
 	const { refused } = whispering;
-	const {
-		queryClient: client,
-		folder,
-		folderQueries,
-		noteMutations,
-		audioMutations,
-	} = query;
+	const { queryClient: client, folder, folderQueries, folderMutations } = query;
 	/** What the pages show. Held here so no page owns it. */
 	const ui = $state({
 		/** The recordings search. Notes needing repair are never searched out. */
@@ -308,7 +302,7 @@ export function createLibrary({
 						(note) => note.id === id,
 					),
 				save: ({ fields, body }) =>
-					runMutation(client, noteMutations.set, {
+					runMutation(client, folderMutations.notes.set, {
 						collection: kind,
 						id,
 						fields,
@@ -358,9 +352,9 @@ export function createLibrary({
 				const problem = await runDeletion(
 					{
 						deleteNote: (note) =>
-							runMutation(client, noteMutations.delete, note),
+							runMutation(client, folderMutations.notes.delete, note),
 						deleteAudio: (id) =>
-							runMutation(client, audioMutations.delete, { id }),
+							runMutation(client, folderMutations.audio.delete, { id }),
 					},
 					snapshot,
 					deletion,

@@ -38,7 +38,7 @@
 	/** How old audio must be to be deleted, in days. */
 	let olderThanDays = $state(365);
 	const library = getLibrary();
-	const deleteOldAudio = createMutation(() => query.audioMutations.deleteBefore);
+	const deleteOldAudio = createMutation(() => query.folderMutations.audio.deleteBefore);
 	const isMac = navigator.userAgent.includes('Mac');
 
 	/** The browser's storage for this site: how much is used, and whether it is kept. */

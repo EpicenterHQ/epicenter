@@ -121,14 +121,14 @@ Svelte.
   what is shown is never older than a finished write. Both are read again
   when the window regains focus, since another program may write the
   folder.
-- Every write is a mutation: `noteMutations`, `audioMutations` and
-  `settingsMutations.set` are the services' functions through
-  `resultMutations`, with nothing added. The notes' and audio's share one
-  `scope` (a default by key prefix), so they run one at a time in the
-  order made; `settings.md`'s have a scope of their own.
+- Every write is a mutation: `folderMutations.notes`, `.settings` and
+  `.audio` are the services' functions through `resultMutations`, with
+  nothing added, each keyed under `['folder']`. They share one `scope` (a
+  default by that key prefix), so every write to the folder runs one at a
+  time in the order made.
 - Components read `settings.md` through its query (`createQuery`, as
   Whispering does for the model choices) and change it with
-  `settingsMutations.set`. `settings` is `settings.md` for the two readers
+  `folderMutations.settings.set`. `settings` is `settings.md` for the two readers
   that are not components: `connections`, the `ConnectionStore` that `ai`
   merges, and `shortcut` (`get`, `set`, `subscribe`). Each reads the
   query's answer and hears it change through its own `QueryObserver`.
