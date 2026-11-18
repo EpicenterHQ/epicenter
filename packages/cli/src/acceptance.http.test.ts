@@ -2,7 +2,7 @@
  * HTTP serve acceptance tests.
  * Runs the real CLI against a temporary HOME and checks MCP calls, the
  * returned answers, concurrent writes, UI confinement, and
- * request origin handling. `http.test.ts` covers serve's routine clock.
+ * request origin handling. `routines.test.ts` covers serve's routine clock.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -472,7 +472,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 	);
 });
 
-test('a caller that leaves stops reading; the action runs to its end and releases the lock', async () => {
+test('a caller that leaves stops reading; the action runs to its end', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const leave = new AbortController();
 	const response = await fetch(`${f.base}/talk/drip`, {
