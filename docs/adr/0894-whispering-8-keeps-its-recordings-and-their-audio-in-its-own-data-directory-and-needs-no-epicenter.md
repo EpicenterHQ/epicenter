@@ -39,8 +39,8 @@ every device, and a phone or a browser tab has none.
 ## Decision
 
 **Whispering 8 keeps its recordings, and their audio beside them, in `data/`
-in its own local data directory. It writes plain files that satisfy the
-`whispering` app's contract, keeps no Git, and needs no Epicenter, no home,
+in its own local data directory. It writes plain Markdown notes and audio
+files in a layout it declares itself, keeps no Git, and needs no Epicenter, no home,
 and no account. Audio is never deleted unless the person asks.**
 
 ```txt
@@ -63,27 +63,52 @@ Hugging Face cache               local models, shared with other programs
   (`@tauri-apps/plugin-dialog` with `recursive: true`);
   `tauri-plugin-persisted-scope` restores the grant at each start, and the
   path itself is kept in `localStorage`. A page cannot widen the app's file
-  access, because only the dialog grants it, and Whispering adds no Rust for
-  the folder. On the computer that runs the home, it may be
+  access, because only the dialog grants it, and every native command that
+  touches a file checks the folder against that grant
+  (`app.fs_scope().is_allowed`). That scope starts empty: a capability's
+  grant counts only inside `@tauri-apps/plugin-fs`'s own commands. So the
+  shell grants the default folder itself at startup (`allow_directory`).
+  A grant names a path as the dialog gave it, so the app keeps that
+  spelling. Grants persist, and a folder left by "Change…" stays granted,
+  which lets Settings keep showing it. On the computer that runs the home, the folder may be
   `~/Epicenter/apps/whispering/data`: Whispering then writes its records
-  there and stays their one writer, the inside app reads them and writes
-  only its own data keys (ADR-0896), and the home's Git keeps the audio
-  through Git LFS (ADR-0856). The browser build's folder is always its OPFS
+  there and stays their one writer. The inside app reads them and never
+  writes a file Whispering writes; anything it adds is its own file, named
+  by the recording's id, in a collection of its own (ADR-0896). The home's
+  Git keeps the audio through Git LFS (ADR-0856). When the folder is inside
+  a Git repository with no LFS rule for `webm`, Settings says the audio
+  would go into Git whole. The browser build's folder is always its OPFS
   directory.
+- **"Change…" moves the recordings or opens another Whispering folder,
+  depending on what the person picks.**
+
+  | Picked | Whispering |
+  | --- | --- |
+  | An empty folder | Moves the recordings into it: one rename on the same volume; across volumes, a copy it checks before it removes the old files |
+  | A Whispering folder (one holding `settings.md` or `recordings/`), such as a home's or one synced from another computer | Opens it, and leaves the old folder where it was; Settings shows the old path so its recordings can be exported |
+  | Any other folder | Refuses, and asks for an empty folder or a Whispering folder |
+
+  Whispering never merges two folders. "Change…" is disabled while a take
+  is recording, so a take is never moved while it grows.
 - **Audio is kept.** Settings shows its size and offers "Delete audio older
   than…". Nothing deletes audio on its own.
 - **A recording is its id, found from its note or its audio.**
-  The contract declares the audio beside the note
-  (`recordings/{id}.{ext}`). Audio with no note lists as an untitled
+  The audio sits beside the note (`recordings/{id}.{ext}`). Audio with no
+  note lists as an untitled
   recording dated from the file; a note with no audio stays a recording.
   Before audio is deleted, its note is written if there is none.
 - **A recording keeps several transcripts.** Each is its own file in
-  `transcriptions/`, with its model, endpoint, and time, and transformation
-  runs name the transcript they read.
+  `transcriptions/`, with its model, endpoint, and time.
+- **Transformations wait for a later release.** Whispering 8 records,
+  transcribes, and keeps the transcript; it has no saved prompts and runs
+  none on a transcript or on pasted text, so the folder has no
+  `transformations/`, `transformation_runs/`, or `text_runs/`. They return
+  as a feature of their own, built on the services and query layer. The
+  tag `whispering-transformations` marks the last commit that has them.
 - **The person's settings are one Markdown file, `settings.md`, at the top
   of the folder,** in both builds. Its front matter holds the model for
   each job, each provider connection and its endpoint (never its key), and
-  the global shortcut, which the browser ignores. The contract declares it.
+  the global shortcut, which the browser ignores.
   It moves, exports, and reaches a home with the recordings. A chosen model
   that this computer cannot reach shows as unavailable in the picker.
   Whispering alone reads and writes it, and passes `@epicenter/ai` the
@@ -140,21 +165,58 @@ Hugging Face cache               local models, shared with other programs
   ```ts
   type Files = {
     read(path: string): Promise<Result<Uint8Array | null, FilesError>>;
+    readMany(paths: string[]): Promise<Result<Map<string, Uint8Array>, FilesError>>;
     write(path: string, bytes: Uint8Array): Promise<Result<undefined, FilesError>>;
-    list(dir: string): Promise<Result<string[], FilesError>>;
+    list(dir: string): Promise<Result<Entry[], FilesError>>;
     remove(path: string): Promise<Result<undefined, FilesError>>;
   };
+  type Entry = { name: string; size: number; modifiedMs: number };
+  type FilesError = { name: 'NotFound' | 'Refused' | 'Io'; message: string };
   ```
 
   `tauriFiles(dir)` on the desktop, `opfsFiles(dir)` in a browser, and
   `memoryFiles()` in tests. Startup passes one as a plain argument
   (`isTauri() ? tauriFiles(dir) : opfsFiles(dir)`); there is no container.
-  Recordings, transcriptions, transformations, and runs are read and written
-  on top of `Files` in the contract's layout. One conformance suite runs the
-  four operations against all three.
-- **`tauriFiles` is `@tauri-apps/plugin-fs`.** Its `writeFile`, `readFile`,
-  `readDir`, `mkdir`, `remove`, and `rename` are the desktop's operations.
-  `tauri-plugin-epicenter-folder` goes without a replacement.
+  Paths are relative to the folder, and only plain names pass: each segment
+  is letters, digits, `-`, and `_`, the last may end in one extension, and
+  none starts with a dot. Both id formats (`k3x9a2f8` and
+  `2026-10-30T22-41-05-123Z-k3x9a2f8`) pass; `..`, an absolute path, and a
+  hidden file are refused. Recordings, transcriptions, and `settings.md` are
+  read and written on top of `Files`. One
+  TypeScript module declares the layout: each kind of note's directory and
+  its fields as a TypeBox object, and why a note does not read, by field
+  and line. Nothing publishes it; the published `contract.json` and its
+  compiler served the retired folder product's `epicenter check
+  --contract` (ADR-0711, ADR-0717), and they go. One conformance suite runs the five operations
+  against all three.
+- **`readMany` is how a list loads.** Opening the folder lists
+  `recordings/` and `transcriptions/`, then reads every note in one
+  `readMany`. A folder of 15,000 recordings is 15,000 notes, and one
+  native call per note would cross from the page to the shell 15,000
+  times. `readMany` takes paths, not a directory, so it never reads audio.
+  A browser reads a few files at a time. Audio plays from `read` into a
+  `Blob`.
+- **Rust moves bytes; TypeScript knows what they mean.** `tauriFiles` is a
+  small module of Whispering's own commands in its shell, one per
+  operation: `files_read`, `files_read_many`, `files_write`, `files_list`,
+  and `files_remove`. Each takes the folder and a relative path, checks the
+  folder against the grant and the path against the rule above, and
+  refuses a symbolic link. Reads answer raw bytes rather than JSON:
+  `files_read_many` answers one buffer that holds a count, each path's
+  length in the order asked (or a marker for a missing file), then the
+  bytes. The page is granted none of `@tauri-apps/plugin-fs`'s commands;
+  the plugin is registered for its scope alone. Two more commands do what
+  the page cannot do through `Files`: `files_change_folder` carries out
+  "Change…", and `folder_git` tells Settings whether the folder is in a Git
+  repository with an LFS rule for `webm`. No command parses a note:
+  Markdown is read and written in TypeScript, so both builds share one
+  reader.
+- **Notes use the home's Markdown grammar from its one owner.**
+  `@epicenter/app` exports its front matter reader and writer
+  (`readMarkdown`, `markdownOf`, `withFields`, ADR-0924) at a
+  browser-safe subpath, `@epicenter/app/markdown`, and Whispering imports
+  it, so a note Whispering writes is one a home's apps read the same way.
+- `tauri-plugin-epicenter-folder` goes without a replacement.
 - **`write` replaces a file whole.** On the desktop it writes a temporary
   file beside the target and renames it over the target, which replaces it
   in one step on macOS and Linux; on Windows the rename replaces the file
@@ -175,14 +237,17 @@ Hugging Face cache               local models, shared with other programs
   first tab closes. Nothing steals the lock, so nothing interrupts a
   recording.
 - **Another program may write the folder, so Whispering checks before it
-  replaces.** The folder can be the home's, or synced by iCloud Drive or
-  Syncthing. Whispering reloads its lists when its window regains focus.
+  replaces.** A file syncer such as iCloud Drive or Syncthing may change a
+  note, and in a home a Git command such as a checkout or a revert may. Whispering lists the folder again when its window regains
+  focus, and re-reads only the notes whose size or modified time changed.
   Before it replaces a note it re-reads the file; if the bytes differ from
   what it showed, it does not write, and shows the newer text.
-- **The interface's state stays small, so it does not regrow
-  `@epicenter/folder`.** Lists load into Svelte state at start and on
-  focus, and a successful write updates that state. There is no cache
-  layer, no watcher, and no store per collection.
+- **Whispering reads its folder through plain services and TanStack
+  Query.** The services read and write over `Files`, keep nothing between
+  calls, and answer `Result`s. TanStack Query holds what they read: the
+  folder is one query, read again when the window regains focus and after
+  every write, and the writes are mutations, one at a time per kind of
+  note. There is no watcher and no store per collection.
 - **No import from v7.** A person who wants their v7 recordings copies the
   Markdown files.
 - **First run asks one question:** where transcription runs, a local model,
@@ -207,7 +272,8 @@ none.
   packages/local                        deleted; settings.md is Whispering's, secrets are
                                         the Keychain's, the rest is localStorage
   packages/definition                   deleted:
-    contract, ids                         move into apps/whispering
+    ids                                   move into apps/whispering
+    contract                              deleted; a TypeScript module in apps/whispering declares the layout
     site (APPS, localUrl)                 apps/api and apps/whispering each name their own origins and ports
     resolveOAuthAudiences                 goes; with no folders audience, the API's audience is its origin
     merge, front-matter, folders          deleted
@@ -274,6 +340,9 @@ none.
   a new hosted service with its own record.
 - A person using Whispering alone may sync its folder with iCloud Drive or
   Syncthing: no `.git`, and each file has its own id.
+- In a home, audio Whispering deletes stays in the home's Git history, so
+  "Delete audio older than…" frees space in the folder, not in the home.
+  Settings says so when the folder is inside a Git repository.
 - Removing Whispering's app data, through an uninstaller or a cleaner, loses
   the recordings and their audio. Settings and the README say so, and say
   where the folder is. ADR-0858 rejected the app data directory for this
@@ -331,7 +400,21 @@ none.
 - **Revive `@epicenter/folder`'s generic `Store`.** It keeps the package
   this record deletes.
 - **One storage interface per collection.** Each platform would implement
-  every collection; `Files` keeps the platform part to four operations.
+  every collection; `Files` keeps the platform part to five operations.
+- **"Change…" points at the new folder without moving anything.** The
+  recordings would stay behind in the app's data directory unnoticed.
+- **Merge two Whispering folders.** Two settings files and possible clashes
+  of ids, for a case a person can handle by exporting from one.
+- **The inside app writes its own fields into Whispering's notes.** Two
+  writers of one file, which a re-read before replacing narrows but does
+  not close.
+- **`tauriFiles` as `@tauri-apps/plugin-fs`.** A note per native call, so
+  opening a large folder crosses to the shell once per note, and the page
+  holds every file command the plugin has.
+- **Read the notes in Rust and answer records.** A second Markdown reader,
+  in Rust, beside the one the browser build needs.
+- **Copy the front matter grammar into Whispering.** Two copies of one
+  format, which can drift from what a home reads.
 - **Several tabs, a lock per file, and a `BroadcastChannel`.** Two writers
   made safe instead of one writer made true.
 - **A second tab that steals the lock.** A stolen Web Lock leaves the first
@@ -341,8 +424,8 @@ none.
 - **The note is required, and audio without one is recovered into a note.**
   Recovery code for a state a listing can show as it is.
 - **A recording's transcript in its note's body.** Whispering keeps several
-  transcripts per recording, each with its own model and time, and
-  transformation runs name one; the note's body is the person's notes.
+  transcripts per recording, each with its own model and time; the note's
+  body is the person's notes.
 - **Keep `@epicenter/definition/site` as a shared package.** Two
   constants per app, read by two apps, after the folders audience goes.
 - **Keep the hosted folder for the browser build.** A server for a build
