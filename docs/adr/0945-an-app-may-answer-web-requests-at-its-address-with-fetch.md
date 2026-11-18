@@ -36,7 +36,7 @@ import { defineApp } from '@epicenter/app';
 import { Hono } from 'hono';
 
 export default defineApp(({ folder }) => {
-  const web = new Hono();
+  const web = new Hono().basePath('/apps/mail');
   web.get('/oauth/callback', async (c) => {
     await folder.write('local/token.json', JSON.stringify({ code: c.req.query('code') }));
     return c.redirect('../');
@@ -56,14 +56,12 @@ export default defineApp(({ folder }) => {
   request under `/apps/<app>/`, of any method, goes to the app's `fetch`, and
   an app without one answers 404. A path part that starts with `.` is never a
   file, so `/apps/<app>/.well-known/...` reaches `fetch`.
-- **The app sees its own path.** Serve removes `/apps/<app>` from the URL it
-  hands over, so `/apps/mail/oauth/callback` arrives as `/oauth/callback` and
-  the app keeps working after its folder is renamed. Serve sets
-  `X-Forwarded-Prefix: /apps/<app>`, replacing any the client sent, for an
-  app that writes absolute links. The method, headers and body pass
-  unchanged.
+- **The app gets the request unchanged.** Its URL, method, headers and body
+  are what the browser sent, so `/apps/mail/oauth/callback` arrives as
+  itself. An app knows its address because its name is its folder's: a Hono
+  app is `new Hono().basePath('/apps/mail')`.
 - **The body limit is serve's.** Bun refuses any request body over 25 MB
-  (`MAX_INPUT_BYTES` in `packages/app/src/command/http.ts`) with 413, for
+  (`MAX_INPUT_BYTES` in `packages/app/src/command/protocol.ts`) with 413, for
   `fetch` as for actions.
 - **A failure is a 500.** A `fetch` that throws, or returns something that is
   not a `Response`, answers 500, and serve logs one line naming the app. An
@@ -76,11 +74,11 @@ export default defineApp(({ folder }) => {
 **`fetch` is for protocols someone else defined. Anything a person or an
 agent should be able to do is an action.** The command line and MCP do not
 list `fetch` routes, their input is not checked, and their answers are not
-Results. Bare `epicenter` marks an app that has `fetch` with `(answers web
-requests)`, and `--json` carries `fetch: true` on it.
+Results, and the listing does not say which apps have `fetch`.
 
-**The launcher lists an app with a built `code/ui/dist/index.html` or a
-`fetch`.** An app with no build step can answer its page from `fetch`.
+**The launcher lists an app with a built `code/ui/dist/index.html`.** An app
+with no build step can still answer its page from `fetch` at `/apps/<app>/`;
+the launcher does not guess that it does.
 
 **Serve refuses a cross-site request unless it opens a page.** Before any
 route, serve reads the `Sec-Fetch-*` headers a browser sends (Fetch
@@ -129,9 +127,14 @@ top-level `GET` navigation, so it is allowed. A cross-site `<img>`, `<script>`,
 - **`fetch`, `websocket` and `publish` under `/<app>/.http/` (this record's
   first draft).** A reserved name with a period inside the app's address, and
   `publish` worked around per-call loading while missing direct file writes.
-- **`fetch` sees the full path, `/apps/<app>/oauth/callback`.** No rewrite, and
-  `request.url` is the address the browser used. Every route then names the
-  folder, and renaming the folder breaks the app.
+- **Serve removes `/apps/<app>` and sets `X-Forwarded-Prefix`.** Routes then
+  survive a rename of the app's folder. A rename already changes the app's
+  address, and with it every callback URL registered with a provider, so the
+  rewrite saves little; it costs a rewritten `request.url` that differs from
+  what the browser sent, and a header to trust. No app read the header.
+- **The listing marks an app that has `fetch`.** Bare `epicenter` printed
+  `(answers web requests)`. It told a person nothing they could act on, and
+  the launcher used it to guess that the app answers a page.
 - **Only the `Origin` check, as before.** A cross-site `<img>` reaches a `GET`
   route with no `Origin`, and the route runs.
 - **The web.dev policy as written, which also allows a cross-site `<iframe>`
