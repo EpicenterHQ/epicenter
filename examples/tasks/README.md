@@ -5,13 +5,14 @@ the software; sibling `data/` holds the tasks. The home’s private Git
 repository holds both, and actions make no commits. `epicenter serve`
 serves its UI at `/tasks/`.
 
-Use the latest Epicenter CLI.
+Use the latest `@epicenter/app`, which carries the `epicenter` command.
 To add Tasks to your home, run these at the top of the home
 
 ```sh
 mkdir -p apps/tasks/code
 curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 epicenter-main/examples/tasks
 bun install && bun run build
+export PATH="$PWD/node_modules/.bin:$PATH"   # the epicenter command bun installed
 epicenter serve
 ```
 
