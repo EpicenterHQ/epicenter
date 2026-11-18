@@ -23,8 +23,8 @@ test('human and JSON app listings show data paths, descriptions, and field schem
 export default defineApp(({ folder }) => {
 const data = defineData(folder, {
   watches: { description: 'A flight I watch', fields: { from: field.text() } },
-  checks: { fields: { watch: field.ref('watches'), many: field.list(field.ref('watches')) } },
-  'settings.md': { description: 'My settings', fields: { level: field.integer() } },
+  checks: { description: 'check', fields: { watch: field.ref('watches'), many: field.list(field.ref('watches')) } },
+  settings: { description: 'My settings', fields: { level: field.integer() } },
 });
 return { description: 'Flights', data, actions: {} };
 });
@@ -36,7 +36,7 @@ return { description: 'Flights', data, actions: {} };
 		'  watches  data/watches/\n    A flight I watch\n',
 	);
 	expect(human.stdout).toContain(
-		'  settings.md  data/settings.md\n    My settings\n',
+		'  settings  data/settings/\n    My settings\n',
 	);
 	expect(human.stdout).toContain('"properties":{"from":{"type":"string"}}');
 	const json = await f.run('flights', '--json');
@@ -64,7 +64,7 @@ return { description: 'Flights', data, actions: {} };
 				},
 			},
 		},
-		'settings.md': { path: 'data/settings.md', description: 'My settings' },
+		settings: { path: 'data/settings/', description: 'My settings' },
 	});
 	const report = await f.run('--json');
 	expect(report.code).toBe(0);

@@ -90,7 +90,7 @@ test('no field name is reserved: json, help, and input are keys like any other',
 	const show = defineAction({
 		description: 'Show',
 		input: {
-			json: field.boolean(),
+			json: field.boolean({ optional: true }),
 			help: field.text({ optional: true }),
 			input: field.text({ optional: true }),
 		},
@@ -141,8 +141,12 @@ test('every input shape works: lists of objects, and a reference checked as an i
 	const invite = defineAction({
 		description: 'Invite',
 		input: {
-			people: field.list(Type.Object({ name: Type.String() })),
-			ratings: field.list(field.integer({ min: 1, max: 5 })),
+			people: field.list(Type.Object({ name: Type.String() }), {
+				optional: true,
+			}),
+			ratings: field.list(field.integer({ min: 1, max: 5 }), {
+				optional: true,
+			}),
 			shelf: field.ref('shelves', { optional: true }),
 		},
 		run: (input) => Ok(input),
@@ -167,7 +171,10 @@ test('every input shape works: lists of objects, and a reference checked as an i
 test("a data key's edit takes id, old, and new beside each other, and nothing else", () => {
 	// Only the action's declaration is read, so the folder is never used.
 	const { notes } = defineData({} as Folder, {
-		notes: { fields: { title: field.text({ optional: true }) } },
+		notes: {
+			description: 'note',
+			fields: { title: field.text({ optional: true }) },
+		},
 	});
 	const { edit } = notes.actions('edit');
 	const help = helpOf('notes', 'edit', edit);
@@ -223,7 +230,7 @@ test('help without required keys shows the input as optional and an example of i
 	const list = defineAction({
 		description: 'List tasks',
 		input: {
-			done: field.boolean(),
+			done: field.boolean({ optional: true }),
 			tag: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 		},
 		run: () => Ok([]),

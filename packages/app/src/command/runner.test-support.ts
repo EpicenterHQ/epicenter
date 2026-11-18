@@ -334,7 +334,7 @@ export function bareApp(name: string) {
 export const readingApp = {
 	'code/epicenter.ts': `${header}
 export default defineApp(({ folder }) => {
-const data = defineData(folder, { books: { fields: { title: field.text() } } });
+const data = defineData(folder, { books: { description: 'book', fields: { title: field.text() } } });
 
 return {
 	description: 'How much I read each week',
@@ -381,8 +381,8 @@ return {
 export const reading = `export default defineApp(({ folder }) => ({ description: 'The reading app', actions: {
 	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return Ok(input); } }),
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => Ok(({minutes:210})) }) },
-	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text()), done: field.boolean() }, run: (input) => Ok(input) }),
-	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text()) }, run: (input) => Ok(input) }),
+	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text(), { optional: true }), done: field.boolean({ optional: true }) }, run: ({ tags = [], done = false }) => Ok({ tags, done }) }),
+	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text(), { optional: true }) }, run: (input) => Ok(input) }),
 	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('local/index.json', '{}'); return Ok({folder:folder.path}); } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } }));`;

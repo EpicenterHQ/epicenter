@@ -317,7 +317,7 @@ test('a misused command answers its usage line, with its help as the next step',
 	);
 });
 
-test('an absent switch is false and an absent list is empty', async () => {
+test('an action that writes its own defaults answers false and [] for an absent switch and list', async () => {
 	const f = await setup();
 	const answer = async (...args: string[]) =>
 		JSON.parse((await f.run(...args, '--json')).stdout).data;

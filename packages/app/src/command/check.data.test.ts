@@ -1,6 +1,6 @@
 /**
  * Data checks run the real CLI against records in a temporary Epicenter.
- * Counts, filename rules, aliases, exact references, and single files stay
+ * Counts, filename rules, aliases, exact references, and a fixed-id settings record stay
  * consistent between human reports and JSON.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
@@ -26,9 +26,9 @@ async function setup() {
 		`export default defineApp(({ folder }) => ({
   description: 'Flights',
   data: defineData(folder, {
-    watches: { fields: { from: field.text() } },
-    checks: { fields: { watch: field.ref('watches'), day: field.date(), many: field.list(field.ref('watches')) } },
-    'settings.md': { fields: { level: field.integer() } },
+    watches: { description: 'watch', fields: { from: field.text() } },
+    checks: { description: 'check', fields: { watch: field.ref('watches'), day: field.date(), many: field.list(field.ref('watches'), { optional: true }) } },
+    settings: { description: 'settings', fields: { level: field.integer() } },
   }),
   actions: {},
 }));
@@ -46,7 +46,7 @@ const foldsCase = (() => {
 	return folds;
 })();
 
-test('fitting folders and absent single files exit 0 without counting ignored entries', async () => {
+test('fitting folders and an absent settings record exit 0 without counting ignored entries', async () => {
 	const f = await setup();
 	await f.folder(f.dataPath, {
 		'watches/sfo-nyc.md': '---\nfrom: "SFO"\n---\n',
@@ -68,7 +68,7 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 			'flights',
 			'  watches  2 files, none with problems',
 			'  checks  1 file, none with problems',
-			'  settings.md  fits',
+			'  settings  0 files, none with problems',
 			'',
 		].join('\n'),
 	});
@@ -80,7 +80,7 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 		withProblems: 0,
 		records: [],
 	});
-	expect(report.apps.flights['settings.md']).toMatchObject({
+	expect(report.apps.flights.settings).toMatchObject({
 		files: 0,
 		withProblems: 0,
 	});
@@ -92,7 +92,7 @@ test('misfit fields and malformed front matter reuse handle diagnostics, and a r
 		'checks/bad.md': '---\nwatch: 3\nday: "soon"\n---\n',
 		'checks/json.md': '---\nwatch: "lost"\nday: tomorrow\n---\n',
 		'checks/unreadable.md': '---\n# invalid line\n---\n',
-		'settings.md': '---\nlevel: "high"\n---\n',
+		'settings/settings.md': '---\nlevel: "high"\n---\n',
 	});
 	const result = await f.run('check', 'flights', '--json');
 	expect(result.code).toBe(1);
@@ -120,8 +120,11 @@ test('misfit fields and malformed front matter reuse handle diagnostics, and a r
 			],
 		},
 	]);
-	expect(report['settings.md'].records).toEqual([
-		{ path: 'settings.md', problems: ['level: "high" is not a whole number'] },
+	expect(report.settings.records).toEqual([
+		{
+			path: 'settings/settings.md',
+			problems: ['level: "high" is not a whole number'],
+		},
 	]);
 	const human = await f.run('check', 'flights');
 	expect(human.stdout).toContain(

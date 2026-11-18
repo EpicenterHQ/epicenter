@@ -24,7 +24,7 @@ async function setup() {
 }
 
 /** Vocab's words data key, as epicenter.ts source. */
-const words = `const data = defineData(folder, { words: { fields: { stage: field.select(['new', 'known']) } } });\n`;
+const words = `const data = defineData(folder, { words: { description: 'word', fields: { stage: field.select(['new', 'known']) } } });\n`;
 
 test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and names each problem', async () => {
 	const f = await setup();
@@ -63,7 +63,7 @@ ${words}return {
 	await f.app(
 		'malformed',
 		`export default defineApp(({ folder }) => {
-const data = defineData(folder, { words: { fields: { path: field.text() } } });
+const data = defineData(folder, { words: { description: 'word', fields: { path: field.text() } } });
 return { description: 'The malformed app', data, actions: {} };
 });
 `,
@@ -76,7 +76,7 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 	);
 	await f.app(
 		'badkey',
-		`export default defineApp(({ folder }) => ({ description: 'Bad key', data: defineData(folder, { Words: { fields: {} } }), actions: {} }));\n`,
+		`export default defineApp(({ folder }) => ({ description: 'Bad key', data: defineData(folder, { Words: { description: 'word', fields: {} } }), actions: {} }));\n`,
 	);
 	await f.app(
 		'unchecked',
@@ -111,9 +111,7 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 	);
 	expect(problems).toEqual({
 		// Each line of what a define call throws is one problem.
-		badkey: [
-			'code/epicenter.ts: The data key "Words" must be a name, optionally followed by .md',
-		],
+		badkey: ['code/epicenter.ts: The data key "Words" must be a name'],
 		malformed: [
 			'code/epicenter.ts: The data key words reserves the field "path"',
 		],
@@ -142,7 +140,7 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 	expect(human.stdout).toMatch(/^vocab +The vocab app$/m);
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain(
-		'    code/epicenter.ts: The data key "Words" must be a name, optionally followed by .md',
+		'    code/epicenter.ts: The data key "Words" must be a name',
 	);
 });
 
@@ -195,7 +193,7 @@ ${words}return { description: 'The vocab app', data, actions: {} };
 		openWorldHint: false,
 	});
 	expect(reading.actions[0].description).toBe(
-		'Every books file: one result per file with its path, fields, and body; a file that does not fit its fields is an error beside the records',
+		'Every book: one result per file with its path, fields, and body; a file that does not fit its fields is an error beside the records',
 	);
 	expect(JSON.stringify(listing)).not.toContain('positional');
 	const vocab = listing.apps.find(
@@ -204,6 +202,7 @@ ${words}return { description: 'The vocab app', data, actions: {} };
 	expect(vocab.data).toEqual({
 		words: {
 			path: 'data/words/',
+			description: 'word',
 			fields: {
 				type: 'object',
 				properties: {
@@ -381,6 +380,7 @@ test('D6 serve answers initialize, lists the same tools as --json, and runs a ca
 const capture = `export default defineApp(({ folder }) => {
 const data = defineData(folder, {
 	items: {
+		description: 'item',
 		fields: {
 			kind: field.select(['thought', 'link', 'quote']),
 			url: field.text({ optional: true }),
@@ -410,9 +410,11 @@ test("D8 an app of one data key's verbs creates, reads, changes, and deletes its
 	expect(help.stdout).toContain(
 		'  kind   required  one of thought, link, quote',
 	);
-	expect(help.stdout).toContain('  id     optional  text.');
 	expect(help.stdout).toContain(
-		`epicenter capture create '{"kind":"thought","added":"2026-11-12"}'`,
+		'  id     required  text. The name of the item',
+	);
+	expect(help.stdout).toContain(
+		`epicenter capture create '{"id":"text","kind":"thought","added":"2026-11-12"}'`,
 	);
 
 	expect(
@@ -592,7 +594,7 @@ test("D8 an app of one data key's verbs creates, reads, changes, and deletes its
 		expect(hints).toEqual({
 			capture_list: undefined,
 			capture_get: undefined,
-			capture_create: false,
+			capture_create: true,
 			capture_patch: true,
 			capture_edit: false,
 			capture_delete: true,

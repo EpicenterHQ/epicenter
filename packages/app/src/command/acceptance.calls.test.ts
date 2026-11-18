@@ -228,7 +228,7 @@ test('C11 concurrent patches of different fields on one file all land', async ()
 	await f.folder(join(f.apps, 'many'), {
 		'code/epicenter.ts': `${header}
 export default defineApp(({ folder }) => {
-const data = defineData(folder, { items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
+const data = defineData(folder, { items: { description: 'item', fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
 return { description: 'Many fields', data, actions: { items: data.items.actions('patch') } };
 });
 `,

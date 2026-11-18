@@ -22,8 +22,11 @@ import { appListing } from './listing.ts';
 
 test("a reference's schema names its target key in the listing", () => {
 	const data = defineData({} as Folder, {
-		shelves: { fields: {} },
-		books: { fields: { shelf: field.ref('shelves', { optional: true }) } },
+		shelves: { description: 'shelf', fields: {} },
+		books: {
+			description: 'book',
+			fields: { shelf: field.ref('shelves', { optional: true }) },
+		},
 	});
 	const shelve = defineAction({
 		description: 'Shelve a book',
@@ -48,7 +51,8 @@ test("a reference's schema names its target key in the listing", () => {
 		'x-epicenter-ref': { key: 'shelves' },
 	};
 	expect(listed.data?.books?.fields.properties).toEqual({ shelf: ref });
-	expect(listed.actions[0]?.inputSchema.properties).toEqual({
-		shelves: { type: 'array', 'x-epicenter-field': 'list', items: ref },
-	});
+	// The listing travels as JSON, which leaves out TypeBox's own keys.
+	expect(
+		JSON.parse(JSON.stringify(listed.actions[0]?.inputSchema.properties)),
+	).toEqual({ shelves: { type: 'array', items: ref } });
 });

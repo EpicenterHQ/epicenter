@@ -31,14 +31,14 @@ afterEach(async () => {
 
 const tasks = `
 export default defineApp(({ folder }) => {
-const data = defineData(folder, { items: { fields: { title: field.text(), due: field.date({ optional: true }) } } });
+const data = defineData(folder, { items: { description: 'item', fields: { title: field.text(), due: field.date({ optional: true }) } } });
 return { description: 'Tasks', data, actions: {} };
 });
 `;
 
 const books = `
 export default defineApp(({ folder }) => {
-const data = defineData(folder, { books: { fields: { title: field.text() } } });
+const data = defineData(folder, { books: { description: 'book', fields: { title: field.text() } } });
 return { description: 'Books', data, actions: {} };
 });
 `;
