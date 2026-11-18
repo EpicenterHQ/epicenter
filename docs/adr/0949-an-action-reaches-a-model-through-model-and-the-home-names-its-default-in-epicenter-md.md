@@ -50,13 +50,14 @@ const response = await fetch(`${baseURL}/chat/completions`, {
 ```
 
 - A model's name is `<provider>/<id>`, split at the first `/`:
-  `ollama/qwen3`, `openai/gpt-5.5`, `ollama/hf.co/org/name`.
+  `ollama/qwen3`, `openai/gpt-5.5`, `ollama/hf.co/org/name`,
+  `epicenter/openai/gpt-5.5`.
 - The home's default is the `model` field of `EPICENTER.md`, beside `port`:
   `model: "ollama/qwen3"`. It is read when `model()` is called, so an edit
   takes effect on the next call. With no field and no name, `model()` returns
   an error naming the field to add.
 - An app may name its own model in its own settings and pass it to `model()`.
-- `model()` knows four providers with no setup:
+- `model()` knows five providers with no setup:
 
   | Provider | Base URL | Key, through `env()` |
   | --- | --- | --- |
@@ -64,6 +65,12 @@ const response = await fetch(`${baseURL}/chat/completions`, {
   | `lmstudio` | `http://127.0.0.1:1234/v1` | none |
   | `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
   | `anthropic` | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` |
+  | `epicenter` | `https://api.epicenter.so/v1` | `EPICENTER_API_KEY` |
+
+  Epicenter's hosted API names each model with its vendor, so
+  `epicenter/openai/gpt-5.5` asks it for `openai/gpt-5.5`. Its key is an
+  Epicenter API key the owner makes on the dashboard, one per computer, and
+  revokes there. The hosted API does not know the caller is a home.
 
 - The `providers` field of `EPICENTER.md` adds a provider, or replaces a
   built-in one of the same name. Each entry names a base URL and, for a
@@ -113,9 +120,14 @@ const response = await fetch(`${baseURL}/chat/completions`, {
 - A new provider, or a second Ollama on another computer, is one entry in
   `providers`. Because that file is committed, a change to where a key is
   sent shows in the home's history like any other change.
-- Epicenter's hosted models are not built in. They join when the hosted
-  service issues an API key the owner can create and revoke; it has none
-  today, and the CLI signs in by device grant as `so.epicenter.cli`.
+- The `epicenter` row works once the hosted API issues API keys, which is
+  proposed with usage-based credits and not built. Until then it fails as a
+  provider that refuses its key does. A call the account has no credits for
+  returns 402 `insufficient_credits` with a `top_up_url`; the action returns
+  that error, and nothing tries another provider.
+- A key that leaks from a home reaches only the model API, not the
+  account, and revoking it on the dashboard leaves other computers'
+  keys working.
 - Outside tools (Cursor, a phone chat app) cannot reach the home's models. If
   one needs to, a thin route through ADR-0945 can call `model()`.
 
@@ -142,8 +154,9 @@ const response = await fetch(`${baseURL}/chat/completions`, {
 - **A fixed table only.** Smallest, and a second Ollama or a new provider
   waits for a release of Epicenter.
 - **Providers only from `EPICENTER.md`, nothing built in.** Epicenter would
-  know no provider's address, and every home would write the same four
+  know no provider's address, and every home would write the same five
   entries before its first model call.
 - **`epicenter login` with a device grant for the hosted provider.** The
-  hosted side has it, and every home would store and refresh a token and
-  handle sign-out races. An API key through `env()` needs none of that.
+  hosted side is dropping its device grant, and every home would store and
+  refresh a token and handle sign-out races. An API key through `env()`
+  needs none of that.
