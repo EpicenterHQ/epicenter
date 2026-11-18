@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Amends:** the vocabulary of [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md), [ADR-0936](0936-one-serve-per-home-runs-every-action.md), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) and [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md). Their decisions stand; their titles keep the word they were written with.
-- **Relates:** [ADR-0951](0951-the-command-reaches-serve-through-a-socket-file-in-the-root.md), which removes the header that carried the word on the wire.
 - **Unbuilt:** all of it. Identifiers, docs, `init`'s starter text and the `x-epicenter-home` header still say "home".
 
 ## Context
@@ -30,6 +29,11 @@ only it.**
 - `epicenterDir()` becomes `epicenterRoot()`, and each identifier with
   "home" in it takes "root" or loses the word: `loadHomeApp` is `loadApp`,
   `homeEntries` is `rootEntries`, `installHome` is `installRoot`.
+- The `x-epicenter-home` header becomes `x-epicenter-root` and keeps its
+  job: serve refuses a call meant for another Epicenter that reached its
+  port. It carries the root's absolute path, which shows the account name to
+  every device on the private network. A name or a hash of the path would do
+  the same job; that change is left for its own decision.
 - `init` writes `"name": "epicenter"` in the root `package.json`. It is
   private and never published, so the unrelated public `epicenter` package on
   npm does not matter.

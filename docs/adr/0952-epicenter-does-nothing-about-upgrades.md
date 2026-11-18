@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) on how the command learns serve's version.
-- **Relates:** [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (serve is a program you keep running), [ADR-0943](0943-epicenters-core-invariants.md) (rules 2, 7 and 8), [ADR-0951](0951-the-command-reaches-serve-through-a-socket-file-in-the-root.md).
+- **Relates:** [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (serve is a program you keep running), [ADR-0943](0943-epicenters-core-invariants.md) (rules 2, 7 and 8).
 - **Unbuilt:** all of it. Serve still sends `x-epicenter-version`, and the command still warns on a mismatch.
 
 ## Context

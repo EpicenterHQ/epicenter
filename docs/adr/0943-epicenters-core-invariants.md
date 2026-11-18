@@ -54,13 +54,18 @@ work, the feature is a line of documentation, not code.
 | Rule | Restates |
 | --- | --- |
 | 1. Your Epicenter is a folder: a Git repository that is also a Bun project. | [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) |
-| 2. Serve is a program: you start it, stop it, and restart it after changing it. | The first and third commitments; [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md), [ADR-0952](0952-epicenter-does-nothing-about-upgrades.md) |
+| 2. Serve is a program: you start it, stop it, and restart it after its packages change. An app's own code reloads on each call. | The first and third commitments; [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md), [ADR-0952](0952-epicenter-does-nothing-about-upgrades.md) |
 | 3. An action is a function: JSON in, JSON out, with optional updates on the way. | [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) |
-| 4. Data is files, and Git is the history. | The fourth commitment |
+| 4. Data is files, and Git is the history. `apps/*/local/` and `.env` stay out of Git on purpose: they hold tokens, credentials and caches. | The fourth commitment; [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md), [ADR-0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) |
 | 5. Every description is plain JSON: action inputs, settings, field values. | New. Nothing a person or agent reads about an app needs Epicenter's code to interpret. |
-| 6. The code is yours: copy it and edit it; there is no plugin or settings system. | The fifth commitment |
-| 7. If a tool already does it (Git, Bun, the operating system), Epicenter does not. | The sixth commitment |
+| 6. The code is yours: copy it and edit it. There is no plugin system, and no Epicenter setting beyond `EPICENTER.md`. | The fifth commitment |
+| 7. If a tool does it in a step the owner would type (Git, Bun, the operating system), Epicenter does not. Epicenter may still coordinate tools where that adds a safety check, as `new --from` and `export` do. | The sixth commitment |
 | 8. Serve keeps no outcome between calls: anything an app must remember goes in a file. | The fourth commitment; ADR-0930 |
+
+Rule 7 is tested against one step. Restarting serve after an upgrade is one
+command the owner types, so Epicenter does nothing about it (ADR-0952).
+`new --from` refuses uncommitted code and `export` refuses links outside the
+folder, checks Git alone would not make, so both stay.
 
 Rule 8 is about outcomes, not time or state. Serve still holds loaded
 packages, caches and the routine schedule, as "Specialized guarantees belong
