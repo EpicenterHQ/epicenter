@@ -4,8 +4,9 @@
  * with one (ADR-0960): serve with the app's folder, a test with a temporary
  * directory.
  *
- * Reading is not here. An app reads with `Bun.file`, `Bun.Glob` or
- * `node:fs` on `folder.path`, as any program does. What the folder adds is
+ * A folder has no read call. An app reads with `Bun.file`, `Bun.Glob` or
+ * `node:fs` on `folder.path`, as any program does; `readText` and `filesIn`
+ * below are two such reads the data handles share. What the folder adds is
  * what nothing else does:
  *
  * - A write replaces a whole file at once, so a reader never sees half of it.
@@ -167,20 +168,6 @@ const IGNORE_ALL = '*\n';
 export function folderOnDisk(dir: string): Folder {
 	const owner = { recursive: true, mode: 0o700 } as const;
 	const temp = join(dir, 'local', '.tmp');
-	let prepared = false;
-	/**
-	 * Make `local/.tmp/`, where a write keeps its bytes until they take the
-	 * target's name. When this makes `local/` itself, it also writes
-	 * `local/.gitignore`, so `local/` stays out of Git whatever the root
-	 * `.gitignore` says (ADR-0963). It runs on the first write, and again only
-	 * when the folder was removed meanwhile.
-	 */
-	function prepare() {
-		if (mkdirSync(join(dir, 'local'), owner) !== undefined)
-			writeFileSync(join(dir, 'local', '.gitignore'), IGNORE_ALL);
-		mkdirSync(temp, owner);
-		prepared = true;
-	}
 	/**
 	 * Replace the file at `normal` with `bytes` at once. The bytes go to a
 	 * file in `local/.tmp/` and are renamed over the target, so a commit made
@@ -188,9 +175,15 @@ export function folderOnDisk(dir: string): Folder {
 	 * replaced keeps its mode. A new file under `local/` is `0600` from
 	 * before it has its name, and a new directory there is `0700`; one
 	 * already there keeps its mode.
+	 *
+	 * Each write makes `local/.tmp/` if it is missing. When that makes
+	 * `local/` itself, it also writes `local/.gitignore`, so `local/` stays
+	 * out of Git whatever the root `.gitignore` says (ADR-0963).
 	 */
 	function put(normal: string, bytes: Uint8Array) {
-		if (!prepared) prepare();
+		if (mkdirSync(join(dir, 'local'), owner) !== undefined)
+			writeFileSync(join(dir, 'local', '.gitignore'), IGNORE_ALL);
+		mkdirSync(temp, owner);
 		const target = join(dir, normal);
 		mkdirSync(
 			dirname(target),
@@ -199,17 +192,9 @@ export function folderOnDisk(dir: string): Folder {
 		const found = statSync(target, { throwIfNoEntry: false });
 		const kept = found === undefined ? undefined : found.mode & 0o7777;
 		const mode = kept ?? (isUnderLocal(normal) ? 0o600 : 0o666);
-		let held = join(temp, randomUUID());
+		const held = join(temp, randomUUID());
 		try {
-			try {
-				writeFileSync(held, bytes, { mode });
-			} catch (error) {
-				// Something removed local/ since the first write: make it again.
-				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-				prepare();
-				held = join(temp, randomUUID());
-				writeFileSync(held, bytes, { mode });
-			}
+			writeFileSync(held, bytes, { mode });
 			// The umask narrows a new file's mode; a kept mode is exact.
 			if (kept !== undefined) chmodSync(held, kept);
 			renameSync(held, target);
