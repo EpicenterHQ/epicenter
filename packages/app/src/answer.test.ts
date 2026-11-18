@@ -25,14 +25,17 @@ test('an answer is data, the error itself, or a platform error with its fields',
 			message: 'bad',
 			thrown: { name: 'Custom', message: 'bad', id: 7 },
 		}).error,
-		...(['usage', 'app-problems', 'internal', 'unavailable'] as const).map(
+		...(['usage', 'refused', 'unavailable'] as const).map(
 			(cause) =>
 				ActionError.NotStarted({ message: 'no', cause, next: 'epicenter' })
 					.error,
 		),
+		ActionError.NotStarted({ message: 'no', cause: 'refused' }).error,
+		ActionError.NotStarted({ message: 'no', cause: 'internal' }).error,
 		ActionError.NotStarted({
 			message: 'no',
 			cause: 'app-problems',
+			app: 'notes',
 			problems: ['a'],
 		}).error,
 		ActionError.Unreachable({ message: 'lost' }).error,
@@ -69,7 +72,27 @@ test('a value of the wrong shape is Unreachable', () => {
 		},
 		{
 			data: null,
-			error: { ...platform, name: 'NotStarted', cause: 'usage', problems: [1] },
+			error: { ...platform, name: 'NotStarted', cause: 'refused', next: 1 },
+		},
+		// Each cause carries its own fields.
+		{
+			data: null,
+			error: {
+				...platform,
+				name: 'NotStarted',
+				cause: 'app-problems',
+				app: 'notes',
+				problems: [1],
+			},
+		},
+		{
+			data: null,
+			error: {
+				...platform,
+				name: 'NotStarted',
+				cause: 'app-problems',
+				problems: ['a'],
+			},
 		},
 		// Only Epicenter answers these, and always with its namespace.
 		{ data: null, error: { name: 'NotStarted', message: 'm', cause: 'usage' } },

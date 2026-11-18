@@ -29,7 +29,7 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 		ActionError.NotStarted({
 			message: 'notes: epicenter.ts does not load',
 			cause: 'app-problems',
-			next: 'epicenter check notes',
+			app: 'notes',
 			problems: ['epicenter.ts does not load'],
 		}),
 	]) {

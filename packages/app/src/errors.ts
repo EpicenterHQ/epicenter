@@ -6,21 +6,31 @@
  * answer, so the action ran. A name does not say which writes persisted; a
  * caller rereads its records to learn what was saved.
  */
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import {
+	defineErrors,
+	type InferError,
+	type InferErrors,
+} from 'wellcrafted/error';
 
 const NAMESPACE = 'epicenter/action-error' as const;
 
 export type Problem = { line: string; kind: string };
 
 /**
- * Why a call never began: its words or input do not fit, its app cannot
- * load, Epicenter failed before it ran, or no serve for this home answers.
+ * Why a call never began, with the fields each reason carries: its words or
+ * input do not fit (`usage`), its app cannot load (`app-problems`), it was
+ * understood and doing it would lose or guess (`refused`), Epicenter failed
+ * before it ran (`internal`), or no serve for this home answers
+ * (`unavailable`). `next` is the command that helps.
  */
-export type NotStartedCause =
-	| 'usage'
-	| 'app-problems'
-	| 'internal'
-	| 'unavailable';
+type NotStartedBody =
+	| { cause: 'usage'; message: string; next?: string }
+	| { cause: 'app-problems'; message: string; app: string; problems: string[] }
+	| { cause: 'refused'; message: string; next?: string }
+	| { cause: 'internal'; message: string }
+	| { cause: 'unavailable'; message: string; next?: string };
+
+export type NotStartedCause = NotStartedBody['cause'];
 
 /** The names only Epicenter answers. An action that returns one answers `Threw` instead. */
 export const RESERVED_NAMES: readonly string[] = ['NotStarted', 'Unreachable'];
@@ -86,29 +96,19 @@ export const ActionError = defineErrors({
 	Unreachable: (body: { message: string }) => marked(body),
 	/**
 	 * The action never began, so it is safe to call again once `cause` is
-	 * fixed. `next` is the command that helps; `problems` are why the app
-	 * cannot load. Only serve and the CLI answer it; serve turns an action's
-	 * own into `Threw`.
+	 * fixed. Each cause carries its own fields, so narrowing on `cause` types
+	 * them. Only serve and the CLI answer it; serve turns an action's own into
+	 * `Threw`.
 	 */
-	NotStarted: ({
-		message,
-		cause,
-		next,
-		problems,
-	}: {
-		message: string;
-		cause: NotStartedCause;
-		next?: string;
-		problems?: string[];
-	}) =>
-		marked({
-			message,
-			cause,
-			...(next === undefined ? {} : { next }),
-			...(problems === undefined ? {} : { problems }),
-		}),
+	NotStarted: (body: NotStartedBody) => marked(body),
 });
 export type ActionError = InferErrors<typeof ActionError>;
+/** The action never began. */
+export type NotStarted = InferError<typeof ActionError.NotStarted>;
+/** The action began and threw. */
+export type Threw = InferError<typeof ActionError.Threw>;
+/** The call's outcome is unknown. */
+export type Unreachable = InferError<typeof ActionError.Unreachable>;
 
 /**
  * Whether a value received through JSON is a platform error: the platform's

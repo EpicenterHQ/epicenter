@@ -131,6 +131,7 @@ test('a call serve never started arrives as NotStarted in the body of an HTTP er
 	const refusal = ActionError.NotStarted({
 		message: 'tasks: epicenter.ts does not load',
 		cause: 'app-problems',
+		app: 'tasks',
 		problems: ['epicenter.ts does not load'],
 	});
 	respond(JSON.stringify(refusal), { status: 400 });
