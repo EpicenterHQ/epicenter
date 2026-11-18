@@ -94,9 +94,6 @@ export default defineApp({ description: 'The misplaced app', actions: { show } }
 		'reading',
 		'vocab',
 	]);
-	expect(
-		listing.apps.find((app: { name: string }) => app.name === 'journal').link,
-	).toBe(linked);
 	const problems = Object.fromEntries(
 		listing.problems.map((entry: { entry: string; problems: string[] }) => [
 			entry.entry,
@@ -134,7 +131,6 @@ export default defineApp({ description: 'The misplaced app', actions: { show } }
 
 	const human = await f.run();
 	expect(human.stdout).toMatch(/^vocab +The vocab app$/m);
-	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain(
 		'    code/epicenter.ts: The data key "Words" must be a name, optionally followed by .md',

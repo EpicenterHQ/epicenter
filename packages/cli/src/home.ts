@@ -29,15 +29,13 @@ import { appsDir, epicenterRoot } from './root.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
-	/** The folder or link name in the Epicenter. */
+	/** The folder name in the Epicenter. */
 	entry: string;
 	/** The Epicenter entry's path before resolving links. */
 	folder: string;
 	/** The real directory whose code and data the runner uses. */
 	realPath: string;
 	codePath: string;
-	/** The real target when the entry itself is a symlink, for the listing. */
-	link?: string;
 };
 
 /**
@@ -79,8 +77,6 @@ async function isFile(path: string) {
 
 async function entryAt(folder: string) {
 	try {
-		const info = await lstat(folder);
-		if (!info.isDirectory() && !info.isSymbolicLink()) return undefined;
 		if (!(await stat(folder)).isDirectory()) return undefined;
 		const realPath = await realpath(folder);
 		const runnable = await isFile(join(realPath, CODE));
@@ -99,7 +95,6 @@ async function entryAt(folder: string) {
 			realPath,
 			codePath,
 			problem,
-			...(info.isSymbolicLink() ? { link: realPath } : {}),
 		};
 	} catch (error) {
 		if (
@@ -165,7 +160,7 @@ async function load(
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
-	const apart = libraryProblem(entry, place.codePath, place.link);
+	const apart = libraryProblem(entry, place.codePath);
 	if (apart) return broken([apart]);
 	let module: { default?: unknown };
 	try {

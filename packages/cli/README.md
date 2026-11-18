@@ -83,10 +83,11 @@ apps/notes resolves @epicenter/app at <path>, and epicenter runs <other path>; r
 
 This happens when an app's folder has a `node_modules/@epicenter/app` of its
 own, when the home's two dependencies name different versions, or when the
-command that ran is not the home's own. An entry in `apps/` that is a link to
-code outside the home is also refused: Bun finds packages from where a file
-really is, so that code does not find the home's install. Keep an app's code
-inside the home.
+command that ran is not the home's own. An entry in `apps/` may be a link; Epicenter
+treats it as the folder it leads to. Bun finds packages from where a file
+really is, so a link to code outside the home finds no `@epicenter/app`, and
+the problem names the folder it looked from. Keep an app's code inside the
+home.
 
 ## Install and try a writing inbox
 
@@ -275,7 +276,7 @@ An import or declaration failure is listed under that app's problems with a
 `code/epicenter.ts:` prefix. A wrong default export is also a problem, and so
 is an app that would load its own copy of `@epicenter/app`. One broken app
 does not hide the others. Listings include container locations, data keys,
-schemas, actions, and linked targets. They carry no per-app Git status. An
+schemas, and actions. The listing's `Version` is the running command's. They carry no per-app Git status. An
 empty Epicenter says `No apps yet. Run: epicenter new <name>`.
 
 The container's real path stays in `context.folder` and `folder.path`.
