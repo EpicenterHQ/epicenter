@@ -56,7 +56,14 @@ function appListing(located: Runnable) {
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
+		// Its fetch routes are not listed: only that the app answers web requests (ADR-0945).
+		...(app.fetch ? { fetch: true as const } : {}),
 	};
+}
+
+/** " (answers web requests)" for an app that returned `fetch`, whose routes no listing shows. */
+function answersWeb(located: Runnable) {
+	return located.app.fetch ? ' (answers web requests)' : '';
 }
 
 /** " (read-only)" for an action that says it changes nothing; the other hints are for MCP clients. */
@@ -106,7 +113,7 @@ export function homeListing(
 		};
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map((located) => {
-		return `${located.name.padEnd(width)}  ${located.app.description}`;
+		return `${located.name.padEnd(width)}  ${located.app.description}${answersWeb(located)}`;
 	});
 	if (!found.apps.length)
 		lines.push('No apps yet. An app is apps/<name>/code/epicenter.ts');
@@ -146,7 +153,7 @@ export function homeListing(
 export function oneAppListing(located: Runnable, json: boolean): unknown {
 	if (json) return appListing(located);
 	return [
-		`${located.name}  ${located.app.description}`,
+		`${located.name}  ${located.app.description}${answersWeb(located)}`,
 		`folder: ${located.folder}`,
 		'',
 		...(located.app.data
