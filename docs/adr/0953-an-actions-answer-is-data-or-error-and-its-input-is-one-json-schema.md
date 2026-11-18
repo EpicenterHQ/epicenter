@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) at "Keep the existing `returned` / `threw` / `error` wire envelope": the envelope goes, and an error's name says whether the action ran. [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) at its host answer table: the `kind` and `reason` rows go. [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "with the ADR-0926 answer": the final `{"answer": ...}` frame carries the plain answer, and a refusal before the action runs is `NotStarted`.
 - **Relates:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action), [ADR-0938](0938-an-action-says-whether-agents-are-offered-it.md) (`mcp: false`).
 
-Two decisions about the same boundary, where an action meets its callers: what comes back (D1) and what goes in (D2).
+Two decisions about the same boundary, where an action meets its callers: what comes back (D1) and what goes in (D2). Two removals ship with them in 0.7.0: serve stops stating its version (C5), and a dead schema check goes (C8).
 
 ## Context
 
@@ -92,6 +92,14 @@ The CLI's own commands, `init`, `new`, `export`, `check` and `serve`, are not ac
 
 **That one value drives validation, MCP's `inputSchema`, `--help` and `list --json`.** `input.ts` checks against `action.input` and reads `action.input.required`; it stops rebuilding `required`. A test round-trips every action declaration through `JSON.stringify` and `JSON.parse` and checks that `Value.Check` gives the same verdict on the copy as on the original.
 
+### C5: upgrading is the owner's step
+
+**Epicenter does nothing about upgrades.** Serve is a program the owner keeps running (ADR-0941), and the owner restarts it after upgrading. Serve no longer states its version in an `x-epicenter-version` header, and a command no longer warns when it reaches an older serve. The two library checks stay: `epicenter` refuses to load apps when the home has two copies of `@epicenter/app`, or when `@epicenter/app` and `@epicenter/cli` name different versions. After D1, a mismatched pair would misread answers. This replaces the draft ADR-0952 in PR #2681, which proposed having serve exit when its packages change.
+
+### C8: no upload-marker check
+
+`defineData` no longer refuses a field schema carrying `x-epicenter-file`. Nothing in the library or in any app makes that marker.
+
 ## Consequences
 
 - A page can switch on `error.name` alone. `NotStarted` and an app's `Refused` are different names, so "my call never ran" and "the app said no" no longer collide.
@@ -100,6 +108,7 @@ The CLI's own commands, `init`, `new`, `export`, `check` and `serve`, are not ac
 - An app that returned `ActionError.Unreachable` for a dependency that did not answer now answers `Threw` instead. It returns its own error name, or `Ok` with a field saying the result was not confirmed.
 - An app may not define its own error named `NotStarted` or `Unreachable`; serve turns either into `Threw`.
 - A connection that drops after the call was sent was a `fault`, exit 1, and is now `Unreachable`, exit 1. A refused connection was a `Refused` refusal, exit 2, and is now `NotStarted` with cause `unavailable`, exit 2.
+- C5: after `bun install`, an owner who forgets to restart serve gets the old code's answers with no warning. The upgrade note says to restart.
 - D2: an action's input is one JSON value any reader can copy, store or send without losing which keys are required. The cost is one more level in `action.input`: code that read a field as `action.input.word` reads `action.input.properties.word`.
 
 ## Considered alternatives
