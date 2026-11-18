@@ -31,7 +31,7 @@ only it.**
   `epicenterRoot()` already exists there and returns `{ folder, port }`, an
   `EpicenterRoot`; it keeps its name. Each other identifier with "home" in
   it takes "root" or loses the word: `loadHomeApp` is `loadApp`,
-  `homeEntries` is `rootEntries`, `installHome` is `installRoot`,
+  `homeEntries` is `appEntries`, `installHome` is `installRoot`,
   `homeName` is `rootHeaderValue`, since it returns the header's encoded
   path and not a name.
 - In tests, `fixture()` in `packages/app/src/command/runner.test-support.ts` returns

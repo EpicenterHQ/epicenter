@@ -100,7 +100,7 @@ function needsServe(args: string[]) {
 }
 
 /**
- * A temporary `HOME` whose `Epicenter` folder is the app home, a Bun
+ * A temporary `HOME` whose `Epicenter` folder is the Epicenter, a Bun
  * workspace with its packages in place (`installPackages`), its apps in
  * `apps`, and the real `bin.ts` run inside it, as a person runs it, so
  * output, exit codes, and the folders on disk are tested together. Nothing

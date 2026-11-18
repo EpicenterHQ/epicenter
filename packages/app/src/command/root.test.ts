@@ -127,7 +127,7 @@ test('port 0 names no port a command could find serve at, so the marker refuses 
 	}
 });
 
-test("serve reads the marker's port when no command port is given", async () => {
+test("serve listens at the marker's port", async () => {
 	const f = await setup();
 	const port = await freePort();
 	await writeFile(

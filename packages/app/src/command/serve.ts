@@ -63,7 +63,7 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
-import { findEntry, localProblem, rootEntries } from './apps.ts';
+import { appEntries, findEntry, localProblem } from './apps.ts';
 import { actionTool, listApps } from './listing.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
@@ -630,8 +630,8 @@ export async function serveHttp(
 		return portTaken((await whoAnswers(root)) ?? 'another program');
 	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${port}.`);
-	for (const found of await rootEntries(root)) {
-		const local = await localProblem(found);
+	for (const entry of await appEntries(root)) {
+		const local = await localProblem(entry);
 		if (local) writeErr(local);
 	}
 	await new Promise<void>((resolve) => {

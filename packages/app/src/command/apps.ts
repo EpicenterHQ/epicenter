@@ -1,6 +1,6 @@
 /**
- * The apps in the selected Epicenter (ADR-0841), each a folder in its `apps/`
- * A folder there is an app when it has a `code/epicenter.ts` whose
+ * The apps in an Epicenter (ADR-0841), each a folder in its `apps/`. A
+ * folder there is an app when it has a `code/epicenter.ts` whose
  * default export is `defineApp(...)`. An app's name is its folder's name in
  * `apps/`. Each entry loads on its own so a broken
  * app is listed without stopping the others: what its `define*` calls throw
@@ -43,8 +43,8 @@ function nameProblem(name: unknown): string | undefined {
 	return undefined;
 }
 
-/** An app's folder in `apps/`, found without importing its code. */
-export type AppFolder = {
+/** An entry in `apps/` that looks like an app, found without importing its code. */
+export type AppEntry = {
 	/** Its folder's name in `apps/`, which is the app's name. */
 	name: string;
 	/** The real folder whose code and data the app uses. */
@@ -56,7 +56,7 @@ export type AppFolder = {
 };
 
 /** An app whose code loaded. */
-export type LoadedApp = AppFolder & {
+export type LoadedApp = AppEntry & {
 	/** What the function `epicenter.ts` default-exports returned for the app's folder. */
 	app: App;
 	/** Every action by its words, one space apart, as the command line names it. */
@@ -88,14 +88,14 @@ const appsIn = ({ folder }: Pick<EpicenterRoot, 'folder'>) =>
 export const appPath = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
 	join(appsIn(root), name);
 
-/** An app folder's problems: it did not load, a read failed, or its `local/` could reach Git. */
+/** An entry's problems: it did not load, a read failed, or its `local/` could reach Git. */
 export type AppProblems = { entry: string; problems: string[] };
 
-/** The app folder `name` in `apps/`, or undefined when that folder does not look like an app. */
-async function appFolder(
+/** The entry `name` in `apps/`, or undefined when it does not look like an app. */
+async function appEntry(
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
-): Promise<AppFolder | undefined> {
+): Promise<AppEntry | undefined> {
 	const folder = appPath(root, name);
 	try {
 		if (!(await stat(folder)).isDirectory()) return undefined;
@@ -123,9 +123,9 @@ async function appFolder(
 }
 
 /** The folders in `apps/` that look like apps, sorted by name, without importing any of them; none when there is no `apps/`. */
-export async function rootEntries(
+export async function appEntries(
 	root: Pick<EpicenterRoot, 'folder'>,
-): Promise<AppFolder[]> {
+): Promise<AppEntry[]> {
 	const names = (
 		await readdir(appsIn(root)).catch((error: NodeJS.ErrnoException) => {
 			if (error.code === 'ENOENT') return [] as string[];
@@ -134,8 +134,8 @@ export async function rootEntries(
 	)
 		.filter((name) => !name.startsWith('.'))
 		.sort();
-	const found = await Promise.all(names.map((name) => appFolder(root, name)));
-	return found.filter((each) => each !== undefined);
+	const entries = await Promise.all(names.map((name) => appEntry(root, name)));
+	return entries.filter((each) => each !== undefined);
 }
 
 /**
@@ -152,33 +152,33 @@ function forgetModules(folder: string) {
 }
 
 /**
- * Import an app folder's code: the app it defines, or the problems that keep
+ * Import an entry's code: the app it defines, or the problems that keep
  * it from loading. A problem names the app's folder and its Epicenter's from
  * the Epicenter's folder, as `apps/<name>` and `.`, because serve sends it to
  * whoever asks.
  */
 async function load(
 	root: Pick<EpicenterRoot, 'folder'>,
-	found: AppFolder,
+	entry: AppEntry,
 ): Promise<Result<LoadedApp, string[]>> {
-	if (found.problem) return Err([found.problem]);
-	const named = nameProblem(found.name);
+	if (entry.problem) return Err([entry.problem]);
+	const named = nameProblem(entry.name);
 	if (named !== undefined)
 		return Err([`its folder's name cannot name an app: ${named}`]);
 	const thrown = (error: unknown) =>
 		Err(
 			extractErrorMessage(error)
-				.replaceAll(found.codePath, `apps/${found.name}/code`)
-				.replaceAll(found.realPath, `apps/${found.name}`)
+				.replaceAll(entry.codePath, `apps/${entry.name}/code`)
+				.replaceAll(entry.realPath, `apps/${entry.name}`)
 				.replaceAll(root.folder, '.')
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
 	let module: { default?: unknown };
 	try {
-		forgetModules(found.codePath);
+		forgetModules(entry.codePath);
 		module = await import(
-			pathToFileURL(join(found.codePath, 'epicenter.ts')).href
+			pathToFileURL(join(entry.codePath, 'epicenter.ts')).href
 		);
 	} catch (error) {
 		return thrown(error);
@@ -189,10 +189,10 @@ async function load(
 	try {
 		// Through `defineApp` again, so the call checks what the export returns, however it was made.
 		const app = defineApp(exported as (given: { folder: Folder }) => App)({
-			folder: folderOnDisk(found.realPath),
+			folder: folderOnDisk(entry.realPath),
 		});
 		return Ok({
-			...found,
+			...entry,
 			app,
 			actions: Object.fromEntries(byWords(app.actions)),
 		});
@@ -221,7 +221,7 @@ function byWords(
 export async function localProblem({
 	name,
 	realPath,
-}: AppFolder): Promise<string | undefined> {
+}: AppEntry): Promise<string | undefined> {
 	const local = join(realPath, 'local');
 	if (!(await lstat(local).catch(() => undefined))?.isDirectory())
 		return undefined;
@@ -239,10 +239,10 @@ export async function discoverAll(
 	root: Pick<EpicenterRoot, 'folder'>,
 ): Promise<{ apps: LoadedApp[]; problems: AppProblems[] }> {
 	const loaded = await Promise.all(
-		(await rootEntries(root)).map(async (found) => ({
-			name: found.name,
-			result: await load(root, found),
-			local: await localProblem(found),
+		(await appEntries(root)).map(async (entry) => ({
+			name: entry.name,
+			result: await load(root, entry),
+			local: await localProblem(entry),
 		})),
 	);
 	return {
@@ -262,12 +262,12 @@ const unknownApp = (name: string) =>
 		next: 'epicenter',
 	});
 
-/** The app folder named `name`, loaded or not, for a request that names one. */
+/** The entry named `name`, loaded or not, for a request that names one. */
 export async function findEntry(
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
-): Promise<AppFolder | undefined> {
-	return isName(name) ? appFolder(root, name) : undefined;
+): Promise<AppEntry | undefined> {
+	return isName(name) ? appEntry(root, name) : undefined;
 }
 
 /**
@@ -278,9 +278,9 @@ export async function loadApp(
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 ): Promise<Result<LoadedApp, NotStarted>> {
-	const found = await findEntry(root, name);
-	if (!found) return unknownApp(name);
-	const { data: loaded, error: problems } = await load(root, found);
+	const entry = await findEntry(root, name);
+	if (!entry) return unknownApp(name);
+	const { data: loaded, error: problems } = await load(root, entry);
 	if (loaded) return Ok(loaded);
 	return ActionError.NotStarted({
 		cause: 'app-problems',
