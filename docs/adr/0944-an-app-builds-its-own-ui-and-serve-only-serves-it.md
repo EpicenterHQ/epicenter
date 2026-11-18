@@ -34,7 +34,7 @@ with its own scripts. Bun already builds a page from an `index.html`, and
 - `epicenter new` runs nothing. It writes the app and prints the one command
   that installs its packages and builds its UI:
   `Run: cd <home> && bun install && bun run build`. `epicenter init` still
-  installs once, so a new home's first commit holds `bun.lock`.
+  installs once, which puts the `epicenter` command in the new home.
 - A page load for an app with no `ui/dist/index.html` answers a plain 404.
 - An app owns its palette. `init` writes no root `theme.css`; an app keeps its
   colors in a file under `code/ui/`, copied from a sibling app rather than
