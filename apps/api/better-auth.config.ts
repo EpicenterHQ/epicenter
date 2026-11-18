@@ -24,7 +24,6 @@
  *     `wrangler.jsonc` by `wrangler-config.ts`.
  */
 
-import { APPS, resolveOAuthAudiences } from './site.js';
 import { type } from 'arktype';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
@@ -36,6 +35,7 @@ import {
 	oauthServerPlugins,
 } from '../../packages/server/src/auth/plugins';
 import * as schema from '../../packages/server/src/db/schema';
+import { APPS, resolveOAuthAudiences } from './site.js';
 import { LOCAL_DATABASE_URL } from './wrangler-config';
 
 const env = type({

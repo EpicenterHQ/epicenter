@@ -243,9 +243,7 @@ test('a take lands once, whole, at its path when it stops, with every piece in o
 	const { tick } = browser({
 		Recorder: fakeRecorderClass(() => new Uint8Array([9])),
 	});
-	const recording = expectOk(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 	recorders.at(-1)!.piece(new Uint8Array([1, 2]));
 	recorders.at(-1)!.piece(new Uint8Array([3]));
 	tick(1_500);
@@ -267,9 +265,7 @@ test('a take lands once, whole, at its path when it stops, with every piece in o
 test('the duration is the recorder’s own clock, with its pauses left out', async () => {
 	const { audio } = audioFolder();
 	const { tick } = browser();
-	const recording = expectOk(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 	tick(1_000);
 	recorders.at(-1)!.pause();
 	tick(4_000);
@@ -291,9 +287,7 @@ test('the clock starts when the recorder says it started, not when start was ask
 			}
 		},
 	});
-	const recording = expectOk(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 	tick(300);
 	started();
 	tick(1_000);
@@ -308,9 +302,7 @@ test('AAC in MP4 is recorded into <id>.m4a where the browser records it', async 
 			['audio/webm;codecs=opus', 'audio/mp4;codecs=mp4a.40.2'],
 		),
 	});
-	const recording = expectOk(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 	expect(expectOk(await recording.stop()).id).toBe('a');
 	expect(await bytesAt(files, 'm4a')).toEqual(new Uint8Array([4, 5]));
 });
@@ -329,9 +321,7 @@ test('the file is named by the type the recorder reports, however it spells it',
 				reported,
 			),
 		});
-		const recording = expectOk(
-			await recorder.start({ files: audio, id: 'a' }),
-		);
+		const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 		expectOk(await recording.stop());
 		expect(await paths(files)).toEqual([`recordings/a.${extension}`]);
 	}
@@ -344,9 +334,7 @@ test('a take that captured nothing writes nothing and is Empty', async () => {
 		getUserMedia: async () => stream,
 		Recorder: fakeRecorderClass(() => new Uint8Array()),
 	});
-	const recording = expectOk(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 	expect(expectErr(await recording.stop()).name).toBe('Empty');
 	expect(track.stopped).toBe(true);
 	expect(await paths(files)).toEqual([]);
@@ -382,9 +370,7 @@ test('audio the page cannot read is a failure, not a thrown stop, and the microp
 	stub(globalThis, 'Blob', UnreadableBlob);
 	const { stream, track } = fakeStream('default');
 	browser({ getUserMedia: async () => stream });
-	const recording = expectOk(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 	recorders.at(-1)!.piece(new Uint8Array([1]));
 	expect(expectErr(await recording.stop())).toMatchObject({
 		name: 'Failed',
@@ -496,8 +482,7 @@ test('an encoder that cannot be made, started, or stopped is a failure, and the 
 		const { stream, track } = fakeStream('default');
 		browser({ getUserMedia: async () => stream, Recorder });
 		expect(
-			expectErr(await recorder.start({ files: audio, id: 'a' }))
-				.name,
+			expectErr(await recorder.start({ files: audio, id: 'a' })).name,
 		).toBe('Failed');
 		expect(track.stopped).toBe(true);
 		expect(await paths(files)).toEqual([]);
@@ -528,8 +513,7 @@ test('a window without a microphone, an encoder, or MP4 or WebM audio cannot rec
 		browser();
 		stub(target, key, undefined);
 		expect(
-			expectErr(await recorder.start({ files: audio, id: 'a' }))
-				.name,
+			expectErr(await recorder.start({ files: audio, id: 'a' })).name,
 		).toBe('Unavailable');
 	}
 	expect(
@@ -545,9 +529,7 @@ test('a lost microphone ends a recording, which keeps what was recorded and stop
 	const { audio, files } = audioFolder();
 	const { stream, track } = fakeStream('default');
 	const { tick } = browser({ getUserMedia: async () => stream });
-	const recording = expectOk(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files: audio, id: 'a' }));
 	recorders.at(-1)!.piece(new Uint8Array([7]));
 	tick(2_000);
 	track.end();

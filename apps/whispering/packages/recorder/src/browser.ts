@@ -31,10 +31,10 @@
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { mediaDevices, openMicrophone, release } from './microphone.js';
 import {
+	RECORDINGS,
 	type Recorder,
 	RecorderError,
 	type RecordingEndedReason,
-	RECORDINGS,
 	type RecordingStart,
 } from './recording.js';
 import { createSignals } from './signals.js';

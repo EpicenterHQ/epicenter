@@ -20,10 +20,6 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
-	PRODUCTION_API_URL,
-	resolveOAuthAudiences,
-} from './site.js';
-import {
 	authorizeAccountRequest,
 	createDb,
 	firstPartyClientRow,
@@ -48,6 +44,7 @@ import {
 	type OAuthHarness,
 } from '../../packages/server/src/test-helpers/oauth-checks.js';
 import { OAuthTestClient } from '../../packages/server/src/test-helpers/oauth-client.js';
+import { PRODUCTION_API_URL, resolveOAuthAudiences } from './site.js';
 import { buildFirstPartyClients } from './worker/oauth-registrations.js';
 
 const apiRoot = import.meta.dir;

@@ -1,7 +1,7 @@
-import { APPS } from '../site.js';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
+import { APPS } from '../site.js';
 
 // Dashboard is same-origin with API: in prod, served as static assets from
 // `api.epicenter.so/dashboard`; in dev, the proxy below routes /api and /auth

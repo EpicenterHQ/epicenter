@@ -89,18 +89,16 @@ test('a recording starts by its id in the folder, and stop answers its id and le
 });
 
 test('a command that throws instead of answering is a failure, not a refusal', async () => {
-	const recording = expectOk(
-		await recorder.start({ files, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files, id: 'a' }));
 	const lost = new Error('the shell is gone');
 	answer = () => {
 		throw lost;
 	};
 	const failed = { name: 'Failed', cause: lost };
 	expect(expectErr(await recording.stop())).toMatchObject(failed);
-	expect(
-		expectErr(await recorder.start({ files, id: 'b' })),
-	).toMatchObject(failed);
+	expect(expectErr(await recorder.start({ files, id: 'b' }))).toMatchObject(
+		failed,
+	);
 	expect(expectErr(await recorder.openMeter())).toMatchObject(failed);
 	expect(expectErr(await recorder.listInputs())).toMatchObject(failed);
 });
@@ -261,9 +259,7 @@ test('an ending received before start answers reaches its subscriber once and re
 		}
 		return { id: 'a', durationMs: 1250 };
 	};
-	const recording = expectOk(
-		await recorder.start({ files, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files, id: 'a' }));
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
 	const channel = calls[0]?.args.signals as FakeChannel<unknown>;
@@ -277,9 +273,7 @@ test('an ending received before start answers reaches its subscriber once and re
 });
 
 test('an ending reaches every listener when the first listener stops the native recorder', async () => {
-	const recording = expectOk(
-		await recorder.start({ files, id: 'a' }),
-	);
+	const recording = expectOk(await recorder.start({ files, id: 'a' }));
 	let stopping: ReturnType<typeof recording.stop> | undefined;
 	const endings: string[] = [];
 	recording.onEnded(() => {
