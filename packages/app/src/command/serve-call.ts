@@ -16,8 +16,16 @@ import {
 } from '../index.ts';
 import type { Listing } from './listing.ts';
 import { type EpicenterRoot, MARKER } from './root.ts';
-/** The header that names the home a call is for, so another home's serve refuses it. */
-export const HOME_HEADER = 'x-epicenter-home';
+/**
+ * The header a request names its Epicenter in: the root's real path,
+ * percent-encoded. The command sends it only to 127.0.0.1, so the path never
+ * leaves this computer, and serve refuses a request whose root is not its
+ * own (ADR-0961).
+ */
+export const ROOT_HEADER = 'x-epicenter-root';
+
+/** The header serve sets to `1` on every answer, naming no path, so a caller can tell an Epicenter's serve from another program. */
+export const SERVE_HEADER = 'x-epicenter';
 
 /** This home as the header carries it: its real path, percent-encoded. */
 export function homeName({ folder }: Pick<EpicenterRoot, 'folder'>): string {
@@ -25,23 +33,13 @@ export function homeName({ folder }: Pick<EpicenterRoot, 'folder'>): string {
 }
 
 /**
- * What holds `port` on this computer: `home` is whether it is this home's
- * serve. `undefined` when nothing there answers HTTP.
+ * Who answered a request that named this root: its own serve, another
+ * Epicenter's serve, which refuses it with 409, or another program, which
+ * does not set `x-epicenter`.
  */
-export async function whoAnswers(
-	root: EpicenterRoot,
-): Promise<{ home: boolean } | undefined> {
-	try {
-		// Serve stamps every answer; this one is a 405 that reads no app.
-		const response = await fetch(`http://127.0.0.1:${root.port}/`, {
-			method: 'OPTIONS',
-			signal: AbortSignal.timeout(2_000),
-		});
-		await response.body?.cancel().catch(() => undefined);
-		return { home: response.headers.get(HOME_HEADER) === homeName(root) };
-	} catch {
-		return undefined;
-	}
+export function answeredBy(response: Response) {
+	if (response.headers.get(SERVE_HEADER) !== '1') return 'another program';
+	return response.status === 409 ? 'another Epicenter' : 'its serve';
 }
 
 /**
@@ -59,7 +57,7 @@ async function reach(
 	try {
 		response = await fetch(`http://127.0.0.1:${root.port}${path}`, {
 			...init,
-			headers: { ...init.headers, [HOME_HEADER]: homeName(root) },
+			headers: { ...init.headers, [ROOT_HEADER]: homeName(root) },
 		});
 	} catch (error) {
 		// Refused means nothing listens. Any other end came after the request
@@ -73,13 +71,12 @@ async function reach(
 			});
 		return ActionError.Unreachable({ message: ended });
 	}
-	// Something else has the port: another home's serve, which names itself, or another program.
-	const home = response.headers.get(HOME_HEADER);
-	if (home !== homeName(root)) {
+	const holder = answeredBy(response);
+	if (holder !== 'its serve') {
 		await response.body?.cancel().catch(() => undefined);
 		return ActionError.NotStarted({
 			cause: 'unavailable',
-			message: `Port ${root.port} answers for another ${home === null ? 'program' : 'Epicenter'}. Set a different \`port\` in ${MARKER}.`,
+			message: `Port ${root.port} answers for ${holder}. Set a different \`port\` in ${MARKER}.`,
 		});
 	}
 	return Ok(response);

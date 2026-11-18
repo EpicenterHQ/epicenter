@@ -266,13 +266,25 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 		const inServe = await pidOf();
 		expect(inServe).not.toBe(process.pid);
 		expect(await pidOf()).toBe(inServe);
-		// A call that names another home is refused before the action runs.
-		const other = await fetch(`${served.base}/where/am`, {
-			method: 'POST',
-			headers: { 'x-epicenter-home': 'elsewhere' },
-			body: '{}',
-		});
-		expect(other.status).toBe(409);
+		// A request that names another home is refused before anything runs,
+		// and the refusal does not name this one.
+		for (const request of [
+			fetch(`${served.base}/where/am`, {
+				method: 'POST',
+				headers: { 'x-epicenter-root': encodeURIComponent('/elsewhere') },
+				body: '{}',
+			}),
+			fetch(`${served.base}/`, {
+				headers: {
+					'x-epicenter-root': encodeURIComponent('/elsewhere'),
+					accept: 'application/json',
+				},
+			}),
+		]) {
+			const other = await request;
+			expect(other.status).toBe(409);
+			expect(await other.text()).toBe('This call is for another Epicenter');
+		}
 	} finally {
 		await served.stop();
 	}
@@ -328,7 +340,7 @@ export default defineApp(() => ({ description: 'Where', actions: {
 /** Hold the fixture's port as `answer` does, in place of its serve. */
 async function holdPort(
 	f: Awaited<ReturnType<typeof setup>>,
-	answer: () => Response,
+	answer: (request: Request) => Response,
 ) {
 	await f.stopServe();
 	return Bun.serve({ hostname: '127.0.0.1', port: f.port, fetch: answer });
@@ -336,14 +348,15 @@ async function holdPort(
 
 test('a command is refused, and runs nothing, when its port answers for another Epicenter or another program', async () => {
 	const f = await setup();
-	for (const [headers, holder] of [
-		[{ 'x-epicenter-home': 'elsewhere' }, 'Epicenter'],
-		[{}, 'program'],
+	for (const [status, headers, holder] of [
+		[409, { 'x-epicenter': '1' }, 'another Epicenter'],
+		[200, {}, 'another program'],
 	] as const) {
-		let asked = 0;
-		const other = await holdPort(f, () => {
-			asked++;
+		const named: (string | null)[] = [];
+		const other = await holdPort(f, (request) => {
+			named.push(request.headers.get('x-epicenter-root'));
 			return new Response('{"answer":{"data":"theirs","error":null}}\n', {
+				status,
 				headers,
 			});
 		});
@@ -351,9 +364,10 @@ test('a command is refused, and runs nothing, when its port answers for another 
 			expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
 				code: 2,
 				stdout: '',
-				stderr: `Port ${f.port} answers for another ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
+				stderr: `Port ${f.port} answers for ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
 			});
-			expect(asked).toBe(1);
+			// The command named its root, by its real path, on the one request it made.
+			expect(named).toEqual([encodeURIComponent(f.home)]);
 		} finally {
 			await other.stop(true);
 		}
@@ -361,7 +375,7 @@ test('a command is refused, and runs nothing, when its port answers for another 
 	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
 });
 
-test('every answer of serve names its home, and a call through it adds no line', async () => {
+test('every answer of serve says it is an Epicenter and names no path, and a call through it adds no line', async () => {
 	const f = await setup();
 	const served = await startServe(f);
 	try {
@@ -369,10 +383,12 @@ test('every answer of serve names its home, and a call through it adds no line',
 			await fetch(`${served.base}/`),
 			await fetch(`${served.base}/missing/`),
 			await fetch(`${served.base}/notes/same`, { method: 'POST', body: '{}' }),
+			await fetch(`${served.base}/`, {
+				headers: { 'x-epicenter-root': 'elsewhere' },
+			}),
 		]) {
-			expect(response.headers.get('x-epicenter-home')).toBe(
-				encodeURIComponent(f.home),
-			);
+			expect(response.headers.get('x-epicenter')).toBe('1');
+			expect([...response.headers.values()].join('\n')).not.toContain(f.root);
 			await response.body?.cancel();
 		}
 		// A tunnel's request is refused before serve says anything about itself.
@@ -380,7 +396,7 @@ test('every answer of serve names its home, and a call through it adds no line',
 			headers: { 'cf-connecting-ip': '203.0.113.7' },
 		});
 		expect(tunnelled.status).toBe(403);
-		expect(tunnelled.headers.get('x-epicenter-home')).toBeNull();
+		expect(tunnelled.headers.get('x-epicenter')).toBeNull();
 		expect(await f.run('notes', 'same', '--json')).toMatchObject({
 			code: 0,
 			stderr: '',
@@ -390,9 +406,10 @@ test('every answer of serve names its home, and a call through it adds no line',
 	}
 });
 
-test('a second serve says this home is already served, and a port something else holds says to set another', async () => {
+test('a second serve says this home is already served, and names who else holds the port', async () => {
 	const f = await setup();
-	const taken = `Port ${f.port} is in use by another program or another Epicenter. Set a different \`port\` in EPICENTER.md.\n`;
+	const taken = (holder: string) =>
+		`Port ${f.port} is in use by ${holder}. Set a different \`port\` in EPICENTER.md.\n`;
 	const served = await startServe(f);
 	try {
 		expect(await f.run('serve')).toEqual({
@@ -404,18 +421,23 @@ test('a second serve says this home is already served, and a port something else
 	} finally {
 		await served.stop();
 	}
-	const elsewhere = await holdPort(
-		f,
-		() => new Response('', { headers: { 'x-epicenter-home': 'elsewhere' } }),
-	);
-	try {
-		expect(await f.run('serve')).toEqual({
-			code: 2,
-			stdout: '',
-			stderr: taken,
-		});
-	} finally {
-		await elsewhere.stop(true);
+	for (const [answer, holder] of [
+		[
+			() => new Response('', { status: 409, headers: { 'x-epicenter': '1' } }),
+			"another Epicenter's serve",
+		],
+		[() => new Response(''), 'another program'],
+	] as const) {
+		const other = await holdPort(f, answer);
+		try {
+			expect(await f.run('serve')).toEqual({
+				code: 2,
+				stdout: '',
+				stderr: taken(holder),
+			});
+		} finally {
+			await other.stop(true);
+		}
 	}
 	// A program that does not speak HTTP is found only when the port will not bind.
 	const silent = Bun.listen({
@@ -427,7 +449,7 @@ test('a second serve says this home is already served, and a port something else
 		expect(await f.run('serve')).toEqual({
 			code: 2,
 			stdout: '',
-			stderr: taken,
+			stderr: taken('another program'),
 		});
 	} finally {
 		silent.stop(true);

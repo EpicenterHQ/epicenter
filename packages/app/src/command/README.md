@@ -311,17 +311,21 @@ same way. Only `check`, and `--help` or `--version` on their own, work while
 serve is stopped: `check` loads each app as it is on disk, in its own
 process, so it also tries changed code before a restart.
 
-The port is the home's name. Serve puts the home in an `x-epicenter-home`
-header on every answer, and a call says which home it is for, so serve
-refuses a call meant for another home. A command whose port answers for
-something else runs nothing:
+The port is the home's name. A command names its home on every request in
+an `x-epicenter-root` header: its real path, sent only to `127.0.0.1`, so it
+never leaves the computer. Serve refuses a request naming another root with
+`409` and a body that does not name its own, and every answer it gives
+carries `x-epicenter: 1` and no path
+([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)).
+A command whose port answers for something else runs nothing:
 
 ```txt
 Port 4747 answers for another Epicenter. Set a different `port` in EPICENTER.md.
 ```
 
-It says `another program` when what answers is not an Epicenter. Two homes on
-one computer each need their own `port`, a whole number from 1 to 65535.
+It says `another program` when what answers is not an Epicenter's serve. Two
+homes on one computer each need their own `port`, a whole number from 1 to
+65535.
 
 The port is also the lock. A second `epicenter serve` for a home that is
 already served exits 2 and changes nothing:
@@ -330,10 +334,11 @@ already served exits 2 and changes nothing:
 Epicenter is already serving this home on port 4747.
 ```
 
-When something else holds the port, it says so instead:
+When something else holds the port, it says who, asking as a command does:
 
 ```txt
-Port 4747 is in use by another program or another Epicenter. Set a different `port` in EPICENTER.md.
+Port 4747 is in use by another Epicenter's serve. Set a different `port` in EPICENTER.md.
+Port 4747 is in use by another program. Set a different `port` in EPICENTER.md.
 ```
 
 After an upgrade, the serve that was already running is still the old

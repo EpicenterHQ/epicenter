@@ -30,10 +30,12 @@
  * caller that leaves stops reading, nothing stops the action from outside,
  * and its line on stderr is what remains of how it ended.
  *
- * A home has one `serve`, and its port is how it is found. Every answer names
- * the home (`x-epicenter-home`), so a command can tell whose serve it reached,
- * and a second `serve` can say whether this home or something else has the
- * port. Serve does not say its version: after an upgrade, the owner restarts
+ * A home has one `serve`, and its port is how it is found. A command names
+ * its root on each request (`x-epicenter-root`, its real path, sent only to
+ * 127.0.0.1), and serve refuses one naming another root with 409, a body that
+ * does not name its own. Every answer carries `x-epicenter: 1` and no path,
+ * so a command or a second `serve` can tell this home's serve from another
+ * Epicenter's or another program (ADR-0961). Serve does not say its version: after an upgrade, the owner restarts
  * it.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
@@ -75,7 +77,12 @@ import {
 	readCall,
 	runAction,
 } from './run.ts';
-import { HOME_HEADER, homeName, whoAnswers } from './serve-call.ts';
+import {
+	answeredBy,
+	homeName,
+	ROOT_HEADER,
+	SERVE_HEADER,
+} from './serve-call.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
@@ -402,11 +409,6 @@ async function commandCall(root: EpicenterRoot, app: string, request: Request) {
 
 /** `POST /<app>` from the command, or `POST /<app>/<action>` from a page. */
 async function post(root: EpicenterRoot, request: Request) {
-	// A call meant for another home is refused, so a command in a second home
-	// cannot write into this one (ADR-0936).
-	const meant = request.headers.get(HOME_HEADER);
-	if (meant !== null && meant !== homeName(root))
-		return new Response('This call is for another Epicenter', { status: 409 });
 	const [, first = '', action, ...more] = new URL(request.url).pathname.split(
 		'/',
 	);
@@ -471,17 +473,24 @@ function startHttpServer(root: EpicenterRoot) {
 			)
 				return forbidden();
 		}
+		// A request meant for another home is refused without naming this one,
+		// so a command in a second home cannot read or write here (ADR-0936,
+		// ADR-0961). A page or an MCP client names none and is not compared.
+		const meant = request.headers.get(ROOT_HEADER);
 		const { pathname } = new URL(request.url);
-		const response = await (pathname === '/'
-			? request.method === 'POST'
-				? mcp(root, request)
-				: listing(root, request)
-			: request.method === 'POST'
-				? post(root, request)
-				: ui(root, request));
-		// Every answer to a request serve accepts names its home, so a command
-		// or a second serve can tell who holds the port.
-		response.headers.set(HOME_HEADER, name);
+		const response = await (meant !== null && meant !== name
+			? new Response('This call is for another Epicenter', { status: 409 })
+			: pathname === '/'
+				? request.method === 'POST'
+					? mcp(root, request)
+					: listing(root, request)
+				: request.method === 'POST'
+					? post(root, request)
+					: ui(root, request));
+		// Every answer to a request serve accepts says it is an Epicenter's
+		// serve, and no more, so a command or a second serve can tell who
+		// holds the port.
+		response.headers.set(SERVE_HEADER, '1');
 		return response;
 	};
 	const server = Bun.serve({
@@ -547,6 +556,26 @@ async function dotenvProblem(root: string) {
 }
 
 /**
+ * Who holds `root`'s port, asked as a command asks, with this root: its own
+ * serve, another Epicenter's, or another program. `undefined` when nothing
+ * there answers HTTP.
+ */
+async function whoAnswers(root: EpicenterRoot) {
+	try {
+		// This one reads no app: serve answers OPTIONS / with 405, or 409.
+		const response = await fetch(`http://${LOOPBACK}:${root.port}/`, {
+			method: 'OPTIONS',
+			headers: { [ROOT_HEADER]: homeName(root) },
+			signal: AbortSignal.timeout(2_000),
+		});
+		await response.body?.cancel().catch(() => undefined);
+		return answeredBy(response);
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * Serve until the process receives SIGINT or SIGTERM, then answer nothing:
  * serve prints no answer. It never starts when a `.env` at the root would
  * reach Git, saying why, or when the port is taken, answering who holds it.
@@ -559,12 +588,13 @@ export async function serveHttp(
 	const dotenv = await dotenvProblem(root.folder);
 	if (dotenv)
 		return ActionError.NotStarted({ cause: 'unavailable', message: dotenv });
-	const portTaken = (holder: { home: boolean }) =>
+	const portTaken = (holder: ReturnType<typeof answeredBy>) =>
 		ActionError.NotStarted({
 			cause: 'unavailable',
-			message: holder.home
-				? `Epicenter is already serving this home on port ${port}.`
-				: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
+			message:
+				holder === 'its serve'
+					? `Epicenter is already serving this home on port ${port}.`
+					: `Port ${port} is in use by ${holder === 'another Epicenter' ? "another Epicenter's serve" : 'another program'}. Set a different \`port\` in ${MARKER}.`,
 		});
 	const holder = await whoAnswers(root);
 	if (holder) return portTaken(holder);
@@ -574,7 +604,7 @@ export async function serveHttp(
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
 		// The port was taken since it was asked, or its holder does not speak HTTP.
-		return portTaken((await whoAnswers(root)) ?? { home: false });
+		return portTaken((await whoAnswers(root)) ?? 'another program');
 	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
 	for (const found of await homeEntries(root)) {
