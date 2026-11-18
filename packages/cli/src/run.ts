@@ -7,11 +7,12 @@ import {
 	isActionResult,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
-import { type RunAnswer, refused } from './output.ts';
+import { type RunAnswer, refused, stderrJsonLines } from './output.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -51,13 +52,59 @@ function threwOf(cause: unknown): {
 	return { message };
 }
 
-/** Run a checked action. Nothing locks it: one process runs actions (ADR-0936). */
+/** Where serve writes one record for each run, when it ends. */
+const runLog = createLogger('cli/run', stderrJsonLines);
+
+/**
+ * Run a checked action. Nothing locks it: one process runs actions (ADR-0936).
+ * When it ends, `log` gets one record: the app, the action, the outcome and
+ * how long it took, and for a failure the error's name. The
+ * record has neither the input nor the result, which can hold personal data.
+ */
 export async function runAction(
 	located: Runnable,
 	key: string,
 	action: Action,
 	input: Record<string, unknown>,
-	{ onUpdate }: Following = {},
+	{ onUpdate, log = runLog }: Following = {},
+): Promise<RunAnswer> {
+	const started = performance.now();
+	const answer = await settle(key, action, input, located, onUpdate);
+	try {
+		log.info('action run ended', {
+			app: located.name,
+			action: key,
+			durationMs: Math.round(performance.now() - started),
+			...outcomeOf(answer),
+		});
+	} catch {
+		// The record is for the owner; it must not change the caller's answer.
+	}
+	return answer;
+}
+
+/**
+ * How a run ended, as its record states it: for a failure, the error's name
+ * alone. A message can quote what the person typed, so it stays out.
+ */
+function outcomeOf({ error }: RunAnswer) {
+	if (error === null) return { outcome: 'ok' as const };
+	if (error.kind === 'returned')
+		return { outcome: 'returned' as const, error: error.reason.name };
+	const name = error.thrown?.name;
+	return {
+		outcome: 'fault' as const,
+		...(typeof name === 'string' && { error: name }),
+	};
+}
+
+/** Run the action and answer what it did, whether it returned or threw. */
+async function settle(
+	key: string,
+	action: Action,
+	input: Record<string, unknown>,
+	located: Runnable,
+	onUpdate: Following['onUpdate'],
 ): Promise<RunAnswer> {
 	const context = {
 		...located.context,
@@ -82,6 +129,8 @@ export async function runAction(
 export type Following = {
 	/** Each update the action sends, in order. The action never waits for it. */
 	onUpdate?: (value: unknown) => unknown;
+	/** Where the record of the run's end goes: stderr, as JSON lines, unless a test passes its own. */
+	log?: Logger;
 };
 
 /** A call that is ready to run, or the refusal that answers it instead. */
