@@ -94,7 +94,7 @@ home.
 Writing is an ordinary app whose code is shared through export. Save
 thoughts, quotes, and links with their sources and projects, then search them
 from the browser, terminal, or an assistant. It needs no AI account or provider
-key. `new --from` copies ordinary app files from GitHub into your Epicenter.
+key. Taking it copies ordinary app files from GitHub into your Epicenter.
 
 You need Bun and Git, with Git's `user.name` and `user.email` configured.
 Create an Epicenter:
@@ -103,7 +103,9 @@ Create an Epicenter:
 bun x @epicenter/cli init ~/Epicenter
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
-epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
+bun install && bun run build
 epicenter serve
 ```
 
@@ -138,7 +140,7 @@ reread a task after an uncertain save, and Flights can follow a search by
 its existing run ID. Both use capabilities already installed.
 
 Test routine app changes on the current Epicenter release. For a shared app,
-use `epicenter new <app> --from <source>` to check the copy people install.
+copy its published folder into a temporary home to check the copy people install.
 
 `@epicenter/cli` and `@epicenter/app` ship together under one version, and
 `@epicenter/cli` names that exact `@epicenter/app` as a peer. Commits can
@@ -245,8 +247,6 @@ epicenter reading log '{"minutes":30}' --json
 epicenter reading books patch '{"id":"dune","finished":null}'
 epicenter init <folder>
 epicenter new notes
-epicenter new writing --from EpicenterHQ/epicenter/examples/writing
-epicenter new recipes --from <folder or owner/repo/folder#ref>
 epicenter export tasks ~/Code/my-project/code
 epicenter export --all ~/Code/shared-apps/apps
 epicenter check
@@ -762,79 +762,57 @@ folder. Text prints that path and the one command that installs the app's
 packages and builds its UI:
 `Run: cd <home> && bun install && bun run build`.
 
-Without `--from`, `new` makes a blank app. To start with a usable app, copy a
-shared app with `--from`; the destination name can differ from the source's name.
+`new` makes only a blank app. An app is a folder of plain files, so taking an
+existing app is copying its `code/` folder; the operating system and Git
+already do that
+([ADR-0955](../../docs/adr/0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md)).
+Copy only `code/`; never copy someone else's `data/`.
 
-`epicenter new <name> --from <source>` copies committed code. Git moves code
-between computers; `new` copies one committed folder into this Epicenter
-([ADR-0928](../../docs/adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md)).
-A source is one of two things:
-
-- A folder on disk, written as a path that starts with `/`, `./`, `../`, or
-  `~/`. It is a repository root or a folder inside one, and its current commit
-  is copied. To copy from GitLab or any other host, clone the repository
-  first, check out the version you want, and pass the app's folder.
-- A folder on GitHub, written `owner/repo[/folder][#ref]`. `ref` is a branch,
-  a tag, or a full commit; without it, the default branch is copied. Only that
-  folder's files are downloaded.
+To take a folder from GitHub, run this at the top of the home:
 
 ```sh
-epicenter new writing --from EpicenterHQ/epicenter/examples/writing
-epicenter new tasks --from someone/shared-apps/apps/tasks#v2
-epicenter new notes --from ~/Code/shared-apps/apps/notes
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
+bun install && bun run build
 ```
 
-An app container is accepted when its tracked `code/epicenter.ts` identifies
-the code subtree instead of a top-level declaration. A folder that holds
-several apps is refused with their names and the `--from` for one of them.
-Anything else, such as a Git URL or a bare word, is refused with a hint.
+The general form is
+`curl -L https://github.com/<owner>/<repo>/archive/<ref>.tar.gz | tar -xz -C apps/<name>/code --strip-components=<depth> <repo>-<ref>/<folder>`,
+where `<depth>` is 1 plus the number of segments in `<folder>`. `<ref>` is a
+branch, a tag, or a commit. `<repo>-<ref>` is the archive's top folder, which
+GitHub sometimes spells differently (a tag `v2` gives `<repo>-2`); list it
+with `curl -L <url> | tar -tz | head -1`.
 
-The copy uses the source's commit. The code it copies must match it: when
-`git status` shows any change or untracked file in that code (an app
-container's `code/`, not its `data/`), `new` refuses with
-`<from> has uncommitted changes; commit them, then copy.` and keeps nothing ([ADR-0946](../../docs/adr/0946-new-from-a-local-folder-refuses-uncommitted-code.md)).
-Files the source ignores do not count. The source is never changed.
+To take a folder on this computer, such as your own app or a clone of someone's
+repository, copy its `code/`. A child of `export --all` has `epicenter.ts` at
+its root, so copy that folder itself:
 
-The private development commit and the public publication commit are separate.
-Export writes your Epicenter's committed code into the publication folder. Commit those exported files
-there before asking someone to copy that version with `new --from`. A refreshed
-export that is not committed is still outside the publication's copied commit.
+```sh
+mkdir -p apps/journal
+cp -R ~/Code/shared-apps/apps/notes/code apps/journal/code
+```
 
-With `--json`, `new` answers `{ "data": { name, folder }, "error": null }`, and a
-copy adds `source: { commit }` to `data`.
+When the new name differs from the source's, change `"name"` in the copy's
+`package.json` to `journal`. Two packages in one Bun
+workspace cannot share a name, and `bun install` refuses if you forget. Then
+run `bun install && bun run build`. To copy from GitLab or any other host,
+`git clone` the repository first, then copy the app's `code/`.
 
-The command uses a temporary clone, then checks out selected committed
-files into the new container's ignored `.code-build-copy-*` directory before
-renaming them to `code/`. It excludes data/, local paths, node_modules at any
-depth, ui/dist, and old SOURCE.md. It preserves modes and symlinks, refuses
-gitlinks, materializes LFS content, and retains inherited LFS attributes that
-the destination root does not already supply. No nested repository or remote
-is created. Changes from the source are later work for the app's owner.
-
-`code/SOURCE.md` records where the code came from, one field per line:
-`Repository` (the GitHub address, or a local checkout's `origin` with HTTP
-credentials removed, else its absolute path), `Folder`, `Ref` when one was
-named, and `Commit`. No command reads this provenance file. Copied
-links remain links. A link that leads outside `code/` resolves only
+A copied symlink stays a link. One that leads outside `code/` resolves only
 if the destination has the same file, so an app keeps what its UI uses, its
 palette too, as files in `code/`.
 
-A copy joins the home's workspace: its `package.json` is named for the new
-app, since two packages in one workspace cannot share a name; any
-`@epicenter/app` it listed is removed, since the home supplies one copy; and
-a `bun.lock` it carried is left out, since the home has one lock. Code with no
-`package.json` gets the one blank code has. The rest of the file is kept.
+A copy is a separate app with its own records; nothing updates it later. To
+take a later code change, copy the incoming code into a temporary folder
+outside the live Epicenter, compare it, and adapt the existing `code/` while
+preserving `data/` and local changes. Test with the existing records before a
+named commit. Committing a refreshed public export does not update apps
+people have already copied.
 
-Copy failure removes only the container this command created. `new` never
-runs copied code: the printed command installs its packages and runs its
-`build`, and their errors are Bun's.
-
-`new` creates a separate app with empty records; it never updates an existing
-one. To take a later code change, inspect the source commit in `SOURCE.md`,
-compare incoming code outside the live Epicenter, and adapt the existing
-`code/` while preserving `data/` and local changes. Test with the existing
-records before a named commit. Committing a refreshed public export does
-not update apps people have already copied.
+The private development commit and the public publication commit are separate.
+Export writes your Epicenter's committed code into the publication folder.
+Commit those exported files there before asking someone to copy that version.
+A refreshed export that is not committed is not yet in what people download.
 
 ## Export app code
 
@@ -859,10 +837,12 @@ shared-apps/
 
 `--all` generates one child per committed app, including future apps. Removed
 apps disappear on refresh. Each child has `epicenter.ts` at its root and no
-private `data/`. Recipients can copy one app:
+private `data/`. Recipients can copy one app from the top of their home:
 
 ```sh
-epicenter new tasks --from OWNER/shared-apps/apps/tasks
+mkdir -p apps/tasks/code
+curl -L https://github.com/OWNER/shared-apps/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 shared-apps-main/apps/tasks
+bun install && bun run build
 ```
 
 Replace `OWNER` with the collection owner's GitHub username.
@@ -875,7 +855,8 @@ epicenter export tasks ~/Code/my-project/code
 ```
 
 The single-app form puts `epicenter.ts` directly in the exact directory you
-name. `new --from` accepts a repository with this `code/` wrapper too.
+name. Recipients copy that `code/` directory into their home's
+`apps/<name>/code/`.
 
 Export is read-only in the private Epicenter. It reads the commit `HEAD`
 names and never commits, stages or pushes. When `git status` shows anything

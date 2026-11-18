@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Relates:** [ADR-0948](0948-a-value-several-apps-share-goes-in-the-homes-env-which-only-env-reads.md) (shared values through `env()`), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) (the earlier product's endpoints and `openAiCompatible`), [ADR-0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) (requests that arrive at an app).
+- **Relates:** [ADR-0948](0948-a-value-several-apps-share-goes-in-the-homes-env-which-only-env-reads.md) (shared values through `env()`), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), [ADR-0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) (Epicenter's hosted model API and its `ep_` keys), [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) (the earlier product's endpoints and `openAiCompatible`), [ADR-0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) (requests that arrive at an app).
 - **Unbuilt:** all of it. The first thing to exist is `model` exported from `@epicenter/app`, over `env()`; Zhongwen's `tutorSays` is its first caller, through the Ollama line alone.
 
 ## Context
@@ -20,9 +20,9 @@ from one provider to another and no spending limits.
 Ollama, OpenAI, and Epicenter's hosted API each accept OpenAI chat requests at
 a base URL with an optional `Authorization: Bearer` key (ADR-0060), and each
 lists its models at `GET /v1/models` (checked against the live home's Ollama).
-Epicenter's hosted API is proposed to take an API key the owner makes on its
-dashboard and to name each model with its vendor, `openai/gpt-5.5`, so one
-connection reaches several vendors.
+Epicenter's hosted API takes an API key the owner makes on its dashboard or
+through Connect, and names each model with its vendor, `openai/gpt-5.5`, so
+one connection reaches several vendors (ADR-0950).
 
 ## Decision
 

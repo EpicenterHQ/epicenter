@@ -8,6 +8,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import {
 	chmod,
+	cp,
 	lstat,
 	mkdir,
 	readdir,
@@ -484,22 +485,14 @@ test('links to data, excluded code, missing files, external paths, and shared di
 	}
 });
 
-test('an exported collection is accepted by new --from and does not copy the export marker', async () => {
+test('an exported app runs once its folder is copied into a home', async () => {
 	const f = await setup();
 	expect((await f.run('export', '--all', join(f.output, 'apps'))).code).toBe(0);
-	await gitIn(f.output, 'init', '-q');
-	await gitIn(f.output, 'config', 'user.name', 'Export Test');
-	await gitIn(f.output, 'config', 'user.email', 'export@example.com');
-	await gitIn(f.output, 'add', '--', 'apps');
-	await gitIn(f.output, 'commit', '--no-verify', '-qm', 'public code');
-	const copied = await f.run(
-		'new',
-		'copy',
-		'--from',
-		join(f.output, 'apps/tasks'),
-		'--json',
-	);
-	expect(copied.code).toBe(0);
+	// Taking an app is copying its folder; the export marker sits beside the apps.
+	await cp(join(f.output, 'apps/tasks'), join(f.apps, 'copy/code'), {
+		recursive: true,
+		verbatimSymlinks: true,
+	});
 	expect(await readFile(join(f.apps, 'copy/code/epicenter.ts'), 'utf8')).toBe(
 		bareApp('tasks'),
 	);
