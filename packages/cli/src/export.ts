@@ -131,30 +131,10 @@ async function checkDestination(directory: string, expected: ExportMarker) {
 }
 
 /**
- * Refuse a link whose target leaves the app's code/. An app keeps what it
- * uses, its palette too, as files in code/, so nothing outside travels.
+ * Refuse a link that leaves the app, or that is broken or cyclic. An app keeps
+ * what it uses, its palette too, as files in code/, so nothing outside
+ * travels.
  */
-async function refuseOutsideLinks(
-	entries: { path: string; mode: string }[],
-	tree: string,
-	prefix: string,
-) {
-	for (const entry of entries.filter(({ mode }) => mode === '120000')) {
-		const target = await readlink(join(tree, entry.path));
-		const resolved = posix.normalize(
-			posix.join(posix.dirname(entry.path), target),
-		);
-		if (
-			posix.isAbsolute(target) ||
-			(resolved !== prefix && !resolved.startsWith(`${prefix}/`))
-		)
-			refuse(
-				`${entry.path.slice(prefix.length + 1)} links outside the app's code/: ${target}. Copy the file into code/ instead.`,
-			);
-	}
-}
-
-/** Validate links independently of the checkout's code/ or collection app name. */
 async function checkLinks(
 	directory: string,
 	entries: { path: string; mode: string }[],
@@ -165,6 +145,18 @@ async function checkLinks(
 		const relative = path.slice(prefix.length + 1);
 		const file = join(root, relative);
 		if (mode !== '120000' || !(await lstat(file)).isSymbolicLink()) continue;
+		const target = await readlink(file);
+		const lexical = posix.normalize(
+			posix.join(posix.dirname(relative), target),
+		);
+		if (
+			posix.isAbsolute(target) ||
+			lexical === '..' ||
+			lexical.startsWith('../')
+		)
+			refuse(
+				`${relative} links outside the app's code/: ${target}. Copy the file into code/ instead.`,
+			);
 		const resolved = await realpath(file).catch(
 			(cause: NodeJS.ErrnoException) => {
 				if (cause.code === 'ENOENT' || cause.code === 'ELOOP')
@@ -294,7 +286,6 @@ export async function exportCommand(
 		);
 		for (const { app, selected } of apps) {
 			const prefix = `apps/${app}/code`;
-			await refuseOutsideLinks(selected, tree, prefix);
 			// A random root also catches chains that leave and reenter a folder named code.
 			const prepared = await mkdtemp(join(scratch, 'app-'));
 			await rename(join(tree, prefix), prepared);
