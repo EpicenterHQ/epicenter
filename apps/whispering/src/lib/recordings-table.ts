@@ -46,7 +46,7 @@ type RecordingRow = {
 	/** Its transcripts, newest first. */
 	readonly transcripts: readonly TranscriptionNote[];
 	readonly status: RecordingStatus;
-	/** Where its audio is, looked up when read: the table reads it only for the rows on its page. */
+	/** Where its audio is. */
 	readonly audio: RecordingAudio;
 };
 
@@ -82,9 +82,7 @@ function recordingRows(library: Source): RecordingRow[] {
 		title: titleOf(note),
 		transcripts: library.transcriptsFor(note.id),
 		status: statusOf(library, note.id),
-		get audio() {
-			return library.audioOf(note.id);
-		},
+		audio: library.audioOf(note.id),
 	}));
 }
 

@@ -9,7 +9,6 @@
  * - Ticking a page leaves the other pages' ticks alone; selecting every row
  *   the search keeps reaches past the page.
  * - A shift-click ticks a range on one page.
- * - A row looks its audio up only when it is read.
  */
 import { expect, test } from 'bun:test';
 import type { RecordingNote } from './folder.js';
@@ -34,18 +33,11 @@ function libraryOf(count: number) {
 		recordedAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
 		body: '',
 	}));
-	let audioLookups = 0;
 	return {
 		entries,
 		transcriptsFor: () => [],
 		transcribing: () => false,
-		audioOf: () => {
-			audioLookups++;
-			return { kind: 'absent' } as const;
-		},
-		get audioLookups() {
-			return audioLookups;
-		},
+		audioOf: () => ({ kind: 'absent' }) as const,
 	};
 }
 
@@ -198,14 +190,4 @@ test('a shift-click with no earlier click on the page changes that row alone', (
 	expect(selectRange([], first, undefined, id, true, library)).toEqual(
 		toggleSelected([], id, true, library),
 	);
-});
-
-test('a row looks its audio up only when the table reads it', () => {
-	const library = libraryOf(250);
-	const page = pageOf(shownRows(library, 'odd', DEFAULT_SORT), 0);
-	expect(library.audioLookups).toBe(0);
-
-	for (const row of page.rows) expect(row.audio.kind).toBe('absent');
-
-	expect(library.audioLookups).toBe(PAGE_SIZE);
 });
