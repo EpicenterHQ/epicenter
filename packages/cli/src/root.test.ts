@@ -104,6 +104,26 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	).toBe(current);
 });
 
+test('init adds the private ignore lines an existing .gitignore lacks, after any line that could undo them', async () => {
+	const f = await setup();
+	const folder = join(f.root, 'kept');
+	await f.folder(folder, { '.gitignore': '/apps/*/local/\n!.env' });
+	const made = await f.init(folder);
+	expect(made.code).toBe(0);
+	expect(made.stderr).toStartWith('Added to .gitignore: .env* !.env.example\n');
+	const ignore = '/apps/*/local/\n!.env\n.env*\n!.env.example\n';
+	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toBe(ignore);
+	expect(await gitIn(folder, 'show', 'HEAD:.gitignore')).toBe(ignore.trimEnd());
+	expect(await gitIn(folder, 'check-ignore', '.env', 'apps/x/local/t')).toBe(
+		'.env\napps/x/local/t',
+	);
+	const whole = join(f.root, 'complete');
+	await f.folder(whole, {
+		'.gitignore': '/apps/*/local/\n.env*\n!.env.example\n',
+	});
+	expect((await f.init(whole)).stderr).not.toContain('Added to .gitignore');
+});
+
 test('init installs the packages its package.json names, keeps a package.json already there, and leaves a home whose install failed ready to install again', async () => {
 	const f = await setup();
 	// A package.json already there is kept; this one names nothing to fetch.
@@ -343,13 +363,29 @@ test('a new home commits itself: the script init writes commits, pushes, waits o
 	// No origin: it commits what is pending and pushes nowhere.
 	// What an app keeps in local/ is never staged: the root ignore line covers
 	// it whoever made the folder.
+	// Neither is a credential the owner pasted into .env, which Bun does not
+	// load either; .env.example, which holds no values, is committed.
 	await f.folder(home, {
 		'apps/x/data/a.md': 'a',
 		'apps/x/local/google.md': 'token',
+		'.env': 'GOOGLE_CLIENT_SECRET=secret\n',
+		'.env.local': 'GOOGLE_CLIENT_SECRET=secret\n',
+		'.env.example': 'GOOGLE_CLIENT_SECRET=\n',
 	});
 	expect(await checkpoint()).toEqual({ code: 0, stderr: '' });
 	expect(await gitIn(home, 'log', '-1', '--format=%s')).toBe('checkpoint');
 	expect(await gitIn(home, 'ls-files', '--', 'apps')).toBe('apps/x/data/a.md');
+	expect(await gitIn(home, 'ls-files', '--', '.env*')).toBe('.env.example');
+	expect(await gitIn(home, 'show', 'HEAD:bunfig.toml')).toBe('env = false');
+	const child = Bun.spawn(
+		[
+			'bun',
+			'-e',
+			'process.stdout.write(process.env.GOOGLE_CLIENT_SECRET ?? "")',
+		],
+		{ cwd: home, env: process.env, stdout: 'pipe' },
+	);
+	expect(await new Response(child.stdout).text()).toBe('');
 	const clean = await head();
 	expect(await checkpoint()).toEqual({ code: 0, stderr: '' });
 	expect(await head()).toBe(clean);

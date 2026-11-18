@@ -11,7 +11,6 @@ import type { TSchemaOptions } from 'typebox';
 import { VERSION } from './engines.ts';
 import type { Discovery, Runnable } from './home.ts';
 import { exampleCommand, usageLine } from './input.ts';
-import { type RepositoryStatus, repositoryLine } from './repository.ts';
 
 /**
  * An action as an MCP tool definition: its name, input schema, and the hints
@@ -84,19 +83,12 @@ export type RoutineRow =
 
 /**
  * The home's report: the version of Epicenter running it, its apps, with
- * broken entries kept apart from runnable ones, then its routines, then one
- * line about its repository. `--json` carries the same facts; `repository`
- * is `null` when the home is not one.
+ * broken entries kept apart from runnable ones, then its routines. `--json`
+ * carries the same facts. Git reports on the home's repository itself.
  */
 export function homeListing(
 	found: Discovery,
-	{
-		routines,
-		repository,
-	}: {
-		routines: RoutineRow[];
-		repository: RepositoryStatus | null;
-	},
+	routines: RoutineRow[],
 	json: boolean,
 ): unknown {
 	if (json)
@@ -110,7 +102,6 @@ export function homeListing(
 				problems,
 			})),
 			routines,
-			repository,
 		};
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map((located) => {
@@ -146,7 +137,6 @@ export function homeListing(
 						],
 			),
 		);
-	lines.push('', `Git: ${repositoryLine(found.epicenter, repository)}`);
 	return lines.join('\n');
 }
 

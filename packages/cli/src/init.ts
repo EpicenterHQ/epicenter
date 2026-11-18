@@ -1,6 +1,6 @@
 /** Initialize one root repository and Bun workspace, with apps in code/data containers. */
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { ActionError, type Answer, Err, Ok } from '@epicenter/app';
 import { parseWords } from './commands.ts';
@@ -242,6 +242,9 @@ export async function initCommand(
 		['package.json', HOME_PACKAGE, 0o644],
 		['routines/checkpoint.md', CHECKPOINT_ROUTINE, 0o644],
 		['scripts/checkpoint.sh', CHECKPOINT_SCRIPT, 0o755],
+		// Bun would otherwise load the root's .env into every process it starts,
+		// and a routine's child inherits it (ADR-0948).
+		['bunfig.toml', 'env = false\n', 0o644],
 	] as const) {
 		await mkdir(dirname(join(folder, path)), { recursive: true });
 		try {
@@ -280,16 +283,37 @@ export async function initCommand(
 	return Ok(`Made Epicenter at ${folder}.`);
 }
 
+/**
+ * What the checkpoint routine must never stage: what an app keeps on this
+ * computer, and credentials the owner pastes into .env (ADR-0948), while
+ * .env.example, which names keys without values, stays committable.
+ */
+const PRIVATE_IGNORES = ['/apps/*/local/', '.env*', '!.env.example'];
+
 /** Initialize the root and commit only files this invocation wrote. */
 async function startEpicenterRepository(root: string, wrote: string[]) {
 	if (!(await isRepositoryTop(root))) await checkedGit(root, ['init', '-q']);
 	await mkdir(join(root, APPS), { recursive: true });
-	if (!existsSync(join(root, '.gitignore'))) {
+	const ignorePath = join(root, '.gitignore');
+	if (!existsSync(ignorePath)) {
 		await writeFile(
-			join(root, '.gitignore'),
-			'/apps/*/local/\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
+			ignorePath,
+			`${PRIVATE_IGNORES.join('\n')}\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n`,
 		);
 		wrote.push('.gitignore');
+	} else {
+		// A .gitignore already here is kept, but the checkpoint routine init
+		// installs would push what it fails to ignore, so the missing lines go
+		// at its end, after any line that could undo them.
+		const kept = await readFile(ignorePath, 'utf8');
+		const present = new Set(kept.split('\n').map((line) => line.trim()));
+		const missing = PRIVATE_IGNORES.filter((line) => !present.has(line));
+		if (missing.length > 0) {
+			const separator = kept === '' || kept.endsWith('\n') ? '' : '\n';
+			await writeFile(ignorePath, `${kept}${separator}${missing.join('\n')}\n`);
+			wrote.push('.gitignore');
+			writeErr(`Added to .gitignore: ${missing.join(' ')}`);
+		}
 	}
 	if (!existsSync(join(root, '.gitattributes')) && Bun.which('git-lfs')) {
 		await checkedGit(root, ['lfs', 'install', '--local']);

@@ -1148,7 +1148,7 @@ When you add an ADR, add its row here.
 | [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Proposed (amends 0908, 0910) |
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
 | [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Accepted (amends 0870 and 0910) |
-| [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Proposed (amends 0850, 0910, 0937 and 0939) |
+| [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Accepted (amends 0850, 0910, 0937 and 0939) |
 | [0941](0941-epicenter-serve-is-a-program-you-keep-running.md) | `epicenter serve` is a program you keep running | Accepted (amends 0878) |
 | [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Accepted (supersedes 0873; amends 0880 and 0910; amended by 0944) |
 | [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
@@ -1160,3 +1160,5 @@ When you add an ADR, add its row here.
 | [0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) | AI credits follow what a call uses: held before it and settled after | Proposed |
 | [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |
 | [0955](0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md) | `new` makes a blank app, and taking an app is copying its folder | Proposed (supersedes 0929) |
+| [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
+| [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
