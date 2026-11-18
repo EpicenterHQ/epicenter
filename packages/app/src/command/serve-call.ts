@@ -6,16 +6,15 @@
  * port in its `EPICENTER.md`; a command never starts it and never runs the
  * action in its place.
  */
-import { realpath } from 'node:fs/promises';
 import { ActionError, type Answer, readAnswer } from '../index.ts';
-import { epicenterDir, epicenterRoot, MARKER } from './root.ts';
+import { type EpicenterRoot, MARKER } from './root.ts';
 
 /** The header that names the home a call is for, so another home's serve refuses it. */
 export const HOME_HEADER = 'x-epicenter-home';
 
 /** This home as the header carries it: its real path, percent-encoded. */
-export async function homeName(): Promise<string> {
-	return encodeURIComponent(await realpath(epicenterDir()));
+export function homeName({ folder }: Pick<EpicenterRoot, 'folder'>): string {
+	return encodeURIComponent(folder);
 }
 
 /**
@@ -23,16 +22,16 @@ export async function homeName(): Promise<string> {
  * serve. `undefined` when nothing there answers HTTP.
  */
 export async function whoAnswers(
-	port: number,
+	root: EpicenterRoot,
 ): Promise<{ home: boolean } | undefined> {
 	try {
 		// Serve stamps every answer; this one is a 405 that reads no app.
-		const response = await fetch(`http://127.0.0.1:${port}/`, {
+		const response = await fetch(`http://127.0.0.1:${root.port}/`, {
 			method: 'OPTIONS',
 			signal: AbortSignal.timeout(2_000),
 		});
 		await response.body?.cancel().catch(() => undefined);
-		return { home: response.headers.get(HOME_HEADER) === (await homeName()) };
+		return { home: response.headers.get(HOME_HEADER) === homeName(root) };
 	} catch {
 		return undefined;
 	}
@@ -44,12 +43,13 @@ export async function whoAnswers(
  * is `NotStarted` (`unavailable`).
  */
 export async function sendToServe(
+	root: EpicenterRoot,
 	app: string,
 	key: string,
 	input: Record<string, unknown>,
 	onUpdate: (value: unknown) => void,
 ): Promise<Answer> {
-	const { port } = epicenterRoot();
+	const { port } = root;
 	let response: Response;
 	try {
 		response = await fetch(
@@ -58,7 +58,7 @@ export async function sendToServe(
 				method: 'POST',
 				headers: {
 					'content-type': 'application/json',
-					[HOME_HEADER]: await homeName(),
+					[HOME_HEADER]: homeName(root),
 				},
 				body: JSON.stringify(input),
 			},
@@ -80,7 +80,7 @@ export async function sendToServe(
 	}
 	// Something else has the port: another home's serve, which names itself, or another program.
 	const home = response.headers.get(HOME_HEADER);
-	if (home !== (await homeName())) {
+	if (home !== homeName(root)) {
 		await response.body?.cancel().catch(() => undefined);
 		return ActionError.NotStarted({
 			cause: 'unavailable',

@@ -17,6 +17,7 @@ import {
 	localProblem,
 	type Runnable,
 } from './home.ts';
+import type { EpicenterRoot } from './root.ts';
 
 /** An app with a problem outside its records: it did not load, a read failed, or its `local/` could reach Git. */
 type Unchecked = { entry: string; folder: string; problems: string[] };
@@ -72,6 +73,7 @@ function render(
  * report. A named app that does not load is `NotStarted`.
  */
 export async function checkCommand(
+	root: Pick<EpicenterRoot, 'folder'>,
 	words: string[],
 	json: boolean,
 ): Promise<Answer> {
@@ -81,12 +83,12 @@ export async function checkCommand(
 	let runnable: Runnable[];
 	const unchecked: Unchecked[] = [];
 	if (name === undefined) {
-		const found = await discoverAll();
+		const found = await discoverAll(root);
 		runnable = found.apps;
 		for (const { entry, folder, problems } of found.problems)
 			unchecked.push({ entry, folder, problems });
 	} else {
-		const { data: one, error } = await loadHomeApp(name);
+		const { data: one, error } = await loadHomeApp(root, name);
 		if (error) return Err(error);
 		runnable = [one];
 		const local = await localProblem(one.entry, one.realPath);

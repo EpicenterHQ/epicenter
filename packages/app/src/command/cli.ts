@@ -20,7 +20,7 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { presentAnswer, writeErr } from './output.ts';
-import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
+import { type EpicenterRoot, epicenterRoot } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { sendToServe } from './serve-call.ts';
 
@@ -48,12 +48,13 @@ const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
  */
 const HANDLERS: {
 	[K in Command]: (
+		root: EpicenterRoot,
 		words: string[],
 		json: boolean,
 	) => Promise<Answer | undefined>;
 } = {
 	check: checkCommand,
-	async serve(words, json) {
+	async serve(root, words, json) {
 		if (json)
 			return ActionError.NotStarted({
 				cause: 'usage',
@@ -62,7 +63,7 @@ const HANDLERS: {
 			});
 		const { error } = parseWords('serve', words, [0, 0]);
 		if (error) return Err(error);
-		return serveHttp(epicenterRoot().port);
+		return serveHttp(root);
 	},
 };
 
@@ -98,11 +99,12 @@ export async function runCli(argv: string[]): Promise<number> {
 						: `epicenter ${packageJson.version}`,
 				);
 			if (help) return Ok(HELP);
-			epicenterRoot();
+			const { data: root, error } = epicenterRoot();
+			if (error) return Err(error);
 			// A report only: it reads the home and starts, fetches and writes nothing.
 			const [found, routines] = await Promise.all([
-				discoverAll(),
-				createRoutines({ folder: epicenterDir() }).list(),
+				discoverAll(root),
+				createRoutines(root).list(),
 			]);
 			return Ok(homeListing(found, routines, json));
 		}
@@ -111,12 +113,14 @@ export async function runCli(argv: string[]): Promise<number> {
 			const command = name as Command;
 			if (help)
 				return Ok(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
-			epicenterRoot();
+			const { data: root, error } = epicenterRoot();
+			if (error) return Err(error);
 			begun = true;
-			return HANDLERS[command](words, json);
+			return HANDLERS[command](root, words, json);
 		}
-		epicenterRoot();
-		const { data: located, error: notLoaded } = await loadHomeApp(name);
+		const { data: root, error } = epicenterRoot();
+		if (error) return Err(error);
+		const { data: located, error: notLoaded } = await loadHomeApp(root, name);
 		if (notLoaded) return Err(notLoaded);
 		if (!words.length) return Ok(oneAppListing(located, json));
 		const matched = matchAction(located.actions, words);
@@ -152,7 +156,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve runs every action; this process only sends the call.
 		sent = true;
-		return sendToServe(name, matched.key, given.input, onUpdate);
+		return sendToServe(root, name, matched.key, given.input, onUpdate);
 	}
 	let answered: Answer | undefined;
 	try {
@@ -162,12 +166,6 @@ export async function runCli(argv: string[]): Promise<number> {
 		if (sent)
 			answered = ActionError.Unreachable({
 				message: `Epicenter invoked the action but could not report its outcome: ${message}`,
-			});
-		else if (cause instanceof RootUsageError)
-			answered = ActionError.NotStarted({
-				cause: 'usage',
-				message,
-				next: cause.next,
 			});
 		else if (begun) answered = ActionError.Threw({ message });
 		else answered = ActionError.NotStarted({ cause: 'internal', message });

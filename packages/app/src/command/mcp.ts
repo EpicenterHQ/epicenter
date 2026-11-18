@@ -25,12 +25,15 @@ import { ActionError, type Answer } from '../index.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
 import { outcome, writeErr } from './output.ts';
-import { rootInstructions } from './root.ts';
+import { type EpicenterRoot, rootInstructions } from './root.ts';
 import { resolveAction, runAction } from './run.ts';
 
 /** One app's tools; none when it cannot load, and why goes to stderr. */
-async function appTools(entry: string): Promise<Tool[]> {
-	const { data: located, error } = await loadHomeApp(entry);
+async function appTools(
+	root: Pick<EpicenterRoot, 'folder'>,
+	entry: string,
+): Promise<Tool[]> {
+	const { data: located, error } = await loadHomeApp(root, entry);
 	if (error) {
 		writeErr(
 			error.cause === 'app-problems'
@@ -69,8 +72,8 @@ function toolResult(answer: Answer) {
  * Epicenter's `AGENTS.md` now, so each initialize sends what the file says
  * then (ADR-0878).
  */
-export async function createMcpServer() {
-	const instructions = await rootInstructions();
+export async function createMcpServer(root: Pick<EpicenterRoot, 'folder'>) {
+	const instructions = await rootInstructions(root);
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -80,7 +83,7 @@ export async function createMcpServer() {
 	);
 	server.setRequestHandler(ListToolsRequestSchema, async () => {
 		const listed = await Promise.all(
-			(await homeEntries()).map(({ entry }) => appTools(entry)),
+			(await homeEntries(root)).map(({ entry }) => appTools(root, entry)),
 		);
 		return { tools: listed.flat() };
 	});
@@ -89,7 +92,7 @@ export async function createMcpServer() {
 		const [app = '', ...words] = name.split('_');
 		// App names and action words have no underscores.
 		const key = words.join(' ');
-		const call = await resolveAction(app, key, args ?? {});
+		const call = await resolveAction(root, app, key, args ?? {});
 		if (call.refusal) return toolResult(call.refusal);
 		if (call.action.mcp === false)
 			return toolResult(

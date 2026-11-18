@@ -8,6 +8,7 @@ import { type Action, ActionError, type Answer, Err } from '../index.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { stderrJsonLines } from './output.ts';
+import type { EpicenterRoot } from './root.ts';
 
 type Thrown = { name: string; message: string } & Record<string, unknown>;
 
@@ -131,6 +132,7 @@ type Resolved =
  * nothing.
  */
 export async function resolveAction(
+	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 	key: string,
 	raw: unknown,
@@ -139,7 +141,7 @@ export async function resolveAction(
 		refusal: ActionError.NotStarted({ cause: 'usage', message, next }),
 	});
 	try {
-		const { data: located, error: notLoaded } = await loadHomeApp(name);
+		const { data: located, error: notLoaded } = await loadHomeApp(root, name);
 		if (notLoaded) return { refusal: Err(notLoaded) };
 		const action = Object.hasOwn(located.actions, key)
 			? located.actions[key]

@@ -55,7 +55,7 @@ import { ActionError, type Answer, isName } from '../index.ts';
 import { findEntry, homeEntries, loadHomeApp, localProblem } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
-import { epicenterDir, MARKER } from './root.ts';
+import { type EpicenterRoot, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
 import { HOME_HEADER, homeName, whoAnswers } from './serve-call.ts';
@@ -145,10 +145,10 @@ const notFound = () => new Response('Not found', { status: 404 });
 const UI_DIST = join('ui', 'dist');
 
 /** The private listener's site: MCP, the launcher, and each app's UI and actions. */
-function createSite(): Site {
+function createSite(root: EpicenterRoot): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
-		const entry = (await findEntry(app)).data;
+		const entry = (await findEntry(root, app)).data;
 		if (!entry || entry.problem) return notFound();
 		let decoded: string;
 		try {
@@ -188,7 +188,7 @@ function createSite(): Site {
 	};
 	return {
 		async mcp(request) {
-			const server = await createMcpServer();
+			const server = await createMcpServer(root);
 			const transport = new WebStandardStreamableHTTPServerTransport({
 				enableJsonResponse: true,
 			});
@@ -213,9 +213,9 @@ function createSite(): Site {
 					headers: { allow: 'GET, HEAD, POST' },
 				});
 			const apps = await Promise.all(
-				(await homeEntries()).map(async (entry) => {
+				(await homeEntries(root)).map(async (entry) => {
 					if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
-					const { data: located } = await loadHomeApp(entry.entry);
+					const { data: located } = await loadHomeApp(root, entry.entry);
 					return {
 						name: entry.entry,
 						description: located?.app.description ?? '',
@@ -225,7 +225,7 @@ function createSite(): Site {
 			);
 			return new Response(
 				launcherPage(
-					basename(epicenterDir()),
+					basename(root.folder),
 					apps.filter((app) => app !== undefined),
 				),
 				{
@@ -246,7 +246,7 @@ function createSite(): Site {
 			const app = match[1];
 			if (!isName(app)) return notFound();
 			if (match[2] === undefined) {
-				if ((await findEntry(app)).error) return notFound();
+				if ((await findEntry(root, app)).error) return notFound();
 				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
 				return new Response(null, {
 					status: 308,
@@ -263,16 +263,19 @@ function createSite(): Site {
  * answer as JSON lines. Updates wait in order for a slow caller, because one
  * can be a piece of text the next extends, and are dropped once it is gone.
  */
-async function call(request: Request): Promise<Response> {
+async function call(root: EpicenterRoot, request: Request): Promise<Response> {
 	// A call meant for another home is refused, so a command in a second home
 	// cannot write into this one (ADR-0936).
 	const meant = request.headers.get(HOME_HEADER);
-	if (meant !== null && meant !== (await homeName()))
+	if (meant !== null && meant !== homeName(root))
 		return new Response('This call is for another Epicenter', { status: 409 });
-	return callAnswer(request);
+	return callAnswer(root, request);
 }
 
-async function callAnswer(request: Request): Promise<Response> {
+async function callAnswer(
+	root: EpicenterRoot,
+	request: Request,
+): Promise<Response> {
 	const parts = new URL(request.url).pathname.split('/');
 	let app: string;
 	let words: string[];
@@ -298,7 +301,7 @@ async function callAnswer(request: Request): Promise<Response> {
 			{ status: 400 },
 		);
 	}
-	const resolved = await resolveAction(app, key, input);
+	const resolved = await resolveAction(root, app, key, input);
 	if (resolved.refusal) return Response.json(resolved.refusal, { status: 400 });
 	const encoder = new TextEncoder();
 	let listening = true;
@@ -372,8 +375,9 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * the marker refuses it. A port something else holds throws before the clock
  * starts.
  */
-function startHttpServer(port: number) {
-	const site = createSite();
+function startHttpServer(root: EpicenterRoot) {
+	const site = createSite(root);
+	const name = homeName(root);
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();
@@ -395,24 +399,24 @@ function startHttpServer(port: number) {
 		const response = await (request.method === 'POST'
 			? pathname === '/'
 				? site.mcp(request)
-				: call(request)
+				: call(root, request)
 			: pathname === '/'
 				? site.launcher(request)
 				: site.ui(request));
 		// Every answer to a request serve accepts names its home, so a command
 		// or a second serve can tell who holds the port.
-		response.headers.set(HOME_HEADER, await homeName());
+		response.headers.set(HOME_HEADER, name);
 		return response;
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,
-		port,
+		port: root.port,
 		idleTimeout: 0,
 		// Bun refuses a larger body itself, with 413.
 		maxRequestBodySize: MAX_INPUT_BYTES,
 		fetch: answer,
 	});
-	const routines = createRoutines({ folder: epicenterDir() });
+	const routines = createRoutines(root);
 	const checkRoutines = () =>
 		routines
 			.check()
@@ -472,8 +476,11 @@ async function dotenvProblem(root: string) {
  * reach Git, saying why, or when the port is taken, answering who holds it.
  * Once listening it prints each app whose `local/` has no `.gitignore`.
  */
-export async function serveHttp(port: number): Promise<Answer | undefined> {
-	const dotenv = await dotenvProblem(epicenterDir());
+export async function serveHttp(
+	root: EpicenterRoot,
+): Promise<Answer | undefined> {
+	const { port } = root;
+	const dotenv = await dotenvProblem(root.folder);
 	if (dotenv)
 		return ActionError.NotStarted({ cause: 'unavailable', message: dotenv });
 	const portTaken = (holder: { home: boolean }) =>
@@ -483,18 +490,18 @@ export async function serveHttp(port: number): Promise<Answer | undefined> {
 				? `Epicenter is already serving this home on port ${port}.`
 				: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
 		});
-	const holder = await whoAnswers(port);
+	const holder = await whoAnswers(root);
 	if (holder) return portTaken(holder);
 	let server: ReturnType<typeof startHttpServer>;
 	try {
-		server = startHttpServer(port);
+		server = startHttpServer(root);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
 		// The port was taken since it was asked, or its holder does not speak HTTP.
-		return portTaken((await whoAnswers(port)) ?? { home: false });
+		return portTaken((await whoAnswers(root)) ?? { home: false });
 	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
-	for (const { entry, realPath } of await homeEntries()) {
+	for (const { entry, realPath } of await homeEntries(root)) {
 		const local = await localProblem(entry, realPath);
 		if (local) writeErr(local);
 	}

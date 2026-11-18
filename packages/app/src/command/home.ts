@@ -26,7 +26,7 @@ import {
 	type NotStarted,
 } from '../index.ts';
 import { nameProblem } from './commands.ts';
-import { appsDir, epicenterRoot } from './root.ts';
+import type { EpicenterRoot } from './root.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
@@ -106,10 +106,14 @@ async function entryAt(folder: string) {
 	}
 }
 
+/** The Epicenter's `apps/`, which holds its apps, each holding code/, data/ and local/. */
+const appsIn = ({ folder }: Pick<EpicenterRoot, 'folder'>) =>
+	join(folder, 'apps');
+
 /** The entries in `apps/` that look like apps, sorted by name, without importing any of them; none when there is no `apps/`. */
-export async function homeEntries() {
+export async function homeEntries(root: Pick<EpicenterRoot, 'folder'>) {
 	const names = (
-		await readdir(appsDir()).catch((error: NodeJS.ErrnoException) => {
+		await readdir(appsIn(root)).catch((error: NodeJS.ErrnoException) => {
 			if (error.code === 'ENOENT') return [] as string[];
 			throw error;
 		})
@@ -119,7 +123,7 @@ export async function homeEntries() {
 	return (
 		await Promise.all(
 			names.map(async (entry) => {
-				const found = await entryAt(join(appsDir(), entry));
+				const found = await entryAt(join(appsIn(root), entry));
 				return found && { ...found, entry };
 			}),
 		)
@@ -225,8 +229,8 @@ export async function localProblem(
  * rest. An app whose `local/` does not ignore itself still runs, and is also
  * listed with that problem.
  */
-export async function discoverAll() {
-	const found = await homeEntries();
+export async function discoverAll(root: Pick<EpicenterRoot, 'folder'>) {
+	const found = await homeEntries(root);
 	const loaded = await Promise.all(
 		found.map(async (entry) => ({
 			located: await load(entry, entry.entry),
@@ -234,7 +238,7 @@ export async function discoverAll() {
 		})),
 	);
 	return {
-		epicenter: epicenterRoot().folder,
+		epicenter: root.folder,
 		apps: loaded.flatMap(({ located }) => (located.ok ? [located] : [])),
 		problems: loaded.flatMap(({ located, local }) => {
 			const problems = [
@@ -266,9 +270,10 @@ type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
 
 /** The app entry named `name`, loaded or not, for a request that names one. */
 export async function findEntry(
+	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 ): Promise<Result<Entry, NotStarted>> {
-	const entry = (await homeEntries()).find((entry) => entry.entry === name);
+	const entry = (await homeEntries(root)).find((entry) => entry.entry === name);
 	return entry ? Ok(entry) : unknownApp(name);
 }
 
@@ -277,10 +282,11 @@ export async function findEntry(
  * An app that does not load answers its problems.
  */
 export async function loadHomeApp(
+	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 ): Promise<Result<Runnable, NotStarted>> {
 	if (!isName(name)) return unknownApp(name);
-	const found = await entryAt(join(appsDir(), name));
+	const found = await entryAt(join(appsIn(root), name));
 	if (!found) return unknownApp(name);
 	const located = await load(found, name);
 	if (located.ok) return Ok(located);
