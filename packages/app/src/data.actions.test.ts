@@ -124,7 +124,7 @@ test('folder get and patch answer Missing while a duplicate create answers Chang
 		});
 		expect(expectOk(await notes.get({ id: 'same' })).title).toBe('first');
 		expect(expectErr<ActionError>(await notes.get({ id: '../bad' })).name).toBe(
-			'Refused',
+			'Misfit',
 		);
 	});
 });
@@ -198,7 +198,7 @@ test.each(['folder', 'one-file'] as const)(
 			}
 			expect(
 				expectErr<ActionError>(await edit({ old: '', new: 'new' })).name,
-			).toBe('Refused');
+			).toBe('Misfit');
 			const record = expectOk(
 				await (kind === 'folder' ? notes.get({ id: 'a' }) : settings.get({})),
 			);
@@ -307,13 +307,16 @@ test('generated verbs take the id as the file name and refuse one that cannot na
 		for (const [id, message] of [
 			[
 				' Caf\u00e9 ',
-				'notes: " Caf\u00e9 ": an id cannot start or end with whitespace; send "Caf\u00e9"',
+				'data/notes does not fit its fields:\ndata/notes: " Caf\u00e9 ": an id cannot start or end with whitespace; send "Caf\u00e9"',
 			],
 			[
 				'Cafe\u0301',
-				'notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
+				'data/notes does not fit its fields:\ndata/notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
 			],
-			['../bad', 'notes: "../bad": an id cannot contain / or \\'],
+			[
+				'../bad',
+				'data/notes does not fit its fields:\ndata/notes: "../bad": an id cannot contain / or \\',
+			],
 		] as const)
 			for (const result of [
 				await notes.get({ id }),
@@ -322,7 +325,7 @@ test('generated verbs take the id as the file name and refuse one that cannot na
 				await notes.edit({ id, old: 'one', new: 'x' }),
 				await notes.delete({ id }),
 			])
-				expect(expectErr(result)).toMatchObject({ name: 'Refused', message });
+				expect(expectErr(result)).toMatchObject({ name: 'Misfit', message });
 		expect(
 			expectOk(await notes.edit({ id: 'Caf\u00e9', old: 'one', new: 'three' }))
 				.body,

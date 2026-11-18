@@ -50,9 +50,11 @@ function marked<T extends { message: string }>(body: T) {
 
 export const ActionError = defineErrors({
 	/**
-	 * A file does not fit its declared fields. `id` is the file's name in a
-	 * folder key; a one-file key has none. An unreadable file omits the
-	 * partial record.
+	 * A file, or a change to one, does not fit its declared fields. `id` is the
+	 * file's name in a folder key; a one-file key has none, and neither has an
+	 * id that cannot name a file, whose `path` is the key's folder. A read
+	 * carries the partial `record` for repair, unless the file is unreadable; a
+	 * refused change carries none.
 	 */
 	Misfit: ({
 		path,
@@ -86,7 +88,11 @@ export const ActionError = defineErrors({
 		message: string;
 		thrown?: { name: string; message: string } & Record<string, unknown>;
 	}) => marked(body),
-	/** An operation declined the request. This does not imply the outer action wrote nothing. */
+	/**
+	 * The app said no: a ready-made name for an action's own refusal. Epicenter
+	 * never answers it; a write that does not fit the declared fields is `Misfit`.
+	 * It does not imply the action wrote nothing.
+	 */
 	Refused: (body: { message: string; next?: string }) => marked(body),
 	/**
 	 * It ran, and `report` is what it found, but the job is not clean: a check

@@ -139,9 +139,26 @@ test('folder patch returns Missing, one-file patch creates only a fitting record
 		expect(expectErr(await data.notes.patch('typo', { title: 'x' })).name).toBe(
 			'Missing',
 		);
-		expect(expectErr(await data['settings.md'].patch({ count: 1 })).name).toBe(
-			'Refused',
-		);
+		// A change that does not fit is Misfit, like a file that does not, with
+		// each problem and its kind, and no record.
+		expect(expectErr(await data['settings.md'].patch({ count: 1 }))).toEqual({
+			name: 'Misfit',
+			message:
+				'data/settings.md does not fit its fields:\ndata/settings.md: title is missing',
+			path: 'data/settings.md',
+			problems: [{ line: 'title is missing', kind: 'title is missing' }],
+			namespace: 'epicenter/action-error',
+		});
+		expect(
+			expectErr(
+				await data.notes.create('a', { title: 'x', color: 'red' } as never),
+			),
+		).toMatchObject({
+			name: 'Misfit',
+			path: 'data/notes/a.md',
+			id: 'a',
+			problems: [{ line: 'has no field "color"', kind: 'has no such field' }],
+		});
 		expect(await folder.read('data/settings.md')).toBeUndefined();
 		expect(
 			expectOk(await data['settings.md'].patch({ title: 'x' })).title,
@@ -277,7 +294,7 @@ test.each(invalidIds)(
 				}),
 				await notes.delete(id),
 			])
-				expect(expectErr(result).name).toBe('Refused');
+				expect(expectErr(result).name).toBe('Misfit');
 		});
 		expect(idProblem(id)).toBeDefined();
 	},
@@ -286,23 +303,23 @@ test.each(invalidIds)(
 test.each([
 	[
 		' Dune',
-		'notes: " Dune": an id cannot start or end with whitespace; send "Dune"',
+		'data/notes does not fit its fields:\ndata/notes: " Dune": an id cannot start or end with whitespace; send "Dune"',
 	],
 	[
 		'Dune ',
-		'notes: "Dune ": an id cannot start or end with whitespace; send "Dune"',
+		'data/notes does not fit its fields:\ndata/notes: "Dune ": an id cannot start or end with whitespace; send "Dune"',
 	],
 	[
 		'Dune\u00a0',
-		'notes: "Dune\u00a0": an id cannot start or end with whitespace; send "Dune"',
+		'data/notes does not fit its fields:\ndata/notes: "Dune\u00a0": an id cannot start or end with whitespace; send "Dune"',
 	],
 	[
 		'\u3000Dune',
-		'notes: "\u3000Dune": an id cannot start or end with whitespace; send "Dune"',
+		'data/notes does not fit its fields:\ndata/notes: "\u3000Dune": an id cannot start or end with whitespace; send "Dune"',
 	],
 	[
 		'Cafe\u0301',
-		'notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
+		'data/notes does not fit its fields:\ndata/notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
 	],
 ])(
 	'an id is never tidied: %j is refused by every verb with the reason',
@@ -320,7 +337,7 @@ test.each([
 				await notes.edit(id, () => Ok({ title: 'x' })),
 				await notes.delete(id),
 			])
-				expect(expectErr(result)).toMatchObject({ name: 'Refused', message });
+				expect(expectErr(result)).toMatchObject({ name: 'Misfit', message });
 			expect((await folder.list('data/notes')).sort()).toEqual(
 				['data/notes/Caf\u00e9.md', 'data/notes/Dune.md'].sort(),
 			);
@@ -433,7 +450,7 @@ test.each(['folder', 'one-file'] as const)(
 				why: 'twice',
 				path,
 			});
-			expect(expectErr(await edit({ old: '', new: 'x' })).name).toBe('Refused');
+			expect(expectErr(await edit({ old: '', new: 'x' })).name).toBe('Misfit');
 			expect(await folder.read(path)).toBe(text);
 			expect(expectOk(await edit({ old: 'one', new: 'ONE' })).body).toBe(
 				'ONE two two',
@@ -498,7 +515,7 @@ test.each([
 			await data.notes.edit('a', change as never),
 			await data['settings.md'].edit(change as never),
 		])
-			expect(expectErr(result).name).toBe('Refused');
+			expect(expectErr(result).name).toBe('Misfit');
 	});
 });
 

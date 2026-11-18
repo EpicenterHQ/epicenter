@@ -57,12 +57,15 @@ type Misfit<TKey extends string, TDef extends DataDef> = Flat<
 			record?: Flat<Named<TKey> & Loose<TDef['fields']>>;
 		}
 >;
-type Refused = Extract<ActionError, { name: 'Refused' }>;
+/** A change or id that does not fit: a Misfit with no record to show. */
+type Unfit = Flat<
+	Omit<Extract<ActionError, { name: 'Misfit' }>, 'record'> & { record?: never }
+>;
 type Changed = Extract<ActionError, { name: 'Changed' }>;
 type Missing = Extract<ActionError, { name: 'Missing' }>;
 type WriteError<TKey extends string, TDef extends DataDef> =
 	| Misfit<TKey, TDef>
-	| Refused
+	| Unfit
 	| Changed;
 /** One passage of the body and the text to put in its place. */
 type Passage = { old: string; new: string };
@@ -117,7 +120,7 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	get(
 		id: string,
 	): Promise<
-		Result<DataRecord<TKey, TDef> | undefined, Misfit<TKey, TDef> | Refused>
+		Result<DataRecord<TKey, TDef> | undefined, Misfit<TKey, TDef> | Unfit>
 	>;
 	/** One Result per directly contained record, sorted by path. */
 	list(): Promise<Result<DataRecord<TKey, TDef>, Misfit<TKey, TDef>>[]>;
@@ -125,7 +128,7 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	create(
 		id: string,
 		record: Input<TDef['fields']>,
-	): Promise<Result<DataRecord<TKey, TDef>, Refused | Changed>>;
+	): Promise<Result<DataRecord<TKey, TDef>, Unfit | Changed>>;
 	/** Patch fields and replace the body of an existing record; an absent id returns Missing. */
 	patch(
 		id: string,
@@ -134,7 +137,7 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	/** Change one record based on what it holds now. */
 	edit: Edit<TKey, TDef, [id: string]>;
 	/** Delete one id, returning whether its file existed. */
-	delete(id: string): Promise<Result<boolean, Refused>>;
+	delete(id: string): Promise<Result<boolean, Unfit>>;
 	/** The file path for this id as given, without checking it or the disk. */
 	path(id: string): string;
 };
@@ -180,16 +183,15 @@ type ActionOutput<
 	list: Result<Result<DataRecord<TKey, TDef>, Misfit<TKey, TDef>>[], never>;
 	get: Result<
 		DataRecord<TKey, TDef> | (TKey extends `${string}.md` ? undefined : never),
-		| Misfit<TKey, TDef>
-		| (TKey extends `${string}.md` ? never : Refused | Missing)
+		Misfit<TKey, TDef> | (TKey extends `${string}.md` ? never : Unfit | Missing)
 	>;
-	create: Result<DataRecord<TKey, TDef>, Refused | Changed>;
+	create: Result<DataRecord<TKey, TDef>, Unfit | Changed>;
 	patch: Result<
 		DataRecord<TKey, TDef>,
 		WriteError<TKey, TDef> | (TKey extends `${string}.md` ? never : Missing)
 	>;
 	edit: Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | Missing>;
-	delete: Result<boolean, TKey extends `${string}.md` ? never : Refused>;
+	delete: Result<boolean, TKey extends `${string}.md` ? never : Unfit>;
 }[TVerb];
 
 /** Each named verb's action, retaining its input and Result types. */
@@ -325,13 +327,15 @@ function createRecordHandle(key: string, def: DataDef) {
 			single ? {} : { id: path.slice(base.length + 1, -3) },
 	});
 	const pathFor = (id: string) => `${base}/${id}.md`;
-	/** The path for `id` as given, or Refused when it breaks ADR-0933's rule. */
+	/** The path for `id` as given, or Misfit when it breaks ADR-0933's rule. */
 	function place(id?: string) {
 		if (single) return base;
 		const problem = idProblem(id);
 		if (!problem) return pathFor(id as string);
-		if (typeof id !== 'string')
-			return ActionError.Refused({ message: `${key}: ${problem}` });
+		// The id names no file, so the problem sits at the key's folder.
+		const unfit = (line: string) =>
+			ActionError.Misfit({ path: base, problems: [{ line, kind: problem }] });
+		if (typeof id !== 'string') return unfit(problem);
 		// Whitespace is invisible, so quote the id, and name the tidy form the
 		// caller may send instead. The library itself never changes an id.
 		const tidy = id.normalize('NFC').trim();
@@ -339,9 +343,7 @@ function createRecordHandle(key: string, def: DataDef) {
 			tidy !== id && idProblem(tidy) === undefined
 				? `; send ${JSON.stringify(tidy)}`
 				: '';
-		return ActionError.Refused({
-			message: `${key}: ${JSON.stringify(id)}: ${problem}${instead}`,
-		});
+		return unfit(`${JSON.stringify(id)}: ${problem}${instead}`);
 	}
 	async function get(id?: string) {
 		const path = place(id);
@@ -426,7 +428,7 @@ type JsonDef = { fields: Record<string, TUnsafe<JsonValue>> };
 
 /**
  * The change that replaces the one passage `old` of a record's body with
- * `new`, or Refused when `passage` is not `{ old, new }` with non-empty `old`.
+ * `new`, or Misfit when `passage` is not `{ old, new }` with non-empty `old`.
  */
 function replacing(path: string, passage: unknown) {
 	const keys =
@@ -436,18 +438,15 @@ function replacing(path: string, passage: unknown) {
 			? Object.keys(passage).sort().join()
 			: undefined;
 	const { old, new: replacement } = (passage ?? {}) as Record<string, unknown>;
+	const unfit = (line: string) =>
+		ActionError.Misfit({ path, problems: [{ line, kind: line }] });
 	if (
 		keys !== 'new,old' ||
 		typeof old !== 'string' ||
 		typeof replacement !== 'string'
 	)
-		return ActionError.Refused({
-			message: `${path}: edit takes a function or { old, new }, each text`,
-		});
-	if (old === '')
-		return ActionError.Refused({
-			message: `${path}: the passage to replace must be non-empty text`,
-		});
+		return unfit('edit takes a function or { old, new }, each text');
+	if (old === '') return unfit('the passage to replace must be non-empty text');
 	return (record: AnyRecord | undefined) => {
 		if (record === undefined) return ActionError.Missing({ path });
 		const body = edited(path, record.body, old, replacement);
@@ -467,7 +466,7 @@ function dataAction(
 		/^(?:a|an|the)\s+/i,
 		'',
 	);
-	// Text, not field.id: the handle's Refused names the problem with the key.
+	// Text, not field.id: the handle's Misfit names the problem with the key.
 	const id = field.text({ description: `The name of the ${what}` });
 	const keys: Record<string, typeof id> = keyed ? { id } : {};
 	const hints = { openWorldHint: false } as const;
