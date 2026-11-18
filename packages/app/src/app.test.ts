@@ -1,115 +1,78 @@
 /**
- * App composition, run context, and action and data declarations.
- * Declarations reject malformed metadata and cyclic schemas before discovery.
+ * App composition and action and data declarations. An app is a function of
+ * its folder (ADR-0960): a test calls it with a folder on a temporary
+ * directory. Declarations reject malformed metadata and cyclic schemas
+ * before discovery.
  */
 import { describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 import { type TSchema, Type } from 'typebox';
 import {
-	createMemoryContext,
+	type App,
 	defineAction,
 	defineApp,
 	defineData,
+	type Folder,
 	field,
-	folder,
-	inRun,
-	normalizePath,
 	Ok,
 	type Update,
 } from './index.ts';
+import { tempFolder } from './temp-folder.test-support.ts';
 
-const data = defineData({ books: { fields: { title: field.text() } } });
-
-const log = defineAction({
-	description: 'Record minutes read today',
-	input: { minutes: field.number() },
-	run: async ({ minutes }) => {
-		const before = (await folder.read('data/2026.csv')) ?? 'minutes\n';
-		await folder.write('data/2026.csv', `${before}${minutes}\n`);
-		return Ok({ minutes });
-	},
-});
-
-const reading = defineApp({
-	description: 'How much I read each week',
-	data,
-	actions: { books: data.books.actions('list', 'get', 'create', 'patch'), log },
-});
-
-describe('createMemoryContext', () => {
-	test('an action runs against a folder in memory', async () => {
-		const context = createMemoryContext({ 'data/2026.csv': 'minutes\n10\n' });
-		expect(
-			await inRun(context, () => reading.actions.log({ minutes: 30 })),
-		).toEqual(Ok({ minutes: 30 }));
-		expect(await context.folder.read('data/2026.csv')).toBe(
-			'minutes\n10\n30\n',
-		);
-		expect(await context.folder.list()).toEqual(['data/2026.csv']);
+const reading = defineApp(({ folder }) => {
+	const data = defineData(folder, {
+		books: { fields: { title: field.text() } },
 	});
-
-	test('a missing file reads as undefined, and a deleted one is gone', async () => {
-		const { folder } = createMemoryContext({ 'a/b.md': 'b' });
-		expect(await folder.read('nope.md')).toBeUndefined();
-		expect(await folder.list('a')).toEqual(['a/b.md']);
-		await folder.delete('a/b.md');
-		expect(await folder.list()).toEqual([]);
-	});
-
-	test('the ambient folder is read only inside a run', () => {
-		expect(() => folder.read('data/2026.csv')).toThrow(
-			"An app's data and folder are read only inside an action's run",
-		);
-	});
-});
-
-describe('writes in a run', () => {
-	test('refuses every folder write outside data/ and local/ while leaving reads open', async () => {
-		const context = createMemoryContext({ 'README.md': 'code' });
-		const attempts: (() => Promise<unknown>)[] = [
-			() => folder.write('report.md', 'text'),
-			() => folder.writeBytes('report.md', new Uint8Array([1])),
-			() => folder.update('report.md', () => 'text'),
-			() => folder.delete('report.md'),
-		];
-		for (const attempt of attempts)
-			await expect(inRun(context, attempt)).rejects.toThrow(
-				'report.md is outside data/ and local/, and an action writes only there',
+	const log = defineAction({
+		description: 'Record minutes read today',
+		input: { minutes: field.number() },
+		run: async ({ minutes }) => {
+			await folder.edit('data/2026.csv', (before = 'minutes\n') =>
+				Ok({ text: `${before}${minutes}\n` }),
 			);
-		await expect(
-			inRun(context, () => folder.write('locals/x.md', 'text')),
-		).rejects.toThrow('locals/x.md is outside data/ and local/');
-		expect(await inRun(context, () => folder.read('README.md'))).toBe('code');
-		expect(await context.folder.list()).toEqual(['README.md']);
-	});
-
-	test('writes under local/, which stays on this computer', async () => {
-		const context = createMemoryContext();
-		await inRun(context, async () => {
-			await folder.write('local/google.md', 'token');
-			await folder.update('local/cache/seen.txt', (text = '') => `${text}a`);
-			await folder.delete('local/google.md');
-		});
-		expect(await context.folder.list()).toEqual(['local/cache/seen.txt']);
-	});
-});
-
-describe('a run', () => {
-	test('a run reaches its folder and nothing else', () => {
-		expect(Object.keys(createMemoryContext())).toEqual(['folder']);
-	});
-});
-
-describe('normalizePath', () => {
-	test('tidies a relative path', () => {
-		expect(normalizePath('./a//b.md')).toBe('a/b.md');
-	});
-
-	test.each(['', '/etc/passwd', '../x', 'a/../../x', '.git/config', 'a\\b'])(
-		'refuses %p',
-		(path) => {
-			expect(() => normalizePath(path)).toThrow();
+			return Ok({ minutes });
 		},
-	);
+	});
+	const total = defineAction({
+		description: 'Minutes read so far',
+		input: {},
+		annotations: { readOnlyHint: true },
+		run: async () => {
+			const file = Bun.file(join(folder.path, 'data/2026.csv'));
+			const text = (await file.exists()) ? await file.text() : 'minutes\n';
+			const lines = text.trim().split('\n').slice(1);
+			return Ok(lines.reduce((sum, line) => sum + Number(line), 0));
+		},
+	});
+	return {
+		description: 'How much I read each week',
+		data,
+		actions: {
+			books: data.books.actions('list', 'get', 'create', 'patch'),
+			log,
+			total,
+		},
+	};
+});
+
+describe('an app', () => {
+	test('is called with a folder, and its actions change files in that folder', async () => {
+		const { folder, read } = await tempFolder({
+			'data/2026.csv': 'minutes\n10\n',
+		});
+		const app = reading({ folder });
+		expect(await app.actions.log({ minutes: 30 })).toEqual(Ok({ minutes: 30 }));
+		expect(await read('data/2026.csv')).toBe('minutes\n10\n30\n');
+		expect(await app.actions.total({})).toEqual(Ok(40));
+	});
+
+	test('two calls with two folders do not share files', async () => {
+		const one = await tempFolder();
+		const two = await tempFolder();
+		await reading({ folder: one.folder }).actions.log({ minutes: 5 });
+		expect(await one.read('data/2026.csv')).toBe('minutes\n5\n');
+		expect(await two.read('data/2026.csv')).toBeUndefined();
+	});
 });
 
 const noop = defineAction({
@@ -117,6 +80,20 @@ const noop = defineAction({
 	input: {},
 	run: () => Ok(undefined),
 });
+
+const shown = defineAction({
+	description: 's',
+	input: {},
+	run: () => Ok('shown'),
+});
+
+/**
+ * What `defineApp` makes of an app that returns `app`. The folder is never
+ * used: these apps only declare.
+ */
+function made<const T extends App>(app: T): T {
+	return defineApp(() => app)({ folder: {} as Folder });
+}
 
 /** What `make` throws, one problem a line. */
 function problems(make: () => unknown): string[] {
@@ -129,13 +106,13 @@ function problems(make: () => unknown): string[] {
 }
 
 describe('defineApp', () => {
-	test('returns what it was given, with its actions nested under their words', () => {
-		const given = { description: 'Same', data, actions: { log } };
-		expect(defineApp(given)).toBe(given);
-		expect(reading.data.books).toBe(data.books);
-		expect(reading.actions.log).toBe(log);
-		expect(Object.keys(reading.actions)).toEqual(['books', 'log']);
-		expect(Object.keys(reading.actions.books)).toEqual([
+	test('returns a function that answers what the app returned, with its actions nested under their words', async () => {
+		const { folder } = await tempFolder();
+		const given = { description: 'Same', actions: { noop } };
+		expect(defineApp(() => given)({ folder })).toBe(given);
+		const app = reading({ folder });
+		expect(Object.keys(app.actions)).toEqual(['books', 'log', 'total']);
+		expect(Object.keys(app.actions.books)).toEqual([
 			'list',
 			'get',
 			'create',
@@ -143,40 +120,32 @@ describe('defineApp', () => {
 		]);
 	});
 
-	test('an action that calls another stays in the same run', async () => {
-		const twice = defineAction({
-			description: 'Log twice',
-			input: { minutes: field.number() },
-			run: async ({ minutes }) => {
-				await log({ minutes });
-				return log({ minutes });
-			},
-		});
-		const context = createMemoryContext();
-		await inRun(context, () => twice({ minutes: 5 }));
-		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n5\n5\n');
+	test('refuses an argument that is not a function', () => {
+		expect(
+			problems(() => defineApp({ description: 'Old', actions: {} } as never)),
+		).toEqual([
+			'An app is a function of its folder: defineApp(({ folder }) => ({ description, data, actions }))',
+		]);
 	});
 
 	test('needs a description and actions', () => {
+		expect(problems(() => made({ description: ' ', actions: {} }))).toEqual([
+			'An app needs a description',
+		]);
 		expect(
-			problems(() => defineApp({ description: ' ', actions: {} })),
-		).toEqual(['An app needs a description']);
-		expect(
-			problems(() =>
-				defineApp({ description: 'Bare', actions: null } as never),
-			),
+			problems(() => made({ description: 'Bare', actions: null } as never)),
 		).toEqual([
 			'An app needs actions: an object of defineAction(...) and groups of them, {} for none',
 		]);
-		expect(problems(() => defineApp(undefined as never))).toEqual([
-			'An app is an object: defineApp({ description, data, actions })',
+		expect(problems(() => made(undefined as never))).toEqual([
+			'An app returns an object: defineApp(({ folder }) => ({ description, data, actions }))',
 		]);
 	});
 
 	test('refuses an action named then at any depth, which a UI could not call', () => {
 		expect(
 			problems(() =>
-				defineApp({
+				made({
 					description: 'Then',
 					// biome-ignore lint/suspicious/noThenProperty: the test defines then actions to check defineApp refuses them
 					actions: { then: noop, group: { then: noop, inner: { then: noop } } },
@@ -190,21 +159,21 @@ describe('defineApp', () => {
 	});
 
 	test('accepts groups with actions named run, start, and description', () => {
-		const app = defineApp({
+		const app = made({
 			description: 'Daily work',
-			actions: { daily: { run: noop, start: log, description: noop } },
+			actions: { daily: { run: noop, start: shown, description: noop } },
 		});
 		expect(
 			Object.keys(app.actions.daily).map((word) => `daily ${word}`),
 		).toEqual(['daily run', 'daily start', 'daily description']);
 		expect(app.actions.daily.run).toBe(noop);
-		expect(app.actions.daily.start).toBe(log);
+		expect(app.actions.daily.start).toBe(shown);
 	});
 
 	test('refuses an object spread with an action description and plain run function', () => {
 		expect(
 			problems(() =>
-				defineApp({
+				made({
 					description: 'Broken spread',
 					actions: {
 						daily: { ...noop, description: 'Daily', run() {} },
@@ -219,7 +188,7 @@ describe('defineApp', () => {
 	test('names keys that cannot be words, and entries that are not actions', () => {
 		expect(
 			problems(() =>
-				defineApp({
+				made({
 					description: 'Bad',
 					actions: {
 						'Two Words': noop,
@@ -246,7 +215,7 @@ describe('defineData', () => {
 		};
 		schema.properties.self = schema;
 		expect(() =>
-			defineData({ records: { fields: { value: schema } } }),
+			defineData({} as Folder, { records: { fields: { value: schema } } }),
 		).toThrow(TypeError);
 	});
 });
@@ -337,6 +306,7 @@ describe('defineAction', () => {
 	});
 
 	test('an action that sends updates resolves with its return, and a caller that listens hears them in order', async () => {
+		const { folder, read } = await tempFolder();
 		const say = defineAction({
 			description: 'Say',
 			input: { message: field.text(), loud: field.boolean() },
@@ -347,17 +317,15 @@ describe('defineAction', () => {
 				return Ok({ said: message });
 			},
 		});
-		const context = createMemoryContext();
-		expect(await inRun(context, () => say({ message: 'hi' }))).toEqual(
-			Ok({ said: 'hi' }),
-		);
+		expect(await say({ message: 'hi' })).toEqual(Ok({ said: 'hi' }));
 		const seen: unknown[] = [];
-		const returned = await inRun(context, () =>
-			say({ message: '猫' }, { onUpdate: (value) => seen.push(value) }),
+		const returned = await say(
+			{ message: '猫' },
+			{ onUpdate: (value) => seen.push(value) },
 		);
 		expect(seen).toEqual(['猫', { loud: false }]);
 		expect(returned).toEqual(Ok({ said: '猫' }));
-		expect(await context.folder.read('data/said.md')).toBe('猫');
+		expect(await read('data/said.md')).toBe('猫');
 	});
 
 	test('a listener cannot slow, stop, or outlive the action', async () => {

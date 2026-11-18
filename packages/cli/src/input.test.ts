@@ -1,7 +1,13 @@
 /** An action's command-line input is one JSON object, checked as a page's or an agent's is (ADR-0925). */
 
 import { expect, test } from 'bun:test';
-import { defineAction, defineData, field, Ok } from '@epicenter/app';
+import {
+	defineAction,
+	defineData,
+	type Folder,
+	field,
+	Ok,
+} from '@epicenter/app';
 import { Type } from 'typebox';
 import { checkInput, matchAction, readInput, usageLine } from './input.ts';
 import { actionHelp } from './listing.ts';
@@ -166,7 +172,8 @@ test('every input shape works: lists of objects, and a reference checked as an i
 });
 
 test("a data key's edit takes id, old, and new beside each other, and nothing else", () => {
-	const { notes } = defineData({
+	// Only the action's declaration is read, so the folder is never used.
+	const { notes } = defineData({} as Folder, {
 		notes: { fields: { title: field.text({ optional: true }) } },
 	});
 	const { edit } = notes.actions('edit');

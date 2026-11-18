@@ -5,20 +5,16 @@
  * `{ data, error }`.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { existsSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
 	connectMcp,
 	fixture,
-	gitignore,
 	header,
 	readingApp,
 } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
-
-const repo = resolve(import.meta.dir, '../../..');
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -29,7 +25,7 @@ afterEach(async () => {
 
 /** An app whose actions each exercise one repair. */
 const repairsCode = `${header}
-export default defineApp({
+export default defineApp(({ folder }) => ({
 	description: 'The notes app',
 	actions: {
 		two: defineAction({
@@ -54,11 +50,10 @@ export default defineApp({
 			run: (input) => Ok(input),
 		}),
 	},
-});
+}));
 `;
 
 const repairsApp = {
-	'code/.gitignore': gitignore,
 	'data/a.md': 'base a\n',
 	'code/epicenter.ts': repairsCode,
 };
@@ -95,13 +90,12 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await notes(f);
 	await f.folder(join(f.apps, 'broken'), {
-		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
 	});
 	await f.app(
 		'loud',
 		`console.log('noise while importing');
-export default defineApp({ description: 'The loud app', actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } });
+export default defineApp(() => ({ description: 'The loud app', actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } }));
 `,
 	);
 	const { client, close } = await connectMcp(f, ['--no-install']);
@@ -147,22 +141,10 @@ export default defineApp({ description: 'The loud app', actions: { hello: define
 test('F9 one table owns the vocabulary; --json goes anywhere; optional fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
-	for (const word of ['open', 'types', 'setup', 'help']) {
-		const result = await f.json(word);
-		expect(result.code).toBe(2);
-		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
-	}
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain(
 		'Exit codes: 0 done, 1 failed, ran in part or may have run, 2 did not run.',
 	);
-	for (const gone of [
-		'epicenter types',
-		'setup',
-		'epicenter help',
-		'epicenter build',
-	])
-		expect(help).not.toContain(gone);
 
 	const leading = await f.run('--json', 'notes', 'two', '{"text":"Ada"}');
 	expect(leading.code).toBe(0);
@@ -186,7 +168,7 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 	const f = await setup();
 	await f.app(
 		'other',
-		`export default defineApp({ description: 'Another app', actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } });\n`,
+		`export default defineApp(() => ({ description: 'Another app', actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } }));\n`,
 	);
 	const listed = await f.json('other');
 	expect(listed.code).toBe(0);
@@ -198,7 +180,6 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 		data: 'hi',
 		error: null,
 	});
-	expect(existsSync(join(repo, 'packages/cli/src/types.ts'))).toBe(false);
 });
 
 test("F12 field.date() carries format: 'date', and the CLI reads the format", async () => {

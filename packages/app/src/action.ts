@@ -57,7 +57,7 @@ export type Input = Record<string, TSchema & object>;
  * forwards them and nothing enforces them: an action that says it is
  * read-only and writes is the action's own mistake.
  */
-export type Annotations = {
+type Annotations = {
 	title?: string;
 	readOnlyHint?: boolean;
 	destructiveHint?: boolean;
@@ -87,7 +87,7 @@ type Shared = {
  * survives `JSON.stringify` whole, so validation, MCP's `inputSchema`,
  * `--help`, and `list --json` all read this one value (ADR-0953).
  */
-export type ActionMeta = Shared & { readonly input: ObjectSchema };
+type ActionMeta = Shared & { readonly input: ObjectSchema };
 
 /**
  * What `run` calls to report while it runs. It returns at once and never
@@ -145,7 +145,7 @@ type Answer = Result<Returned, PublicError>;
 type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
 
 /** The value `run` receives for `input`: a switch or a list with no `min` is always there, `false` or `[]` when the caller left it out. */
-export type InputOf<I extends Input> = Simplify<
+type InputOf<I extends Input> = Simplify<
 	Omit<Static<TObject<I>>, FilledKeys<I>> & {
 		[K in FilledKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
 	}
@@ -158,7 +158,7 @@ type CallerInput<I extends Input> = Simplify<Static<TObject<I>>>;
  * An action as an app writes it: `run` receives its input, typed by its
  * fields, and `update`, which it may leave out.
  */
-export type ActionDef<
+type ActionDef<
 	I extends Input,
 	Out extends Answer | Promise<Answer> = Answer | Promise<Answer>,
 	U extends Returned = never,

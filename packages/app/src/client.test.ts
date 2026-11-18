@@ -33,9 +33,11 @@ const count = defineAction({
 		return Ok('done');
 	},
 });
-const app = connect<{
-	actions: { count: typeof count; deep: { count: typeof count } };
-}>({
+const app = connect<
+	() => {
+		actions: { count: typeof count; deep: { count: typeof count } };
+	}
+>({
 	app: 'counter',
 });
 const line = (fields: object) => `${JSON.stringify(fields)}\n`;
@@ -175,10 +177,10 @@ test('connect infers the app from document, location, or explicit options', asyn
 		configurable: true,
 		value: { href: 'https://host/other/' },
 	});
-	await connect<{ actions: { count: typeof count } }>().count();
+	await connect<() => { actions: { count: typeof count } }>().count();
 	Reflect.deleteProperty(globalThis, 'document');
-	await connect<{ actions: { count: typeof count } }>().count();
-	await connect<{ actions: { count: typeof count } }>({
+	await connect<() => { actions: { count: typeof count } }>().count();
+	await connect<() => { actions: { count: typeof count } }>({
 		app: 'explicit',
 		url: 'https://host/base',
 	}).count();

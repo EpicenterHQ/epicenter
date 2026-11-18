@@ -6,7 +6,6 @@ import {
 	type Answer,
 	Err,
 	encodeActionResult,
-	inRun,
 	isActionResult,
 	RESERVED_NAMES,
 } from '@epicenter/app';
@@ -41,9 +40,7 @@ export async function runAction(
 	const started = performance.now();
 	let answer: Answer;
 	try {
-		const result = await inRun({ ...located.context }, () =>
-			action(input, { onUpdate }),
-		);
+		const result = await action(input, { onUpdate });
 		// An action made without `defineAction` is checked here, where every call passes.
 		if (!isActionResult(result))
 			throw new TypeError(
@@ -118,7 +115,7 @@ export async function runAction(
 }
 
 /** Who follows a call as it runs. */
-export type Following = {
+type Following = {
 	/** Each update the action sends, in order. The action never waits for it. */
 	onUpdate?: (value: unknown) => unknown;
 	/** Where the record of the run's end goes: stderr, as JSON lines, unless a test passes its own. */
@@ -126,7 +123,7 @@ export type Following = {
 };
 
 /** A call that is ready to run, or the `NotStarted` that answers it instead. */
-export type Resolved =
+type Resolved =
 	| { refusal: Answer }
 	| {
 			refusal?: undefined;

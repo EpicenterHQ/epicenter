@@ -8,7 +8,7 @@ function element<TElement extends Element>(selector: string) {
 }
 
 const app = connect<typeof definition>();
-type Note = ActionOutput<typeof definition.actions.get>;
+type Note = ActionOutput<ReturnType<typeof definition>['actions']['get']>;
 const capture = element<HTMLFormElement>('#capture');
 const body = element<HTMLTextAreaElement>('#body');
 const captureSave = element<HTMLButtonElement>('#capture-save');

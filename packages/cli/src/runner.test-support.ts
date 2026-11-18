@@ -37,23 +37,6 @@ export async function installPackages(folder: string) {
 	);
 }
 
-/** Run git in `dir`, throwing with its stderr when it fails. */
-export async function gitIn(dir: string, ...args: string[]) {
-	// Bun passes the environment it started with unless told; the preload changed `process.env`.
-	const child = Bun.spawn(['git', '-C', dir, ...args], {
-		env: process.env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`git ${args.join(' ')}: ${stderr}`);
-	return stdout.trim();
-}
-
 /**
  * A port nothing listens on, for a home's `EPICENTER.md`. It is below the
  * range the system hands to outgoing connections, so nothing takes it between
@@ -160,13 +143,11 @@ export async function fixture() {
 	}
 
 	/**
-	 * An app container at `<epicenter>/apps/<entry>`: `code/.gitignore` and
-	 * `code/epicenter.ts` of `source` after an import of everything an app
-	 * defines itself with.
+	 * An app container at `<epicenter>/apps/<entry>`: its `code/epicenter.ts`
+	 * is `source` after an import of everything an app defines itself with.
 	 */
 	async function app(entry: string, source: string, epicenter = home) {
 		return folder(join(epicenter, 'apps', entry), {
-			'code/.gitignore': gitignore,
 			'code/epicenter.ts': `${header}${source}`,
 		});
 	}
@@ -341,24 +322,21 @@ export async function connectMcp(
 	};
 }
 
-/** The ignore file every test app carries. */
-export const gitignore = 'node_modules/\nui/dist/\n';
-
 /** The import every test app's `epicenter.ts` starts with. */
-export const header = `import { defineAction, defineApp, defineData, field, folder, Err, Ok } from '@epicenter/app';\n`;
+export const header = `import { defineAction, defineApp, defineData, field, Err, Ok } from '@epicenter/app';\n`;
 
 /** The `epicenter.ts` of an app with only a description that names it. */
 export function bareApp(name: string) {
-	return `${header}export default defineApp({ description: 'The ${name} app', actions: {} });\n`;
+	return `${header}export default defineApp(() => ({ description: 'The ${name} app', actions: {} }));\n`;
 }
 
 /** Reading, as an app's files: a books data key and actions that write a CSV. */
 export const readingApp = {
-	'code/.gitignore': gitignore,
 	'code/epicenter.ts': `${header}
-const data = defineData({ books: { fields: { title: field.text() } } });
+export default defineApp(({ folder }) => {
+const data = defineData(folder, { books: { fields: { title: field.text() } } });
 
-export default defineApp({
+return {
 	description: 'How much I read each week',
 	data,
 	actions: {
@@ -367,7 +345,7 @@ export default defineApp({
 			description: 'Record minutes read today',
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
 			run: async ({ minutes, book }) => {
-				await folder.update('data/2026.csv', (before = 'minutes,book\\n') => \`\${before}\${minutes},\${book ?? ''}\\n\`);
+				await folder.edit('data/2026.csv', (before = 'minutes,book\\n') => Ok({ text: \`\${before}\${minutes},\${book ?? ''}\\n\` }));
 				return Ok({ minutes, book: book ?? null });
 			},
 		}),
@@ -394,22 +372,23 @@ export default defineApp({
 			},
 		}),
 	},
+};
 });
 `,
 };
 
 /** The source of an app with many kinds of input, for `fixture().app`. */
-export const reading = `export default defineApp({ description: 'The reading app', actions: {
+export const reading = `export default defineApp(({ folder }) => ({ description: 'The reading app', actions: {
 	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return Ok(input); } }),
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => Ok(({minutes:210})) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text()), done: field.boolean() }, run: (input) => Ok(input) }),
 	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text()) }, run: (input) => Ok(input) }),
 	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('local/index.json', '{}'); return Ok({folder:folder.path}); } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
-} });`;
+} }));`;
 
 /** The source of an app whose actions share the word `calendar`. */
-export const vault = `export default defineApp({ description: 'The vault app', actions: { calendar: {
+export const vault = `export default defineApp(() => ({ description: 'The vault app', actions: { calendar: {
 	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},run:({day})=>Ok(({day}))}),
 	add: defineAction({description:'Add a day',input:{day:field.date()},run:({day})=>Ok(({day}))}),
-} } });`;
+} } }));`;

@@ -34,13 +34,15 @@ const classify = defineAction({
 });
 // @ts-expect-error An action must return a Result even when it always succeeds.
 defineAction({ description: 'Plain', input: {}, run: () => 1 });
-const app = connect<{
-	actions: {
-		classify: typeof classify;
-		count: typeof count;
-		daily: { start: typeof empty };
-	};
-}>({ app: 'types' });
+const app = connect<
+	() => {
+		actions: {
+			classify: typeof classify;
+			count: typeof count;
+			daily: { start: typeof empty };
+		};
+	}
+>({ app: 'types' });
 // Typecheck these calls without making network requests during bun test.
 function clientUsage() {
 	void app.classify({}).then(({ data, error }) => {

@@ -2,9 +2,9 @@ import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
 import { isActionResult } from './action-result.ts';
-import { folder } from './context.ts';
 import { ActionError, type Problem } from './errors.ts';
 import { absentValue } from './field.ts';
+import type { Folder } from './folder.ts';
 import {
 	type FieldValues,
 	type JsonValue,
@@ -25,7 +25,7 @@ export type AnyRecord = Record<string, unknown> & {
 	path: string;
 	body: string;
 };
-export type Write = { fields: Record<string, unknown>; body?: unknown };
+type Write = { fields: Record<string, unknown>; body?: unknown };
 type Need = 'absent' | 'present' | 'either';
 type Found = ReturnType<typeof readMarkdown>;
 
@@ -40,9 +40,11 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 
 /** Read and patch declared Markdown fields without changing undeclared lines. */
 export function createMarkdownRecords({
+	folder,
 	fields,
 	keysOf,
 }: {
+	folder: Folder;
 	fields: Fields;
 	keysOf: (path: string) => Record<string, string> | undefined;
 }) {
@@ -131,58 +133,63 @@ export function createMarkdownRecords({
 	 * current file. `need` refuses an absent file with Missing and a present
 	 * one with Changed (there).
 	 */
-	function write(
+	async function write(
 		path: string,
 		need: Need,
 		computed: boolean,
 		change: (record: AnyRecord | undefined) => Result<Write, CallbackError>,
-	) {
-		return folder.edit<AnyRecord, CallbackError>(path, (before) => {
-			if (before === undefined && need === 'present')
-				return ActionError.Missing({ path });
-			if (before !== undefined && need === 'absent')
-				return ActionError.Changed({ path, cause: 'there' });
+	): Promise<Result<AnyRecord, CallbackError>> {
+		const written = await folder.edit<AnyRecord, CallbackError>(
+			path,
+			(before) => {
+				if (before === undefined && need === 'present')
+					return ActionError.Missing({ path });
+				if (before !== undefined && need === 'absent')
+					return ActionError.Changed({ path, cause: 'there' });
 
-			const found = readMarkdown(before ?? '');
-			const current = before !== undefined ? project(path, found) : undefined;
-			if (current?.result.error && (computed || !found.readable))
-				return current.result;
-			const changed = change(current?.record);
-			if (changed.error !== null) return changed;
-			const { fields: given, body } = changed.data;
-			if (body !== undefined && typeof body !== 'string')
-				return unfit(path, 'body must be text');
-			const patch = patchOf(path, given, before === undefined);
-			if (patch.error !== null) return patch;
-			const { set, removed } = patch.data;
-			if (
-				current &&
-				!removed.length &&
-				!Object.keys(set).length &&
-				body === undefined
-			)
-				return current.result.error
-					? current.result
-					: Ok({ value: current.record });
-
-			let after: string;
-			if (before === undefined) after = markdownOf(set, body ?? '');
-			else {
-				const fielded = withFields(before, set, removed);
-				after =
+				const found = readMarkdown(before ?? '');
+				const current = before !== undefined ? project(path, found) : undefined;
+				if (current?.result.error && (computed || !found.readable))
+					return current.result;
+				const changed = change(current?.record);
+				if (changed.error !== null) return changed;
+				const { fields: given, body } = changed.data;
+				if (body !== undefined && typeof body !== 'string')
+					return unfit(path, 'body must be text');
+				const patch = patchOf(path, given, before === undefined);
+				if (patch.error !== null) return patch;
+				const { set, removed } = patch.data;
+				if (
+					current &&
+					!removed.length &&
+					!Object.keys(set).length &&
 					body === undefined
-						? fielded
-						: fielded.slice(0, fielded.length - found.body.length) + body;
-			}
-			if (after === before && current)
-				return current.result.error
-					? current.result
-					: Ok({ value: current.record });
-			const next = project(path, readMarkdown(after)).result;
-			if (next.error !== null)
-				return current?.result.error ? current.result : next;
-			return Ok({ value: next.data, text: after });
-		});
+				)
+					return current.result.error
+						? current.result
+						: Ok({ value: current.record });
+
+				let after: string;
+				if (before === undefined) after = markdownOf(set, body ?? '');
+				else {
+					const fielded = withFields(before, set, removed);
+					after =
+						body === undefined
+							? fielded
+							: fielded.slice(0, fielded.length - found.body.length) + body;
+				}
+				if (after === before && current)
+					return current.result.error
+						? current.result
+						: Ok({ value: current.record });
+				const next = project(path, readMarkdown(after)).result;
+				if (next.error !== null)
+					return current?.result.error ? current.result : next;
+				return Ok({ value: next.data, text: after });
+			},
+		);
+		// Every Ok above carries the record as its value.
+		return written as Result<AnyRecord, CallbackError>;
 	}
 
 	/** A computed change must explicitly return Ok(change) or Err(error). */

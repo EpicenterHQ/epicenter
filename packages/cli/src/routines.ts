@@ -10,7 +10,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { delimiter, dirname, join } from 'node:path';
 import { isName, readMarkdown } from '@epicenter/app';
-import { defineErrors } from 'wellcrafted/error';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { stderrJsonLines } from './output.ts';
 
@@ -31,17 +31,14 @@ function shellLine(words: string[]): string {
 		.join(' ');
 }
 
-const messageOf = (error: unknown) =>
-	error instanceof Error ? error.message : String(error);
-
 /** Why a routine did not run. Serve logs it and keeps its clock going. */
 const RoutineError = defineErrors({
 	Unreadable: ({ routine, cause }: { routine: string; cause: unknown }) => ({
-		message: `Routine ${routine}: ${messageOf(cause)}`,
+		message: `Routine ${routine}: ${extractErrorMessage(cause)}`,
 		routine,
 	}),
 	CouldNotStart: ({ routine, cause }: { routine: string; cause: unknown }) => ({
-		message: `Routine ${routine} could not start: ${messageOf(cause)}`,
+		message: `Routine ${routine} could not start: ${extractErrorMessage(cause)}`,
 		routine,
 	}),
 });
@@ -54,7 +51,7 @@ const log = createLogger('cli/routines', stderrJsonLines);
  * is text; an argument is text, or any other JSON value, which becomes one
  * word of JSON text.
  */
-export function readRoutine(name: string, text: string): Routine {
+function readRoutine(name: string, text: string): Routine {
 	if (!isName(name))
 		throw new Error(
 			'A routine name must be lowercase letters, digits, and dashes',
@@ -163,7 +160,7 @@ export function createRoutines({ folder }: { folder: string }) {
 							command: shellLine(run),
 						};
 					} catch (error) {
-						return { name, problem: messageOf(error) };
+						return { name, problem: extractErrorMessage(error) };
 					}
 				}),
 			);

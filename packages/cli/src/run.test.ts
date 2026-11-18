@@ -13,13 +13,7 @@
  */
 
 import { expect, test } from 'bun:test';
-import {
-	createMemoryContext,
-	defineAction,
-	Err,
-	field,
-	Ok,
-} from '@epicenter/app';
+import { defineAction, Err, field, Ok } from '@epicenter/app';
 import { createLogger, type Logger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { Runnable } from './home.ts';
@@ -27,10 +21,8 @@ import { runAction } from './run.ts';
 
 const SECRET = 'diary entry 4417';
 
-const notes = {
-	name: 'notes',
-	context: createMemoryContext(),
-} as Runnable;
+// The record names the app, which is all a run reads of it.
+const notes = { name: 'notes' } as Runnable;
 
 function run(
 	key: string,

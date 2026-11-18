@@ -142,6 +142,7 @@ where they are needed" below allows, and routines still run on their clock.
 One authority prevents disagreement between editable copies. One process
 prevents separate platform action runners from racing. Within that process,
 the folder's `edit` reads, decides, and replaces a file without yielding
+<!-- doc-path-check: ignore-next-line (moved into packages/app/src/folder.ts, ADR-0964) -->
 (`packages/cli/src/disk.ts`). This is what lets the platform's file changes
 avoid file locks; one process alone would not protect an asynchronous read
 followed by a later write. An app that reads a file and then calls `write`

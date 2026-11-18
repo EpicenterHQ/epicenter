@@ -3,20 +3,18 @@
  * app's, and report the records that do not fit their declaration, so a
  * person or an agent can repair them. `--json` also counts each key's
  * problems by kind, so one declaration that is too narrow reads as one cause
- * rather than as many broken files. The read runs in a run of the app's
- * folder, as an action's does, and writes nothing.
+ * rather than as many broken files. It reads the app's folder and writes
+ * nothing.
  */
-import {
-	ActionError,
-	type Answer,
-	checkData,
-	Err,
-	inRun,
-	Ok,
-} from '@epicenter/app';
+import { ActionError, type Answer, checkData, Err, Ok } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { parseWords } from './commands.ts';
-import { discoverAll, loadHomeApp, type Runnable } from './home.ts';
+import {
+	discoverAll,
+	loadHomeApp,
+	localProblem,
+	type Runnable,
+} from './home.ts';
 
 /** One data key as the check found it. */
 type Checked = {
@@ -34,14 +32,14 @@ type Checked = {
 	records: { path: string; problems: string[] }[];
 };
 
-/** An app that could not be checked: it did not load, or a read failed. */
+/** An app with a problem outside its records: it did not load, a read failed, or its `local/` could reach Git. */
 type Unchecked = { entry: string; folder: string; problems: string[] };
 
-/** Every data key of `located`, read in a read-only run of its folder. */
+/** Every data key of `located`, read from its folder; nothing is written. */
 async function checkApp(located: Runnable) {
 	const { data } = located.app;
 	if (!data) return {};
-	const found = await inRun(located.context, () => checkData(data));
+	const found = await checkData(located.realPath, data);
 	const checked: Record<string, Checked> = {};
 	for (const [key, each] of Object.entries(found))
 		checked[key] = {
@@ -94,7 +92,7 @@ function render(
 
 /**
  * Check one app, or every app when none is named. The report is what it
- * found: the records with problems, and the apps that could not be checked.
+ * found: the records with problems, and the apps with problems outside them.
  * A clean report is `Ok`; any problem makes it `Problems`, carrying the same
  * report. A named app that does not load is `NotStarted`.
  */
@@ -116,6 +114,13 @@ export async function checkCommand(
 		const { data: one, error } = await loadHomeApp(name);
 		if (error) return Err(error);
 		runnable = [one];
+		const local = await localProblem(one.entry, one.realPath);
+		if (local)
+			unchecked.push({
+				entry: one.entry,
+				folder: one.folder,
+				problems: [local],
+			});
 	}
 	const apps: Record<string, Record<string, Checked>> = {};
 	for (const located of runnable) {
@@ -136,11 +141,7 @@ export async function checkCommand(
 	return ActionError.Problems({
 		message: [
 			...counted(files, 'file has problems', 'files have problems'),
-			...counted(
-				unchecked.length,
-				'app could not be checked',
-				'apps could not be checked',
-			),
+			...counted(unchecked.length, 'app has problems', 'apps have problems'),
 		].join('; '),
 		report,
 	});

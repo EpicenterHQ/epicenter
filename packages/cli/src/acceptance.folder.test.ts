@@ -3,7 +3,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { lstat, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, gitignore, header } from './runner.test-support.ts';
+import { bareApp, fixture, header } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
 
@@ -20,7 +20,7 @@ async function setup() {
 }
 
 const journalCode = `${header}
-export default defineApp({
+export default defineApp(({ folder }) => ({
 	description: 'The journal app',
 	actions: {
 		write: defineAction({
@@ -43,11 +43,10 @@ export default defineApp({
 			},
 		}),
 	},
-});
+}));
 `;
 
 const journal = {
-	'code/.gitignore': gitignore,
 	'code/epicenter.ts': journalCode,
 };
 
@@ -78,7 +77,6 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 	await symlink(loose, join(f.apps, 'loose'));
 	expect((await lstat(join(f.apps, 'loose'))).isSymbolicLink()).toBe(true);
 	expect(await readlink(join(f.apps, 'loose'))).toBe(loose);
-	expect(existsSync(join(loose, '.gitignore'))).toBe(false);
 
 	const vault = await f.folder(join(f.home, 'shelf', 'vault'), {
 		'recipes/code/epicenter.ts': bareApp('recipes'),
@@ -96,7 +94,8 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 	expect((await f.run('loose', '--json')).code).toBe(0);
 
 	// Code finds packages from where it really is, so code outside the home
-	// does not find the home's @epicenter/app, and the listing says so.
+	// does not find the home's @epicenter/app, and the listing gives Bun's
+	// reason.
 	const outside = await f.folder(join(f.root, 'Code', 'outside'), {
 		'code/epicenter.ts': bareApp('outside'),
 	});
@@ -106,7 +105,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 			entry: 'outside',
 			folder: join(f.apps, 'outside'),
 			problems: [
-				`apps/outside finds no @epicenter/app from ${join(outside, 'code')}; run bun install at the top of the home`,
+				`code/epicenter.ts: Cannot find package '@epicenter/app' imported from ${join(outside, 'code', 'epicenter.ts')}`,
 			],
 		},
 	]);

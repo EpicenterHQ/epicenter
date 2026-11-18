@@ -20,12 +20,14 @@ test('human and JSON app listings show data paths, descriptions, and field schem
 	await f.app(
 		'flights',
 		`
-const data = defineData({
+export default defineApp(({ folder }) => {
+const data = defineData(folder, {
   watches: { description: 'A flight I watch', fields: { from: field.text() } },
   checks: { fields: { watch: field.ref('watches'), many: field.list(field.ref('watches')) } },
   'settings.md': { description: 'My settings', fields: { level: field.integer() } },
 });
-export default defineApp({ description: 'Flights', data, actions: {} });
+return { description: 'Flights', data, actions: {} };
+});
 `,
 	);
 	const human = await f.run('flights');

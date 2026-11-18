@@ -15,7 +15,6 @@ import { join } from 'node:path';
 import {
 	connectMcp,
 	fixture,
-	gitignore,
 	header,
 	startServe,
 } from './runner.test-support.js';
@@ -28,7 +27,7 @@ afterEach(async () => {
 });
 const notesCode = `${header}
 import { ActionError } from '@epicenter/app';
-export default defineApp({
+export default defineApp(({ folder }) => ({
 	description: 'The notes app',
 	actions: {
   declined: defineAction({description:'Decline',input:{},run:()=>ActionError.Refused({message:'Nothing to write',next:'epicenter notes write'})}),
@@ -55,7 +54,7 @@ export default defineApp({
 			description: 'Write a binary',
 			input: {},
 			run: async () => {
-				await folder.writeBytes('data/cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
+				await folder.write('data/cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
 			 return Ok(undefined); },
 		}),
 		half: defineAction({
@@ -114,11 +113,10 @@ export default defineApp({
 			},
 		}),
 	},
-});
+}));
 `;
 
 const notesApp = {
-	'code/.gitignore': gitignore,
 	'data/a.md': 'base a\n',
 	'code/epicenter.ts': notesCode,
 };
@@ -220,10 +218,11 @@ test('C11 concurrent patches of different fields on one file all land', async ()
 	const f = await setup();
 	const fields = Array.from({ length: 10 }, (_, i) => `f${i}`);
 	await f.folder(join(f.apps, 'many'), {
-		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `${header}
-const data = defineData({ items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
-export default defineApp({ description: 'Many fields', data, actions: { items: data.items.actions('patch') } });
+export default defineApp(({ folder }) => {
+const data = defineData(folder, { items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
+return { description: 'Many fields', data, actions: { items: data.items.actions('patch') } };
+});
 `,
 		'data/items/one.md': '---\n---\n',
 	});
@@ -246,15 +245,14 @@ export default defineApp({ description: 'Many fields', data, actions: { items: d
 test('a command sends its action to serve, and is refused and runs nothing while serve is stopped', async () => {
 	const f = await setup();
 	const where = await f.folder(join(f.apps, 'where'), {
-		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `${header}
-export default defineApp({ description: 'Where', actions: {
+export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 	am: defineAction({ description: 'Say which process ran this', input: {}, run: async (_input, update) => {
-		await folder.update('data/ran.txt', (before = '') => before + 'x');
+		await folder.edit('data/ran.txt', (before = '') => Ok({ text: before + 'x' }));
 		update('here');
 		return Ok(process.pid);
 	} }),
-} });
+} }));
 `,
 	});
 	const ran = () => readFile(join(where, 'data/ran.txt'), 'utf8');
@@ -280,7 +278,7 @@ export default defineApp({ description: 'Where', actions: {
 	}
 	await f.stopServe();
 	expect(await ran()).toBe('xx');
-	const message = 'Epicenter is not running for this home.';
+	const message = 'serve is not running; its output says why it stopped';
 	expect(await f.run('where', 'am')).toEqual({
 		code: 2,
 		stdout: '',

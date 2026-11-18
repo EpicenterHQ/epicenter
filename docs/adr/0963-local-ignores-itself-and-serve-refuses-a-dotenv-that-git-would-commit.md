@@ -4,6 +4,7 @@
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) at "the root ignores `/apps/*/local/`. That line is the guard": each `local/` carries its own ignore file, and the root line is no longer the only guard.
 - **Relates:** [ADR-0958](0958-no-command-makes-an-epicenter.md) (no command makes an Epicenter, and its Consequences say nothing checks the owner's `.gitignore`), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) (Epicenter has no command that commits), [ADR-0943](0943-epicenters-core-invariants.md) (rule 4 states the decision; rule 6 allows a refusal where a skipped step fails silently and cannot be undone), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (keys are in `.env` at the root), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (messages name serve as their subject).
+<!-- doc-path-check: ignore-next-line (moved into packages/app/src/folder.ts, ADR-0964) -->
 - **Unbuilt:** All of it. `put` in `packages/cli/src/disk.ts` creates `local/.tmp/` and writes no `local/.gitignore`, the listing has no problem for a `local/` without one, and serve starts whatever `.env` holds. The first thing to exist is `local/.gitignore` containing `*`, written by `put` when it creates `local/`.
 
 ## Context
@@ -28,6 +29,7 @@ withdrawn ADR-0948 built and removed a Git check before each read of `.env`:
 a Git process on every call.
 
 Every write an app makes through `folder` already touches `local/`. `put` in
+<!-- doc-path-check: ignore-next-line (moved into packages/app/src/folder.ts, ADR-0964) -->
 `packages/cli/src/disk.ts` writes the bytes to a file in `local/.tmp/` and
 renames it over the target, so it runs `mkdirSync(join(dir, 'local/.tmp'))`
 on every write, including writes to `data/`.

@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
 	type Static,
 	type TObject,
@@ -8,9 +9,9 @@ import {
 import { Ok, type Result } from 'wellcrafted/result';
 import { type Action, defineAction } from './action.ts';
 import { isName } from './app.ts';
-import { folder } from './context.ts';
 import { ActionError } from './errors.ts';
 import { defaultIn, field, refKeyOf } from './field.ts';
+import { type Folder, filesIn, readText } from './folder.ts';
 import { isFieldKey, type JsonValue, readMarkdown } from './front-matter.ts';
 import { idProblem } from './id.ts';
 import {
@@ -195,7 +196,7 @@ type ActionOutput<
 }[TVerb];
 
 /** Each named verb's action, retaining its input and Result types. */
-export type DataActions<
+type DataActions<
 	TKey extends string,
 	TDef extends DataDef,
 	TVerb extends Verb,
@@ -247,8 +248,13 @@ type ValidRefs<TSpec extends Spec> = {
 	};
 };
 
-/** Declare top-level data folders and Markdown files, with handles that use the current run's folder. */
+/**
+ * Declare an app's data: each key a folder of Markdown records under
+ * `data/`, or one Markdown file when it ends in `.md`. Each handle reads and
+ * writes in `folder`, the app's own.
+ */
 export function defineData<const TSpec extends Spec>(
+	folder: Folder,
 	spec: TSpec & ValidRefs<TSpec>,
 ): Data<TSpec> {
 	for (const [key, { fields }] of Object.entries(spec)) {
@@ -290,13 +296,16 @@ export function defineData<const TSpec extends Spec>(
 		for (const child of Object.values(schema)) checkRefs(child, key, field);
 	}
 	return Object.fromEntries(
-		Object.entries(spec).map(([key, def]) => [key, createHandle(key, def)]),
+		Object.entries(spec).map(([key, def]) => [
+			key,
+			createHandle(folder, key, def),
+		]),
 	) as unknown as Data<TSpec>;
 }
 
-function createHandle(key: string, def: DataDef) {
+function createHandle(folder: Folder, key: string, def: DataDef) {
 	// Markdown projection yields JSON values; the public generic retains each field's schema.
-	const handle = createRecordHandle(key, def) as
+	const handle = createRecordHandle(folder, key, def) as
 		| OneFile<`${string}.md`, JsonDef>
 		| FolderHandle<string, JsonDef>;
 	return {
@@ -318,10 +327,11 @@ function createHandle(key: string, def: DataDef) {
 	};
 }
 
-function createRecordHandle(key: string, def: DataDef) {
+function createRecordHandle(folder: Folder, key: string, def: DataDef) {
 	const single = key.endsWith('.md');
 	const base = `data/${key}`;
 	const records = createMarkdownRecords({
+		folder,
 		fields: def.fields,
 		keysOf: (path): Record<string, string> =>
 			single ? {} : { id: path.slice(base.length + 1, -3) },
@@ -348,7 +358,7 @@ function createRecordHandle(key: string, def: DataDef) {
 	async function get(id?: string) {
 		const path = place(id);
 		if (typeof path !== 'string') return path;
-		const text = await folder.read(path);
+		const text = await readText(join(folder.path, path));
 		return text === undefined
 			? Ok(undefined)
 			: records.project(path, readMarkdown(text)).result;
@@ -380,7 +390,7 @@ function createRecordHandle(key: string, def: DataDef) {
 	async function remove(id?: string) {
 		const path = place(id);
 		if (typeof path !== 'string') return path;
-		const existed = (await folder.read(path)) !== undefined;
+		const existed = await Bun.file(join(folder.path, path)).exists();
 		if (existed) await folder.delete(path);
 		return Ok(existed);
 	}
@@ -411,11 +421,12 @@ function createRecordHandle(key: string, def: DataDef) {
 				AnyRecord,
 				Extract<ActionError, { name: 'Misfit' }>
 			>[] = [];
-			for (const path of (await folder.list(base)).sort()) {
-				if (!path.startsWith(`${base}/`) || !path.endsWith('.md')) continue;
-				const id = path.slice(base.length + 1, -3);
+			for (const name of await filesIn(folder.path, base)) {
+				if (!name.endsWith('.md')) continue;
+				const id = name.slice(0, -3);
 				if (idProblem(id) !== undefined) continue;
-				const text = await folder.read(path);
+				const path = `${base}/${name}`;
+				const text = await readText(join(folder.path, path));
 				if (text !== undefined)
 					found.push(records.project(path, readMarkdown(text)).result);
 			}

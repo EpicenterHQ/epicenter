@@ -70,7 +70,7 @@ export async function sendToServe(
 		if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
 			return ActionError.NotStarted({
 				cause: 'unavailable',
-				message: 'Epicenter is not running for this home.',
+				message: 'serve is not running; its output says why it stopped',
 				next: 'epicenter serve',
 			});
 		return ActionError.Unreachable({

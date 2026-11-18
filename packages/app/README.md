@@ -5,37 +5,48 @@ What an app's `code/epicenter.ts` imports
 An app container under `apps/` holds code/, data/ and local/ siblings. data/
 is what the person would want back if this computer were lost; local/ is what
 this computer can rebuild or sign in again, and it never leaves it. Its
-`code/epicenter.ts` default-exports `defineApp(...)`. The
+`code/epicenter.ts` default-exports `defineApp(({ folder }) => ...)`. The
 `epicenter` command turns each of its actions into a command for the person
 and an MCP tool for their agent, and its UI calls the same actions.
 
 ```ts
 // <Epicenter>/apps/reading/code/epicenter.ts
-import { defineAction, defineApp, defineData, field, folder, Ok } from '@epicenter/app';
+import { defineAction, defineApp, defineData, field, Ok } from '@epicenter/app';
 
-const data = defineData({
-  books: {
-    description: 'book I am reading',
-    fields: { title: field.text(), finished: field.date({ optional: true }) },
-  },
-});
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, {
+    books: {
+      description: 'book I am reading',
+      fields: { title: field.text(), finished: field.date({ optional: true }) },
+    },
+  });
 
-const log = defineAction({
-  description: 'Record minutes read today',
-  input: { minutes: field.number(), book: field.text({ optional: true }) },
-  annotations: { destructiveHint: false },
-  run: async ({ minutes, book }) => {
-    await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},${book ?? ''}\n`);
-    return Ok({ minutes });
-  },
-});
+  const log = defineAction({
+    description: 'Record minutes read today',
+    input: { minutes: field.number(), book: field.text({ optional: true }) },
+    annotations: { destructiveHint: false },
+    run: async ({ minutes, book }) => {
+      await folder.edit('data/2026.csv', (before = 'minutes,book\n') =>
+        Ok({ text: `${before}${minutes},${book ?? ''}\n` }),
+      );
+      return Ok({ minutes });
+    },
+  });
 
-export default defineApp({
-  description: 'How much I read each week',
-  data,
-  actions: { books: data.books.actions('list', 'get', 'create', 'patch'), log },
+  return {
+    description: 'How much I read each week',
+    data,
+    actions: { books: data.books.actions('list', 'get', 'create', 'patch'), log },
+  };
 });
 ```
+
+The app is a function of its folder
+([ADR-0960](../../docs/adr/0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)).
+`epicenter` calls it once with the folder of `apps/reading/`, and everything
+inside it, data and actions alike, reaches the files through that argument.
+A helper outside the function that touches files takes the folder as a
+parameter.
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
@@ -45,8 +56,7 @@ the app. A home is one Bun workspace whose `package.json` depends on
 top of the home installs one copy, and `epicenter.ts`, the editor, `bun test`
 and the UI's build all find it by ordinary resolution, as the command does.
 An app's `code/package.json` names only the app's own dependencies and never
-lists `@epicenter/app`: a second copy would not share the state a call reaches
-its folder through, and the command refuses an app that would load one. After
+lists `@epicenter/app`, so the app runs the version the home names. After
 the home's packages change, restart `serve`. An app's name is its folder's.
 
 The package ships its TypeScript source and runs under Bun. See
@@ -75,7 +85,8 @@ run it.
   `defineErrors`. Error factories already return Err. `run` may take a
   second argument, `update`, and call it to report while it runs; its return
   is still the answer. The UI, CLI and MCP receive its JSON form.
-- `defineApp` checks what it was given and returns that same object. It needs
+- `defineApp` takes a function of `{ folder }` and returns a function that
+  calls it and checks what it returned. That object needs
   `description` and `actions`, with `{}` for none, and takes `data` when the
   app keeps records. Each action's words are its keys in `actions`, so
   `{ books: data.books.actions('list', 'get', 'create', 'patch'), log }` gives
@@ -217,9 +228,9 @@ return data.words.edit(word, (found) =>
 );
 ```
 
-A handle reads and writes the folder of the run it is called in, so an action
-reaches it however deep its code goes. Outside a run it throws, so loading an
-app never touches its files.
+A handle reads and writes the folder `defineData` was given. Loading an app
+should not touch its files: the function's body declares data and actions,
+and only an action reads or writes.
 
 ### What a read gives
 
@@ -345,8 +356,8 @@ same object from any map of fields.
 A secret, such as a token, is ordinary input: the app's page sends it once
 and the action keeps it under `local/`, which never enters Git:
 `await folder.write('local/google.md', token)`, read back with
-`await folder.read('local/google.md')`. An action writes only under `data/`
-and `local/`. Epicenter treats that input as any other, so give it from the page or
+`readFile(join(folder.path, 'local/google.md'), 'utf8')` from `node:fs/promises`.
+An action writes only under `data/` and `local/`. Epicenter treats that input as any other, so give it from the page or
 piped on stdin, not as a command argument or through an agent.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
@@ -383,13 +394,26 @@ HTTP.
 
 ## Runs
 
-Whatever runs an action opens a run with the app's folder:
-`inRun({ folder }, () => action(input))`. For its length, the app's
-data handles and `folder` reach it; an action that calls another stays in the
-same run
-([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
-`folder` has `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, and
-`delete`, and `path` on a computer.
+Whatever runs an action calls the app with its folder, then calls the
+action: `app({ folder: folderOnDisk(dir) }).actions.log(input)`. `epicenter`
+does this with the app's container, and a test does it with a temporary
+directory. There is no hidden state between the two: what an action reaches
+is what its app function was given.
+
+The folder is `folderOnDisk(dir)`
+([ADR-0964](../../docs/adr/0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md)).
+It has four members:
+
+| Member | Does |
+| --- | --- |
+| `path` | the app's container, `apps/<app>/`, as a real path |
+| `write(path, content)` | replaces the file with `content`, text or bytes |
+| `edit(path, decide)` | reads the text, calls `decide` with it, and writes what it returns |
+| `delete(path)` | removes the file; an absent file is no error |
+
+Reads are plain file reads through `folder.path`, with `node:fs` or
+`Bun.file`. Paths given to the folder are relative to it with `/` between
+parts.
 
 An action changes files and makes no Git commit. Its writes remain pending,
 including when it returns an Err, throws, or stops. Git stores the home, and its
@@ -403,32 +427,37 @@ including one the command line sends.
 Fetch or compute first and write last, so a slow step never leaves a file
 half done.
 `folder.write` replaces the file, and the last write wins. A change that
-depends on what it read goes through `folder.update(path, change)`: it reads
-the file, calls `change` with its text (`undefined` when there is none), and
-writes what `change` returns, nothing when that is what is there. `change`
-runs once. One process runs actions, so no other update runs between the read
-and the write; a writer outside epicenter, such as an editor, is not guarded
-against. A `change` that throws writes nothing. It returns the text written. Every data write (`create`, `patch`, `edit`, and the verbs built on them)
-goes through it, so two `patch`es of different fields of one file both land, and
+depends on what it read goes through `folder.edit(path, decide)`: it reads
+the file and calls `decide` with its text, `undefined` when there is none.
+`decide` returns `Ok({ text })` to replace the file, `Ok({ value })` to leave
+it and hand `value` back, both to do both, or `Err(reason)` to refuse; the
+folder returns that Result. Leaving out `text` leaves the file as it is, an
+absent one absent. `decide` runs once, and no other write through the folder
+runs between the read and the write; a writer outside epicenter, such as an
+editor, is not guarded against. A `decide` that throws writes nothing. Every
+data write (`create`, `patch`, `edit`, and the verbs built on them) goes
+through it, so two `patch`es of different fields of one file both land, and
 two `edit`s of one field each see the other's.
 
 ```ts
-await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
+await folder.edit('data/2026.csv', (before = 'minutes,book\n') =>
+  Ok({ text: `${before}${minutes},\n` }),
+);
 ```
 
-Use `folder.edit(path, decide)` when a raw-text change can decline. The
-callback receives the current text on each attempt. Return `Err(reason)` to
-refuse the change, `Ok({ value })` to leave the file as it is, or
-`Ok({ value, text })` to replace it. The caller receives the value from the
-attempt that won. This also lets a check leave an absent file absent.
+A write replaces a file by writing `local/.tmp/<uuid>` and renaming it over
+the target, so nothing unfinished is ever under `data/`. When the folder
+makes `local/` it writes `local/.gitignore` containing `*`
+([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)).
+A file it makes under `local/` is readable by its owner alone (`0600`), and
+a directory there is `0700`.
 
-`folder` is a convenience, not a sandbox: an action may also write through
+The folder is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. That path is the real app container, not code/
 or data/. What the app can rebuild lives in files it
 gitignores inside its folder, such as `code/ui/dist/`; they are never committed.
-Paths are relative to the folder with `/` between parts, and `read` gives
-`undefined` for a missing file.
-Every write through `folder` stays under `data/`. Reads may reach code files.
+Every write through the folder stays under `data/` and `local/`, and one
+outside them throws. Reads may reach code files.
 
 ## Updates while an action runs
 
@@ -490,7 +519,7 @@ import { type ActionOutput, connect } from '@epicenter/app/client';
 import type reading from '../../epicenter.ts';
 
 const app = connect<typeof reading>();
-type Book = ActionOutput<typeof reading.actions.books.get>;
+type Book = ActionOutput<ReturnType<typeof reading>['actions']['books']['get']>;
 
 const { data: books, error } = await app.books.list();
 ```
@@ -580,7 +609,7 @@ run, so the page rereads its records.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionUpdate<A>` name what action
 `A` takes from a caller, returns to a client, and reports while it runs:
-`ActionInput<typeof app.actions.patch>`. A switch and a list without `min` are
+`ActionInput<ReturnType<typeof app>['actions']['patch']>`. A switch and a list without `min` are
 optional in `ActionInput`; an action that only returns reports `never`.
 
 A UI routes to a record by its id, which every folder row carries,

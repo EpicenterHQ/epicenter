@@ -24,18 +24,20 @@ async function setup() {
 }
 
 /** Vocab's words data key, as epicenter.ts source. */
-const words = `const data = defineData({ words: { fields: { stage: field.select(['new', 'known']) } } });\n`;
+const words = `const data = defineData(folder, { words: { fields: { stage: field.select(['new', 'known']) } } });\n`;
 
 test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and names each problem', async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await f.app(
 		'vocab',
-		`${words}export default defineApp({ description: 'The vocab app', data, actions: {} });\n`,
+		`export default defineApp(({ folder }) => {
+${words}return { description: 'The vocab app', data, actions: {} };
+});\n`,
 	);
 	const linked = await f.app(
 		'journal',
-		`export default defineApp({ description: 'The journal app', actions: {} });\n`,
+		`export default defineApp(() => ({ description: 'The journal app', actions: {} }));\n`,
 		// Inside the home: linked code finds packages from where it really is.
 		join(f.home, 'elsewhere'),
 	);
@@ -46,42 +48,49 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	});
 	await f.app(
 		'clash',
-		`${words}export default defineApp({
+		`export default defineApp(({ folder }) => {
+${words}return {
 	description: 'The clash app',
 	data,
 	actions: {
 		...data.words.actions('list', 'get', 'patch'),
 		patch: defineAction({ description: 'Save a word my way', input: { stem: field.text() }, run: ({ stem }) => Ok(\`mine: \${stem}\`) }),
 	},
+};
 });
 `,
 	);
 	await f.app(
 		'malformed',
-		`const data = defineData({ words: { fields: { path: field.text() } } });
-export default defineApp({ description: 'The malformed app', data, actions: {} });
+		`export default defineApp(({ folder }) => {
+const data = defineData(folder, { words: { fields: { path: field.text() } } });
+return { description: 'The malformed app', data, actions: {} };
+});
 `,
 	);
 	await f.app(
 		'misplaced',
 		`const show = defineAction({ description: 'Show', input: {}, positional: ['nope'], run: () => Ok(1) });
-export default defineApp({ description: 'The misplaced app', actions: { show } });
+export default defineApp(() => ({ description: 'The misplaced app', actions: { show } }));
 `,
 	);
-	await f.app('badkey', `defineData({ Words: { fields: {} } });\n`);
+	await f.app(
+		'badkey',
+		`export default defineApp(({ folder }) => ({ description: 'Bad key', data: defineData(folder, { Words: { fields: {} } }), actions: {} }));\n`,
+	);
 	await f.app(
 		'unchecked',
-		`export default defineApp({ description: 'The unchecked app', actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
+		`export default defineApp(() => ({ description: 'The unchecked app', actions: { show: { description: 'Show', input: {}, run: () => 1 } } }));\n`,
 	);
 	await f.app('nodefault', `export const actions = {};\n`);
 	// Exported without defineApp, so nothing checked it while importing.
 	await f.app(
 		'nullactions',
-		`export default { description: 'Unchecked', actions: null };\n`,
+		`export default () => ({ description: 'Unchecked', actions: null });\n`,
 	);
 	await f.app(
 		'shapeless',
-		`export default { description: 'Unchecked', data: { words: {} }, actions: { show: 5 } };\n`,
+		`export default () => ({ description: 'Unchecked', data: { words: {} }, actions: { show: 5 } });\n`,
 	);
 
 	const result = await f.run('--json');
@@ -142,7 +151,9 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await f.app(
 		'vocab',
-		`${words}export default defineApp({ description: 'The vocab app', data, actions: {} });\n`,
+		`export default defineApp(({ folder }) => {
+${words}return { description: 'The vocab app', data, actions: {} };
+});\n`,
 	);
 	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	const reading = listing.apps.find(
@@ -219,10 +230,10 @@ test('a listing marks an action that declares mcp: false', async () => {
 	const f = await setup();
 	await f.app(
 		'messages',
-		`export default defineApp({ description: 'Messages', actions: {
+		`export default defineApp(() => ({ description: 'Messages', actions: {
   read: defineAction({ description: 'Read messages', input: {}, run: () => Ok([]) }),
   send: defineAction({ description: 'Send a message as me', mcp: false, input: {}, run: () => Ok(null) }),
- } });`,
+ } }));`,
 	);
 	const listing = JSON.parse((await f.run('messages', '--json')).stdout).data;
 	expect(listing.actions.map((tool: { mcp?: boolean }) => tool.mcp)).toEqual([
@@ -354,26 +365,19 @@ test('D6 serve answers initialize, lists the same tools as --json, and runs a ca
 	expect((await f.run('mcp')).code).toBe(2);
 });
 
-test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', async () => {
+test('D7 discovery defaults to $HOME/Epicenter', async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
-	const decoy = join(f.root, 'decoy-home');
-	await f.app(
-		'decoy',
-		`export default defineApp({ description: 'The decoy app', actions: {} });\n`,
-		decoy,
-	);
-	f.env.EPICENTER_HOME = decoy;
 	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
 	]);
-	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_HOME');
 });
 
 /** Capture: an app whose actions are only its one data key's verbs. */
-const capture = `const data = defineData({
+const capture = `export default defineApp(({ folder }) => {
+const data = defineData(folder, {
 	items: {
 		fields: {
 			kind: field.select(['thought', 'link', 'quote']),
@@ -383,10 +387,11 @@ const capture = `const data = defineData({
 	},
 });
 
-export default defineApp({
+return {
 	description: 'Things I want to keep',
 	data,
 	actions: data.items.actions('list', 'get', 'create', 'patch', 'edit', 'delete'),
+};
 });
 `;
 

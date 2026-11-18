@@ -16,16 +16,16 @@ import {
 	ActionError,
 	type Actions,
 	type App,
-	type Context,
 	defineApp,
+	type Folder,
+	folderOnDisk,
 	isAction,
 	isName,
 	type NotStarted,
 } from '@epicenter/app';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
-import { folderOnDisk } from './disk.ts';
-import { libraryProblem } from './library.ts';
 import { appsDir, epicenterRoot } from './root.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
@@ -44,16 +44,14 @@ type Place = {
  * its `epicenter.ts` exports, or an entry with the problems that keep it from
  * running.
  */
-export type Located =
+type Located =
 	| (Place & {
 			ok: true;
 			name: string;
-			/** What `epicenter.ts` default-exports. */
+			/** What the function `epicenter.ts` default-exports returned for the app's folder. */
 			app: App;
 			/** Every action by its words, one space apart, as the command line and MCP name it. */
 			actions: Record<string, Action>;
-			/** The folder a run of its actions reaches. */
-			context: Context;
 	  })
 	| (Place & { ok: false; problems: string[] });
 
@@ -157,12 +155,10 @@ async function load(
 		return broken([`its folder's name cannot name an app: ${named}`]);
 	const thrown = (error: unknown) =>
 		broken(
-			message(error)
+			extractErrorMessage(error)
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
-	const apart = libraryProblem(entry, place.codePath);
-	if (apart) return broken([apart]);
 	let module: { default?: unknown };
 	try {
 		forgetModules(place.codePath);
@@ -173,13 +169,15 @@ async function load(
 		return thrown(error);
 	}
 	const exported = module.default;
-	if (typeof exported !== 'object' || exported === null)
+	if (typeof exported !== 'function')
 		return broken([`${CODE} does not export defineApp(...) by default`]);
 	let app: App;
 	let actions: Record<string, Action>;
 	try {
-		// `defineApp` returns what it is given once it has checked it, so this checks the export's whole shape.
-		app = defineApp(exported as App);
+		// Through `defineApp` again, so the call checks what the export returns, however it was made.
+		app = defineApp(exported as (given: { folder: Folder }) => App)({
+			folder: folderOnDisk(place.realPath),
+		});
 		actions = Object.fromEntries(byWords(app.actions));
 	} catch (error) {
 		return thrown(error);
@@ -190,7 +188,6 @@ async function load(
 		name: entry,
 		app,
 		actions,
-		context: { folder: folderOnDisk(place.realPath) },
 	};
 }
 
@@ -206,20 +203,50 @@ function byWords(
 	);
 }
 
-function message(error: unknown) {
-	return error instanceof Error ? error.message : String(error);
+/**
+ * Why the `local/` of the app `entry`, whose folder is `realPath`, could reach
+ * Git, or undefined when it has no `local/` or the folder ignores itself
+ * (ADR-0963). The fix is named, not made: the owner or an agent runs it.
+ */
+export async function localProblem(
+	entry: string,
+	realPath: string,
+): Promise<string | undefined> {
+	const local = join(realPath, 'local');
+	if (!(await lstat(local).catch(() => undefined))?.isDirectory())
+		return undefined;
+	if (await lstat(join(local, '.gitignore')).catch(() => undefined))
+		return undefined;
+	return `apps/${entry}/local has no .gitignore; run: echo '*' > apps/${entry}/local/.gitignore`;
 }
 
-/** Import every app entry independently so one broken app does not hide the rest. */
+/**
+ * Import every app entry independently so one broken app does not hide the
+ * rest. An app whose `local/` does not ignore itself still runs, and is also
+ * listed with that problem.
+ */
 export async function discoverAll() {
 	const found = await homeEntries();
 	const loaded = await Promise.all(
-		found.map((entry) => load(entry, entry.entry)),
+		found.map(async (entry) => ({
+			located: await load(entry, entry.entry),
+			local: await localProblem(entry.entry, entry.realPath),
+		})),
 	);
 	return {
 		epicenter: epicenterRoot().folder,
-		apps: loaded.filter((located) => located.ok),
-		problems: loaded.filter((located) => !located.ok),
+		apps: loaded.flatMap(({ located }) => (located.ok ? [located] : [])),
+		problems: loaded.flatMap(({ located, local }) => {
+			const problems = [
+				...(located.ok ? [] : located.problems),
+				...(local ? [local] : []),
+			];
+			if (!problems.length) return [];
+			const { entry, folder, realPath, codePath } = located;
+			return [
+				{ entry, folder, realPath, codePath, ok: false as const, problems },
+			];
+		}),
 	};
 }
 
@@ -235,19 +262,14 @@ const unknownApp = (name: string) =>
 	});
 
 /** One entry as `homeEntries` lists it. */
-export type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
+type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
 
-/**
- * Every app entry in the Epicenter, or only the one named, for a command
- * that works on each app or one.
- */
-export async function chooseApps(
-	name?: string,
-): Promise<Result<Entry[], NotStarted>> {
-	const entries = await homeEntries();
-	if (name === undefined) return Ok(entries);
-	const chosen = entries.filter((entry) => entry.entry === name);
-	return chosen.length ? Ok(chosen) : unknownApp(name);
+/** The app entry named `name`, loaded or not, for a request that names one. */
+export async function findEntry(
+	name: string,
+): Promise<Result<Entry, NotStarted>> {
+	const entry = (await homeEntries()).find((entry) => entry.entry === name);
+	return entry ? Ok(entry) : unknownApp(name);
 }
 
 /**

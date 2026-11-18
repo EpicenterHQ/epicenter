@@ -81,23 +81,25 @@ repository holds the home, and you commit code and records together when you cho
 ```ts
 import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
 
-const data = defineData({
-  tasks: {
-    description: 'task',
-    fields: { title: field.text(), done: field.boolean() },
-  },
-});
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, {
+    tasks: {
+      description: 'task',
+      fields: { title: field.text(), done: field.boolean() },
+    },
+  });
 
-const add = defineAction({
-  description: 'Add a task to do',
-  input: { title: field.text() },
-  run: ({ title }) => data.tasks.create(timeId(), { title }),
-});
+  const add = defineAction({
+    description: 'Add a task to do',
+    input: { title: field.text() },
+    run: ({ title }) => data.tasks.create(timeId(), { title }),
+  });
 
-export default defineApp({
-  description: 'Things I mean to do',
-  data,
-  actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
+  return {
+    description: 'Things I mean to do',
+    data,
+    actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
+  };
 });
 ```
 

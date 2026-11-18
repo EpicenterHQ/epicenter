@@ -1,5 +1,2 @@
 [test]
-preload = [
-	"./src/git-environment.test-support.ts",
-	"./src/fixture-serve.test-support.ts",
-]
+preload = ["./src/fixture-serve.test-support.ts"]

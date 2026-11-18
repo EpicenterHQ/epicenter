@@ -71,22 +71,10 @@ copy of it, and the version a home runs is a line in a file in Git.
   `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
   no command rewrites the list.
 
-The command checks that every app shares its copy of `@epicenter/app` each
-time it loads one, because a call reaches its app's folder through state the
-library keeps per call. An app that would load another copy is listed as a
-problem that names both:
-
-```txt
-apps/notes resolves @epicenter/app at <path>, and epicenter runs <other path>; run bun install at the top of the home
-```
-
-This happens when an app's folder has a `node_modules/@epicenter/app` of its
-own, when the home's two dependencies name different versions, or when the
-command that ran is not the home's own. An entry in `apps/` may be a link; Epicenter
-treats it as the folder it leads to. Bun finds packages from where a file
-really is, so a link to code outside the home finds no `@epicenter/app`, and
-the problem names the folder it looked from. Keep an app's code inside the
-home.
+An entry in `apps/` may be a link; Epicenter treats it as the folder it leads
+to. Bun finds packages from where a file really is, so a link to code outside
+the home finds no `@epicenter/app`, and the listing gives Bun's reason. Keep
+an app's code inside the home.
 
 ## Install and try a writing inbox
 
@@ -164,7 +152,7 @@ and `@epicenter/cli`. Each ships its TypeScript source and runs under Bun.
 The command names the library as a peer dependency at its own exact
 version, so a home installs one copy of the library: the one its
 `package.json` names. When a home names another version, `bun install`
-warns and `epicenter` refuses to load its apps until the two match. A home
+warns. A home
 upgrades both at once by editing both versions in its `package.json`, then
 running `bun install && bun run build`.
 
@@ -266,7 +254,9 @@ with its usage line and its help command as the next step.
 ## Discover and load an app
 
 Discovery lists `apps/`, skips dot entries, and accepts a directory or a link
-to one with `code/epicenter.ts`. The file must default-export `defineApp(...)`.
+to one with `code/epicenter.ts`. The file must default-export
+`defineApp(({ folder }) => ...)`. The loader calls that function once with
+`folderOnDisk(<container>)` and lists what it returns.
 An entry with `code/` or `data/` but no declaration is listed with
 `code/epicenter.ts is missing`. Other folders are skipped. Discovery reads
 `apps/` only, never the `workspaces` list, so a package the owner added to
@@ -274,15 +264,14 @@ that list is not taken for an app.
 
 An import or declaration failure is listed under that app's problems with a
 `code/epicenter.ts:` prefix. A wrong default export is also a problem, and so
-is an app that would load its own copy of `@epicenter/app`. One broken app
+is a `local/` with no `.gitignore` (the app still runs). One broken app
 does not hide the others. Listings include container locations, data keys,
 schemas, and actions. The listing's `Version` is the running command's. They carry no per-app Git status. An
 empty Epicenter says `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 
-The container's real path stays in `context.folder` and `folder.path`.
-Contracts address `data/...` from that container. A separate real `codePath`
-is used for module imports and invalidation, the check for one shared
-`@epicenter/app`, and UI builds and serving. Replacing `code/` leaves
+The container's real path is `folder.path`. Contracts address `data/...`
+from that container. A separate real `codePath` is used for module imports
+and invalidation, and for UI builds and serving. Replacing `code/` leaves
 record paths intact.
 
 An action's input is one argument after its words, `epicenter <app> <action>
@@ -320,7 +309,7 @@ answer is `NotStarted` with cause `unavailable`:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
-Epicenter is not running for this home.
+serve is not running; its output says why it stopped
 Run: epicenter serve
 ```
 
@@ -482,9 +471,9 @@ Nothing locks a call. Serve is the one process that runs actions, so two
 actions never replace one file at the same moment, whether they came from a
 page, an agent, or two commands started together.
 
-`folder.update` reads the text, computes from it, and replaces the file, with
-no other update between. Every data write uses it. Plain `folder.write`
-is last-write-wins. Neither guards against a writer outside Epicenter, such
+`folder.edit` reads the text, computes from it, and replaces the file, with
+no other write through the folder between. Every data write uses it. Plain
+`folder.write` is last-write-wins. Neither guards against a writer outside Epicenter, such
 as an editor or a `git pull`.
 
 Writes through `folder` stay under `data/` and `local/`.
@@ -494,12 +483,21 @@ at `../tasks/data/tasks/<id>.md`.
 An action's MCP annotations, `readOnlyHint` among them, are forwarded to MCP
 clients and refuse nothing. `folder` is not a sandbox.
 
-What is in an app's `local/` stays on this computer: the root `.gitignore`
-names `/apps/*/local/`, which covers every app whoever makes the folder.
-Git's ignore rules are the only guard: nothing else refuses a commit of a
-file there, so keep that line and never `git add -f` such a file. A file made under `local/` through folder methods is readable by its
-owner alone (`0600`), and a directory made there is `0700`; one already there
-keeps its mode. An action keeps a token with
+What is in an app's `local/` stays on this computer. When `folder` makes
+`local/`, it writes `local/.gitignore` containing `*`, so Git ignores the
+folder whatever the root `.gitignore` says. The root line `/apps/*/local/`
+stays as a second guard, for a `local/` an app made itself with `node:fs`
+or SQLite. Such a `local/` without its own `.gitignore` is listed as a
+problem by the Epicenter listing, `epicenter check` and serve's start, with
+the fix:
+
+```txt
+apps/notes/local has no .gitignore; run: echo '*' > apps/notes/local/.gitignore
+```
+
+Never `git add -f` a file there. A file made under `local/` through folder
+methods is readable by its owner alone (`0600`), and a directory made there
+is `0700`; one already there keeps its mode. An action keeps a token with
 `folder.write('local/google.md', token)`. `local/` appears when an action
 first writes there. A write replaces a file by writing `local/.tmp/<uuid>`
 and renaming it over the target, so nothing unfinished is ever under `data/`.
@@ -617,9 +615,10 @@ declaration is often too narrow, and one change to `epicenter.ts` repairs
 them all. `records` holds only files with problems. Without an app named, an
 app that does not load is listed under `problems`, as in the Epicenter
 listing, and the other apps are still checked; a read that fails lists its
-app there too. A named app that does not load did not run: `NotStarted`,
-exit 2. A clean report is `data`, exit 0. When a file has a problem or an
-app could not be checked, the answer is `Problems`, exit 1, carrying the same
+app there too, and so does an app whose `local/` has no `.gitignore`, with
+the command that adds one. A named app that does not load did not run:
+`NotStarted`, exit 2. A clean report is `data`, exit 0. When a file or an
+app has a problem, the answer is `Problems`, exit 1, carrying the same
 report as `error.report` and a one-line summary as its message. Without
 `--json` the report prints on stdout either way, and the summary on stderr.
 
@@ -655,7 +654,8 @@ with Git, by hand or from a [routine](#routines) that runs a script of your
 own. A commit made while serve runs samples files, not intent: it can hold a
 partial edit or part of a running action's writes. Keep origin private: it
 receives every app's records. Git's ignore rules alone decide what is
-committed.
+committed. The only Git commands Epicenter runs are two questions about
+`.env` when serve starts ([Make an Epicenter](#make-an-epicenter)).
 
 ## Make an Epicenter
 
@@ -670,7 +670,10 @@ No command makes one. An Epicenter is a folder that holds:
 
 Then run `git init` and `bun install` at its top, and commit. Write the
 `.gitignore` before the first commit: what `local/` and `.env` hold must
-never reach origin. Ignoring `/apps/*/code/ui/dist/` keeps build output out
+never reach origin. Serve refuses to start while a `.env` at the top would
+reach Git, and prints the fix: `.env is not ignored by Git; add .env* to
+.gitignore`, or `.env is tracked by Git; run git rm --cached .env`. A folder
+that is not a Git repository has nothing to commit to, so serve starts. Ignoring `/apps/*/code/ui/dist/` keeps build output out
 of commits.
 
 To bring a home back on another computer:
@@ -695,7 +698,7 @@ that holds:
 
 | Path | Holds |
 | --- | --- |
-| `code/epicenter.ts` | The declaration: its default export is `defineApp(...)` |
+| `code/epicenter.ts` | The declaration: its default export is `defineApp(({ folder }) => ...)` |
 | `code/package.json` | `"name": "<name>"`, `"private": true`, and the packages the app itself imports, never `@epicenter/app` |
 | `code/.gitignore` | `node_modules/` and `ui/dist/` |
 | `data/` | What you would want back if this computer were lost: the app's records and settings. It may be absent until the first write |

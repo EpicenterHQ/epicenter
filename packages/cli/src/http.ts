@@ -52,7 +52,7 @@ import { ActionError, type Answer, isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
+import { findEntry, homeEntries, loadHomeApp, localProblem } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
@@ -148,7 +148,7 @@ const UI_DIST = join('ui', 'dist');
 function createSite(): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
-		const [entry] = (await chooseApps(app)).data ?? [];
+		const entry = (await findEntry(app)).data;
 		if (!entry || entry.problem) return notFound();
 		let decoded: string;
 		try {
@@ -246,7 +246,7 @@ function createSite(): Site {
 			const app = match[1];
 			if (!isName(app)) return notFound();
 			if (match[2] === undefined) {
-				if ((await chooseApps(app)).error) return notFound();
+				if ((await findEntry(app)).error) return notFound();
 				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
 				return new Response(null, {
 					status: 308,
@@ -372,7 +372,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * the marker refuses it. A port something else holds throws before the clock
  * starts.
  */
-export function startHttpServer(port: number) {
+function startHttpServer(port: number) {
 	const site = createSite();
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
@@ -438,12 +438,44 @@ export function startHttpServer(port: number) {
 	};
 }
 
+/** The exit code of `git <args>` run in `cwd`, or undefined when there is no Git to run. */
+function git(cwd: string, ...args: string[]) {
+	try {
+		return Bun.spawnSync(['git', ...args], {
+			cwd,
+			stdout: 'ignore',
+			stderr: 'ignore',
+		}).exitCode;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Why the `.env` at the root of the Epicenter would reach Git, or undefined
+ * when it would not (ADR-0963). Git exits 128 outside a repository, which
+ * has nothing to commit to; no `.env` means nothing to check. These are the
+ * only Git commands Epicenter runs.
+ */
+async function dotenvProblem(root: string) {
+	if (!(await Bun.file(join(root, '.env')).exists())) return undefined;
+	if (git(root, 'ls-files', '--error-unmatch', '.env') === 0)
+		return '.env is tracked by Git; run git rm --cached .env';
+	if (git(root, 'check-ignore', '-q', '.env') === 1)
+		return '.env is not ignored by Git; add .env* to .gitignore';
+	return undefined;
+}
+
 /**
  * Serve until the process receives SIGINT or SIGTERM, then answer nothing:
- * serve prints no answer. When the port is taken it never starts, and
- * answers who holds it.
+ * serve prints no answer. It never starts when a `.env` at the root would
+ * reach Git, saying why, or when the port is taken, answering who holds it.
+ * Once listening it prints each app whose `local/` has no `.gitignore`.
  */
 export async function serveHttp(port: number): Promise<Answer | undefined> {
+	const dotenv = await dotenvProblem(epicenterDir());
+	if (dotenv)
+		return ActionError.NotStarted({ cause: 'unavailable', message: dotenv });
 	const portTaken = (holder: { home: boolean }) =>
 		ActionError.NotStarted({
 			cause: 'unavailable',
@@ -462,6 +494,10 @@ export async function serveHttp(port: number): Promise<Answer | undefined> {
 		return portTaken((await whoAnswers(port)) ?? { home: false });
 	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
+	for (const { entry, realPath } of await homeEntries()) {
+		const local = await localProblem(entry, realPath);
+		if (local) writeErr(local);
+	}
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);

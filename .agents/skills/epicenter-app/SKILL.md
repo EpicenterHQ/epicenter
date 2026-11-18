@@ -157,13 +157,16 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   this computer. A large copy of a source, such as Mail's mailbox database, is
   `local/` though it is data: the source can send it again. `local/` appears
   with the first write there. What is in `local/` stays on the computer that
-  runs the app: the root `.gitignore` leaves it out of every
-  commit, and `folder` makes a new file there `0600`. Git's ignore rules are
-  the only guard, so never `git add -f` a file there. It holds plain files, not
+  runs the app: `folder` writes `local/.gitignore` containing `*` when it
+  makes `local/`, the root `.gitignore` names `/apps/*/local/` as a second
+  guard, and `folder` makes a new file there `0600`. A `local/` made another
+  way without that file is listed as a problem with the one-line fix; run it.
+  Never `git add -f` a file there. It holds plain files, not
   data keys: a token, a cache, a database. Keep a secret, such as a sign-in
   token, with `folder.write('local/google.md', token)` and read it with
-  `folder.read('local/google.md')`, which gives `undefined` before sign-in.
-  Use `folder.update` to compare the old token when refreshing it. No
+  `readFile(join(folder.path, 'local/google.md'), 'utf8')`, which throws
+  `ENOENT` before sign-in. Use `folder.edit` to compare the old token when
+  refreshing it. No
   generated verb reaches `local/`, so no MCP client is handed the token. A
   fresh clone has no `local/`, so the person signs in again.
 - The data keys are the contract between code and records. Reads tolerate
@@ -181,15 +184,27 @@ For Mail (ADR-0882), agents prepare and revise proposals. The person chooses
 `apply` to approve a proposal or `change` to act on the messages displayed
 in the reader. Exercise either write path only against fake Gmail as an agent.
 
-`code/epicenter.ts` default-exports `defineApp({ description, data,
-actions })`. The home is one Bun workspace and an app's code/ is one package
+`code/epicenter.ts` default-exports `defineApp(({ folder }) => ({
+description, data, actions }))` (ADR-0960). The app is a function of its
+folder: `epicenter` calls it once with `apps/<app>/`, and the data and
+actions declared inside it reach the files through `folder`. A helper
+outside the function that touches files takes the folder as a parameter.
+
+```ts
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, { words: { fields: { meaning: field.text() } } });
+  const learn = defineAction({ /* ... */ });
+  return { description: 'Words I am learning', data, actions: { ...data.words.actions('list', 'get'), learn } };
+});
+```
+
+The home is one Bun workspace and an app's code/ is one package
 of it: `code/package.json` is named for the app, and the home has the one
 `bun.lock` and the one `node_modules/`, at its top. An app's actions may
 import anything its `package.json` names, plus Node's built-ins; declare
 every package the app imports. Add one with `bun add <package>` in code/.
 `@epicenter/app` comes from the home's `package.json`, which names the
-version of Epicenter the home runs, and is never listed in the app's: a
-second copy is refused when the app loads. A package nested inside an app,
+version of Epicenter the home runs, and is never listed in the app's. A package nested inside an app,
 such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the home's
 `package.json`. `bun install` at the top of the home installs its packages;
@@ -198,7 +213,7 @@ Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter by editing both versions in the home's `package.json`, then
 running `bun install && bun run build` at the top: the two are released at
-one version, and `epicenter` refuses to load apps while the home names two.
+one version.
 Write each action with `defineAction`, which types its
 `run` from its `input`. The action carries that input as one JSON Schema
 object, `{ type, properties, required, additionalProperties: false }`, which
@@ -219,7 +234,9 @@ take the change second (`data.words.get(word)`,
 instead of parsing front matter again. A one-file key's methods take no id
 (`data['settings.md'].get()`); it reads as `Ok(undefined)` before the first
 write, has no `create`, and its `patch` method or verb can create the file. For
-other files, the imported `folder` supplies atomic writes and updates.
+other files, the app's `folder` has four members (ADR-0964): `path`, the
+container; `write(path, content)`, text or bytes; `edit(path, decide)`; and
+`delete(path)`. Read with `node:fs` or `Bun.file` through `folder.path`.
 `data.words.path(word)` gives a record's path; never build one by hand.
 All writes stay pending until a commit records them.
 `folder` refuses a write outside `data/` and `local/`.
@@ -260,19 +277,21 @@ return data.words.edit(word, (found) =>
 );
 ```
 
-Use `folder.update(path, change)` for a raw text change. It passes the current
-text, or `undefined` when the file is absent. Either way, keep `change` a pure function of what it is
-given. A data callback returns a tagged
-Err to decline or `Ok({})` to leave an existing file alone. A raw folder
-callback returns the new text.
+Use `folder.edit(path, decide)` for a raw text change. It passes the current
+text, or `undefined` when the file is absent; keep `decide` a pure function
+of what it is given. Return `Ok({ text })` to replace the file,
+`Ok({ value })` to leave it and hand back `value`, `Ok({ value, text })` for
+both, or `Err(reason)` to decline. Leaving out `text` leaves the file as it
+is. A data callback returns a tagged Err to decline or `Ok({})` to leave an
+existing file alone.
 
 ```ts
-await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
+await folder.edit('data/2026.csv', (text = 'day,minutes\n') =>
+  Ok({ text: `${text}${day},${minutes}\n` }),
+);
 ```
 
-Use `folder.edit(path, decide)` for a raw text change that may decline. Return
-`Err(reason)`, `Ok({ value })` to preserve the file, or `Ok({ value, text })`
-to replace it. The result carries the value from the winning attempt. `patch` given fields writes
+`patch` given fields writes
 the values it is given, and `folder.write` is for a file whose whole content
 the action decides: for both, the last write wins.
 
@@ -400,7 +419,7 @@ person submits.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
 `connect<typeof tasksApp>()` from `@epicenter/app/client`, importing the app
-as a type (`import type tasksApp from '../../../epicenter.js'`), and lists what the
+function as a type; `connect` reads its return type (`import type tasksApp from '../../../epicenter.js'`), and lists what the
 pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts
@@ -444,8 +463,8 @@ Check the helper's export in the app you copy. Provide the client through
 `<QueryClientProvider>` and apply the invalidation rule from `query-layer`.
 Pages read with `createQuery(() => reads.get({ id }))` and write with
 `createMutation(() => writes.patch)`. Use the server app's action types, for
-example `ActionInput<typeof tasksApp.actions.patch>` and
-`ActionOutput<typeof tasksApp.actions.get>`.
+example, with `type Actions = ReturnType<typeof tasksApp>['actions']`,
+`ActionInput<Actions['patch']>` and `ActionOutput<Actions['get']>`.
 
 An action that sends updates takes `onUpdate` after its input, to show its
 work as it comes: `app.chat.say({ message }, { onUpdate: (token) => (draft += token) })`
@@ -557,7 +576,7 @@ Use a temporary home. Copy the source's code into it, rename its package,
 then run `bun install && bun run build` and read the errors.
 
 ```sh
-bun test ./epicenter.test.ts                # from code/: actions over memory
+bun test ./epicenter.test.ts                # from code/: actions over a temporary folder
 source_path=/absolute/path/to/source/code   # the folder that holds epicenter.ts
 test_home=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitconfig"
@@ -581,6 +600,9 @@ home. Give the temporary home a port the real one does not use.
 In the monorepo, the source CLI is `bun <repo>/packages/cli/src/bin.ts`.
 The temporary Git configuration isolates identity and signing settings.
 Run `bun run typecheck` and action tests from code/, where package.json lives.
+An action test calls the app with a folder on a temporary directory and calls
+an action on the result: `app({ folder: folderOnDisk(dir) }).actions.add(input)`,
+as `examples/tasks/epicenter.test.ts` does. It never needs serve.
 Run tests one file or package at a time.
 
 ## Put an app in the person's Epicenter

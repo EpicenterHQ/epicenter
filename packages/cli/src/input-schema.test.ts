@@ -15,7 +15,13 @@
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { type Action, type App, isAction } from '@epicenter/app';
+import {
+	type Action,
+	type App,
+	type Folder,
+	folderOnDisk,
+	isAction,
+} from '@epicenter/app';
 import { Value } from 'typebox/value';
 import { exampleCommand } from './input.ts';
 import { connectMcp, fixture } from './runner.test-support.ts';
@@ -26,7 +32,8 @@ setDefaultTimeout(30_000);
 const examples = join(import.meta.dir, '../../../examples');
 
 /** Generated data actions for a folder key and a one-file key, with a field of each kind. */
-const generated = `const data = defineData({
+const generated = `export default defineApp(({ folder }) => {
+const data = defineData(folder, {
 	shelves: { fields: {} },
 	notes: {
 		description: 'note',
@@ -45,10 +52,11 @@ const generated = `const data = defineData({
 		fields: { theme: field.select(['light', 'dark']), size: field.integer({ optional: true }) },
 	},
 });
-export default defineApp({ description: 'Generated data actions', data, actions: {
+return { description: 'Generated data actions', data, actions: {
 	notes: data.notes.actions('list', 'get', 'create', 'patch', 'edit', 'delete'),
 	settings: data['settings.md'].actions('get', 'patch', 'edit', 'delete'),
-} });
+} };
+});
 `;
 
 /** The keys each action requires, written out so a lost `required` cannot agree with itself. */
@@ -107,7 +115,10 @@ async function home() {
 	const apps: Record<string, [string, Action][]> = {};
 	for (const name of Object.keys(REQUIRED)) {
 		const entry = join(f.apps, name, 'code', 'epicenter.ts');
-		const app = (await import(entry)).default as App;
+		const define = (await import(entry)).default as (given: {
+			folder: Folder;
+		}) => App;
+		const app = define({ folder: folderOnDisk(join(f.apps, name)) });
 		apps[name] = byWords(app.actions);
 	}
 	return { f, apps };
