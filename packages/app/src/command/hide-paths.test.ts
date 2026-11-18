@@ -15,6 +15,20 @@ test('the Epicenter reads . and the home folder ~, as paths or file URLs, and on
 	// A longer name that starts with the home folder's is not the home folder.
 	expect(hide.text(`${homedir()}-old/x`)).toBe(`${homedir()}-old/x`);
 	expect(hide.text(`${folder}2/x`)).toBe('~/My Epicenter2/x');
+	// A path that ends a sentence is still the path; a name after a dot is not.
+	expect(hide.text(`Cannot read ${folder}. Try again`)).toBe(
+		'Cannot read .. Try again',
+	);
+	expect(hide.text(`${folder}.old/x`)).toBe('~/My Epicenter.old/x');
+});
+
+test('a value is rebuilt only where it is a plain object or array', () => {
+	const folder = join(homedir(), 'Epicenter');
+	const hide = hidePaths({ folder });
+	const when = new Date(0);
+	const shown = hide.value({ when, list: [`${folder}/a`] });
+	expect(shown.when).toBe(when);
+	expect(shown.list).toEqual(['./a']);
 });
 
 test('an answer hides its error and keeps its data as the action returned it', () => {
