@@ -1,15 +1,15 @@
 // bun packages/cli/prototype/selected-interview/demo.ts [--step]
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
 	copyFile,
 	mkdir,
 	mkdtemp,
-	readFile,
 	readdir,
+	readFile,
 	stat,
 	writeFile,
 } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';

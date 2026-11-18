@@ -5,7 +5,7 @@
 	"compatibility_date": "2026-11-15",
 	"compatibility_flags": ["nodejs_compat"],
 	"workers_dev": true,
-	"vars": {"API_ORIGIN":"https://api.epicenter.so"},
+	"vars": { "API_ORIGIN": "https://api.epicenter.so" },
 	"limits": { "cpu_ms": 300000 },
 	"worker_loaders": [{ "binding": "LOADER" }],
 	"durable_objects": {

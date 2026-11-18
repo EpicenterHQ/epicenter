@@ -1,7 +1,7 @@
 import {
+	type Account,
 	createBrowserOAuth,
 	epicenterCloud,
-	type Account,
 } from '../../../../account/src/index.ts';
 import { runAddress } from '../src/access.ts';
 

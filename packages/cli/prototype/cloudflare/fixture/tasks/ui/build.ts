@@ -10,7 +10,9 @@ import type { BunPlugin } from 'bun';
 import tailwind from 'bun-plugin-tailwind';
 import { svelte } from './svelte-plugin.ts';
 
-const outdir = resolve(process.env.EPICENTER_OUT ?? join(import.meta.dir, 'dist'));
+const outdir = resolve(
+	process.env.EPICENTER_OUT ?? join(import.meta.dir, 'dist'),
+);
 
 /**
  * Bun inlines every CSS url() under 128 KB as a data: URL, which would put
@@ -41,4 +43,5 @@ if (!result.success) {
 	for (const log of result.logs) console.error(log);
 	process.exit(1);
 }
-for (const font of fonts) await Bun.write(join(outdir, 'fonts', basename(font)), Bun.file(font));
+for (const font of fonts)
+	await Bun.write(join(outdir, 'fonts', basename(font)), Bun.file(font));

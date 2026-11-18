@@ -1,6 +1,8 @@
 // Generate a reviewable opt-in deployment config; this does not deploy anything.
-import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
+
 import { resolve } from 'node:path';
+import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
+
 const root = resolve(import.meta.dir, '..');
 const base = Bun.JSONC.parse(
 	await Bun.file(resolve(root, 'wrangler.jsonc')).text(),

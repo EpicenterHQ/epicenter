@@ -5,12 +5,12 @@ import { copyFile, lstat, mkdir, readdir, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
 	ActionError,
+	type AnyCollection,
 	defineCollection,
+	type field,
 	folder,
 	Ok,
-	type AnyCollection,
 	type RecordOf,
-	type field,
 	type UploadedFile,
 } from '@epicenter/app';
 

@@ -1,6 +1,7 @@
 // Uploads raw source and dependency files. Does not invoke a compiler or bundler.
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
+
 const root = import.meta.dir;
 export async function sources() {
 	const files: Record<string, string> = {};

@@ -6,9 +6,10 @@
 import { expect, test } from 'bun:test';
 import { homeScope } from './hosted-home.ts';
 import {
-	hostedAudiences,
 	homeExperimentEnabled,
+	hostedAudiences,
 } from './hosted-home-config.ts';
+
 test('source editing, publishing, running, and credential management have distinct scopes', () => {
 	expect(homeScope('/admin/source', 'GET')).toBe('home:read');
 	expect(homeScope('/admin/source', 'POST')).toBe('home:source');

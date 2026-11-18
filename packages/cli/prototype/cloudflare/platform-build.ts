@@ -1,5 +1,6 @@
 // Builds the fixed platform compiler. This script never reads fixture/tasks.
 import { readdir } from 'node:fs/promises';
+
 const result = Bun.spawnSync(
 	[
 		process.execPath,

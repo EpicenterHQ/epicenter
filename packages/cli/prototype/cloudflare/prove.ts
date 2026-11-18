@@ -1,6 +1,8 @@
 // Black-box acceptance against the real 0.4 client and synthetic Tasks records.
-import { api, seed } from './source.js';
+
 import { connect, runs } from './fixture/app-runtime/src/client.js';
+import { api, seed } from './source.js';
+
 const origin = process.argv[2] ?? 'http://localhost:8799';
 const lifecycle = runs as any;
 const originalFetch = globalThis.fetch;
@@ -163,7 +165,7 @@ check(
 			404,
 	'Wrong-type input is refused before a run or effect is created',
 );
-const malformed = lifecycle.start(app["invalid-progress"], {});
+const malformed = lifecycle.start(app['invalid-progress'], {});
 const malformedAnswer = await malformed.result();
 const safeEvents: any[] = [];
 for await (const event of malformed.events()) safeEvents.push(event);

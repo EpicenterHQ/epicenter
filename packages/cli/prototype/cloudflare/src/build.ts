@@ -1,13 +1,14 @@
 // Throwaway proof: this compiler executes inside workerd, never in the upload CLI.
+
+import { posix as path } from 'node:path';
 import { createWorker } from '@cloudflare/worker-bundler';
-import { compile, compileModule } from 'svelte/compiler';
-import { compile as compileCss } from 'tailwindcss';
-import { transform } from 'sucrase';
 import {
 	resolve as packageExport,
 	imports as packageImport,
 } from 'resolve.exports';
-import { posix as path } from 'node:path';
+import { transform } from 'sucrase';
+import { compile, compileModule } from 'svelte/compiler';
+import { compile as compileCss } from 'tailwindcss';
 
 export type Source = {
 	read(path: string): string | null;

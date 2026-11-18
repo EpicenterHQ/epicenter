@@ -9,8 +9,8 @@ import {
 	cp,
 	mkdir,
 	mkdtemp,
-	readFile,
 	readdir,
+	readFile,
 	rename,
 	rm,
 	stat,
@@ -108,7 +108,10 @@ async function hashes(root: string) {
 	return out;
 }
 const before = await hashes(page);
-const scriptBefore = await readFile(join(page, 'videos/short/script.md'), 'utf8');
+const scriptBefore = await readFile(
+	join(page, 'videos/short/script.md'),
+	'utf8',
+);
 
 const server = Bun.spawn([cli, 'serve', '--host', '127.0.0.1', '--port', '0'], {
 	cwd: home,
@@ -137,8 +140,10 @@ try {
 		join(app, 'code/node_modules/@epicenter/app/src/client.ts')
 	)) as typeof import('@epicenter/app/client');
 	const api = connect<typeof appDefinition>({ app: 'pages', url }).pages;
-	const other = connect<typeof appDefinition>({ app: 'unregistered', url })
-		.pages;
+	const other = connect<typeof appDefinition>({
+		app: 'unregistered',
+		url,
+	}).pages;
 	const ok = <T>(r: { data: T; error: unknown }) => {
 		assert.equal(r.error, null, JSON.stringify(r.error));
 		return r.data;
@@ -179,7 +184,10 @@ try {
 			upload: new File([passage], 'a-passage.mp4', { type: 'video/mp4' }),
 		}),
 	);
-	assert.deepEqual(await readFile(join(page, 'videos/short/final.mp4')), passage);
+	assert.deepEqual(
+		await readFile(join(page, 'videos/short/final.mp4')),
+		passage,
+	);
 
 	// 5. Optional children: the empty page has no article, no short script.
 	assert.equal(ok(await api.read({ page: 'empty-page' })), null);
@@ -196,7 +204,9 @@ try {
 		join(unregistered, 'data/pages', name, 'videos/short/review.md'),
 		'No title yet.\n',
 	);
-	log.badReview = (await api.review({ page: name, video: 'short' })).error?.name;
+	log.badReview = (
+		await api.review({ page: name, video: 'short' })
+	).error?.name;
 	assert.equal(log.badReview, 'Misfit');
 	log.unregisteredBadReview = (
 		await other.review({ page: name, video: 'short' })
@@ -213,20 +223,29 @@ try {
 
 	const after = await hashes(page);
 	log.changed = Object.keys(after).filter((f) => after[f] !== before[f]);
-	assert.deepEqual(log.changed, ['videos/short/final.mp4', 'videos/short/script.md']);
+	assert.deepEqual(log.changed, [
+		'videos/short/final.mp4',
+		'videos/short/script.md',
+	]);
 	assert.deepEqual(Object.keys(after), Object.keys(before));
-	log.scriptDiff = Bun.spawnSync([
-		'diff',
-		'-u',
-		'--label',
-		'script.md (before)',
-		'--label',
-		'script.md (after)',
-		'-',
-		join(page, 'videos/short/script.md'),
-	], { stdin: Buffer.from(scriptBefore) }).stdout.toString();
+	log.scriptDiff = Bun.spawnSync(
+		[
+			'diff',
+			'-u',
+			'--label',
+			'script.md (before)',
+			'--label',
+			'script.md (after)',
+			'-',
+			join(page, 'videos/short/script.md'),
+		],
+		{ stdin: Buffer.from(scriptBefore) },
+	).stdout.toString();
 	log.tree = Object.keys(after);
-	await writeFile(join(demo, 'pages-app-proof.json'), JSON.stringify(log, null, 2));
+	await writeFile(
+		join(demo, 'pages-app-proof.json'),
+		JSON.stringify(log, null, 2),
+	);
 	console.log(JSON.stringify(log, null, 2));
 	console.log('Verified on disk:', page);
 } finally {

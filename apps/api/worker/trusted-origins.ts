@@ -1,5 +1,5 @@
-import { HOME_ORIGIN, HOME_LOCAL_ORIGIN } from './hosted-home-config.js';
 import { APPS, localUrl } from '@epicenter/definition/site';
+import { HOME_LOCAL_ORIGIN, HOME_ORIGIN } from './hosted-home-config.js';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the

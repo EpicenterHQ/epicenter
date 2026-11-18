@@ -7,4 +7,4 @@ import Footer from '$lib/components/ui/alert-dialog/alert-dialog-footer.svelte';
 import Header from '$lib/components/ui/alert-dialog/alert-dialog-header.svelte';
 import Title from '$lib/components/ui/alert-dialog/alert-dialog-title.svelte';
 
-export { Root, Action, Cancel, Content, Description, Footer, Header, Title };
+export { Action, Cancel, Content, Description, Footer, Header, Root, Title };

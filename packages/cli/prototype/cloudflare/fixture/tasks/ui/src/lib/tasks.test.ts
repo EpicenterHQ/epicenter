@@ -1,8 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import { Ok } from '@epicenter/app';
-import type { TaskRowResult } from './app.js';
-import type { Task } from './app.js';
-import { addDays, completed, dayOf, dueLabel, groupOpen, hrefOf, splitTasks, misfitKeyOf, misfitLabelOf } from './tasks.js';
+import type { Task, TaskRowResult } from './app.js';
+import {
+	addDays,
+	completed,
+	dayOf,
+	dueLabel,
+	groupOpen,
+	hrefOf,
+	misfitKeyOf,
+	misfitLabelOf,
+	splitTasks,
+} from './tasks.js';
+
 const task = (time: string, fields: Partial<Task> = {}): Task => ({
 	path: `data/tasks/${time}.md`,
 	time,
@@ -41,7 +51,12 @@ describe('groupOpen', () => {
 		task('g', { done: true, due: '2026-11-01' }),
 	];
 	test('groups overdue, today, upcoming by day, then undated newest first', () => {
-		expect(groupOpen(rows, today).map((group) => [group.key, group.tasks.map((t) => t.time)])).toEqual([
+		expect(
+			groupOpen(rows, today).map((group) => [
+				group.key,
+				group.tasks.map((t) => t.time),
+			]),
+		).toEqual([
 			['overdue', ['b']],
 			['today', ['c']],
 			['upcoming', ['f', 'a']],
@@ -55,26 +70,58 @@ describe('groupOpen', () => {
 	});
 });
 test('completed lists done tasks newest first', () => {
-	expect(completed([task('a', { done: true }), task('b'), task('c', { done: true })]).map((t) => t.time)).toEqual(['c', 'a']);
+	expect(
+		completed([
+			task('a', { done: true }),
+			task('b'),
+			task('c', { done: true }),
+		]).map((t) => t.time),
+	).toEqual(['c', 'a']);
 });
-test('hrefOf routes by the task\'s time, encoded', () => {
-	expect(hrefOf({ time: '2026-11-10T22-41-05' })).toBe('#/tasks/2026-11-10T22-41-05');
+test("hrefOf routes by the task's time, encoded", () => {
+	expect(hrefOf({ time: '2026-11-10T22-41-05' })).toBe(
+		'#/tasks/2026-11-10T22-41-05',
+	);
 	expect(hrefOf({ time: 'a?b#c%' })).toBe('#/tasks/a%3Fb%23c%25');
 });
 test('Result rows retain unreadable tasks for repair without inventing done', () => {
-	const broken: TaskRowResult = { data: null, error: { name: 'Misfit', namespace: 'epicenter/action-error', message: 'Bad done', path: 'data/tasks/b.md', problems: [{ line: 'done is invalid', kind: 'field' }], record: { path: 'data/tasks/b.md', time: 'b', title: 'Broken' } } };
+	const broken: TaskRowResult = {
+		data: null,
+		error: {
+			name: 'Misfit',
+			namespace: 'epicenter/action-error',
+			message: 'Bad done',
+			path: 'data/tasks/b.md',
+			problems: [{ line: 'done is invalid', kind: 'field' }],
+			record: { path: 'data/tasks/b.md', time: 'b', title: 'Broken' },
+		},
+	};
 	const { oks, errs } = splitTasks([Ok(task('a')), broken]);
 	expect(oks).toEqual([task('a')]);
 	expect(errs).toEqual([broken.error!]);
 	expect(errs[0]?.record).not.toHaveProperty('done');
 });
 test('malformed task keys prefer partial time and otherwise keep the file stem', () => {
-	expect(misfitKeyOf({ path: 'data/tasks/file.md', record: { time: 'partial?key' } })).toBe('partial?key');
+	expect(
+		misfitKeyOf({
+			path: 'data/tasks/file.md',
+			record: { time: 'partial?key' },
+		}),
+	).toBe('partial?key');
 	expect(misfitKeyOf({ path: 'data/tasks/a.b?c.md' })).toBe('a.b?c');
-	expect(hrefOf({ time: misfitKeyOf({ path: 'data/tasks/a?b.md' }) })).toBe('#/tasks/a%3Fb');
+	expect(hrefOf({ time: misfitKeyOf({ path: 'data/tasks/a?b.md' }) })).toBe(
+		'#/tasks/a%3Fb',
+	);
 });
 test('malformed task labels prefer fitting titles and otherwise keep the file name', () => {
-	expect(misfitLabelOf({ path: 'data/tasks/a.md', record: { title: 'Readable title' } })).toBe('Readable title');
-	expect(misfitLabelOf({ path: 'data/tasks/a.md', record: { title: ' ' } })).toBe('a.md');
+	expect(
+		misfitLabelOf({
+			path: 'data/tasks/a.md',
+			record: { title: 'Readable title' },
+		}),
+	).toBe('Readable title');
+	expect(
+		misfitLabelOf({ path: 'data/tasks/a.md', record: { title: ' ' } }),
+	).toBe('a.md');
 	expect(misfitLabelOf({ path: 'data/tasks/a.md' })).toBe('a.md');
 });

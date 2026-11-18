@@ -1,7 +1,7 @@
 // Disposable host for the real 0.4 client protocol. Only synthetic Tasks data.
 import { RpcTarget } from 'cloudflare:workers';
 import { Value } from 'typebox/value';
-import type { HostedActions, Description } from './hosted-actions.js';
+import type { Description, HostedActions } from './hosted-actions.js';
 
 type RunRow = {
 	id: string;

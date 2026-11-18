@@ -7,17 +7,17 @@
 let hash = $state(location.hash);
 
 // Keep the browser's scroll restoration from fighting the reset to the top.
-history.scrollRestoration = "manual";
+history.scrollRestoration = 'manual';
 
-addEventListener("hashchange", () => {
+addEventListener('hashchange', () => {
 	hash = location.hash;
 	scrollTo(0, 0);
 });
 
 /** The route's parts after `#/`, each decoded; `[]` for the front page. */
 export function currentRoute(): string[] {
-	const route = hash.replace(/^#\/?/, "");
-	return route === "" ? [] : route.split("/").map(decode);
+	const route = hash.replace(/^#\/?/, '');
+	return route === '' ? [] : route.split('/').map(decode);
 }
 
 /** A segment decoded, or as written when it is not valid percent-encoding. */

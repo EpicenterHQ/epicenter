@@ -9,7 +9,7 @@
  * with Bun.YAML's reading of the original to list where they differ.
  */
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readMarkdown } from '/Users/braden/.claude/worktrees/epicenter-define-data/packages/app/src/front-matter.ts';
 import { convertFrontMatter } from './migrate.ts';
@@ -24,7 +24,10 @@ function bodyStart(b: Buffer): number {
 	while (at < b.length) {
 		let end = b.indexOf(0x0a, at);
 		end = end < 0 ? b.length : end + 1;
-		const line = b.subarray(at, end).toString('latin1').replace(/\r?\n$/, '');
+		const line = b
+			.subarray(at, end)
+			.toString('latin1')
+			.replace(/\r?\n$/, '');
 		if (first) {
 			if (line !== '---') return -1;
 			first = false;
@@ -117,7 +120,9 @@ for (const slug of slugs) {
 						? 'list differs'
 						: `${typeof v} differs`;
 		const list = diffs.get(kind) ?? [];
-		list.push(`${slug} ${k}: yaml=${JSON.stringify(v)} ours=${JSON.stringify(got)}`);
+		list.push(
+			`${slug} ${k}: yaml=${JSON.stringify(v)} ours=${JSON.stringify(got)}`,
+		);
 		diffs.set(kind, list);
 	}
 }
@@ -132,7 +137,8 @@ const walk = (rel: string) => {
 		else if (e.name.endsWith('.md') && rel !== '') {
 			const a = readFileSync(join(orig, r));
 			const bPath = join(mig, r);
-			if (existsSync(bPath) && sha(a) === sha(readFileSync(bPath))) nestedSame++;
+			if (existsSync(bPath) && sha(a) === sha(readFileSync(bPath)))
+				nestedSame++;
 			else nestedBad++;
 		}
 	}
@@ -157,4 +163,6 @@ console.log({
 });
 console.log('Value differences against Bun.YAML on the original block:');
 for (const [kind, list] of [...diffs].sort())
-	console.log(`  ${list.length}  ${kind}\n     e.g. ${list.slice(0, 2).join(' | ').slice(0, 220)}`);
+	console.log(
+		`  ${list.length}  ${kind}\n     e.g. ${list.slice(0, 2).join(' | ').slice(0, 220)}`,
+	);

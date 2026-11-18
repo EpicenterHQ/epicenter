@@ -1,8 +1,8 @@
 // Cloud-only gateway. OAuth selects the person's home; no request parameter can.
 import {
-	requireAccessToken,
 	type CloudEnv,
 	type OAuthScope,
+	requireAccessToken,
 } from '@epicenter/server';
 import { sql } from 'drizzle-orm';
 import type { Hono, MiddlewareHandler } from 'hono';

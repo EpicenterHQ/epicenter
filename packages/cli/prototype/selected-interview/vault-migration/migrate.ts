@@ -16,7 +16,14 @@
  * The script refuses a target under `~/Epicenter` unless given `--real`.
  */
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	stat,
+	writeFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
@@ -233,8 +240,13 @@ export function convertFrontMatter(text: string): Conversion {
 			for (;;) {
 				// blank lines between items are dropped
 				let j = i;
-				while (j < close && lineParts(lines[j] as string).content.trim() === '') j++;
-				if (j >= close || !/^\s*-(\s|$)/.test(lineParts(lines[j] as string).content)) break;
+				while (j < close && lineParts(lines[j] as string).content.trim() === '')
+					j++;
+				if (
+					j >= close ||
+					!/^\s*-(\s|$)/.test(lineParts(lines[j] as string).content)
+				)
+					break;
 				i = j;
 				const c = lineParts(lines[i] as string).content;
 				const prefix = (/^\s*-\s*/.exec(c) as RegExpExecArray)[0];
@@ -276,7 +288,8 @@ export function convertFrontMatter(text: string): Conversion {
 						const val = isJsonCollectionOrString(v)
 							? (JSON.parse(v) as Json)
 							: v[0] === '['
-								? (reasons.add('nested deeper than one map in a list item'), undefined)
+								? (reasons.add('nested deeper than one map in a list item'),
+									undefined)
 								: scalar(v, false, reasons);
 						if (val === undefined) ok = false;
 						else obj[k] = val;
@@ -474,7 +487,8 @@ function print(report: Report, write: boolean) {
 	console.log(`conflicts: ${report.conflicts.length}`);
 	for (const c of report.conflicts) console.log(`  ${c.slug}: ${c.why}`);
 	console.log(`refused slugs: ${report.refused.length}`);
-	for (const r of report.refused) console.log(`  ${JSON.stringify(r.slug)}: ${r.why}`);
+	for (const r of report.refused)
+		console.log(`  ${JSON.stringify(r.slug)}: ${r.why}`);
 	console.log('hand conversion list:');
 	for (const { path, reasons } of report.hand)
 		console.log(`  ${path}\t${reasons.join('; ')}`);

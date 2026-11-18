@@ -1,4 +1,3 @@
-import { review, invalidProgress, moduleCounter } from './review.prototype.js';
 import {
 	ActionError,
 	defineAction,
@@ -6,6 +5,7 @@ import {
 	defineCollection,
 	field,
 } from '@epicenter/app';
+import { invalidProgress, moduleCounter, review } from './review.prototype.js';
 
 const tasks = defineCollection({
 	path: 'data/tasks/{time}.md',

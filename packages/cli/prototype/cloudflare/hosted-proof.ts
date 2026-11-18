@@ -1,15 +1,16 @@
 // Local black-box acceptance: real OAuth + Postgres + two workerd processes.
 // Only social-provider sign-in is replaced by a signed test session in a private DB.
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
-import { mkdtemp, rm, chmod } from 'node:fs/promises';
+import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { chromium } from 'playwright';
 import { migrate } from '../../../server/node_modules/drizzle-orm/node-postgres/migrator';
 import { createDb } from '../../../server/src/db/create-db.ts';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.ts';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.ts';
-import { chromium } from 'playwright';
-import { sources, seed, api } from './source.ts';
+import { api, seed, sources } from './source.ts';
+
 const root = import.meta.dir;
 const repo = resolve(root, '../../../..');
 const apiOrigin = 'http://localhost:8787';

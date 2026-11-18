@@ -1,1039 +1,964 @@
 {
-  "origin": "https://epicenter-tasks-workers-prototype.epicenter.workers.dev",
-  "apiVersion": "0.4.0",
-  "started": "2026-11-16T09:48:30.976Z",
-  "checks": [
-    "Raw Tasks UI and current 0.4 runtime compile inside Workers",
-    "Real Tasks add, guarded set, body edit and get return current Results",
-    "Invalid input is refused before execution",
-    "Stopping observation does not request host cancellation",
-    "A new 0.4 observer replays the run from the beginning",
-    "All progress is persisted and replayed after disconnection",
-    "Disconnected execution finishes without repeating effects",
-    "Repeated admission joins the accepted run instead of executing again",
-    "Reusing a run id with different input is refused",
-    "Equivalent JSON input with reordered keys joins the existing run",
-    "Wrong-type input is refused before a run or effect is created",
-    "An invalid yield fails cleanly and leaves the terminal event replayable",
-    "Explicit cancellation is acknowledged",
-    "Cancellation reaches callSignal and returns the action stopped Result",
-    "Cancellation request is recorded before the terminal answer",
-    "Cancelled work stops producing further effects",
-    "A real Durable Object abort recovers the accepted run as interrupted",
-    "Recovery never starts the interrupted action again",
-    "Edits apply to the actual Tasks actions and Svelte heading",
-    "Published Tasks remains available while the edited revision compiles",
-    "Edited Svelte and actions publish together",
-    "An admitted run stays pinned to its original app revision",
-    "The newly published action executes its edited code",
-    "A stale page cannot silently start a call against a new action revision",
-    "The old revision run can still finish and be observed after promotion",
-    "Broken Svelte preserves the published revision",
-    "Published JavaScript and static assets survive the failed build unchanged",
-    "Published 0.4 actions still work after a failed build",
-    "Broken TypeScript also preserves the published revision",
-    "Interrupted effects stay unchanged beyond the original action completion window",
-    "Interruption and later builds never repeat the action start effect",
-    "Task data survives successful revisions, interruption and failed builds"
-  ],
-  "first": {
-    "id": "823edaf4-7496-4a50-a719-c91df763e839",
-    "ok": true,
-    "apiVersion": "0.4.0",
-    "runtime": "workerd",
-    "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
-    "components": 289,
-    "elapsedMs": 25839,
-    "actions": {
-      "list": {
-        "schema": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "get": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "time"
-          ],
-          "properties": {
-            "time": {
-              "type": "string",
-              "description": "Which one: its {time} in data/tasks/{time}.md"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "add": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "title"
-          ],
-          "properties": {
-            "title": {
-              "type": "string",
-              "description": "What to do"
-            },
-            "due": {
-              "type": "string",
-              "description": "The day it is due",
-              "format": "date"
-            },
-            "notes": {
-              "type": "string",
-              "description": "Notes in Markdown"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "set": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "time"
-          ],
-          "properties": {
-            "time": {
-              "type": "string",
-              "description": "Which one: its {time} in data/tasks/{time}.md"
-            },
-            "title": {
-              "type": "string",
-              "description": "one line, not blank, saying what to do",
-              "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
-            },
-            "done": {
-              "anyOf": [
-                {
-                  "type": "boolean",
-                  "description": "Whether it is done",
-                  "x-epicenter-field": "switch"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Whether it is done; null removes it"
-            },
-            "due": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "description": "The day it is due, as 2026-11-10; absent when it has none",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
-            },
-            "was": {
-              "type": "object",
-              "properties": {
-                "title": {},
-                "done": {},
-                "due": {}
-              },
-              "additionalProperties": false,
-              "description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
-            },
-            "edit": {
-              "type": "object",
-              "required": [
-                "old",
-                "new"
-              ],
-              "properties": {
-                "old": {
-                  "type": "string",
-                  "description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
-                },
-                "new": {
-                  "type": "string",
-                  "description": "The text to put in its place"
-                }
-              },
-              "additionalProperties": false,
-              "description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "delete": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "time"
-          ],
-          "properties": {
-            "time": {
-              "type": "string",
-              "description": "Which one: its {time} in data/tasks/{time}.md"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "review": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "key",
-            "steps",
-            "delayMs"
-          ],
-          "properties": {
-            "key": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9-]+$"
-            },
-            "steps": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 60
-            },
-            "delayMs": {
-              "type": "integer",
-              "minimum": 100,
-              "maximum": 2000
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "invalid-progress": {
-        "schema": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "privateInput": false
-      }
-    }
-  },
-  "cancelled": {
-    "id": "802757d8-d609-4524-80e6-e27c33e2ef6f",
-    "effects": {
-      "starts": 1,
-      "effects": 2,
-      "completed": 0
-    }
-  },
-  "interrupted": {
-    "id": "e9aa7434-fad6-45c7-94a5-629d62079c72",
-    "effects": {
-      "starts": 1,
-      "effects": 2,
-      "completed": 0
-    }
-  },
-  "second": {
-    "id": "36cbc1f5-4972-4a39-a647-4373adac8983",
-    "ok": true,
-    "apiVersion": "0.4.0",
-    "runtime": "workerd",
-    "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
-    "components": 289,
-    "elapsedMs": 25286,
-    "actions": {
-      "list": {
-        "schema": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "get": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "time"
-          ],
-          "properties": {
-            "time": {
-              "type": "string",
-              "description": "Which one: its {time} in data/tasks/{time}.md"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "add": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "title"
-          ],
-          "properties": {
-            "title": {
-              "type": "string",
-              "description": "What to do"
-            },
-            "due": {
-              "type": "string",
-              "description": "The day it is due",
-              "format": "date"
-            },
-            "notes": {
-              "type": "string",
-              "description": "Notes in Markdown"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "set": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "time"
-          ],
-          "properties": {
-            "time": {
-              "type": "string",
-              "description": "Which one: its {time} in data/tasks/{time}.md"
-            },
-            "title": {
-              "type": "string",
-              "description": "one line, not blank, saying what to do",
-              "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
-            },
-            "done": {
-              "anyOf": [
-                {
-                  "type": "boolean",
-                  "description": "Whether it is done",
-                  "x-epicenter-field": "switch"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Whether it is done; null removes it"
-            },
-            "due": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "description": "The day it is due, as 2026-11-10; absent when it has none",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
-            },
-            "was": {
-              "type": "object",
-              "properties": {
-                "title": {},
-                "done": {},
-                "due": {}
-              },
-              "additionalProperties": false,
-              "description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
-            },
-            "edit": {
-              "type": "object",
-              "required": [
-                "old",
-                "new"
-              ],
-              "properties": {
-                "old": {
-                  "type": "string",
-                  "description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
-                },
-                "new": {
-                  "type": "string",
-                  "description": "The text to put in its place"
-                }
-              },
-              "additionalProperties": false,
-              "description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "delete": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "time"
-          ],
-          "properties": {
-            "time": {
-              "type": "string",
-              "description": "Which one: its {time} in data/tasks/{time}.md"
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "review": {
-        "schema": {
-          "type": "object",
-          "required": [
-            "key",
-            "steps",
-            "delayMs"
-          ],
-          "properties": {
-            "key": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9-]+$"
-            },
-            "steps": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 60
-            },
-            "delayMs": {
-              "type": "integer",
-              "minimum": 100,
-              "maximum": 2000
-            }
-          },
-          "additionalProperties": false
-        },
-        "privateInput": false
-      },
-      "invalid-progress": {
-        "schema": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "privateInput": false
-      }
-    }
-  },
-  "brokenUi": {
-    "id": "19052127-ef75-4992-a8ae-21d7d784bf12",
-    "ok": false,
-    "runtime": "workerd",
-    "error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:10:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error",
-    "active": "36cbc1f5-4972-4a39-a647-4373adac8983"
-  },
-  "brokenAction": {
-    "id": "26f7b615-71ac-450a-a43c-874e05fac701",
-    "ok": false,
-    "runtime": "workerd",
-    "error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\"",
-    "active": "36cbc1f5-4972-4a39-a647-4373adac8983"
-  },
-  "completed": "2026-11-16T09:50:48.683Z",
-  "final": {
-    "active": "36cbc1f5-4972-4a39-a647-4373adac8983",
-    "building": false,
-    "sourceFiles": 6883,
-    "builds": [
-      {
-        "id": "26f7b615-71ac-450a-a43c-874e05fac701",
-        "ok": false,
-        "runtime": "workerd",
-        "error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\""
-      },
-      {
-        "id": "19052127-ef75-4992-a8ae-21d7d784bf12",
-        "ok": false,
-        "runtime": "workerd",
-        "error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:10:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error"
-      },
-      {
-        "id": "36cbc1f5-4972-4a39-a647-4373adac8983",
-        "ok": true,
-        "apiVersion": "0.4.0",
-        "runtime": "workerd",
-        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
-        "components": 289,
-        "elapsedMs": 25286,
-        "actions": {
-          "list": {
-            "schema": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "get": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "add": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "title"
-              ],
-              "properties": {
-                "title": {
-                  "type": "string",
-                  "description": "What to do"
-                },
-                "due": {
-                  "type": "string",
-                  "description": "The day it is due",
-                  "format": "date"
-                },
-                "notes": {
-                  "type": "string",
-                  "description": "Notes in Markdown"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "set": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                },
-                "title": {
-                  "type": "string",
-                  "description": "one line, not blank, saying what to do",
-                  "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
-                },
-                "done": {
-                  "anyOf": [
-                    {
-                      "type": "boolean",
-                      "description": "Whether it is done",
-                      "x-epicenter-field": "switch"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "description": "Whether it is done; null removes it"
-                },
-                "due": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "description": "The day it is due, as 2026-11-10; absent when it has none",
-                      "format": "date"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
-                },
-                "was": {
-                  "type": "object",
-                  "properties": {
-                    "title": {},
-                    "done": {},
-                    "due": {}
-                  },
-                  "additionalProperties": false,
-                  "description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
-                },
-                "edit": {
-                  "type": "object",
-                  "required": [
-                    "old",
-                    "new"
-                  ],
-                  "properties": {
-                    "old": {
-                      "type": "string",
-                      "description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
-                    },
-                    "new": {
-                      "type": "string",
-                      "description": "The text to put in its place"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "delete": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "review": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "key",
-                "steps",
-                "delayMs"
-              ],
-              "properties": {
-                "key": {
-                  "type": "string",
-                  "pattern": "^[a-zA-Z0-9-]+$"
-                },
-                "steps": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 60
-                },
-                "delayMs": {
-                  "type": "integer",
-                  "minimum": 100,
-                  "maximum": 2000
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "invalid-progress": {
-            "schema": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": false
-            },
-            "privateInput": false
-          }
-        }
-      },
-      {
-        "id": "823edaf4-7496-4a50-a719-c91df763e839",
-        "ok": true,
-        "apiVersion": "0.4.0",
-        "runtime": "workerd",
-        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
-        "components": 289,
-        "elapsedMs": 25839,
-        "actions": {
-          "list": {
-            "schema": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "get": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "add": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "title"
-              ],
-              "properties": {
-                "title": {
-                  "type": "string",
-                  "description": "What to do"
-                },
-                "due": {
-                  "type": "string",
-                  "description": "The day it is due",
-                  "format": "date"
-                },
-                "notes": {
-                  "type": "string",
-                  "description": "Notes in Markdown"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "set": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                },
-                "title": {
-                  "type": "string",
-                  "description": "one line, not blank, saying what to do",
-                  "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
-                },
-                "done": {
-                  "anyOf": [
-                    {
-                      "type": "boolean",
-                      "description": "Whether it is done",
-                      "x-epicenter-field": "switch"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "description": "Whether it is done; null removes it"
-                },
-                "due": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "description": "The day it is due, as 2026-11-10; absent when it has none",
-                      "format": "date"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
-                },
-                "was": {
-                  "type": "object",
-                  "properties": {
-                    "title": {},
-                    "done": {},
-                    "due": {}
-                  },
-                  "additionalProperties": false,
-                  "description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
-                },
-                "edit": {
-                  "type": "object",
-                  "required": [
-                    "old",
-                    "new"
-                  ],
-                  "properties": {
-                    "old": {
-                      "type": "string",
-                      "description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
-                    },
-                    "new": {
-                      "type": "string",
-                      "description": "The text to put in its place"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "delete": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "review": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "key",
-                "steps",
-                "delayMs"
-              ],
-              "properties": {
-                "key": {
-                  "type": "string",
-                  "pattern": "^[a-zA-Z0-9-]+$"
-                },
-                "steps": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 60
-                },
-                "delayMs": {
-                  "type": "integer",
-                  "minimum": 100,
-                  "maximum": 2000
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "invalid-progress": {
-            "schema": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": false
-            },
-            "privateInput": false
-          }
-        }
-      },
-      {
-        "id": "3cf61532-5f86-4e2e-ac29-99f4ca661ac2",
-        "ok": false,
-        "runtime": "workerd",
-        "error": "Error: actions has the key \"invalidProgress\" at actions.invalidProgress, which is not lowercase letters, digits, and dashes, starting with a letter\nSOURCE: "
-      },
-      {
-        "id": "70d3696f-dddd-44af-b5c0-d425554d3d38",
-        "ok": false,
-        "runtime": "workerd",
-        "error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\""
-      },
-      {
-        "id": "454cf805-9a30-4a7e-ae12-e662a7c32838",
-        "ok": false,
-        "runtime": "workerd",
-        "error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:10:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error"
-      },
-      {
-        "id": "712dc947-db12-4194-9cf6-305415e29ef5",
-        "ok": true,
-        "apiVersion": "0.4.0",
-        "runtime": "workerd",
-        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
-        "components": 289,
-        "elapsedMs": 22785,
-        "actions": {
-          "list": {
-            "schema": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "get": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "add": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "title"
-              ],
-              "properties": {
-                "title": {
-                  "type": "string",
-                  "description": "What to do"
-                },
-                "due": {
-                  "type": "string",
-                  "description": "The day it is due",
-                  "format": "date"
-                },
-                "notes": {
-                  "type": "string",
-                  "description": "Notes in Markdown"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "set": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                },
-                "title": {
-                  "type": "string",
-                  "description": "one line, not blank, saying what to do",
-                  "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
-                },
-                "done": {
-                  "anyOf": [
-                    {
-                      "type": "boolean",
-                      "description": "Whether it is done",
-                      "x-epicenter-field": "switch"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "description": "Whether it is done; null removes it"
-                },
-                "due": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "description": "The day it is due, as 2026-11-10; absent when it has none",
-                      "format": "date"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
-                },
-                "was": {
-                  "type": "object",
-                  "properties": {
-                    "title": {},
-                    "done": {},
-                    "due": {}
-                  },
-                  "additionalProperties": false,
-                  "description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
-                },
-                "edit": {
-                  "type": "object",
-                  "required": [
-                    "old",
-                    "new"
-                  ],
-                  "properties": {
-                    "old": {
-                      "type": "string",
-                      "description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
-                    },
-                    "new": {
-                      "type": "string",
-                      "description": "The text to put in its place"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "delete": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "time"
-              ],
-              "properties": {
-                "time": {
-                  "type": "string",
-                  "description": "Which one: its {time} in data/tasks/{time}.md"
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          },
-          "review": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "key",
-                "steps",
-                "delayMs"
-              ],
-              "properties": {
-                "key": {
-                  "type": "string",
-                  "pattern": "^[a-zA-Z0-9-]+$"
-                },
-                "steps": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 60
-                },
-                "delayMs": {
-                  "type": "integer",
-                  "minimum": 100,
-                  "maximum": 2000
-                }
-              },
-              "additionalProperties": false
-            },
-            "privateInput": false
-          }
-        }
-      }
-    ]
-  }
+	"origin": "https://epicenter-tasks-workers-prototype.epicenter.workers.dev",
+	"apiVersion": "0.4.0",
+	"started": "2026-11-16T09:48:30.976Z",
+	"checks": [
+		"Raw Tasks UI and current 0.4 runtime compile inside Workers",
+		"Real Tasks add, guarded set, body edit and get return current Results",
+		"Invalid input is refused before execution",
+		"Stopping observation does not request host cancellation",
+		"A new 0.4 observer replays the run from the beginning",
+		"All progress is persisted and replayed after disconnection",
+		"Disconnected execution finishes without repeating effects",
+		"Repeated admission joins the accepted run instead of executing again",
+		"Reusing a run id with different input is refused",
+		"Equivalent JSON input with reordered keys joins the existing run",
+		"Wrong-type input is refused before a run or effect is created",
+		"An invalid yield fails cleanly and leaves the terminal event replayable",
+		"Explicit cancellation is acknowledged",
+		"Cancellation reaches callSignal and returns the action stopped Result",
+		"Cancellation request is recorded before the terminal answer",
+		"Cancelled work stops producing further effects",
+		"A real Durable Object abort recovers the accepted run as interrupted",
+		"Recovery never starts the interrupted action again",
+		"Edits apply to the actual Tasks actions and Svelte heading",
+		"Published Tasks remains available while the edited revision compiles",
+		"Edited Svelte and actions publish together",
+		"An admitted run stays pinned to its original app revision",
+		"The newly published action executes its edited code",
+		"A stale page cannot silently start a call against a new action revision",
+		"The old revision run can still finish and be observed after promotion",
+		"Broken Svelte preserves the published revision",
+		"Published JavaScript and static assets survive the failed build unchanged",
+		"Published 0.4 actions still work after a failed build",
+		"Broken TypeScript also preserves the published revision",
+		"Interrupted effects stay unchanged beyond the original action completion window",
+		"Interruption and later builds never repeat the action start effect",
+		"Task data survives successful revisions, interruption and failed builds"
+	],
+	"first": {
+		"id": "823edaf4-7496-4a50-a719-c91df763e839",
+		"ok": true,
+		"apiVersion": "0.4.0",
+		"runtime": "workerd",
+		"compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+		"components": 289,
+		"elapsedMs": 25839,
+		"actions": {
+			"list": {
+				"schema": {
+					"type": "object",
+					"properties": {},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"get": {
+				"schema": {
+					"type": "object",
+					"required": ["time"],
+					"properties": {
+						"time": {
+							"type": "string",
+							"description": "Which one: its {time} in data/tasks/{time}.md"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"add": {
+				"schema": {
+					"type": "object",
+					"required": ["title"],
+					"properties": {
+						"title": {
+							"type": "string",
+							"description": "What to do"
+						},
+						"due": {
+							"type": "string",
+							"description": "The day it is due",
+							"format": "date"
+						},
+						"notes": {
+							"type": "string",
+							"description": "Notes in Markdown"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"set": {
+				"schema": {
+					"type": "object",
+					"required": ["time"],
+					"properties": {
+						"time": {
+							"type": "string",
+							"description": "Which one: its {time} in data/tasks/{time}.md"
+						},
+						"title": {
+							"type": "string",
+							"description": "one line, not blank, saying what to do",
+							"pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
+						},
+						"done": {
+							"anyOf": [
+								{
+									"type": "boolean",
+									"description": "Whether it is done",
+									"x-epicenter-field": "switch"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"description": "Whether it is done; null removes it"
+						},
+						"due": {
+							"anyOf": [
+								{
+									"type": "string",
+									"description": "The day it is due, as 2026-11-10; absent when it has none",
+									"format": "date"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
+						},
+						"was": {
+							"type": "object",
+							"properties": {
+								"title": {},
+								"done": {},
+								"due": {}
+							},
+							"additionalProperties": false,
+							"description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
+						},
+						"edit": {
+							"type": "object",
+							"required": ["old", "new"],
+							"properties": {
+								"old": {
+									"type": "string",
+									"description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
+								},
+								"new": {
+									"type": "string",
+									"description": "The text to put in its place"
+								}
+							},
+							"additionalProperties": false,
+							"description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"delete": {
+				"schema": {
+					"type": "object",
+					"required": ["time"],
+					"properties": {
+						"time": {
+							"type": "string",
+							"description": "Which one: its {time} in data/tasks/{time}.md"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"review": {
+				"schema": {
+					"type": "object",
+					"required": ["key", "steps", "delayMs"],
+					"properties": {
+						"key": {
+							"type": "string",
+							"pattern": "^[a-zA-Z0-9-]+$"
+						},
+						"steps": {
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 60
+						},
+						"delayMs": {
+							"type": "integer",
+							"minimum": 100,
+							"maximum": 2000
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"invalid-progress": {
+				"schema": {
+					"type": "object",
+					"properties": {},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			}
+		}
+	},
+	"cancelled": {
+		"id": "802757d8-d609-4524-80e6-e27c33e2ef6f",
+		"effects": {
+			"starts": 1,
+			"effects": 2,
+			"completed": 0
+		}
+	},
+	"interrupted": {
+		"id": "e9aa7434-fad6-45c7-94a5-629d62079c72",
+		"effects": {
+			"starts": 1,
+			"effects": 2,
+			"completed": 0
+		}
+	},
+	"second": {
+		"id": "36cbc1f5-4972-4a39-a647-4373adac8983",
+		"ok": true,
+		"apiVersion": "0.4.0",
+		"runtime": "workerd",
+		"compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+		"components": 289,
+		"elapsedMs": 25286,
+		"actions": {
+			"list": {
+				"schema": {
+					"type": "object",
+					"properties": {},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"get": {
+				"schema": {
+					"type": "object",
+					"required": ["time"],
+					"properties": {
+						"time": {
+							"type": "string",
+							"description": "Which one: its {time} in data/tasks/{time}.md"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"add": {
+				"schema": {
+					"type": "object",
+					"required": ["title"],
+					"properties": {
+						"title": {
+							"type": "string",
+							"description": "What to do"
+						},
+						"due": {
+							"type": "string",
+							"description": "The day it is due",
+							"format": "date"
+						},
+						"notes": {
+							"type": "string",
+							"description": "Notes in Markdown"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"set": {
+				"schema": {
+					"type": "object",
+					"required": ["time"],
+					"properties": {
+						"time": {
+							"type": "string",
+							"description": "Which one: its {time} in data/tasks/{time}.md"
+						},
+						"title": {
+							"type": "string",
+							"description": "one line, not blank, saying what to do",
+							"pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
+						},
+						"done": {
+							"anyOf": [
+								{
+									"type": "boolean",
+									"description": "Whether it is done",
+									"x-epicenter-field": "switch"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"description": "Whether it is done; null removes it"
+						},
+						"due": {
+							"anyOf": [
+								{
+									"type": "string",
+									"description": "The day it is due, as 2026-11-10; absent when it has none",
+									"format": "date"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
+						},
+						"was": {
+							"type": "object",
+							"properties": {
+								"title": {},
+								"done": {},
+								"due": {}
+							},
+							"additionalProperties": false,
+							"description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
+						},
+						"edit": {
+							"type": "object",
+							"required": ["old", "new"],
+							"properties": {
+								"old": {
+									"type": "string",
+									"description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
+								},
+								"new": {
+									"type": "string",
+									"description": "The text to put in its place"
+								}
+							},
+							"additionalProperties": false,
+							"description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"delete": {
+				"schema": {
+					"type": "object",
+					"required": ["time"],
+					"properties": {
+						"time": {
+							"type": "string",
+							"description": "Which one: its {time} in data/tasks/{time}.md"
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"review": {
+				"schema": {
+					"type": "object",
+					"required": ["key", "steps", "delayMs"],
+					"properties": {
+						"key": {
+							"type": "string",
+							"pattern": "^[a-zA-Z0-9-]+$"
+						},
+						"steps": {
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 60
+						},
+						"delayMs": {
+							"type": "integer",
+							"minimum": 100,
+							"maximum": 2000
+						}
+					},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			},
+			"invalid-progress": {
+				"schema": {
+					"type": "object",
+					"properties": {},
+					"additionalProperties": false
+				},
+				"privateInput": false
+			}
+		}
+	},
+	"brokenUi": {
+		"id": "19052127-ef75-4992-a8ae-21d7d784bf12",
+		"ok": false,
+		"runtime": "workerd",
+		"error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:10:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error",
+		"active": "36cbc1f5-4972-4a39-a647-4373adac8983"
+	},
+	"brokenAction": {
+		"id": "26f7b615-71ac-450a-a43c-874e05fac701",
+		"ok": false,
+		"runtime": "workerd",
+		"error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\"",
+		"active": "36cbc1f5-4972-4a39-a647-4373adac8983"
+	},
+	"completed": "2026-11-16T09:50:48.683Z",
+	"final": {
+		"active": "36cbc1f5-4972-4a39-a647-4373adac8983",
+		"building": false,
+		"sourceFiles": 6883,
+		"builds": [
+			{
+				"id": "26f7b615-71ac-450a-a43c-874e05fac701",
+				"ok": false,
+				"runtime": "workerd",
+				"error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\""
+			},
+			{
+				"id": "19052127-ef75-4992-a8ae-21d7d784bf12",
+				"ok": false,
+				"runtime": "workerd",
+				"error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:10:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error"
+			},
+			{
+				"id": "36cbc1f5-4972-4a39-a647-4373adac8983",
+				"ok": true,
+				"apiVersion": "0.4.0",
+				"runtime": "workerd",
+				"compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+				"components": 289,
+				"elapsedMs": 25286,
+				"actions": {
+					"list": {
+						"schema": {
+							"type": "object",
+							"properties": {},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"get": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"add": {
+						"schema": {
+							"type": "object",
+							"required": ["title"],
+							"properties": {
+								"title": {
+									"type": "string",
+									"description": "What to do"
+								},
+								"due": {
+									"type": "string",
+									"description": "The day it is due",
+									"format": "date"
+								},
+								"notes": {
+									"type": "string",
+									"description": "Notes in Markdown"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"set": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								},
+								"title": {
+									"type": "string",
+									"description": "one line, not blank, saying what to do",
+									"pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
+								},
+								"done": {
+									"anyOf": [
+										{
+											"type": "boolean",
+											"description": "Whether it is done",
+											"x-epicenter-field": "switch"
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "Whether it is done; null removes it"
+								},
+								"due": {
+									"anyOf": [
+										{
+											"type": "string",
+											"description": "The day it is due, as 2026-11-10; absent when it has none",
+											"format": "date"
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
+								},
+								"was": {
+									"type": "object",
+									"properties": {
+										"title": {},
+										"done": {},
+										"due": {}
+									},
+									"additionalProperties": false,
+									"description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
+								},
+								"edit": {
+									"type": "object",
+									"required": ["old", "new"],
+									"properties": {
+										"old": {
+											"type": "string",
+											"description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
+										},
+										"new": {
+											"type": "string",
+											"description": "The text to put in its place"
+										}
+									},
+									"additionalProperties": false,
+									"description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"delete": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"review": {
+						"schema": {
+							"type": "object",
+							"required": ["key", "steps", "delayMs"],
+							"properties": {
+								"key": {
+									"type": "string",
+									"pattern": "^[a-zA-Z0-9-]+$"
+								},
+								"steps": {
+									"type": "integer",
+									"minimum": 1,
+									"maximum": 60
+								},
+								"delayMs": {
+									"type": "integer",
+									"minimum": 100,
+									"maximum": 2000
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"invalid-progress": {
+						"schema": {
+							"type": "object",
+							"properties": {},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					}
+				}
+			},
+			{
+				"id": "823edaf4-7496-4a50-a719-c91df763e839",
+				"ok": true,
+				"apiVersion": "0.4.0",
+				"runtime": "workerd",
+				"compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+				"components": 289,
+				"elapsedMs": 25839,
+				"actions": {
+					"list": {
+						"schema": {
+							"type": "object",
+							"properties": {},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"get": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"add": {
+						"schema": {
+							"type": "object",
+							"required": ["title"],
+							"properties": {
+								"title": {
+									"type": "string",
+									"description": "What to do"
+								},
+								"due": {
+									"type": "string",
+									"description": "The day it is due",
+									"format": "date"
+								},
+								"notes": {
+									"type": "string",
+									"description": "Notes in Markdown"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"set": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								},
+								"title": {
+									"type": "string",
+									"description": "one line, not blank, saying what to do",
+									"pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
+								},
+								"done": {
+									"anyOf": [
+										{
+											"type": "boolean",
+											"description": "Whether it is done",
+											"x-epicenter-field": "switch"
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "Whether it is done; null removes it"
+								},
+								"due": {
+									"anyOf": [
+										{
+											"type": "string",
+											"description": "The day it is due, as 2026-11-10; absent when it has none",
+											"format": "date"
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
+								},
+								"was": {
+									"type": "object",
+									"properties": {
+										"title": {},
+										"done": {},
+										"due": {}
+									},
+									"additionalProperties": false,
+									"description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
+								},
+								"edit": {
+									"type": "object",
+									"required": ["old", "new"],
+									"properties": {
+										"old": {
+											"type": "string",
+											"description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
+										},
+										"new": {
+											"type": "string",
+											"description": "The text to put in its place"
+										}
+									},
+									"additionalProperties": false,
+									"description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"delete": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"review": {
+						"schema": {
+							"type": "object",
+							"required": ["key", "steps", "delayMs"],
+							"properties": {
+								"key": {
+									"type": "string",
+									"pattern": "^[a-zA-Z0-9-]+$"
+								},
+								"steps": {
+									"type": "integer",
+									"minimum": 1,
+									"maximum": 60
+								},
+								"delayMs": {
+									"type": "integer",
+									"minimum": 100,
+									"maximum": 2000
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"invalid-progress": {
+						"schema": {
+							"type": "object",
+							"properties": {},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					}
+				}
+			},
+			{
+				"id": "3cf61532-5f86-4e2e-ac29-99f4ca661ac2",
+				"ok": false,
+				"runtime": "workerd",
+				"error": "Error: actions has the key \"invalidProgress\" at actions.invalidProgress, which is not lowercase letters, digits, and dashes, starting with a letter\nSOURCE: "
+			},
+			{
+				"id": "70d3696f-dddd-44af-b5c0-d425554d3d38",
+				"ok": false,
+				"runtime": "workerd",
+				"error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\""
+			},
+			{
+				"id": "454cf805-9a30-4a7e-ae12-e662a7c32838",
+				"ok": false,
+				"runtime": "workerd",
+				"error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:10:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error"
+			},
+			{
+				"id": "712dc947-db12-4194-9cf6-305415e29ef5",
+				"ok": true,
+				"apiVersion": "0.4.0",
+				"runtime": "workerd",
+				"compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+				"components": 289,
+				"elapsedMs": 22785,
+				"actions": {
+					"list": {
+						"schema": {
+							"type": "object",
+							"properties": {},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"get": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"add": {
+						"schema": {
+							"type": "object",
+							"required": ["title"],
+							"properties": {
+								"title": {
+									"type": "string",
+									"description": "What to do"
+								},
+								"due": {
+									"type": "string",
+									"description": "The day it is due",
+									"format": "date"
+								},
+								"notes": {
+									"type": "string",
+									"description": "Notes in Markdown"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"set": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								},
+								"title": {
+									"type": "string",
+									"description": "one line, not blank, saying what to do",
+									"pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
+								},
+								"done": {
+									"anyOf": [
+										{
+											"type": "boolean",
+											"description": "Whether it is done",
+											"x-epicenter-field": "switch"
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "Whether it is done; null removes it"
+								},
+								"due": {
+									"anyOf": [
+										{
+											"type": "string",
+											"description": "The day it is due, as 2026-11-10; absent when it has none",
+											"format": "date"
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "The day it is due, as 2026-11-10; absent when it has none; null removes it"
+								},
+								"was": {
+									"type": "object",
+									"properties": {
+										"title": {},
+										"done": {},
+										"due": {}
+									},
+									"additionalProperties": false,
+									"description": "The values you last saw, by field, null for one that was absent; refused when one has changed since"
+								},
+								"edit": {
+									"type": "object",
+									"required": ["old", "new"],
+									"properties": {
+										"old": {
+											"type": "string",
+											"description": "The passage of the body to replace, exactly as get returned it: once in the body, or the whole body, or empty for an empty body"
+										},
+										"new": {
+											"type": "string",
+											"description": "The text to put in its place"
+										}
+									},
+									"additionalProperties": false,
+									"description": "{ \"old\": the passage of the body as you last saw it, \"new\": the text to put in its place }; refused when old is not in the body now"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"delete": {
+						"schema": {
+							"type": "object",
+							"required": ["time"],
+							"properties": {
+								"time": {
+									"type": "string",
+									"description": "Which one: its {time} in data/tasks/{time}.md"
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					},
+					"review": {
+						"schema": {
+							"type": "object",
+							"required": ["key", "steps", "delayMs"],
+							"properties": {
+								"key": {
+									"type": "string",
+									"pattern": "^[a-zA-Z0-9-]+$"
+								},
+								"steps": {
+									"type": "integer",
+									"minimum": 1,
+									"maximum": 60
+								},
+								"delayMs": {
+									"type": "integer",
+									"minimum": 100,
+									"maximum": 2000
+								}
+							},
+							"additionalProperties": false
+						},
+						"privateInput": false
+					}
+				}
+			}
+		]
+	}
 }

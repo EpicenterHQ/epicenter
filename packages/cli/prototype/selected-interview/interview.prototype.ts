@@ -1,9 +1,8 @@
-import { defineApp, defineAction, field, Ok } from '@epicenter/app';
+import { defineAction, defineApp, field, Ok } from '@epicenter/app';
 import { defineDirectory, file, files, markdown } from './directory.prototype';
-
-import { vaultActions, vaultPages, keyedPages } from './vault.prototype';
 import { entriesActions } from './page-entries.prototype';
 import { takes } from './takes.prototype';
+import { keyedPages, vaultActions, vaultPages } from './vault.prototype';
 
 const interviews = defineDirectory('data/interviews/{interview}', {
 	notes: markdown('notes.md', { title: field.text() }),

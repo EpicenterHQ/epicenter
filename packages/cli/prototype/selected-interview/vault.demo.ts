@@ -1,19 +1,20 @@
 // bun packages/cli/prototype/selected-interview/demo.ts --vault
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
 	cp,
 	mkdir,
-	readFile,
 	readdir,
+	readFile,
 	rename,
-	writeFile,
 	stat,
+	writeFile,
 } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { connect } from '@epicenter/app/client';
 import type definition from './interview.prototype';
+
 type Client = ReturnType<typeof connect<typeof definition>>;
 
 async function hashes(root: string) {

@@ -25,11 +25,14 @@ export const svelte: BunPlugin = {
 		});
 		build.onLoad({ filter: /\.svelte\.[jt]s$/ }, async ({ path }) => {
 			const source = await Bun.file(path).text();
-			const { js } = compileModule(path.endsWith('.ts') ? ts.transformSync(source) : source, {
-				filename: path,
-				generate: 'client',
-				experimental: { async: true },
-			});
+			const { js } = compileModule(
+				path.endsWith('.ts') ? ts.transformSync(source) : source,
+				{
+					filename: path,
+					generate: 'client',
+					experimental: { async: true },
+				},
+			);
 			return { contents: js.code, loader: 'js' };
 		});
 	},

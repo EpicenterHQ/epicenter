@@ -1,14 +1,14 @@
 // Hosted Tasks experiment. OAuth authorization lives in the API gateway.
 import { DurableObject, RpcTarget, WorkerEntrypoint } from 'cloudflare:workers';
 import { compilerCode } from '../compiler-artifact/loader.js';
+import { homeCss, homePage } from '../home/page.js';
+import homeScript from '../shell-artifact/main.txt';
+import { homeKey } from './access.js';
 import type { Source } from './build.js';
 import type { Compiler } from './compiler.js';
 import type { HostedActions } from './hosted-actions.js';
-import { serverSource } from './server-source.js';
 import { RunHost } from './run-host.js';
-import { homeKey } from './access.js';
-import { homePage, homeCss } from '../home/page.js';
-import homeScript from '../shell-artifact/main.txt';
+import { serverSource } from './server-source.js';
 
 type Env = {
 	OWNER: DurableObjectNamespace<TasksOwner>;

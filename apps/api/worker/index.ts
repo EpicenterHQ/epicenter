@@ -41,10 +41,10 @@ import {
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
-import { mountHostedHomes, type HostedHomesGateway } from './hosted-home.js';
+import { type HostedHomesGateway, mountHostedHomes } from './hosted-home.js';
 import {
-	hostedAudiences,
 	homeExperimentEnabled,
+	hostedAudiences,
 } from './hosted-home-config.js';
 import { buildFirstPartyClients } from './oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';

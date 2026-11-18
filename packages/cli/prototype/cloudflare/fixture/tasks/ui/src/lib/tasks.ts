@@ -4,13 +4,14 @@
  * sort as text in the order they fall. Only fitting tasks enter these groups; malformed files stay in the repair list.
  */
 import { partitionResults } from '@epicenter/app/client';
-import type { TaskRowResult, Task } from './app.js';
+import type { Task, TaskRowResult } from './app.js';
 
 /**
  * The page of a task, routed by its key: `#/tasks/<time>`, encoded so any
  * file name survives.
  */
-export const hrefOf = (task: Pick<Task, 'time'>) => `#/tasks/${encodeURIComponent(task.time)}`;
+export const hrefOf = (task: Pick<Task, 'time'>) =>
+	`#/tasks/${encodeURIComponent(task.time)}`;
 
 /** `at` as a local day, `2026-11-10`. */
 export function dayOf(at: Date): string {
@@ -20,7 +21,11 @@ export function dayOf(at: Date): string {
 
 /** The local noon of `day`, so adding days never crosses midnight on a clock change. */
 function noonOf(day: string): Date {
-	const [year, month, date] = day.split('-').map(Number) as [number, number, number];
+	const [year, month, date] = day.split('-').map(Number) as [
+		number,
+		number,
+		number,
+	];
 	return new Date(year, month - 1, date, 12);
 }
 
@@ -33,7 +38,9 @@ export function addDays(day: string, count: number): string {
 
 /** Whole days from `today` to `day`: 0 today, 1 tomorrow, -1 yesterday. */
 function daysUntil(day: string, today: string): number {
-	return Math.round((noonOf(day).getTime() - noonOf(today).getTime()) / 86_400_000);
+	return Math.round(
+		(noonOf(day).getTime() - noonOf(today).getTime()) / 86_400_000,
+	);
 }
 
 /**
@@ -68,9 +75,14 @@ export type Group = {
 	tasks: Task[];
 };
 
-const byTime = (a: Task, b: Task) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
+const byTime = (a: Task, b: Task) =>
+	a.time < b.time ? -1 : a.time > b.time ? 1 : 0;
 const byDue = (a: Task, b: Task) =>
-	(a.due ?? '') < (b.due ?? '') ? -1 : (a.due ?? '') > (b.due ?? '') ? 1 : byTime(a, b);
+	(a.due ?? '') < (b.due ?? '')
+		? -1
+		: (a.due ?? '') > (b.due ?? '')
+			? 1
+			: byTime(a, b);
 
 /**
  * The open tasks in the groups that have any: overdue and today first, then
@@ -86,7 +98,11 @@ export function groupOpen(tasks: Task[], today: string): Group[] {
 			label: 'Overdue',
 			tasks: dated.filter((task) => isOverdue(task.due as string, today)),
 		},
-		{ key: 'today', label: 'Today', tasks: dated.filter((task) => task.due === today) },
+		{
+			key: 'today',
+			label: 'Today',
+			tasks: dated.filter((task) => task.due === today),
+		},
 		{
 			key: 'upcoming',
 			label: 'Upcoming',
@@ -95,7 +111,10 @@ export function groupOpen(tasks: Task[], today: string): Group[] {
 		{
 			key: 'later',
 			label: 'No date',
-			tasks: open.filter((task) => !task.due).toSorted(byTime).reverse(),
+			tasks: open
+				.filter((task) => !task.due)
+				.toSorted(byTime)
+				.reverse(),
 		},
 	];
 	return groups.filter((group) => group.tasks.length > 0);
@@ -103,20 +122,29 @@ export function groupOpen(tasks: Task[], today: string): Group[] {
 
 /** The done tasks, newest first. */
 export function completed(tasks: Task[]): Task[] {
-	return tasks.filter((task) => task.done).toSorted(byTime).reverse();
+	return tasks
+		.filter((task) => task.done)
+		.toSorted(byTime)
+		.reverse();
 }
 
 /** Keep every malformed file visible beside the grouped fitting tasks. */
 export function splitTasks(rows: TaskRowResult[]) {
 	const { oks, errs } = partitionResults(rows);
-	return { oks: oks.map((row) => row.data), errs: errs.map((row) => row.error) };
+	return {
+		oks: oks.map((row) => row.data),
+		errs: errs.map((row) => row.error),
+	};
 }
 
 /** A malformed file can still carry its key and a fitting title. */
 type MisfitRow = { path: string; record?: { time?: string; title?: string } };
 
 export const misfitKeyOf = (error: MisfitRow) =>
-	error.record?.time ?? error.path.slice(error.path.lastIndexOf('/') + 1).replace(/\.md$/, '');
+	error.record?.time ??
+	error.path.slice(error.path.lastIndexOf('/') + 1).replace(/\.md$/, '');
 
 export const misfitLabelOf = (error: MisfitRow) =>
-	error.record?.title?.trim() ? error.record.title : error.path.slice(error.path.lastIndexOf('/') + 1);
+	error.record?.title?.trim()
+		? error.record.title
+		: error.path.slice(error.path.lastIndexOf('/') + 1);

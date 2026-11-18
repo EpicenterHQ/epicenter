@@ -15,10 +15,10 @@ import {
 } from '@epicenter/definition/site';
 import type { FirstPartyClient } from '@epicenter/server';
 import {
-	HOME_ORIGIN,
-	HOME_LOCAL_ORIGIN,
-	HOME_CLIENT,
 	HOME_AGENT_CLIENT,
+	HOME_CLIENT,
+	HOME_LOCAL_ORIGIN,
+	HOME_ORIGIN,
 	HOME_SCOPES,
 	hostedAudiences,
 } from './hosted-home-config.js';
