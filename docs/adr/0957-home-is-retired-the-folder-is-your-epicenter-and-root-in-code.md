@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Amends:** the vocabulary of [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md), [ADR-0936](0936-one-serve-per-home-runs-every-action.md), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) and [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md). Their decisions stand; their titles keep the word they were written with.
+- **Relates:** [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) (what the root header carries, and which way it travels).
 - **Unbuilt:** all of it. Identifiers, docs and the `x-epicenter-home` header still say "home".
 
 ## Context
@@ -22,18 +23,29 @@ only it.**
 
 | Thing | A person reads | Code says |
 | --- | --- | --- |
-| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `epicenterRoot()`; `EPICENTER_ROOT` |
+| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `rootFolder()`; `EPICENTER_ROOT` |
 | The computer it runs on | the computer | not named |
 | One app's folder, `apps/<app>/` | the app | the app folder; `folder.path` |
 
-- `epicenterDir()` becomes `epicenterRoot()`, and each identifier with
-  "home" in it takes "root" or loses the word: `loadHomeApp` is `loadApp`,
-  `homeEntries` is `rootEntries`, `installHome` is `installRoot`.
+- `epicenterDir()` in `packages/cli/src/root.ts` becomes `rootFolder()`.
+  `epicenterRoot()` already exists there and returns `{ folder, port }`, an
+  `EpicenterRoot`; it keeps its name. Each other identifier with "home" in
+  it takes "root" or loses the word: `loadHomeApp` is `loadApp`,
+  `homeEntries` is `rootEntries`, `installHome` is `installRoot`,
+  `homeName` is `rootName`.
+- In tests, `fixture()` in `packages/cli/src/runner.test-support.ts` returns
+  `root`, the temporary folder `$HOME` points to, and `home`, the Epicenter
+  inside it. They become `userDir` and `epicenter`, so `root` names no test
+  value while code still uses it for the Epicenter.
 - The `x-epicenter-home` header becomes `x-epicenter-root` and keeps its
   job: serve refuses a call meant for another Epicenter that reached its
-  port. It carries the root's absolute path, which shows the account name to
-  every device on the private network. A name or a hash of the path would do
-  the same job; that change is left for its own decision.
+  port. ADR-0961 settles what it carries: the command sends the root's real
+  path on its request to `127.0.0.1`, and serve's answers carry only
+  `x-epicenter: 1`, so no path reaches another device.
+- Once "Epicenter" names the folder, a message about the program names
+  serve as its subject: `serve is not running` and `start it with epicenter
+  serve`, not `Epicenter is not running for this home`
+  (`sendToServe` in `packages/cli/src/serve-call.ts`).
 - The root `package.json` is named `epicenter`. It is
   private and never published, so the unrelated public `epicenter` package on
   npm does not matter.

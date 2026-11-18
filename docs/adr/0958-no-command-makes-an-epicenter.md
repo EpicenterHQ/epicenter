@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) on "the home commits itself": no checkpoint routine or script arrives with a home. [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) and [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) on who runs `bun install`: no command does.
-- **Relates:** [ADR-0943](0943-epicenters-core-invariants.md) (rules 1 and 7), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md).
+- **Relates:** [ADR-0943](0943-epicenters-core-invariants.md) (rules 1 and 6), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md).
 
 ## Context
 
@@ -12,8 +12,9 @@
 script, `.gitignore`, `bunfig.toml` and Git LFS attributes; ran `git init`,
 `bun install` and a first commit; refused a folder inside another Epicenter
 or one without a Git identity; and patched an existing `.gitignore`. Each
-of those is a file or a command the owner can type. By rule 7 of ADR-0943,
-Epicenter does not wrap them. The only Epicenter there is to serve today is
+of those is a file or a command the owner can type, and none needs an app's
+declaration or the running serve. By rule 6 of ADR-0943, Epicenter does not
+wrap them. The only Epicenter there is to serve today is
 one its owner already has.
 
 ## Decision
@@ -38,8 +39,10 @@ Git, and `apps/`. The owner then runs
   and the tests of nesting refusal, identity refusal and `.gitignore`
   patching.
 - A new Epicenter is safe only if its owner writes the `.gitignore` lines
-  before the first commit. Nothing checks it. A credential in `.env` or
-  `local/` reaches origin the first time a commit stages everything.
+  before the first commit. [ADR-0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)
+  checks the two that leak secrets: each `local/` ignores itself, and serve
+  refuses to start while Git would commit `.env`. A key kept under any other
+  name still depends on the owner's lines.
 - An Epicenter inside another is no longer refused when made. Root
   discovery takes the nearest marked folder, so the inner one wins inside
   it.

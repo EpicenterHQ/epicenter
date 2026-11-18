@@ -4,7 +4,7 @@
 - **Date:** 2026-11-18
 - **Supersedes:** [ADR-0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md): `new --from` no longer exists. [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md): `export` no longer exists.
 - **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) at "`epicenter export` reads": no command exports, so the `epicenter` command runs no Git.
-- **Relates:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) (copying is the only way to take an app's code; the owner does the copying), [ADR-0943](0943-epicenters-core-invariants.md) (rule 7), [ADR-0958](0958-no-command-makes-an-epicenter.md) (no command makes an Epicenter).
+- **Relates:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) (copying is the only way to take an app's code; the owner does the copying), [ADR-0943](0943-epicenters-core-invariants.md) (rule 6), [ADR-0958](0958-no-command-makes-an-epicenter.md) (no command makes an Epicenter).
 
 ## Context
 
@@ -33,8 +33,9 @@ Two commands that set an app up were left in `COMMANDS`
 
 An app is a folder of plain files. `new` wrote three files of fixed text,
 and `export` copied a folder. The owner, or the agent working for them,
-writes files and copies folders without a command. By rule 7 of ADR-0943,
-Epicenter does not wrap those steps, and ADR-0958 had already removed `init`
+writes files and copies folders without a command. Neither step needs an
+app's declaration or the running serve, so by rule 6 of ADR-0943 Epicenter
+does not wrap them, and ADR-0958 had already removed `init`
 on that rule.
 
 ## Decision
@@ -89,7 +90,7 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 
 - **`new` keeps making a blank app.** It was three files of fixed text that
   the README's table now states, and one more word no app could be named.
-- **`export` stays for its safety checks.** Rule 7 of ADR-0943 had named it
+- **`export` stays for its safety checks.** ADR-0943's old rule 7 had named it
   an exception, because Git alone refuses neither a link that leaves the
   folder nor uncommitted code. It was 600 lines and the only reason the
   command ran Git, for a step the owner reviews before pushing.

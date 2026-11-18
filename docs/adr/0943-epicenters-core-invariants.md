@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Relates:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) (one authority per collection), [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) (code and records in one private repository), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (private access), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (ordinary calls), and [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one action-running process).
-- **Unbuilt:** No runtime change is introduced. This records the design commitments and their costs together.
+- **Unbuilt:** Three rules state code that does not exist yet. Rule 2 waits on [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) for reading code once at start, and on [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) for a command that loads no app. Rule 3 waits on [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) for the folder as an argument. Rule 4 waits on [ADR-0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md).
 
 ## Context
 
@@ -44,40 +44,98 @@ change the software and compose it with other tools.
 | **You can change the software you run.** Each app is ordinary, editable code that you or your agents can inspect and adapt. You choose which code to trust. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | A promise that every behavior can be configured without code; isolation from a faulty app. The owner is responsible for the code and dependencies they run. |
 | **Epicenter composes tools that already do the job.** Git keeps history, Bun manages packages, and the operating system keeps Epicenter running. | Reimplementing version control, package management, and process supervision. | One platform-managed solution to every operational problem. Some work remains ordinary Git, shell, Bun, or operating-system work. |
 
-### Eight rules for checking a proposal
+### Six rules for checking a proposal
 
 The commitments are long to hold in mind while judging a proposal. These
-eight rules are the short form. For a proposed feature, ask which rule
+six rules are the short form. For a proposed feature, ask which rule
 already answers it; when the answer is that a tool or the owner does the
 work, the feature is a line of documentation, not code.
 
 | Rule | Restates |
 | --- | --- |
-| 1. Your Epicenter is a folder: a Git repository that is also a Bun project. | [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) |
-| 2. Serve is a program: you start it, stop it, and restart it after its packages change. An app's own code reloads on each call. | The first and third commitments; [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) |
-| 3. An action is a function: JSON in, JSON out, with optional updates on the way. | [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) |
-| 4. Data is files, and Git is the history. `apps/*/local/` and `.env` stay out of Git on purpose: they hold tokens, credentials and caches. | The fourth commitment; [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) |
-| 5. Every description is plain JSON: action inputs, settings, field values. | New. Nothing a person or agent reads about an app needs Epicenter's code to interpret. |
-| 6. The code is yours: copy it and edit it. There is no plugin system, and no Epicenter setting beyond `EPICENTER.md`. | The fifth commitment |
-| 7. If a tool does it in a step the owner would type (Git, Bun, the operating system), Epicenter does not. | The sixth commitment |
-| 8. Serve keeps no outcome between calls: anything an app must remember goes in a file. | The fourth commitment; ADR-0930 |
+| 1. Your Epicenter is a folder: one Git repository and one Bun project. Data is files in it and Git is the history. Each record has one place where edits count: this folder, or the outside source it copies. | The second and fourth commitments; [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md), [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) |
+| 2. Serve is the one program that loads and runs app code. It reads code and packages when it starts, and you restart it to change them. The command, pages, agents and routines are its clients. | The first and third commitments; [ADR-0936](0936-one-serve-per-home-runs-every-action.md), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md), [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) |
+| 3. An action is a function of its app's folder: JSON in, `{ data, error }` out, described in plain JSON. What must outlast the call goes in a file. | The fourth commitment; [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) |
+| 4. `local/` ignores itself, and serve refuses a `.env` that Git would commit. | [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md), [ADR-0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md) |
+| 5. The code is yours. The only setting is the port. | The fifth commitment |
+| 6. Epicenter does only what needs an app's declaration or the running serve. Everything else is a line in the README. One exception: where a skipped step fails silently and cannot be undone, Epicenter refuses or reports. It never repairs. | The sixth commitment; [ADR-0955](0955-no-command-makes-or-copies-an-app.md), [ADR-0958](0958-no-command-makes-an-epicenter.md) |
 
-Rule 7 is tested against one step. Restarting serve after an upgrade is one
-command the owner types, so Epicenter does nothing about upgrades (ADR-0953).
-`init`, `new` and `export` each wrapped such steps, and none stays
-([ADR-0955](0955-no-command-makes-or-copies-an-app.md),
-[ADR-0958](0958-no-command-makes-an-epicenter.md)). `export` refused
-uncommitted code and links outside the folder, checks Git alone does not
-make; the owner makes them now.
+Rule 2's second sentence holds once ADR-0959 is built; until then serve
+re-imports an app's own code on each call. Rule 4 holds once ADR-0963 is
+built; until then the owner's `.gitignore` is the only guard.
 
-Rule 8 is about outcomes, not time or state. Serve still holds loaded
+### Why six rules replaced eight
+
+The eight rules this table replaces were:
+
+1. Your Epicenter is a folder: a Git repository that is also a Bun project.
+2. Serve is a program: you start it, stop it, and restart it after its
+   packages change. An app's own code reloads on each call.
+3. An action is a function: JSON in, JSON out, with optional updates on the
+   way.
+4. Data is files, and Git is the history. `apps/*/local/` and `.env` stay
+   out of Git on purpose.
+5. Every description is plain JSON.
+6. The code is yours: copy it and edit it. No Epicenter setting beyond
+   `EPICENTER.md`.
+7. If a tool does it in a step the owner would type, Epicenter does not.
+8. Serve keeps no outcome between calls: anything an app must remember goes
+   in a file.
+
+- Old rules 3, 5 and 8 said one thing about an action: it is a function,
+  what it takes and gives is JSON, and nothing outlasts it except a file.
+  Rule 3 says it once, and names the folder as the function's only
+  argument (ADR-0960).
+- Two commitments had no rule: one place where edits count, and one process
+  that runs every action. A proposal could pass all eight rules and still
+  fail them. They are now part of rules 1 and 2, so a writable copy fails
+  rule 1 and a second action runner fails rule 2.
+- Old rule 4 put data and secrets in one sentence and stated an intention
+  for the secrets. Data joins the folder in rule 1. Rule 4 states what keeps
+  secrets out: a file `local/` writes for itself, and a check serve makes at
+  start (ADR-0963).
+- Old rule 7 tested "a step the owner would type". It could not explain what
+  stays: a cron line is one typed step, yet routines stay. Its exception
+  named `new --from` and `export`, and both commands are gone
+  ([ADR-0955](0955-no-command-makes-or-copies-an-app.md)). Rule 6 asks a
+  question that sorts every case.
+- Old rule 2 said an app's code reloads on each call. Rule 2 now says serve
+  reads code once, at start (ADR-0959).
+
+### What stays code
+
+Rule 6 sorts a proposal with one question: **does this need an app's
+declaration, or the running serve?** If it does, it is Epicenter's code. If
+it does not, it is a line in the command's README.
+
+| Proposal | Needs a declaration or serve? | Result |
+| --- | --- | --- |
+| Running an action | Both | Code |
+| The listing: bare `epicenter`, `--json`, MCP `tools/list` | Both | Code |
+| `epicenter check` | The declaration | Code |
+| Routines | Serve, reading files in `routines/` | Code |
+| Refusing a call meant for another Epicenter | Serve | Code |
+| `new`, copying an app | Neither: `mkdir` and `curl` | Documentation ([ADR-0955](0955-no-command-makes-or-copies-an-app.md)) |
+| `export`, publishing an app's code | Neither: Git | Documentation ([ADR-0955](0955-no-command-makes-or-copies-an-app.md)) |
+| `init`, making an Epicenter | Neither: a few files, `git init` and `bun install` | Documentation ([ADR-0958](0958-no-command-makes-an-epicenter.md)) |
+| `install` | Neither: `bun install` | Documentation ([ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md)) |
+| `service`, keeping serve running | Neither: launchd or systemd | Documentation ([ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md)) |
+| Checkpoints | Neither: `git commit`, perhaps from a routine | Documentation ([ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md)) |
+| Upgrades | Neither: a version line, `bun install`, a restart | Documentation ([ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)) |
+| Keeping `local/` and `.env` out of Git | Neither, but a skipped step leaks a secret for good | The exception ([ADR-0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)) |
+
+Routines stay because the schedule is a file in the folder. Git reviews a
+change to it, a clone restores it, and an agent adds one by writing three
+lines, without touching the system scheduler. A crontab line would be one
+typed step, but it lives outside the folder, where none of that holds.
+
+`export` refused uncommitted code and links outside the folder, checks Git
+alone does not make. Neither failure is silent: the published copy shows
+what it holds. The owner makes those checks now.
+
+Rule 3 is about outcomes, not time or state. Serve still holds loaded code,
 packages, caches and the routine schedule, as "Specialized guarantees belong
 where they are needed" below allows, and routines still run on their clock.
-
-The second and third commitments, one place where edits count and one
-process that runs every action, have no rule of their own and stay in force.
-A proposal that passes the eight rules but adds a writable copy or a second
-action runner still fails.
 
 ### One process does not mean one action at a time
 
@@ -133,7 +191,7 @@ keeps `serve` running under their own operating system job
 
 ## Consequences
 
-The six commitments and the eight rules are a design test, not a
+The six commitments and the six rules are a design test, not a
 requirement to delete every wrapper, guard, or piece of state. A proposed
 simplification must name what it removes, what the owner loses, and who
 takes on the work. A feature that needs a
