@@ -1,9 +1,11 @@
 /** Create an app container from blank code or a committed code copy. */
 import {
+	lstat,
 	mkdir,
 	mkdtemp,
 	readdir,
 	readFile,
+	readlink,
 	rename,
 	rm,
 	writeFile,
@@ -204,14 +206,17 @@ export async function newCommand(
 		await rm(folder, { recursive: true, force: true });
 		return fail(copied.error, json);
 	}
+	let refusal: string | undefined;
 	try {
-		await joinWorkspace(join(folder, 'code'), name);
+		refusal = await joinWorkspace(join(folder, 'code'), name);
 	} catch (cause) {
+		refusal = `is not a JSON object: ${extractErrorMessage(cause)}`;
+	}
+	if (refusal !== undefined) {
 		await rm(folder, { recursive: true, force: true });
 		return fail(
-			CliError.Usage({
-				message: `${from} has a package.json that is not a JSON object: ${extractErrorMessage(cause)}`,
-			}).error,
+			CliError.Usage({ message: `${from} has a package.json that ${refusal}` })
+				.error,
 			json,
 		);
 	}
@@ -413,12 +418,21 @@ async function preserveLfs(folder: string, name: string, paths: string[]) {
  * named for the app, since two packages in one workspace cannot share a name;
  * it lists no `@epicenter/app`, which the home supplies as one copy; and its
  * own `bun.lock` goes, since the home has one lock. Code with no
- * `package.json` gets the one blank code has.
+ * `package.json` gets the one blank code has. A linked `package.json` is
+ * refused, since rewriting it would rewrite the file it points to. Answers
+ * why the copy is refused, or undefined when it joined.
  */
-async function joinWorkspace(code: string, name: string) {
+async function joinWorkspace(
+	code: string,
+	name: string,
+): Promise<string | undefined> {
+	const file = join(code, 'package.json');
+	const entry = await lstat(file).catch(() => undefined);
+	if (entry?.isSymbolicLink())
+		return `is a link to ${await readlink(file)}; commit the file itself in its place, then copy.`;
+	// `rm` removes a linked lock, not the file it points to.
 	for (const lock of ['bun.lock', 'bun.lockb'])
 		await rm(join(code, lock), { force: true });
-	const file = join(code, 'package.json');
 	const text = await readFile(file, 'utf8').catch(
 		(error: NodeJS.ErrnoException) => {
 			if (error.code === 'ENOENT') return undefined;
@@ -427,7 +441,7 @@ async function joinWorkspace(code: string, name: string) {
 	);
 	if (text === undefined) {
 		await writeFile(file, blank(name)['package.json']);
-		return;
+		return undefined;
 	}
 	const manifest: unknown = JSON.parse(text);
 	if (
@@ -454,6 +468,7 @@ async function joinWorkspace(code: string, name: string) {
 		file,
 		`${JSON.stringify({ ...fields, name }, null, indent)}\n`,
 	);
+	return undefined;
 }
 
 /** The caller has checked that the container name is free. */

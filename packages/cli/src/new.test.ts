@@ -586,3 +586,52 @@ test('new --from makes the copy a package of this home: named for the new app, w
 		{ name: 'bare', private: true },
 	);
 });
+
+test('new --from refuses a linked package.json and leaves the file it points to alone; a linked lock goes and its file stays', async () => {
+	const f = await setup();
+	const rootPackage = join(f.home, 'package.json');
+	const before = await readFile(rootPackage, 'utf8');
+	await writeFile(join(f.home, 'outside.lock'), 'kept\n');
+	const source = join(f.root, 'source');
+	await f.folder(source, {
+		'apps/linked/code/epicenter.ts': `${header}export default defineApp({description:'Linked',actions:{}});`,
+		'apps/locked/code/epicenter.ts': `${header}export default defineApp({description:'Locked',actions:{}});`,
+		'apps/locked/code/package.json': '{ "name": "locked" }\n',
+		'package.json': '{ "name": "source" }\n',
+	});
+	// Copied into apps/<name>/code/, each link points at the home's own file.
+	await symlink(
+		'../../../package.json',
+		join(source, 'apps/linked/code/package.json'),
+	);
+	await symlink(
+		'../../../outside.lock',
+		join(source, 'apps/locked/code/bun.lock'),
+	);
+	await gitIn(source, 'init', '-q');
+	await gitIn(source, 'add', '.');
+	await gitIn(source, 'commit', '-qm', 'links');
+
+	const refused = await f.run(
+		'new',
+		'linked',
+		'--from',
+		join(source, 'apps/linked'),
+	);
+	expect(refused.code).not.toBe(0);
+	expect(refused.stderr).toContain(
+		'has a package.json that is a link to ../../../package.json',
+	);
+	expect(await readFile(rootPackage, 'utf8')).toBe(before);
+	expect(existsSync(join(f.apps, 'linked'))).toBe(false);
+
+	const locked = await f.run(
+		'new',
+		'locked',
+		'--from',
+		join(source, 'apps/locked'),
+	);
+	expect(locked.code).toBe(0);
+	expect(existsSync(join(f.apps, 'locked/code/bun.lock'))).toBe(false);
+	expect(await readFile(join(f.home, 'outside.lock'), 'utf8')).toBe('kept\n');
+});
