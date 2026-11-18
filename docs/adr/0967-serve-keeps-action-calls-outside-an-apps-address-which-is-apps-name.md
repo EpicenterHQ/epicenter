@@ -1,4 +1,4 @@
-# 0966. Serve keeps action calls outside an app's address, which is `/apps/<app>/`
+# 0967. Serve keeps action calls outside an app's address, which is `/apps/<app>/`
 
 - **Status:** Proposed
 - **Date:** 2026-11-18

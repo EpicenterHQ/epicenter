@@ -1,7 +1,7 @@
 /**
  * Send an action to the `epicenter serve` of this home, the one process that
  * runs its actions (ADR-0936). The call is the one a page makes:
- * `POST /actions/<app>/<word>/<word>` (ADR-0966), answered as JSON lines (ADR-0930), and read by the
+ * `POST /actions/<app>/<word>/<word>` (ADR-0967), answered as JSON lines (ADR-0930), and read by the
  * same `readAnswer` a page uses (ADR-0953). A home has one serve, found at the
  * port in its `EPICENTER.md`; a command never starts it and never runs the
  * action in its place.

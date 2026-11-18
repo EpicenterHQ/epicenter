@@ -678,7 +678,7 @@ const answer = await app.fetch(new Request('http://localhost/oauth/callback?code
 ## Upgrading from 0.7
 
 Serve's addresses change, and every app's page must be rebuilt
-([ADR-0966](../../docs/adr/0966-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)).
+([ADR-0967](../../docs/adr/0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)).
 
 | 0.7 | Now |
 | --- | --- |

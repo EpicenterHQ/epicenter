@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Relates:** [ADR-0966](0966-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (an app's address is `/apps/<app>/`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is a function of its folder), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when an app is loaded), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a page calls actions).
+- **Relates:** [ADR-0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (an app's address is `/apps/<app>/`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is a function of its folder), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when an app is loaded), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a page calls actions).
 
 ## Context
 
@@ -16,7 +16,7 @@ A first draft of this record gave an app `fetch`, `websocket` and a
 `publish(topic, message)` under `/<app>/.http/`. `publish` existed because
 serve loads an app again for each call, so nothing in an app outlives one
 call; it also missed every writer that edits a file directly. No app needs a
-socket. ADR-0966 moved action calls out of the app's address, so nothing in
+socket. ADR-0967 moved action calls out of the app's address, so nothing in
 it is reserved.
 
 Serve refused a request whose `Origin` was not its own `Host`. A browser

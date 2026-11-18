@@ -2,7 +2,7 @@
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
  * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
  * and served at `/apps/<app>/`. A call is `POST /actions/<app>/<word>/<word>`
- * with the input as JSON (ADR-0966); the answer is JSON lines, `{"update": value}` for each update the
+ * with the input as JSON (ADR-0967); the answer is JSON lines, `{"update": value}` for each update the
  * action sends and then `{"answer": {data, error}}` (ADR-0930, ADR-0953).
  *
  * The client has the app's actions under the same words as the app. Each

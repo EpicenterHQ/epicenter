@@ -10,7 +10,7 @@
  * ```
  *
  * Serve's own routes take their own first segment, and everything under
- * `/apps/<app>/` belongs to the app (ADR-0966). A `GET` or `HEAD` there is a
+ * `/apps/<app>/` belongs to the app (ADR-0967). A `GET` or `HEAD` there is a
  * file from the app's own build when one matches. Any other request goes to
  * the `fetch` the app returned, if any, with `/apps/<app>` removed from its
  * URL and `X-Forwarded-Prefix` set to it (ADR-0945).
