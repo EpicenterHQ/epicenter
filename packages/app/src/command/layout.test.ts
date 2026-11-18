@@ -13,7 +13,7 @@ afterEach(async () => {
 const code = `export default defineApp(({ folder }) => ({description:'X',actions:{put:defineAction({description:'Write',input:{},run:async()=>{await folder.write('data/record.md','record');return Ok(folder.path);}})}}));`;
 test('missing and broken code entries list problems without hiding valid apps; a top-level epicenter.ts is not an app', async () => {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	await f.app('valid', code);
 	await f.folder(join(f.apps, 'legacy'), {
 		'epicenter.ts': 'throw new Error("never import")',

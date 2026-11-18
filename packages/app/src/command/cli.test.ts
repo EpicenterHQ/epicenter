@@ -13,7 +13,6 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
-import { COMMANDS } from './commands.ts';
 import { fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
@@ -27,7 +26,7 @@ afterEach(async () => {
 });
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	await f.app('reading', reading);
 	await f.app('vault', vault);
 	return f;
@@ -45,8 +44,8 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const linked = await f.app(
 		'linked',
 		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
-		// Inside the home: linked code finds packages from where it really is.
-		join(f.home, 'shelf'),
+		// Inside the Epicenter: linked code finds packages from where it really is.
+		join(f.epicenter, 'shelf'),
 	);
 	await symlink(linked, join(f.apps, 'linked'));
 	await mkdir(join(f.apps, '.hidden'));
@@ -54,7 +53,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
 	const value = JSON.parse(result.stdout).data;
-	expect(value.epicenter).toBe(f.home);
+	expect(value.epicenter).toBe(f.epicenter);
 	expect(value.apps.map((app: { name: string }) => app.name)).toEqual([
 		'linked',
 		'reading',
@@ -147,8 +146,23 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'log', '{"minutes":"oops"}'], 'minutes must be a number'],
 		[['reading', 'log', '{"minutes":3}', '{}'], 'one argument'],
 		[['reading', 'tag', '{"done":"maybe"}'], 'done must be true or false'],
-		[['reading', 'log', '{"minutes":3}', '--version'], 'one argument'],
+		[
+			['reading', 'log', '{"minutes":3}', '--version'],
+			'--version stands alone',
+		],
 		[['setup'], 'Unknown app "setup"'],
+		[['Setup', 'add'], 'Unknown app "Setup"'],
+		[['setup', 'add'], 'Unknown app "setup"'],
+		// --help answers a mistyped action as a call does.
+		[
+			['reading', 'lgo', '--help'],
+			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week summary\n',
+		],
+		// Not names: sent as they are, they would reach / or the root.
+		[['..', 'add'], 'Unknown app ".."'],
+		[['.', 'add'], 'Unknown app "."'],
+		[['', 'add'], 'Unknown app ""'],
+		[['..'], 'Unknown app ".."'],
 	];
 	for (const [args, message] of cases) {
 		const result = await f.run(...args, '--json');
@@ -203,15 +217,15 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 
 test('bare epicenter reports routines after the apps, and changes nothing', async () => {
 	const f = await setup();
-	await f.folder(f.home, {
+	await f.folder(f.epicenter, {
 		'routines/review.md':
 			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week", "summary", {"note": "it\'s here"}, "two words"]\n---\n',
 		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
 	});
-	// Every file in the home outside its install, with its text.
+	// Every file in the Epicenter outside its install, with its text.
 	const state = async () => {
 		const files: Record<string, string> = {};
-		for (const entry of await readdir(f.home, {
+		for (const entry of await readdir(f.epicenter, {
 			recursive: true,
 			withFileTypes: true,
 		})) {
@@ -243,7 +257,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 			command: `epicenter reading week summary '{"note":"it'\\''s here"}' 'two words'`,
 		},
 	]);
-	// The version the home has installed, read from its node_modules.
+	// The version the Epicenter has installed, read from its node_modules.
 	expect(value.version).toBe(packageJson.version);
 	expect(Object.keys(value)).toEqual([
 		'epicenter',
@@ -257,7 +271,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 	const human = await f.run();
 	expect(human.code).toBe(0);
 	expect(human.stdout).toStartWith(
-		`Epicenter: Epicenter (${f.home})\nVersion: ${packageJson.version}\nreading`,
+		`Epicenter: Epicenter (${f.epicenter})\nVersion: ${packageJson.version}\nreading`,
 	);
 	expect(human.stdout).toEndWith(
 		`
@@ -274,20 +288,20 @@ Routines:
 
 test('a misused command answers its usage line, with its help as the next step', async () => {
 	const f = await setup();
-	const misused = [
-		['check', 'reading', 'vault'],
-		['check', '--from', './x'],
-	] as const;
-	for (const [command, ...words] of misused) {
-		const result = await f.run(command, ...words, '--json');
+	const check = 'epicenter check [<app>] [--json]';
+	for (const words of [
+		['reading', 'vault'],
+		['--from', './x'],
+	]) {
+		const result = await f.run('check', ...words, '--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout)).toEqual({
 			data: null,
 			error: {
 				name: 'NotStarted',
 				cause: 'usage',
-				message: `Usage: ${COMMANDS[command].usage}`,
-				next: `epicenter ${command} --help`,
+				message: `Usage: ${check}`,
+				next: 'epicenter check --help',
 			},
 		});
 	}
@@ -298,8 +312,8 @@ test('a misused command answers its usage line, with its help as the next step',
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /actions/<app>/<word>/<word>',
 	);
-	expect((await f.run('check', '--help')).stdout).toBe(
-		`${COMMANDS.check.usage}\n${COMMANDS.check.help}\n`,
+	expect((await f.run('check', '--help')).stdout).toStartWith(
+		`${check}\nReads every data key`,
 	);
 });
 
@@ -332,7 +346,7 @@ test('a throwing action returns exit 1 with its message', async () => {
 
 test('a failed stdout write after the action runs never emits a refusal or retries its effects', async () => {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	await f.app(
 		'counts',
 		`export default defineApp(({ folder }) => ({description:'Counts',actions:{
@@ -342,7 +356,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 		}}),
 	}}));`,
 	);
-	const preload = join(f.root, 'fail-first-output.ts');
+	const preload = join(f.userDir, 'fail-first-output.ts');
 	await writeFile(
 		preload,
 		`
@@ -365,7 +379,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 			'--json',
 		],
 		{
-			cwd: f.root,
+			cwd: f.epicenter,
 			env: f.env,
 			stdout: 'pipe',
 			stderr: 'pipe',
@@ -380,19 +394,14 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 		stdout: '',
 		code: 1,
 		stderr:
-			'Epicenter invoked the action but could not report its outcome: simulated output failure\n',
+			'serve took the action, but its outcome could not be reported: simulated output failure\n',
 	});
 	expect(await readFile(join(f.apps, 'counts/local/count'), 'utf8')).toBe('1');
 });
 
-test('runs use the selected Epicenter and their own local files', async () => {
+test('a run uses its own app folder and local files, and a linked app loads from where it really is', async () => {
 	const f = await setup();
-	const result = await f.runIn(
-		join(f.apps, 'reading'),
-		'reading',
-		'inspect',
-		'--json',
-	);
+	const result = await f.run('reading', 'inspect', '--json');
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).data;
 	expect(value.folder).toBe(join(f.apps, 'reading'));
@@ -402,19 +411,12 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	const target = await f.app(
 		'linked',
 		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
-		// Inside the home: linked code finds packages from where it really is.
-		join(f.home, 'shelf'),
+		// Inside the Epicenter: linked code finds packages from where it really is.
+		join(f.epicenter, 'shelf'),
 	);
 	await symlink(target, join(f.apps, 'linked'));
 	// A link is a folder: the app runs from where it really is.
 	expect((await f.run('linked', '--json')).code).toBe(0);
-	const homeRun = JSON.parse(
-		(await f.run('reading', 'inspect', '--json')).stdout,
-	).data;
-	expect(homeRun.folder).toBe(join(f.apps, 'reading'));
-	expect(
-		await Bun.file(join(f.apps, 'reading/local/index.json')).exists(),
-	).toBe(true);
 });
 
 test('app and action views include locations, schemas, field help and version', async () => {
@@ -448,23 +450,15 @@ test('app and action views include locations, schemas, field help and version', 
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
 });
 
-test('an empty Epicenter says what an app is and a missing marker suggests making one', async () => {
+test('an empty Epicenter says what an app is', async () => {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	expect((await f.run()).stdout).toContain(
 		'No apps yet. An app is apps/<name>/code/epicenter.ts',
 	);
-	await rm(f.home, { recursive: true });
-	expect((await f.run('--json')).code).toBe(2);
-	const make = `mkdir -p ${f.home} && touch ${join(f.home, 'EPICENTER.md')}`;
-	expect((await f.run()).stderr).toContain(make);
-	const missing = await f.run('reading', '--json');
-	expect(missing.code).toBe(2);
-	expect(JSON.parse(missing.stdout).error.message).toContain('EPICENTER.md');
-	expect(JSON.parse(missing.stdout).error.next).toBe(make);
 });
 
-test('an app is named by its folder in the home, whatever its description says', async () => {
+test('an app is named by its folder in the Epicenter, whatever its description says', async () => {
 	const f = await setup();
 	await f.app('other-name', reading);
 	const listed = JSON.parse((await f.run('--json')).stdout).data;

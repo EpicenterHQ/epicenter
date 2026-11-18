@@ -3,23 +3,23 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { COMMANDS } from './commands.ts';
+import { COMMAND_WORDS } from './apps.ts';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
 
 /**
- * A test home's `package.json`: the workspace an Epicenter is, without its
+ * A test Epicenter's `package.json`: the workspace an Epicenter is, without its
  * dependency, which `bun install` would ask the registry for.
  * `installPackages` puts it in place instead.
  */
-export const homePackage = `${JSON.stringify({ private: true, workspaces: ['apps/*/code'] }, null, 2)}\n`;
+export const rootPackage = `${JSON.stringify({ private: true, workspaces: ['apps/*/code'] }, null, 2)}\n`;
 
 /**
- * Give the home at `folder` the install a real one gets from `bun install`,
+ * Give the Epicenter at `folder` the install a real one gets from `bun install`,
  * without the network: `node_modules/@epicenter/app` links to this
  * repository's package, and `node_modules/.bin/epicenter` to its command.
  * The empty `node_modules/.bun` is what Bun's own install leaves; with it
- * there, a `bun install` a test runs in the home keeps these links.
+ * there, a `bun install` a test runs in the Epicenter keeps these links.
  */
 export async function installPackages(folder: string) {
 	const modules = join(folder, 'node_modules');
@@ -35,7 +35,7 @@ export async function installPackages(folder: string) {
 }
 
 /**
- * A port nothing listens on, for a home's `EPICENTER.md`. It is below the
+ * A port nothing listens on, for an Epicenter's `EPICENTER.md`. It is below the
  * range the system hands to outgoing connections, so nothing takes it between
  * this check and the serve that binds it.
  */
@@ -57,7 +57,7 @@ export async function freePort() {
 
 type Served = Awaited<ReturnType<typeof spawnServe>>;
 
-/** What a fixture knows of its home's serve. */
+/** What a fixture knows of its Epicenter's serve. */
 type Serving = {
 	/** The serve the fixture started for an action, once one was run. */
 	own?: Promise<Served>;
@@ -78,55 +78,56 @@ export async function stopFixtureServes() {
 		[...fixtures].map(async (serving) => {
 			const own = serving.own;
 			serving.own = undefined;
-			// Killed, not asked to stop: a test's home has nothing to finish.
+			// Killed, not asked to stop: a test's Epicenter has nothing to finish.
 			await (await own?.catch(() => undefined))?.kill();
 		}),
 	);
 	fixtures.clear();
 }
 
-/** Whether `args` ask `epicenter` to run an app's action, which needs serve. */
-function callsAction(args: string[]) {
+/**
+ * Whether `args` ask `epicenter` something only serve answers: every command
+ * but `check`, `serve`, and help or the version on their own (ADR-0961).
+ */
+function needsServe(args: string[]) {
 	const words = args.filter((arg) => arg !== '--json');
 	const [first] = words;
-	return (
-		words.length > 1 &&
-		first !== undefined &&
-		!first.startsWith('-') &&
-		!Object.hasOwn(COMMANDS, first) &&
-		!args.some((arg) => arg === '--help' || arg === '-h')
-	);
+	if (first === undefined)
+		return !args.some((arg) =>
+			['--help', '-h', '--version', '-V'].includes(arg),
+		);
+	return !(COMMAND_WORDS as readonly string[]).includes(first);
 }
 
 /**
- * A temporary `HOME` whose `Epicenter` folder is the app home, a Bun
+ * A temporary `HOME` whose `Epicenter` folder is the Epicenter, a Bun
  * workspace with its packages in place (`installPackages`), its apps in
- * `apps`, and the real `bin.ts` run against it, so output, exit codes, and the folders on disk are
- * tested together. Nothing here reads the person's own home.
+ * `apps`, and the real `bin.ts` run inside it, as a person runs it, so
+ * output, exit codes, and the folders on disk are tested together. Nothing
+ * here reads the person's own Epicenter.
  *
- * Only serve runs an action, so a `run` of one starts `epicenter serve` for
- * this home unless one is running, and it is stopped when the test ends.
+ * Only serve loads app code, so a `run` of any command that asks it starts
+ * `epicenter serve` for this Epicenter unless one is running, and it is stopped when the test ends.
  * `serve` starts it without a `run`, for a test that spawns the command
  * itself. While a serve from `startServe` runs, the fixture starts none, and
  * after `stopServe` it starts none again.
  */
 export async function fixture() {
-	const root = await realpath(
+	const userDir = await realpath(
 		await mkdtemp(join(tmpdir(), 'epicenter-runner-')),
 	);
-	const home = join(root, 'Epicenter');
-	await mkdir(home);
-	// A home's port is how its serve is found, so each home has its own.
+	const epicenter = join(userDir, 'Epicenter');
+	await mkdir(epicenter);
+	// An Epicenter's port is how its serve is found, so each Epicenter has its own.
 	const port = await freePort();
-	await writeFile(join(home, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
-	await writeFile(join(home, 'package.json'), homePackage);
-	await installPackages(home);
-	const apps = join(home, 'apps');
+	await writeFile(join(epicenter, 'EPICENTER.md'), `---\nport: ${port}\n---\n`);
+	await writeFile(join(epicenter, 'package.json'), rootPackage);
+	await installPackages(epicenter);
+	const apps = join(epicenter, 'apps');
 	await mkdir(apps);
 	const env: Record<string, string | undefined> = {
 		...process.env,
-		HOME: root,
-		EPICENTER_ROOT: undefined,
+		HOME: userDir,
 	};
 
 	/** Write `files` under `dir`. */
@@ -143,21 +144,21 @@ export async function fixture() {
 	 * An app container at `<epicenter>/apps/<entry>`: its `code/epicenter.ts`
 	 * is `source` after an import of everything an app defines itself with.
 	 */
-	async function app(entry: string, source: string, epicenter = home) {
-		return folder(join(epicenter, 'apps', entry), {
+	async function app(entry: string, source: string, into = epicenter) {
+		return folder(join(into, 'apps', entry), {
 			'code/epicenter.ts': `${header}${source}`,
 		});
 	}
 
-	// As the command's own first line runs it: Bun never fetches a package the home lacks.
+	// As the command's own first line runs it: Bun never fetches a package the Epicenter lacks.
 	const command = [process.execPath, '--no-install', bin];
 	const serving: Serving = { byTest: 0, off: false };
-	/** Start this home's serve unless one runs already or the test asked for none. */
+	/** Start this Epicenter's serve unless one runs already or the test asked for none. */
 	async function serve() {
 		if (serving.byTest || serving.off) return;
 		fixtures.add(serving);
 		if (!serving.own) {
-			const own = spawnServe(serving, command, root, env);
+			const own = spawnServe(serving, command, epicenter, env);
 			serving.own = own;
 			// An action can end serve; the next one starts it again.
 			void own
@@ -167,7 +168,8 @@ export async function fixture() {
 					if (serving.own === own) serving.own = undefined;
 				});
 		}
-		await serving.own;
+		// A serve that does not start leaves the command to say why.
+		await serving.own.catch(() => undefined);
 	}
 	/** Stop the serve the fixture started, and start no other. */
 	async function stopServe() {
@@ -178,7 +180,7 @@ export async function fixture() {
 	}
 
 	async function runIn(cwd: string, ...args: string[]) {
-		if (callsAction(args)) await serve();
+		if (needsServe(args)) await serve();
 		const child = Bun.spawn([...command, ...args], {
 			cwd,
 			env,
@@ -192,10 +194,11 @@ export async function fixture() {
 		]);
 		return { stdout, stderr, code };
 	}
-	const run = (...args: string[]) => runIn(root, ...args);
+	// A command acts on the Epicenter it runs in, as a person runs it.
+	const run = (...args: string[]) => runIn(epicenter, ...args);
 	return {
-		root,
-		home,
+		userDir,
+		epicenter,
 		apps,
 		port,
 		env,
@@ -211,7 +214,7 @@ export async function fixture() {
 }
 
 /**
- * Start `epicenter serve` for the fixture `f` at its home's port, with Bun's
+ * Start `epicenter serve` for the fixture `f` at its Epicenter's port, with Bun's
  * `execArgv` before the entry, and wait until it listens. `base` is its
  * address; `stop` sends SIGTERM and resolves with its exit code; `stderr` is
  * what it has written so far. The serve the fixture started is stopped first,
@@ -229,7 +232,7 @@ export async function startServe(
 	const own = f.serving.own;
 	f.serving.own = undefined;
 	await (await own?.catch(() => undefined))?.kill();
-	return spawnServe(f.serving, command, f.root, env, true);
+	return spawnServe(f.serving, command, f.epicenter, env, true);
 }
 
 async function spawnServe(

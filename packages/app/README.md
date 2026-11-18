@@ -51,18 +51,18 @@ parameter.
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
-the app, and the package that holds that command too. A home is one Bun
+the app, and the package that holds that command too. An Epicenter is one Bun
 workspace whose `package.json` depends on `@epicenter/app`, so `bun install`
-at the top of the home installs one copy, puts `epicenter` in
+at the top of the Epicenter installs one copy, puts `epicenter` in
 `node_modules/.bin/`, and `epicenter.ts`, the editor, `bun test` and the UI's
 build all find it by ordinary resolution.
 An app's `code/package.json` names only the app's own dependencies and never
-lists `@epicenter/app`, so the app runs the version the home names. After
-the home's packages change, restart `serve`. An app's name is its folder's.
+lists `@epicenter/app`, so the app runs the version the Epicenter names. After
+the Epicenter's packages change, restart `serve`. An app's name is its folder's.
 
 The package ships its TypeScript source and runs under Bun. See
-[the command's README](src/command/README.md#a-home-is-a-bun-workspace) for the
-home's `package.json`, upgrading, and trying an unreleased change.
+[the command's README](src/command/README.md#an-epicenter-is-a-bun-workspace) for the
+Epicenter's `package.json`, upgrading, and trying an unreleased change.
 
 ## Three values, composed
 
@@ -419,7 +419,7 @@ Reads are plain file reads through `folder.path`, with `node:fs` or
 parts.
 
 An action changes files and makes no Git commit. Its writes remain pending,
-including when it returns an Err, throws, or stops. Git stores the home, and its
+including when it returns an Err, throws, or stops. Git stores the Epicenter, and its
 commits record code and records together
 ([ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Reads tolerate records that no longer fit the declaration; repair follows a
@@ -485,7 +485,7 @@ const sync = defineAction({
 	},
 });
 
-// Any caller, in the home or in a page:
+// Any caller, in the Epicenter or in a page:
 await sync({ account }, { onUpdate: ({ copied, of }) => show(copied, of) });
 ```
 
@@ -561,7 +561,7 @@ the action ran:
 | `usage` | the words, input or target do not fit | `next?` |
 | `app-problems` | the app cannot load | `app`, `problems` |
 | `internal` | Epicenter failed before it ran | none |
-| `unavailable` | no serve for this home answers | `next?` |
+| `unavailable` | no serve for this Epicenter answers | `next?` |
 
 An action cannot answer `NotStarted` or
 `Unreachable`: serve turns an action's own into `Threw`, by its name alone. An action may still return `Threw`.
@@ -677,14 +677,39 @@ const answer = await app.fetch(new Request('http://localhost/oauth/callback?code
 
 ## Upgrading from 0.7
 
-Serve's addresses change, and every app's page must be rebuilt
+### Serve and the command
+
+- **Restart `epicenter serve`** after `bun install`. Until you do, the
+  command reads the old serve as another program on the port.
+- **A command finds its Epicenter only by walking up** from the folder it
+  runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd`
+  into your Epicenter, or set a script's working directory there.
+- **`epicenter serve` starts only in the Epicenter's own folder.** Started
+  anywhere else it refuses and exits, so a job that restarts it on exit
+  fails again each time. Set the job's working directory to your Epicenter:
+  `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=`
+  in a systemd unit.
+- **Bare `epicenter`, `epicenter <app>` and an action's `--help` ask
+  serve**, and are refused while it is stopped. `epicenter check` still
+  works without it.
+
+### Addresses and action names
+
+Serve's addresses change, every action has one name, and every app's page
+must be rebuilt
 ([ADR-0967](../../docs/adr/0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)).
 
-| 0.7 | Now |
+| 0.7 | 0.8 |
 | --- | --- |
 | an app's page at `/<app>/` | `/apps/<app>/` |
-| `POST /<app>/<words joined by .>`, such as `POST /vocab/words.create` | `POST /actions/<app>/<word>/<word>`, such as `POST /actions/vocab/words/create` |
+| `POST /<app>/<words joined by .>`, such as `POST /vocab/words.create` | `POST /actions/<app>/<action>`, such as `POST /actions/vocab/create-word` |
+| actions nested in groups, `actions: { words: { create } }` | one flat name each, `actions: { 'create-word': create }` |
+| `epicenter vocab words create`, MCP tool `vocab_words_create` | `epicenter vocab create-word`, MCP tool `vocab_create-word` |
+| a refused call: a 400 whose body is `{ data: null, error }` | a 200 whose one line is `{"answer": { data: null, error }}` |
 
+- **Rename grouped actions.** Give each action in a group one name of
+  lowercase letters, digits and dashes, and change the scripts, routines and
+  playbooks that name it.
 - **Rebuild every page.** A page bundles `@epicenter/app/client`, and an old
   bundle calls the old address, which now answers 404. Run `bun run build`
   at the top of the Epicenter.
@@ -693,10 +718,8 @@ Serve's addresses change, and every app's page must be rebuilt
 - **A page that calls `connect()` with no `app`** reads its app from
   `/apps/<app>/` with no change. A page served elsewhere passes `{ app }`.
 - **A script or test that posts to serve directly**, or fakes its URLs,
-  uses `/actions/<app>/<word>/<word>`.
-- **A call at a malformed address** (an empty word, a word that is not a
-  name, no word after the app) answers `NotStarted` with cause `usage` as the
-  body of a 400. It used to answer a plain 404.
+  uses `/actions/<app>/<action>`, and reads a refusal from the `answer` line
+  of a 200. Any status other than 200 means serve did not take the call.
 - **Serve refuses a cross-site request that does not open a page.** Another
   site that loaded an app's icon or framed its page gets 403.
 
@@ -780,17 +803,16 @@ compile, so search each app's code and tests for `.input`.
 reached a serve older than itself. 0.7 drops that check: upgrading is the
 owner's step, not Epicenter's. After `bun install`, restart `epicenter serve`
 yourself. Nothing warns you if you forget; the old serve keeps answering with
-the old code. `epicenter` still refuses to load apps while the home names two
-different versions of `@epicenter/app` and `@epicenter/cli`.
+the old code.
 
 A data field whose schema carried `x-epicenter-file` used to be refused. No
 field helper made that marker, so the check is gone.
 
 ### Steps
 
-1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the home's `package.json`.
+1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the Epicenter's `package.json`.
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass.
 4. Run `bun run build` in each app that has a UI.
 5. Restart `epicenter serve`. Nothing reminds you; until you do, the old version answers every call.
-6. Commit the result as one commit, so reverting it returns the home to 0.6.
+6. Commit the result as one commit, so reverting it returns the Epicenter to 0.6.

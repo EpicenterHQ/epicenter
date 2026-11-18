@@ -22,7 +22,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 const invalid = () =>
-	ActionError.Unreachable({ message: 'Epicenter sent an invalid answer' });
+	ActionError.Unreachable({ message: 'serve sent an invalid answer' });
 
 /**
  * One answer as a caller reads it: exactly `data` and `error`, where `error`
@@ -84,7 +84,7 @@ export async function readAnswer(
 		if (refusal.error?.name === 'NotStarted') return refusal;
 		return ActionError.Unreachable({
 			message:
-				`Epicenter answered ${response.status} ${response.statusText}`.trim(),
+				`serve answered ${response.status} ${response.statusText}`.trim(),
 		});
 	}
 	const cut = () =>

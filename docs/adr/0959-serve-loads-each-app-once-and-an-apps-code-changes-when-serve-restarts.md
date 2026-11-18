@@ -3,13 +3,13 @@
 - **Status:** Proposed
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) at one consequence: an edit to an app's own code no longer shows on the next call. It shows after serve restarts, as a changed package already does. [ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) at how a routine command ends when serve stops: serve waits for it, and it no longer shares serve's process group.
-- **Relates:** [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (the re-import on each call, which goes), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the person keeps serve running), [ADR-0943](0943-epicenters-core-invariants.md) (rule 2 states the rule), [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (each `fetch` call loads the app), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (a key is `process.env`, which Bun fills from `.env` when serve starts), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (what an app is handed when it loads), [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) (the command stops loading apps).
+- **Relates:** [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (the re-import on each call, which goes), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the person keeps serve running), [ADR-0943](0943-epicenters-core-invariants.md) (rule 2 states the rule), [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (each `fetch` call loads the app), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (a key is `process.env`, which Bun fills from `.env` when serve starts), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (what an app is handed when it loads), [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md) (the command stops loading apps).
 - **Unbuilt:** All of it. Serve still re-imports an app on every call. The changed-code line in the listing, the wait on stop, the limit on that wait, the separate process group for routine commands and the time limit on an import do not exist. The changed-code line is built first: until it exists, serve keeps re-importing on each call.
 
 ## Context
 
 Serve imports an app again on every call. `load` in
-`packages/app/src/command/home.ts` drops every module under the app's `code/` and
+`packages/app/src/command/apps.ts` drops every module under the app's `code/` and
 imports `epicenter.ts`, so an edit reaches the next call (ADR-0880). The
 action runner, the MCP tool list and the launcher page each call it; one
 `tools/list` request imports every app.
@@ -27,7 +27,7 @@ start serve, so reloading on each call serves nobody who cannot restart.
 
 Routine commands start with `Bun.spawn` in `packages/app/src/command/routines.ts`
 and share serve's process group, so a Ctrl-C or a service manager's stop
-signal reaches them with serve (`stop` in `packages/app/src/command/http.ts`).
+signal reaches them with serve (`stop` in `packages/app/src/command/serve.ts`).
 ADR-0937 accepted that because "the service has restarted only on installs".
 
 ## Decision

@@ -6,7 +6,14 @@
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -51,12 +58,13 @@ async function setup<T = undefined>(
 	agents?: string,
 ) {
 	const f = await fixture();
-	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
+	if (agents !== undefined)
+		await writeFile(join(f.epicenter, 'AGENTS.md'), agents);
 	const made = (await prepare?.(f)) as T;
 	const served = await startServe(f);
 	cleanups.push(async () => {
 		await served.stop();
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	});
 	return { ...f, made, ...served };
 }
@@ -87,7 +95,7 @@ test('HTTP initialize sends the Epicenter AGENTS.md as it reads now', async () =
 		return body.result.instructions;
 	};
 	expect(await initialize()).toBe('Use these apps through their actions.\n');
-	await writeFile(join(f.home, 'AGENTS.md'), 'Ask before deleting.\n');
+	await writeFile(join(f.epicenter, 'AGENTS.md'), 'Ask before deleting.\n');
 	expect(await initialize()).toBe('Ask before deleting.\n');
 });
 
@@ -110,12 +118,93 @@ test('HTTP tools/list offers app actions', async () => {
 	]);
 });
 
-test('a crafted tool name cannot run an app outside the home', async () => {
+test('GET / answers the one listing as JSON, naming no path, and tools/list offers its actions', async () => {
+	const f = await setup(async (f) => {
+		await f.folder(join(f.apps, 'reading'), readingApp);
+		// Bun names the importing file by its path, and a failed read names its file.
+		await f.app(
+			'broken',
+			`import app from './missing.ts';\nexport default app;`,
+		);
+		await mkdir(join(f.epicenter, 'routines'));
+		const locked = join(f.epicenter, 'routines', 'locked.md');
+		await writeFile(locked, '');
+		await chmod(locked, 0);
+	});
+	const response = await fetch(`${f.base}/`, {
+		headers: { accept: 'application/json' },
+	});
+	expect(response.status).toBe(200);
+	const text = await response.text();
+	expect(text).not.toContain(f.userDir);
+	const listing = JSON.parse(text);
+	expect(listing.problems[0].problems[0]).toContain(
+		'imported from ./apps/broken/code/epicenter.ts',
+	);
+	expect(listing.routines[0].problem).toContain("'./routines/locked.md'");
+	// A call to the app answers the same problems, also without a path.
+	const refused = await fetch(`${f.base}/broken/go`, {
+		method: 'POST',
+		body: '{}',
+	});
+	expect(refused.status).toBe(400);
+	expect(await refused.text()).not.toContain(f.userDir);
+	expect(Object.keys(listing)).toEqual([
+		'version',
+		'apps',
+		'problems',
+		'routines',
+	]);
+	const tools = (await (await mcp(f.base, 'tools/list')).json()) as {
+		result: { tools: unknown[] };
+	};
+	expect(tools.result.tools).toEqual(listing.apps[0].actions);
+});
+
+test("an error serve sends names the Epicenter's folder as . and the home folder as ~", async () => {
+	const f = await setup((f) =>
+		f.app(
+			'leak',
+			`import { homedir } from 'node:os';
+export default defineApp(() => ({ description: 'Leak', actions: { tell: defineAction({ description: 'Tell', input: {}, run: () => { throw new Error(\`at \${import.meta.url} in \${homedir()}/notes\`); } }) } }));`,
+		),
+	);
+	const shown = 'at ./apps/leak/code/epicenter.ts in ~/notes';
+	const call = await fetch(`${f.base}/leak/tell`, {
+		method: 'POST',
+		body: '{}',
+	});
+	const lines = (await call.text()).trim().split('\n');
+	expect(JSON.parse(lines.at(-1) ?? '').answer.error.message).toBe(shown);
+	const tool = (await (
+		await mcp(f.base, 'tools/call', { name: 'leak_tell', arguments: {} })
+	).json()) as {
+		result: { structuredContent: { error: { message: string } } };
+	};
+	expect(tool.result.structuredContent.error.message).toBe(shown);
+	// A refusal before the call is hidden the same way: an app folder serve
+	// cannot read fails with Bun's message, which names its path.
+	await chmod(join(f.apps, 'leak'), 0);
+	try {
+		const refused = await fetch(`${f.base}/leak/tell`, {
+			method: 'POST',
+			body: '{}',
+		});
+		expect(refused.status).toBe(400);
+		const text = await refused.text();
+		expect(text).toContain("'./apps/leak");
+		expect(text).not.toContain(f.userDir);
+	} finally {
+		await chmod(join(f.apps, 'leak'), 0o755);
+	}
+});
+
+test('a crafted tool name cannot run an app outside the Epicenter', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'outside',
 			`export default defineApp(({ folder }) => ({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } }));`,
-			f.root,
+			f.userDir,
 		),
 	);
 	const outside = f.made;
@@ -227,7 +316,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		join(folder, 'code/epicenter.ts'),
 		join(folder, 'code', 'ui', 'dist', 'outside.ts'),
 	);
-	const outsideUi = join(f.root, 'outside-ui');
+	const outsideUi = join(f.userDir, 'outside-ui');
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
 	await mkdir(join(linked, 'code', 'ui'));
@@ -563,12 +652,20 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 		[
 			'talk/say',
 			'[]',
-			{ message: 'The input is not a JSON object', cause: 'usage' },
+			{
+				message: `The input is not a JSON object; give one, such as {"words":"text"}`,
+				cause: 'usage',
+				next: 'epicenter talk say --help',
+			},
 		],
 		[
 			'talk/say',
 			'words',
-			{ message: 'The input is not valid JSON', cause: 'usage' },
+			{
+				message: `The input is not JSON; give one JSON object, such as {"words":"text"}`,
+				cause: 'usage',
+				next: 'epicenter talk say --help',
+			},
 		],
 		[
 			'broken/x',

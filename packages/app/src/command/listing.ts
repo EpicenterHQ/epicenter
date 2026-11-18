@@ -1,25 +1,75 @@
 /**
- * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
- * description and data keys with each action as the MCP tool `serve`
- * offers, so a listing and `tools/list` agree; the human views come from the
- * same actions.
+ * The one listing of an Epicenter's apps (ADR-0841, ADR-0961). Serve builds
+ * it from the apps it loaded and answers it at `GET /` as JSON; every view of
+ * the apps prints from it:
+ *
+ * | Reader | What it prints |
+ * | --- | --- |
+ * | MCP `tools/list` | each action not marked `mcp: false` |
+ * | the launcher page | each app with a UI |
+ * | bare `epicenter`, `--json` | every app, its problems, and the routines |
+ * | `epicenter <app>`, an action's `--help` | one app, or one action and its input |
+ *
+ * Each action is the MCP tool serve offers, in plain JSON, so the command
+ * renders help from it without loading the app. Serve hides this
+ * computer's folders in the listing's problems (`hide-paths.ts`); the
+ * command adds the folders it knows.
  */
 
 import { basename } from 'node:path';
 import type { TSchemaOptions } from 'typebox';
+import type { Result } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
-import { whatTakes } from '../field.ts';
-import { type Action, objectSchema } from '../index.ts';
-import type { Discovery, Runnable } from './home.ts';
-import { exampleCommand, usageLine } from './input.ts';
+import { type ObjectSchema, objectSchema, whatTakes } from '../field.ts';
+import {
+	type Action,
+	ActionError,
+	type Answer,
+	Err,
+	type NotStarted,
+	Ok,
+} from '../index.ts';
+import {
+	type AppProblems,
+	appPath,
+	appProblems,
+	discoverAll,
+	type LoadedApp,
+	unknownApp,
+} from './apps.ts';
+import { exampleCommand, noSuchAction, usageLine } from './input.ts';
+import type { EpicenterRoot } from './root.ts';
+import { createRoutines, type RoutineRow } from './routines.ts';
+
+/**
+ * The MCP tool name of the action `key` in `app`: the app and the action's
+ * words joined by `_`. App names and action words have no underscores, so
+ * `fromToolName` reads it back.
+ */
+export const toolName = (app: string, key: string) =>
+	`${app}_${key.replaceAll(' ', '_')}`;
+
+/** The app and action key a tool name names. */
+export function fromToolName(name: string) {
+	const [app = '', ...words] = name.split('_');
+	return { app, key: words.join(' ') };
+}
 
 /**
  * An action as an MCP tool definition: its name, input schema, and the hints
  * it states. `mcp: false` marks one a listing shows and serve does not offer.
  */
-export function actionTool(app: string, key: string, action: Action) {
+export type ActionTool = {
+	name: string;
+	description: string;
+	inputSchema: ObjectSchema;
+	annotations?: Action['annotations'];
+	mcp?: false;
+};
+
+function actionTool(app: string, key: string, action: Action): ActionTool {
 	return {
-		name: `${app}_${key.replaceAll(' ', '_')}`,
+		name: toolName(app, key),
 		description: action.description,
 		inputSchema: action.input,
 		...(action.annotations ? { annotations: action.annotations } : {}),
@@ -27,16 +77,31 @@ export function actionTool(app: string, key: string, action: Action) {
 	};
 }
 
-/**
- * The app as `--json` prints it: its description, each data key's path and
- * fields as JSON Schema, and its actions as tools.
- */
-function appListing(located: Runnable) {
-	const { app } = located;
+/** An app as the listing carries it: its description, each data key's path and fields as JSON Schema, and its actions as tools. */
+export type AppListing = {
+	name: string;
+	description: string;
+	data?: Record<
+		string,
+		{ path: string; description?: string; fields: ObjectSchema }
+	>;
+	actions: ActionTool[];
+};
+
+/** Everything serve offers, as `GET /` answers it in JSON. */
+export type Listing = {
+	/** The version of `@epicenter/app` serve runs. */
+	version: string;
+	apps: AppListing[];
+	/** Each app folder with a problem: one that did not load, or a `local/` that could reach Git. */
+	problems: AppProblems[];
+	routines: RoutineRow[];
+};
+
+export function appListing({ name, app, actions }: LoadedApp): AppListing {
 	return {
-		name: located.name,
+		name,
 		description: app.description,
-		folder: located.folder,
 		...(app.data
 			? {
 					data: Object.fromEntries(
@@ -53,84 +118,96 @@ function appListing(located: Runnable) {
 					),
 				}
 			: {}),
-		actions: Object.entries(located.actions).map(([key, action]) =>
-			actionTool(located.name, key, action),
+		actions: Object.entries(actions).map(([key, action]) =>
+			actionTool(name, key, action),
 		),
-		// Its fetch routes are not listed: only that the app answers web requests (ADR-0945).
-		...(app.fetch ? { fetch: true as const } : {}),
 	};
 }
 
-/** " (answers web requests)" for an app that returned `fetch`, whose routes no listing shows. */
-function answersWeb(located: Runnable) {
-	return located.app.fetch ? ' (answers web requests)' : '';
+/** Serve's listing: each app as it loads now, the problems of those that do not, and the routines. */
+export async function listApps(
+	root: Pick<EpicenterRoot, 'folder'>,
+): Promise<Listing> {
+	const [found, routines] = await Promise.all([
+		discoverAll(root),
+		createRoutines(root).list(),
+	]);
+	return {
+		version: packageJson.version,
+		apps: found.apps.map(appListing),
+		problems: found.problems,
+		routines,
+	};
+}
+
+/** Each app's problems as `--json` prints them, with the folder serve does not say. */
+export function withFolders(
+	root: Pick<EpicenterRoot, 'folder'>,
+	problems: AppProblems[],
+) {
+	return problems.map(({ entry, problems }) => ({
+		entry,
+		folder: appPath(root, entry),
+		problems,
+	}));
+}
+
+/** The `Problems:` block a report prints after its apps: each app, its folder, and its problems. */
+export function problemLines(
+	root: Pick<EpicenterRoot, 'folder'>,
+	problems: AppProblems[],
+): string[] {
+	return [
+		'Problems:',
+		...problems.flatMap(({ entry, problems }) => [
+			`  ${entry}`,
+			`    ${appPath(root, entry)}`,
+			...problems.map((problem) => `    ${problem}`),
+		]),
+	];
 }
 
 /** " (read-only)" for an action that says it changes nothing; the other hints are for MCP clients. */
-function readOnly(action: Action) {
-	return action.annotations?.readOnlyHint ? ' (read-only)' : '';
+function readOnly(tool: ActionTool) {
+	return tool.annotations?.readOnlyHint ? ' (read-only)' : '';
 }
 
 /** " (not offered to agents)" for an action serve keeps out of its MCP tools. */
-function notOffered(action: Action) {
-	return action.mcp === false ? ' (not offered to agents)' : '';
+function notOffered(tool: ActionTool) {
+	return tool.mcp === false ? ' (not offered to agents)' : '';
 }
-
-/** Each action as its usage line and its description; `--help` on an action lists its input's keys. */
-function actionLines(located: Runnable) {
-	return Object.entries(located.actions).flatMap(([key, action]) => [
-		`  ${usageLine(located.name, key, action)}`,
-		`    ${action.description}${readOnly(action)}${notOffered(action)}`,
-	]);
-}
-
-/** A routine as the report shows it: its schedule, next occurrence, and command to copy into a terminal, or why its file is refused. */
-export type RoutineRow =
-	| { name: string; cron: string; next: string | undefined; command: string }
-	| { name: string; problem: string };
 
 /**
- * The home's report: the version of Epicenter running it, its apps, with
- * broken entries kept apart from runnable ones, then its routines. `--json`
- * carries the same facts. Git reports on the home's repository itself.
+ * The report bare `epicenter` prints: the version of Epicenter serve runs,
+ * its apps, with broken ones kept apart, then its routines. `--json` carries
+ * the same facts. Git reports on the Epicenter's repository itself.
  */
-export function homeListing(
-	found: Discovery,
-	routines: RoutineRow[],
+export function rootReport(
+	listing: Listing,
+	root: Pick<EpicenterRoot, 'folder'>,
 	json: boolean,
 ): unknown {
+	const { version, apps, problems, routines } = listing;
 	if (json)
 		return {
-			epicenter: found.epicenter,
-			version: packageJson.version,
-			apps: found.apps.map((app) => appListing(app)),
-			problems: found.problems.map(({ entry, folder, problems }) => ({
-				entry,
-				folder,
-				problems,
-			})),
+			epicenter: root.folder,
+			version,
+			apps: apps.map((app) => withFolder(app, root)),
+			problems: withFolders(root, problems),
 			routines,
 		};
-	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
-	const lines = found.apps.map((located) => {
-		return `${located.name.padEnd(width)}  ${located.app.description}${answersWeb(located)}`;
-	});
-	if (!found.apps.length)
+	const width = Math.max(0, ...apps.map(({ name }) => name.length));
+	const lines = apps.map(
+		({ name, description }) => `${name.padEnd(width)}  ${description}`,
+	);
+	if (!apps.length)
 		lines.push('No apps yet. An app is apps/<name>/code/epicenter.ts');
 	else lines.push('', 'Run: epicenter <app>');
 	lines.unshift(
-		`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`,
-		`Version: ${packageJson.version}`,
+		`Epicenter: ${basename(root.folder)} (${root.folder})`,
+		`Version: ${version}`,
 	);
-	if (found.problems.length) {
-		lines.push('', 'Problems:');
-		for (const app of found.problems)
-			lines.push(
-				`  ${app.entry}`,
-				`    ${app.folder}`,
-				...app.problems.map((problem) => `    ${problem}`),
-			);
-	}
+	if (problems.length) lines.push('', ...problemLines(root, problems));
 	lines.push('');
 	if (!routines.length)
 		lines.push('No routines. Add routines/<name>.md with cron and run.');
@@ -149,33 +226,110 @@ export function homeListing(
 	return lines.join('\n');
 }
 
-/** Render an app's actions and its container folder. */
-export function oneAppListing(located: Runnable, json: boolean): unknown {
-	if (json) return appListing(located);
-	return [
-		`${located.name}  ${located.app.description}${answersWeb(located)}`,
-		`folder: ${located.folder}`,
-		'',
-		...(located.app.data
-			? Object.entries(located.app.data).flatMap(([key, handle]) => [
-					`  ${key}  data/${key}${key.endsWith('.md') ? '' : '/'}`,
-					...(handle.description ? [`    ${handle.description}`] : []),
-					`    ${JSON.stringify(objectSchema(handle.fields))}`,
-				])
-			: []),
-		...actionLines(located),
-		'',
-		`Run: epicenter ${located.name} <action> --help`,
-	].join('\n');
+/** An app as `--json` prints it: the listing's, with its folder. */
+function withFolder(
+	{ name, description, ...rest }: AppListing,
+	root: Pick<EpicenterRoot, 'folder'>,
+) {
+	return { name, description, folder: appPath(root, name), ...rest };
 }
 
 /**
- * Explain an action's input: each key, whether it is needed, what it takes,
- * and its description, then one command to copy.
+ * The app `name` in the listing. A name it has no app for answers
+ * `NotStarted`: its problems when it did not load, else that there is no
+ * such app.
  */
-export function actionHelp(name: string, key: string, action: Action): string {
-	const usage = [usageLine(name, key, action), action.description];
-	const { properties, required } = action.input;
+function listedApp(
+	listing: Listing,
+	name: string,
+): Result<AppListing, NotStarted> {
+	const app = listing.apps.find((each) => each.name === name);
+	if (app) return Ok(app);
+	const broken = listing.problems.find(({ entry }) => entry === name);
+	return broken ? appProblems(name, broken.problems) : unknownApp(name);
+}
+
+/** What `epicenter <app>` prints: the app's data keys and actions and its folder. */
+export function appReport(
+	listing: Listing,
+	root: Pick<EpicenterRoot, 'folder'>,
+	name: string,
+	json: boolean,
+): Answer {
+	const { data: app, error } = listedApp(listing, name);
+	if (error) return Err(error);
+	if (json) return Ok(withFolder(app, root));
+	return Ok(
+		[
+			`${app.name}  ${app.description}`,
+			`folder: ${appPath(root, app.name)}`,
+			'',
+			...Object.entries(app.data ?? {}).flatMap(([key, each]) => [
+				`  ${key}  ${each.path}`,
+				...(each.description ? [`    ${each.description}`] : []),
+				`    ${JSON.stringify(each.fields)}`,
+			]),
+			...app.actions.flatMap((tool) => [
+				`  ${usageLine(app.name, fromToolName(tool.name).key, tool.inputSchema)}`,
+				`    ${tool.description}${readOnly(tool)}${notOffered(tool)}`,
+			]),
+			'',
+			`Run: epicenter ${app.name} <action> --help`,
+		].join('\n'),
+	);
+}
+
+/**
+ * What `epicenter <app> <action> --help` prints: the action's tool, or its
+ * help as a person reads it. An action the app does not have is refused as
+ * serve refuses a call to one, listing those it has.
+ */
+export function helpReport(
+	listing: Listing,
+	name: string,
+	key: string,
+	json: boolean,
+): Answer {
+	const { data: app, error } = listedApp(listing, name);
+	if (error) return Err(error);
+	const tool = app.actions.find((each) => each.name === toolName(name, key));
+	if (!tool) return missingAction(listing, name, key);
+	return Ok(json ? tool : actionHelp(tool));
+}
+
+/**
+ * The command's answer for an action `name` does not have: serve's
+ * refusal, then the app's actions from the listing, one line each, so a
+ * person sees what to type.
+ */
+export function missingAction(
+	listing: Listing,
+	name: string,
+	key: string,
+): Answer {
+	const { data: app, error } = listedApp(listing, name);
+	if (error) return Err(error);
+	return ActionError.NotStarted({
+		cause: 'usage',
+		message: [
+			`${noSuchAction(name, key)}. Its actions:`,
+			...app.actions.map((tool) =>
+				usageLine(name, fromToolName(tool.name).key, tool.inputSchema),
+			),
+		].join('\n'),
+		next: `epicenter ${name}`,
+	});
+}
+
+/**
+ * Explain an action's input from its tool: each key, whether it is needed,
+ * what it takes, and its description, then one command to copy.
+ */
+export function actionHelp(tool: ActionTool): string {
+	const { app, key } = fromToolName(tool.name);
+	const input = tool.inputSchema;
+	const usage = [usageLine(app, key, input), tool.description];
+	const { properties, required } = input;
 	const keys = Object.keys(properties);
 	if (!keys.length) return usage.join('\n');
 	const rows = Object.entries(properties).map(([key, field]) => {
@@ -196,7 +350,7 @@ export function actionHelp(name: string, key: string, action: Action): string {
 		),
 		'',
 		'Example:',
-		...exampleCommand(name, key, action)
+		...exampleCommand(app, key, input)
 			.split('\n')
 			.map((line) => `  ${line}`),
 	].join('\n');

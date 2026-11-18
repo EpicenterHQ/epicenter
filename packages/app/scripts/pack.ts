@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 /**
  * Pack `@epicenter/app` as the registry would receive it. For trying an
- * unreleased change against a home, and for the owner to publish from. It
+ * unreleased change against an Epicenter, and for the owner to publish from. It
  * publishes nothing.
  *
  * `bun pm pack` rewrites `catalog:` to real versions, so the tarball resolves
  * outside this repository; this script refuses a tarball where one is left.
  *
- * Bun caches a tarball by its path, so a home that installed
+ * Bun caches a tarball by its path, so an Epicenter that installed
  * `epicenter-app-0.7.0.tgz` from one path keeps that content however the
  * file changes. The tarball therefore lands in a folder named for its
  * content, `<outdir>/<hash>/`, which is a new path whenever it changes.
@@ -71,7 +71,7 @@ try {
 	};
 	const overrides = { [name]: `file:${join(folder, file)}` };
 	console.log(
-		`Packed ${name} ${version} into ${join(folder, file)}. Nothing was published.\n\nTo run a home on it, add this to the home's package.json, run bun install there, and restart serve:\n\n${JSON.stringify({ overrides }, null, 2)}`,
+		`Packed ${name} ${version} into ${join(folder, file)}. Nothing was published.\n\nTo run an Epicenter on it, add this to the Epicenter's package.json, run bun install there, and restart serve:\n\n${JSON.stringify({ overrides }, null, 2)}`,
 	);
 } finally {
 	await rm(staging, { recursive: true, force: true });

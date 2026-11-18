@@ -1,14 +1,15 @@
 /**
  * MCP tools for `epicenter serve` (ADR-0849, ADR-0853): every app's actions,
  * and nothing else. An action that declares `mcp: false` is not offered:
- * `tools/list` leaves it out and `tools/call` refuses its name.
+ * `tools/list` leaves it out and `tools/call` refuses its name before it
+ * reads the input, so the refusal tells an agent nothing more.
  *
- * Each request loads the apps it needs as they are on disk now (`home.ts`),
+ * Each request loads the apps it needs as they are on disk now (`apps.ts`),
  * so an edit between two calls is seen by the second. `tools/list` offers
- * each app's actions; an app that cannot load loses only its own tools, and
- * why goes to stderr. `tools/call` decodes the tool name and runs the action
- * in this process (`run.ts`), which checks the app, the action, and the
- * input, and leaves the call's writes pending.
+ * the actions in serve's one listing (`listing.ts`); an app that cannot load
+ * loses only its own tools, and why goes to stderr. `tools/call` decodes the
+ * tool name and runs the action in this process (`run.ts`), which checks the
+ * app, the action, and the input, and leaves the call's writes pending.
  * A call's result is the same `{ data, error }` `--json` prints, as
  * `structuredContent`, with `isError` for any error. An action's updates are not sent:
  * an MCP client reads only the answer.
@@ -18,31 +19,16 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
-	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Err } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer } from '../index.ts';
-import { homeEntries, loadHomeApp } from './home.ts';
-import { actionTool } from './listing.ts';
+import { hidePaths } from './hide-paths.ts';
+import { fromToolName, type Listing, listApps } from './listing.ts';
 import { outcome, writeErr } from './output.ts';
-import { rootInstructions } from './root.ts';
-import { resolveAction, runAction } from './run.ts';
-
-/** One app's tools; none when it cannot load, and why goes to stderr. */
-async function appTools(entry: string): Promise<Tool[]> {
-	const { data: located, error } = await loadHomeApp(entry);
-	if (error) {
-		writeErr(
-			error.cause === 'app-problems'
-				? error.message
-				: `${entry}: ${error.message}`,
-		);
-		return [];
-	}
-	return Object.entries(located.actions)
-		.filter(([, action]) => action.mcp !== false)
-		.map(([key, action]) => actionTool(located.name, key, action));
-}
+import { type EpicenterRoot, rootInstructions } from './root.ts';
+import { checkCall, findAction, runAction } from './run.ts';
 
 /**
  * An answer as an MCP result: the same value `--json` prints, as
@@ -69,8 +55,8 @@ function toolResult(answer: Answer) {
  * Epicenter's `AGENTS.md` now, so each initialize sends what the file says
  * then (ADR-0878).
  */
-export async function createMcpServer() {
-	const instructions = await rootInstructions();
+export async function createMcpServer(root: Pick<EpicenterRoot, 'folder'>) {
+	const instructions = await rootInstructions(root);
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -78,29 +64,42 @@ export async function createMcpServer() {
 			...(instructions === undefined ? {} : { instructions }),
 		},
 	);
+	const hide = hidePaths(root);
+	const answered = (answer: Answer) => toolResult(hide.answer(answer));
 	server.setRequestHandler(ListToolsRequestSchema, async () => {
-		const listed = await Promise.all(
-			(await homeEntries()).map(({ entry }) => appTools(entry)),
-		);
-		return { tools: listed.flat() };
+		let listing: Listing;
+		try {
+			listing = await listApps(root);
+		} catch (cause) {
+			// The SDK sends what a handler throws to the client as its message.
+			throw new Error(hide.text(extractErrorMessage(cause)));
+		}
+		const loaded = new Set(listing.apps.map(({ name }) => name));
+		for (const { entry, problems } of listing.problems)
+			if (!loaded.has(entry)) writeErr(`${entry}: ${problems.join('; ')}`);
+		return {
+			tools: listing.apps.flatMap(({ actions }) =>
+				actions.filter((tool) => tool.mcp !== false),
+			),
+		};
 	});
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const { name, arguments: args } = request.params;
-		const [app = '', ...words] = name.split('_');
-		// App names and action words have no underscores.
-		const key = words.join(' ');
-		const call = await resolveAction(app, key, args ?? {});
-		if (call.refusal) return toolResult(call.refusal);
-		if (call.action.mcp === false)
-			return toolResult(
+		const { app, key } = fromToolName(name);
+		const { data: found, error } = await findAction(root, app, key);
+		if (error) return answered(Err(error));
+		if (found.action.mcp === false)
+			return answered(
 				ActionError.NotStarted({
 					cause: 'usage',
 					message: `${app} ${key} is not offered over MCP`,
 				}),
 			);
-		return toolResult(
-			await runAction(call.located, key, call.action, call.input),
-		);
+		const { data: call, error: misfit } = checkCall(found, {
+			value: args ?? {},
+		});
+		if (misfit) return answered(Err(misfit));
+		return answered(await runAction(call));
 	});
 	return server;
 }
