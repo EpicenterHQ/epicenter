@@ -39,8 +39,8 @@ that reader inside `model()` and exports no reader of its own.**
 // packages/app/src/context.ts
 export type Context = {
 	folder: Folder;
-	// One snapshot of the whole file, or why it was not read; the error names its path.
-	env: () => Promise<Result<Record<string, string>, EnvError>>;
+	// One snapshot of the whole file, and its path for an error to name.
+	env: () => Promise<{ path: string; values: Record<string, string> }>;
 };
 ```
 
@@ -49,17 +49,12 @@ export type Context = {
   snapshot, so an edit takes effect on the next call without restarting
   serve, and a caller never mixes two versions of the file. A missing file
   reads as empty.
-- Before each read, the reader asks Git, through `git.ts`, which clears the
-  `GIT_DIR` and similar variables a parent may have set:
-  `git check-ignore -q .env`. Exit 0 reads. Exit 1 refuses with an error
-  naming `.env*` in `.gitignore`; Git reports a tracked `.env` this way too,
-  even when `.gitignore` names it. Any other exit refuses with Git's own
-  message: 128 is any fatal error, a home that is not a repository, a
-  repository Git calls dubious, or a corrupt one, and the reader does not
-  guess which. The check runs without blocking serve and takes about 12
-  milliseconds.
-- The check alerts; it does not stop a push. A `.env` that is already tracked
-  is pushed by the next checkpoint whether or not anything reads it.
+- `.gitignore` alone keeps `.env` out of commits, as it does every app's
+  `local/`. Nothing asks Git before a read: a check there costs a Git process
+  on every model call, makes each call depend on Git, and stops no push,
+  because the checkpoint pushes a tracked `.env` whether or not anything
+  reads it. An owner who wants a guard puts it where the push is, in the
+  home's own checkpoint script.
 - Bun's own loading is off twice: `env = false` in the home's `bunfig.toml`,
   and `--no-env-file` in the command that starts serve, so a home without
   the `bunfig.toml` line still loads nothing. `epicenter init` writes the
@@ -84,11 +79,10 @@ exports a reader too.
 - A program an action starts sees nothing from `.env` unless the action
   passes it. A variable exported in the shell that started serve still
   reaches routines; the macOS job starts serve with only `PATH`.
-- `@epicenter/app` runs no Git and reads no file outside the app; the CLI
-  does both, as it already does for `folder`.
+- `@epicenter/app` reads no file outside the app; the CLI, which knows where
+  the home is, reads `.env`, as it already reads the app's folder.
 - Code that runs outside a run, such as a `bun` script that imports an app,
   has no context, and `model()` throws there as `folder` does.
-- A home that is not a Git repository cannot use `.env` until it is one.
 - Restoring a home from Git restores no `.env`. The owner pastes the values
   again, as with `local/`.
 - A shell agent that can read `local/` can read `.env`. The protection is the
@@ -107,10 +101,15 @@ exports a reader too.
   second hidden global beside the run context, Git run from the app package
   without `git.ts`'s cleanup, and an error for every run a test opens
   without setting it.
-- **Ask Git once per process.** A later `git add -f .env` would go unnoticed.
+- **Ask Git before each read, and refuse a `.env` Git would commit.** Built
+  and removed: about 10 milliseconds and a Git process per call, a failure
+  whenever Git cannot answer, and the key is pushed all the same.
+- **`model()` finds the home itself.** An app linked from outside the home
+  has a folder outside it, and the rule that picks a home (nearest marker,
+  `EPICENTER_ROOT`, the default) lives in the CLI.
 - **A reader for one name at a time.** `model()` reads three names, so it
-  would run Git three times and could read two versions of the file, and a
-  value alone cannot carry the refusal or the file's path.
+  could read two versions of the file, and a value alone cannot carry the
+  file's path.
 - **Pass the context to `run` as arguments instead of AsyncLocalStorage.**
   The context is the same for every run of an app, which is what module-level
   code expects; passing it would thread `folder` and data handles through

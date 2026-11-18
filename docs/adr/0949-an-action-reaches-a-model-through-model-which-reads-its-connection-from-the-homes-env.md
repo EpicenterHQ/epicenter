@@ -65,8 +65,7 @@ const response = await fetch(`${baseURL}/chat/completions`, {
   matches `[a-z][a-z0-9]*`, and its `.env` names are that name upper-cased;
   `model()` refuses any other connection name.
 - `model()` returns an error, and sends nothing, when `MODEL`, the
-  connection's `_BASE_URL`, or its `_API_KEY` is missing, or when the run's
-  reader refuses the file (ADR-0948). The error names the line to add and the
+  connection's `_BASE_URL`, or its `_API_KEY` is missing. The error names the line to add and the
   file's path. A keyless server takes a placeholder key, as Ollama's examples
   do. Outside a run, `model()` throws as `folder` does.
 - `model()` strips a trailing `/` from the base URL.
