@@ -1147,7 +1147,7 @@ When you add an ADR, add its row here.
 | [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Proposed (amends 0910 and 0880) |
 | [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Proposed (amends 0908, 0910) |
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
-| [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Accepted (amends 0870 and 0910; amended by 0948) |
+| [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Accepted (amends 0870 and 0910) |
 | [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Proposed (amends 0850, 0910, 0937 and 0939) |
 | [0941](0941-epicenter-serve-is-a-program-you-keep-running.md) | `epicenter serve` is a program you keep running | Accepted (amends 0878) |
 | [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Accepted (supersedes 0873; amends 0880 and 0910; amended by 0944) |
@@ -1155,6 +1155,6 @@ When you add an ADR, add its row here.
 | [0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) | An app builds its own UI, and serve only serves it | Proposed (amends 0904, 0910, 0911, and 0942) |
 | [0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) | An app may answer HTTP and WebSocket requests under its address | Proposed |
 | [0946](0946-new-from-a-local-folder-refuses-uncommitted-code.md) | `new --from` a local folder refuses uncommitted code | Proposed (amends 0929) |
-| [0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) | A credential the owner pastes goes in the home's `.env`, which only `env()` reads | Proposed (amends 0870 and 0939) |
-| [0949](0949-an-action-reaches-a-model-through-model-and-the-home-names-its-default-in-epicenter-md.md) | An action reaches a model through `model()`, and the home names its default in `EPICENTER.md` | Proposed |
+| [0948](0948-a-value-several-apps-share-goes-in-the-homes-env-which-only-env-reads.md) | A value several apps share goes in the home's `.env`, which only `env()` reads | Proposed (amends 0870) |
+| [0949](0949-an-action-reaches-a-model-through-model-which-reads-its-connection-from-the-homes-env.md) | An action reaches a model through `model()`, which reads its connection from the home's `.env` | Proposed |
 | [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |
