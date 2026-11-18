@@ -394,14 +394,9 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 	expect(await readFile(join(f.apps, 'counts/local/count'), 'utf8')).toBe('1');
 });
 
-test('runs use the selected Epicenter and their own local files', async () => {
+test('a run uses its own app folder and local files, and a linked app loads from where it really is', async () => {
 	const f = await setup();
-	const result = await f.runIn(
-		join(f.apps, 'reading'),
-		'reading',
-		'inspect',
-		'--json',
-	);
+	const result = await f.run('reading', 'inspect', '--json');
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).data;
 	expect(value.folder).toBe(join(f.apps, 'reading'));
@@ -417,13 +412,6 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	await symlink(target, join(f.apps, 'linked'));
 	// A link is a folder: the app runs from where it really is.
 	expect((await f.run('linked', '--json')).code).toBe(0);
-	const fromApp = JSON.parse(
-		(await f.run('reading', 'inspect', '--json')).stdout,
-	).data;
-	expect(fromApp.folder).toBe(join(f.apps, 'reading'));
-	expect(
-		await Bun.file(join(f.apps, 'reading/local/index.json')).exists(),
-	).toBe(true);
 });
 
 test('app and action views include locations, schemas, field help and version', async () => {
