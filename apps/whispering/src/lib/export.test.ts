@@ -2,7 +2,7 @@
  * The folder as one zip file (`export.ts`), as a browser's Export gives it.
  *
  * Key behaviors:
- * - Export holds `settings.md` and the five directories' files, at their
+ * - Export holds `settings.md` and the two directories' files, at their
  *   paths under one root, and nothing else
  * - The zip reads back whole in another program (`unzip`), checksums
  *   included
@@ -22,12 +22,12 @@ const files = memoryFiles({
 	'settings.md': encode('---\nshortcut: Alt+R\n---\n'),
 	'recordings/a.md': encode('---\ntitle: "A"\n---\nnotes\n'),
 	'recordings/a.webm': audio,
-	'recordings/.b.md.tmp': encode('a save in progress'),
+	'recordings/.b.md.q0w1e2r3.tmp': encode('a save in progress'),
 	'transcriptions/t.md': encode('---\nrecordingId: a\n---\nhello\n'),
 	'elsewhere/kept.md': encode('not Whispering’s'),
 });
 
-test('export holds settings.md and the five directories, and nothing else', async () => {
+test('export holds settings.md and the two directories, and nothing else', async () => {
 	const entries = expectOk(await folderFiles(files));
 	expect(entries.map(({ path }) => path).sort()).toEqual([
 		'recordings/a.md',

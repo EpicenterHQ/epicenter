@@ -100,7 +100,7 @@ test('an endpoint removed or moved since the request was prepared is not sent an
 	);
 	expect(changed.name).toBe('EndpointMoved');
 	expect(changed.message).toContain(
-		`prepared for Provider at ${BASE_URL}, which now sends to https://elsewhere.test/v1`,
+		`Provider changed from ${BASE_URL} to https://elsewhere.test/v1`,
 	);
 	expect(seen).toEqual([]);
 	expect(moved.seen).toEqual([]);

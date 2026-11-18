@@ -1,5 +1,5 @@
 /**
- * The recording vocabulary both hosts share (ADR-0543, decision 84), and
+ * The recording vocabulary both hosts share (ADR-0780), and
  * `Recorder`, the one interface both implement.
  *
  * A recording's audio is at its path when it stops (`Recorder.start`,

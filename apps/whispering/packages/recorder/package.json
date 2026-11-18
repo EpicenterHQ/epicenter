@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"sideEffects": false,
-	"description": "Recordings written into Whispering's folder as they record, on the desktop and in the browser, microphone streams, and voice activity detection.",
+	"description": "Recordings written into Whispering's folder, on the desktop as they record and in the browser at Stop, microphone streams, and voice activity detection.",
 	"keywords": [
 		"audio",
 		"recorder",

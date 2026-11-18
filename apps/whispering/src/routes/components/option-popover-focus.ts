@@ -2,7 +2,7 @@
  * Where focus goes when one of the recorder's option popovers closes.
  *
  * A popover's own default is to return focus to whatever was focused before
- * it opened. These three replace one another, so that element can be another
+ * it opened. These two replace one another, so that element can be another
  * option's trigger: open the microphone popover, switch to the model, press
  * Escape, and focus would land on the microphone's trigger. And a popover
  * that was replaced must not take focus back from the one that replaced it.

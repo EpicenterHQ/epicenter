@@ -176,7 +176,7 @@ mod tests {
         for passes in [
             "recordings/k3x9a2f8.md",
             "recordings/2026-10-30T22-41-05-123Z-k3x9a2f8.webm",
-            "transformation_runs/x.md",
+            "transcriptions/x.md",
             "settings.md",
             "recordings/k3x9",
             "a/b/c/D-e_f.TXT",
@@ -190,7 +190,7 @@ mod tests {
             "a/../b",
             "/abs",
             ".hidden",
-            "recordings/.a.md.tmp",
+            "recordings/.a.md.k3x9q0w1.tmp",
             "a.b.c",
             "a\\b",
             "a//b",

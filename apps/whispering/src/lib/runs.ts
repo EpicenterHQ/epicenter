@@ -18,23 +18,35 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingFolder } from './folder.js';
 import { timeId } from './format/ids.js';
-import type { Audio, Target } from './inference.js';
+import type { Audio, InferenceError, Target } from './inference.js';
+import { sentences } from './sentences.js';
 
 export const RunError = defineErrors({
 	/** Nothing was sent: the run could not be prepared, or is refused now. */
 	NotSent: ({ reason }: { reason: string }) => ({ message: reason, reason }),
-	/** The request failed: no answer was received. */
-	NoAnswer: ({ reason }: { reason: string }) => ({
-		message: `No answer was received: ${reason}`,
-		reason,
-	}),
+	/**
+	 * The request was made and brought back no transcript. `reason` is the
+	 * request's own account: an endpoint that answered with a refusal or an
+	 * error, or one that did not answer, so what it did is not known.
+	 */
+	Failed: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 	/** The answer arrived, and its note could not be written. */
 	NotSaved: ({ reason }: { reason: string }) => ({
-		message: `The answer arrived, but its transcript was not saved: ${reason} Transcribe again to send it again.`,
+		message: sentences(
+			`The answer arrived, but its transcript was not saved: ${reason}`,
+			'Transcribe again to send it again.',
+		),
 		reason,
 	}),
 });
 export type RunError = InferErrors<typeof RunError>;
+
+/** The request's failures that are certain nothing was sent. */
+const NOTHING_SENT = new Set<InferenceError['name']>([
+	'NotSent',
+	'EndpointGone',
+	'EndpointMoved',
+]);
 
 /**
  * A received answer as its note's body: the text, ending in one newline of
@@ -56,7 +68,7 @@ export function createRuns({
 	transcribe: (
 		target: Target,
 		audio: Audio,
-	) => Promise<Result<{ text: string }, { message: string }>>;
+	) => Promise<Result<{ text: string }, InferenceError>>;
 	/** Why nothing new starts now, for recording `recordingId` or at all. */
 	refused: (recordingId?: string) => string | undefined;
 }) {
@@ -90,7 +102,9 @@ export function createRuns({
 				const at = new Date();
 				const answer = await transcribe(target, audio.data);
 				if (answer.error !== null)
-					return RunError.NoAnswer({ reason: answer.error.message });
+					return NOTHING_SENT.has(answer.error.name)
+						? RunError.NotSent({ reason: answer.error.message })
+						: RunError.Failed({ reason: answer.error.message });
 				// A page closing keeps nothing that arrives after it.
 				const closing = refused();
 				if (closing !== undefined)

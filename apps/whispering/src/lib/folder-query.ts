@@ -10,11 +10,14 @@
  *   write the folder. A read that a write overtakes is cancelled and read
  *   again, so what is shown is never older than a finished write. A write
  *   that settles keeps pending until what is on screen has been read again.
- * - Every write to the folder (`folderMutations`: its notes, `settings.md`,
- *   and its audio) is keyed under `['folder']` and shares one scope, so
- *   they run one at a time, in the order made. A scope is a default by key
+ * - Every write `folderMutations` makes (to the notes, `settings.md`, and
+ *   the audio) is keyed under `['folder']` and shares one scope, so they
+ *   run one at a time, in the order made. A scope is a default by key
  *   prefix, so the mutations are the services' functions with nothing
- *   added.
+ *   added. Two writes stay outside it: a transcription's transcript (its
+ *   run is a `['runs']` mutation, whose request must not hold up every
+ *   save) and the browser recorder's audio. Each writes a new file, so it
+ *   never races a write the scope orders.
  * - `settings` is `settings.md` for the two readers that are not
  *   components: the connections `ai` merges (a `ConnectionStore`) and the
  *   global shortcut. Each reads the settings query's answer, hears it
@@ -85,7 +88,7 @@ export function createFolderQuery(folder: WhisperingFolder) {
 			deleteBefore: folder.deleteAudioBefore,
 		}),
 	};
-	// Every write to the folder runs in one scope, one at a time, in order.
+	// Every write `folderMutations` makes runs in one scope, one at a time, in order.
 	queryClient.setMutationDefaults(['folder'], { scope: { id: 'folder' } });
 
 	/** The folder as last read, or undefined before the first read answers. */

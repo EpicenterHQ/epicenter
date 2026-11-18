@@ -5,11 +5,12 @@ detection.
 
 ## Recording
 
-A recording lands at `recordings/<id>.<ext>`, whole, when it stops. The two hosts need not
-promise the same things
+A recording's audio is at `recordings/<id>.<ext>` when it stops. The two
+hosts need not promise the same things
 ([ADR-0780](../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)):
-on the desktop the shell records and outlives the page, so a quit or a
-crash keeps the take; in a browser the page keeps the take in memory until
+on the desktop the shell writes the take at that path from its first
+second and outlives the page, so a quit finishes it and a crash keeps
+what reached the disk; in a browser the page keeps the take in memory until
 Stop, and a crash or a closed tab loses it
 ([ADR-0779](../../docs/adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md)).
 `recorder` from `@epicenter/recorder` is this window's: the package
@@ -21,7 +22,7 @@ same way:
 
 ```txt
 @epicenter/recorder           the shared vocabulary (Recorder, the types, RecorderError, audioDurationMs) and recorder, chosen when it loads
-  src/tauri.ts   → in a Tauri window, over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM at recordings/<id>.webm from the first sample, and finishes it there at stop
+  src/tauri.ts   → in a Tauri window, over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM at recordings/<id>.webm from its first second, and finishes it there at stop
   src/browser.ts → in a browser, over MediaRecorder: pieces kept in memory, written once at recordings/<id>.m4a (or .webm) at stop
   /browser    → the page's own recorder and VAD, for code that records from the page in both (Vocab's dictation)
   /vad-assets → the VAD runtime files, for a build's static copy
@@ -58,7 +59,7 @@ desktop the shell records the take there, in the folder at
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| The file | `recordings/<id>.webm`: Opus in WebM written there from the first sample, and finished in place by `stop` ([ADR-0962](../../../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)) | `recordings/<id>.m4a`, else `.webm`, written once by `stop` |
+| The file | `recordings/<id>.webm`: Opus in WebM written there a second at a time from its first second, and finished in place by `stop` ([ADR-0962](../../../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)) | `recordings/<id>.m4a`, else `.webm`, written once by `stop` |
 | `stop` | Finishes the take in place: the same few milliseconds for a recording of any length. A take that could not be written to its end is left as it is and answers `Failed` | Joins the pieces and writes them with `files.write`, answering once the write landed |
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | Each whole second is written as it is encoded | Each piece `MediaRecorder` hands over (about a second) is kept in memory; the leave guard asks before the page closes |

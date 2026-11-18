@@ -47,7 +47,7 @@
 	} = $props();
 	const whispering = getWhispering();
 	/** The transcription model chosen now, where Transcribe would send. */
-	const transcriber = $derived(whispering.chosen('transcription').data);
+	const transcriber = $derived(whispering.chosen('transcription'));
 	const library = getLibrary();
 
 	// The parent keys this view by the recording.
@@ -176,10 +176,12 @@
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
-							{#if transcriber}
-								{transcriber.model} at {transcriber.name}
-							{:else}
+							{#if transcriber.error === null}
+								{transcriber.data.model} at {transcriber.data.name}
+							{:else if whispering.choice('transcription') === null}
 								No model chosen
+							{:else}
+								{transcriber.error}
 							{/if}
 						</dd>
 						<dt class="text-muted-foreground">ID</dt>

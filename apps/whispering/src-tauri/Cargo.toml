@@ -31,7 +31,8 @@ tauri-plugin-http = "2.5"
 tauri-plugin-opener = "2.5"
 tauri-plugin-persisted-scope = "2.3"
 tauri-plugin-single-instance = "2.3"
-# The path rule and the one place step the file commands and the recorder share.
+# The path rule the file commands and the recorder share, and the write
+# beside a target the file commands make.
 whispering-files = { path = "../packages/whispering-files" }
 # A direct dependency gives this final app's build script the
 # DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.

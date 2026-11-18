@@ -16,11 +16,14 @@
 	let content = $state<HTMLElement | null>(null);
 
 	const whispering = getWhispering();
-	const target = $derived(whispering.chosen('transcription').data);
+	const chosen = $derived(whispering.chosen('transcription'));
+	/** What Transcribe would send to, or why it would send nothing: none is chosen, or the one chosen is not set up here. */
 	const summary = $derived(
-		target
-			? `Transcription model: ${target.model}, at ${target.name}`
-			: 'No transcription model is chosen. Choose one to transcribe.',
+		chosen.error === null
+			? `Transcription model: ${chosen.data.model}, at ${chosen.data.name}`
+			: whispering.choice('transcription') === null
+				? 'No transcription model is chosen. Choose one to transcribe.'
+				: chosen.error,
 	);
 </script>
 
@@ -34,7 +37,7 @@
 				variant="ghost"
 				data-testid="transcription-control"
 			>
-				<AudioLinesIcon class={target ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
+				<AudioLinesIcon class={chosen.error === null ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
 			</IconButton>
 		{/snippet}
 	</Popover.Trigger>

@@ -6,7 +6,7 @@
  *
  * Where a take is kept while it records depends on where the page runs
  * (ADR-0779, ADR-0780): the desktop shell encodes it at its path in the
- * folder from the first sample (ADR-0962); a browser keeps it in the page's
+ * folder from its first second (ADR-0962); a browser keeps it in the page's
  * memory and writes it once at Stop, so a crash or a closed tab loses it.
  * Stop answers once its audio is at its path, and its note is written
  * then. The library leaves the take out until its note is written
@@ -39,6 +39,7 @@ import {
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { MicrophonePreferences } from './microphone-preference.js';
 import { reactive } from './reactive.js';
+import { sentences } from './sentences.js';
 import { chosenIn, NO_SETTINGS } from './settings.js';
 
 /** What a model is chosen for: transcribing a recording. */
@@ -240,7 +241,10 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		);
 		takeInProgress = undefined;
 		if (kept.error !== null && !disposed)
-			recorderError = `The recording's audio is saved, but its note was not: ${kept.error.message} It is listed as an untitled recording.`;
+			recorderError = sentences(
+				`The recording's audio is saved, but its note was not: ${kept.error.message}`,
+				'It is listed as an untitled recording.',
+			);
 	}
 
 	function dispose(): void {

@@ -2,7 +2,7 @@
 
 Whispering's desktop microphone. It lists the inputs, reads one's level, and
 records: a page in the shell opens no microphone of its own.
-A recording is written at its final path from the first sample
+A recording is written at its final path a second at a time
 ([ADR-0962](../../../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)):
 `start` creates `recordings/<id>.webm` in Whispering's folder and encodes
 the microphone into it as Opus as it captures, a second at a time, and
@@ -14,7 +14,7 @@ A microphone is opened at the rate it already runs at, never another: on
 macOS a stream at another rate changes the device's rate for every app using
 it, and leaves it changed. The writer converts to 16 kHz.
 
-A page reaches it through `@epicenter/recorder/tauri`.
+A page reaches it through `@epicenter/recorder`.
 
 ## Layout
 

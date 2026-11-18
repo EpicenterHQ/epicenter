@@ -207,7 +207,7 @@ and `src/lib/app.ts` makes every capability once, for the page's life:
   beside its target, and is renamed over it.
 - **Recording** goes through the shell's microphone
   (`tauri-plugin-epicenter-recorder`), which encodes Opus in WebM at
-  `recordings/<id>.webm` from the first sample, and finishes it there at
+  `recordings/<id>.webm` from its first second, and finishes it there at
   Stop. A recording a crash cut off stays as it is and lists as an
   untitled recording.
 - **Transcription on this computer** runs in the app

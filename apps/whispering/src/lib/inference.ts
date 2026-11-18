@@ -51,7 +51,7 @@ export const InferenceError = defineErrors({
 		expected: string;
 		now: string;
 	}) => ({
-		message: `This was prepared for ${name} at ${expected}, which now sends to ${now}, so nothing was sent. Run it anew to use it as it is now.`,
+		message: `${name} changed from ${expected} to ${now} while this was being prepared, so nothing was sent. Try again to send it to ${name} as it is now.`,
 		expected,
 		now,
 	}),

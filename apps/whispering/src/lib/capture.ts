@@ -1,9 +1,9 @@
 /**
  * Audio capture for one recording at a time. Stop answers once the audio is
  * in the folder (`recordings/<id>.<ext>`), with how long it plays. On the
- * desktop the shell writes Opus in WebM at `recordings/<id>.webm` from the
- * first sample and finishes it there at Stop, so a quit or a crash keeps
- * the take as it is (decision 84, ADR-0962). In a browser the take is kept
+ * desktop the shell writes Opus in WebM at `recordings/<id>.webm` from its
+ * first second and finishes it there at Stop; a crash keeps what reached
+ * the disk as it is (ADR-0962). In a browser the take is kept
  * in memory and written once at Stop; a crash or a closed tab loses it
  * (ADR-0779, ADR-0780).
  *

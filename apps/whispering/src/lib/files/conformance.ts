@@ -216,7 +216,7 @@ export const filesChecks: readonly FilesCheck[] = [
 				'./a.md',
 				'a\\b.md',
 				'.hidden',
-				'recordings/.k3x9.md.tmp',
+				'recordings/.k3x9.md.q0w1e2r3.tmp',
 				'recordings/a.b.md',
 				'recordings.d/a.md',
 				'recordings/a take.md',

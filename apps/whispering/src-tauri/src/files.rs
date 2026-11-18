@@ -30,7 +30,9 @@ use tauri_plugin_fs::FsExt;
 use whispering_files::{Changed, Entry, FilesError, FolderGit};
 
 /// The folders a command has opened in this run, each once its leftovers
-/// were removed.
+/// were removed: by the path as given and as the disk resolves it, so one
+/// folder reached by two spellings (a link, or another case on macOS) is
+/// swept once.
 #[derive(Default)]
 pub struct Opened(Mutex<HashSet<PathBuf>>);
 
@@ -54,15 +56,18 @@ async fn opened<R: Runtime>(app: &AppHandle<R>, folder: &str) -> Result<PathBuf,
             .0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !opened.contains(&path) {
+        let canonical = std::fs::canonicalize(&path).ok();
+        let seen = opened.contains(&path) || canonical.as_ref().is_some_and(|c| opened.contains(c));
+        if !seen {
             if let Err(error) = whispering_files::remove_leftovers(&path) {
                 crate::log_warning(&format!(
-                    "Unfinished saves in {} were not removed: {error}",
+                    "Temporary files in {} were not removed: {error}",
                     path.display()
                 ));
             }
-            opened.insert(path.clone());
         }
+        opened.insert(path.clone());
+        opened.extend(canonical);
         Ok(path)
     })
     .await
@@ -450,7 +455,7 @@ mod tests {
     #[test]
     fn the_first_command_on_a_folder_removes_what_a_crash_left() {
         let fixture = fixture();
-        let leftover = fixture.folder.join(".settings.md.tmp");
+        let leftover = fixture.folder.join(".settings.md.k3x9q0w1.tmp");
         std::fs::write(&leftover, b"half").unwrap();
         let listed = invoke(
             &fixture,
@@ -469,6 +474,20 @@ mod tests {
         )
         .unwrap();
         assert!(leftover.exists(), "removed once per run");
+
+        // The same folder spelled another way is the same folder.
+        let spelled = fixture.folder.join("..").join("data");
+        assert_ne!(spelled, fixture.folder);
+        invoke(
+            &fixture,
+            "files_list",
+            json!({ "folder": spelled, "dir": "" }),
+        )
+        .unwrap();
+        assert!(
+            leftover.exists(),
+            "one folder is swept once, however it is spelled"
+        );
     }
 
     #[test]

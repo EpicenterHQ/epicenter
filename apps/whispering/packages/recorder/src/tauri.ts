@@ -1,6 +1,6 @@
 /**
  * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`
- * (ADR-0543, decision 84).
+ * (ADR-0962).
  *
  * The shell's recorder encodes the microphone to Opus from the first sample
  * and writes it, a second at a time, at `recordings/<id>.webm` in the
@@ -74,7 +74,7 @@ function locationOf(files: AudioFiles) {
 	return Ok(files.location);
 }
 
-/** Record at `recordings/<id>.webm` from the first sample, finished there when it stops. */
+/** Record at `recordings/<id>.webm` from its first second, finished there when it stops. */
 const start: Recorder['start'] = async ({ files, id, input, signal }) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const folder = locationOf(files);

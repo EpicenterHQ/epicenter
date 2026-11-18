@@ -49,10 +49,10 @@ extension, so `..`, a hidden file and an absolute path are refused.
   restores) and refuses a symbolic link. Reads answer raw bytes;
   `files_read_many` answers one buffer of a count, each length (or a
   missing marker), then the bytes. A write goes to a hidden temporary
-  file beside its target (`.<name>.tmp`), flushed and renamed over it, so
-  a reader finds the old file or the new one; the first command on a
-  folder in a run removes what a crash left of those (ADR-0962). The page
-  holds none of `@tauri-apps/plugin-fs`'s commands.
+  file of its own beside its target (`.<name>.<random>.tmp`), flushed and
+  renamed over it, so a reader finds the old file or the new one; the
+  first command on a folder in a run removes what a crash left of those
+  (ADR-0962). The page holds none of `@tauri-apps/plugin-fs`'s commands.
 - `opfsFiles(dir)` writes through `createWritable()`, whose changes reach
   the file when the stream closes, and reads a few files at a time.
 - `memoryFiles()` is a map, for tests.
@@ -124,8 +124,11 @@ Svelte.
 - Every write is a mutation: `folderMutations.notes`, `.settings` and
   `.audio` are the services' functions through `resultMutations`, with
   nothing added, each keyed under `['folder']`. They share one `scope` (a
-  default by that key prefix), so every write to the folder runs one at a
-  time in the order made.
+  default by that key prefix), so every write they make runs one at a
+  time in the order made. A transcription writes its transcript outside
+  that scope, inside its `['runs']` mutation, so a request in flight never
+  holds up a save; the browser recorder writes its audio at Stop. Each is
+  a new file, so neither races a write the scope orders.
 - Components read `settings.md` through its query (`createQuery`, as
   Whispering does for the model choices) and change it with
   `folderMutations.settings.set`. `settings` is `settings.md` for the two readers
@@ -276,7 +279,8 @@ transcript does not read.
 Finder, Copy path, and Change…, which opens the folder dialog and reloads
 the page over the folder picked. In a browser: how much is stored, whether
 the browser keeps it, and Export as zip (`export.ts`, a stored zip of
-`settings.md` and the five directories, up to 65,535 files and 4 GB).
+`settings.md`, `recordings/` and `transcriptions/`, up to 65,535 files
+and 4 GB).
 
 ## Tests
 

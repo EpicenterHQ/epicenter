@@ -23,7 +23,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   ([ADR-0962](../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)).
   A take is `recordings/<id>.webm` from its first second and is finished
   there; nothing repairs one a crash cut off. A note or `settings.md` is
-  written to `.<name>.tmp` beside it, flushed, and renamed over it; the
+  written to a hidden `.<name>.<random>.tmp` beside it, flushed, and renamed over it; the
   first file command on a folder in a run removes what a crash left of
   those. Nothing waits in the app's local data directory on its way into
   the folder.
@@ -37,8 +37,10 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   app renders (`src/routes/(app)/+layout.svelte`), after every write (one
   `MutationCache` rule), and when the window regains focus. The services'
   functions are the mutations, with nothing between (`resultMutations`),
-  keyed under `['folder']` (`folderMutations`) so every write to the
-  folder shares one mutation `scope`. Code that is not a component hears a
+  keyed under `['folder']` (`folderMutations`) so every write they make
+  shares one mutation `scope`. A transcription's transcript and the
+  browser recorder's audio are written outside it: each is a new file,
+  and a request must not hold up every save. Code that is not a component hears a
   query through a `QueryObserver`. Do not add a watcher, a second cache,
   or an `invalidateQueries` call after a write. Typing is Svelte state
   (`note-editor.svelte.ts`), not a cache entry; a transcription's state is

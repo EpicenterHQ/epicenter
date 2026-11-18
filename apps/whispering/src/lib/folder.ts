@@ -8,8 +8,9 @@
  * `read()` answers the folder's recordings as one snapshot: each kind's
  * notes (`notes.ts`) and the recordings' audio. `settings.md` is its own
  * service (`settings.ts`), read on its own. Every write answers a
- * `Result`, and a note is never replaced when it changed since it was
- * read.
+ * `Result`. A change to fields rewrites only their lines in the file as it
+ * is now; a write that replaces text a person typed refuses when the file
+ * changed since it was read (`seen`).
  *
  * A recording is its id, found from its note or its audio: audio with no
  * note lists as an untitled recording dated from its id, and a note with no

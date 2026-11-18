@@ -11,11 +11,9 @@
 	/**
 	 * The home page's recorder: the microphone is the control that starts and
 	 * stops, with one line under it for what is happening, a stopped take
-	 * still being saved included: it reaches the library once its audio is
-	 * placed (on the desktop the shell encodes it after Stop). Two small
-	 * controls sit at its lower right on wide windows and below the hint on
-	 * narrow ones. While the files cannot be reached (offline, or a sign-in
-	 * that ended) the root's status line says so, and no hint invites a click.
+	 * still being saved included: it reaches the library once its note is
+	 * written. Two small controls sit at its lower right on wide windows and
+	 * below the hint on narrow ones.
 	 */
 	const whispering = getWhispering();
 
