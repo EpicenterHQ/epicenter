@@ -1,6 +1,0 @@
-[install]
-# Install only what package.json names. Otherwise bun-plugin-tailwind's peer
-# `bun` installs the npm package of that name, whose node_modules/.bin/bun
-# shadows the Bun that runs the scripts. bits-ui's peer
-# @internationalized/date is named in package.json for this reason.
-peer = false

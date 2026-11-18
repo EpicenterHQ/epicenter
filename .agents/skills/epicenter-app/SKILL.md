@@ -24,7 +24,7 @@ such as `tailscale serve`.
   EPICENTER.md  AGENTS.md
   package.json  bun.lock        the workspace and the Epicenter version; committed
   node_modules/                 one install for the command and every app, ignored
-  apps/<app>/                   stable container: folder.path and write lock
+  apps/<app>/                   stable container: folder.path
     code/                       one package of the workspace
       epicenter.ts              data and actions
       epicenter.test.ts         action tests
@@ -206,11 +206,11 @@ instead of parsing front matter again. A one-file key's methods take no id
 write, has no `add`, and its `set` method or verb can create the file. For
 other files, the imported `folder` supplies atomic writes and updates.
 `data.words.pathOf(word)` gives a record's path; never build one by hand.
-Make the first write through `folder` or a data method, so the call takes the
-container's lock. It stays held until the call returns, throws, or stops.
-After that first write, a library or `node:fs` write shares the call's lock
-lifetime. All writes stay pending
-until a commit records them.
+Write through `folder` or a data method rather than `node:fs`: each write
+replaces the whole file at once, and a new file under `local/` is readable
+by its owner alone. Nothing locks a write: one serve runs every action, and
+an `update` reads, changes and replaces its file without yielding, so two
+updates never interleave. All writes stay pending until a commit records them.
 `folder` refuses a write outside `data/` and `local/`.
 Reads may reach the whole Epicenter, including another app's records by a
 path like `../tasks/data/tasks/<id>.md`, using `node:fs` or a library.
@@ -396,8 +396,9 @@ utilities. Fonts, layout, and components
 belong to the app.
 
 For a Svelte UI like Tasks, copy its `ui/build.ts`, `ui/svelte-plugin.ts`, and
-the components the view uses. Copy `bunfig.toml` with the build: `peer = false`
-keeps a peer named `bun` from shadowing Bun. Keep component source editable in
+the components the view uses. Do not add a `bunfig.toml`: the home installs
+once at its top, which never reads one in `code/`, and `peer = false` there
+would install a second `@epicenter/app`. Keep component source editable in
 `src/lib/components/ui/` alongside `components.json` in `ui/` and `src/lib/utils.ts`.
 The UI calls Epicenter through `@epicenter/app/client`. Declare other imported
 packages in `code/package.json` with versions resolvable from npm.
