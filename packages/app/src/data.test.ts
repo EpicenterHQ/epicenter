@@ -585,6 +585,30 @@ test('timeId preserves the UTC ISO stamp and adds exactly eight lowercase base36
 	).toBe(true);
 });
 
+test('a write rewrites only the lines it names, in the form the writer gives them', async () => {
+	const { read, data } = await setup({
+		'data/notes/a.md':
+			'---\ntitle: "a"\ntags: ["x","y"]\ndone: false\n---\nbody',
+	});
+	expectOk(await data.notes.patch('a', { done: true }));
+	expect(await read('data/notes/a.md')).toBe(
+		'---\ntitle: "a"\ntags: ["x","y"]\ndone: true\n---\nbody',
+	);
+	// A spread names every field, so tags is written again, though its value is the same.
+	expectOk(await data.notes.edit('a', (record) => Ok({ ...record })));
+	expect(await read('data/notes/a.md')).toBe(
+		'---\ntitle: "a"\ntags: ["x", "y"]\ndone: true\n---\nbody',
+	);
+});
+
+test('a write gives a file without front matter its fences, and an empty change writes nothing', async () => {
+	const { read, data } = await setup({ 'data/settings.md': 'old text' });
+	expectErr(await data['settings.md'].patch({}));
+	expect(await read('data/settings.md')).toBe('old text');
+	expectOk(await data['settings.md'].patch({ title: 'T', body: 'new text' }));
+	expect(await read('data/settings.md')).toBe('---\ntitle: "T"\n---\nnew text');
+});
+
 test('edit accepts a whole record spread without storing its path or id as fields', async () => {
 	const { read, data } = await setup();
 	await data.notes.create('a', { title: 'first' });
