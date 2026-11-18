@@ -624,14 +624,19 @@ A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
 
-## Upgrading to an app that is a function of its folder
+## Upgrading from 0.7.0
 
 The release after 0.7.0 makes an app a function of the folder it is handed
 ([ADR-0960](../../docs/adr/0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)),
 keeps that folder on disk
 ([ADR-0964](../../docs/adr/0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md)),
-and puts the `epicenter` command in this package. TypeScript flags each
-change in the table, so in each app run the type-check and fix what it names.
+and puts the `epicenter` command in this package. The command now finds its
+Epicenter only by walking up, and asks serve for everything it shows
+([ADR-0965](../../docs/adr/0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md),
+[ADR-0961](../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
+TypeScript flags each change in the first table, so in each app run the
+type-check and fix what it names; the sections after it list what it does
+not flag, then the steps in order.
 
 | 0.7.0 | After |
 | --- | --- |
