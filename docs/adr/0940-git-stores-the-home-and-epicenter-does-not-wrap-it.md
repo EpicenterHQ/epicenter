@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) on checkpoints: Epicenter has no checkpoint command, and the home commits itself. [ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) on `epicenter routines`: bare `epicenter` lists routines. [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) on the checkpoint's refusal: Git's ignore rules are the only guard. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on `init --from`: a home comes back with `git clone`.
+- **Amended by:** [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md): bare `epicenter` has no Git line; `git status -sb` reports the repository.
 - **Relates:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action; no lock anywhere).
 
 ## Context

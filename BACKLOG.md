@@ -298,19 +298,6 @@ not create a second implementation assignment.
 - Revisit when: After 0.7.0. Decide whether `init` becomes `bun create` together
   with the postponed one-package question.
 
-### Report nested repositories from Git instead of walking folders
-
-- Desired result: The backup report keeps its status (last commit, uncommitted
-  files, commits not yet pushed) and finds nested repositories without its own
-  folder walk.
-- Grounding: `nestedRepositories` in
-  [`repository.ts`](packages/cli/src/repository.ts) walks `apps/` for `.git`.
-  `git status --porcelain -uall` already reports them, and it skips ignored
-  folders, so it also ends a false warning about a `.git` under an app's
-  ignored `local/`. The status fields stay: they are the only visible sign that
-  checkpointing failed.
-- Revisit when: After 0.7.0.
-
 ### Revisit the rules for absent switches and lists
 
 - Desired result: Decide whether an absent switch should still read as `false`
