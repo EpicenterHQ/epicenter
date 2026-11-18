@@ -1164,4 +1164,5 @@ When you add an ADR, add its row here.
 | [0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) | Serve loads each app once, and an app's code changes when serve restarts | Proposed (amends 0937 and 0942) |
 | [0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) | An app is a function of its folder, and a call has no hidden context | Proposed (amends 0942) |
 | [0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) | The command sends an action's words to serve, and serve alone reads them | Proposed (amends 0936) |
+| [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858) |
 | [0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md) | `local/` ignores itself, and serve refuses a `.env` that Git would commit | Proposed (amends 0939) |
