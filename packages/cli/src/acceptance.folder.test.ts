@@ -65,7 +65,7 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	);
 	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_CACHE_HOME');
 	expect(
-		JSON.parse((await f.run('journal', '--json')).stdout),
+		JSON.parse((await f.run('journal', '--json')).stdout).data,
 	).not.toHaveProperty('cache');
 });
 
@@ -90,7 +90,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 	await symlink(join(vault, 'recipes'), join(f.apps, 'recipes'));
 	expect(await readlink(join(f.apps, 'recipes'))).toBe(join(vault, 'recipes'));
 
-	const listed = JSON.parse((await f.run('--json')).stdout);
+	const listed = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'loose',
 		'recipes',
@@ -103,7 +103,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 		'code/epicenter.ts': bareApp('outside'),
 	});
 	await symlink(outside, join(f.apps, 'outside'));
-	expect(JSON.parse((await f.run('--json')).stdout).problems).toEqual([
+	expect(JSON.parse((await f.run('--json')).stdout).data.problems).toEqual([
 		{
 			entry: 'outside',
 			folder: join(f.apps, 'outside'),

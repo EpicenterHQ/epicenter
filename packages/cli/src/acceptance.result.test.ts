@@ -38,8 +38,8 @@ export default defineApp({description: 'Route notes', data, actions: {
 			message: 'No route from LAX',
 			airport: 'LAX',
 		};
-		const result = { data: null, error };
-		const returned = { data: null, error: { kind: 'returned', reason: error } };
+		// Every surface answers the action's own error, as the error itself.
+		const returned = { data: null, error };
 		const cli = await f.run('notes', 'check', '--json');
 		expect(cli.code).toBe(1);
 		expect(JSON.parse(cli.stdout)).toEqual(returned);
@@ -57,21 +57,18 @@ export default defineApp({description: 'Route notes', data, actions: {
 			expect(misfitAnswer).toMatchObject({
 				data: null,
 				error: {
-					kind: 'returned',
-					reason: {
-						name: 'Misfit',
-						path: 'data/notes/a.md',
-						record: { body: 'repair me' },
-					},
+					name: 'Misfit',
+					path: 'data/notes/a.md',
+					record: { body: 'repair me' },
 				},
 			});
 			const app = connect<{
-				actions: { check: () => typeof result; inspect: () => typeof result };
+				actions: {
+					check: () => typeof returned;
+					inspect: () => typeof returned;
+				};
 			}>({ app: 'notes', url: mcp.served.base });
-			expect(await app.inspect()).toEqual({
-				data: null,
-				error: misfitAnswer.error.reason,
-			});
+			expect(await app.inspect()).toEqual(misfitAnswer);
 			const misfitTool = await mcp.client.callTool({
 				name: 'notes_inspect',
 				arguments: {},
@@ -90,7 +87,7 @@ export default defineApp({description: 'Route notes', data, actions: {
 					.split('\n')
 					.map((line) => JSON.parse(line)),
 			).toEqual([{ update: 'looking' }, { answer: returned }]);
-			expect(await app.check()).toEqual(result);
+			expect(await app.check()).toEqual(returned);
 			const tool = await mcp.client.callTool({
 				name: 'notes_check',
 				arguments: {},
@@ -105,7 +102,7 @@ export default defineApp({description: 'Route notes', data, actions: {
 	}
 }, 30_000);
 
-test('a saved draft and a rejected invocation carry the same reason with different host kinds', async () => {
+test('a saved draft answers the app error, and a call that never started answers NotStarted', async () => {
 	const f = await fixture();
 	try {
 		await f.app(
@@ -130,13 +127,21 @@ export default defineApp({description: 'Staged drafts', actions: {
 		);
 		const mcp = await connectMcp(f);
 		try {
-			const reason = {
-				name: 'Usage',
+			// The app's own error and serve's refusal say the same words, and
+			// only the name tells a caller whether the action ran.
+			const said = {
 				message: 'title is needed',
 				next: 'epicenter drafts stage --help',
 			};
-			const refused = { data: null, error: { kind: 'refused', reason } };
-			const returned = { data: null, error: { kind: 'returned', reason } };
+			const refused = {
+				data: null,
+				error: {
+					name: 'NotStarted',
+					...said,
+					cause: 'usage',
+				},
+			};
+			const returned = { data: null, error: { name: 'Usage', ...said } };
 			const draft = (via: string) =>
 				join(f.apps, 'drafts', 'data', via + '.md');
 

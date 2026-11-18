@@ -64,7 +64,7 @@ test('hrefOf routes by the task\'s id, encoded', () => {
 	expect(hrefOf({ id: 'a?b#c%' })).toBe('#/tasks/a%3Fb%23c%25');
 });
 test('Result rows retain unreadable tasks for repair without inventing done', () => {
-	const broken: TaskRowResult = { data: null, error: { name: 'Misfit', namespace: 'epicenter/action-error', message: 'Bad done', path: 'data/tasks/b.md', problems: [{ line: 'done is invalid', kind: 'field' }], record: { path: 'data/tasks/b.md', id: 'b', title: 'Broken', body: '' } } };
+	const broken: TaskRowResult = { data: null, error: { name: 'Misfit', message: 'Bad done', path: 'data/tasks/b.md', problems: [{ line: 'done is invalid', kind: 'field' }], record: { path: 'data/tasks/b.md', id: 'b', title: 'Broken', body: '' } } };
 	const { oks, errs } = splitTasks([Ok(task('a')), broken]);
 	expect(oks).toEqual([task('a')]);
 	expect(errs).toEqual([broken.error!]);

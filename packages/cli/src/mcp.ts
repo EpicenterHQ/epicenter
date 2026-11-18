@@ -9,11 +9,12 @@
  * why goes to stderr. `tools/call` decodes the tool name and runs the action
  * in this process (`run.ts`), which checks the app, the action, and the
  * input, and leaves the call's writes pending.
- * A call's result is the same object `--json` prints: `structuredContent` on
- * success, and with `isError` on failure. An action's updates are not sent:
+ * A call's result is the same `{ data, error }` `--json` prints, as
+ * `structuredContent`, with `isError` for any error. An action's updates are not sent:
  * an MCP client reads only the answer.
  */
 
+import { ActionError } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
@@ -21,10 +22,9 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { VERSION } from './engines.ts';
-import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, outcome, refused, writeErr } from './output.ts';
+import { type Answer, outcome, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { resolveAction, runAction } from './run.ts';
 
@@ -32,11 +32,11 @@ import { resolveAction, runAction } from './run.ts';
 async function appTools(entry: string): Promise<Tool[]> {
 	const { data: located, error } = await loadHomeApp(entry);
 	if (error) {
-		writeErr(`${entry}: ${error.message}`);
-		return [];
-	}
-	if (!located.ok) {
-		writeErr(`${entry}: ${located.problems.join('; ')}`);
+		writeErr(
+			error.cause === 'app-problems'
+				? error.message
+				: `${entry}: ${error.message}`,
+		);
 		return [];
 	}
 	return Object.entries(located.actions)
@@ -46,8 +46,8 @@ async function appTools(entry: string): Promise<Tool[]> {
 
 /**
  * An answer as an MCP result: the same value `--json` prints, as
- * `structuredContent`, and `isError` for a returned error, a fault, or a request that could not
- * run. A failure's text is what a person would read on stderr.
+ * `structuredContent`, and `isError` for any error. A failure's text is what
+ * a person would read on stderr.
  */
 function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
@@ -93,11 +93,10 @@ export async function createMcpServer() {
 		if (call.refusal) return toolResult(call.refusal);
 		if (call.action.mcp === false)
 			return toolResult(
-				refused(
-					CliError.Usage({
-						message: `${app} ${key} is not offered over MCP`,
-					}).error,
-				),
+				ActionError.NotStarted({
+					cause: 'usage',
+					message: `${app} ${key} is not offered over MCP`,
+				}),
 			);
 		return toolResult(
 			await runAction(call.located, key, call.action, call.input),

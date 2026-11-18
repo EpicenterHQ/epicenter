@@ -98,7 +98,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
   `\`, control characters, a leading dot, or whitespace at either end. An id
   is the file name exactly: no method or generated verb changes it, and one
-  that does not fit is `Refused` with the reason, so trim what a person typed
+  that does not fit is `Misfit` with the reason, so trim what a person typed
   before passing it. A generated `create` names the record with
   `timeId()` when `id` is left out; a caller that may retry sends an id. An action takes an id as `field.text()`;
   the handle refuses a bad one, quoting it, with the name to send instead.
@@ -142,7 +142,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   `id`, the change's keys beside it. The `edit` verb takes `{ id, old, new }`
   and no fields, and replaces the passage `old` of the body the caller last
   saw. `old` must be non-empty and occur exactly once: when the passage is
-  gone or appears twice, it is refused with `Changed` (`why` is `quote` or
+  gone or appears twice, it is refused with `Changed` (`cause` is `quote` or
   `twice`) and nothing is written. It answers `Missing` for an absent record,
   for a one-file key too. `edit` is not safe to repeat, so a page that changes
   fields and notes sends a `patch` and an `edit`. In code,
@@ -193,7 +193,11 @@ the restart. Upgrade Epicenter by editing both versions in the home's `package.j
 running `bun install && bun run build` at the top: the two are released at
 one version, and `epicenter` refuses to load apps while the home names two.
 Write each action with `defineAction`, which types its
-`run` from its `input`. Every action returns one Result. Return `Ok(value)`,
+`run` from its `input`. The action carries that input as one JSON Schema
+object, `{ type, properties, required, additionalProperties: false }`, which
+MCP, `--help`, and `--json` read as it is; a test or tool that inspects a key
+reads `action.input.properties.<key>` and `action.input.required`. Every
+action returns one Result. Return `Ok(value)`,
 `Ok(undefined)` for no value, or the Result of another action or data
 method. A tagged factory such as `ActionError.Missing({ path })` already
 returns an Err. When continuing a calculation, use
@@ -299,8 +303,8 @@ action, and adds none: the action is ordinary code, and its author decides.
 - Answer what is known. A request that times out after it left may have
   worked: say it was not confirmed, not that it failed. A long action that
   stops at its own limit with its progress saved returns `Ok` with a field
-  saying it is unfinished. `ActionError.Unreachable` is what a caller gets
-  when it could not reach `serve`, so do not use it for that.
+  saying it is unfinished. `NotStarted` and `Unreachable` are names only
+  Epicenter answers: serve turns an action's own into `Threw`.
 - Write what a page must show later. A page that reloads, another device and
   a routine see neither the updates nor the answer of a call they did not
   make. Progress worth showing goes in a file with the time it was written.
@@ -440,12 +444,22 @@ makes in its input and uses it as the record's id, so calling again with
 the same id is safe. See the app package README for updates and the call
 route.
 
-On the wire, the host answers with `{ data, error }`. For a failure,
-`error.kind` records what happened to this invocation (ADR-0926).
-The browser client unwraps a `returned` reason with its public fields intact.
-A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
-A `refused` call becomes `Refused` before the action runs. Actions can use the
-shared `ActionError` factories from `@epicenter/app`.
+On the wire, every surface answers exactly `{ data, error }`, where `error`
+is `null` or the error object itself (ADR-0953). The name says whether the
+action ran: `NotStarted` means serve or the CLI refused it before it began,
+so it is safe to call again once its `cause` is fixed; `Threw` means it began
+and threw, with a tagged exception in `thrown`; `Unreachable` means the
+outcome is unknown; any other name is the action's own error, so it ran.
+Actions use the shared `ActionError` factories from `@epicenter/app`. The
+CLI's own commands answer the same way: `epicenter --json`, `check`, `new`,
+`init` and `export` with `--json` print `{ data, error }`, and every command
+exits 0 for no error, 2 for `NotStarted` and 1 for any other error. A
+`check` that finds problems, or an `export --all` that leaves apps out,
+answers `Problems`, exit 1, with what it found under `error.report`.
+
+A page's call error is exactly the action's own errors and `NotStarted`,
+`Threw` and `Unreachable`, so a `switch` on `error.name` is exhaustive and a
+comparison with a name the action cannot return does not compile.
 
 Match a browser error by its name and subject. A `Missing` for a dependency
 cannot tell the page whether its displayed record still exists. An action

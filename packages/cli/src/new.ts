@@ -10,13 +10,20 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+	ActionError,
+	type Answer,
+	Err,
+	type NotStarted,
+	Ok,
+	type Result,
+} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { checkoutCodeFiles, readCodeFiles } from './code-copy.ts';
-import { misuse, nameProblem, parseWords } from './commands.ts';
-import { CliError } from './errors.ts';
+import { nameProblem, parseWords } from './commands.ts';
 import { checkedGit, git } from './git.ts';
 import { installAndBuildNext } from './install.ts';
-import { fail, writeErr, writeJson, writeOut } from './output.ts';
+import { writeErr } from './output.ts';
 import { appsDir, epicenterDir, folderPath } from './root.ts';
 
 type CopiedSource = { commit: string };
@@ -47,9 +54,13 @@ const GITHUB =
 	/^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+)(\/[^#]*)?(?:#(.*))?$/;
 const COMMIT = /^[0-9a-f]{40}$/i;
 
-async function locateSource(
-	from: string,
-): Promise<Source | { error: CliError }> {
+async function locateSource(from: string): Promise<Result<Source, NotStarted>> {
+	const usage = (message: string) =>
+		ActionError.NotStarted({
+			cause: 'usage',
+			message,
+			next: 'epicenter new --help',
+		});
 	if (LOCAL.test(from)) {
 		const located = await git(folderPath(from), [
 			'rev-parse',
@@ -57,46 +68,38 @@ async function locateSource(
 			'--show-prefix',
 		]);
 		if (located.code !== 0)
-			return {
-				error: CliError.Usage({
-					message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run bun install at the top of the home`,
-				}).error,
-			};
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run bun install at the top of the home`,
+			});
 		const [repository = '', prefix = ''] = located.stdout.split('\n');
-		return { kind: 'local', repository, folder: prefix.replace(/\/$/, '') };
+		return Ok({ kind: 'local', repository, folder: prefix.replace(/\/$/, '') });
 	}
 	const matched = GITHUB.exec(from);
 	if (!matched || matched[2] === '.' || matched[2] === '..') {
 		const url = /^[a-z][a-z0-9+.-]*:/i.test(from) || /^[\w.-]+@/.test(from);
-		return {
-			error: misuse(
-				'new',
-				url
-					? `--from takes a folder on disk or owner/repo/folder on GitHub; clone ${from} with git clone, then pass the app's folder as a path`
-					: `--from ${from} is neither a path nor owner/repo/folder; write a folder on disk as ./${from}`,
-			),
-		};
+		return usage(
+			url
+				? `--from takes a folder on disk or owner/repo/folder on GitHub; clone ${from} with git clone, then pass the app's folder as a path`
+				: `--from ${from} is neither a path nor owner/repo/folder; write a folder on disk as ./${from}`,
+		);
 	}
 	const [, owner = '', repo = '', path = '', ref] = matched;
 	const segments = path
 		.split('/')
 		.filter((segment) => segment !== '' && segment !== '.');
 	if (segments.includes('..'))
-		return {
-			error: misuse(
-				'new',
-				`${JSON.stringify(path.slice(1))} is not a folder inside ${owner}/${repo}; write it from the repository's root, without ..`,
-			),
-		};
-	if (ref === '')
-		return { error: misuse('new', `--from ${from} names no ref after #`) };
-	return {
+		return usage(
+			`${JSON.stringify(path.slice(1))} is not a folder inside ${owner}/${repo}; write it from the repository's root, without ..`,
+		);
+	if (ref === '') return usage(`--from ${from} names no ref after #`);
+	return Ok({
 		kind: 'github',
 		repository: `https://github.com/${owner}/${repo}.git`,
 		address: `${owner}/${repo}`,
 		folder: segments.join('/'),
 		...(ref === undefined ? {} : { ref }),
-	};
+	});
 }
 
 /** How to name one app's folder in the same place `--from` named. */
@@ -146,76 +149,76 @@ async function taken(name: string) {
 	}
 }
 
-/** The folder is the answer; the next command goes to stderr. */
-async function made(name: string, json: boolean, source?: CopiedSource) {
-	const folder = join(appsDir(), name);
-	if (json)
-		writeJson({
-			name,
-			folder,
-			...(source ? { source } : {}),
-		});
-	else {
-		writeOut(folder);
-		writeErr(`Run: ${installAndBuildNext(epicenterDir())}`);
-	}
-	return 0;
-}
-
 /**
  * `epicenter new <name> [--from <path> | --from <owner/repo/folder>[#<ref>]]`: an
- * app from a copy of another app's code, or from blank code.
+ * app from a copy of another app's code, or from blank code. The folder is the
+ * answer; the next command goes to stderr. A copy that fails removes the
+ * container it made and answers `NotStarted`; blank code that fails to write
+ * throws, since the container may be partly made.
  */
 export async function newCommand(
 	words: string[],
 	json: boolean,
-): Promise<number> {
-	const given = parseWords(words, { from: { type: 'string' } }, [1, 1]);
-	if (!given || given.values.from === '') return fail(misuse('new'), json);
+): Promise<Answer> {
+	const { data: given, error: misused } = parseWords(
+		'new',
+		words,
+		{ from: { type: 'string' } },
+		[1, 1],
+	);
+	if (misused) return Err(misused);
 	const [name = ''] = given.positionals;
 	const { from } = given.values;
+	if (from === '')
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: '--from needs a folder on disk or owner/repo/folder on GitHub',
+			next: 'epicenter new --help',
+		});
 	const problem = nameProblem(name);
 	if (problem !== undefined)
-		return fail(
-			CliError.Usage({ message: `${problem}, so it cannot name an app` }).error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${problem}, so it cannot name an app`,
+		});
 	if (await taken(name))
-		return fail(
-			CliError.Usage({ message: `${name} already exists in ${appsDir()}` })
-				.error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${name} already exists in ${appsDir()}`,
+		});
 	await mkdir(appsDir(), { recursive: true });
-	if (from === undefined) {
-		try {
-			await makeApp(name);
-		} catch (error) {
-			return fail(CliError.GitFailed({ cause: error }).error, json);
-		}
-		return made(name, json);
-	}
-	const source = await locateSource(from);
-	if ('error' in source) return fail(source.error, json);
 	const folder = join(appsDir(), name);
-	await mkdir(folder);
-	const copied = await copySource(from, source, name, join(folder, 'code'));
-	if ('error' in copied) {
-		await rm(folder, { recursive: true, force: true });
-		return fail(copied.error, json);
-	}
-	try {
-		await joinWorkspace(join(folder, 'code'), name);
-	} catch (cause) {
-		await rm(folder, { recursive: true, force: true });
-		return fail(
-			CliError.Usage({
-				message: `${from} has a package.json that is not a JSON object: ${extractErrorMessage(cause)}`,
-			}).error,
-			json,
+	let copied: CopiedSource | undefined;
+	if (from === undefined) await makeApp(name);
+	else {
+		const { data: source, error: unlocated } = await locateSource(from);
+		if (unlocated) return Err(unlocated);
+		await mkdir(folder);
+		const { data, error } = await copySource(
+			from,
+			source,
+			name,
+			join(folder, 'code'),
 		);
+		if (error) {
+			await rm(folder, { recursive: true, force: true });
+			return Err(error);
+		}
+		try {
+			await joinWorkspace(join(folder, 'code'), name);
+		} catch (cause) {
+			await rm(folder, { recursive: true, force: true });
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message: `${from} has a package.json that is not a JSON object: ${extractErrorMessage(cause)}`,
+			});
+		}
+		copied = data;
 	}
-	return made(name, json, copied);
+	if (json) return Ok({ name, folder, ...(copied ? { source: copied } : {}) });
+	// The next step is a hint beside the answer, as stderr carries it today.
+	writeErr(`Run: ${installAndBuildNext(epicenterDir())}`);
+	return Ok(folder);
 }
 
 /**
@@ -273,16 +276,19 @@ async function appsIn(clone: string, folder: string) {
 	return [...apps].sort();
 }
 
-/** Copy a filtered committed tree from a temporary clone, preserving Git modes and links. */
+/**
+ * Copy a filtered committed tree from a temporary clone, preserving Git modes
+ * and links. A failure is `NotStarted`: the caller removes the container, so
+ * nothing stays made.
+ */
 async function copySource(
 	from: string,
 	source: Source,
 	name: string,
 	folder: string,
-): Promise<CopiedSource | { error: CliError }> {
-	const usage = (message: string) => ({
-		error: CliError.Usage({ message }).error,
-	});
+): Promise<Result<CopiedSource, NotStarted>> {
+	const usage = (message: string) =>
+		ActionError.NotStarted({ cause: 'usage', message });
 	const inFolder = (path: string) =>
 		source.folder === '' ? path : `${source.folder}/${path}`;
 	try {
@@ -365,12 +371,15 @@ async function copySource(
 					'',
 				].join('\n'),
 			);
-			return { commit };
+			return Ok({ commit });
 		} finally {
 			await rm(clone, { recursive: true, force: true });
 		}
-	} catch (error) {
-		return { error: CliError.GitFailed({ cause: error }).error };
+	} catch (cause) {
+		return ActionError.NotStarted({
+			cause: 'internal',
+			message: `Git failed: ${extractErrorMessage(cause)}`,
+		});
 	}
 }
 

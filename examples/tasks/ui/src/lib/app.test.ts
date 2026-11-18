@@ -22,7 +22,7 @@ const actionOf = (url: Parameters<typeof fetch>[0]) => /\/tasks\/([^/]+)$/.exec(
 /** A call that answered with what the action returned. */
 const response = (returned: unknown) => new Response(`${JSON.stringify({ answer: { data: returned, error: null } })}\n`);
 /** Serve refusing a call before it runs. */
-const unavailable = () => new Response(JSON.stringify({ data: null, error: { kind: 'refused', reason: { name: 'Usage', message: 'unavailable' } } }), {
+const unavailable = () => new Response(JSON.stringify({ data: null, error: { name: 'NotStarted', message: 'unavailable', cause: 'internal' } }), {
 	status: 503,
 });
 function stub(answer: (action: string | undefined) => Response) {
@@ -153,7 +153,7 @@ for (const outcome of [true, false, 'failed'] as const)
 test('a confirmed repair replaces the Misfit cache row and deletion removes it', async () => {
 	const client = cacheClient();
 	const listKey = reads.list().queryKey;
-	const broken = { data: null, error: { name: 'Misfit' as const, namespace: 'epicenter/action-error' as const, path: confirmed.path, message: 'Needs repair', problems: [{ line: 'Bad field', kind: 'field' }] } };
+	const broken = { data: null, error: { name: 'Misfit' as const, path: confirmed.path, message: 'Needs repair', problems: [{ line: 'Bad field', kind: 'field' }] } };
 	client.setQueryData(listKey, [broken]);
 	const transport = stub((action) => action === 'patch' ? response(confirmed) : response(true));
 	try {

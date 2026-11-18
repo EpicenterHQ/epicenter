@@ -65,7 +65,7 @@ test('missing and broken code entries list problems without hiding valid apps; a
 	});
 	const listed = await f.run('--json');
 	expect(listed.code).toBe(0);
-	const result = JSON.parse(listed.stdout);
+	const result = JSON.parse(listed.stdout).data;
 	expect(result.apps.map((app: { name: string }) => app.name)).toEqual([
 		'valid',
 	]);

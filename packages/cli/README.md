@@ -261,7 +261,9 @@ apps, its routines, and one line about its repository. See
 [The home's report](#the-homes-report).
 Any other first word names an app. `--json` and `--help` (`-h`) go anywhere
 before `--`; `--version` is read only on its own. Each command parses flags
-strictly. A misuse returns its usage line and next help command.
+strictly. Every command answers one `{ data, error }`, as an action call does
+(see [What a run answers](#what-a-run-answers)); a misuse answers `NotStarted`
+with its usage line and its help command as the next step.
 
 ## Discover and load an app
 
@@ -301,6 +303,10 @@ messages; a key the action does not take is refused, naming the keys it does.
 avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
 and prints an example to copy. A listing or action help with `--json` exposes
 each action as an MCP tool definition, with the annotations the action states.
+Its `inputSchema` is the action's `input` unchanged: one JSON Schema object
+whose `required` lists the keys a caller must give, `[]` when none is
+(ADR-0953). The check a call's input passes, `--help`, and its example read the
+same object, so they agree on what is required.
 An action that declares `mcp: false` is left out of serve's MCP tools and a
 `tools/call` for it is refused; a `--json` listing shows it with `mcp: false`,
 and the plain listing adds `(not offered to agents)`.
@@ -316,11 +322,13 @@ serve at the port in `EPICENTER.md`, the same `POST /<app>/<action>` a page
 makes, and prints the updates and the answer it reads back. It never runs the
 action itself.
 
-While serve is stopped, an action is refused with exit 2 and nothing runs:
+While serve is stopped, an action is refused with exit 2 and nothing runs. Its
+answer is `NotStarted` with cause `unavailable`:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
-Epicenter is not running for this home. Start it with `epicenter serve`.
+Epicenter is not running for this home.
+Run: epicenter serve
 ```
 
 Listings, `--help`, `check`, and the other commands in
@@ -351,14 +359,9 @@ When something else holds the port, it says so instead:
 Port 4747 is in use by another program or another Epicenter. Set a different `port` in EPICENTER.md.
 ```
 
-Serve states its version in an `x-epicenter-version` header. After an
-upgrade, the serve that was already running is still the old version until it
-restarts. A command sent to it uses the answer, because the action ran, and
-adds one line to stderr:
-
-```txt
-Epicenter is running version 0.4.1 and this command is version 0.5.0. Stop `epicenter serve` and start it again.
-```
+After an upgrade, the serve that was already running is still the old
+version until you restart it. Nothing warns you: restart serve after every
+upgrade.
 
 An action runs in serve's environment: it does not see variables exported in
 the caller's shell, and what it prints goes to serve's output, not to the
@@ -367,8 +370,8 @@ included, then imports `code/epicenter.ts`. The next call reads edits to code
 or its imports without restarting serve.
 
 An action shares its process with other calls. `process.exit` ends serve:
-every call then running is cut off, and a command that sent one answers a
-fault with exit 1, since the action may have run. `process.chdir` or changes
+every call then running is cut off, and a command that sent one answers
+`Unreachable` with exit 1, since the action may have run. `process.chdir` or changes
 to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
@@ -465,13 +468,14 @@ most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 | Outcome | Response |
 | --- | --- |
 | The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
-| No such app or action, or the input is not JSON, not an object, or does not fit | 400, the refusal `{ data: null, error: { kind: "refused", reason } }` as the body |
+| No such app or action, the app cannot load, or the input is not JSON, not an object, or does not fit | 400, `{ data: null, error: { name: "NotStarted", ... } }` as the body |
 | The body is too large | 413 |
 
 A stream that ends with no `answer` line was cut off, and its outcome is
-unknown: the action may still be running or may have finished. The caller
-rereads its records, or calls again with the same id when the action takes
-one.
+unknown: the action may still be running or may have finished. A page and
+the CLI read it as `Unreachable`, with one reader, `readAnswer` in
+`@epicenter/app`. The caller rereads its records, or calls again with the
+same id when the action takes one.
 
 Serve keeps nothing about a call: no id, no log, no replay. It runs the
 action to its end whether or not the caller stays. A caller that leaves
@@ -512,22 +516,50 @@ and renaming it over the target, so nothing unfinished is ever under `data/`.
 
 ## What a run answers
 
-With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`. MCP sets `isError: true` for an Err, a fault, or a refusal before execution. The CLI uses the following exit codes:
+Every surface gives one answer, exactly `{ data, error }`
+([ADR-0953](../../docs/adr/0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)).
+`error` is `null` or the error object itself. With `--json`, stdout is that
+answer; MCP returns it as `structuredContent` and sets `isError: true` for
+any error; HTTP sends it in the last line, `{"answer": ...}`.
 
 ```txt
-{ "data": <value>, "error": null }                                 exit 0
-{ "data": null, "error": { "kind": "returned", "reason": <error> } }  exit 1
-{ "data": null, "error": { "kind": "fault", "message": <text> } }     exit 1
-{ "data": null, "error": { "kind": "refused", "reason": <error> } }   exit 2
+{ "data": <value>, "error": null }                                  exit 0
+{ "data": null, "error": { "name": "NoRoute", "message": ... } }    exit 1, the action's own error
+{ "data": null, "error": { "name": "Threw", "message": ... } }      exit 1, the action began and threw
+{ "data": null, "error": { "name": "Unreachable", "message": ... } } exit 1, the outcome is unknown
+{ "data": null, "error": { "name": "NotStarted", "message": ..., "cause": "usage" } }  exit 2
 ```
 
-`Ok(undefined)` arrives with null data. An action can decline with its own
-tagged Err, or an unexpected throw can end the call with a fault. A fault may include a tagged exception in `thrown`. The host assigns
-`kind` for this invocation. An action that saved a draft and forwarded a
-child’s refusal has kind `returned`. Invalid input refused before the action
-ran has kind `refused`. Human output puts success data on stdout and failures on stderr. The HTTP event
-stream carries the same answer inside `finished.answer`. A reconnect can
-replay a saved run's earlier answer format without executing it again.
+The error's name says whether the action ran:
+
+| Error | Did the action run? |
+| --- | --- |
+| `NotStarted` | no; it is safe to call again once its cause is fixed |
+| an error about a record, `Missing`, `Changed` or `Misfit`, or the app's own, such as `Refused` | yes |
+| `Problems` | yes; `report` is what it found, and the job is not clean |
+| `Threw` | yes, partly |
+| `Unreachable` | unknown; reread the records before calling again |
+
+`NotStarted` carries `cause`: `usage` (the words, input or target do not fit,
+as when `export` meets a folder it does not own), `app-problems` (the app
+cannot load, with its `app` and `problems`), `internal` (Epicenter failed
+before it began), or `unavailable` (no serve for this home answers, or
+another program holds its port). `usage` and `unavailable` have a `next` step
+when there is one. `Threw` carries the thrown tagged value as `thrown` when
+it survives JSON. An error carries no marker of who made it: the name says.
+
+An action cannot answer `NotStarted` or `Unreachable`. One that returns
+either name answers `Threw`, so a caller can
+trust the name. Any other error an action returns passes through whole,
+including one forwarded from another action.
+
+`Ok(undefined)` arrives with null data. Human output puts success data on
+stdout and an error's message, and `Run: <next>` when there is one, on
+stderr. The CLI's own commands (`init`, `new`, `export`, `check`, the
+listings, `--version` and `--help`) answer the same way: with `--json`,
+stdout is their `{ data, error }`, and the exit code follows the same rule.
+`serve` prints no answer while it serves; a serve that cannot start answers
+`NotStarted`, and `serve --json` is refused.
 
 A one-file data key's `patch` makes its file when it is absent, so `epicenter vocab settings patch '{"goal":20}'` works on a fresh install. A folder key's `patch` answers `Missing` for an absent record and never makes one. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
 
@@ -587,7 +619,7 @@ flights
   settings.md  fits
 ```
 
-With `--json` it answers
+With `--json` its `data` is
 `{ "apps": { <app>: { <key>: { path, single, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
 A kind is a problem line without the value it quotes, so `due: "next week"`
 and `due: "soon"` are one kind; when most files share one kind, the
@@ -595,15 +627,18 @@ declaration is often too narrow, and one change to `epicenter.ts` repairs
 them all. `records` holds only files with problems. Without an app named, an
 app that does not load is listed under `problems`, as in the Epicenter
 listing, and the other apps are still checked; a read that fails lists its
-app there too. A named app that does not load did not run, exit 2. Otherwise
-the exit code is 0 when no file has a problem, and 1 when any does or an app
-could not be checked.
+app there too. A named app that does not load did not run: `NotStarted`,
+exit 2. A clean report is `data`, exit 0. When a file has a problem or an
+app could not be checked, the answer is `Problems`, exit 1, carrying the same
+report as `error.report` and a one-line summary as its message. Without
+`--json` the report prints on stdout either way, and the summary on stderr.
 
 ## The home's report
 
 `epicenter` on its own prints the version of Epicenter the home has
 installed, read from its `node_modules/@epicenter/cli`, or that it has none.
-`--json` carries it as `version`, `null` when there is none. Then come the
+`--json` answers the report as `data`, the version as `version`, `null` when
+there is none. Then come the
 apps and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
 refused, then one line about the repository:
@@ -684,7 +719,11 @@ Before that commit, init runs `bun install` in the folder, so the first commit
 holds `bun.lock` and the home is ready to use. `--no-install` leaves the
 install to you, for a computer that is offline or a `package.json` you want to
 change first. When the install fails, the home is still made and committed:
-init prints Bun's message and `Run: cd <folder> && bun install`, and exits 1.
+init answers `Problems`, exit 1: its report is the home it made, as a
+success answers it, its message is Bun's, and its next step is
+`Run: cd <folder> && bun install`. With `--json`, a home made and installed
+answers `{ "data": { folder, port }, "error": null }`, and one whose install
+failed answers the same `{ folder, port }` as `error.report`.
 A `package.json` already in the folder is kept as it is, so check that it
 lists the workspace and the two dependencies. Init writes no `bunfig.toml`
 and no lock inside an app.
@@ -761,7 +800,8 @@ Export writes your Epicenter's committed code into the publication folder. Commi
 there before asking someone to copy that version with `new --from`. A refreshed
 export that is not committed is still outside the publication's copied commit.
 
-With `--json`, a copy adds `source: { commit }` to the result.
+With `--json`, `new` answers `{ "data": { name, folder }, "error": null }`, and a
+copy adds `source: { commit }` to `data`.
 
 The command uses a temporary clone, then checks out selected committed
 files into the new container's ignored `.code-build-copy-*` directory before
@@ -880,11 +920,14 @@ directory is not atomic: an interruption or write failure can leave incomplete
 output. Its ownership marker remains, so rerun the same command before
 reviewing or committing. Export keeps no rollback copies of generated files.
 
-`--json` reports `{ commit, directory, apps, omitted }`. `commit` names the
-exported commit. `apps` lists the exported app names. `omitted` lists on-disk apps without a code tree in that
-commit. Exit 0 means the export
-completed; exit 1 means omitted apps need attention; exit 2 means a failure or
-refusal. Refusals and failures use the CLI's error envelope.
+With `--json`, a completed export answers
+`{ "data": { commit, directory, apps }, "error": null }` and exits 0. `commit`
+names the exported commit, and `apps` lists the exported app names. When an
+on-disk app has no code tree in that commit, the export still writes the
+others and answers `Problems`, exit 1, with the report
+`{ commit, directory, apps, omitted }`; its message names each omitted app. An export that never began, such as one whose destination
+it does not own, answers `NotStarted` (`usage`), with `epicenter export --help` as its next
+step, and exits 2.
 
 ## Recover selected paths
 

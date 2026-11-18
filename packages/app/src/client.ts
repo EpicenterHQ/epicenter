@@ -3,12 +3,14 @@
  * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
  * and served at `/<app>/`. A call is `POST /<app>/<action>` with the input as
  * JSON; the answer is JSON lines, `{"update": value}` for each update the
- * action sends and then `{"answer": ...}` (ADR-0879).
+ * action sends and then `{"answer": {data, error}}` (ADR-0930, ADR-0953).
  *
  * The client has the app's actions under the same words as the app. Each
- * call checks its input, types what it returns in its JSON form, and resolves
- * to a Result: what the action returned, or a shared `ActionError` saying why
- * work failed. Error names do not say what persisted.
+ * call types its input and what it returns in its JSON form, and resolves to
+ * a Result: what the action returned, the action's own error, or one of the
+ * platform's: `NotStarted` (it never began), `Threw` (it began and threw), or
+ * `Unreachable` (the outcome is unknown). Error names do not say what
+ * persisted.
  * A UI lists the actions it watches and makes with Wellcrafted (ADR-0661),
  * and the QueryClient its layout makes refreshes what it shows:
  *
@@ -28,14 +30,24 @@
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
  */
-import { type Err, Ok, type Result } from 'wellcrafted/result';
+import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
-import { isActionResult, type PublicError } from './action-result.ts';
-import { ActionError, isActionError } from './errors.ts';
+import { type Answer, readAnswer } from './answer.ts';
+import {
+	ActionError,
+	type NotStarted,
+	type Threw,
+	type Unreachable,
+} from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
 
 export { partitionResults } from 'wellcrafted/result';
-export type { ActionError } from './errors.ts';
+export type {
+	ActionError,
+	NotStarted,
+	Threw,
+	Unreachable,
+} from './errors.ts';
 export { timeId } from './time.ts';
 
 /** `T` flattened into one object type. */
@@ -97,7 +109,10 @@ type CallOptions<A> = [ActionUpdate<A>] extends [never]
  * The client for actions `A`: each action a function of its input, each
  * group under its word. An action that sends updates also takes
  * `{ onUpdate }`, which receives each one in order. The call resolves to what
- * the action returned or an action error. An update reports and is never the
+ * the action returned, or exactly the errors it can: the ones the action
+ * returns, and `NotStarted`, `Threw` and `Unreachable`, which only Epicenter
+ * answers. A name the action cannot return is not in the union, so a page
+ * that compares it gets a compile error. An update reports and is never the
  * answer; what `onUpdate` returns is not awaited, and what it throws is
  * reported to the page and does not end the call. The action runs to its end
  * on serve whether or not the page stays to hear it.
@@ -109,64 +124,15 @@ export type ActionCall<A> = (
 			: [input: ActionInput<A>]),
 		...CallOptions<A>,
 	]
-) => Promise<Result<ActionOutput<A>, ActionError | ReturnedError<A>>>;
+) => Promise<
+	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
+>;
 
 export type AppClient<A> = {
 	readonly [K in keyof A]: A[K] extends (input: never) => unknown
 		? ActionCall<A[K]>
 		: AppClient<A[K]>;
 };
-
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-const invalid = () =>
-	ActionError.Unreachable({ message: 'Epicenter sent an invalid answer' });
-
-/** Serve's answer as the Result a page reads: what the action returned, or why not. */
-function answered(answer: unknown): Result<unknown, PublicError> {
-	if (
-		!isObject(answer) ||
-		Object.keys(answer).length !== 2 ||
-		!Object.hasOwn(answer, 'data') ||
-		!Object.hasOwn(answer, 'error')
-	)
-		return invalid();
-	const failure = answer.error;
-	if (failure === null) return Ok(answer.data);
-	if (answer.data !== null || !isObject(failure)) return invalid();
-	const { kind, reason, message, thrown } = failure;
-	const tagged = (value: unknown): value is PublicError =>
-		isObject(value) &&
-		typeof value.name === 'string' &&
-		typeof value.message === 'string';
-	if (kind === 'returned') {
-		const result = { data: null, error: reason };
-		return isActionResult(result) && result.error !== null ? result : invalid();
-	}
-	if (kind === 'fault') {
-		if (
-			typeof message !== 'string' ||
-			(thrown !== undefined && !tagged(thrown))
-		)
-			return invalid();
-		return ActionError.Threw({
-			message,
-			thrown: thrown as Record<string, unknown> & PublicError,
-		});
-	}
-	if (kind !== 'refused' || !tagged(reason)) return invalid();
-	const { next } = reason as { next?: unknown };
-	if (
-		(next !== undefined && typeof next !== 'string') ||
-		((reason as { namespace?: unknown }).namespace ===
-			'epicenter/action-error' &&
-			!isActionError(reason))
-	)
-		return invalid();
-	return ActionError.Refused({ message: reason.message, next });
-}
 
 /** Tell the page about a listener's failure without ending the call. */
 function report(cause: unknown) {
@@ -176,15 +142,15 @@ function report(cause: unknown) {
 }
 
 /**
- * Call one action and read its JSON lines. A stream that ends with no answer
- * was cut off: the action may still be running or may have finished, so the
- * page rereads its records.
+ * Call one action and read its answer (`answer.ts`). A call that reaches no
+ * answer is `Unreachable`: the action may still be running or may have
+ * finished, so the page rereads its records.
  */
 async function call(
 	url: string,
 	input: unknown,
 	onUpdate?: (value: unknown) => unknown,
-): Promise<Result<unknown, PublicError>> {
+): Promise<Answer> {
 	let response: Response;
 	try {
 		response = await fetch(url, {
@@ -200,55 +166,14 @@ async function call(
 				'Epicenter could not be reached, or the connection dropped; the action may have run',
 		});
 	}
-	if (!response.ok) {
-		const body: unknown = await response.json().catch(() => undefined);
-		const refusal = answered(body);
-		return refusal.error !== null && refusal.error.name === 'Refused'
-			? refusal
-			: ActionError.Refused({
-					message: `Epicenter answered ${response.status} ${response.statusText}`,
-				});
-	}
-	const cut = () =>
-		ActionError.Unreachable({
-			message:
-				'The connection ended before the answer; the action may still be running, or may have finished',
-		});
-	if (!response.body) return cut();
-	const lines = response.body.pipeThrough(new TextDecoderStream()).getReader();
-	let pending = '';
-	try {
-		for (;;) {
-			const { done, value } = await lines.read();
-			pending += value ?? '';
-			const whole = pending.split('\n');
-			// A last line with no newline was cut off partway.
-			pending = whole.pop() ?? '';
-			for (const text of whole) {
-				if (text === '') continue;
-				let line: unknown;
-				try {
-					line = JSON.parse(text);
-				} catch {
-					return invalid();
-				}
-				if (!isObject(line)) return invalid();
-				if (Object.hasOwn(line, 'answer')) return answered(line.answer);
-				if (!Object.hasOwn(line, 'update')) return invalid();
-				try {
-					const heard = onUpdate?.(line.update);
-					if (heard instanceof Promise) heard.catch(report);
-				} catch (cause) {
-					report(cause);
-				}
-			}
-			if (done) return cut();
+	return readAnswer(response, (update) => {
+		try {
+			const heard = onUpdate?.(update);
+			if (heard instanceof Promise) heard.catch(report);
+		} catch (cause) {
+			report(cause);
 		}
-	} catch {
-		return cut();
-	} finally {
-		void lines.cancel().catch(() => undefined);
-	}
+	});
 }
 
 /**
