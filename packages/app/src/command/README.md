@@ -314,8 +314,9 @@ process, so it also tries changed code before a restart.
 The port is the Epicenter's name. A command names its Epicenter on every request in
 an `x-epicenter-root` header: its real path, sent only to `127.0.0.1`, so it
 never leaves the computer. Serve refuses a request naming another root with
-`409` and a body that does not name its own, and every answer it gives
-carries `x-epicenter: 1` and no path
+`409` and a body that does not name its own. Every answer to a request it
+accepts, its `500` included, carries `x-epicenter: 1` and no path; a
+tunnelled request's `403` carries nothing
 ([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)).
 A command whose port answers for something else runs nothing:
 
@@ -452,7 +453,7 @@ most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 | --- | --- |
 | The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
 | No such app or action, the app cannot load, or the input is not JSON, not an object, or does not fit | 400, `{ data: null, error: { name: "NotStarted", ... } }` as the body |
-| The body is too large | 413 |
+| The body is larger than 25 MiB | 413, with the same `NotStarted` body |
 
 A stream that ends with no `answer` line was cut off, and its outcome is
 unknown: the action may still be running or may have finished. A page and

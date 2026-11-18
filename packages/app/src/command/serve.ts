@@ -85,7 +85,7 @@ const LOOPBACK = '127.0.0.1';
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
 
-/** The largest input a call takes; Bun answers 413 past it. */
+/** The largest body a call takes; serve refuses a larger one by its length. */
 const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 
 /** What serve could not do in the background. Nobody awaits it, so it is logged. */
@@ -105,6 +105,9 @@ const ServeError = defineErrors({
 	}),
 	RoutinesUnchecked: ({ cause }: { cause: unknown }) => ({
 		message: `Checking routines failed: ${extractErrorMessage(cause)}`,
+	}),
+	Unanswered: ({ cause }: { cause: unknown }) => ({
+		message: `A request threw before its answer: ${extractErrorMessage(cause)}`,
 	}),
 });
 
@@ -276,8 +279,8 @@ const JSON_LINES = {
 };
 
 /** A call refused before it began: its `NotStarted` alone, as the body of a 400. */
-const refused = (error: NotStarted) =>
-	Response.json(Err(error), { status: 400 });
+const refused = (error: NotStarted, status = 400) =>
+	Response.json(Err(error), { status });
 
 /** An answer that needs no run, as the one line a call's response ends with. */
 const answered = (answer: Answer) =>
@@ -452,7 +455,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  */
 function startHttpServer(root: EpicenterRoot) {
 	const name = rootName(root);
-	const answer = async (request: Request) => {
+	const answer = async (request: Request): Promise<Response> => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();
 		if (!isPrivateHost(request.headers.get('host'))) return forbidden();
@@ -469,33 +472,53 @@ function startHttpServer(root: EpicenterRoot) {
 			)
 				return forbidden();
 		}
+		return stamped(await route(request));
+	};
+	// Every answer to a request serve accepts says it is an Epicenter's serve,
+	// and no more, so a command or a second serve can tell who holds the port.
+	const stamped = (response: Response) => {
+		response.headers.set(SERVE_HEADER, '1');
+		return response;
+	};
+	const route = async (request: Request) => {
+		if (Number(request.headers.get('content-length')) > MAX_INPUT_BYTES)
+			return refused(
+				ActionError.NotStarted({
+					cause: 'usage',
+					message: 'The input is larger than 25 MiB',
+				}).error,
+				413,
+			);
 		// A request meant for another Epicenter is refused without naming this one,
 		// so a command in a second Epicenter cannot read or write here (ADR-0936,
 		// ADR-0961). A page or an MCP client names none and is not compared.
 		const meant = request.headers.get(ROOT_HEADER);
 		const { pathname } = new URL(request.url);
-		const response = await (meant !== null && meant !== name
-			? new Response('This call is for another Epicenter', { status: 409 })
-			: pathname === '/'
-				? request.method === 'POST'
-					? mcp(root, request)
-					: listing(root, request)
-				: request.method === 'POST'
-					? post(root, request)
-					: ui(root, request));
-		// Every answer to a request serve accepts says it is an Epicenter's
-		// serve, and no more, so a command or a second serve can tell who
-		// holds the port.
-		response.headers.set(SERVE_HEADER, '1');
-		return response;
+		if (meant !== null && meant !== name)
+			return new Response('This call is for another Epicenter', {
+				status: 409,
+			});
+		if (pathname === '/')
+			return request.method === 'POST'
+				? mcp(root, request)
+				: listing(root, request);
+		return request.method === 'POST' ? post(root, request) : ui(root, request);
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,
 		port: root.port,
 		idleTimeout: 0,
-		// Bun refuses a larger body itself, with 413.
-		maxRequestBodySize: MAX_INPUT_BYTES,
+		// A body with no length is cut off here instead, by Bun, which answers
+		// 413 without the header; a command always sends the length.
+		maxRequestBodySize: 2 * MAX_INPUT_BYTES,
+		// Bun's development mode answers a throw with its stack; serve names no path.
+		development: false,
 		fetch: answer,
+		// A throw is a request serve accepted, so its 500 says so too.
+		error: (error) => {
+			serveLog.error(ServeError.Unanswered({ cause: error }).error);
+			return stamped(new Response('serve could not answer', { status: 500 }));
+		},
 	});
 	const routines = createRoutines(root);
 	const checkRoutines = () =>

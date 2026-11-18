@@ -10,7 +10,15 @@
  * - A second serve says whether this Epicenter or something else has the port.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	stat,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	connectMcp,
@@ -403,6 +411,31 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 			code: 0,
 			stderr: '',
 		});
+		// A body past the limit is refused by serve, which says so in its answer.
+		const large = await fetch(`${served.base}/notes/same`, {
+			method: 'POST',
+			body: 'x'.repeat(25 * 1024 * 1024 + 1),
+		});
+		expect(large.status).toBe(413);
+		expect(large.headers.get('x-epicenter')).toBe('1');
+		expect(await large.json()).toMatchObject({
+			error: { name: 'NotStarted', message: 'The input is larger than 25 MiB' },
+		});
+		// A handler that throws answers a plain 500 that names no path: with
+		// apps/ a file, reading it throws ENOTDIR.
+		await rename(f.apps, `${f.apps}.moved`);
+		await writeFile(f.apps, '');
+		try {
+			const threw = await fetch(`${served.base}/`, {
+				headers: { accept: 'application/json' },
+			});
+			expect(threw.status).toBe(500);
+			expect(threw.headers.get('x-epicenter')).toBe('1');
+			expect(await threw.text()).toBe('serve could not answer');
+		} finally {
+			await rm(f.apps);
+			await rename(`${f.apps}.moved`, f.apps);
+		}
 	} finally {
 		await served.stop();
 	}
