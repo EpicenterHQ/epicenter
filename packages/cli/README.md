@@ -428,13 +428,11 @@ word of JSON text, so an action's input needs no escaping:
 run: ["epicenter", "flights", "daily", "run", {"recheck": false}]
 ```
 
-The working directory is the
-Epicenter folder. A routine whose program is `epicenter` runs the command
-`serve` itself is, and one whose program is `bun` runs the Bun running it;
-neither is looked up on PATH. Other executables use serve's `PATH`.
-`EPICENTER_COMMAND` holds the command's words as JSON, Bun then the command's
-file, for scripts calling back into it.
-Unknown fields and malformed declarations are refused. To stop a
+The working directory is the Epicenter folder. A routine finds its program the
+way a terminal in the home would after `bun install`: its `PATH` is serve's,
+with the home's `node_modules/.bin` and the folder of the Bun running serve in
+front. So `epicenter` and `bun` work in `run` and in any script a routine
+starts. Unknown fields and malformed declarations are refused. To stop a
 routine, remove its file; the home's history keeps it.
 
 `epicenter` on its own lists each routine's schedule, next occurrence, and
@@ -455,14 +453,6 @@ stopping that group (Ctrl-C in a terminal, or the job that runs serve) stops
 them. Commands must tolerate repetition;
 there is no exactly-once guarantee.
 
-The [daily task review example](examples/daily-task-review.md) runs
-[an ordinary script](examples/daily-task-review.ts) that reads `tasks list`
-and groups open tasks into a dated draft under `drafts/`. It changes no tasks,
-uses no model, and preserves an existing draft, so it can run more than once a
-day. Copy the declaration to
-<!-- doc-path-check: ignore-next-line -->
-`routines/daily-task-review.md` and the script to `scripts/daily-task-review.ts`
-in the home. The home's repository backs up the declaration, script, and drafts.
 See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md) and
 [ADR-0937](../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md).
 
