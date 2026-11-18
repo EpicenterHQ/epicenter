@@ -144,25 +144,19 @@ work without one.
 
 ## Agent collaboration
 
-Codex owns overall task continuity and focused acceptance. Use Claude Opus 5.5
-high by default for reasoning, design choices, investigations, and work where
-taste affects the result. Bring it in early instead of solving the hard part
-in Codex before requesting an opinion. Codex writes substantial changes, either
-under the coordinating Codex with Claude supplying the reasoning or through
-Claude-owned delivery with Codex assistance, where Claude directs and inspects
-a Codex helper. Codex pauses its own edits in a checkout Claude owns and checks
-the result without repeating the investigation. A small edit tightly coupled to
-Claude's reasoning can stay with Claude directly. Resume the same Claude
-session for new evidence or corrections on the same assignment. Prefer Claude
-where its reasoning and design judgment can improve the result; Codex handles
-straightforward execution and supporting work. Choose the division of work for
-the quality of the result. Authorization for the task covers bounded delegation.
-Use `consult-claude` for read-only answers and `delegate-claude` for completed
-changes or experiments within the parent task's authorization. Claude owns its
-investigation strategy, implementation briefs, and checks of helper results.
-The launcher fixes helper permissions; each checkout has one code writer.
-`adversarial-review` owns independent review staffing and method; its reviews
-normally include a Claude seat.
+Codex owns the task from start to finish and decides what to accept. Use
+Claude Opus 5.5 at high effort for reasoning, design choices, investigations,
+and work where taste affects the result. Bring Claude in early instead of
+solving the hard part first and asking for an opinion afterward. Codex handles
+straightforward execution and supporting work.
+
+Use `consult-claude` for a read-only answer and `delegate-claude` for a change
+or experiment Claude delivers itself. Authorization for the task covers
+delegating part of it. Each checkout has one writer: Codex does not edit a
+checkout while Claude works in it, then checks the result without repeating
+the investigation. Resume the same Claude session for new evidence or
+corrections on the same assignment. `adversarial-review` owns independent
+review staffing and method; its reviews normally include a Claude seat.
 
 ## Review routing
 
