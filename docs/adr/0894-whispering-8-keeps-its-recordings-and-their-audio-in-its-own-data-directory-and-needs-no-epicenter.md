@@ -50,6 +50,7 @@ and no account. Audio is never deleted unless the person asks.**
     recordings/k3x9.webm         audio, kept, sharing its record's id
     transcriptions/r7p2.md       one transcript of a recording
     settings.md                  the person's settings, as Markdown
+  recording/k3x9.webm            the take being recorded, until Stop places it
   local-transcription.json       the local engine's own state
 Keychain                         secrets: provider API keys, Epicenter's among them
 WebView localStorage             the rest of this computer's state: where the
@@ -64,14 +65,15 @@ Hugging Face cache               local models, shared with other programs
   `tauri-plugin-persisted-scope` restores the grant at each start, and the
   path itself is kept in `localStorage`. A page cannot widen the app's file
   access, because only the dialog grants it, and every native command that
-  touches a file checks the path against that grant
+  touches a file checks the folder against that grant
   (`app.fs_scope().is_allowed`). The default folder is granted by the app's
   capabilities. On the computer that runs the home, it may be
   `~/Epicenter/apps/whispering/data`: Whispering then writes its records
   there and stays their one writer, the inside app reads them and writes
   only its own data keys (ADR-0896), and the home's Git keeps the audio
-  through Git LFS (ADR-0856). The browser build's folder is always its OPFS
-  directory.
+  through Git LFS (ADR-0856). When the folder is inside a Git repository
+  with no LFS rule for `webm`, Settings says the audio would go into Git
+  whole. The browser build's folder is always its OPFS directory.
 - **Audio is kept.** Settings shows its size and offers "Delete audio older
   than…". Nothing deletes audio on its own.
 - **A recording is its id, found from its note or its finished audio.**
@@ -144,59 +146,82 @@ Hugging Face cache               local models, shared with other programs
     read(path: string): Promise<Result<Uint8Array | null, FilesError>>;
     readMany(paths: string[]): Promise<Result<Map<string, Uint8Array>, FilesError>>;
     write(path: string, bytes: Uint8Array): Promise<Result<undefined, FilesError>>;
-    list(dir: string): Promise<Result<string[], FilesError>>;
+    list(dir: string): Promise<Result<Entry[], FilesError>>;
     remove(path: string): Promise<Result<undefined, FilesError>>;
   };
+  type Entry = { name: string; size: number; modifiedMs: number };
+  type FilesError = { name: 'NotFound' | 'Refused' | 'Io'; message: string };
   ```
 
   `tauriFiles(dir)` on the desktop, `opfsFiles(dir)` in a browser, and
   `memoryFiles()` in tests. Startup passes one as a plain argument
   (`isTauri() ? tauriFiles(dir) : opfsFiles(dir)`); there is no container.
-  Paths are relative to the folder, and a path with `..` or an absolute
-  path is refused. Recordings, transcriptions, transformations, runs, and
-  `settings.md` are read and written on top of `Files` in the contract's
-  layout. One conformance suite runs the five operations against all three.
+  Paths are relative to the folder, and only plain names pass: each segment
+  is letters, digits, `-`, and `_`, the last may end in one extension, and
+  none starts with a dot. Both id formats (`k3x9a2f8` and
+  `2026-10-30T22-41-05-123Z-k3x9a2f8`) pass; `..`, an absolute path, and a
+  hidden file are refused. Recordings, transcriptions, transformations,
+  runs, and `settings.md` are read and written on top of `Files` in the
+  contract's layout. One conformance suite runs the five operations
+  against all three.
 - **`readMany` is how a list loads.** Opening the folder lists
   `recordings/` and `transcriptions/`, then reads every note in one
   `readMany`. A folder of 15,000 recordings is 15,000 notes, and one
   native call per note would cross from the page to the shell 15,000
   times. `readMany` takes paths, not a directory, so it never reads audio.
-  In a browser it reads in parallel in the page.
+  A browser reads a few files at a time. Audio plays from `read` into a
+  `Blob`.
 - **Rust moves bytes; TypeScript knows what they mean.** `tauriFiles` is a
   small module of Whispering's own commands in its shell, one per
-  operation: `read_many` reads in parallel and answers one binary
-  response, `write` stages and renames in one call, and each checks its
-  path against the folder's grant. The page is granted none of
-  `@tauri-apps/plugin-fs`'s commands; the plugin is registered for its
-  scope alone. No command parses a note: Markdown is read and written in
-  TypeScript, so both builds share one reader.
+  operation: `files_read`, `files_read_many`, `files_write`, `files_list`,
+  and `files_remove`. Each takes the folder and a relative path, checks the
+  folder against the grant and the path against the rule above, and
+  refuses a symbolic link. Reads answer raw bytes rather than JSON:
+  `files_read_many` answers one buffer that holds a count, each path's
+  length in the order asked (or a marker for a missing file), then the
+  bytes. The page is granted none of `@tauri-apps/plugin-fs`'s commands;
+  the plugin is registered for its scope alone. No command parses a note:
+  Markdown is read and written in TypeScript, so both builds share one
+  reader.
 - **Notes use the home's Markdown grammar from its one owner.**
   `@epicenter/app` exports its front matter reader and writer
   (`readMarkdown`, `markdownOf`, `withFields`, ADR-0924) at a
   browser-safe subpath, `@epicenter/app/markdown`, and Whispering imports
   it, so a note Whispering writes is one `epicenter check` reads.
 - `tauri-plugin-epicenter-folder` goes without a replacement.
-- **`write` replaces a file whole.** On the desktop it writes a temporary
-  file beside the target and renames it over the target, which replaces it
-  in one step on macOS and Linux; on Windows the rename replaces the file
-  without that promise. In a browser it uses `createWritable()`, whose
+- **`write` replaces a file whole.** On the desktop it creates a new
+  temporary file beside the target (`.ep-<random>.save`), writes and syncs
+  it, renames it over the target, and syncs the directory. The rename
+  replaces the file in one step on macOS and Linux; on Windows it replaces
+  the file without that promise. Opening the folder removes a temporary
+  file a crash left. In a browser `write` uses `createWritable()`, whose
   changes reach the file only when the stream closes. A failed write keeps
   the unsaved text on screen and offers to retry.
-- **Recording streams through its own native file.** The recorder plugin
-  keeps its capture and encoding unchanged. The page names the directory
-  and the id, and the plugin checks the directory against the folder's
-  grant:
+- **A take is recorded outside the folder, and the folder only ever holds
+  finished audio.** The recorder plugin keeps its capture and encoding
+  unchanged, and writes the take as it records into one fixed directory of
+  this computer's own, `recording/` in the app's local data directory. Stop
+  places it in the folder:
 
   ```ts
-  recorder.start({ dir, id })   // writes <dir>/.ep-<random>-<id>.recording as it records
-  recorder.stop()               // finishes it and places it at <dir>/<id>.webm, replacing nothing
-  recorder.recover({ dir })     // finishes and places takes a crash cut short
+  recorder.start({ dir, id, device }) // records into <appLocalDataDir>/recording/<id>.webm
+  recorder.stop()                     // → { id, durationMs }, placed at <dir>/recordings/<id>.webm
+  recorder.recover({ dir })           // → { recovered, unplaced }: takes a crash cut short
   ```
 
-  The pending name, the place that replaces nothing, and the path check,
-  which it took from the folder core, become its own. In a browser the
-  recorder keeps a take in memory and writes it once at Stop through
-  `Files`; a tab that crashes while recording loses that take.
+  Placing replaces nothing. On the same volume it is one rename that
+  refuses to replace; when the folder is on another volume, the recorder
+  copies the take to a temporary file beside the target, syncs it, renames
+  it the same way, and only then deletes the take. `start` refuses an id
+  whose audio or take already exists. If placing fails, `stop` answers
+  `Unplaced` and the take stays where it is, so nothing recorded is lost,
+  and `recover` places it later. The recorder and `files_write` share that
+  one place step, and the path check is the one `Files` uses. A growing
+  take never sits in the folder, so a home's checkpoint (`git add -A`),
+  Git LFS, a file syncer, and Whispering's own listing see only finished
+  files. In a browser the recorder keeps a take in memory and writes it
+  once at Stop through `Files`; a tab that crashes while recording loses
+  that take.
 - **Whispering runs in one place at a time, so the app is one writer.** On
   the desktop, the Tauri single-instance plugin focuses the open window
   instead of starting a second. In a browser, the open tab holds a Web Lock
@@ -206,7 +231,8 @@ Hugging Face cache               local models, shared with other programs
   recording.
 - **Another program may write the folder, so Whispering checks before it
   replaces.** The folder can be the home's, or synced by iCloud Drive or
-  Syncthing. Whispering reloads its lists when its window regains focus.
+  Syncthing. Whispering lists the folder again when its window regains
+  focus, and re-reads only the notes whose size or modified time changed.
   Before it replaces a note it re-reads the file; if the bytes differ from
   what it showed, it does not write, and shows the newer text.
 - **The interface's state stays small, so it does not regrow
@@ -362,6 +388,18 @@ none.
   this record deletes.
 - **One storage interface per collection.** Each platform would implement
   every collection; `Files` keeps the platform part to five operations.
+- **A hidden take beside its audio (`recordings/.ep-<random>-k3x9.recording`),
+  as built.** A home's checkpoint runs `git add -A`, which commits a
+  half-written take, outside Git LFS because its extension is not `webm`;
+  a file syncer uploads it again each time it grows.
+- **`recordings/k3x9.local.webm` while recording.** Git LFS commits the
+  partial take, and the listing reads its id as `k3x9.local`.
+- **A hidden staging directory inside the folder, with its own
+  `.gitignore`.** A file Whispering plants in the person's folder, and a
+  file syncer still uploads the growing take.
+- **Staging in the home's `local/` directory beside the folder.** It exists
+  only when the folder is a home's, and writes outside what the person
+  picked.
 - **`tauriFiles` as `@tauri-apps/plugin-fs`.** A note per native call, so
   opening a large folder crosses to the shell once per note, and the page
   holds every file command the plugin has.
