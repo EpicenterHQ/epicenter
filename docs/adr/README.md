@@ -1162,4 +1162,4 @@ When you add an ADR, add its row here.
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
 | [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942 and 0944) |
-| [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Proposed (amends 0858) |
+| [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858) |

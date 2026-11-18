@@ -1,9 +1,9 @@
 # 0962. Whispering 8 writes every file inside its folder, at or beside its final path
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-18)
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) at `.cache/` holding "the recording in progress": on the desktop a take in progress is `recordings/<id>.webm`.
-- **Relates:** [ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) (the folder and `Files`; its bullets on `write` and on recording state this rule), [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) (a home app's `local/`, where the home stages its own writes), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) (the home's checkpoint), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (audio through Git LFS), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (a file that never leaves its computer), [ADR-0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) (hand-over), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it).
+- **Relates:** [ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) (the folder and `Files`; its bullets on `write` and on recording state this rule), [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) (a home app's `local/`, where the home stages its own writes), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) (the home's checkpoint), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (audio through Git LFS), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (a file that never leaves its computer), [ADR-0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) (hand-over), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it). Four superseded records decided where an unfinished recording waits: [ADR-0205](0205-a-recording-is-a-row-that-fills-and-a-crash-finishes-it.md) (in a row's blob slot, finished at launch), [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) (at its path in the folder from the first sample), [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) (in `.epicenter/` at the folder's root), [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) (in a hidden file beside its path).
 - **Unbuilt:** all of it. The branch `whispering-keeps-its-recordings-local` is building it.
 
 ## Context
@@ -87,6 +87,40 @@ All three loaded, played to the end, and seeked to 3 s. The test did not
 cover Whispering's own transcription decoder, cloud transcription of a
 cut-off file, Windows, Linux, or a long recording.
 
+**Four earlier records decided where an unfinished recording waits, and
+each is superseded.**
+
+| Record | What it chose | Why it was left |
+| --- | --- | --- |
+| ADR-0205, 2026-08-03 | A recording fills a row's blob slot, and each launch runs the `stop` procedure on a partial file | Rows stopped owning blobs (ADR-0393, ADR-0366), and unfinished capture became disposable |
+| ADR-0543, 2026-10-15 | A desktop recording is `recordings/<name>.wav` in its folder from the first sample, "the one data file written in place rather than staged and renamed" | Its amendment of 2026-11-01 moved the file under `.epicenter/` so that "`epicenter sync` never commits a half-written WAV, and readers never see a growing file at a data path" |
+| ADR-0702, 2026-11-01 | Unfinished writes wait in `.epicenter/saves/` and `.epicenter/recordings/` at the folder's root, and `recoverRecordings` finishes a cut-off recording before a page lists, plays, or transcribes it | ADR-0822 took Epicenter's state out of the folder, because a copy of the folder carried `.epicenter/` along |
+| ADR-0822, 2026-11-06 | Hidden files beside the target: `.ep-<random>.save` for a save, `.ep-<random>.recording` for a recording | The folder sync product was retired (ADR-0899) |
+
+The decision below returns to ADR-0543's first rule. Three things differ
+from the day that rule was left:
+
+- **No Epicenter program syncs or watches the folder.** ADR-0543's
+  amendment and ADR-0702 kept a growing file away from `epicenter sync`,
+  which committed whatever sat at a data path, and from its watch, which a
+  recording's writes woke about once a second. ADR-0899 retired that
+  product. Whispering is the folder's one writer and keeps no watcher
+  (ADR-0894). What can still read a growing take is a home's checkpoint or
+  a file syncer the person chose.
+- **Nothing is written back into the file while it records.** ADR-0543's
+  file was a WAV whose header was rewritten about once a second, so a
+  cut-off WAV stated a wrong length until `recoverRecordings` rewrote it.
+  The WebM writer that ADR-0702 introduced appends whole Clusters and
+  rewrites nothing until Stop.
+- **A test replaced an assertion, for the player only.** ADR-0702 made
+  recovery a gate because "a cut-off file reads wrong (no length in a
+  player, a torn block in the transcription decoder) until it is finished".
+  The test above found that WKWebView states a length for a cut-off file
+  and plays it. The decoder half of that sentence is still untested.
+
+ADR-0822's hidden `.ep-<random>.recording` needed recovery to find it and
+give it its name. A take written at its final path needs neither.
+
 ## Decision
 
 **Whispering 8 writes every file inside the folder the person chose: a
@@ -149,8 +183,11 @@ repairs a file.**
 
 ## Consequences
 
-- A crash loses at most the second of audio held in memory. The file it
-  leaves states no Duration and has no Cues.
+- A crash of Whispering loses at most the second of audio held in memory.
+  The file it leaves states no Duration and has no Cues. A Cluster is
+  written but not flushed to the disk while recording (`LiveWebm::push`), so
+  a power cut or a kernel panic also loses what the operating system had
+  not yet written.
 - When the folder is `apps/whispering/data` in a home, the home's
   checkpoint (`git add -A` every five minutes, ADR-0940) commits a take
   while it grows. The take already has its final name, so no ignore line
@@ -162,6 +199,13 @@ repairs a file.**
   the person's own and was going into that history anyway.
 - A file syncer may upload a take while it grows, and another device may
   receive it before Stop. That copy plays as far as it reached.
+- A home's checkpoint that runs during a save, or after a crash left a
+  temporary file behind, commits that file. The checkpoint after the file
+  is gone commits its removal. The file is a copy of a note that is
+  committed anyway.
+- A name that starts with a dot is not hidden on Windows, so Explorer shows
+  the temporary file for as long as it exists. ADR-0702 rejected hidden
+  siblings partly for this.
 - The take is captured on the folder's disk. Unplugging that disk during a
   recording loses the rest of the take. The staged design captured on the
   app's own disk and would have kept it.
@@ -183,7 +227,13 @@ repairs a file.**
   `local/.tmp/` (ADR-0939), should write its temporary file beside the
   target instead. The home keeps its rule.
 - What Whispering does when its transcription decoder or a cloud
-  transcription service refuses a cut-off file. Neither was tested.
+  transcription service refuses a cut-off file. Neither was tested, and
+  ADR-0702 said the decoder meets "a torn block" in one.
+- Whether a quit or a closed window finishes the take in place, as Stop
+  does. ADR-0543 had the shell finish a recording whose window left.
+- The mode of the temporary file. ADR-0822 created its save file `0600`,
+  and ADR-0702 noted that a staged file beside its target is open to
+  another account for a moment without a private directory around it.
 - Whether a cut-off take behaves the same on Windows and Linux, and at the
   length of a long recording.
 
