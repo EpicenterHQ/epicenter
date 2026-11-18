@@ -1,50 +1,24 @@
 # Epicenter API (hosted services)
 
-The Worker for the services Epicenter hosts: sign-in, AI inference, billing, and folders. Folders belong to the folder sync product, which is retired ([ADR-0899](../../docs/adr/0899-the-folder-sync-product-is-retired.md)); a person's Epicenter does not live here: it is on their home ([ADR-0903](../../docs/adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)). The Worker composes `@epicenter/server` by resolving Better Auth users as principals.
+The API hosts sign-in, AI inference, transcription, and billing. A person's Epicenter lives on their [home](../../docs/adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md).
 
 This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The same app also runs on Bun with Postgres (`server.ts`), which is how you self-host it.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See [Stack and priorities](#stack-and-priorities) for self-hosting and the trust model below.
 
-Runs on Cloudflare Workers. This Worker is Epicenter's hosted server for
-folders (ADR-0811): it mounts `mountFolders` from `@epicenter/server`,
-where each folder's ledger, the log of its changes, is in Postgres at
-`api.epicenter.so/folders/<id>`, with its larger bytes in R2 (ADR-0824). The
-server orders, remembers, and admits; nothing is edited on it (ADR-0835). See
-[Folders](#folders).
-
-The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
-the GitHub connector that relayed a browser's Git to GitHub. Their Durable
-Object classes (`StoreAuthority`, `GenerationsLedger`, `GitHubConnection`) are
-not migrated away: the Worker carries no migration history, and the next
-deploy starts by deleting the existing `api` Worker, which removes every object
-those classes stored, then deploys this configuration as a new Worker.
-
-## Why a hub exists
-
-Local-first doesn't mean no server. It means your data lives on your machine and you aren't dependent on a cloud service to function. But some operations genuinely need a single authority: user identity, API key storage, AI proxying. Trying to make every device a peer for these operations led to three failed attempts at distributed key management before we split into hub (central authority) and local (device-side execution).
-
-The hub is a ledger: it signs people in, orders each folder's changes and keeps every version, admits the people a folder is shared with, and proxies AI. The work happens on devices, in plain files, which Epicenter's programs sync with the hub ([vision](../../docs/vision.md), [ADR-0835](../../docs/adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)).
-
 ## Stack and priorities
 
 Hono handles HTTP routing. We originally wanted Elysia: it's faster, the API is more ergonomic, and it runs natively on Bun. But Elysia depends on Bun-specific APIs that don't exist in the Cloudflare Workers runtime, and Workers compatibility was non-negotiable. Hono runs on Cloudflare Workers, Node.js, Deno, Bun, and AWS Lambda, so when the server moved to a second runtime (ADR-0066), the route layer came along for free.
 
-Cloudflare Workers are the hosted deployment target. Routes, auth, AI, folders, and validation are plain runtime-portable Hono; the Worker holds no Durable Objects, and folders' larger bytes live in R2.
+Cloudflare Workers are the hosted deployment target. The routes, auth, and AI gateways run on both Hono runtimes.
 
 Self-hosting is this app's Bun entry, `apps/api/server.ts`, running against
-Postgres, with no Cloudflare account. It builds the same `createServerApp` and the same Better Auth
-`createAuth` as the Worker, so a self-hosted server has the same sign-in,
-sessions, and routes; set `API_PUBLIC_ORIGIN` to its public origin and see
-`.env.example` for the rest. It serves the sign-in, consent, and device
-pages from the built UI, so build it first with `bun run --cwd apps/api/ui
-build` (or point `API_UI_DIR` at a build). The merge gate boots this entry
-against Postgres on every pull request (`oauth-server.postgres.test.ts`). ADR-0549 records how auth will work
-there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
-deletion is a hosted resource sweep, and billing needs the Autumn secret and the
-after-response drain. Folders are mounted there too, their larger bytes on
-disk under `BLOB_STORE_ROOT`. `runtime-profile.test.ts` is where that
-divergence is declared and checked against both entries.
+Postgres. It serves the same sign-in and AI routes as the Worker. Set
+`API_PUBLIC_ORIGIN` to its public origin and see `.env.example` for the
+other settings. Build the sign-in, consent, and device pages with
+`bun run --cwd apps/api/ui build` or set `API_UI_DIR` to an existing build.
+The Worker serves the dashboard and meters AI usage through Autumn.
+`runtime-profile.test.ts` checks which routes each entry serves.
 
 Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
 it into a shared package or the self-hosted deployment.
@@ -57,21 +31,12 @@ sign-in, consent, device approval, and the dashboard's account management
 
 This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
-and every resource it serves accepts only its opaque access tokens: `/v1/*`
-takes the API audience and `ai`, a folder's routes the folders audience with
-`folders:read` or `folders:write`, the caller's role in the folder, and
-either `folders:all` or the folder's attachment to the app, and
-`/api/folders` the folders audience with `folders:read` (listing) or
-`folders:write` (sharing, accepting, attaching). Epicenter hosts no MCP server
-([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)). A
-folder's bytes over 16 KiB are in R2, by their SHA-256 (ADR-0824). An app reads who signed in from Better Auth's
-`/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
-with `email`. Browser
-apps get a token by authorization code with PKCE as their own client. The
-Epicenter app signs in as `so.epicenter` through its shell, and the CLI as
-`so.epicenter.cli` by device grant; both carry `folders:all`. A standalone
-desktop app that signs in holds only `ai` (ADR-0822). See
-[Authorization server](#authorization-server).
+and issues opaque access tokens for chat and transcription under `/v1/*`.
+Both gateways require the API audience (the deployment's own origin) and
+the `ai` scope. Apps use `/auth/oauth2/userinfo` to read who signed in.
+It requires `openid` and returns an email address when the grant includes
+`email`.
+
 
 ## Trust model
 
@@ -117,14 +82,10 @@ Cloudflare Workers
 │   ├── /consent               OAuth consent
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
-│   ├── /api/folders           the caller's folders and invitations; invite, accept, attach
-│   ├── /folders               the folders audience: make or join a folder (POST), every folder's head (GET)
-│   ├── /folders/:id/*         a folder's log: changes read and appended, files, history, marks, bytes
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-├── Hyperdrive (HYPERDRIVE): Postgres, which holds accounts and every folder's log
-└── R2 (BLOBS): folders' bytes over 16 KiB, at folders/<id>/blobs/<sha256>
+└── Hyperdrive (HYPERDRIVE): Postgres for accounts, sessions, and OAuth grants
 ```
 
 API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends an OAuth access token, the hub validates it and swaps in the real key before forwarding to the provider.
@@ -145,7 +106,6 @@ AI requests, and billing integration. Wrangler serves local assets and connects
 directly to local Postgres. Infisical's `dev /api` supplies provider credentials;
 OAuth, AI, and billing still call their external services. For billing tests,
 use the Autumn sandbox described in [Local account integration](./ACCOUNT-INTEGRATION.md).
-Folders work locally too: Wrangler simulates the R2 blob bucket.
 
 The launcher rebuilds the hosted UI at startup. After editing that UI while
 Wrangler is running, restart the root dev command or run
@@ -173,16 +133,12 @@ bun run db:push:local
 Production uses Supabase Postgres in Frankfurt (`eu-central-1`). Better Auth
 continues to own Epicenter sign-in; Supabase supplies the database. The runtime
 Hyperdrive connection uses the `epicenter_api` role with read and write access
-to Epicenter's tables. Migration `0002` adds the OAuth tables and `0009` the
-folder tables, so that role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE`
-on them before a deploy that serves them: the `folder_member_left` trigger
-from `0009` deletes and updates folder rows as the role that removes a
-member.
+to the account and OAuth tables.
 
 Query caching must stay disabled on that Hyperdrive configuration. This Worker
 is the OAuth authorization server, and every resource checks access tokens in
 this database on each request; Hyperdrive's default cache (60 seconds, plus 15
-of stale reads) would keep a revoked token or a removed member working. A new
+of stale reads) could admit a revoked token. A new
 configuration is created with `--caching-disabled`, and an existing one is
 corrected with `wrangler hyperdrive update <id> --caching-disabled`, which is
 a production operation.
@@ -222,26 +178,16 @@ disposable Postgres clusters and drives them with real access tokens.
 `/auth/*` routes only; see `packages/server/README.md` for the policy. This app
 names what is deployment-specific:
 
-- **Audiences**, from `resolveOAuthAudiences` in `@epicenter/definition/site`,
-  which the `epicenter` CLI reads too. Every deployment serves both from
-  its own origin: `<origin>` and `<origin>/folders` (ADR-0326, ADR-0828),
-  hosted `https://api.epicenter.so` and `https://api.epicenter.so/folders`. No client registers itself or identifies itself
-  by a metadata document: every client is one of these first-party rows.
-- **First-party clients**, in `worker/oauth-registrations.ts`. Each browser build is its app id, a public PKCE
-  client with its exact `/auth/callback`, consent skipped, reaching the
-  folders attached to it (ADR-0811). It may
-  ask for `offline_access` only to mint one access token per audience in one
-  sign-in, keeps no refresh token, and its grant stays bound to the session
-  (`offlineDetach` skips web clients). The
-  desktop app is `so.epicenter`, with a loopback redirect on any port,
-  `offline_access`, and `folders:all`, which reaches every folder its person
-  holds. Each standalone desktop app that signs in is its own
-  native client, `so.epicenter.<app>.native` (`NATIVE_APPS`: Whispering and
-  Vocab), with a loopback redirect on any port, PKCE, `offline_access`, and
-  the API audience only; its refresh token stays in that computer's
-  keychain. The CLI is `so.epicenter.cli`, with the device grant only,
-  `folders:all`, and `openid`, so `epicenter auth login` can read who
-  approved it from userinfo.
+The hosted origin is `https://api.epicenter.so`. The Worker and its local
+development scripts use the origins in `@epicenter/definition/site`. Bun defaults to port
+8788 and allows a public origin override.
+
+`worker/oauth-registrations.ts` declares the registered OAuth clients.
+Browser clients use their exact callbacks with PKCE. Native clients,
+including Whispering, use a loopback callback and may request
+`offline_access` for a grant independent of the browser session. The CLI
+client uses the device grant and asks for consent. All clients are
+registered by this deployment.
 
 Both entries write the registrations for the origin they serve with
 `registerFirstPartyClients`, so no migration seeds a client: the Bun entry at
@@ -252,9 +198,7 @@ concurrent writers against a fresh database.
 
 Better Auth runs unpatched, at an exact 1.8 beta in the root catalog. The
 device page sends a code to `/auth/oauth2/authorize?user_code=<code>`, and the
-consent page approves it. Migration
-`0005_better_auth_1_8` adds the 1.8 columns. `api` and `folders` allow every
-first-party scope, so a refresh never narrows the grant (ADR-0565).
+consent page approves it.
 
 `oauth-server.postgres.test.ts` runs the spike's checks (refresh family,
 consent, silent re-authorization, and the end-to-end flows) against both
@@ -263,59 +207,14 @@ server.ts`, and the Worker under `wrangler dev --local` with Hyperdrive's
 local connection string. `bun run test` runs each test file isolated
 (`--isolate`), because `runtime-profile.test.ts` replaces `pg` with a probe.
 
-### Folders
+### Retired folder storage
 
-`mountFolders` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md),
-[ADR-0824](../../docs/adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)):
-its ledger at `<folders>/<id>` (`<api origin>/folders/<id>`), and `/api/folders` for listing,
-sharing, accepting, and attaching it to an app. A folder exists from the
-request that makes it. The route authorizes each request from the access
-token, the person's role in the folder, and the token's reach;
-`packages/server`'s README has the routes, the log's tables, and the
-refusals. Tables `folder`, `folder_member`, `folder_invitation`, and
-`folder_app` (migrations `0009_folders` and `0010_invitations`) hold
-folders, their members, the emails invited to them, and the apps they are
-attached to; `change`, `change_file`, `file`, `blob`, and `mark`
-(`0011_history_log`) hold each folder's history. A share is an invitation
-to an email that answers the same whether or not anyone signs in with it,
-and waits for the account whose verified email it names, at sign-up or
-later (ADR-0820).
-
-Each folder's log is in Postgres, through Hyperdrive on the Worker:
-appending a change is one statement, and so is every read. Bytes over 16 KiB live in R2
-(`BLOBS`, the bucket `epicenter-lfs`, at `folders/<id>/blobs/<sha256>`),
-read and written over the binding alone, with no key pair and no presigned
-URL; Wrangler simulates the bucket in `bun dev:api`. The Bun entry keeps
-them on disk under `BLOB_STORE_ROOT`; without it, a self-hosted server
-keeps bytes up to 16 KiB in Postgres and answers 503 to an upload of more:
-
-```sh
-# with DATABASE_URL and the variables in .env.example set
-BLOB_STORE_ROOT=/tmp/epicenter/blobs bun run dev:bun
-```
-
-The deployment schedules `sweepPendingBlobs` (uploads no change named
-within a day) and, when an operator purges history, `purgeBlobs`, which
-keeps every row and by default the versions of the last 90 days. Folders
-are unmetered.
-
-**Git storage is gone, as a clean break.** Folders were Git repositories
-in Cloudflare Artifacts (hosted) or bare repositories under
-`GIT_STORE_ROOT` (self-hosted), with attachments in Git LFS. Nothing
-carries them over: hosted Git answered 503 until an R2 key pair that was
-never set, so no hosted folder held history, and a self-hosted server's
-repositories are dropped with the Artifacts binding, the R2 presigner, and
-the `git` binary the Bun entry needed. To keep a self-hosted folder's
-history, clone it before upgrading, then bring it in by hand:
-
-```sh
-git clone <old origin>/git/folders/<id>.git notes && (cd notes && git lfs pull)
-epicenter import --git notes --replace-original
-```
-
-Its history then leaves as Git with `epicenter export --git <dir>`. Every
-folder as a Git remote, where a clone reads history and a push lands as a
-change, is decided and not built (ADR-0834).
+[ADR-0894](../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)
+removes the folder routes and the Worker's R2 binding. The folders audience
+and the `folders:*` scopes stay registered for now. The historical migrations still create `folder`, `folder_member`,
+`folder_invitation`, `folder_app`, `blob`, `change`, `change_file`,
+`file`, and `mark`. Their Drizzle definitions are gone. Dropping the
+tables is a separate operation.
 
 ### Database commands
 
@@ -328,7 +227,7 @@ bun run db:studio:local  # Open Drizzle Studio (local)
 bun run db:studio:remote # Open Drizzle Studio (remote, via Infisical)
 ```
 
-See `wrangler.jsonc` for the R2 blob bucket, why the Worker has no Durable Objects, and Hyperdrive (Postgres connection pool) configuration.
+See `wrangler.jsonc` for the Hyperdrive connection pool configuration.
 
 `auth:generate:remote` writes every Better Auth model into
 `packages/server/src/db/schema/auth.ts`; move the OAuth provider's models into

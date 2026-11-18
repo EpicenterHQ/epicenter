@@ -16,7 +16,7 @@
 		"./platform": "./src/platform/index.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test --isolate"
 	},
 	"dependencies": {

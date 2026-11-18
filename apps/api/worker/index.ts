@@ -19,10 +19,8 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createR2BlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountFolders,
 	mountInferenceApp,
 	mountTranscriptionApp,
 	type OAuthScope,
@@ -153,15 +151,6 @@ const resource = (audience: 'api' | 'folders', scope: OAuthScope) =>
 	every(cloudContext, requireAccessToken({ audience, scope }));
 const accountSession = every(cloudContext, requireSessionCookie());
 
-// Folders at api.epicenter.so/folders/<id> (ADR-0811, ADR-0824): each one's
-// log in Postgres through Hyperdrive, its bytes over 16 KiB in R2 (`BLOBS`),
-// and their listing and sharing at `/api/folders`. Each request is decided
-// from the access token, the folder's membership, and its attached apps
-// (`authorizeFolderRequest`), so they take no guard here. Unmetered.
-mountFolders(app, {
-	setup: cloudContext,
-	resolveBlobs: (env) => createR2BlobStore((env as Cloudflare.Env).BLOBS),
-});
 mountInferenceApp(app, {
 	auth: resource('api', 'ai'),
 	policies: [chargeOpenAiCreditsWithAutumn],

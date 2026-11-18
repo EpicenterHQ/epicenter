@@ -27,8 +27,11 @@ removed by ADR-0534; migration `v6` deletes both namespaces and their objects.
 | Autumn customer, subscription/balance/event data; Stripe customer | Billing service, including GET handlers through `getOrCreate`, credit reservations and after-response usage work | Customer deletion requests `deleteInStripe: true` and treats Autumn not-found as success. That does not prove Stripe deletion after an ambiguous partial result or erase every provider-retained business record. Pending work can recreate a customer. |
 | Device stores and replicas | Each application's client-owned store and persistence | Hosted deletion cannot erase offline device copies, exported files, or copies another person holds. |
 
-The deployed bindings name no additional R2/KV/D1 application store. Platform
-backups, logs, and external provider retention are separate from deletion of
+The current configuration has no R2, KV, or D1 application binding. The
+historical Postgres migrations still create the retired folder tables. See the
+[API storage notes](../../README.md#retired-folder-storage).
+
+Platform backups, logs, and external provider retention are separate from deletion of
 application-addressable records; no immediate physical-erasure guarantee has
 been established for them. Better Auth remains the authentication owner.
 

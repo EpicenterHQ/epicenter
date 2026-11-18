@@ -6,8 +6,7 @@
 	"description": "Shared Hono server for apps/api on Cloudflare Workers and on Bun with Postgres.",
 	"exports": {
 		".": "./src/index.ts",
-		"./api-routes": "./src/api-routes.ts",
-		"./bun": "./src/bun.ts"
+		"./api-routes": "./src/api-routes.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",

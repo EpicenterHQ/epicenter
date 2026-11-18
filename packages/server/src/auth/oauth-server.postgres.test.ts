@@ -17,10 +17,8 @@ import { every } from 'hono/combine';
 import type { Client } from 'pg';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
-import { createMemoryBlobStore } from '../log/memory-blob-store.js';
 import { requireAccessToken } from '../middleware/require-auth.js';
 import { mountAuthRoutes } from '../routes/auth.js';
-import { mountFolders } from '../routes/folders.js';
 import { mountInferenceApp } from '../routes/inference.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
@@ -39,11 +37,7 @@ import {
 	TOKEN_PREFIX,
 } from './oauth-policy.js';
 import { registerFirstPartyClients } from './oauth-registrations.js';
-import {
-	authorizeAccountRequest,
-	authorizeFolderRequest,
-	readAccessToken,
-} from './resource-access.js';
+import { authorizeAccountRequest, readAccessToken } from './resource-access.js';
 
 const origin = 'http://127.0.0.1:47911';
 const secret = 'oauth-server-postgres-secret-0123456789';
@@ -176,10 +170,12 @@ beforeAll(async () => {
 	const resource = (audience: keyof typeof audiences, scope: OAuthScope) =>
 		every(resourceContext, requireAccessToken({ audience, scope }));
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
-	mountFolders(app, {
-		setup: resourceContext,
-		resolveBlobs: () => createMemoryBlobStore(),
-	});
+	// Test-only route on the folders audience, guarded as a folders resource is.
+	app.post(
+		'/folders/:folder/changes',
+		resource('folders', 'folders:write'),
+		(c) => c.json({ folder: c.req.param('folder') }),
+	);
 	// Test-only protected route: the resource check, as every resource runs it.
 	app.get('/test/resource', async (c) => {
 		const { data, error } = await authorizeAccountRequest(db, {
@@ -311,132 +307,6 @@ test('one grant serves the API and the folders, in any order of refreshes', asyn
 	expect(stored.rows[0]?.scopes.sort().join(' ')).toBe(everyScope);
 }, 60_000);
 
-describe('the resource check', () => {
-	/** A person, a token from the desktop app, and a folder they hold. */
-	async function issue(scope = 'offline_access folders:read') {
-		const person = await harness.client.person('resource');
-		const tokens = await harness.client.codeGrant({
-			...desktop,
-			cookie: person.cookie,
-			resource: [audiences.folders],
-			scope,
-		});
-		const folder = await folderOf(person.id);
-		return { person, token: tokens.access_token, folder };
-	}
-	/** A folder `accountId` holds as `role`. */
-	async function folderOf(accountId: string, { role = 'member' } = {}) {
-		const id = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-			.map((byte) => 'abcdefghijklmnopqrstuvwxyz0123456789'[byte % 36])
-			.join('');
-		await sqlClient.query('insert into folder (id) values ($1)', [id]);
-		await sqlClient.query(
-			'insert into folder_member (folder_id, account_id, role) values ($1, $2, $3)',
-			[id, accountId, role],
-		);
-		return id;
-	}
-	const at = (
-		token: string | null,
-		folder: string,
-		scope: OAuthScope = 'folders:read',
-	) =>
-		authorizeFolderRequest(db, {
-			token,
-			audience: audiences.folders,
-			scope,
-			folder,
-		});
-
-	test('answers 401 with resource_metadata for a missing, foreign, unknown, expired, or revoked token', async () => {
-		const { token, folder } = await issue();
-		const metadata = `resource_metadata="${origin}/.well-known/oauth-protected-resource/folders"`;
-		for (const presented of [
-			null,
-			'not-an-epicenter-token',
-			`${TOKEN_PREFIX.access}unknown`,
-		]) {
-			const { error } = await at(presented, folder);
-			expect(error?.status).toBe(401);
-			expect(error?.challenge).toBe(
-				`Bearer error="invalid_token", ${metadata}`,
-			);
-		}
-		const hash = await hashPrefixedToken(token, TOKEN_PREFIX.access);
-		await sqlClient.query(
-			'update oauth_access_token set expires_at = $2 where token = $1',
-			[hash, new Date(Date.now() - 1000)],
-		);
-		expect((await at(token, folder)).error?.status).toBe(401);
-		const fresh = await issue();
-		await sqlClient.query(
-			'update oauth_access_token set revoked = $2 where token = $1',
-			[await hashPrefixedToken(fresh.token, TOKEN_PREFIX.access), new Date()],
-		);
-		expect((await at(fresh.token, fresh.folder)).error?.status).toBe(401);
-		const foreign = await authorizeFolderRequest(db, {
-			token: (await issue()).token,
-			audience: audiences.api,
-			scope: 'folders:read',
-			folder,
-		});
-		expect(foreign.error?.status).toBe(401);
-		expect(foreign.error?.challenge).toContain(
-			`resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
-		);
-	}, 60_000);
-
-	test('answers 403 for a missing scope, a folder not held, an invitation not accepted, or one not attached to the app', async () => {
-		const { person, token, folder } = await issue(
-			'offline_access folders:read folders:all',
-		);
-		const scope = await at(token, folder, 'folders:write');
-		expect(scope.error?.status).toBe(403);
-		expect(scope.error?.body.error).toBe('insufficient_scope');
-		expect(scope.error?.challenge).toContain(
-			'error="insufficient_scope", scope="folders:write"',
-		);
-		const stranger = await harness.client.person('stranger');
-		const theirs = await at(token, await folderOf(stranger.id));
-		expect(theirs.error?.status).toBe(403);
-		expect(theirs.error?.body.error).toBe('forbidden');
-		expect(theirs.error?.challenge).toContain('resource_metadata=');
-		// A folder that does not exist is refused the same way.
-		const none = await at(token, 'zzzzzzzzzzzzzzzz');
-		expect(none.error?.body).toEqual(theirs.error?.body);
-		// An invitation to the person's email grants nothing until accepted.
-		const waiting = await folderOf(stranger.id);
-		await sqlClient.query(
-			'insert into folder_invitation (folder_id, email, role) values ($1, lower($2), $3)',
-			[waiting, person.email, 'member'],
-		);
-		expect((await at(token, waiting)).error?.status).toBe(403);
-		// Without folders:all, a token reaches the folders attached to its app.
-		const app = await issue('offline_access folders:read');
-		const unattached = await at(app.token, app.folder);
-		expect(unattached.error?.status).toBe(403);
-		expect(unattached.error?.body.error_description).toContain('attached');
-		await sqlClient.query(
-			'insert into folder_app (folder_id, app) values ($1, $2)',
-			[app.folder, desktop.clientId],
-		);
-		expect((await at(app.token, app.folder)).error).toBeNull();
-	}, 60_000);
-
-	test('returns the account, its role, and what the token reaches', async () => {
-		const { person, token, folder } = await issue(
-			'offline_access folders:read folders:all',
-		);
-		expect((await at(token, folder)).data).toEqual({
-			accountId: person.id,
-			role: 'member',
-			clientId: desktop.clientId,
-			folder,
-			app: null,
-		});
-	}, 60_000);
-});
-
 describe('the protected routes', () => {
 	/** A browser app's one access token, as `createBrowserOAuth` gets it. */
 	async function browserToken(resource: string, scope: string) {
@@ -470,7 +340,7 @@ describe('the protected routes', () => {
 		call('/auth/oauth2/userinfo', token);
 	const inference = (token: string | null) =>
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
-	/** The first request of a push: the receive-pack advertisement. */
+	/** A write to the folders audience. */
 	const push = (token: string | null, folder = 'aaaaaaaaaaaaaaaa') =>
 		call(`/folders/${folder}/changes`, token, {
 			method: 'POST',
@@ -529,18 +399,7 @@ describe('the protected routes', () => {
 			audiences.folders,
 			'openid folders:read folders:write',
 		);
-		const count = async () =>
-			(await sqlClient.query('select id from folder')).rowCount;
-		const before = await count();
-		// A first sync from the app makes its folder, attached to the app.
-		const joined = await call('/folders', folders.token, {
-			method: 'POST',
-			body: { create: true },
-		});
-		expect(joined.status).toBe(201);
-		const { folder } = (await joined.json()) as { folder: string };
-		expect(await count()).toBe((before ?? 0) + 1);
-		expect((await push(folders.token, folder)).status).toBe(200);
+		expect((await push(folders.token)).status).toBe(200);
 	}, 60_000);
 
 	test('stop admitting a token once it is revoked or its browser session ends', async () => {

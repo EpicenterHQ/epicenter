@@ -20,7 +20,6 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
-	type FolderListing,
 	PRODUCTION_API_URL,
 	resolveOAuthAudiences,
 } from '@epicenter/definition/site';
@@ -33,7 +32,8 @@ import {
 	oauthResourceInputs,
 	readAccessToken,
 	registerFirstPartyClients,
-} from '@epicenter/server/bun';
+} from '@epicenter/server';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client } from 'pg';
 import {
@@ -193,8 +193,8 @@ function checks(
 }
 
 /**
- * One person's folders-audience token lists their folders; an API-audience
- * token is refused, since the listing is the folders audience's.
+ * An API-audience token gets past the gateway's guard, where an unknown
+ * model gets 400; a folders-audience token is another audience's, so 401.
  */
 async function checkResourcesOverHttp(h: OAuthHarness) {
 	const { client } = h;
@@ -202,28 +202,30 @@ async function checkResourcesOverHttp(h: OAuthHarness) {
 	const folders = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
+		scope: 'ai folders:read folders:write',
 		resource: [h.audiences.folders],
 	});
 	const api = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
-		scope: 'ai folders:read folders:write',
+		scope: 'ai',
 		resource: [h.audiences.api],
 	});
-	const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
-
-	const listing = await fetch(`${client.origin}/api/folders`, {
-		headers: bearer(folders.access_token),
+	const complete = (token: string) =>
+		fetch(API_ROUTES.ai.completions.url(client.origin), {
+			method: 'POST',
+			headers: {
+				authorization: `Bearer ${token}`,
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({ model: 'unknown-fixture-model' }),
+		});
+	const admitted = await complete(api.access_token);
+	expect(admitted.status).toBe(400);
+	expect(await admitted.json()).toMatchObject({
+		error: { code: 'UnknownModel' },
 	});
-	expect(listing.status).toBe(200);
-	expect((await listing.json()) as FolderListing).toEqual({
-		folders: [],
-		pending: [],
-	});
-	const wrongAudience = await fetch(`${client.origin}/api/folders`, {
-		headers: bearer(api.access_token),
-	});
-	expect(wrongAudience.status).toBe(401);
+	expect((await complete(folders.access_token)).status).toBe(401);
 }
 
 const running: { stop: () => Promise<void> }[] = [];
