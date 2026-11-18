@@ -200,8 +200,7 @@ second copy is refused when the app loads. A package nested inside an app,
 such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the home's
 `package.json`. `bun install` at the top of the home installs its packages;
-`epicenter init` runs it once, `epicenter new` prints it, and a call never
-installs.
+`epicenter new` prints it, and a call never installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter by editing both versions in the home's `package.json`, then
@@ -330,42 +329,12 @@ action, and adds none: the action is ordinary code, and its author decides.
 Epicenter runs actions and serves pages. Git stores the home, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. After direct
 edits, make a named commit with Git, such as
-`git add -A && git commit -m "<what changed>"`. A home commits itself between
-named commits with two files of its own, which `epicenter init` writes into a
-new home. `routines/checkpoint.md`:
-
-```yaml
----
-cron: "*/5 * * * *"
-run: ["sh", "scripts/checkpoint.sh"]
----
-Commit everything pending and push to the backup.
-```
-
-`scripts/checkpoint.sh`, executable:
-
-```sh
-#!/bin/sh
-set -eu
-for s in MERGE_HEAD REVERT_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD; do
-  [ -e ".git/$s" ] && { echo "merge or rebase underway" >&2; exit 0; }
-done
-git add -A
-if git ls-files -s | grep -q '^160000'; then
-  echo "a nested Git repository is staged; remove its .git" >&2; exit 1
-fi
-git diff --cached --quiet || git commit -qm "${1:-checkpoint}"
-git remote get-url origin >/dev/null 2>&1 || exit 0
-GIT_TERMINAL_PROMPT=0 git push -q origin HEAD
-```
-
-Serve starts the routine every five minutes, with the home as the working
-directory. It takes no lock: Git refuses a second commit while one is being made.
-Without the routine, nothing
-is committed or pushed on its own. The branch and index are shared: the script
-commits staged work along with everything else, and it samples files, not
-intent, so it can capture a partial edit or part of a running action. Make a
-named commit before a risky change.
+`git add -A && git commit -m "<what changed>"`. Between named commits, the
+home is committed only by what its owner set up, such as a routine that runs
+the owner's own script; without one, nothing is committed or pushed on its
+own. The branch and index are shared, and a commit made while serve runs
+samples files, not intent: it can capture a partial edit or part of a running
+action. Make a named commit before a risky change.
 
 A routine's `run` is a program and its arguments. An argument may be a JSON
 value, which reaches the command as one word of JSON text:
@@ -467,8 +436,8 @@ so it is safe to call again once its `cause` is fixed; `Threw` means it began
 and threw, with a tagged exception in `thrown`; `Unreachable` means the
 outcome is unknown; any other name is the action's own error, so it ran.
 Actions use the shared `ActionError` factories from `@epicenter/app`. The
-CLI's own commands answer the same way: `epicenter --json`, `check`, `new`,
-`init` and `export` with `--json` print `{ data, error }`, and every command
+CLI's own commands answer the same way: `epicenter --json`, `check`, `new`
+and `export` with `--json` print `{ data, error }`, and every command
 exits 0 for no error, 2 for `NotStarted` and 1 for any other error. A
 `check` that finds problems, or an `export --all` that leaves apps out,
 answers `Problems`, exit 1, with what it found under `error.report`.
@@ -605,8 +574,12 @@ bun test ./epicenter.test.ts                # from code/: actions over memory
 source_path=/absolute/path/to/source/code   # the folder that holds epicenter.ts
 test_home=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitconfig"
-HOME="$test_home" epicenter init "$test_home/Epicenter" --port 4799
-cd "$test_home/Epicenter"
+mkdir -p "$test_home/Epicenter/apps" && cd "$test_home/Epicenter"
+printf -- '---\nport: 4799\n---\n' > EPICENTER.md
+# package.json: the workspace, naming the Epicenter version the real home names
+printf 'env = false\n' > bunfig.toml
+printf '/apps/*/local/\n.env*\n!.env.example\nnode_modules/\n' > .gitignore
+git init -q
 mkdir -p apps/example
 cp -R "$source_path" apps/example/code
 # set "name" in apps/example/code/package.json to "example"
@@ -640,13 +613,13 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   apps people have already copied. Bring contributions back into the maintained
   app before refreshing an export, which would overwrite edits made in the
   generated directory.
-- Back up the root to one optional private origin. The home's checkpoint
-  script commits all pending files and pushes only there. Restore with one root clone
+- Back up the root to one optional private origin. Whatever commits the
+  home pushes only there. Restore with one root clone
   and `bun install` at its top, then recreate what each app kept in `local/`.
 - Sharing code requires a separate code-only history, deliberately made and
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:
-  a Git repository inside it makes the home's checkpoint script refuse.
+  Git would commit a repository inside it as a bare pointer.
   Use `epicenter export` for the generated code directory, then review, commit,
   and push the outer repository with Git. Recipients can read its history and
   notes as well as its code: keep private record content out of those messages,

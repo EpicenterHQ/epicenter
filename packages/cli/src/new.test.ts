@@ -28,7 +28,7 @@ test('new creates code and empty data without repositories and refuses taken and
 	const f = await setup();
 	await gitIn(f.home, 'init', '-q');
 	await mkdir(join(f.apps, 'Reading'));
-	for (const name of ['reading', 'serve', 'init', 'Bad_Name'])
+	for (const name of ['reading', 'serve', 'check', 'Bad_Name'])
 		expect((await f.run('new', name, '--json')).code).toBe(2);
 	expect(JSON.parse((await f.run('new', 'reading', '--json')).stdout)).toEqual({
 		data: null,

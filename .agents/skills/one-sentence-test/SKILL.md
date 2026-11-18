@@ -86,7 +86,7 @@ Bad: *"A CLI for managing your workspace."* Vague. Could be anything.
 
 Good, for the [CLI’s action surface](../../../packages/cli/README.md): *“Run an app’s actions as commands and expose the same actions as MCP tools.”*
 
-That sentence makes a second action registry worth questioning. It scopes the audit to running actions. Commands such as `init` and `checkpoint` answer different needs and deserve their own sentence if they are under review.
+That sentence makes a second action registry worth questioning. It scopes the audit to running actions. Commands such as `new` and `export` answer different needs and deserve their own sentence if they are under review.
 
 ## Application B: Value-Add Audit (bottom-up)
 

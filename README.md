@@ -40,11 +40,11 @@
 
 A home is a folder that depends on Epicenter, as any Bun project depends on a
 package. It requires [Bun](https://bun.sh) and Git. An AI account is not
-required. With Git's `user.name` and `user.email` configured, create your
-Epicenter and copy the Writing app:
+required. Make `~/Epicenter` from the files
+[the CLI README](packages/cli/README.md#make-an-epicenter) lists, then copy
+the Writing app:
 
 ```sh
-bun x @epicenter/cli init ~/Epicenter
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
 mkdir -p apps/writing/code
