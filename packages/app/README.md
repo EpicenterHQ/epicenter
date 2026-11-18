@@ -498,9 +498,11 @@ The client exposes the action's Result in JSON form, exactly as serve
 answers it: `{ data, error }`, where `error` is `null` or the error object
 itself
 ([ADR-0953](../../docs/adr/0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)).
-Its public error type includes the action's declared errors and the shared
-errors below. Producers import the shared `ActionError` factories from
-`@epicenter/app`:
+Its error type is exactly the errors the action returns and the three only
+Epicenter answers, `NotStarted`, `Threw` and `Unreachable`, which
+`@epicenter/app/client` exports as types. A `switch` on `error.name` is
+exhaustive, and comparing a name the action cannot return is a compile error.
+Producers import the shared `ActionError` factories from `@epicenter/app`:
 
 - `Changed` (`{ path, why }`): a quoted passage changed or is there twice, or a new record's file is already there.
 - `Misfit` carries diagnostics about a malformed record.
@@ -512,13 +514,23 @@ the action ran:
 
 | Error | Did the action run? |
 | --- | --- |
-| `NotStarted` (`{ message, cause, next?, problems? }`) | no: serve or the CLI refused it before it began |
+| `NotStarted` (`{ message, cause, ... }`, fields by `cause`) | no: serve or the CLI refused it before it began |
 | any other error, the action's own | yes |
 | `Threw` (`{ message, thrown? }`) | yes, and it threw; a tagged value that survives JSON is kept as `thrown` |
 | `Unreachable` (`{ message }`) | unknown: the connection dropped, a line was not a frame, or no answer came |
 
-`NotStarted`'s `cause` is `usage`, `app-problems` (with the app's `problems`),
-`internal`, or `unavailable`. An action cannot answer `NotStarted` or
+`NotStarted` is one name whose fields depend on its `cause`, so narrowing on
+`cause` types them:
+
+| `cause` | Why it never began | Its fields |
+| --- | --- | --- |
+| `usage` | the words or input do not fit | `next?` |
+| `app-problems` | the app cannot load | `app`, `problems` |
+| `refused` | it was understood, and doing it would lose or guess | `next?` |
+| `internal` | Epicenter failed before it ran | none |
+| `unavailable` | no serve for this home answers | `next?` |
+
+An action cannot answer `NotStarted` or
 `Unreachable`: serve turns an action's own, with or without the namespace,
 into `Threw`. An action may still return `Threw`.
 
@@ -617,6 +629,8 @@ gives the error object itself:
 - **A page that matched `Refused` to catch a call that never ran** matches `NotStarted`. `Refused` now comes only from an action.
 - **An action that returned `ActionError.Unreachable`**, or its own error named `NotStarted` or `Unreachable`, now answers `Threw`. Return another name, or `Ok` with a field saying the result was not confirmed.
 - **Exit codes:** 2 is exactly `NotStarted`. A connection that dropped after the call was sent still exits 1, now as `Unreachable`.
+- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, `epicenter <app> --json`, `check --json`, `new --json`, `init --json` or `export --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word or a refused export, answers `NotStarted` and exits 2. One that failed partway, such as an `init` whose install failed, answers an error and exits 1. `check` exits 0 whatever it finds.
+- **A page that compares an error name its action cannot return** gets a compile error. A call's error is now exactly the action's errors and `NotStarted`, `Threw` and `Unreachable`, so a branch for a name that never arrives is dead: delete it.
 
 ### An action's input is one JSON Schema object
 

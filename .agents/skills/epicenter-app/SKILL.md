@@ -450,7 +450,14 @@ action ran: `NotStarted` means serve or the CLI refused it before it began,
 so it is safe to call again once its `cause` is fixed; `Threw` means it began
 and threw, with a tagged exception in `thrown`; `Unreachable` means the
 outcome is unknown; any other name is the action's own error, so it ran.
-Actions use the shared `ActionError` factories from `@epicenter/app`.
+Actions use the shared `ActionError` factories from `@epicenter/app`. The
+CLI's own commands answer the same way: `epicenter --json`, `check`, `new`,
+`init` and `export` with `--json` print `{ data, error }`, and every command
+exits 0 for no error, 2 for `NotStarted` and 1 for any other error.
+
+A page's call error is exactly the action's own errors and `NotStarted`,
+`Threw` and `Unreachable`, so a `switch` on `error.name` is exhaustive and a
+comparison with a name the action cannot return does not compile.
 
 Match a browser error by its name and subject. A `Missing` for a dependency
 cannot tell the page whether its displayed record still exists. An action

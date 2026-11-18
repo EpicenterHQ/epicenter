@@ -68,7 +68,7 @@ Rebuilt from that JSON, `meaning` is required. `packages/cli/src/input.ts` wraps
 | `Threw` | serve | yes, partly |
 | `Unreachable` | the page client or the CLI | unknown |
 
-- `NotStarted` carries `message`, `cause: 'usage' | 'app-problems' | 'internal' | 'unavailable'`, an optional `next` (the command to run), and, for `app-problems`, `problems`, the app's problems as strings. It replaces the `Usage`, `AppProblems` and `Internal` refusals an action call answered. `unavailable` means the CLI found no serve for this home: the connection was refused before anything was sent, or another program holds the port.
+- `NotStarted` carries `message`, `cause: 'usage' | 'app-problems' | 'internal' | 'unavailable'`, an optional `next` (the command to run), and, for `app-problems`, `problems`, the app's problems as strings. It replaces the `Usage`, `AppProblems` and `Internal` refusals an action call answered. `unavailable` means the CLI found no serve for this home: the connection was refused before anything was sent, or another program holds the port. The amendment below adds the cause `refused`, gives `app-problems` its `app`, and types each cause's fields.
 - `Threw` carries `message` and, when the action threw a tagged value that survives JSON, `thrown`.
 - `Unreachable` carries `message`. A caller answers it when the outcome is unknown: the connection dropped after the call was sent, a line was not a valid frame, or the stream ended with no answer.
 
@@ -80,7 +80,7 @@ Rebuilt from that JSON, `meaning` is required. `packages/cli/src/input.ts` wraps
 
 **Retry safety reads from the name.** `NotStarted` is safe to send again once its cause is fixed. After an app error or `Threw`, the action ran, and the caller rereads the record before deciding. After `Unreachable` the caller rereads the record, because the action may have finished. An action that must not run twice still takes an id in its input (ADR-0930).
 
-The CLI's own commands, `init`, `new`, `export`, `check` and `serve`, are not action calls. Their failures stay `CliError`s, printed as `{"error": ...}` with `--json`, and still exit 2 when nothing ran.
+The CLI's own commands, `init`, `new`, `export`, `check` and `serve`, are not action calls. As first decided, their failures stayed `CliError`s; the amendment [CLI commands answer the same way](#amendment-2026-11-17-cli-commands-answer-the-same-way) gives them the same answer and exit codes.
 
 ### D2: input is one plain JSON Schema
 
@@ -117,3 +117,31 @@ The CLI's own commands, `init`, `new`, `export`, `check` and `serve`, are not ac
 - **Reserve `NotStarted` only in the platform namespace.** An app could then define its own `NotStarted`, and a caller would have to check the namespace before trusting the name. The namespace is copyable, so the check would prove nothing.
 - **Make serve's refusals a framed `{"answer": ...}` line too.** One decoder path for every status, but it changes ADR-0930's route for a call that never started. `readAnswer` reads both, so the gain is small.
 - **Keep the field record and add `required` beside it on the action.** Two values a reader must combine, and the record's JSON still reads as if every key were required.
+
+## Amendment, 2026-11-17: CLI commands answer the same way
+
+D1 left the CLI's own commands outside the answer. They printed `{"error": ...}` from a separate `CliError` family, so a script read one shape from an action call and another from `epicenter --json`, and two refusals were both named `Refused`: the CLI's, and an app's. Now every command ends in one `{ data, error }` answer, and one function, `presentAnswer` in `packages/cli/src/output.ts`, prints it and sets the exit code from `outcome()`.
+
+**Every command's `--json` is `{ data, error }`.** That holds for `init`, `new`, `export`, `check`, the home listing, one app's listing, action help, `--version` and `--help`. Without `--json` a command prints what it printed before. Exit codes are D1's: 0 for no error, 2 for exactly `NotStarted`, 1 for any other error. `serve` prints no answer while it serves; its refusals before serving are answers, and `serve --json` is refused as `usage`.
+
+**`CliError` is gone.** The CLI's error module is deleted, and each variant became a cause of `NotStarted` or, for a failure after a command began, `Threw`:
+
+| `CliError` | Now |
+| --- | --- |
+| `Usage` | `NotStarted`, cause `usage` |
+| `AppProblems` | `NotStarted`, cause `app-problems`, with `app` and `problems` |
+| `Refused` | `NotStarted`, cause `refused` (new) |
+| `Internal` | `NotStarted`, cause `internal` |
+| `GitFailed` | `NotStarted`, cause `internal`, when `new` failed before it kept anything; `Threw` when it failed partway |
+
+`refused` means the command was understood and doing it would lose or guess: `export` into a folder it does not own, or a port another serve holds. A command that ran in part answers the error that says so with exit 1: an `init` whose install failed and an `export` that omitted apps answer `Refused`.
+
+**`NotStarted` is one name whose fields depend on `cause`.** `ActionError.NotStarted` takes a union body, so narrowing on `cause` types the fields: `app` and `problems` for `app-problems`, an optional `next` for `usage`, `refused` and `unavailable`. `checkAnswer` checks each cause's fields. One name with a cause beats one variant per cause:
+
+- A per-cause name such as `Refused` would collide again with an app's own `Refused`, the collision D1 removed.
+- "Did it run?" stays one comparison, `name === 'NotStarted'`. Per-cause names would make every reader keep a list of the names that mean "never began".
+- A new cause leaves old readers right. A new name would leave their lists stale, and they would read a refusal as an action's error.
+
+**A throw is for a broken program, and a Result is for what a caller can act on.** A throw becomes `Threw` in one place, `runAction` for an action and `runCli` for a command. `context.ts` throws when an app reads its data outside an action's run: that is a bug in the app, and no caller can fix it by trying again. `disk.ts` returns `undefined` for a missing file and rethrows any other error: a disk that answers `EACCES` or `EIO` there is a broken machine. Neither becomes a Result. A command never throws a tagged error to steer its own control flow; `export` returns its refusals as Results.
+
+**A page's call error is exact.** `ActionCall` resolves to `Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>`, and `@epicenter/app/client` exports those three types. A `switch` on `error.name` is exhaustive, and a comparison with a name the action cannot return is a compile error.
