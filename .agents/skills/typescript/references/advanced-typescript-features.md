@@ -23,7 +23,7 @@ const active = map.values().filter((n) => !n.deleted).toArray();
 
 # Const Generic Array Inference
 
-Use `const T extends readonly T[]` to preserve literal types without requiring `as const` at call sites.
+Use a `const` type parameter with a `readonly` array constraint to preserve literal types without requiring `as const` at call sites.
 
 | Pattern                             | Plain `['a','b','c']`      | With `as const`            |
 | ----------------------------------- | -------------------------- | -------------------------- |
@@ -34,7 +34,28 @@ Use `const T extends readonly T[]` to preserve literal types without requiring `
 
 The `const` modifier preserves literal types; the `readonly` constraint determines mutability.
 
-[`field.select`](../../../../packages/app/src/field.ts) takes a `const V extends readonly [string, ...string[]]`. The first element makes the list nonempty. The `const` type parameter preserves the caller's literal choices.
+The complete `select` member of [`field`](../../../../packages/app/src/field.ts) shows how the declaration preserves the caller's literal choices. The helpers and schema types it uses are defined or imported in the same module.
+
+```typescript
+select: <
+	const V extends readonly [string, ...string[]],
+	const O extends MaybeOptional,
+>(
+	values: V,
+	options?: Only<O, MaybeOptional>,
+) => {
+	only('select', options, MAYBE_OPTIONAL);
+	return maybeOptional(
+		Type.Union(
+			values.map((value) => Type.Literal(value)),
+			schemaOptions(options),
+		) as unknown as TUnion<{ -readonly [K in keyof V]: TLiteral<V[K]> }>,
+		options,
+	);
+},
+```
+
+The first element in `readonly [string, ...string[]]` makes the list nonempty. The `const V` type parameter preserves the literal choices. The mapped `TUnion` type carries each choice into the returned schema, so `Static` can recover the union at the call site:
 
 ```typescript
 import { field } from '@epicenter/app';

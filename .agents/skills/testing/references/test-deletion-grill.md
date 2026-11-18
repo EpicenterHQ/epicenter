@@ -1,8 +1,9 @@
 # Test Deletion Grill
 
-Remove tests and setup that add no useful regression confidence. Simplify the
-machinery needed for the behavior that must survive. Use this guidance when
-choosing new coverage, pruning a suite, or challenging expensive fixtures.
+Challenge whether tests and setup catch mistakes that matter. Improve or delete
+those that give false reassurance or add work without useful protection. Use
+this guidance when choosing new coverage, pruning a suite, or challenging
+expensive fixtures.
 Test counts, line counts, and coverage percentages identify places to inspect;
 they do not decide whether a test earns its cost.
 
@@ -47,7 +48,9 @@ may be a worse bargain.
 Keep, rewrite, simplify setup, move coverage to its owner, or delete. Explain
 what disappears and what still catches the required failures. If the behavior
 is real and remaining coverage is unclear, investigate, keep, or rewrite the
-test rather than delete it.
+test rather than delete useful protection. A test that cannot expose its claimed
+failure has no such coverage to relocate; decide whether the behavior needs a
+better test.
 
 Use these moves to reason; do not manufacture disagreement or write a triple
 for each unchanged test. Record consequential changes and non-obvious deletion
@@ -131,6 +134,6 @@ These are recognition aids, not required output categories:
 
 For unreachable failure modes, padded assertions, dead fake behavior, and
 misleading docstrings, read [honest-tests.md](honest-tests.md).
-For production splits created solely for tests, read
-[cohesion-over-testability](../../cohesion-over-testability/SKILL.md) before
-editing production code.
+For production boundaries motivated by tests, use the judgment in
+[the testing skill](../SKILL.md#choose-useful-tests) and
+[the worked examples](choosing-useful-tests.md).
