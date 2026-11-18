@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the app lock: nothing locks an app, and nothing locks the home to run an action. [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) on who runs a command's action: serve does.
-- **Amended by:** [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md): the command loads no app before it sends a call, and names its Epicenter on the request; serve's answers carry `x-epicenter: 1` and no path.
+- **Amended by:** [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md): the command loads no app before it sends a call, and names its Epicenter on the request; serve's answers carry `x-epicenter: 1` and no path. [ADR-0966](0966-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) on the route the command posts to: `POST /actions/<app>/<word>/<word>`.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`folder.update`), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (the call and its route), [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) (routines run commands).
 
 ## Context

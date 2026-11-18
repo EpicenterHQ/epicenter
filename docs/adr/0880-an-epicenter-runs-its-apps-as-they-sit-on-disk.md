@@ -57,7 +57,7 @@ sharing, never deployment.**
   own, once per version, and links to that.
 - **A UI is optional and any framework.** An app with no `ui/` is its actions
   over its files. When an app has one, its own `bun run build` writes
-  `code/ui/dist/`, and `serve` serves that folder at `/<app>/` as it is and
+  `code/ui/dist/`, and `serve` serves that folder at `/apps/<app>/` as it is and
   never builds (ADR-0944). A build writes relative URLs, so it is never told
   where it is served. `bun run build` at the top of the home runs every app's
   build, which is how UIs pick up a new client after an upgrade.

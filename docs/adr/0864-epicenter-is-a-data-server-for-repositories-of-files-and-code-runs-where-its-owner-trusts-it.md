@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the collection verbs, MCP), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** the typed client `open()`, and Whispering's clone ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md)). Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP ([packages/app/src/collection.ts at cd25fe8fa8](https://github.com/EpicenterHQ/epicenter/blob/cd25fe8fa8/packages/app/src/collection.ts)); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/app/src/command/http.ts`). The public listener for an HTTPS tunnel (ADR-0871, ADR-0881) was built and then removed in 7959c24236 (ADR-0883).
+- **Unbuilt:** the typed client `open()`, and Whispering's clone ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md)). Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP ([packages/app/src/collection.ts at cd25fe8fa8](https://github.com/EpicenterHQ/epicenter/blob/cd25fe8fa8/packages/app/src/collection.ts)); `epicenter serve` over HTTP, serving MCP at `/` and views at `/apps/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/app/src/command/http.ts`). The public listener for an HTTPS tunnel (ADR-0871, ADR-0881) was built and then removed in 7959c24236 (ADR-0883).
 - **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md): people reach `serve` only over the tailnet, and the public address serves only connectors. Then [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) removed the public address, its connectors, and the `connectors` block.
 
 ## Context
@@ -65,12 +65,13 @@ must go on offline keeps a clone and pushes to it (ADR-0887).**
   `epicenter sync <app> -m`; `serve` commits what is left every 5 minutes, as
   changed outside epicenter, and pushes to the mirror (ADR-0850).
 - Who may ask, clone, and push is the tailnet (ADR-0883).
-- `epicenter serve` serves an app's built UI, `ui/dist/`, at `/<app>/` and MCP at `/`, one
+- `epicenter serve` serves an app's built UI, `ui/dist/`, at `/apps/<app>/` and MCP at `/`, one
   origin and one address for people and agents, so a view asks with no sign-in
   of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes
-  nothing. The server's own paths start with `.`, which no app name can, so
-  no app name is reserved for it; Git for a clone is at `/<app>.git` (ADR-0887).
+  nothing. The server's own routes take their own first segment, such as
+  `/actions/`, and apps live under `/apps/`, so no app name is reserved
+  (ADR-0966); Git for a clone is at `/<app>.git` (ADR-0887).
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
 `epicenter.ts` of each repository its operator trusts, and offers its actions as

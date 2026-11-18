@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-09
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/apps/<app>/` and `/`).
 - **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/app/src/command/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which each app's own `bun run build` writes to `ui/dist/` (ADR-0944); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
 
 ## Context
@@ -19,22 +19,22 @@ actions as an agent does.
 
 **An app's interfaces are views, and a view is a web client of its app's
 actions.** A view is static files with hash routes (`#/c/<id>`) built into the
-app's `ui/dist/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
+app's `ui/dist/`, and `epicenter serve` serves them at `/apps/<app>/` on the same origin as
 MCP at `/`. It reads and changes the app by calling the app's actions
 through `connect<typeof app>()` (ADR-0853), or, for a protocol an action
-cannot carry, the app's own routes under `/<app>/.http/` (ADR-0945). The server routes nothing and runs
+cannot carry, the app's own `fetch`, which answers under the same address (ADR-0945). The server routes nothing and runs
 nothing for a view.
 
 ```txt
 ~/Epicenter/capture/
   epicenter.ts        its collections and actions
   ui/                 the view's source: any build, or one index.html
-  ui/dist/            the built view, served at /capture/, ignored by ui/.gitignore
+  ui/dist/            the built view, served at /apps/capture/, ignored by ui/.gitignore
   data/captures/<time>.md
 ```
 
 **A view is what `ui/` builds to, and it is always built.** `epicenter serve`
-serves `ui/dist/` at `/<app>/` and looks nowhere else. `ui/dist/` is
+serves `ui/dist/` at `/apps/<app>/` and looks nowhere else. `ui/dist/` is
 rebuildable, ignored by `ui/.gitignore`, and never committed (ADR-0854).
 
 **`ui/dist/` is what the app's own build wrote.** The app's `package.json`
@@ -47,7 +47,7 @@ build may find `ui/dist/` missing or partial; a reload after the build fixes
 it. A view routes with the hash. It refers to its own files by
 relative paths where its build can, as Bun's bundler and Vite's `base: './'`
 do. A build that cannot is told the path the view is served at:
-`epicenter` runs a `build` script with `EPICENTER_BASE=/<app>`, since the
+`epicenter` runs a `build` script with `EPICENTER_BASE=/apps/<app>`, since the
 worktree's folder name is not the app's. SvelteKit's hash router is such
 a build: its `index.html` names its assets from `paths.base` whatever
 `paths.relative` says, so the starters set `base` from `EPICENTER_BASE`. Any build that
@@ -101,7 +101,7 @@ served from somewhere other than the server passes the server's address to
   2026-01-26), and a spike on 2026-11-09 passed its whole exchange with the
   SDK's own host. Such a view opens only inside a host that renders MCP Apps,
   and claude.ai and Claude's phone apps do that only for connectors added by
-  URL; a page at `/<app>/` opens in any browser.
+  URL; a page at `/apps/<app>/` opens in any browser.
 - **One Epicenter app hosting every app's views, with a palette of actions and
   forms drawn from input schemas.** A program on every device holding a copy of
   each app (ADR-0864 deletes it).

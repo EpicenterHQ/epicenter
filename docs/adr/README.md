@@ -1142,8 +1142,8 @@ When you add an ADR, add its row here.
 | [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | An action returns one Result from its collections to its callers | Accepted (amends 0850 and 0914; amended by 0953) |
 | [0927](0927-serve-listens-only-on-this-computer.md) | `serve` listens only on this computer, and the owner's network brings other devices in | Accepted (amends 0883) |
 | [0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md) | `new` copies an app's code from a folder in Git or a folder on GitHub | Superseded by 0955 |
-| [0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) | An action call is a function call, and serve keeps nothing about it | Proposed (supersedes 0915 and 0917; amends 0879, 0883, 0914 and 0926; amended by 0953) |
-| [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Accepted (amends 0910 and 0880; amended by 0961) |
+| [0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) | An action call is a function call, and serve keeps nothing about it | Accepted (supersedes 0915 and 0917; amends 0879, 0883, 0914 and 0926; amended by 0953 and 0966) |
+| [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Accepted (amends 0910 and 0880; amended by 0961 and 0966) |
 | [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Accepted (amends 0908, 0910; amended by 0959) |
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
 | [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Accepted (amends 0870 and 0910; amended by 0963) |
@@ -1152,11 +1152,11 @@ When you add an ADR, add its row here.
 | [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Accepted (supersedes 0873; amends 0880 and 0910; amended by 0944, 0959 and 0960) |
 | [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
 | [0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) | An app builds its own UI, and serve only serves it | Proposed (amends 0904, 0910, 0911, and 0942) |
-| [0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) | An app may answer HTTP and WebSocket requests under its address | Proposed |
+| [0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) | An app may answer web requests at its address with `fetch` | Proposed |
 | [0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) | An action calls a model with plain code, and Epicenter adds no function for it | Proposed |
 | [0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) | `api.epicenter.so` is a model API, and every client reaches it with an API key | Proposed (supersedes 0549 and 0331; amends 0634) |
 | [0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) | AI credits follow what a call uses: held before it and settled after | Proposed |
-| [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |
+| [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930; amended by 0966) |
 | [0955](0955-no-command-makes-or-copies-an-app.md) | No command makes or copies an app | Proposed (supersedes 0911 and 0929; amends 0940) |
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
@@ -1168,3 +1168,4 @@ When you add an ADR, add its row here.
 | [0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md) | `local/` ignores itself, and serve refuses a `.env` that Git would commit | Proposed (amends 0939) |
 | [0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md) | A folder is on disk, and it holds a path and the calls that change files | Proposed (amends 0841 and 0844) |
 | [0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md) | The command finds its Epicenter by walking up, and serve starts in its folder | Proposed |
+| [0966](0966-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) | Serve keeps action calls outside an app's address, which is `/apps/<app>/` | Proposed (amends 0930, 0936 and 0953) |
