@@ -10,6 +10,8 @@
  *   text shows once the write settles
  * - The folder's writes run one at a time, in the order made
  * - A read that a write overtakes never shows older data than the write
+ * - The connections and the shortcut hear a change to `settings.md` once
+ *   it is set, and read the new values
  */
 import { afterEach, expect, test } from 'bun:test';
 import { focusManager } from '@tanstack/query-core';
@@ -226,4 +228,39 @@ test('a read that a finished write overtakes never shows older data than the wri
 	late.open();
 	await Bun.sleep(10);
 	expect(titleOf(page, ID)).toBe('Renamed');
+});
+
+test('the connections and the shortcut hear a set of settings.md, and read the new values', async () => {
+	const page = await open(
+		memoryFiles({ 'settings.md': encode('---\nshortcut: "Alt+Space"\n---\n') }),
+	);
+	const { connections, shortcut } = page.query.settings;
+	let heard = { connections: 0, shortcut: 0 };
+	cleanups.push(
+		connections.subscribe(() => heard.connections++),
+		shortcut.subscribe(() => heard.shortcut++),
+	);
+	expect(shortcut.get()).toBe('Alt+Space');
+	expect(connections.list()).toEqual([]);
+
+	expectOk(await shortcut.set('Alt+R'));
+	expect(heard).toEqual({ connections: 1, shortcut: 1 });
+	expect(shortcut.get()).toBe('Alt+R');
+
+	const openai = {
+		id: 'openai',
+		name: 'OpenAI',
+		baseUrl: 'https://api.openai.com/v1',
+		models: ['whisper-1'],
+	};
+	await connections.save([openai]);
+	expect(heard).toEqual({ connections: 2, shortcut: 2 });
+	expect(connections.list()).toEqual([openai]);
+	expect(shortcut.get()).toBe('Alt+R');
+
+	// A set that changes nothing they read is heard by neither.
+	heard = { connections: 0, shortcut: 0 };
+	await page.query.reread();
+	await Bun.sleep(10);
+	expect(heard).toEqual({ connections: 0, shortcut: 0 });
 });

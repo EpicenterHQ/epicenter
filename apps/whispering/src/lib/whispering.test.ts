@@ -317,6 +317,7 @@ test('files that cannot be listed at all say why the folder did not open', async
 	cleanups.push(page.close);
 
 	expect(page.first.error?.message).toContain(reason);
+	expect(page.firstSettings.error?.message).toContain(reason);
 });
 
 test('on the desktop, a cut-off recording that cannot be completed is said, and its audio lists', async () => {

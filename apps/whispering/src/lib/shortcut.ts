@@ -18,7 +18,7 @@
  */
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { extractErrorMessage } from 'wellcrafted/error';
-import type { Settings } from './folder-query.js';
+import type { ShortcutSettings } from './folder-query.js';
 
 /**
  * The global shortcut: the key `settings.md` names and the shell's hold on
@@ -136,7 +136,7 @@ function hold(accelerator: string): Promise<string | null> {
  * is asked to hold it; `holdNow` asks once the settings were first read.
  */
 export function openShortcut(
-	settings: Pick<Settings, 'shortcut' | 'setShortcut' | 'subscribe'>,
+	settings: ShortcutSettings,
 ): (GlobalShortcut & { holdNow(): void }) | null {
 	if (!isTauri()) return null;
 	/** The last key the shell was asked to hold, and its answer once it came. */
@@ -148,7 +148,7 @@ export function openShortcut(
 	/** Ask the shell to hold the key when it changed. */
 	function holdKey() {
 		if (!started) return;
-		const key = settings.shortcut();
+		const key = settings.get();
 		if (key === asked) return;
 		asked = key;
 		void hold(key).then((problem) => {
@@ -174,10 +174,9 @@ export function openShortcut(
 			started = true;
 			holdKey();
 		},
-		accelerator: () => settings.shortcut(),
-		label: () => labelOf(settings.shortcut()),
-		problem: () =>
-			held?.accelerator === settings.shortcut() ? held.problem : null,
+		accelerator: () => settings.get(),
+		label: () => labelOf(settings.get()),
+		problem: () => (held?.accelerator === settings.get() ? held.problem : null),
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			return () => void listeners.delete(listener);
@@ -194,13 +193,13 @@ export function openShortcut(
 				return 'Type a shortcut, such as CommandOrControl+Shift+;.';
 			const refused = await hold(key);
 			if (refused !== null) {
-				void hold(settings.shortcut());
+				void hold(settings.get());
 				return refused;
 			}
 			// Held now, so the change `settings.md` reports asks the shell nothing more.
 			asked = key;
 			held = { accelerator: key, problem: null };
-			const saved = await settings.setShortcut(key);
+			const saved = await settings.set(key);
 			if (saved.error !== null) {
 				asked = undefined;
 				holdKey();

@@ -20,7 +20,11 @@ export async function createTestWhispering({
 	const { follow, rooted } = await import('./follow.test-support.svelte.js');
 	// The app's pages render once the folder was read.
 	const page = await openPage(files);
-	const whispering = createWhispering({ query: page.query, ...services });
+	// Each is made inside an effect root, as a component's script makes it.
+	const madeWhispering = rooted(() =>
+		createWhispering({ query: page.query, ...services }),
+	);
+	const whispering = madeWhispering.value;
 	const made = rooted(() => createLibrary({ whispering, query: page.query }));
 	const library = made.value;
 	const followed = follow(() => [
@@ -42,6 +46,7 @@ export async function createTestWhispering({
 			library.dispose();
 			made.stop();
 			whispering.dispose();
+			madeWhispering.stop();
 			page.close();
 		},
 	};

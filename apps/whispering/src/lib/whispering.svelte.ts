@@ -23,11 +23,12 @@
  * answers and returns. A recording under way ends with the page.
  */
 import type { Ai, ModelChoice } from '@epicenter/ai';
+import { createQuery } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
 import { runMutation } from 'wellcrafted/query';
 import type { Result } from 'wellcrafted/result';
 import type { Capture, CaptureDevice } from './capture.js';
-import type { FolderQuery, Settings } from './folder-query.js';
+import type { FolderQuery } from './folder-query.js';
 import { timeId } from './format/ids.js';
 import {
 	type Audio,
@@ -38,6 +39,7 @@ import {
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { MicrophonePreferences } from './microphone-preference.js';
 import { reactive } from './reactive.js';
+import { chosenIn, NO_SETTINGS } from './settings.js';
 
 /** What a model is chosen for: transcribing a recording. */
 export type Operation = 'transcription';
@@ -70,12 +72,17 @@ function defaultTitle(at: Date): string {
 
 /** What Whispering is made over: the capabilities `src/lib/app.ts` opened, or a test's. */
 export type WhisperingCapabilities = {
-	/** Whispering's folder as the page's client writes it: every recording's note goes through it. */
-	readonly query: Pick<FolderQuery, 'queryClient' | 'noteMutations' | 'reread'>;
+	/** Whispering's folder as the page's client reads and writes it: every recording's note, and `settings.md`, go through it. */
+	readonly query: Pick<
+		FolderQuery,
+		| 'queryClient'
+		| 'noteMutations'
+		| 'reread'
+		| 'settingsQueries'
+		| 'settingsMutations'
+	>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
-	/** The model chosen for each job, in `settings.md`. */
-	readonly choices: Settings['choices'];
 	/** What records each recording into `folder`. */
 	readonly capture: CaptureDevice;
 	/**
@@ -99,14 +106,18 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
 	const ai = reactive(capabilities.ai);
-	/** The model chosen for each job, in `settings.md` as the folder query last read it. */
-	const { choices } = capabilities;
+	/** `settings.md` as its query last read it: the model chosen for each job. */
+	const settingsRead = createQuery(
+		() => query.settingsQueries.get(),
+		() => query.queryClient,
+	);
+	const settings = () => settingsRead.data ?? NO_SETTINGS;
 	/** Why the saved connections do not read, naming the file, if they do not; tracks in Svelte. */
 	const connectionsProblem = () => ai.custom()?.problem()?.message;
 
 	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
 	function chosen(operation: Operation): Chosen {
-		const decided = choices.require(CAN[operation]);
+		const decided = chosenIn(settings(), CAN[operation]);
 		if (decided.error?.name === 'Invalid')
 			return { kind: 'unset', reason: decided.error.message };
 		const choice = decided.data;
@@ -142,7 +153,17 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	): Promise<string | undefined> {
 		const why = refused();
 		if (why !== undefined) return why;
-		const saved = await choices.set(CAN[operation], choice);
+		const job = CAN[operation];
+		const saved = await runMutation(
+			query.queryClient,
+			query.settingsMutations.set,
+			{
+				models: {
+					...settings().fields.models,
+					[job]: { endpoint: choice.endpoint, model: choice.model },
+				},
+			},
+		);
 		return saved.error?.message;
 	}
 
@@ -279,7 +300,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		ai,
 		/** The model chosen for `operation`, or null when none is. */
 		choice(operation: Operation): ModelChoice | null {
-			return choices.get(CAN[operation]);
+			return chosenIn(settings(), CAN[operation]).data ?? null;
 		},
 		choose,
 		chosen,

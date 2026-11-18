@@ -18,7 +18,7 @@
 import { customEndpoints, openAi } from '@epicenter/ai';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
 import { QueryObserver } from '@tanstack/query-core';
-import { runQuery } from 'wellcrafted/query';
+import { runMutation, runQuery } from 'wellcrafted/query';
 import { Ok, type Result } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
 import type { CaptureDevice } from './capture.js';
@@ -161,25 +161,32 @@ const refused = (message: string) =>
 
 /**
  * Whispering's folder and the page's query client over `files`, with the
- * folder query observed and read once, as the app's layout observes it
- * before the pages render. `close` stops observing and empties the cache.
+ * folder and settings queries observed and read once, as the app's layout
+ * observes them before the pages render. `close` stops observing and
+ * empties the cache.
  */
 export async function openPage(files: Files) {
 	const folder = openFolder(files);
 	const query = createFolderQuery(folder);
-	const observer = new QueryObserver(
-		query.queryClient,
-		query.folderQueries.read(),
-	);
-	const unobserve = observer.subscribe(() => {});
+	const observers = [
+		new QueryObserver(query.queryClient, query.folderQueries.read()),
+		new QueryObserver(query.queryClient, query.settingsQueries.get()),
+	];
+	const unobserve = observers.map((observer) => observer.subscribe(() => {}));
 	const first = await runQuery(query.queryClient, query.folderQueries.read());
+	const firstSettings = await runQuery(
+		query.queryClient,
+		query.settingsQueries.get(),
+	);
 	return {
 		folder,
 		query,
-		/** What the first read answered. */
+		/** What the first read of the notes and audio answered. */
 		first,
+		/** What the first read of `settings.md` answered. */
+		firstSettings,
 		close() {
-			unobserve();
+			for (const stop of unobserve) stop();
 			query.queryClient.clear();
 		},
 	};
@@ -295,7 +302,7 @@ export async function openTestServices({
 	const { files, outside } = testFiles();
 	// The settings as the app reads them: its folder's `settings.md`.
 	const page = await openPage(files);
-	const { settings } = page.query;
+	const { settings, queryClient, settingsMutations } = page.query;
 
 	const transcribed: TranscribedRequest[] = [];
 
@@ -342,10 +349,10 @@ export async function openTestServices({
 		baseUrl: TEST_BASE_URL,
 		models: [TEST_MODELS.transcription],
 	});
-	const { choices } = settings;
-	const chosen = await choices.set('transcribe', {
-		endpoint: connectionId,
-		model: TEST_MODELS.transcription,
+	const chosen = await runMutation(queryClient, settingsMutations.set, {
+		models: {
+			transcribe: { endpoint: connectionId, model: TEST_MODELS.transcription },
+		},
 	});
 	if (chosen.error !== null) throw chosen.error;
 
@@ -356,7 +363,6 @@ export async function openTestServices({
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
 		ai: openAi([connections]),
-		choices,
 		preferences: {
 			microphone: () => undefined,
 			setMicrophone: async () => undefined,
@@ -374,9 +380,7 @@ export async function openTestServices({
 		/** The saved connections, and the id of the one the stub answers. */
 		connections,
 		connectionId,
-		/** The model choices, in `settings.md`. */
-		choices,
-		/** Stop following `settings.md`. */
+		/** Stop following the folder and `settings.md`. */
 		close: page.close,
 	};
 }

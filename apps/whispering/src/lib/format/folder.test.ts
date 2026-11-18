@@ -148,7 +148,7 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 		}),
 	);
 	expectOk(
-		await settings.setConnections({
+		await settings.set({
 			connections: [
 				{
 					id: 'openai',
@@ -161,16 +161,11 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 		}),
 	);
 	expectOk(
-		await settings.setChoice({
-			job: 'transcribe',
-			choice: { endpoint: 'openai', model: 'whisper-1' },
+		await settings.set({
+			models: { transcribe: { endpoint: 'openai', model: 'whisper-1' } },
 		}),
 	);
-	expectOk(
-		await settings.setShortcut({
-			key: 'CommandOrControl+Shift+K',
-		}),
-	);
+	expectOk(await settings.set({ shortcut: 'CommandOrControl+Shift+K' }));
 
 	const paths = outside.paths();
 	expect(paths).toHaveLength(4);

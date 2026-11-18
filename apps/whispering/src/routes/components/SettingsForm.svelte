@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Separator } from '@epicenter/ui/separator';
-	import { settings, shortcut, speech } from '$lib/app.js';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { query, shortcut, speech } from '$lib/app.js';
 	import FolderSettings from '$lib/components/FolderSettings.svelte';
 	import ShortcutSettings from '$lib/components/ShortcutSettings.svelte';
 	import SpeechSettings from '$lib/components/SpeechSettings.svelte';
@@ -19,6 +20,9 @@
 	let { only }: { only?: Operation } = $props();
 
 	const operations = $derived<Operation[]>(only ? [only] : ['transcription']);
+	/** `settings.md` as its query last read it. */
+	const settings = createQuery(() => query.settingsQueries.get());
+	const problem = $derived(settings.data?.problem);
 </script>
 
 <div class="flex flex-col gap-4 text-sm">
@@ -27,9 +31,9 @@
 		{#if speech}<SpeechSettings {speech} /><Separator />{/if}
 		{#if shortcut}<ShortcutSettings {shortcut} /><Separator />{/if}
 	{/if}
-	{#if settings.problem()}
+	{#if problem}
 		<p class="text-xs text-destructive" role="alert" data-testid="settings-problem">
-			settings.md does not read ({settings.problem()}), so no model or connection in it is used. Choosing a model or saving a connection replaces it.
+			settings.md does not read ({problem}), so no model or connection in it is used. Choosing a model or saving a connection replaces it.
 		</p>
 	{/if}
 	{#each operations as operation, index (operation)}

@@ -146,17 +146,105 @@ const idOf = (name: string) =>
 const pathOf = (collection: NoteName, id: string) =>
 	`${NOTES[collection].dir}/${id}.md`;
 
+/** Write `text` at `path`, or remove the file when `text` is null. */
+async function writeText(
+	files: Files,
+	path: string,
+	text: string | null,
+): Promise<Result<undefined, FilesError>> {
+	const done =
+		text === null
+			? await files.remove(path)
+			: await files.write(path, encode(text));
+	if (done.error !== null) return Err(done.error);
+	return Ok(undefined);
+}
+
+/** What one note's file holds now: nothing, a note that reads, or one that does not. */
+export type NoteFile<F> =
+	| { readonly kind: 'none' }
+	| { readonly kind: 'note'; readonly fields: F; readonly body: string }
+	| {
+			readonly kind: 'invalid';
+			readonly text: string | null;
+			readonly issues: readonly NoteIssue[];
+	  };
+
+/**
+ * One Markdown file with declared `fields` at `path`: a note, or
+ * `settings.md`. `get` reads it. `set` changes the fields it names
+ * (`undefined` removes one) over the file as it is now, so every other
+ * line stays, and makes the file when none is there. A `body` replaces the
+ * body only while it is still the body seen, and is refused otherwise.
+ *
+ * `invalid` says what `set` does with a file that does not read:
+ * - `refuse` (a note, which holds what the person wrote): front matter
+ *   that does not parse is `NoteError.Unreadable`, and front matter that
+ *   parses takes the change even when a field does not fit.
+ * - `replace` (`settings.md`, which holds only choices): the file is
+ *   replaced by one holding the fields given.
+ */
+export function noteAt<T extends TObject>(
+	files: Files,
+	path: string,
+	fields: T,
+) {
+	const order = fieldNamesOf(fields);
+	return {
+		async get(): Promise<Result<NoteFile<Static<T>>, FilesError>> {
+			const read = await files.read(path);
+			if (read.error !== null) return Err(read.error);
+			if (read.data === null) return Ok({ kind: 'none' });
+			const note = readNote(fields, read.data);
+			if (note.kind === 'invalid') return Ok(note);
+			return Ok({
+				kind: 'note',
+				fields: note.fields as Static<T>,
+				body: note.body,
+			});
+		},
+		async set({
+			fields: patch = {},
+			body,
+			invalid,
+		}: {
+			fields?: Partial<Static<T>>;
+			body?: BodyChange;
+			invalid: 'refuse' | 'replace';
+		}): Promise<Result<undefined, NoteWriteError>> {
+			const read = await files.read(path);
+			if (read.error !== null) return Err(read.error);
+			const named = patch as Record<string, unknown>;
+			const fresh = () =>
+				writeText(files, path, newNote(named, body?.text ?? '', order));
+			if (read.data === null) {
+				if (body !== undefined && body.seen !== null)
+					return NoteError.Changed({ path });
+				return fresh();
+			}
+			if (
+				invalid === 'replace' &&
+				readNote(fields, read.data).kind === 'invalid'
+			)
+				return fresh();
+			const text = textOf(read.data);
+			if (text === null)
+				return NoteError.Unreadable({
+					path,
+					reason: 'The note is not UTF-8 text',
+				});
+			const parsed = parseNote(text);
+			if (parsed.error !== null)
+				return NoteError.Unreadable({ path, reason: parsed.error.reason });
+			if (body !== undefined && parsed.data.body !== body.seen)
+				return NoteError.Changed({ path });
+			return writeText(files, path, changeNote(text, named, body?.text));
+		},
+	};
+}
+
 /** Every kind's notes over `files`. */
 export function createNotes(files: Files) {
-	async function write(path: string, text: string | null) {
-		const done =
-			text === null
-				? await files.remove(path)
-				: await files.write(path, encode(text));
-		if (done.error !== null) return Err(done.error);
-		return Ok(undefined);
-	}
-
 	return {
 		/**
 		 * List `collection`'s directory and read every note in it, in one
@@ -197,12 +285,12 @@ export function createNotes(files: Files) {
 		 * Give note `id` of `collection` `fields` (`undefined` removes one),
 		 * over the file as it is now; the rest stay. `body` replaces its body
 		 * when that is still the body seen, and is refused otherwise. The note
-		 * is made when none is there.
+		 * is made when none is there (`noteAt`).
 		 */
-		async set<K extends NoteName>({
+		set<K extends NoteName>({
 			collection,
 			id,
-			fields = {},
+			fields,
 			body,
 		}: {
 			collection: K;
@@ -210,31 +298,15 @@ export function createNotes(files: Files) {
 			fields?: FieldPatch<Collections[K]>;
 			body?: BodyChange;
 		}): Promise<Result<undefined, NoteWriteError>> {
-			const path = pathOf(collection, id);
-			const read = await files.read(path);
-			if (read.error !== null) return Err(read.error);
-			const named = fields as Record<string, unknown>;
-			if (read.data === null) {
-				if (body !== undefined && body.seen !== null)
-					return NoteError.Changed({ path });
-				return write(
-					path,
-					newNote(named, body?.text ?? '', fieldNamesFor(collection)),
-				);
-			}
-			// A note whose fields do not fit still reads, and takes the change.
-			const text = textOf(read.data);
-			if (text === null)
-				return NoteError.Unreadable({
-					path,
-					reason: 'The note is not UTF-8 text',
-				});
-			const parsed = parseNote(text);
-			if (parsed.error !== null)
-				return NoteError.Unreadable({ path, reason: parsed.error.reason });
-			if (body !== undefined && parsed.data.body !== body.seen)
-				return NoteError.Changed({ path });
-			return write(path, changeNote(text, named, body?.text));
+			return noteAt(
+				files,
+				pathOf(collection, id),
+				NOTES[collection].fields,
+			).set({
+				fields: fields as Partial<Static<TObject>>,
+				body,
+				invalid: 'refuse',
+			});
 		},
 		/**
 		 * Write `text` as note `id`, as typed: a repair. Refused when the file
@@ -257,7 +329,7 @@ export function createNotes(files: Files) {
 			if (read.error !== null) return Err(read.error);
 			if (read.data === null || textOf(read.data) !== seen)
 				return NoteError.Changed({ path });
-			return write(path, text);
+			return writeText(files, path, text);
 		},
 		/** Remove note `id` of `collection`. One already gone is gone. */
 		async delete({
@@ -267,7 +339,7 @@ export function createNotes(files: Files) {
 			collection: NoteName;
 			id: string;
 		}): Promise<Result<undefined, FilesError>> {
-			return write(pathOf(collection, id), null);
+			return writeText(files, pathOf(collection, id), null);
 		},
 	};
 }

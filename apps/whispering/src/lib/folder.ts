@@ -5,10 +5,11 @@
  * memory in tests). Nothing here knows which, and nothing here is Svelte:
  * the query layer (`folder-query.ts`) reads it and the pages observe that.
  *
- * `read()` answers the whole folder as one snapshot: each kind's notes
- * (`notes.ts`), the recordings' audio, and the settings. Every write
- * answers a `Result`, and a note is never replaced when it changed since it
- * was read.
+ * `read()` answers the folder's recordings as one snapshot: each kind's
+ * notes (`notes.ts`) and the recordings' audio. `settings.md` is its own
+ * service (`settings.ts`), read on its own. Every write answers a
+ * `Result`, and a note is never replaced when it changed since it was
+ * read.
  *
  * A recording is its id, found from its note or its audio: audio with no
  * note lists as an untitled recording dated from its id, and a note with no
@@ -26,11 +27,7 @@ import {
 	type NoteOf,
 	type NoteWriteError,
 } from './notes.js';
-import {
-	createSettings,
-	NO_SETTINGS,
-	type SettingsSnapshot,
-} from './settings.js';
+import { createSettings } from './settings.js';
 
 type Collections = typeof NOTES;
 
@@ -93,13 +90,12 @@ export type AudioBytes = {
 	readonly mimeType: string;
 };
 
-/** The whole folder as one read answered it. */
+/** The folder's notes and audio as one read answered them. */
 export type FolderSnapshot = {
 	readonly [K in NoteName]: NoteListing<Collections[K]>;
 } & {
 	/** Every audio file in `recordings/`. */
 	readonly audio: readonly AudioFile[];
-	readonly settings: SettingsSnapshot;
 };
 
 const NO_NOTES = { items: [], invalid: [] } as const;
@@ -109,7 +105,6 @@ export const EMPTY_FOLDER: FolderSnapshot = {
 	recordings: NO_NOTES,
 	transcriptions: NO_NOTES,
 	audio: [],
-	settings: NO_SETTINGS,
 };
 
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -204,21 +199,19 @@ export function openFolder(files: Files) {
 		notes,
 		/** `settings.md`. */
 		settings,
-		/** Read the whole folder: every kind's notes, the audio, and `settings.md`. */
+		/** Read every kind's notes and the audio. */
 		async read(): Promise<Result<FolderSnapshot, FilesError>> {
 			const listed = await files.list(RECORDINGS);
 			if (listed.error !== null) return Err(listed.error);
-			const [recordings, transcriptions, read] = await Promise.all([
+			const [recordings, transcriptions] = await Promise.all([
 				notes.list('recordings', listed.data),
 				notes.list('transcriptions'),
-				settings.read(),
 			]);
-			for (const result of [recordings, transcriptions, read])
-				if (result.error !== null) return Err(result.error);
+			if (recordings.error !== null) return Err(recordings.error);
+			if (transcriptions.error !== null) return Err(transcriptions.error);
 			return Ok({
-				recordings: recordings.data!,
-				transcriptions: transcriptions.data!,
-				settings: read.data!,
+				recordings: recordings.data,
+				transcriptions: transcriptions.data,
 				audio: listed.data.flatMap((entry) => audioFileOf(entry) ?? []),
 			});
 		},

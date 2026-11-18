@@ -5,23 +5,19 @@
  * browser ignores. It moves and exports with the recordings; Whispering
  * alone reads and writes it.
  *
- * `read()` reads it; the query layer reads it with the rest of the folder.
- * Nothing is kept between calls. A change reads the file first and
- * rewrites only the lines of the keys it changes, so what another program
- * wrote to the other keys stays. A `settings.md` that does not read is
- * named (`problem`), its values are not used, and saving a setting
- * replaces it.
+ * `get()` reads it; `set(patch)` rewrites only the lines of the keys it
+ * names over the file as it is now, so what another program wrote to the
+ * other keys and the body stays (`noteAt`). Nothing is kept between calls.
+ * A `settings.md` that does not read is named (`problem`), its values are
+ * not used, and the next `set` replaces it.
  */
 import type { ConnectionRecord, ModelChoice } from '@epicenter/ai';
 import type { Static } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { decode, encode, type Files, type FilesError } from './files/files.js';
-import { fieldNamesOf, SETTINGS } from './format/folder.js';
-import { changeNote, newNote } from './format/note.js';
-import { readNote } from './notes.js';
-
-const SETTINGS_PATH = SETTINGS.path;
+import type { Files, FilesError } from './files/files.js';
+import { SETTINGS } from './format/folder.js';
+import { noteAt } from './notes.js';
 
 /** The jobs a model is chosen for. */
 export type Job = 'transcribe';
@@ -48,42 +44,14 @@ export type ChoiceError = InferErrors<typeof ChoiceError>;
 
 /** `settings.md` as read. */
 export type SettingsSnapshot = {
-	/** Its front matter, when it reads; empty when there is no file. */
-	readonly fields: SettingsFields | null;
-	/** Its body, kept as it is. */
-	readonly body: string;
+	/** Its front matter; empty when there is no file, or it does not read. */
+	readonly fields: SettingsFields;
 	/** Why it does not read, or null. */
 	readonly problem: string | null;
-	/** The file's text as read; null when there is no file. */
-	readonly text: string | null;
 };
 
 /** The settings when there is no `settings.md`. */
-export const NO_SETTINGS: SettingsSnapshot = {
-	fields: {},
-	body: '',
-	problem: null,
-	text: null,
-};
-
-function snapshotOf(bytes: Uint8Array | null): SettingsSnapshot {
-	if (bytes === null) return NO_SETTINGS;
-	const text = decode(bytes);
-	const read = readNote(SETTINGS.fields, bytes);
-	if (read.kind === 'note')
-		return {
-			fields: read.fields as SettingsFields,
-			body: read.body,
-			problem: null,
-			text,
-		};
-	return {
-		fields: null,
-		body: '',
-		problem: read.issues.map(({ message }) => message).join('; '),
-		text,
-	};
-}
+export const NO_SETTINGS: SettingsSnapshot = { fields: {}, problem: null };
 
 /** The choice for `job` in `settings`, or why there is none. */
 export function chosenIn(
@@ -92,86 +60,43 @@ export function chosenIn(
 ): Result<ModelChoice, ChoiceError> {
 	if (settings.problem !== null)
 		return ChoiceError.Invalid({ reason: settings.problem });
-	const choice = settings.fields?.models?.[job];
+	const choice = settings.fields.models?.[job];
 	if (choice === undefined) return ChoiceError.NoChoice({ job });
 	return Ok({ endpoint: choice.endpoint, model: choice.model });
 }
 
 /** The global shortcut `settings` names, in the global-shortcut plugin's spelling. */
 export const shortcutIn = (settings: SettingsSnapshot): string =>
-	settings.fields?.shortcut ?? DEFAULT_SHORTCUT;
+	settings.fields.shortcut ?? DEFAULT_SHORTCUT;
 
 /** The connections `settings` holds, as `@epicenter/ai` keeps them. */
 export const connectionsIn = (
 	settings: SettingsSnapshot,
 ): readonly ConnectionRecord[] =>
-	(settings.fields?.connections ?? []) as readonly ConnectionRecord[];
+	(settings.fields.connections ?? []) as readonly ConnectionRecord[];
 
 /** `settings.md` in `files`. */
 export function createSettings(files: Files) {
-	const fieldNames = fieldNamesOf(SETTINGS.fields);
-
-	/** Change the settings with `change`, over what `settings.md` holds now. */
-	async function update(
-		change: (now: SettingsFields) => SettingsFields,
-	): Promise<Result<undefined, FilesError>> {
-		const read = await files.read(SETTINGS_PATH);
-		if (read.error !== null) return Err(read.error);
-		const now = snapshotOf(read.data);
-		const before: Record<string, unknown> = now.fields ?? {};
-		const after: Record<string, unknown> = change(now.fields ?? {});
-		// Only the lines of the keys that changed are rewritten; one that
-		// does not read is replaced whole.
-		const text =
-			now.text !== null && now.problem === null
-				? changeNote(
-						now.text,
-						{
-							...Object.fromEntries(
-								Object.keys(before).map((key) => [key, undefined]),
-							),
-							...after,
-						},
-						undefined,
-					)
-				: newNote(after, now.body, fieldNames);
-		const bytes = encode(text);
-		const written = await files.write(SETTINGS_PATH, bytes);
-		if (written.error !== null) return Err(written.error);
-		return Ok(undefined);
-	}
-
+	const file = noteAt(files, SETTINGS.path, SETTINGS.fields);
 	return {
 		/** Read `settings.md`. */
-		async read(): Promise<Result<SettingsSnapshot, FilesError>> {
-			const read = await files.read(SETTINGS_PATH);
+		async get(): Promise<Result<SettingsSnapshot, FilesError>> {
+			const read = await file.get();
 			if (read.error !== null) return Err(read.error);
-			return Ok(snapshotOf(read.data));
+			const now = read.data;
+			if (now.kind === 'none') return Ok(NO_SETTINGS);
+			if (now.kind === 'note') return Ok({ fields: now.fields, problem: null });
+			return Ok({
+				fields: {},
+				problem: now.issues.map(({ message }) => message).join('; '),
+			});
 		},
-		/** Choose `choice` for `job`; replaces a `settings.md` that does not read. */
-		setChoice({ job, choice }: { job: Job; choice: ModelChoice }) {
-			return update((now) => ({
-				...now,
-				models: {
-					...now.models,
-					[job]: { endpoint: choice.endpoint, model: choice.model },
-				},
-			}));
-		},
-		/** Keep `connections` as the person's connections. */
-		setConnections({
-			connections,
-		}: {
-			connections: readonly ConnectionRecord[];
-		}) {
-			return update((now) => ({
-				...now,
-				connections: connections.map((record) => ({ ...record })),
-			}));
-		},
-		/** Make `key` the global shortcut. */
-		setShortcut({ key }: { key: string }) {
-			return update((now) => ({ ...now, shortcut: key }));
-		},
+		/**
+		 * Give the keys `patch` names these values (`undefined` removes one),
+		 * over `settings.md` as it is now; a `settings.md` that does not read
+		 * is replaced by one holding `patch`.
+		 */
+		set: (patch: Partial<SettingsFields>) =>
+			file.set({ fields: patch, invalid: 'replace' }),
 	};
 }

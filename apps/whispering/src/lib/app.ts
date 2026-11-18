@@ -8,11 +8,10 @@
  *   the person moved it, `folderPath`), and the Origin Private File System's
  *   `data/` in a browser. It holds the notes, the audio and `settings.md`.
  * - `query` is the page's one `QueryClient` over it (`folder-query.ts`):
- *   the folder as one query, read before the app renders and whenever the
- *   window regains focus, and every write as a mutation.
- * - `settings` is `settings.md` as components read it: the query's
- *   settings, tracked in Svelte (`reactive`). Code that is not a
- *   component reads `query.settings`.
+ *   the notes and audio as one query and `settings.md` as another, both
+ *   read before the app renders and whenever the window regains focus, and
+ *   every write as a mutation. Components read `settings.md` through its
+ *   query; the connections and the shortcut through `query.settings`.
  * - `ai` is every model this page reaches (ADR-0757), in the order the
  *   model picker lists them: the person's connections (`settings.md`, each
  *   key a secret on this computer), Ollama and LM Studio on this computer,
@@ -73,7 +72,6 @@ const audioFiles: AudioFiles = {
 
 export const folder = openFolder(files);
 export const query = createFolderQuery(folder);
-export const settings = reactive(query.settings);
 
 // The folder is read again when the window regains focus. A desktop window
 // keeps its page visible while another app is in front, so the window's own
@@ -118,7 +116,7 @@ export const recorder = createMicrophoneDevice({
 	files: audioFiles,
 	recorder: microphone,
 });
-const held = openShortcut(query.settings);
+const held = openShortcut(query.settings.shortcut);
 export const shortcut = held && reactive(held);
 /** Start holding the global shortcut, once the folder was first read. */
 export const holdShortcut = () => held?.holdNow();

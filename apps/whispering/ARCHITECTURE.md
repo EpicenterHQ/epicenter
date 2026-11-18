@@ -90,12 +90,20 @@ Svelte.
   `replace({ collection, id, seen, text })` writes text as typed, for
   repair, refused the same way when the file is no longer `seen`.
   `delete({ collection, id })` removes it.
+- `noteAt(files, path, fields)` (`notes.ts`) is one Markdown file with
+  declared fields: `get()` reads it, and `set({ fields, body, invalid })`
+  is the field change both a note and `settings.md` make. `invalid` says
+  what a file that does not read gets: a note refuses
+  (`NoteError.Unreadable`), and `settings.md` is replaced.
 - `createSettings` (`settings.ts`) is `settings.md`: the transcription
-  model, the connections (never a key), and the shortcut. A change rewrites
-  only its key's line over the file as it is now. A `settings.md` that does
-  not read is named in Settings and replaced by the next save.
-- `openFolder` (`folder.ts`) reads the whole folder as one snapshot: the
-  two collections, the settings, and the audio in `recordings/`. A
+  model, the connections (never a key), and the shortcut. `get()` answers
+  `{ fields, problem }`; `set(patch)` rewrites only the patched keys' lines
+  over the file as it is now (`noteAt`). A `settings.md` that does not read
+  is named in Settings, none of its values are used, and the next `set`
+  replaces it. `chosenIn`, `shortcutIn` and `connectionsIn` read a value
+  from what `get()` answered.
+- `openFolder` (`folder.ts`) reads the folder's notes and audio as one
+  snapshot: the two collections and the audio in `recordings/`. A
   recording is its id: `unnotedOf` lists audio no note names as an
   untitled recording dated from its id, and `audioOf` answers `here`,
   `ambiguous` (more than one extension), or `absent`.
@@ -103,19 +111,25 @@ Svelte.
 `createFolderQuery` (`folder-query.ts`) is the page's one TanStack
 `QueryClient` over the folder:
 
-- The folder is one query. It never goes stale by time: after every write,
-  finished or failed, one `MutationCache` rule marks it stale, and the
-  write stays pending until the folder on screen was read again. A read
-  that a write overtakes is cancelled, so the folder shown is never older
-  than a finished write. It is read again when the window regains focus,
-  since another program may write the folder.
-- Every write is a mutation: `noteMutations`, `audioMutations` and the
-  settings' are the services' functions through `resultMutations`, with
-  nothing added. They share one `scope` (a default by key prefix), so the
-  folder's writes run one at a time in the order made.
-- `settings` reads `settings.md` from the query's answer for code that is
-  not a component (the connections `ai` merges, the shortcut, the model
-  choices), says when it changes, and writes through the client.
+- The notes and audio are one query (`folderQueries.read`), and
+  `settings.md` is another (`settingsQueries.get`). Neither goes stale by
+  time: after every write, finished or failed, one `MutationCache` rule
+  marks every query stale, and the write stays pending until what is on
+  screen was read again. A read that a write overtakes is cancelled, so
+  what is shown is never older than a finished write. Both are read again
+  when the window regains focus, since another program may write the
+  folder.
+- Every write is a mutation: `noteMutations`, `audioMutations` and
+  `settingsMutations.set` are the services' functions through
+  `resultMutations`, with nothing added. The notes' and audio's share one
+  `scope` (a default by key prefix), so they run one at a time in the
+  order made; `settings.md`'s have a scope of their own.
+- Components read `settings.md` through its query (`createQuery`, as
+  Whispering does for the model choices) and change it with
+  `settingsMutations.set`. `settings` is `settings.md` for the two readers
+  that are not components: `connections`, the `ConnectionStore` that `ai`
+  merges, and `shortcut` (`get`, `set`, `subscribe`). Each reads the
+  query's answer and hears it change through its own `QueryObserver`.
 
 `editNote` (`note-editor.svelte.ts`) is an editor, and Svelte state on
 purpose: what the person typed belongs to the page until it is saved.
@@ -137,9 +151,9 @@ Code imports what it uses from there, never through context.
 - `folder`: `openFolder(isTauri() ? tauriFiles(desktopFolderPath) :
   opfsFiles('data'))`. The desktop folder is the path in `localStorage`
   (`folderPath`) or `data/` in the app's local data directory.
-- `query`: `createFolderQuery(folder)`, and `settings`, its settings as
-  components read them (`reactive`). TanStack's focus is the window's own
-  focus and blur, since a desktop window stays visible behind another app.
+- `query`: `createFolderQuery(folder)`. TanStack's focus is the window's
+  own focus and blur, since a desktop window stays visible behind another
+  app.
 - `ai` and `speech`: the models (see "Models and connections").
 - `recorder`: the microphone device (see "Recording").
 - `shortcut`: the global shortcut over `settings.md`, null in a browser.
@@ -148,10 +162,11 @@ Code imports what it uses from there, never through context.
 `routes/(app)/+layout.svelte` is the app's root. It holds the Web Lock
 (`holdOneTab`): a second tab says Whispering is open in another tab and
 waits. Then it asks the browser to keep its storage
-(`navigator.storage.persist()`), reads the folder (`createQuery` over the
-folder query, enabled once the tab holds the lock), starts holding the
-shortcut, and renders `WhisperingApp` inside `QueryClientProvider`. A
-folder that cannot be read is said with Try again, and on the desktop
+(`navigator.storage.persist()`), reads the folder and `settings.md`
+(`createQuery` over each query, enabled once the tab holds the lock),
+starts holding the shortcut, and renders `WhisperingApp` inside
+`QueryClientProvider`. A folder that cannot be read is said with Try
+again, and on the desktop
 "Use the default folder" when the person picked one. It asks before the
 page is left while an editor holds unsaved typing.
 

@@ -30,16 +30,19 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
 - **Rust moves bytes; TypeScript reads notes.** Notes use the home's
   Markdown grammar from `@epicenter/app/markdown` (`src/lib/format/note.ts`).
   Do not parse a note in Rust or copy the grammar.
-- **The folder is one TanStack query; every write is a mutation.** The
+- **The folder is two TanStack queries; every write is a mutation.** The
   services (`notes.ts`, `settings.ts`, `folder.ts`) keep nothing between
-  calls; `folder-query.ts` holds the page's one `QueryClient`. The folder
-  is read before the app renders (`src/routes/(app)/+layout.svelte`), after
-  every write (one `MutationCache` rule), and when the window regains
-  focus. The services' functions are the mutations, with nothing between
-  (`resultMutations`); the folder's writes share one mutation `scope`. Do
-  not add a watcher, a second cache, or an `invalidateQueries` call after a
-  write. Typing is Svelte state (`note-editor.svelte.ts`), not a cache
-  entry; a transcription's state is its mutation's (`runs.ts`).
+  calls; `folder-query.ts` holds the page's one `QueryClient`. The notes
+  and audio are one query and `settings.md` another, each read before the
+  app renders (`src/routes/(app)/+layout.svelte`), after every write (one
+  `MutationCache` rule), and when the window regains focus. The services'
+  functions are the mutations, with nothing between (`resultMutations`);
+  the notes' and audio's writes share one mutation `scope`, and
+  `settings.md`'s have their own. Code that is not a component hears a
+  query through a `QueryObserver`. Do not add a watcher, a second cache,
+  or an `invalidateQueries` call after a write. Typing is Svelte state
+  (`note-editor.svelte.ts`), not a cache entry; a transcription's state is
+  its mutation's (`runs.ts`).
 - **Never write over what another program wrote.** A change to fields
   rewrites only their lines in the file as it is now; `settings.md` too.
   Only a write that replaces text the person typed (an editor's body, a

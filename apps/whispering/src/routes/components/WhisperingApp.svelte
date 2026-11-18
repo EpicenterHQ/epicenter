@@ -12,7 +12,7 @@
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { ai, query, recorder, settings } from '$lib/app.js';
+	import { ai, query, recorder } from '$lib/app.js';
 	import { createLibrary, setLibrary } from '$lib/library.svelte.js';
 	import { localPreferences } from '$lib/microphone-preference.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
@@ -25,7 +25,6 @@
 	const whispering = createWhispering({
 		query,
 		ai,
-		choices: settings.choices,
 		capture: recorder,
 		preferences: localPreferences,
 	});

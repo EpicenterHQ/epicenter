@@ -55,10 +55,10 @@ async function open(shortcut?: string) {
 			? {}
 			: { 'settings.md': encode(`---\nshortcut: "${shortcut}"\n---\n`) },
 	);
-	// The page reads `settings.md` with the folder, as the app's layout does.
+	// The page reads `settings.md` before it renders, as the app's layout does.
 	const page = await openPage(files);
 	cleanups.push(page.close);
-	const { settings } = page.query;
+	const settings = page.query.settings.shortcut;
 	const opened = openShortcut(settings);
 	if (opened === null) throw new Error('a Tauri window has a shortcut');
 	cleanups.push(() => opened[Symbol.dispose]());
@@ -97,7 +97,7 @@ test('saving writes settings.md once the shell holds the key, and asks it once',
 	await until(() => asked.length > 0);
 
 	expect(await shortcut.save(' Alt+R ')).toBeNull();
-	expect(settings.shortcut()).toBe('Alt+R');
+	expect(settings.get()).toBe('Alt+R');
 	expect(shortcut.accelerator()).toBe('Alt+R');
 	expect(asked).toEqual(['CommandOrControl+Shift+;', 'Alt+R']);
 	expect(shortcut.problem()).toBeNull();
@@ -171,7 +171,7 @@ test('a browser has no global shortcut, and asks the shell nothing', async () =>
 	try {
 		const page = await openPage(memoryFiles());
 		cleanups.push(page.close);
-		expect(openShortcut(page.query.settings)).toBeNull();
+		expect(openShortcut(page.query.settings.shortcut)).toBeNull();
 		expect(asked).toEqual([]);
 	} finally {
 		inTauri = true;
