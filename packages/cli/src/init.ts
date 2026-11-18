@@ -153,8 +153,7 @@ To recover, inspect, then restore selected paths:
   git restore --source=<commit> -- apps/<app>/code/    the code only
   git restore --source=<commit> -- apps/<app>/data/    the records only
 Restoring apps/<app>/ whole reverts both and deletes files newer than that
-commit. A commit made before an app's repositories were combined holds only
-one of code/ or data/, so restoring apps/<app>/ from it deletes the other.
+commit.
 
 An app is code/, data/ and local/. What is in apps/<app>/local/ stays on this
 computer: the line /apps/*/local/ in .gitignore keeps it out of every commit,

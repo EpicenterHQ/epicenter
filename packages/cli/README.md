@@ -34,7 +34,8 @@ nested repositories.
 {
   "private": true,
   "workspaces": ["apps/*/code"],
-  "dependencies": { "@epicenter/cli": "0.5.0", "@epicenter/app": "0.5.0" }
+  "scripts": { "build": "bun run --filter '*' --if-present build" },
+  "dependencies": { "@epicenter/cli": "0.6.0", "@epicenter/app": "0.6.0" }
 }
 ```
 
@@ -53,7 +54,7 @@ copy of it, and the version a home runs is a line in a file in Git.
   app itself imports. It never lists `@epicenter/app`, which comes from the
   home. Add a package with `bun add <package>` in `code/`.
 - `bun install` at the top of the home installs every app's packages and
-  Epicenter. `init` and `new` run it for you. Epicenter has no install
+  Epicenter. `init` runs it once; `new` prints it. Epicenter has no install
   command, and calls and listings never install.
 - Restart `serve` after changing packages: stop `epicenter serve` and start
   it again. An edit to an app's own files
@@ -82,10 +83,11 @@ apps/notes resolves @epicenter/app at <path>, and epicenter runs <other path>; r
 
 This happens when an app's folder has a `node_modules/@epicenter/app` of its
 own, when the home's two dependencies name different versions, or when the
-command that ran is not the home's own. An entry in `apps/` that is a link to
-code outside the home is also refused: Bun finds packages from where a file
-really is, so that code does not find the home's install. Keep an app's code
-inside the home.
+command that ran is not the home's own. An entry in `apps/` may be a link; Epicenter
+treats it as the folder it leads to. Bun finds packages from where a file
+really is, so a link to code outside the home finds no `@epicenter/app`, and
+the problem names the folder it looked from. Keep an app's code inside the
+home.
 
 ## Install and try a writing inbox
 
@@ -274,19 +276,19 @@ An import or declaration failure is listed under that app's problems with a
 `code/epicenter.ts:` prefix. A wrong default export is also a problem, and so
 is an app that would load its own copy of `@epicenter/app`. One broken app
 does not hide the others. Listings include container locations, data keys,
-schemas, actions, and linked targets. They carry no per-app Git status. An
+schemas, and actions. The listing's `Version` is the running command's. They carry no per-app Git status. An
 empty Epicenter says `No apps yet. Run: epicenter new <name>`.
 
 The container's real path stays in `context.folder` and `folder.path`.
 Contracts address `data/...` from that container. A separate real `codePath`
 is used for module imports and invalidation, the check for one shared
-`@epicenter/app`, and UI builds and serving. Replacing `code/` leaves the
-container lock and record paths intact.
+`@epicenter/app`, and UI builds and serving. Replacing `code/` leaves
+record paths intact.
 
 `init` runs `bun install` at the top of the home with the Bun that
-runs the command, so a new home's first commit holds `bun.lock`. A failure prints Bun's message and
-`Run: cd <home> && bun install`. A home with no `package.json` is told what
-one needs. Build reports malformed layout entries without stopping other apps.
+runs the command, the way `bun create` does: the install is what puts the
+`epicenter` command in the new home. A failure prints Bun's message and
+`Run: cd <home> && bun install`.
 
 An action's input is one argument after its words, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
@@ -635,8 +637,7 @@ file has a problem.
 
 Epicenter runs actions and serves pages. Git stores the home, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. `init` gives a
-new home two files of its own, which the owner may change. An older home adds
-them by hand.
+new home two files of its own, which the owner may change.
 
 `routines/checkpoint.md` runs the script every five minutes while serve runs,
 one run at a time:
@@ -701,7 +702,7 @@ and no lock inside an app.
 
 When absent, the root `.gitignore` excludes local files, node_modules,
 `.DS_Store`, `/apps/*/code/ui/dist/` for build output, and
-`/apps/*/.code-build-*/` for UI build and copy staging inside app containers.
+`/apps/*/.code-build-*/` for copy staging inside app containers.
 When git-lfs is available, init installs its local filter and writes missing root attributes for common binary extensions.
 These configuration files belong to the person after init.
 
@@ -793,8 +794,7 @@ credentials removed, else its absolute path), `Folder`, `Ref` when one was
 named, and `Commit`. No command reads this provenance file. Copied
 links remain links. A link that leads outside `code/` resolves only
 if the destination has the same file, so an app keeps what its UI uses, its
-palette too, as files in `code/`. A dangling link produces a stderr line naming its stored target
-and an optional JSON `links: [{ path, target }]`, with paths relative to code/.
+palette too, as files in `code/`.
 
 A copy joins the home's workspace: its `package.json` is named for the new
 app, since two packages in one workspace cannot share a name; any
@@ -874,11 +874,9 @@ lock: two exports into one directory at once can mix their output.
 The copy excludes `data/`, `node_modules`, `ui/dist`, `.DS_Store`,
 `SOURCE.md`, and export markers, even if tracked. It preserves binary bytes and
 executable modes, and materializes Git LFS files. Internal symbolic links keep
-their targets when the targets are included. A relative link to a committed
-regular shared file outside `apps/`, such as a shared stylesheet, becomes a
-regular file in the exported app. Export refuses links into another app,
-records, local files, missing files, shared directories, or outside the
-Epicenter. It does not rewrite imports or discover arbitrary dependencies
+their targets when the targets are included. Export refuses a link that
+leaves the app's `code/`, and one to a missing or excluded file; copy the file
+into `code/` instead. It does not rewrite imports or discover arbitrary dependencies
 outside `code/`.
 
 A destination must be missing, empty apart from Finder metadata, or carry a
@@ -900,9 +898,7 @@ output. Its ownership marker remains, so rerun the same command before
 reviewing or committing. Export keeps no rollback copies of generated files.
 
 `--json` reports `{ commit, directory, apps, omitted }`. `commit` names the
-exported commit. Each app has `app`, `materialized: [{ path, from }]`, and
-`uncommitted`, which is true when a shared file it links to has changes the
-export left out. `omitted` lists on-disk apps without a code tree in that
+exported commit. `apps` lists the exported app names. `omitted` lists on-disk apps without a code tree in that
 commit. Exit 0 means the export
 completed; exit 1 means omitted apps need attention; exit 2 means a failure or
 refusal. Refusals and failures use the CLI's error envelope.
@@ -932,7 +928,7 @@ files; you review, commit, and push them with Git.
 
 An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404. `serve` never serves a path with a part starting with `.`.
 
-A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: `init` writes `"build": "bun run --filter '*' --if-present build"` into the home's `package.json`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. A home made before this script existed needs it added by hand, and an app whose UI is a bare `ui/index.html` needs its own `build`.
+A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: `init` writes `"build": "bun run --filter '*' --if-present build"` into the home's `package.json`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. An app whose UI is a bare `ui/index.html` needs its own `build`.
 
 Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the blank app's `.gitignore` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
