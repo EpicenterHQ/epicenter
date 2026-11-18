@@ -1,4 +1,4 @@
-# 0950. `new --from` is a sparse Git checkout of one folder
+# 0954. `new --from` is a sparse Git checkout of one folder
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
