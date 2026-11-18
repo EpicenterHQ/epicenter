@@ -1,6 +1,6 @@
 ---
 name: collapse-pass
-description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Use control-flow for a request limited to one function's branching.
+description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Use control-flow for a request limited to one function's branching.
 metadata:
   author: epicenter
   version: '2.0'
@@ -10,6 +10,9 @@ metadata:
 
 A collapse pass looks for a simpler way for the system to do its job.
 Question the current concepts and promises as well as their implementation.
+
+Try the plainest articulation of the design. Follow “it’s just plain X”
+through a real use and see what work disappears.
 
 Look for the choices that make the code do extra work. Several helpers,
 checks, caches, and exceptions may all exist because of one earlier
