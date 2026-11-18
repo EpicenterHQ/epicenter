@@ -1158,4 +1158,3 @@ When you add an ADR, add its row here.
 | [0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) | A credential the owner pastes goes in the home's `.env`, which only `env()` reads | Proposed (amends 0870 and 0939) |
 | [0949](0949-an-action-reaches-a-model-through-model-and-the-home-names-its-default-in-epicenter-md.md) | An action reaches a model through `model()`, and the home names its default in `EPICENTER.md` | Proposed |
 | [0950](0950-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
-| [0952](0952-epicenter-does-nothing-about-upgrades.md) | Epicenter does nothing about upgrades | Proposed (amends 0942) |
