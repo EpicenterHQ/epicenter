@@ -25,10 +25,10 @@ callback order, or adapter types, ask DeepWiki a narrow question about
 `TanStack/query`, then confirm the deciding detail in the installed
 `@tanstack/query-core` source. Skip this for the patterns below.
 
-## Compose a service in two maps
+## Build query and mutation maps
 
-List the reads and the writes a UI observes, under one namespace. The dashboard
-does this for its billing API (`apps/api/ui/src/lib/dashboard/runtime.ts`):
+For a single resource, list the reads and writes the UI observes under one
+namespace. The dashboard does this for its billing API (`apps/api/ui/src/lib/dashboard/runtime.ts`):
 
 ```ts
 const billingQueries = resultQueries(['billing'], {
@@ -44,10 +44,10 @@ const billingMutations = resultMutations(['billing'], {
 ```
 
 - A query entry takes the method's own arguments and returns options keyed
-  `[namespace, method, [args]]`. `billingQueries.usage.key` is the prefix of
+  `[...namespace, method, [args]]`. `billingQueries.usage.key` is the prefix of
   every argument variant; `billingQueries.usage(params).queryKey` is one entry,
   typed for `getQueryData` and `setQueryData`.
-- A mutation entry is the options object itself, keyed `[namespace, method]`.
+- A mutation entry is the options object itself, keyed `[...namespace, method]`.
   Its method takes zero arguments or one input object; only that input reaches
   it.
 - Pass functions only: bound methods or closures, with annotated parameters on
@@ -65,9 +65,51 @@ const topUp = createMutation(() => billingMutations.checkoutTopUp);
 topUp.mutate({ successUrl: window.location.href }, { onSuccess, onError });
 ```
 
+### Group a feature's maps by resource
+
+When a feature has several kinds of data, give each kind its own map and keep
+the maps in a plain object. The property names the resource, so each method can
+be a plain verb. Whispering does this for its folder
+(`apps/whispering/src/lib/folder-query.ts`):
+
+```ts
+const folderMutations = {
+	notes: resultMutations(['folder', 'notes'], {
+		set: notes.set,
+		replace: notes.replace,
+		delete: notes.delete,
+	}),
+	settings: resultMutations(['folder', 'settings'], { set: folder.settings.set }),
+	audio: resultMutations(['folder', 'audio'], {
+		delete: folder.deleteAudio,
+		deleteBefore: folder.deleteAudioBefore,
+	}),
+};
+```
+
+`folderMutations.notes.delete` is keyed `['folder', 'notes', 'delete']`. One
+flat map is still fine when its methods read clearly together, as billing's do.
+
+### Make writes take turns
+
+TanStack runs writes in parallel. To run a group one at a time, in the order
+they were made, give the group's key prefix a shared
+[scope](https://tanstack.com/query/latest/docs/framework/react/guides/mutations#mutation-scopes):
+
+```ts
+queryClient.setMutationDefaults(['folder'], { scope: { id: 'folder' } });
+```
+
+Every mutation keyed under `['folder']` now waits for the one before it, and the
+services stay unchanged. The prefix decides who waits, so key a write outside
+it when it must not hold up the others. Whispering keys a transcription run
+`['runs']`, because a slow request should not delay every save.
+
+### Adapt an individual operation
+
 Use `resultQueryOptions` or `resultMutationOptions` for one function outside a
-namespace, a key that is not `[namespace, method, args]`, or a query that needs
-TanStack's context, such as its abort signal. Namespace entries never see it.
+namespace, a custom key shape, or a query that needs TanStack's context, such
+as its abort signal. Namespace entries never see it.
 
 For a Result-returning operation observed by one component, construct the
 mutation there. The adapter unwraps `Ok` and throws the original `Err` value
@@ -137,7 +179,6 @@ a reset before each use, a guard that its answer is for the open plan, and an
 exception to the rule. If one write's refetches ever cost too much, Wellcrafted
 documents a `meta.invalidates` opt-in; a precise list goes stale silently when a
 new read starts depending on the write, so adopt it only for that measured cost.
-Do not derive a write's scope from its mutation key.
 
 The rule's scope is the client. The dashboard creates one per attachment, so
 its rule never touches another attachment's cache.
@@ -209,7 +250,12 @@ belongs to the consuming operation (`services-layer`), not to a query entry.
 ## Name handles for what they hold
 
 Name a query handle for its data and a mutation handle for its verb and noun:
-`overview.data`, `topUp.mutate(...)`, `deletePasskey`. Keep the action's verb;
-`delete` alone is reserved, so add the noun. Do not suffix handles with `Query`
-or `Mutation`. Give each control its own mutation so each owns its pending and
-error state.
+`overview.data`, `topUp.mutate(...)`. When the map's method is a bare verb, the
+handle adds the noun:
+
+```ts
+const deleteNote = createMutation(() => folderMutations.notes.delete);
+```
+
+Do not suffix handles with `Query` or `Mutation`. Give each control its own
+mutation so each owns its pending and error state.
