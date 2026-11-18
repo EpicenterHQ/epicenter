@@ -4,7 +4,7 @@
 - **Date:** 2026-11-13
 - **Supersedes:** [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) (a program's Git clone, filed by the host) and [ADR-0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) (merging what a clone pushes).
 - **Amends:** [ADR-0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) at the default folder (`data/` in the program's local data directory, not `~/Whispering`), at `recordings/k3x9.local.webm` (audio is `recordings/k3x9.webm`), and at "holds only what the contract declares" (and the files beside a record that share its id). [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) at the `clone` noun, which goes. [ADR-0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) at "Import from Whispering 7", which goes. [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) at the `.local` row's "precious, kept here on purpose", the "Keep audio on this Mac only" setting, and the rejection of the app data directory. [ADR-0856](0856-binary-files-go-through-git-lfs.md) at Whispering's "Keep audio on this Mac only", which goes.
-- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the folder sync product, whose client Whispering stops using), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) and ADR-0890 (a program's sign-ins stay in the Keychain), [ADR-0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) (a record's path, which is its path in this folder), [ADR-0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) (how recordings reach a home), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it), [ADR-0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) (Epicenter's models, reached with an API key).
+- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the folder sync product, whose client Whispering stops using), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) and ADR-0890 (a program's sign-ins stay in the Keychain), [ADR-0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) (a record's path, which is its path in this folder), [ADR-0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) (how recordings reach a home), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it), [ADR-0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) (Epicenter's models, reached with an API key), [ADR-0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) (how a take and a save are written into the folder).
 - **Unbuilt:** all of it, in Whispering 8.0.
 
 ## Context
@@ -72,7 +72,7 @@ Hugging Face cache               local models, shared with other programs
   directory.
 - **Audio is kept.** Settings shows its size and offers "Delete audio older
   than…". Nothing deletes audio on its own.
-- **A recording is its id, found from its note or its finished audio.**
+- **A recording is its id, found from its note or its audio.**
   The contract declares the audio beside the note
   (`recordings/{id}.{ext}`). Audio with no note lists as an untitled
   recording dated from the file; a note with no audio stays a recording.
@@ -160,11 +160,12 @@ Hugging Face cache               local models, shared with other programs
   in one step on macOS and Linux; on Windows the rename replaces the file
   without that promise. In a browser it uses `createWritable()`, whose
   changes reach the file only when the stream closes. A failed write keeps
-  the unsaved text on screen and offers to retry.
-- **Recording streams through its own native file.** The recorder writes
-  audio to a staging file as it records, places it at
-  `recordings/{id}.{ext}` when the take ends, and repairs a take a crash
-  cut short. These checks and moves live in Whispering's recorder, not in
+  the unsaved text on screen and offers to retry. ADR-0962 says why
+  the temporary file is hidden and what deletes one a crash left.
+- **A take is recorded at its audio's path.** On the desktop the recorder
+  writes `recordings/{id}.webm` from the first second and finishes it in
+  place at Stop. Nothing stages it, moves it, or repairs one a crash cut
+  short (ADR-0962). The recorder writes the take itself, not through
   `Files`.
 - **Whispering runs in one place at a time, so the app is one writer.** On
   the desktop, the Tauri single-instance plugin focuses the open window
@@ -252,7 +253,7 @@ none.
   | Safari before 26 in the browser | The browser build does not open there | The person, who updates Safari or uses another browser or the desktop app |
   | A second Whispering tab or window | Two tabs side by side; the second waits until the first closes | The person, who uses one tab |
   | A watcher on the folder | A change another program makes appears when Whispering regains focus, not at once; a note changed elsewhere is not overwritten | The person, who sees the newer text |
-  | `@epicenter/folder`, its plugin, `@epicenter/local`, and `@epicenter/definition` | Nothing a person sees | Whispering's maintainers: `Files`, its three implementations, the conformance suite, the recorder's own staging and repair, and Keychain items behind the shell's `Secrets`; the API's maintainers: their own origins and audience |
+  | `@epicenter/folder`, its plugin, `@epicenter/local`, and `@epicenter/definition` | Nothing a person sees | Whispering's maintainers: `Files`, its three implementations, the conformance suite, the recorder's own file writing (ADR-0962), and Keychain items behind the shell's `Secrets`; the API's maintainers: their own origins and audience |
   | The hosted `/folders` routes and `folders` audience | Nothing; no account holds data there | The owner, who approves deleting the empty tables later |
   | A desktop key the page never sees | Code that reaches Whispering's desktop page can read a key, as in the browser; it could already spend one through the relay | Whispering's maintainers, who load no remote script and keep a strict Content Security Policy |
   | A per-computer shortcut override | Two computers sharing one folder share one shortcut | The person |
