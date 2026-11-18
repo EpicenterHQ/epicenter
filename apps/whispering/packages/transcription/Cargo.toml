@@ -26,7 +26,7 @@ tempfile = "3.8"
 transcribe-cpp = { version = "0.1.0", default-features = false }
 hf-hub = { version = "0.5", default-features = false, features = ["ureq", "default-tls"] }
 rubato = "0.15"
-symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
+symphonia = { version = "0.6.1", features = ["mp3", "aac", "isomp4"] }
 audiopus = "0.3.0-rc.0"
 
 [dev-dependencies]

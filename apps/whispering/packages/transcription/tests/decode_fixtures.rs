@@ -122,9 +122,10 @@ fn open_take() -> Vec<u8> {
 
 /// A take cut off anywhere in its blocks decodes to its whole blocks: a
 /// torn last block ends the audio. The same tear in a finished file, whose
-/// Segment states its size, is damage, and fails at least once. This holds
-/// the decoder to the message the WebM reader gives a torn block, so a
-/// symphonia upgrade that changes it fails here.
+/// Segment states its size, is damage, and fails. This holds the decoder to
+/// how the WebM reader ends a torn take (an unexpected end of file) and
+/// treats a finished one (it refuses to open it), so a symphonia upgrade
+/// that changes either fails here.
 #[test]
 fn a_torn_take_decodes_to_its_whole_blocks_and_a_torn_finished_file_fails() {
     let open = open_take();
@@ -141,23 +142,22 @@ fn a_torn_take_decodes_to_its_whole_blocks_and_a_torn_finished_file_fails() {
         .windows(4)
         .position(|id| id == [0x1F, 0x43, 0xB6, 0x75])
         .unwrap();
-    let mut failures = 0;
     for cut in (first_cluster..open.len()).step_by(7) {
         let samples = decode_to_pcm16k_mono(&open[..cut])
             .unwrap_or_else(|error| panic!("torn at {cut}: {error}"));
         assert!(samples.len() <= whole.len(), "torn at {cut}");
-        if decode_to_pcm16k_mono(&finished[..cut]).is_err() {
-            failures += 1;
-        }
+        assert!(
+            decode_to_pcm16k_mono(&finished[..cut]).is_err(),
+            "a finished file torn at {cut} decoded"
+        );
     }
-    assert!(failures > 0, "a torn finished file never failed");
 }
 
 /// A finished file cut off anywhere, such as a copy that stopped short, is
 /// an error, never a panic. The WebM fixture is ffmpeg's, with a SeekHead
-/// before its Cluster and the Cues it points to at the end: symphonia 0.5's
-/// reader panics on a cut at or before the Cues, so the decoder refuses the
-/// file before the reader opens it.
+/// before its Cluster and the Cues it points to at the end. Symphonia 0.5's
+/// reader followed the SeekHead past a cut and panicked, which aborts the
+/// app; 0.6's refuses to open a Segment that runs past the bytes.
 #[test]
 fn a_finished_file_cut_off_anywhere_is_an_error() {
     let fixture = fixture_bytes("sine_440_2s.webm");
@@ -177,15 +177,10 @@ fn a_finished_file_cut_off_anywhere_is_an_error() {
 
     // No bytes at all is no audio, not an error.
     for cut in 1..fixture.len() {
-        let error = decode_to_pcm16k_mono(&fixture[..cut])
-            .expect_err(&format!("cut at {cut} of {} decoded", fixture.len()))
-            .to_string();
-        // A cut inside the Cues tears them, which the reader reports itself.
-        if (first_cluster..=cues).contains(&cut) {
-            assert!(
-                error.contains("cut off"),
-                "cut at {cut} failed otherwise: {error}"
-            );
-        }
+        assert!(
+            decode_to_pcm16k_mono(&fixture[..cut]).is_err(),
+            "cut at {cut} of {} decoded",
+            fixture.len()
+        );
     }
 }
