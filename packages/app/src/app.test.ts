@@ -172,7 +172,7 @@ describe('defineApp', () => {
 				made({ description: 'Bad', data: { Notes: data.notes }, actions: {} }),
 			),
 		).toEqual([
-			'data has the key "Notes", which must be a name, optionally followed by .md',
+			'data has the key "Notes", which must be a name',
 		]);
 	});
 
