@@ -282,3 +282,30 @@ not create a second implementation assignment.
 - Revisit when: A Whispering pass, or before closing stale pull requests. Close
   nothing on the strength of this entry alone; a community pull request gets a
   comment that says what happened to its idea.
+
+## After 0.7.0
+
+### Ship a new Epicenter's starter files as a template
+
+- Desired result: `epicenter init` copies a `template/` folder that
+  `@epicenter/cli` ships, instead of writing file contents held in TypeScript
+  strings. Doc text in those strings has drifted from the code before.
+- Grounding: [`init.ts`](packages/cli/src/init.ts) holds `STARTER_AGENTS`, the
+  checkpoint routine and script, `.gitignore`, and `package.json` as literals.
+  Keep init's logic: the nested-home refusal, the Git identity check, adopting
+  an existing folder, and version pinning. Stop turning on Git LFS whenever
+  `git-lfs` is installed (`init.ts:297`).
+- Revisit when: After 0.7.0. Decide whether `init` becomes `bun create` together
+  with the postponed one-package question.
+
+### Revisit the rules for absent switches and lists
+
+- Desired result: Decide whether an absent switch should still read as `false`
+  and an absent list as `[]`, or whether code should see what the file holds.
+- Grounding: `absentValue` in [`field.ts`](packages/app/src/field.ts) and the
+  `x-epicenter-field` marker supply those values. Removing them means
+  migrating the home's apps that read lists directly, including Capture's page
+  and Mail's `proposals.ts`. The two create paths also disagree: the generated
+  `create` action writes `false` and `[]` into the file, while
+  `handle.create(id, {})` leaves them out (`packages/app/src/data.actions.test.ts`).
+- Revisit when: After 0.7.0.

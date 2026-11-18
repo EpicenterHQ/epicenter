@@ -89,7 +89,10 @@ test('F1 new puts the next step on stderr; a broken root is a usage error', asyn
 	await writeFile(f.home, 'not a folder');
 	const listed = await f.json();
 	expect(listed.code).toBe(2);
-	expect(listed.report.error.name).toBe('Usage');
+	expect(listed.report.error).toMatchObject({
+		name: 'NotStarted',
+		cause: 'usage',
+	});
 });
 
 test('F7 over MCP a broken app loses only its tools, and a call is decoded from the tool name', async () => {
@@ -129,13 +132,17 @@ export default defineApp({ description: 'The loud app', actions: { hello: define
 		expect(unknown.isError).toBe(true);
 		expect(unknown.structuredContent).toMatchObject({
 			data: null,
-			error: { kind: 'refused', reason: { name: 'Usage' } },
+			error: { name: 'NotStarted', cause: 'usage' },
 		});
 		const broken = await client.callTool({ name: 'broken_x', arguments: {} });
 		expect(broken.isError).toBe(true);
 		expect(broken.structuredContent).toMatchObject({
 			data: null,
-			error: { kind: 'refused', reason: { name: 'AppProblems' } },
+			error: {
+				name: 'NotStarted',
+				cause: 'app-problems',
+				problems: [expect.any(String)],
+			},
 		});
 	} finally {
 		await close();
@@ -155,7 +162,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain(
-		'Exit codes: 0 done, 1 ran with a failure or an unfinished export, 2 did not run.',
+		'Exit codes: 0 done, 1 failed, ran in part or may have run, 2 did not run.',
 	);
 	for (const gone of [
 		'epicenter types',
@@ -168,13 +175,13 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	const leading = await f.run('--json', 'notes', 'two', '{"text":"Ada"}');
 	expect(leading.code).toBe(0);
 	expect(JSON.parse(leading.stdout)).toEqual({ data: 'Ada', error: null });
-	expect(JSON.parse((await f.run('--json', 'notes')).stdout).name).toBe(
+	expect(JSON.parse((await f.run('--json', 'notes')).stdout).data.name).toBe(
 		'notes',
 	);
 
 	const tool = JSON.parse(
 		(await f.run('notes', 'optional', '--help', '--json')).stdout,
-	);
+	).data;
 	expect(tool.inputSchema.required ?? []).not.toContain('count');
 	const ran = await f.json('notes', 'optional');
 	expect(ran.report.data).toEqual({});
@@ -211,7 +218,7 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	const tool = JSON.parse(
 		(await f.run('reading', 'between', '--help', '--json')).stdout,
-	);
+	).data;
 	expect(tool.inputSchema.properties.from).toEqual({
 		type: 'string',
 		format: 'date',
@@ -225,7 +232,5 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 		'{"from":"2026-13-45","to":"2026-11-08"}',
 	);
 	expect(bad.code).toBe(2);
-	expect(bad.report.error.reason.message).toBe(
-		'from must be a day like 2026-11-12',
-	);
+	expect(bad.report.error.message).toBe('from must be a day like 2026-11-12');
 });

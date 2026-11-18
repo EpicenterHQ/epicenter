@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/cli",
-	"version": "0.6.0",
+	"version": "0.7.0",
 	"description": "The epicenter command: runs the apps of an Epicenter home as commands and as MCP tools. A home depends on it and runs it with Bun.",
 	"repository": {
 		"type": "git",

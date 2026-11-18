@@ -13,7 +13,6 @@
 		"./tauri": "./src/tauri.ts",
 		"./node": "./src/node.ts",
 		"./memory": "./src/memory.ts",
-		"./sync": "./src/sync/index.ts",
 		"./platform": "./src/platform/index.ts"
 	},
 	"scripts": {

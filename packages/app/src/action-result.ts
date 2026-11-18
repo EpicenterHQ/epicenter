@@ -1,5 +1,4 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { isActionError } from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
 
 export type PublicError = { name: string; message: string };
@@ -27,8 +26,7 @@ export function isActionResult(
 		value.data === null &&
 		plain(error) &&
 		typeof error.name === 'string' &&
-		typeof error.message === 'string' &&
-		(error.namespace !== 'epicenter/action-error' || isActionError(error))
+		typeof error.message === 'string'
 	);
 }
 

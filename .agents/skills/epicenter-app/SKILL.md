@@ -37,16 +37,31 @@ such as `tailscale serve`.
       google.md
 ```
 
-`new --from` copies committed code into a new container's `code/`, without
-records, Git history, or a remote. It takes a folder in a Git checkout, written
-as a path (`./shared/tasks`, `~/Code/apps/tasks`), or a folder on GitHub,
-written `owner/repo/folder#ref` (`#ref` optional: branch, tag, or full commit).
-For any other host, clone first and pass the folder. The folder may be a
-repository root, a subfolder, or an app container's code subtree. Provenance is in
-`code/SOURCE.md`. Later source changes are work for the app's owner; there is
-no merge-based updater. A copied symlink stays a link, and one leading
-outside `code/` breaks unless the receiving home has that file; `new` reports
-it. Keep everything an app uses, its palette too, as files in `code/`.
+`epicenter new <app>` makes only a blank app. Taking an existing app is
+copying its `code/` folder into `apps/<app>/code/`, without records, Git
+history, or a remote
+([ADR-0955](../../../docs/adr/0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md)).
+From GitHub, run at the top of the home:
+
+```sh
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
+```
+
+From a folder on this computer, or a clone from any other host:
+
+```sh
+mkdir -p apps/journal
+cp -R ~/Code/shared-apps/apps/notes/code apps/journal/code
+```
+
+When the name differs from the source's, set `"name"` in the copy's
+`package.json` to the new app name; `bun install` refuses two workspace
+packages with one name. Then run `bun install && bun run build`. Copy only
+`code/`, never someone's `data/`. Later source changes are work for the app's
+owner; there is no merge-based updater. A copied symlink stays a link, and one
+leading outside `code/` breaks unless the receiving home has that file. Keep
+everything an app uses, its palette too, as files in `code/`.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
 the smallest whole example. Keep private records out of code publication;
@@ -98,7 +113,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
   `\`, control characters, a leading dot, or whitespace at either end. An id
   is the file name exactly: no method or generated verb changes it, and one
-  that does not fit is `Refused` with the reason, so trim what a person typed
+  that does not fit is `Misfit` with the reason, so trim what a person typed
   before passing it. A generated `create` names the record with
   `timeId()` when `id` is left out; a caller that may retry sends an id. An action takes an id as `field.text()`;
   the handle refuses a bad one, quoting it, with the name to send instead.
@@ -142,7 +157,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   `id`, the change's keys beside it. The `edit` verb takes `{ id, old, new }`
   and no fields, and replaces the passage `old` of the body the caller last
   saw. `old` must be non-empty and occur exactly once: when the passage is
-  gone or appears twice, it is refused with `Changed` (`why` is `quote` or
+  gone or appears twice, it is refused with `Changed` (`cause` is `quote` or
   `twice`) and nothing is written. It answers `Missing` for an absent record,
   for a one-file key too. `edit` is not safe to repeat, so a page that changes
   fields and notes sends a `patch` and an `edit`. In code,
@@ -193,7 +208,11 @@ the restart. Upgrade Epicenter by editing both versions in the home's `package.j
 running `bun install && bun run build` at the top: the two are released at
 one version, and `epicenter` refuses to load apps while the home names two.
 Write each action with `defineAction`, which types its
-`run` from its `input`. Every action returns one Result. Return `Ok(value)`,
+`run` from its `input`. The action carries that input as one JSON Schema
+object, `{ type, properties, required, additionalProperties: false }`, which
+MCP, `--help`, and `--json` read as it is; a test or tool that inspects a key
+reads `action.input.properties.<key>` and `action.input.required`. Every
+action returns one Result. Return `Ok(value)`,
 `Ok(undefined)` for no value, or the Result of another action or data
 method. A tagged factory such as `ActionError.Missing({ path })` already
 returns an Err. When continuing a calculation, use
@@ -299,8 +318,8 @@ action, and adds none: the action is ordinary code, and its author decides.
 - Answer what is known. A request that times out after it left may have
   worked: say it was not confirmed, not that it failed. A long action that
   stops at its own limit with its progress saved returns `Ok` with a field
-  saying it is unfinished. `ActionError.Unreachable` is what a caller gets
-  when it could not reach `serve`, so do not use it for that.
+  saying it is unfinished. `NotStarted` and `Unreachable` are names only
+  Epicenter answers: serve turns an action's own into `Threw`.
 - Write what a page must show later. A page that reloads, another device and
   a routine see neither the updates nor the answer of a call they did not
   make. Progress worth showing goes in a file with the time it was written.
@@ -353,9 +372,10 @@ value, which reaches the command as one word of JSON text:
 `run: ["epicenter", "flights", "daily", "run", {"recheck": false}]`.
 
 `epicenter` on its own shows each routine with its next occurrence and its
-command as a line to copy into a terminal, how long
-ago the last commit was, how many files are uncommitted, how many commits are
-not on origin, and any nested Git repository under `apps/`.
+command as a line to copy into a terminal. For the repository, run Git at the
+top of the home: `git status -sb` shows the branch, commits not on origin and
+each uncommitted file, and `git log -1 --format=%cr` how long ago the last
+commit was.
 
 The root origin is optional and private. It receives all apps' records. The
 script never pulls, merges, rebases, or force-pushes, and a failed push leaves
@@ -440,12 +460,22 @@ makes in its input and uses it as the record's id, so calling again with
 the same id is safe. See the app package README for updates and the call
 route.
 
-On the wire, the host answers with `{ data, error }`. For a failure,
-`error.kind` records what happened to this invocation (ADR-0926).
-The browser client unwraps a `returned` reason with its public fields intact.
-A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
-A `refused` call becomes `Refused` before the action runs. Actions can use the
-shared `ActionError` factories from `@epicenter/app`.
+On the wire, every surface answers exactly `{ data, error }`, where `error`
+is `null` or the error object itself (ADR-0953). The name says whether the
+action ran: `NotStarted` means serve or the CLI refused it before it began,
+so it is safe to call again once its `cause` is fixed; `Threw` means it began
+and threw, with a tagged exception in `thrown`; `Unreachable` means the
+outcome is unknown; any other name is the action's own error, so it ran.
+Actions use the shared `ActionError` factories from `@epicenter/app`. The
+CLI's own commands answer the same way: `epicenter --json`, `check`, `new`,
+`init` and `export` with `--json` print `{ data, error }`, and every command
+exits 0 for no error, 2 for `NotStarted` and 1 for any other error. A
+`check` that finds problems, or an `export --all` that leaves apps out,
+answers `Problems`, exit 1, with what it found under `error.report`.
+
+A page's call error is exactly the action's own errors and `NotStarted`,
+`Threw` and `Unreachable`, so a `switch` on `error.name` is exhaustive and a
+comparison with a name the action cannot return does not compile.
 
 Match a browser error by its name and subject. A `Missing` for a dependency
 cannot tell the page whether its displayed record still exists. An action
@@ -567,20 +597,19 @@ use the replacement action rather than add conflict machinery by default.
 ## Verify without touching the person's data
 
 Never run anything against the real `~/Epicenter` until the person asks.
-Use a temporary home and a committed source. `new --from` copies code,
-creates empty sibling data/, and prints `Run: cd <home> && bun install && bun
-run build`; run it and read its errors. A source with
-uncommitted edits is refused. To test them, commit in a disposable copy outside the live
-Epicenter, without changing the live branch or index.
+Use a temporary home. Copy the source's code into it, rename its package,
+then run `bun install && bun run build` and read the errors.
 
 ```sh
 bun test ./epicenter.test.ts                # from code/: actions over memory
-source_path=/absolute/path/to/source        # choose a repository or subfolder
+source_path=/absolute/path/to/source/code   # the folder that holds epicenter.ts
 test_home=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitconfig"
 HOME="$test_home" epicenter init "$test_home/Epicenter" --port 4799
 cd "$test_home/Epicenter"
-HOME="$test_home" epicenter new example --from "$source_path"
+mkdir -p apps/example
+cp -R "$source_path" apps/example/code
+# set "name" in apps/example/code/package.json to "example"
 bun install && bun run build
 HOME="$test_home" epicenter example --help
 HOME="$test_home" epicenter serve               # drive /example/ on port 4799
@@ -599,15 +628,14 @@ Run tests one file or package at a time.
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
-- `epicenter new <app> --from <folder | owner/repo/folder#ref>` takes committed code into
-  apps/<app>/code/ and creates empty data/. It names the copy's package.json
-  for the app, leaves out a copied bun.lock and any @epicenter/app entry, and prints
-  the one command to run next: `cd <home> && bun install && bun run build`.
+- `epicenter new <app>` makes a blank app: apps/<app>/code/ and empty data/.
+  It prints the one command to run next: `cd <home> && bun install && bun run build`.
+- To take an existing app, copy its `code/` into apps/<app>/code/ as shown
+  above, set the package name to `<app>`, and run that same command.
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
-  Inspect the source commit recorded in `code/SOURCE.md`, compare incoming
-  code outside the live Epicenter, and test compatibility with the existing
+  Compare incoming code outside the live Epicenter, and test compatibility with the existing
   records before a named commit. A refreshed publication does not update
   apps people have already copied. Bring contributions back into the maintained
   app before refreshing an export, which would overwrite edits made in the
@@ -660,8 +688,9 @@ Exporting files does not commit them to the publication repository.
 
 To publish several apps, `epicenter export --all ~/Code/shared-apps/apps`
 generates one child per committed app under `apps/`. A recipient can copy one
-published app with
-`epicenter new tasks --from OWNER/shared-apps/apps/tasks`,
+published app by copying its folder, for example
+`curl -L https://github.com/OWNER/shared-apps/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 shared-apps-main/apps/tasks`
+after `mkdir -p apps/tasks/code`,
 replacing `OWNER` with the publication owner's username. See
 [the CLI's export contract](../../../packages/cli/README.md#export-app-code)
 for destination rules and symlinks.

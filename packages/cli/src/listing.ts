@@ -6,17 +6,11 @@
  */
 
 import { basename } from 'node:path';
-import { type Action, whatTakes } from '@epicenter/app';
+import { type Action, objectSchema, whatTakes } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import { VERSION } from './engines.ts';
 import type { Discovery, Runnable } from './home.ts';
-import {
-	exampleCommand,
-	jsonSchema,
-	requiredKeys,
-	usageLine,
-} from './input.ts';
-import { type RepositoryStatus, repositoryLine } from './repository.ts';
+import { exampleCommand, usageLine } from './input.ts';
 
 /**
  * An action as an MCP tool definition: its name, input schema, and the hints
@@ -26,7 +20,7 @@ export function actionTool(app: string, key: string, action: Action) {
 	return {
 		name: `${app}_${key.replaceAll(' ', '_')}`,
 		description: action.description,
-		inputSchema: jsonSchema(action.input),
+		inputSchema: action.input,
 		...(action.annotations ? { annotations: action.annotations } : {}),
 		...(action.mcp === false ? { mcp: false as const } : {}),
 	};
@@ -52,7 +46,7 @@ function appListing(located: Runnable) {
 								...(handle.description
 									? { description: handle.description }
 									: {}),
-								fields: jsonSchema(handle.fields),
+								fields: objectSchema(handle.fields),
 							},
 						]),
 					),
@@ -89,19 +83,12 @@ export type RoutineRow =
 
 /**
  * The home's report: the version of Epicenter running it, its apps, with
- * broken entries kept apart from runnable ones, then its routines, then one
- * line about its repository. `--json` carries the same facts; `repository`
- * is `null` when the home is not one.
+ * broken entries kept apart from runnable ones, then its routines. `--json`
+ * carries the same facts. Git reports on the home's repository itself.
  */
 export function homeListing(
 	found: Discovery,
-	{
-		routines,
-		repository,
-	}: {
-		routines: RoutineRow[];
-		repository: RepositoryStatus | null;
-	},
+	routines: RoutineRow[],
 	json: boolean,
 ): unknown {
 	if (json)
@@ -115,7 +102,6 @@ export function homeListing(
 				problems,
 			})),
 			routines,
-			repository,
 		};
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map((located) => {
@@ -151,7 +137,6 @@ export function homeListing(
 						],
 			),
 		);
-	lines.push('', `Git: ${repositoryLine(found.epicenter, repository)}`);
 	return lines.join('\n');
 }
 
@@ -166,7 +151,7 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 			? Object.entries(located.app.data).flatMap(([key, handle]) => [
 					`  ${key}  data/${key}${key.endsWith('.md') ? '' : '/'}`,
 					...(handle.description ? [`    ${handle.description}`] : []),
-					`    ${JSON.stringify(jsonSchema(handle.fields))}`,
+					`    ${JSON.stringify(objectSchema(handle.fields))}`,
 				])
 			: []),
 		...actionLines(located),
@@ -181,14 +166,14 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
  */
 export function actionHelp(name: string, key: string, action: Action): string {
 	const usage = [usageLine(name, key, action), action.description];
-	const keys = Object.keys(action.input);
+	const { properties, required } = action.input;
+	const keys = Object.keys(properties);
 	if (!keys.length) return usage.join('\n');
-	const required = requiredKeys(action.input);
-	const rows = Object.entries(action.input).map(([key, field]) => {
+	const rows = Object.entries(properties).map(([key, field]) => {
 		const { description } = field as TSchemaOptions;
 		return [
 			key,
-			required.has(key) ? 'required' : 'optional',
+			required.includes(key) ? 'required' : 'optional',
 			`${whatTakes(field)}${description ? `. ${description}` : ''}`,
 		] as const;
 	});

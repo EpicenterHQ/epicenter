@@ -1,65 +1,56 @@
 /**
- * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850).
- * With `--json`, stdout is one JSON value: a run's answer, a listing, a
- * sync's report, or an operational error. MCP gets the action's JSON answer.
- * Without it, stdout renders the returned value by its structure. Stderr
- * carries what went wrong, with a `Run: <next step>` line where there is one.
+ * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850,
+ * ADR-0953). Every command, an action call or one of the CLI's own, ends in
+ * one answer, exactly `{ data, error }`. With `--json`, stdout is that
+ * answer; MCP gets an action's. Without it, stdout renders `data` by its
+ * structure, and a command's own text prints as it is. Stderr carries what
+ * went wrong, with a `Run: <next step>` line where there is one.
  */
-import type { PublicError } from '@epicenter/app';
-import { Err, type Result } from 'wellcrafted/result';
-import type { CliError } from './errors.ts';
+import type { Answer } from '@epicenter/app';
+import type { LogSink } from 'wellcrafted/logger';
 
-/** The action returned an app error or threw after it started. */
-type RunFailure =
-	| { kind: 'returned'; reason: PublicError & Record<string, unknown> }
-	| { kind: 'fault'; message: string; thrown?: Record<string, unknown> };
-export type RunAnswer = Result<unknown, RunFailure>;
-
-/** The action answer shared by CLI, MCP, and HTTP, including an invocation refused before it started. */
-export type Answer = RunAnswer | ReturnType<typeof refused>;
-
-export function refused(reason: CliError) {
-	return Err({ kind: 'refused' as const, reason });
-}
-
-/** Write the one JSON answer to stdout. */
-export function writeJson(value: unknown) {
-	process.stdout.write(`${JSON.stringify(value)}\n`);
-}
-
-/** Write an answer with a final newline for a person reading the command. */
-export function writeOut(text: string) {
-	process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
-}
+export type { Answer } from '@epicenter/app';
 
 /** Write diagnostics separately from the answer or MCP protocol. */
 export function writeErr(text: string) {
 	process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
-/** Classify the answer once for CLI exit codes and MCP tool errors. */
+/**
+ * A log sink that writes each event to stderr as one JSON line, its time as
+ * ISO-8601. stdout stays the command's output; whatever runs serve decides
+ * where stderr goes. A native `Error` is written as its name and message,
+ * since JSON would otherwise make it `{}`.
+ */
+export const stderrJsonLines: LogSink = (event) => {
+	process.stderr.write(
+		`${JSON.stringify(
+			{ ...event, ts: new Date(event.ts).toISOString() },
+			(_key, value) =>
+				value instanceof Error
+					? { name: value.name, message: value.message }
+					: value,
+		)}\n`,
+	);
+};
+
+/**
+ * Classify the answer once for CLI exit codes and MCP tool errors: 0 for
+ * success, 2 for exactly `NotStarted`, and 1 for every other error.
+ */
 export function outcome(
 	answer: Answer,
 ): { code: 0; data: unknown } | { code: 1 | 2; stderr: string } {
-	const diagnostic = (error: { message: string; next?: unknown }) =>
-		typeof error.next === 'string' && error.next
-			? `${error.message}\nRun: ${error.next}\n`
-			: `${error.message}\n`;
 	const { data, error } = answer;
 	if (error === null) return { code: 0, data };
-	if (error.kind === 'fault') return { code: 1, stderr: diagnostic(error) };
+	const { next } = error as { next?: unknown };
 	return {
-		code: error.kind === 'refused' ? 2 : 1,
-		stderr: diagnostic(error.reason),
+		code: error.name === 'NotStarted' ? 2 : 1,
+		stderr:
+			typeof next === 'string' && next
+				? `${error.message}\nRun: ${next}\n`
+				: `${error.message}\n`,
 	};
-}
-
-/** Render a successful value or a failure diagnostic for the terminal. */
-export function renderAnswer(answer: Answer) {
-	const result = outcome(answer);
-	return result.code === 0
-		? { ...readable(result.data), code: result.code }
-		: { stdout: '', stderr: result.stderr, code: result.code };
 }
 
 type Fields = Record<string, unknown>;
@@ -144,34 +135,35 @@ function rows(items: Fields[]): string {
 }
 
 /** Render the returned value without assuming what its keys mean. */
-function readable(value: unknown): { stdout: string; stderr: string } {
+function readable(value: unknown): string {
 	const line = (text: string) => (text.endsWith('\n') ? text : `${text}\n`);
-	if (Array.isArray(value) && value.length === 0)
-		return { stdout: '', stderr: '' };
-	if (typeof value === 'string') return { stdout: line(value), stderr: '' };
+	if (Array.isArray(value) && value.length === 0) return '';
+	if (typeof value === 'string') return line(value);
 	if (isFields(value)) {
 		const fields = fieldLines(value);
-		return { stdout: fields.length ? line(fields.join('\n')) : '', stderr: '' };
+		return fields.length ? line(fields.join('\n')) : '';
 	}
-	if (isRows(value)) return { stdout: line(rows(value)), stderr: '' };
-	return { stdout: line(JSON.stringify(value)), stderr: '' };
+	if (isRows(value)) return line(rows(value));
+	return line(JSON.stringify(value));
 }
 
-/** Present an answer, as one JSON value or for a person, and return its exit code. */
+/**
+ * Present an answer and return its exit code. With `json`, stdout is the one
+ * JSON answer. Without it, success data renders on stdout, and an error's
+ * message and next step go to stderr. An error that carries a `report`, as
+ * `Problems` does, renders that report on stdout the way data renders.
+ */
 export function presentAnswer(answer: Answer, json: boolean): number {
-	if (json) {
-		writeJson(answer);
-		return outcome(answer).code;
+	const result = outcome(answer);
+	if (json)
+		process.stdout.write(
+			`${JSON.stringify({ data: answer.data, error: answer.error })}\n`,
+		);
+	else if (result.code === 0) process.stdout.write(readable(result.data));
+	else {
+		const { report } = answer.error as { report?: unknown };
+		if (report !== undefined) process.stdout.write(readable(report));
+		process.stderr.write(result.stderr);
 	}
-	const { stdout, stderr, code } = renderAnswer(answer);
-	process.stdout.write(stdout);
-	process.stderr.write(stderr);
-	return code;
-}
-
-/** Present a command that did not run, exit 2. */
-export function fail(error: CliError, json: boolean): number {
-	if (!json) return presentAnswer(refused(error), false);
-	writeJson({ error });
-	return 2;
+	return result.code;
 }

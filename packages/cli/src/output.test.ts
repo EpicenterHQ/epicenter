@@ -1,12 +1,34 @@
 /**
- * Human output renders Ok data, Err diagnostics, faults, and pre-run refusals by structure, without assigning meaning
- * to keys such as path, body, problems, or added. JSON mode keeps the answer.
+ * Human output renders Ok data by structure, without assigning meaning to keys
+ * such as path, body, problems, or added, and an error as its message and next
+ * step. JSON mode keeps the answer.
  */
-import { expect, test } from 'bun:test';
-import { Ok } from 'wellcrafted/result';
-import { renderAnswer } from './output.ts';
+import { expect, spyOn, test } from 'bun:test';
+import { ActionError, type Answer } from '@epicenter/app';
+import { Err, Ok } from 'wellcrafted/result';
+import { presentAnswer } from './output.ts';
 
-const ok = (value: unknown) => renderAnswer(Ok(value));
+/** What `presentAnswer` writes for a person, and the exit code it returns. */
+function present(answer: Answer) {
+	const written = { stdout: '', stderr: '' };
+	const stdout = spyOn(process.stdout, 'write').mockImplementation((text) => {
+		written.stdout += String(text);
+		return true;
+	});
+	const stderr = spyOn(process.stderr, 'write').mockImplementation((text) => {
+		written.stderr += String(text);
+		return true;
+	});
+	try {
+		const code = presentAnswer(answer, false);
+		return { ...written, code };
+	} finally {
+		stdout.mockRestore();
+		stderr.mockRestore();
+	}
+}
+
+const ok = (value: unknown) => present(Ok(value));
 
 test('objects keep every defined key in order; a nested object renders beneath its key, and other values as compact JSON', () => {
 	expect(
@@ -146,50 +168,66 @@ test('strings print as is, empty arrays print nothing, and other values use JSON
 	expect(ok(null)).toEqual({ stdout: 'null\n', stderr: '', code: 0 });
 });
 
-test('Err, fault, and pre-run errors render diagnostics with their exit codes', () => {
+test('an error renders its message and next step, and exits 2 only for NotStarted', () => {
 	expect(
-		renderAnswer({
-			data: null,
-			error: {
-				kind: 'returned',
-				reason: {
-					name: 'NoRoute',
-					message: 'No route from LAX',
-					airport: 'LAX',
-				},
-			},
-		}),
+		present(
+			Err({ name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' }),
+		),
 	).toEqual({ stdout: '', stderr: 'No route from LAX\n', code: 1 });
 	expect(
-		renderAnswer({
-			data: null,
-			error: {
-				kind: 'returned',
-				reason: {
-					name: 'Refused',
-					message: 'Declined',
-					next: 'epicenter flights add',
-				},
-			},
-		}),
+		present(
+			ActionError.Refused({
+				message: 'Declined',
+				next: 'epicenter flights add',
+			}),
+		),
 	).toEqual({
 		stdout: '',
 		stderr: 'Declined\nRun: epicenter flights add\n',
 		code: 1,
 	});
 	expect(
-		renderAnswer({
-			data: null,
-			error: { kind: 'fault', message: 'Unexpected end of input' },
-		}),
+		present(ActionError.Threw({ message: 'Unexpected end of input' })),
 	).toEqual({ stdout: '', stderr: 'Unexpected end of input\n', code: 1 });
 	expect(
-		renderAnswer({
-			data: null,
-			error: {
-				kind: 'refused',
-				reason: { name: 'Usage', message: 'm', next: 'n' },
-			},
+		present(ActionError.Unreachable({ message: 'The connection ended' })),
+	).toEqual({ stdout: '', stderr: 'The connection ended\n', code: 1 });
+	for (const cause of ['usage', 'unavailable'] as const)
+		expect(
+			present(ActionError.NotStarted({ message: 'm', cause, next: 'n' })),
+		).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
+	for (const error of [
+		ActionError.NotStarted({ message: 'm', cause: 'internal' }),
+		ActionError.NotStarted({
+			message: 'm',
+			cause: 'app-problems',
+			app: 'a',
+			problems: ['p'],
 		}),
-	).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
+	])
+		expect(present(error)).toEqual({
+			stdout: '',
+			stderr: 'm\n',
+			code: 2,
+		});
+	// An error that carries a report renders it where data would be, by the
+	// field and not the name, and its message still goes to stderr.
+	expect(
+		present(
+			ActionError.Problems({
+				message: '1 file has problems',
+				report: { checked: 3, bad: ['a.md'] },
+			}),
+		),
+	).toEqual({
+		stdout: 'checked: 3\nbad: ["a.md"]\n',
+		stderr: '1 file has problems\n',
+		code: 1,
+	});
+	expect(
+		present(Err({ name: 'Partial', message: 'm', report: 'what it did' })),
+	).toEqual({ stdout: 'what it did\n', stderr: 'm\n', code: 1 });
+	// The name is what counts: an app's own `NotStarted` never reaches here,
+	// because serve answers it as `Threw`.
+	expect(present(Err({ name: 'Refused', message: 'm' })).code).toBe(1);
 });

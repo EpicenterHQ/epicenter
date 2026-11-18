@@ -4,14 +4,15 @@
  * occurrence since its last check. It keeps that one moment in memory and
  * writes nothing: a routine file is the whole declaration, and a command's
  * deadline, overlap, output, and result are the command's own. Commands
- * inherit serve's output and process group.
+ * inherit serve's output and process group, and find programs on serve's
+ * `PATH` with the home's `node_modules/.bin` and Bun's folder first.
  */
-import { spawn } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { delimiter, dirname, join } from 'node:path';
 import { isName, readMarkdown } from '@epicenter/app';
-import { writeErr } from './output.ts';
+import { defineErrors } from 'wellcrafted/error';
+import { createLogger } from 'wellcrafted/logger';
+import { stderrJsonLines } from './output.ts';
 
 /** `run` is the command's words: the program, then each argument as text. */
 type Routine = {
@@ -32,6 +33,21 @@ function shellLine(words: string[]): string {
 
 const messageOf = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
+
+/** Why a routine did not run. Serve logs it and keeps its clock going. */
+const RoutineError = defineErrors({
+	Unreadable: ({ routine, cause }: { routine: string; cause: unknown }) => ({
+		message: `Routine ${routine}: ${messageOf(cause)}`,
+		routine,
+	}),
+	CouldNotStart: ({ routine, cause }: { routine: string; cause: unknown }) => ({
+		message: `Routine ${routine} could not start: ${messageOf(cause)}`,
+		routine,
+	}),
+});
+
+/** Serve's record of routines it could not run, beside its run records. */
+const log = createLogger('cli/routines', stderrJsonLines);
 
 /**
  * Read a routine file: a cron schedule and the command to run. The program
@@ -80,13 +96,15 @@ export function readRoutine(name: string, text: string): Routine {
  */
 export function createRoutines({ folder }: { folder: string }) {
 	const directory = join(folder, 'routines');
-	// This command is a script Bun runs: the Bun running it now, then its entry.
-	// `--no-install`, as its own first line asks: Bun never fetches a package this home lacks.
-	const epicenter: [string, ...string[]] = [
-		process.execPath,
-		'--no-install',
-		fileURLToPath(new URL('./bin.ts', import.meta.url)),
-	];
+	// A routine finds commands the way a terminal in the home would after
+	// `bun install`: the home's own commands first, then the Bun running serve.
+	const PATH = [
+		join(folder, 'node_modules', '.bin'),
+		dirname(process.execPath),
+		process.env.PATH,
+	]
+		.filter(Boolean)
+		.join(delimiter);
 	// The only state: an occurrence that passes while serve is down does not run.
 	let since = new Date();
 
@@ -115,24 +133,20 @@ export function createRoutines({ folder }: { folder: string }) {
 	}
 
 	function start(name: string, { run }: Routine) {
-		const [program, ...args] = run;
-		const argv =
-			program === 'epicenter'
-				? [...epicenter, ...args]
-				: program === 'bun'
-					? [process.execPath, ...args]
-					: run;
-		spawn(argv[0] as string, argv.slice(1), {
-			cwd: folder,
-			env: {
-				...process.env,
-				EPICENTER_ROOT: folder,
-				EPICENTER_COMMAND: JSON.stringify(epicenter),
-			},
-			stdio: 'inherit',
-		}).once('error', (error) =>
-			writeErr(`Routine ${name} could not start: ${messageOf(error)}`),
-		);
+		// The working directory already names the Epicenter, so the command
+		// needs no variable to find it. No caller receives a failure to start,
+		// so it is logged here, and the routine tries again at its next time.
+		try {
+			Bun.spawn(run, {
+				cwd: folder,
+				env: { ...process.env, PATH },
+				stdio: ['ignore', 'inherit', 'inherit'],
+			});
+		} catch (error) {
+			log.warn(
+				RoutineError.CouldNotStart({ routine: name, cause: error }).error,
+			);
+		}
 	}
 
 	return {
@@ -163,7 +177,9 @@ export function createRoutines({ folder }: { folder: string }) {
 				try {
 					routine = await read(name);
 				} catch (error) {
-					writeErr(`Routine ${name}: ${messageOf(error)}`);
+					log.warn(
+						RoutineError.Unreadable({ routine: name, cause: error }).error,
+					);
 					continue;
 				}
 				const next = Bun.cron.parse(routine.cron, from);

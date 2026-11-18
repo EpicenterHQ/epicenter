@@ -5,25 +5,26 @@
  * `apps/`. Each entry loads on its own so a broken
  * app is listed without stopping the others: what its `define*` calls throw
  * while loading, and what is wrong with the shape of what it exports, are its
- * problems. A name that finds no app is a `CliError` with the next command as
- * data (ADR-0842).
+ * problems. A name that finds no app is `NotStarted` with the next command as
+ * data (ADR-0842, ADR-0953).
  */
 import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
 	type Action,
+	ActionError,
 	type Actions,
 	type App,
 	type Context,
 	defineApp,
 	isAction,
 	isName,
+	type NotStarted,
 } from '@epicenter/app';
 import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
 import { folderOnDisk } from './disk.ts';
-import { CliError } from './errors.ts';
 import { libraryProblem } from './library.ts';
 import { appsDir, epicenterRoot } from './root.ts';
 
@@ -227,7 +228,11 @@ export type Discovery = Awaited<ReturnType<typeof discoverAll>>;
 
 /** A name that finds no app in the Epicenter. */
 const unknownApp = (name: string) =>
-	CliError.Usage({ message: `Unknown app "${name}"`, next: 'epicenter' });
+	ActionError.NotStarted({
+		cause: 'usage',
+		message: `Unknown app "${name}"`,
+		next: 'epicenter',
+	});
 
 /** One entry as `homeEntries` lists it. */
 export type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
@@ -238,19 +243,29 @@ export type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
  */
 export async function chooseApps(
 	name?: string,
-): Promise<Result<Entry[], CliError>> {
+): Promise<Result<Entry[], NotStarted>> {
 	const entries = await homeEntries();
 	if (name === undefined) return Ok(entries);
 	const chosen = entries.filter((entry) => entry.entry === name);
 	return chosen.length ? Ok(chosen) : unknownApp(name);
 }
 
-/** Load only the requested app entry so unrelated apps cannot affect a run. */
+/**
+ * Load only the requested app entry so unrelated apps cannot affect a run.
+ * An app that does not load answers its problems.
+ */
 export async function loadHomeApp(
 	name: string,
-): Promise<Result<Located, CliError>> {
+): Promise<Result<Runnable, NotStarted>> {
 	if (!isName(name)) return unknownApp(name);
 	const found = await entryAt(join(appsDir(), name));
-	if (found) return Ok(await load(found, name));
-	return unknownApp(name);
+	if (!found) return unknownApp(name);
+	const located = await load(found, name);
+	if (located.ok) return Ok(located);
+	return ActionError.NotStarted({
+		cause: 'app-problems',
+		message: `${name}: ${located.problems.join('; ')}`,
+		app: name,
+		problems: located.problems,
+	});
 }

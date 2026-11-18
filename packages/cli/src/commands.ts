@@ -6,8 +6,7 @@
  * and every misuse answers its usage line.
  */
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
-import { isName } from '@epicenter/app';
-import { CliError } from './errors.ts';
+import { ActionError, isName, Ok } from '@epicenter/app';
 
 export const COMMANDS = {
 	init: {
@@ -20,17 +19,12 @@ leaves the install to you. A package.json already there is kept as it is.
 Epicenters cannot nest.`,
 	},
 	new: {
-		usage:
-			'epicenter new <name> [--from <folder> | --from <owner/repo/folder>[#<ref>]]',
-		help: `Makes apps/<name>/code/ from blank code or committed source code and creates empty data/.
-With --from, copy one app's code without its Git history or records, from a folder in a Git
-checkout (a path: /, ./, ../, ~/) or a folder on GitHub at a branch, tag, or full commit.
-To copy from another host, clone it first. Copies the source commit, and refuses a local
-folder with uncommitted changes.
-The app's code/package.json is named <name> and lists only its own packages: the copy's
-name is rewritten, and its bun.lock and any @epicenter/app entry are left out, since the
-home has one lock and one @epicenter/app. It runs nothing: it prints the command that
-installs the app's packages and builds its UI, cd <home> && bun install && bun run build.`,
+		usage: 'epicenter new <name>',
+		help: `Makes apps/<name>/code/ from blank code and creates empty data/. Its package.json is
+named <name> and lists no packages: @epicenter/app comes from the home. It runs nothing: it
+prints the command that installs and builds, cd <home> && bun install && bun run build.
+To take an existing app, copy its code/ folder into apps/<name>/code/ (cp -R, or a GitHub
+archive through tar) and set "name" in its package.json to <name>.`,
 	},
 	export: {
 		usage:
@@ -51,7 +45,8 @@ refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
 does not fit its key's fields. Each key shows how many files it holds and how
 many have problems, then each file's problems. Many files with one kind of
 problem usually mean the declaration is too narrow, not the files. It reads
-only. Exit 1 when any file has a problem or an app could not be checked.`,
+only. Exit 0 when nothing has a problem, 1 when a file has one or an app
+could not be checked, and 2 when a named app does not load.`,
 	},
 	serve: {
 		usage: 'epicenter serve',
@@ -86,25 +81,21 @@ export function nameProblem(name: unknown): string | undefined {
 }
 
 /**
- * A misuse of `command`: its usage line, after `why` when a value is wrong
- * in a way the usage line does not show, with its help as the next step.
- */
-export function misuse(command: Command, why?: string) {
-	return CliError.Usage({
-		message: `${why ? `${why}\n` : ''}Usage: ${COMMANDS[command].usage}`,
-		next: `epicenter ${command} --help`,
-	}).error;
-}
-
-/**
- * The words after a command, parsed strictly against its own `options`, with
- * from `min` to `max` positionals; `undefined` for any misuse.
+ * The words after `command`, parsed strictly against its own `options`, with
+ * from `min` to `max` positionals. Any misuse is `NotStarted` (`usage`): the
+ * command's usage line, with its help as the next step.
  */
 export function parseWords<const O extends ParseArgsOptionsConfig>(
+	command: Command,
 	words: string[],
 	options: O,
 	[min, max]: [number, number],
 ) {
+	const misused = ActionError.NotStarted({
+		cause: 'usage',
+		message: `Usage: ${COMMANDS[command].usage}`,
+		next: `epicenter ${command} --help`,
+	});
 	try {
 		const parsed = parseArgs({
 			args: words,
@@ -113,17 +104,8 @@ export function parseWords<const O extends ParseArgsOptionsConfig>(
 			allowPositionals: true,
 		});
 		const count = parsed.positionals.length;
-		return count < min || count > max ? undefined : parsed;
+		return count < min || count > max ? misused : Ok(parsed);
 	} catch {
-		return undefined;
+		return misused;
 	}
 }
-
-/** A port as `init --port` gives it, or `undefined` when it is not a whole number from 1 to 65535. */
-export function portOf(value: string): number | undefined {
-	const port = Number(value);
-	return /^\d+$/.test(value) && port >= 1 && port <= 65535 ? port : undefined;
-}
-
-/** Why `--port` is wrong, for `misuse`. */
-export const BAD_PORT = '--port must be a whole number from 1 to 65535';

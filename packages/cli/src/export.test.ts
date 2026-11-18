@@ -8,6 +8,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import {
 	chmod,
+	cp,
 	lstat,
 	mkdir,
 	readdir,
@@ -96,11 +97,17 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 	const staged = await gitIn(f.home, 'diff', '--cached', '--name-only');
 	for (const args of [['tasks'], ['--all']]) {
 		const refused = await f.run('export', ...args, f.output, '--json');
+		// Returned, not thrown: a throw once export began would answer Threw, exit 1.
 		expect(refused.code).toBe(2);
-		expect(JSON.parse(refused.stdout).error).toMatchObject({
-			name: 'Refused',
-			message:
-				'apps/tasks/code has uncommitted changes; commit them, then export.',
+		expect(JSON.parse(refused.stdout)).toEqual({
+			data: null,
+			error: {
+				name: 'NotStarted',
+				cause: 'usage',
+				message:
+					'apps/tasks/code has uncommitted changes; commit them, then export.',
+				next: 'epicenter export --help',
+			},
 		});
 	}
 	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(sourceCommit);
@@ -110,10 +117,17 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 	const run = await f.run('export', 'tasks', f.output, '--json');
 	expect(run.code).toBe(0);
 	expect(JSON.parse(run.stdout)).toEqual({
-		commit: await gitIn(f.home, 'rev-parse', 'HEAD'),
-		directory: f.output,
-		apps: ['tasks'],
-		omitted: [],
+		data: {
+			commit: await gitIn(f.home, 'rev-parse', 'HEAD'),
+			directory: f.output,
+			apps: ['tasks'],
+		},
+		error: null,
+	});
+	expect(await f.run('export', 'tasks', f.output)).toEqual({
+		code: 0,
+		stdout: `Exported 1 app to ${f.output}\nExported source: ${await gitIn(f.home, 'rev-parse', 'HEAD')}\n`,
+		stderr: '',
 	});
 	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(source);
 	expect(new Uint8Array(await readFile(join(f.output, 'binary.bin')))).toEqual(
@@ -269,15 +283,35 @@ test('--all adds future committed apps and removes absent apps without importing
 	await gitIn(f.output, 'init', '-q');
 	const first = await f.run('export', '--all', output, '--json');
 	expect(first.code).toBe(0);
-	expect(JSON.parse(first.stdout).apps).toEqual(['broken', 'tasks']);
+	expect(JSON.parse(first.stdout).data.apps).toEqual(['broken', 'tasks']);
 	await f.app(
 		'reading',
 		'export default defineApp({ description: "Reading", actions: {} });',
 	);
 	// An app that was never committed is left out and named, not committed.
+	// It ran, so it is not NotStarted: Problems, exit 1, its report naming what
+	// it exported and what it left out.
 	const pending = await f.run('export', '--all', output, '--json');
 	expect(pending.code).toBe(1);
-	expect(JSON.parse(pending.stdout).omitted).toEqual(['reading']);
+	const exported = await gitIn(f.home, 'rev-parse', 'HEAD');
+	expect(JSON.parse(pending.stdout)).toEqual({
+		data: null,
+		error: {
+			name: 'Problems',
+			message: 'reading: no committed code tree; not exported',
+			report: {
+				commit: exported,
+				directory: output,
+				apps: ['broken', 'tasks'],
+				omitted: ['reading'],
+			},
+		},
+	});
+	expect(await f.run('export', '--all', output)).toEqual({
+		code: 1,
+		stdout: `Exported 2 apps to ${output}\nExported source: ${exported}\n`,
+		stderr: 'reading: no committed code tree; not exported\n',
+	});
 	await commit(f.home);
 	expect((await f.run('export', '--all', output)).code).toBe(0);
 	expect(await Bun.file(join(output, 'reading/epicenter.ts')).exists()).toBe(
@@ -451,22 +485,14 @@ test('links to data, excluded code, missing files, external paths, and shared di
 	}
 });
 
-test('an exported collection is accepted by new --from and does not copy the export marker', async () => {
+test('an exported app runs once its folder is copied into a home', async () => {
 	const f = await setup();
 	expect((await f.run('export', '--all', join(f.output, 'apps'))).code).toBe(0);
-	await gitIn(f.output, 'init', '-q');
-	await gitIn(f.output, 'config', 'user.name', 'Export Test');
-	await gitIn(f.output, 'config', 'user.email', 'export@example.com');
-	await gitIn(f.output, 'add', '--', 'apps');
-	await gitIn(f.output, 'commit', '--no-verify', '-qm', 'public code');
-	const copied = await f.run(
-		'new',
-		'copy',
-		'--from',
-		join(f.output, 'apps/tasks'),
-		'--json',
-	);
-	expect(copied.code).toBe(0);
+	// Taking an app is copying its folder; the export marker sits beside the apps.
+	await cp(join(f.output, 'apps/tasks'), join(f.apps, 'copy/code'), {
+		recursive: true,
+		verbatimSymlinks: true,
+	});
 	expect(await readFile(join(f.apps, 'copy/code/epicenter.ts'), 'utf8')).toBe(
 		bareApp('tasks'),
 	);
@@ -576,8 +602,10 @@ test('export refuses a private Epicenter nested inside another repository withou
 	const result = await f.run('export', 'tasks', f.output, '--json');
 	expect(result.code).toBe(2);
 	expect(JSON.parse(result.stdout).error).toMatchObject({
-		name: 'Refused',
+		name: 'NotStarted',
+		cause: 'usage',
 		message: `${f.home} is not a Git repository`,
+		next: 'epicenter export --help',
 	});
 	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(previous);
 	expect(await Bun.file(join(f.output, 'fresh.txt')).exists()).toBe(false);

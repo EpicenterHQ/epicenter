@@ -1,13 +1,13 @@
 /** Initialize one root repository and Bun workspace, with apps in code/data containers. */
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
-import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
+import { ActionError, type Answer, Err, Ok } from '@epicenter/app';
+import { parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { CliError } from './errors.ts';
 import { checkedGit, git, isRepositoryTop } from './git.ts';
 import { installHome, installNext } from './install.ts';
-import { fail, writeErr, writeJson, writeOut } from './output.ts';
+import { writeErr } from './output.ts';
 import {
 	APPS,
 	ancestorWithMarker,
@@ -168,49 +168,57 @@ function actualFolder(path: string): string {
 	return resolve(realpathSync(existing), relative(existing, path));
 }
 
-/** Make a new Epicenter without nesting it inside another. */
+/**
+ * Make a new Epicenter without nesting it inside another. A home made whose
+ * packages did not install answers `Problems`, its report the home it made
+ * and the install as the next step: it ran, and installing again is the repair.
+ */
 export async function initCommand(
 	words: string[],
 	json: boolean,
-): Promise<number> {
-	const given = parseWords(
+): Promise<Answer> {
+	const { data: given, error: misused } = parseWords(
+		'init',
 		words,
 		{ port: { type: 'string' }, 'no-install': { type: 'boolean' } },
 		[0, 1],
 	);
-	if (!given) return fail(misuse('init'), json);
+	if (misused) return Err(misused);
 	const [path] = given.positionals;
-	const port =
-		given.values.port === undefined ? DEFAULT_PORT : portOf(given.values.port);
-	if (port === undefined) return fail(misuse('init', BAD_PORT), json);
+	const port = Number(given.values.port ?? DEFAULT_PORT);
+	if (
+		given.values.port !== undefined &&
+		!(/^\d+$/.test(given.values.port) && port >= 1 && port <= 65535)
+	)
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: '--port must be a whole number from 1 to 65535',
+			next: 'epicenter init --help',
+		});
 	const folder = actualFolder(folderPath(path ?? '.'));
 	if (isMarked(folder))
-		return fail(
-			CliError.Usage({ message: `${folder} is already an Epicenter` }).error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${folder} is already an Epicenter`,
+		});
 	const parent = ancestorWithMarker(dirname(folder));
 	if (parent)
-		return fail(
-			CliError.Usage({
-				message: `${folder} is inside the Epicenter at ${parent}`,
-			}).error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${folder} is inside the Epicenter at ${parent}`,
+		});
 	await mkdir(folder, { recursive: true });
 	// Establish Git identity before writing the marker, so a missing identity is retryable.
 	if (!(await isRepositoryTop(folder)))
 		await checkedGit(folder, ['init', '-q']);
 	for (const identity of ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT']) {
 		if ((await git(folder, ['var', identity])).code !== 0)
-			return fail(
-				CliError.Usage({
-					message:
-						'Git needs your name and email before creating an Epicenter. Set user.name and user.email in Git, then run init again.',
-					next: 'git config --global user.name "Your name" and git config --global user.email "you@example.com"',
-				}).error,
-				json,
-			);
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message:
+					'Git needs your name and email before creating an Epicenter. Set user.name and user.email in Git, then run init again.',
+				next: 'git config --global user.name "Your name" and git config --global user.email "you@example.com"',
+			});
 	}
 	try {
 		await writeFile(join(folder, MARKER), marker(port), { flag: 'wx' });
@@ -220,12 +228,10 @@ export async function initCommand(
 		const taken = (await readdir(folder)).find(
 			(name) => name.toLowerCase() === MARKER.toLowerCase(),
 		);
-		return fail(
-			CliError.Usage({
-				message: `${folder} holds ${taken ?? MARKER}, which this disk does not tell apart from ${MARKER}; rename it, then run init again`,
-			}).error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${folder} holds ${taken ?? MARKER}, which this disk does not tell apart from ${MARKER}; rename it, then run init again`,
+		});
 	}
 	const wrote = [MARKER];
 	if (!existsSync(join(folder, 'AGENTS.md'))) {
@@ -236,6 +242,9 @@ export async function initCommand(
 		['package.json', HOME_PACKAGE, 0o644],
 		['routines/checkpoint.md', CHECKPOINT_ROUTINE, 0o644],
 		['scripts/checkpoint.sh', CHECKPOINT_SCRIPT, 0o755],
+		// Bun would otherwise load the root's .env into every process it starts,
+		// and a routine's child inherits it (ADR-0948).
+		['bunfig.toml', 'env = false\n', 0o644],
 	] as const) {
 		await mkdir(dirname(join(folder, path)), { recursive: true });
 		try {
@@ -252,47 +261,59 @@ export async function initCommand(
 		: await installHome(folder);
 	if (!hadLock && existsSync(join(folder, 'bun.lock'))) wrote.push('bun.lock');
 	await startEpicenterRepository(folder, wrote);
-	if (failed) {
+	if (failed)
 		// The home is made; only its packages are missing, and installing again is the repair.
-		if (json) writeJson({ folder, port, error: failed });
-		else {
-			writeOut(`Made Epicenter at ${folder}.`);
-			writeErr(`Its packages did not install: ${failed.message}`);
-			writeErr(`Run: ${failed.next}`);
-		}
-		return 1;
-	}
-	if (json) writeJson({ folder, port });
-	else {
-		writeOut(`Made Epicenter at ${folder}.`);
-		if (given.values['no-install']) writeErr(`Run: ${installNext(folder)}`);
-		const apps = join(folder, APPS);
-		const hasApps = (
-			await readdir(apps, { withFileTypes: true }).catch(() => [])
-		).some(
-			(entry) =>
-				entry.isDirectory() &&
-				existsSync(join(apps, entry.name, 'code', 'epicenter.ts')),
-		);
-		writeErr(
-			hasApps
-				? 'Run: epicenter'
-				: 'Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing',
-		);
-	}
-	return 0;
+		return ActionError.Problems({
+			message: `Its packages did not install: ${failed.message}`,
+			report: json ? { folder, port } : `Made Epicenter at ${folder}.`,
+			next: failed.next,
+		});
+	if (json) return Ok({ folder, port });
+	// The next steps are hints beside the answer, as stderr carries them today.
+	if (given.values['no-install']) writeErr(`Run: ${installNext(folder)}`);
+	const apps = join(folder, APPS);
+	const hasApps = (
+		await readdir(apps, { withFileTypes: true }).catch(() => [])
+	).some(
+		(entry) =>
+			entry.isDirectory() &&
+			existsSync(join(apps, entry.name, 'code', 'epicenter.ts')),
+	);
+	writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
+	return Ok(`Made Epicenter at ${folder}.`);
 }
+
+/**
+ * What the checkpoint routine must never stage: what an app keeps on this
+ * computer, and credentials the owner pastes into .env (ADR-0948), while
+ * .env.example, which names keys without values, stays committable.
+ */
+const PRIVATE_IGNORES = ['/apps/*/local/', '.env*', '!.env.example'];
 
 /** Initialize the root and commit only files this invocation wrote. */
 async function startEpicenterRepository(root: string, wrote: string[]) {
 	if (!(await isRepositoryTop(root))) await checkedGit(root, ['init', '-q']);
 	await mkdir(join(root, APPS), { recursive: true });
-	if (!existsSync(join(root, '.gitignore'))) {
+	const ignorePath = join(root, '.gitignore');
+	if (!existsSync(ignorePath)) {
 		await writeFile(
-			join(root, '.gitignore'),
-			'/apps/*/local/\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
+			ignorePath,
+			`${PRIVATE_IGNORES.join('\n')}\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n`,
 		);
 		wrote.push('.gitignore');
+	} else {
+		// A .gitignore already here is kept, but the checkpoint routine init
+		// installs would push what it fails to ignore, so the missing lines go
+		// at its end, after any line that could undo them.
+		const kept = await readFile(ignorePath, 'utf8');
+		const present = new Set(kept.split('\n').map((line) => line.trim()));
+		const missing = PRIVATE_IGNORES.filter((line) => !present.has(line));
+		if (missing.length > 0) {
+			const separator = kept === '' || kept.endsWith('\n') ? '' : '\n';
+			await writeFile(ignorePath, `${kept}${separator}${missing.join('\n')}\n`);
+			wrote.push('.gitignore');
+			writeErr(`Added to .gitignore: ${missing.join(' ')}`);
+		}
 	}
 	if (!existsSync(join(root, '.gitattributes')) && Bun.which('git-lfs')) {
 		await checkedGit(root, ['lfs', 'install', '--local']);

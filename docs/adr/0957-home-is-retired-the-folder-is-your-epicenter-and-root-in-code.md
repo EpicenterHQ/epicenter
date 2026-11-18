@@ -1,4 +1,4 @@
-# 0950. "Home" is retired: the folder is your Epicenter, and `root` in code
+# 0957. "Home" is retired: the folder is your Epicenter, and `root` in code
 
 - **Status:** Proposed
 - **Date:** 2026-11-17

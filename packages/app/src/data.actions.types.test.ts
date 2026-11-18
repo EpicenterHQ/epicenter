@@ -130,7 +130,7 @@ test('action answers retain precise record, absence, and error types', () => {
 	assertType<
 		Equal<
 			NonNullable<Answer<typeof actions.get>['error']>['name'],
-			'Missing' | 'Misfit' | 'Refused'
+			'Missing' | 'Misfit'
 		>
 	>();
 	assertType<
@@ -139,19 +139,19 @@ test('action answers retain precise record, absence, and error types', () => {
 	assertType<
 		Equal<
 			NonNullable<Answer<typeof actions.create>['error']>['name'],
-			'Changed' | 'Refused'
+			'Changed' | 'Misfit'
 		>
 	>();
 	assertType<
 		Equal<
 			NonNullable<Answer<typeof actions.patch>['error']>['name'],
-			'Changed' | 'Refused' | 'Misfit' | 'Missing'
+			'Changed' | 'Misfit' | 'Missing'
 		>
 	>();
 	assertType<
 		Equal<
 			NonNullable<Answer<typeof settings.patch>['error']>['name'],
-			'Changed' | 'Refused' | 'Misfit'
+			'Changed' | 'Misfit'
 		>
 	>();
 	// A passage edit of an absent file is Missing for both key shapes.
@@ -159,7 +159,7 @@ test('action answers retain precise record, absence, and error types', () => {
 		assertType<
 			Equal<
 				NonNullable<Answer<typeof edit>['error']>['name'],
-				'Changed' | 'Refused' | 'Misfit' | 'Missing'
+				'Changed' | 'Misfit' | 'Missing'
 			>
 		>();
 	type Listed = NonNullable<Answer<typeof actions.list>['data']>[number];
