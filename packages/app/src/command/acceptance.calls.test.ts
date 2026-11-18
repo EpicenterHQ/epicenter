@@ -431,16 +431,30 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 			code: 0,
 			stderr: '',
 		});
-		// A body past the limit is refused by serve, which says so in its answer.
+		// The command refuses an input past the limit before sending it; Bun
+		// refuses a larger body from anyone else with a bare 413.
+		const largePath = join(f.userDir, 'large.json');
+		await writeFile(largePath, 'x'.repeat(25 * 1024 * 1024 + 1));
+		const largeRun = Bun.spawn(
+			[process.execPath, f.bin, 'notes', 'same', '-', '--json'],
+			{
+				cwd: f.epicenter,
+				env: f.env,
+				stdin: Bun.file(largePath),
+				stdout: 'pipe',
+			},
+		);
+		expect(await largeRun.exited).toBe(2);
+		expect(
+			JSON.parse(await new Response(largeRun.stdout).text()),
+		).toMatchObject({
+			error: { name: 'NotStarted', message: 'The input is larger than 25 MiB' },
+		});
 		const large = await fetch(`${served.base}/notes/same`, {
 			method: 'POST',
 			body: 'x'.repeat(25 * 1024 * 1024 + 1),
 		});
 		expect(large.status).toBe(413);
-		expect(large.headers.get('x-epicenter')).toBe('1');
-		expect(await large.json()).toMatchObject({
-			error: { name: 'NotStarted', message: 'The input is larger than 25 MiB' },
-		});
 		// A handler that throws answers a plain 500 that names no path: with
 		// apps/ a file, reading it throws ENOTDIR.
 		await rename(f.apps, `${f.apps}.moved`);

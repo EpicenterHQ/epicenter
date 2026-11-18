@@ -24,6 +24,13 @@ import { type EpicenterRoot, MARKER } from './root.ts';
  */
 export const ROOT_HEADER = 'x-epicenter-root';
 
+/**
+ * The largest input a call takes, in bytes: serve's body limit. The command
+ * refuses a larger input before sending it, because Bun answers a larger
+ * body with a bare 413 that carries no `x-epicenter`.
+ */
+export const MAX_INPUT_BYTES = 25 * 1024 * 1024;
+
 /** The header serve sets to `1` on every answer, naming no path, so a caller can tell an Epicenter's serve from another program. */
 export const SERVE_HEADER = 'x-epicenter';
 

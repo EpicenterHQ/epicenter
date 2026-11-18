@@ -70,6 +70,7 @@ import { createRoutines } from './routines.ts';
 import { type Call, checkCall, findAction, runAction } from './run.ts';
 import {
 	answeredBy,
+	MAX_INPUT_BYTES,
 	ROOT_HEADER,
 	rootHeaderValue,
 	SERVE_HEADER,
@@ -80,9 +81,6 @@ const LOOPBACK = '127.0.0.1';
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
-
-/** The largest body a call takes; serve refuses a larger one by its length. */
-const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 
 /** What serve could not do in the background. Nobody awaits it, so it is logged. */
 const ServeError = defineErrors({
@@ -275,8 +273,8 @@ const JSON_LINES = {
 };
 
 /** A call refused before it began: its `NotStarted` alone, as the body of a 400. */
-const refused = (error: NotStarted, status = 400) =>
-	Response.json(Err(error), { status });
+const refused = (error: NotStarted) =>
+	Response.json(Err(error), { status: 400 });
 
 /**
  * Run `call`, and answer its updates and then its answer as JSON lines.
@@ -402,14 +400,6 @@ function startHttpServer(root: EpicenterRoot) {
 		return response;
 	};
 	const route = async (request: Request) => {
-		if (Number(request.headers.get('content-length')) > MAX_INPUT_BYTES)
-			return refused(
-				ActionError.NotStarted({
-					cause: 'usage',
-					message: 'The input is larger than 25 MiB',
-				}).error,
-				413,
-			);
 		// A request meant for another Epicenter is refused without naming this one,
 		// so a command in a second Epicenter cannot read or write here (ADR-0936,
 		// ADR-0961). A page or an MCP client names none and is not compared.
@@ -429,9 +419,9 @@ function startHttpServer(root: EpicenterRoot) {
 		hostname: LOOPBACK,
 		port: root.port,
 		idleTimeout: 0,
-		// A body with no length is cut off here instead, by Bun, which answers
-		// 413 without the header; a command always sends the length.
-		maxRequestBodySize: 2 * MAX_INPUT_BYTES,
+		// Bun refuses a larger body itself, with a bare 413. The command refuses
+		// such an input before sending it, so only a page or an agent meets it.
+		maxRequestBodySize: MAX_INPUT_BYTES,
 		// Bun's development mode answers a throw with its stack; serve names no path.
 		development: false,
 		fetch: answer,
