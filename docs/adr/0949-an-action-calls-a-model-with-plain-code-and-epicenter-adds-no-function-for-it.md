@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Relates:** [ADR-0943](0943-epicenters-core-invariants.md) (rule 6: Epicenter does only what needs an app's declaration or the running serve), [ADR-0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) (Epicenter's hosted model API and its `ep_` keys), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (an app's own secrets), [ADR-0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) (requests that arrive at an app).
+- **Relates:** [ADR-0943](0943-epicenters-core-invariants.md) (rule 6: Epicenter does only what needs an app's declaration or the running serve), [ADR-0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) (Epicenter's hosted model API and its `ep_` keys), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (an app's own secrets), [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (requests that arrive at an app).
 
 ## Context
 

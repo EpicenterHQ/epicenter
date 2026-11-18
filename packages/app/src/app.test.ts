@@ -48,7 +48,7 @@ const reading = defineApp(({ folder }) => {
 		description: 'How much I read each week',
 		data,
 		actions: {
-			books: data.books.actions('list', 'get', 'create', 'patch'),
+			...data.books.actions('list', 'get', 'create', 'patch'),
 			log,
 			total,
 		},
@@ -103,17 +103,18 @@ function problems(make: () => unknown): string[] {
 }
 
 describe('defineApp', () => {
-	test('returns a function that answers what the app returned, with its actions nested under their words', async () => {
+	test('returns a function that answers what the app returned, each action under its one name', async () => {
 		const { folder } = await tempFolder();
 		const given = { description: 'Same', actions: { noop } };
 		expect(defineApp(() => given)({ folder })).toBe(given);
 		const app = reading({ folder });
-		expect(Object.keys(app.actions)).toEqual(['books', 'log', 'total']);
-		expect(Object.keys(app.actions.books)).toEqual([
+		expect(Object.keys(app.actions)).toEqual([
 			'list',
 			'get',
 			'create',
 			'patch',
+			'log',
+			'total',
 		]);
 	});
 
@@ -132,7 +133,7 @@ describe('defineApp', () => {
 		expect(
 			problems(() => made({ description: 'Bare', actions: null } as never)),
 		).toEqual([
-			'An app needs actions: an object of defineAction(...) and groups of them, {} for none',
+			'An app needs actions: an object of defineAction(...), {} for none',
 		]);
 		expect(problems(() => made(undefined as never))).toEqual([
 			'An app returns an object: defineApp(({ folder }) => ({ description, data, actions }))',
@@ -173,32 +174,32 @@ describe('defineApp', () => {
 		]);
 	});
 
-	test('refuses an action named then at any depth, which a UI could not call', () => {
+	test('refuses a group: each action has one name', () => {
 		expect(
 			problems(() =>
 				made({
-					description: 'Then',
-					// biome-ignore lint/suspicious/noThenProperty: the test defines then actions to check defineApp refuses them
-					actions: { then: noop, group: { then: noop, inner: { then: noop } } },
+					description: 'Grouped',
+					actions: { words: { create: noop, list: noop } } as never,
 				}),
 			),
 		).toEqual([
-			'actions.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
-			'actions.group.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
-			'actions.group.inner.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
+			"actions.words is not an action: each action has one name, such as actions: { 'create-word': createWord }",
 		]);
 	});
 
-	test('accepts groups with actions named run, start, and description', () => {
+	test('accepts actions named then, run, start, and description', () => {
 		const app = made({
 			description: 'Daily work',
-			actions: { daily: { run: noop, start: shown, description: noop } },
+			// biome-ignore lint/suspicious/noThenProperty: an action may be named then, since the client calls actions by name
+			actions: { then: noop, run: noop, start: shown, description: noop },
 		});
-		expect(
-			Object.keys(app.actions.daily).map((word) => `daily ${word}`),
-		).toEqual(['daily run', 'daily start', 'daily description']);
-		expect(app.actions.daily.run).toBe(noop);
-		expect(app.actions.daily.start).toBe(shown);
+		expect(Object.keys(app.actions)).toEqual([
+			'then',
+			'run',
+			'start',
+			'description',
+		]);
+		expect(app.actions.start).toBe(shown);
 	});
 
 	test('refuses an object spread with an action description and plain run function', () => {
@@ -230,10 +231,47 @@ describe('defineApp', () => {
 				}),
 			),
 		).toEqual([
-			'actions has the key "Two Words" at actions.Two Words, which is not lowercase letters, digits, and dashes, starting with a letter',
+			'actions has the key "Two Words", which is not lowercase letters, digits, and dashes, starting with a letter',
 			'actions.spread is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
 			'actions.plain is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
-			'actions.group.five is neither an action nor a group of them',
+			"actions.group is not an action: each action has one name, such as actions: { 'create-word': createWord }",
+		]);
+	});
+});
+
+describe('an app with fetch', () => {
+	const mail = defineApp(({ folder }) => ({
+		description: 'Mail',
+		actions: {},
+		fetch: async (request: Request) => {
+			const url = new URL(request.url);
+			if (url.pathname !== '/apps/mail/oauth/callback')
+				return new Response('Not found', { status: 404 });
+			await folder.write('local/code.txt', url.searchParams.get('code') ?? '');
+			return new Response('signed in');
+		},
+	}));
+
+	test('answers a request with no server, writing into the folder it was given', async () => {
+		const { folder, read } = await tempFolder();
+		const app = mail({ folder });
+		const answer = await app.fetch(
+			new Request('http://localhost/apps/mail/oauth/callback?code=abc'),
+		);
+		expect(await answer.text()).toBe('signed in');
+		expect(await read('local/code.txt')).toBe('abc');
+		expect(
+			(await app.fetch(new Request('http://localhost/apps/mail/other'))).status,
+		).toBe(404);
+	});
+
+	test('refuses a fetch that is not a function', () => {
+		expect(
+			problems(() =>
+				made({ description: 'Mail', actions: {}, fetch: 'no' } as never),
+			),
+		).toEqual([
+			"An app's fetch is a function: (request: Request) => Response | Promise<Response>",
 		]);
 	});
 });

@@ -12,14 +12,14 @@ import {
 } from '../index.ts';
 import type { LoadedApp } from './apps.ts';
 import { readInput, usageLine } from './input.ts';
-import { actionHelp, appListing } from './listing.ts';
+import { appListing } from './listing.ts';
+import { actionHelp } from './report.ts';
 
 /** Help as the command prints it: from the action's tool, after the trip through JSON serve sends it on. */
 const helpOf = (app: string, key: string, action: Action) => {
 	const loaded = {
 		name: app,
-		app: { description: '' },
-		actions: { [key]: action },
+		app: { description: '', actions: { [key]: action } },
 	};
 	const [tool] = appListing(loaded as unknown as LoadedApp).actions;
 	return actionHelp(JSON.parse(JSON.stringify(tool)));

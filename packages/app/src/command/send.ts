@@ -1,9 +1,9 @@
 /**
  * Send the command's requests to the `epicenter serve` of this Epicenter, the one
  * process that loads app code and runs its actions (ADR-0936, ADR-0961). The
- * command reads the listing at `GET /`, and calls an action at
- * `POST /<app>/<action>` as a page does, reading its JSON lines with the same
- * `readAnswer` (ADR-0953). An Epicenter has one serve, found at the port in its
+ * command reads the listing at `GET /actions/`, and calls an action at
+ * `POST /actions/<app>/<action>` as a page does, reading its JSON lines with
+ * the same `readAnswer` (ADR-0953, ADR-0967). An Epicenter has one serve, found at the port in its
  * `EPICENTER.md`; a command never starts it and never runs an action in its
  * place.
  */
@@ -62,19 +62,19 @@ async function reach(
 	return Ok(response);
 }
 
-/** The listing serve answers at `GET /`: every app it loaded, their problems, and the routines. */
+/** The listing serve answers at `GET /actions/`: every app it loaded, their problems, and the routines. */
 export async function fetchListing(
 	root: EpicenterRoot,
 ): Promise<Result<Listing, PublicError>> {
 	const { data: response, error } = await reach(
 		root,
-		'/',
-		{ headers: { accept: 'application/json' } },
+		'/actions/',
+		{},
 		'The connection to serve ended before its listing',
 	);
 	if (error) return Err(error);
-	// A refusal is read as a call's is, and answers only its error.
-	if (!response.ok)
+	// Any status but 200 is serve not answering, as for a call.
+	if (response.status !== 200)
 		return (await readAnswer(response)) as Result<never, PublicError>;
 	try {
 		const listing = (await response.json()) as Listing;
@@ -100,7 +100,7 @@ export async function callAction(
 ): Promise<Answer> {
 	const { data: response, error } = await reach(
 		root,
-		`/${app}/${key.replaceAll(' ', '.')}`,
+		`/actions/${encodeURIComponent(app)}/${encodeURIComponent(key)}`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },

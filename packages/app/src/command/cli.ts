@@ -2,7 +2,7 @@
  * The `epicenter` command: a client of the Epicenter's serve, which alone loads
  * app code (ADR-0961). It finds its Epicenter once, by walking up. The
  * listing feeds bare `epicenter`, `epicenter <app>` and an action's
- * `--help`; a call goes to serve as a page's does, with the action's words
+ * `--help`; a call goes to serve as a page's does, with the action's name
  * and the input as typed, and serve reads the input and runs the action. `check` reads the apps in
  * this process; `serve` is the process. Every command ends in one answer,
  * `{ data, error }`, which `runCli` presents in one place (ADR-0953). Serve
@@ -13,11 +13,10 @@ import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
-import { unknownApp } from './apps.ts';
 import { noSuchAction } from './input.ts';
-import { appReport, helpReport, missingAction, rootReport } from './listing.ts';
 import { presentAnswer, writeErr } from './output.ts';
-import { MAX_INPUT_BYTES } from './protocol.ts';
+import { MAX_INPUT_BYTES, unknownApp } from './protocol.ts';
+import { appReport, helpReport, missingAction, rootReport } from './report.ts';
 import { epicenterRoot } from './root.ts';
 import { callAction, fetchListing } from './send.ts';
 
@@ -35,8 +34,9 @@ or an app has one, and 2 when a named app does not load.`,
 };
 const SERVE = {
 	usage: 'epicenter serve',
-	help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
-action to its UI at POST /<app>/<action>, on 127.0.0.1 at the port in
+	help: `Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
+built UI, then its fetch), and each action at POST /actions/<app>/<action>,
+on 127.0.0.1 at the port in
 EPICENTER.md (default 4747). It starts in the Epicenter's folder. An
 Epicenter has one serve, and only serve loads app code: epicenter <app> and
 bare epicenter ask it, and are refused while it is stopped. Each call runs
@@ -139,7 +139,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			begun = true;
 			return serveHttp(root);
 		}
-		// A word that is no name names no app, and would not reach POST /<app>/<action>: `..` is `/`.
+		// A word that is no name names no app, and would not reach POST /actions/<app>/<action>: `..` is `/`.
 		if (name !== undefined && !isName(name)) return unknownApp(name);
 		if (name === undefined || !rest.length) {
 			const { data: listing, error } = await fetchListing(root);
@@ -148,11 +148,9 @@ export async function runCli(argv: string[]): Promise<number> {
 				? Ok(rootReport(listing, root, json))
 				: appReport(listing, root, name, json);
 		}
-		// The action is the words that are names; an input is {...} or -, never one.
-		const end = rest.findIndex((word) => !isName(word));
-		const key = rest.slice(0, end < 0 ? undefined : end).join(' ');
-		const after = end < 0 ? [] : rest.slice(end);
-		if (!key)
+		// The action is one name; the input after it is {...} or -, never one.
+		const [key = '', ...after] = rest;
+		if (!isName(key))
 			return usage(
 				`Name an action of ${name} before its input`,
 				`epicenter ${name}`,

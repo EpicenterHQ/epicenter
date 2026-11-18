@@ -229,7 +229,7 @@ test('C11 concurrent patches of different fields on one file all land', async ()
 		'code/epicenter.ts': `${header}
 export default defineApp(({ folder }) => {
 const data = defineData(folder, { items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
-return { description: 'Many fields', data, actions: { items: data.items.actions('patch') } };
+return { description: 'Many fields', data, actions: data.items.actions('patch') };
 });
 `,
 		'data/items/one.md': '---\n---\n',
@@ -238,7 +238,7 @@ return { description: 'Many fields', data, actions: { items: data.items.actions(
 	// process, and no write is lost between them (ADR-0936).
 	const runs = await Promise.all(
 		fields.map((key, i) =>
-			f.run('many', 'items', 'patch', JSON.stringify({ id: 'one', [key]: i })),
+			f.run('many', 'patch', JSON.stringify({ id: 'one', [key]: i })),
 		),
 	);
 	expect(runs.filter((run) => run.code !== 0 || run.stderr !== '')).toEqual([]);
@@ -277,15 +277,14 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 		// A request that names another Epicenter is refused before anything runs,
 		// and the refusal does not name this one.
 		for (const request of [
-			fetch(`${served.base}/where/am`, {
+			fetch(`${served.base}/actions/where/am`, {
 				method: 'POST',
 				headers: { 'x-epicenter-root': encodeURIComponent('/elsewhere') },
 				body: '{}',
 			}),
-			fetch(`${served.base}/`, {
+			fetch(`${served.base}/actions/`, {
 				headers: {
 					'x-epicenter-root': encodeURIComponent('/elsewhere'),
-					accept: 'application/json',
 				},
 			}),
 		]) {
@@ -404,8 +403,11 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 	try {
 		for (const response of [
 			await fetch(`${served.base}/`),
-			await fetch(`${served.base}/missing/`),
-			await fetch(`${served.base}/notes/same`, { method: 'POST', body: '{}' }),
+			await fetch(`${served.base}/apps/missing/`),
+			await fetch(`${served.base}/actions/notes/same`, {
+				method: 'POST',
+				body: '{}',
+			}),
 			await fetch(`${served.base}/`, {
 				headers: { 'x-epicenter-root': 'elsewhere' },
 			}),
@@ -445,7 +447,7 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 		).toMatchObject({
 			error: { name: 'NotStarted', message: 'The input is larger than 25 MiB' },
 		});
-		const large = await fetch(`${served.base}/notes/same`, {
+		const large = await fetch(`${served.base}/actions/notes/same`, {
 			method: 'POST',
 			body: 'x'.repeat(25 * 1024 * 1024 + 1),
 		});
@@ -455,9 +457,7 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 		await rename(f.apps, `${f.apps}.moved`);
 		await writeFile(f.apps, '');
 		try {
-			const threw = await fetch(`${served.base}/`, {
-				headers: { accept: 'application/json' },
-			});
+			const threw = await fetch(`${served.base}/actions/`);
 			expect(threw.status).toBe(500);
 			expect(threw.headers.get('x-epicenter')).toBe('1');
 			expect(await threw.text()).toBe('serve could not answer');

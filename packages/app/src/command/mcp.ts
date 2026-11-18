@@ -25,8 +25,9 @@ import { Err } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer } from '../index.ts';
 import { hidePaths } from './hide-paths.ts';
-import { fromToolName, type Listing, listApps } from './listing.ts';
+import { type Listing, listApps } from './listing.ts';
 import { outcome, writeErr } from './output.ts';
+import { fromToolName } from './protocol.ts';
 import { type EpicenterRoot, rootInstructions } from './root.ts';
 import { checkCall, findAction, runAction } from './run.ts';
 

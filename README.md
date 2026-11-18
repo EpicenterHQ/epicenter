@@ -113,7 +113,7 @@ epicenter serve
 ```
 
 `epicenter serve` offers every app's actions over MCP, and each app's UI at
-`/<app>/`, on the home. It listens only there; your private network, such as
+`/apps/<app>/`, on the home. It listens only there; your private network, such as
 Tailscale, brings your other devices in. Nothing syncs and no one signs in:
 your phone, your laptop, and your agents reach the one copy on the home, and
 keep nothing of their own. The home's optional `origin` is its backup remote.

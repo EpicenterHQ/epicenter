@@ -2,12 +2,12 @@
  * How a caller reads serve's answer to an action call, for a page and for the
  * CLI alike (ADR-0930, ADR-0953). A call's response is JSON lines:
  * `{"update": value}` for each update, then `{"answer": {data, error}}`. A call
- * serve refused before it began is one answer, `NotStarted`, as the body of an
- * HTTP error.
+ * serve refused before it began is a 200 with one line, its `NotStarted`
+ * answer (ADR-0967).
  *
- * The status alone proves nothing: a 200 whose lines are not frames, or whose
- * stream ends with no answer, is `Unreachable`, and so is an HTTP error
- * without a `NotStarted` in its body. This module uses only web APIs, so a
+ * Any status but 200 means serve did not take the call, and is
+ * `Unreachable`. A 200 proves nothing more: one whose lines are not frames,
+ * or whose stream ends with no answer, is `Unreachable` too. This module uses only web APIs, so a
  * page's bundle can carry it.
  */
 import { Ok, type Result } from 'wellcrafted/result';
@@ -73,15 +73,8 @@ export async function readAnswer(
 	response: Response,
 	onUpdate?: (value: unknown) => unknown,
 ): Promise<Answer> {
-	if (!response.ok) {
-		let body: unknown;
-		try {
-			body = JSON.parse(await response.text());
-		} catch {
-			// Not an answer; the status is all there is.
-		}
-		const refusal = checkAnswer(body);
-		if (refusal.error?.name === 'NotStarted') return refusal;
+	if (response.status !== 200) {
+		void response.body?.cancel().catch(() => undefined);
 		return ActionError.Unreachable({
 			message:
 				`serve answered ${response.status} ${response.statusText}`.trim(),

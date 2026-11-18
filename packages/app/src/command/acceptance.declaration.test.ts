@@ -82,6 +82,11 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 		'unchecked',
 		`export default defineApp(() => ({ description: 'The unchecked app', actions: { show: { description: 'Show', input: {}, run: () => 1 } } }));\n`,
 	);
+	// A group of actions under one key is no longer an action's name.
+	await f.app(
+		'grouped',
+		`export default defineApp(() => ({ description: 'The grouped app', actions: { week: { show: defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } } }));\n`,
+	);
 	await f.app('nodefault', `export const actions = {};\n`);
 	// Exported without defineApp, so nothing checked it while importing.
 	await f.app(
@@ -120,13 +125,16 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 		misplaced: [
 			'code/epicenter.ts: The action "Show" has "positional", which an action does not take',
 		],
+		grouped: [
+			"code/epicenter.ts: actions.week is not an action: each action has one name, such as actions: { 'create-word': createWord }",
+		],
 		nodefault: ['code/epicenter.ts does not export defineApp(...) by default'],
 		nullactions: [
-			'code/epicenter.ts: An app needs actions: an object of defineAction(...) and groups of them, {} for none',
+			'code/epicenter.ts: An app needs actions: an object of defineAction(...), {} for none',
 		],
 		shapeless: [
 			'code/epicenter.ts: data.words is not a handle from defineData(...)',
-			'code/epicenter.ts: actions.show is neither an action nor a group of them',
+			"code/epicenter.ts: actions.show is not an action: each action has one name, such as actions: { 'create-word': createWord }",
 		],
 		unchecked: [
 			'code/epicenter.ts: actions.show is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
@@ -171,13 +179,13 @@ ${words}return { description: 'The vocab app', data, actions: {} };
 		},
 	});
 	expect(reading.actions.map((tool: { name: string }) => tool.name)).toEqual([
-		'reading_books_list',
-		'reading_books_get',
-		'reading_books_create',
-		'reading_books_patch',
+		'reading_list',
+		'reading_get',
+		'reading_create',
+		'reading_patch',
 		'reading_log',
 		'reading_between',
-		'reading_week_show',
+		'reading_show-week',
 		'reading_explode',
 	]);
 	expect(reading.actions[4]).toEqual({
@@ -245,7 +253,7 @@ test('a listing marks an action that declares mcp: false', async () => {
 	expect(human).toContain('    Read messages\n');
 });
 
-test("D3 the input is one JSON object after the action's words, or - to read it from stdin", async () => {
+test("D3 the input is one JSON object after the action's name, or - to read it from stdin", async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	/** Run with stdin open: `text` is written to it, and it is closed only when `close` is true. */
@@ -294,19 +302,19 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 		await piped('{"from":"2000-01-01"}', false, 'reading', 'between', between),
 	).toMatchObject({ code: 0, stdout: both.stdout });
 	expect(
-		await piped('{"minutes":5}', false, 'reading', 'week', 'show'),
+		await piped('{"minutes":5}', false, 'reading', 'show-week'),
 	).toMatchObject({ code: 0, stdout: '210\n' });
-	// Stdin is the input, never a word: `show` from stdin does not make `week show`.
-	const stdinWord = await piped('show', true, 'reading', 'week', '-', '--json');
+	// Stdin is the input, never a word: `show-week` from stdin names no action.
+	const stdinWord = await piped('show-week', true, 'reading', '-', '--json');
 	expect(stdinWord.code).toBe(2);
-	expect(JSON.parse(stdinWord.stdout).error.message).toStartWith(
-		'reading has no action "week". Its actions:',
+	expect(JSON.parse(stdinWord.stdout).error.message).toBe(
+		'Name an action of reading before its input',
 	);
 
 	for (const [args, message] of [
 		[['between', '2026-11-01', '2026-11-08'], 'The input is one argument'],
-		// A word that is a name belongs to the action, so it is no input.
-		[['between', 'today'], 'reading has no action "between today"'],
+		// One word names the action; the next is its input, even a name.
+		[['between', 'today'], 'The input is not JSON'],
 		[[between], 'Name an action of reading before its input'],
 		// No word starts with -, so a flag is refused before serve is asked.
 		[['between', '--from', '2026-11-01'], '--from is not an option'],
@@ -316,7 +324,7 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 		[['between', '2026-11-01'], 'The input is not JSON'],
 		[['between', '[]'], 'The input is not a JSON object'],
 		[['between', '{"from":"2026-11-01"}'], 'to is needed'],
-		[['week', 'show', '{"day":1}'], '"day" is not a key this action takes'],
+		[['show-week', '{"day":1}'], '"day" is not a key this action takes'],
 	] as const) {
 		const refused = await f.run('reading', ...args, '--json');
 		expect(refused.code).toBe(2);
@@ -334,8 +342,8 @@ Input, one JSON object, or - to read it from stdin:
 Example:
   epicenter reading between '{"from":"2026-11-12","to":"2026-11-12"}'
 `);
-	expect((await f.run('reading', 'week', 'show', '--help')).stdout).toBe(
-		'epicenter reading week show\nMinutes read this week\n',
+	expect((await f.run('reading', 'show-week', '--help')).stdout).toBe(
+		'epicenter reading show-week\nMinutes read this week\n',
 	);
 });
 
