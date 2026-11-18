@@ -71,7 +71,9 @@ Hugging Face cache               local models, shared with other programs
   (`app.fs_scope().is_allowed`). That scope starts empty: a capability's
   grant counts only inside `@tauri-apps/plugin-fs`'s own commands. So the
   shell grants the default folder itself at startup (`allow_directory`).
-  On the computer that runs the home, the folder may be
+  A grant names a path as the dialog gave it, so the app keeps that
+  spelling. Grants persist, and a folder left by "Change…" stays granted,
+  which lets Settings keep showing it. On the computer that runs the home, the folder may be
   `~/Epicenter/apps/whispering/data`: Whispering then writes its records
   there and stays their one writer. The inside app reads them and never
   writes a file Whispering writes; anything it adds is its own file, named
@@ -89,7 +91,8 @@ Hugging Face cache               local models, shared with other programs
   | A Whispering folder (one holding `settings.md` or `recordings/`), such as a home's or one synced from another computer | Opens it, and leaves the old folder where it was; Settings shows the old path so its recordings can be exported |
   | Any other folder | Refuses, and asks for an empty folder or a Whispering folder |
 
-  Whispering never merges two folders.
+  Whispering never merges two folders. "Change…" is disabled while a take
+  is recording, so a take is never placed in a folder Whispering has left.
 - **Audio is kept.** Settings shows its size and offers "Delete audio older
   than…". Nothing deletes audio on its own.
 - **A recording is its id, found from its note or its finished audio.**
@@ -196,7 +199,10 @@ Hugging Face cache               local models, shared with other programs
   `files_read_many` answers one buffer that holds a count, each path's
   length in the order asked (or a marker for a missing file), then the
   bytes. The page is granted none of `@tauri-apps/plugin-fs`'s commands;
-  the plugin is registered for its scope alone. No command parses a note:
+  the plugin is registered for its scope alone. Two more commands do what
+  the page cannot do through `Files`: `files_change_folder` carries out
+  "Change…", and `folder_git` tells Settings whether the folder is in a Git
+  repository with an LFS rule for `webm`. No command parses a note:
   Markdown is read and written in TypeScript, so both builds share one
   reader.
 - **Notes use the home's Markdown grammar from its one owner.**
@@ -213,12 +219,16 @@ Hugging Face cache               local models, shared with other programs
   therefore never see a half-written file. Only when the folder is on
   another volume, where a rename cannot reach, does the place step copy to
   a temporary file beside the target (`.ep-<random>.save`), sync it, and
-  rename that. `local/` has the shape of a home app's `local/`
+  rename that. A crash can leave that file behind; Whispering is the
+  folder's one writer, so opening the folder removes any `.ep-*.save` it
+  finds. `local/` has the shape of a home app's `local/`
   (`apps/<app>/local/.tmp/` is where the home stages its own writes), and
   stays in the app's local data directory wherever the folder moves.
   Its two directories each keep one rule: `local/.tmp/` holds saves, which
   are safe to delete at any time, and opening the folder clears it;
-  `local/recording/` holds takes, which are never deleted, only placed.
+  `local/recording/` holds takes, which are placed and never deleted while
+  they hold audio. A take a crash left with no audio in it is deleted, as
+  there is nothing in it to keep.
 - **`write` replaces a file whole.** On the desktop it writes and syncs the
   bytes in `local/.tmp/`, renames them over the target, and syncs the
   directory. The rename replaces the file in one step on macOS and Linux;
@@ -238,7 +248,8 @@ Hugging Face cache               local models, shared with other programs
   Placing a take replaces nothing: the rename refuses an existing target,
   and `start` refuses an id whose audio or take already exists. If placing
   fails, `stop` answers `Unplaced` and the take stays in `local/recording/`, so
-  nothing recorded is lost, and `recover` places it later. The path check
+  nothing recorded is lost, and `recover` places it later. `unplaced` lists
+  every take `recover` could not finish or place, so the person sees it. The path check
   is the one `Files` uses. In a browser the recorder keeps a take in memory
   and writes it once at Stop through `Files`; a tab that crashes while
   recording loses that take.
