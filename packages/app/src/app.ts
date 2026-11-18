@@ -118,7 +118,7 @@ function appProblems(app: unknown): string[] {
 		problems.push('An app needs a description');
 	if (fetch !== undefined && typeof fetch !== 'function')
 		problems.push(
-			'An app\'s fetch is a function: (request: Request) => Response | Promise<Response>',
+			"An app's fetch is a function: (request: Request) => Response | Promise<Response>",
 		);
 	if (data !== undefined && !isObject(data))
 		problems.push('An app needs data: the value returned by defineData(...)');

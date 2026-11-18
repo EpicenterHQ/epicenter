@@ -39,8 +39,8 @@
  * device reaches it only through a proxy the owner runs on this computer,
  * such as `tailscale serve`. A browser marks where a request came from
  * (`Sec-Fetch-Site`), and serve refuses one from another site unless it opens
- * a page: a top-level `GET` navigation, such as an OAuth redirect back. It answers only a `Host` that
- * is a loopback name, an IP literal, or a `*.ts.net` name, which a DNS
+ * a page: a top-level `GET` navigation, such as an OAuth redirect back. It
+ * answers only a `Host` that is a loopback name, an IP literal, or a `*.ts.net` name, which a DNS
  * rebinding name is not, and refuses a request a Tailscale Funnel or
  * Cloudflare Tunnel delivered. Both set their header on every request, and
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
@@ -148,7 +148,11 @@ type Site = {
 	/** The launcher at `GET /`, or 405 when MCP asks for an event stream. */
 	launcher(request: Request): Promise<Response>;
 	/** A request under `/apps/<app>`: a built file, the app's `fetch`, or 404. */
-	app(request: Request, app: string, path: string | undefined): Promise<Response>;
+	app(
+		request: Request,
+		app: string,
+		path: string | undefined,
+	): Promise<Response>;
 };
 
 const notFound = () => new Response('Not found', { status: 404 });

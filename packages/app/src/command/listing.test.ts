@@ -75,7 +75,10 @@ test('an app that answers web requests says so, and lists none of its routes', (
 		app,
 		actions: {},
 	};
-	expect(oneAppListing(located, true)).toMatchObject({ fetch: true, actions: [] });
+	expect(oneAppListing(located, true)).toMatchObject({
+		fetch: true,
+		actions: [],
+	});
 	expect(oneAppListing(located, false)).toStartWith(
 		'mail  Mail (answers web requests)\n',
 	);

@@ -238,15 +238,17 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect(await (await fetch(`${f.base}/`)).text()).not.toContain(
 		'href="/apps/linked/"',
 	);
-	const redirect = await fetch(`${f.base}/apps/reading`, { redirect: 'manual' });
+	const redirect = await fetch(`${f.base}/apps/reading`, {
+		redirect: 'manual',
+	});
 	expect(redirect.status).toBe(308);
 	expect(redirect.headers.get('location')).toBe('/apps/reading/');
 	expect(await (await fetch(`${f.base}/apps/reading/`)).text()).toBe(
 		'<h1>Reading</h1>',
 	);
-	expect((await fetch(`${f.base}/apps/reading/`)).headers.get('cache-control')).toBe(
-		'no-cache',
-	);
+	expect(
+		(await fetch(`${f.base}/apps/reading/`)).headers.get('cache-control'),
+	).toBe('no-cache');
 	expect(
 		(await fetch(`${f.base}/apps/reading/_app/immutable/asset.js`)).headers.get(
 			'cache-control',
@@ -411,7 +413,10 @@ test('serve refuses a request from another site unless it opens a page', async (
 		(
 			await fetch(`${f.base}/actions/mail/x`, {
 				method: 'POST',
-				headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'no-cors' },
+				headers: {
+					'sec-fetch-site': 'cross-site',
+					'sec-fetch-mode': 'no-cors',
+				},
 				body: '{}',
 			})
 		).status,
@@ -602,7 +607,9 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 	}
 	expect((await fetch(`${f.base}/actions/talk/say`)).status).toBe(405);
 	// The old address answers nothing.
-	expect((await fetch(`${f.base}/talk/say`, { method: 'POST', body: '{}' })).status).toBe(404);
+	expect(
+		(await fetch(`${f.base}/talk/say`, { method: 'POST', body: '{}' })).status,
+	).toBe(404);
 	const client = connect<() => { actions: { sing: TalkSay } }>({
 		app: 'talk',
 		url: `${f.base}/`,

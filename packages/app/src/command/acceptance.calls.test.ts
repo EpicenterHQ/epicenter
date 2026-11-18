@@ -341,7 +341,10 @@ test('every answer of serve names its home, and a call through it adds no line',
 		for (const response of [
 			await fetch(`${served.base}/`),
 			await fetch(`${served.base}/missing/`),
-			await fetch(`${served.base}/actions/notes/same`, { method: 'POST', body: '{}' }),
+			await fetch(`${served.base}/actions/notes/same`, {
+				method: 'POST',
+				body: '{}',
+			}),
 		]) {
 			expect(response.headers.get('x-epicenter-home')).toBe(
 				encodeURIComponent(f.home),
