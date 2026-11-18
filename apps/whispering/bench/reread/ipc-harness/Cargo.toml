@@ -1,0 +1,12 @@
+[package]
+name = "ipc-harness"
+version = "0.0.0"
+edition = "2021"
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+[dependencies]
+tauri = { version = "2.12", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+whispering-files = { path = "../../../packages/whispering-files" }
+[workspace]

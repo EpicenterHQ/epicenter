@@ -1,0 +1,23 @@
+{
+	"productName": "ipc-harness",
+	"version": "0.0.0",
+	"identifier": "so.epicenter.ipcharness",
+	"build": {
+		"frontendDist": "dist"
+	},
+	"app": {
+		"windows": [
+			{
+				"title": "ipc harness",
+				"width": 400,
+				"height": 300
+			}
+		],
+		"security": {
+			"csp": null
+		}
+	},
+	"bundle": {
+		"icon": ["../../../src-tauri/icons/icon.png"]
+	}
+}

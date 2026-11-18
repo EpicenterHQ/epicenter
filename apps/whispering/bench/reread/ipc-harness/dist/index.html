@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+	<body>
+		<pre id="out">running</pre>
+		<script>
+			const RUNS = 6;
+			const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
+			const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+			const md = (dir, entries) =>
+				entries.filter((e) => e.name.endsWith('.md')).map((e) => `${dir}/${e.name}`);
+			const lines = [];
+
+			async function one(folder) {
+				const t = { refresh: [], ipcOnly: [], bytes: 0 };
+				for (let run = 0; run < RUNS; run++) {
+					// As folder.read() does it: list recordings/, then read them beside
+					// the transcripts' listing and read.
+					let at = performance.now();
+					const listed = await invoke('files_list', { folder, dir: 'recordings' });
+					const recPaths = md('recordings', listed);
+					let trPaths = [];
+					const [a, b] = await Promise.all([
+						invoke('files_read_many', { folder, paths: recPaths }),
+						(async () => {
+							const tr = await invoke('files_list', { folder, dir: 'transcriptions' });
+							trPaths = md('transcriptions', tr);
+							return invoke('files_read_many', { folder, paths: trPaths });
+						})(),
+					]);
+					t.refresh.push(performance.now() - at);
+					t.bytes = a.byteLength + b.byteLength;
+					// The same requests and answer sizes, from memory.
+					at = performance.now();
+					await Promise.all([
+						invoke('echo', { paths: recPaths, size: a.byteLength }),
+						invoke('echo', { paths: trPaths, size: b.byteLength + 1 }),
+					]);
+					t.ipcOnly.push(performance.now() - at);
+				}
+				const runs = (xs) => xs.map((x) => x.toFixed(0)).join('/');
+				lines.push(
+					`${folder}: ${t.bytes} bytes; refresh ${median(t.refresh).toFixed(0)} ms (${runs(t.refresh)}); IPC alone ${median(t.ipcOnly).toFixed(0)} ms (${runs(t.ipcOnly)})`,
+				);
+			}
+
+			(async () => {
+				try {
+					for (const folder of await invoke('folders')) await one(folder);
+				} catch (error) {
+					lines.push(`error ${error}`);
+				}
+				await invoke('report', { text: lines.join('\n') });
+			})();
+		</script>
+	</body>
+</html>
