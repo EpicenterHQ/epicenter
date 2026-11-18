@@ -40,14 +40,15 @@
 
 A home is a folder that depends on Epicenter, as any Bun project depends on a
 package. It requires [Bun](https://bun.sh) and Git. An AI account is not
-required. With Git's `user.name` and `user.email` configured, create your
-Epicenter and copy the Writing app:
+required. Make `~/Epicenter` from the files
+[the CLI README](packages/cli/README.md#make-an-epicenter) lists, then copy
+the Writing app:
 
 ```sh
-bun x @epicenter/cli init ~/Epicenter
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
-epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
 bun install && bun run build
 epicenter serve
 ```
@@ -61,7 +62,8 @@ To add
 [Tasks](examples/tasks/README.md) to your home, run
 
 ```sh
-epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
+mkdir -p apps/tasks/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 epicenter-main/examples/tasks
 bun install && bun run build
 ```
 

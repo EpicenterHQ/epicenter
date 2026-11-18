@@ -1,10 +1,10 @@
 # 0911. Export copies an app's committed code into a refreshable directory
 
-- **Status:** Accepted (2026-11-15)
+- **Status:** Superseded
 - **Date:** 2026-11-15
 - **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): settles local code export; the private root and publication histories stay separate.
 - **Amended by:** [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md): export refuses every link that leaves the app's `code/`; nothing outside is copied by value.
-- **Proposed amendment:** [ADR-0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) adds local checkpointing before export, factual checkpoint subjects, and backup uploads outside the root lock.
+- **Superseded by:** [ADR-0955](0955-no-command-makes-or-copies-an-app.md): `export` no longer exists; no command copies an app's code.
 
 ## Context
 

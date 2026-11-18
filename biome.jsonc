@@ -44,7 +44,7 @@
 			"!**/permissions/schemas/schema.json",
 			// Upstream snapshots stay as the shadcn-svelte CLI wrote them; the kit is checked against them.
 			"!packages/ui/upstream",
-			// Code-only publications are refreshed with epicenter export.
+			// Example apps stay as the Epicenter that maintains them holds them.
 			"!examples/tasks",
 			"!examples/writing",
 			// Preserve the vendored lint rules byte-for-byte for upstream updates.

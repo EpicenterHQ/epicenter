@@ -8,13 +8,14 @@ Use the latest Epicenter CLI for a new home. Writing runs on 0.2.0 or later.
 To add Writing to your home, run these at the top of the home
 
 ```sh
-epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
 bun install && bun run build
 epicenter serve
 ```
 
-Open `http://localhost:4747/writing/`. Downloading the app requires Git and
-network access. Using the copied app needs neither GitHub nor a provider key.
+Open `http://localhost:4747/writing/`. Downloading the app requires network
+access. Using the copied app needs neither GitHub nor a provider key.
 
 Open the app at `/<app>/` while `epicenter serve` runs. Capture text, an optional
 source (a person, book, or URL), and an optional project. Search matches the text,
@@ -62,30 +63,12 @@ before experimenting, and experiment outside the live folder. `git commit
 -am 'Adapt my writing inbox'` records pending code and records together.
 Keep the repository private: it contains your writing.
 
-## Share your app
-
-Commit the code you want to share in your private Epicenter, then export it to
-a separate directory:
-
-```sh
-epicenter export writing "$PUBLIC_REPOSITORY/code"
-```
-
-Replace `PUBLIC_REPOSITORY` with the path to your publication repository.
-Export regenerates `code/`; keep Git and handwritten publication files outside
-that directory. Review the generated files, then commit and push with Git.
-Your notes and private history are not exported. If this app is part of an
-all-app collection, refresh that collection with its existing `export --all`
-command instead of creating an export inside its generated directory.
-
 ## Take changes from another copy
 
-`new --from` makes a new app. To update this app, ask your agent to inspect the
-source and commit recorded in `code/SOURCE.md`, compare the incoming code in a
-temporary folder outside your live Epicenter, and reconcile it with your edits.
-Apply the reviewed changes only to `code/`, test them with your existing notes,
-and inspect any record problems before making a named checkpoint. Keep `data/`.
-Record the source revision you incorporated in `SOURCE.md`.
+Copying a folder makes a new app. To update this app, ask your agent to copy
+the incoming code into a temporary folder outside your live Epicenter, compare
+it with your `code/`, and reconcile it with your edits. Apply the reviewed
+changes only to `code/`, test them with your existing notes, and inspect any
+record problems before making a named checkpoint. Keep `data/`.
 
-There is no automatic updater. Apps that start in your own Epicenter have no
-`SOURCE.md` until you choose to incorporate code from elsewhere.
+There is no automatic updater.

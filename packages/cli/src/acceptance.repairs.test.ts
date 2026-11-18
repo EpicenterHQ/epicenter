@@ -5,7 +5,7 @@
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
 	connectMcp,
@@ -77,14 +77,8 @@ function notes(f: Awaited<ReturnType<typeof setup>>) {
 	return f.folder(join(f.apps, 'notes'), repairsApp);
 }
 
-test('F1 new puts the next step on stderr; a broken root is a usage error', async () => {
+test('F1 a broken root is a usage error', async () => {
 	const f = await setup();
-	const made = await f.run('new', 'garden');
-	expect(made.code).toBe(0);
-	expect(made.stdout).toBe(`${join(f.apps, 'garden')}\n`);
-	expect(made.stderr).toBe(
-		`Run: cd ${f.home} && bun install && bun run build\n`,
-	);
 	await rm(f.home, { recursive: true });
 	await writeFile(f.home, 'not a folder');
 	const listed = await f.json();
@@ -157,9 +151,6 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'export', 'serve', 'init'])
-		expect((await f.json('new', word)).code).toBe(2);
-	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain(
 		'Exit codes: 0 done, 1 failed, ran in part or may have run, 2 did not run.',
@@ -192,10 +183,6 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 
 test('F10 typing waits for its first consumer: no epicenter types, no generated file', async () => {
 	const f = await setup();
-	expect((await f.run('new', 'garden')).code).toBe(0);
-	expect(
-		await readFile(join(f.apps, 'garden', 'code/.gitignore'), 'utf8'),
-	).toBe(gitignore);
 	await f.app(
 		'other',
 		`export default defineApp({ description: 'Another app', actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } });\n`,

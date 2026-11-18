@@ -10,7 +10,9 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { delimiter, dirname, join } from 'node:path';
 import { isName, readMarkdown } from '@epicenter/app';
-import { writeErr } from './output.ts';
+import { defineErrors } from 'wellcrafted/error';
+import { createLogger } from 'wellcrafted/logger';
+import { stderrJsonLines } from './output.ts';
 
 /** `run` is the command's words: the program, then each argument as text. */
 type Routine = {
@@ -31,6 +33,21 @@ function shellLine(words: string[]): string {
 
 const messageOf = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
+
+/** Why a routine did not run. Serve logs it and keeps its clock going. */
+const RoutineError = defineErrors({
+	Unreadable: ({ routine, cause }: { routine: string; cause: unknown }) => ({
+		message: `Routine ${routine}: ${messageOf(cause)}`,
+		routine,
+	}),
+	CouldNotStart: ({ routine, cause }: { routine: string; cause: unknown }) => ({
+		message: `Routine ${routine} could not start: ${messageOf(cause)}`,
+		routine,
+	}),
+});
+
+/** Serve's record of routines it could not run, beside its run records. */
+const log = createLogger('cli/routines', stderrJsonLines);
 
 /**
  * Read a routine file: a cron schedule and the command to run. The program
@@ -117,8 +134,8 @@ export function createRoutines({ folder }: { folder: string }) {
 
 	function start(name: string, { run }: Routine) {
 		// The working directory already names the Epicenter, so the command
-		// needs no variable to find it. The failure is only reported here, so
-		// a plain catch is the whole handling: no caller receives it.
+		// needs no variable to find it. No caller receives a failure to start,
+		// so it is logged here, and the routine tries again at its next time.
 		try {
 			Bun.spawn(run, {
 				cwd: folder,
@@ -126,7 +143,9 @@ export function createRoutines({ folder }: { folder: string }) {
 				stdio: ['ignore', 'inherit', 'inherit'],
 			});
 		} catch (error) {
-			writeErr(`Routine ${name} could not start: ${messageOf(error)}`);
+			log.warn(
+				RoutineError.CouldNotStart({ routine: name, cause: error }).error,
+			);
 		}
 	}
 
@@ -158,7 +177,9 @@ export function createRoutines({ folder }: { folder: string }) {
 				try {
 					routine = await read(name);
 				} catch (error) {
-					writeErr(`Routine ${name}: ${messageOf(error)}`);
+					log.warn(
+						RoutineError.Unreadable({ routine: name, cause: error }).error,
+					);
 					continue;
 				}
 				const next = Bun.cron.parse(routine.cron, from);

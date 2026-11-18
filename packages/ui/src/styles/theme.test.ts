@@ -1,8 +1,7 @@
 /**
  * Checks that the palette stays plain CSS and the Tailwind bridge maps its
- * colors. `epicenter init` writes a copy of this palette into each new home,
- * where a page may link it with no Tailwind build, so it must be custom
- * properties and nothing else.
+ * colors. A page may link the palette with no Tailwind build, so it must be
+ * custom properties and nothing else.
  */
 import { expect, test } from 'bun:test';
 

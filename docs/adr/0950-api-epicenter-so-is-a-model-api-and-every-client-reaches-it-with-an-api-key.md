@@ -4,7 +4,7 @@
 - **Date:** 2026-11-17
 - **Supersedes:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) (every resource accepts only opaque access tokens from one OAuth 2.1 authorization server) and [ADR-0331](0331-whispering-authenticates-with-an-oauth-bearer-on-every-surface.md) (Whispering authenticates with an OAuth bearer on every surface).
 - **Amends:** [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) at "retain the existing ... `ai` authorization scope": an API key, not a scope on an OAuth token, authorizes hosted inference.
-- **Relates:** [ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) (Whispering keeps its recordings itself and connects to paid models), [ADR-0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) (credits follow what a call uses; ships with this record), [ADR-0899](0899-the-folder-sync-product-is-retired.md) (the folder sync product is retired), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), [ADR-0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) (a home keeps a pasted credential in `.env`), [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) (Epicenter hosts no MCP server), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it).
+- **Relates:** [ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) (Whispering keeps its recordings itself and connects to paid models), [ADR-0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) (credits follow what a call uses; ships with this record), [ADR-0899](0899-the-folder-sync-product-is-retired.md) (the folder sync product is retired), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (a home's key is a line in its `.env`), [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) (Epicenter hosts no MCP server), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it).
 - **Unbuilt:** all of it, beside ADR-0951. The first thing to exist is `apiKey()` from `@better-auth/api-key` in the hosted API's Better Auth plugins and the `/connect` handoff.
 
 ## Context
@@ -34,7 +34,7 @@ out of every device.
 
 An OAuth access token works only in a client that runs the flow. A person
 cannot paste one into another OpenAI tool or into a home's `.env`
-(ADR-0948). The reasons ADR-0549 gave for one authorization server,
+(ADR-0949). The reasons ADR-0549 gave for one authorization server,
 third-party MCP clients and Git credentials for hosted folders, went with
 ADR-0578 and ADR-0899. Its own history records the hosted API moving from
 OAuth to sessions and back to OAuth.
@@ -92,7 +92,7 @@ with a Connect button; anything else gets one from the dashboard.**
 - **Epicenter is one more connection.** To Whispering, and to any OpenAI
   tool, it is a base URL, `https://api.epicenter.so/v1`, and a key
   (ADR-0060). A home that wants Epicenter's models puts a key in its `.env`
-  (ADR-0948), as any tool would; the hosted API does not know it is a home.
+  (ADR-0949), as any tool would; the hosted API does not know it is a home.
 - **The model API speaks OpenAI's shape, so any OpenAI client works:**
   - Model ids name their vendor: `openai/gpt-5.5`, `google/gemini-3.5-flash`,
     `openai/whisper-1`.

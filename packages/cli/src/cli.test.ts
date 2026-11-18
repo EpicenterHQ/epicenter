@@ -89,7 +89,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toEndWith(
-		`\nNo routines. Add routines/<name>.md with cron and run.\n\nGit: ${f.home} is not a Git repository; run: git init\n`,
+		'\nNo routines. Add routines/<name>.md with cron and run.\n',
 	);
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).not.toContain('epicenter reading');
@@ -172,13 +172,8 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 		[['--help'], 0],
 		[['check', '--help'], 0],
 		[['check'], 0],
-		[['new', 'garden'], 0],
-		[['init', join(f.root, 'other'), '--no-install'], 0],
 		[['nope'], 2],
 		[['check', 'nope'], 2],
-		[['new'], 2],
-		[['init', f.home], 2],
-		[['export', 'reading'], 2],
 		[['serve'], 2],
 	];
 	for (const [words, code] of answered) {
@@ -197,15 +192,9 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 				name: 'NotStarted',
 			});
 	}
-	// Text prints a command's own text as it is.
-	expect(await f.run('new', 'notes')).toEqual({
-		code: 0,
-		stdout: `${join(f.apps, 'notes')}\n`,
-		stderr: `Run: cd ${f.home} && bun install && bun run build\n`,
-	});
 });
 
-test('bare epicenter reports routines and the repository after the apps, and changes nothing', async () => {
+test('bare epicenter reports routines after the apps, and changes nothing', async () => {
 	const f = await setup();
 	await gitIn(f.home, 'init', '-q');
 	await gitIn(f.home, 'add', '-A');
@@ -215,15 +204,13 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week", "summary", {"note": "it\'s here"}, "two words"]\n---\n',
 		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
 	});
-	const vendor = 'apps/reading/code/vendor';
-	await f.folder(join(f.home, vendor), { 'lib.ts': '' }, { git: true });
 	const state = async () => [
 		await gitIn(f.home, 'rev-parse', 'HEAD'),
 		await gitIn(f.home, 'status', '--porcelain', '--untracked-files=all'),
 	];
 	const before = await state();
-	// Two routine files and the nested repository, which Git shows as one path.
-	expect(before[1]?.split('\n')).toHaveLength(3);
+	// The two routine files are uncommitted, and stay so.
+	expect(before[1]?.split('\n')).toHaveLength(2);
 
 	const listed = await f.run('--json');
 	expect(listed.code).toBe(0);
@@ -247,12 +234,14 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 	]);
 	// The version the home has installed, read from its node_modules.
 	expect(value.version).toBe(VERSION);
-	expect(value.repository).toEqual({
-		lastCommit: expect.any(String),
-		uncommitted: 3,
-		origin: null,
-		nested: [vendor],
-	});
+	// Git reports on the repository itself; the report carries none of it.
+	expect(Object.keys(value)).toEqual([
+		'epicenter',
+		'version',
+		'apps',
+		'problems',
+		'routines',
+	]);
 	expect(Date.parse(value.routines[1].next)).toBeGreaterThan(Date.now());
 
 	const human = await f.run();
@@ -268,32 +257,16 @@ Routines:
   broken: ${value.routines[0].problem}
   review: cron 0 8 * * *, next ${value.routines[1].next}
     ${value.routines[1].command}
-
-Git: last commit less than a minute ago; 3 files uncommitted; no origin; ${vendor} is a nested Git repository: backups hold only a pointer
 `,
 	);
 	expect(await state()).toEqual(before);
-
-	// With an origin, the count is of commits it does not hold yet.
-	const origin = join(f.root, 'origin.git');
-	await gitIn(f.root, 'init', '-q', '--bare', origin);
-	await gitIn(f.home, 'remote', 'add', 'origin', origin);
-	expect((await f.run()).stdout).toContain('; main is not on origin yet; ');
-	await gitIn(f.home, 'push', '-q', 'origin', 'main');
-	await gitIn(f.home, 'add', 'routines');
-	await gitIn(f.home, 'commit', '-qm', 'routines');
-	expect((await f.run()).stdout).toContain(
-		'; 1 file uncommitted; 1 commit not on origin; ',
-	);
 });
 
 test('a misused command answers its usage line, with its help as the next step', async () => {
 	const f = await setup();
 	const misused = [
-		['new'],
-		['new', 'garden', '--from'],
 		['check', 'reading', 'vault'],
-		['init', '--port'],
+		['check', '--from', './x'],
 	] as const;
 	for (const [command, ...words] of misused) {
 		const result = await f.run(command, ...words, '--json');
@@ -308,13 +281,6 @@ test('a misused command answers its usage line, with its help as the next step',
 			},
 		});
 	}
-	// A reason the usage line does not show is its own sentence.
-	expect(await f.run('init', '--port', '0')).toEqual({
-		code: 2,
-		stdout: '',
-		stderr:
-			'--port must be a whole number from 1 to 65535\nRun: epicenter init --help\n',
-	});
 	expect(JSON.parse((await f.run('serve', '--json')).stdout)).toMatchObject({
 		data: null,
 		error: { name: 'NotStarted', cause: 'usage' },
@@ -479,21 +445,20 @@ test('app and action views include locations, schemas, field help and version', 
 	expect((await f.run('--help')).stdout).not.toContain('epicenter install');
 });
 
-test('an empty Epicenter lists its next step and a missing marker suggests init', async () => {
+test('an empty Epicenter says what an app is and a missing marker suggests making one', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	expect((await f.run()).stdout).toContain(
-		'No apps yet. Run: epicenter new <name>',
+		'No apps yet. An app is apps/<name>/code/epicenter.ts',
 	);
 	await rm(f.home, { recursive: true });
 	expect((await f.run('--json')).code).toBe(2);
-	expect((await f.run()).stderr).toContain(`epicenter init ${f.home}`);
+	const make = `mkdir -p ${f.home} && touch ${join(f.home, 'EPICENTER.md')}`;
+	expect((await f.run()).stderr).toContain(make);
 	const missing = await f.run('reading', '--json');
 	expect(missing.code).toBe(2);
 	expect(JSON.parse(missing.stdout).error.message).toContain('EPICENTER.md');
-	expect(JSON.parse(missing.stdout).error.next).toBe(
-		`epicenter init ${f.home}`,
-	);
+	expect(JSON.parse(missing.stdout).error.next).toBe(make);
 });
 
 test('an app is named by its folder in the home, whatever its description says', async () => {

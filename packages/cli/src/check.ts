@@ -89,7 +89,7 @@ function render(
 	}
 	return lines.length
 		? lines.join('\n')
-		: 'No apps yet. Run: epicenter new <name>';
+		: 'No apps yet. An app is apps/<name>/code/epicenter.ts';
 }
 
 /**
@@ -102,14 +102,9 @@ export async function checkCommand(
 	words: string[],
 	json: boolean,
 ): Promise<Answer> {
-	const { data: given, error: misused } = parseWords(
-		'check',
-		words,
-		{},
-		[0, 1],
-	);
+	const { data: given, error: misused } = parseWords('check', words, [0, 1]);
 	if (misused) return Err(misused);
-	const name = given.positionals[0];
+	const [name] = given;
 	let runnable: Runnable[];
 	const unchecked: Unchecked[] = [];
 	if (name === undefined) {
