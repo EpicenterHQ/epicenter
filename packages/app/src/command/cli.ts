@@ -13,7 +13,6 @@ import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
-import { checkCommand } from './check.ts';
 import {
 	type ActionTool,
 	actionHelp,
@@ -23,7 +22,6 @@ import {
 import { presentAnswer, writeErr } from './output.ts';
 import { epicenterRoot } from './root.ts';
 import { fetchListing, sendWords } from './send.ts';
-import { serveHttp } from './serve.ts';
 
 /** The commands `epicenter` keeps for itself: each one's usage, and what its `--help` says beneath it. */
 const CHECK = {
@@ -124,7 +122,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const { data: root, error: noRoot } = epicenterRoot();
 		if (noRoot) return Err(noRoot);
+		// check and serve load what the other commands do not, so only they import it.
 		if (name === 'check') {
+			const { checkCommand } = await import('./check.ts');
 			begun = true;
 			return checkCommand(root, rest[0], json);
 		}
@@ -135,6 +135,7 @@ export async function runCli(argv: string[]): Promise<number> {
 					`serve starts in your Epicenter's folder, ${root.folder}`,
 					`cd ${root.folder} && epicenter serve`,
 				);
+			const { serveHttp } = await import('./serve.ts');
 			begun = true;
 			return serveHttp(root);
 		}
