@@ -448,10 +448,8 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
 /**
  * Start the listener and the routine clock. The listener answers everything
  * for a request from this computer or the tailnet whose `Origin`, if any, is
- * its own host. The caller owns its lifetime and ends it with `stop`. Port 0
- * asks Bun for a free port, which only a test that reads `port` back can use:
- * the marker refuses it. A port something else holds throws before the clock
- * starts.
+ * its own host. The caller owns its lifetime and ends it with `stop`. A port
+ * something else holds throws before the clock starts.
  */
 function startHttpServer(root: EpicenterRoot) {
 	const name = rootName(root);
@@ -533,7 +531,6 @@ function startHttpServer(root: EpicenterRoot) {
 	}, 60_000);
 	routineClock.unref();
 	return {
-		port: server.port as number,
 		/**
 		 * Stop listening and checking routines. Routine commands share serve's
 		 * process group, so whatever stops the group (Ctrl-C, systemd, launchd)
@@ -627,7 +624,7 @@ export async function serveHttp(
 		// The port was taken since it was asked, or its holder does not speak HTTP.
 		return portTaken((await whoAnswers(root)) ?? 'another program');
 	}
-	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
+	writeErr(`Serving your apps at http://${LOOPBACK}:${port}.`);
 	for (const found of await rootEntries(root)) {
 		const local = await localProblem(found);
 		if (local) writeErr(local);
