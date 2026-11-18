@@ -20,6 +20,12 @@ test('the Epicenter reads . and the home folder ~, as paths or file URLs, and on
 		'Cannot read .. Try again',
 	);
 	expect(hide.text(`${folder}.old/x`)).toBe('~/My Epicenter.old/x');
+	expect(hide.text(`no EPICENTER.md in ${folder}.`)).toBe(
+		'no EPICENTER.md in ..',
+	);
+	expect(hide.text(`copied to ${folder}.bak`)).toBe(
+		'copied to ~/My Epicenter.bak',
+	);
 });
 
 test('a value is rebuilt only where it is a plain object or array', () => {
@@ -29,6 +35,16 @@ test('a value is rebuilt only where it is a plain object or array', () => {
 	const shown = hide.value({ when, list: [`${folder}/a`] });
 	expect(shown.when).toBe(when);
 	expect(shown.list).toEqual(['./a']);
+	// An action's own error keeps its Date, which JSON writes as an ISO string.
+	const due = new Date(0);
+	const answer = hide.answer({
+		data: null,
+		error: { name: 'TooLate', message: `${folder}/a`, due } as never,
+	});
+	expect(JSON.parse(JSON.stringify(answer))).toEqual({
+		data: null,
+		error: { name: 'TooLate', message: './a', due: due.toISOString() },
+	});
 });
 
 test('an answer hides its error and keeps its data as the action returned it', () => {
