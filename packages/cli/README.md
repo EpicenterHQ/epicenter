@@ -760,24 +760,18 @@ the code subtree instead of a top-level declaration. A folder that holds
 several apps is refused with their names and the `--from` for one of them.
 Anything else, such as a Git URL or a bare word, is refused with a hint.
 
-The copy uses the source's commit. Files visible in a local source folder may
-differ from that commit. For a folder on disk, `new` reports the copied commit
-and warns about tracked, staged, deleted, or untracked code it left out. It
-applies the same code filter as the copy, excluding records, local files,
-dependencies, builds, and provenance. The source is not changed or committed
-automatically.
+The copy uses the source's commit. A folder on disk must match it: when
+`git status` shows any change or untracked file in the folder, `new` refuses
+with `<from> has uncommitted changes; commit them, then copy.` and creates
+nothing ([ADR-0946](../../docs/adr/0946-new-from-a-local-folder-refuses-uncommitted-code.md)).
+Files the source ignores do not count. The source is never changed.
 
 The private development commit and the public publication commit are separate.
 Export writes your Epicenter's committed code into the publication folder. Commit those exported files
 there before asking someone to copy that version with `new --from`. A refreshed
 export that is not committed is still outside the publication's copied commit.
 
-With `--json`, a copy adds `source: { commit, notCopied? }` to the result.
-`notCopied` lists relative code paths: an empty array means the local source
-was checked and matches; a missing key means no local working tree could be
-compared, as for a GitHub folder, and `null` means comparison failed. A comparison failure is a warning,
-not a failed copy. These differences are measured against the commit actually
-copied, so the report also covers a source commit made during the copy.
+With `--json`, a copy adds `source: { commit }` to the result.
 
 The command uses a temporary clone, then checks out selected committed
 files into the new container's ignored `.code-build-copy-*` directory before

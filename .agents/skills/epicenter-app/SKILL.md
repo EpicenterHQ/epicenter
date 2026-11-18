@@ -568,8 +568,8 @@ use the replacement action rather than add conflict machinery by default.
 Never run anything against the real `~/Epicenter` until the person asks.
 Use a temporary home and a committed source. `new --from` copies code,
 creates empty sibling data/, and prints `Run: cd <home> && bun install && bun
-run build`; run it and read its errors. Uncommitted edits
-are not copied. To test them, commit in a disposable copy outside the live
+run build`; run it and read its errors. A source with
+uncommitted edits is refused. To test them, commit in a disposable copy outside the live
 Epicenter, without changing the live branch or index.
 
 ```sh
