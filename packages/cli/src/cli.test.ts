@@ -26,7 +26,7 @@ async function setup() {
 	return f;
 }
 
-test('listing isolates broken imports, invalid apps and folders that cannot name an app, and shows linked apps', async () => {
+test('listing isolates broken imports, invalid apps and folders that cannot name an app, and lists a linked app like any other', async () => {
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
 	await f.app('serve', reading);
@@ -53,7 +53,6 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 		'reading',
 		'vault',
 	]);
-	expect(value.apps[0].link).toBe(linked);
 	expect(value.apps[1].actions[0]).toMatchObject({
 		name: 'reading_log',
 		inputSchema: {
@@ -93,7 +92,6 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 		`\nNo routines. Add routines/<name>.md with cron and run.\n\nGit: ${f.home} is not a Git repository; run: git init\n`,
 	);
 	expect(human.stdout).toContain('import exploded');
-	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).not.toContain('epicenter reading');
 	expect((await f.run('reading')).stdout).toContain(
 		'epicenter reading week summary\n    Weekly minutes (read-only)',
@@ -373,9 +371,8 @@ test('runs use the selected Epicenter and their own local files', async () => {
 		join(f.home, 'shelf'),
 	);
 	await symlink(target, join(f.apps, 'linked'));
-	expect(JSON.parse((await f.run('linked', '--json')).stdout).link).toBe(
-		target,
-	);
+	// A link is a folder: the app runs from where it really is.
+	expect((await f.run('linked', '--json')).code).toBe(0);
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
 	).data;
