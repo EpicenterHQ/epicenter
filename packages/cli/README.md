@@ -760,10 +760,10 @@ the code subtree instead of a top-level declaration. A folder that holds
 several apps is refused with their names and the `--from` for one of them.
 Anything else, such as a Git URL or a bare word, is refused with a hint.
 
-The copy uses the source's commit. A folder on disk must match it: when
-`git status` shows any change or untracked file in the folder, `new` refuses
-with `<from> has uncommitted changes; commit them, then copy.` and creates
-nothing ([ADR-0946](../../docs/adr/0946-new-from-a-local-folder-refuses-uncommitted-code.md)).
+The copy uses the source's commit. The code it copies must match it: when
+`git status` shows any change or untracked file in that code (an app
+container's `code/`, not its `data/`), `new` refuses with
+`<from> has uncommitted changes; commit them, then copy.` and keeps nothing ([ADR-0946](../../docs/adr/0946-new-from-a-local-folder-refuses-uncommitted-code.md)).
 Files the source ignores do not count. The source is never changed.
 
 The private development commit and the public publication commit are separate.

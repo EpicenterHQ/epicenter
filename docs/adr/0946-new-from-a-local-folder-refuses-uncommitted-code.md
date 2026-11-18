@@ -22,9 +22,11 @@ same question with one `git status` and a refusal.
 
 ## Decision
 
-**A local source must be its commit.** Before it creates anything, `new` runs
-`git status --porcelain --untracked-files=all -- <folder>` in the source
-checkout. Any output refuses the copy with `<from> has uncommitted changes;
+**The code a local source gives must be its commit.** Once `new` knows which
+folder it copies (an app container's `code/` when `--from` names the
+container), it runs `git status --porcelain --untracked-files=all -- <that
+folder>` in the source checkout. A container's `data/` is not copied, so its
+uncommitted records do not count. Any output refuses the copy with `<from> has uncommitted changes;
 commit them, then copy.` A GitHub folder has no working tree and is not
 checked. `source` in `--json` is `{ commit }`.
 
@@ -33,8 +35,8 @@ checked. `source` in `--json` is `{ commit }`.
 - Copying from a checkout with a stray untracked file or an edited tracked
   file is refused even when the commit is fine. Commit, `git stash -u`, or
   copy from a clean clone.
-- The check covers the folder as Git sees it, not the copy's filter, so a
-  changed tracked file under `data/` or `ui/dist/` refuses too. Files the
+- The check covers the copied folder as Git sees it, not the copy's filter,
+  so a changed tracked file under `code/ui/dist/` refuses too. Files the
   source ignores do not.
 - A commit made in the source during the copy is no longer reported. The copy
   takes whatever commit it cloned, and `SOURCE.md` names it.

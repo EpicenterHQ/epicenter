@@ -205,24 +205,6 @@ export async function newCommand(
 	}
 	const source = await locateSource(from);
 	if ('error' in source) return fail(source.error, json);
-	// `new` copies a commit, so a local source must be the commit: Git's own
-	// answer, the same one export asks.
-	if (
-		source.kind === 'local' &&
-		(await checkedGit(source.repository, [
-			'status',
-			'--porcelain',
-			'--untracked-files=all',
-			'--',
-			source.folder || '.',
-		]))
-	)
-		return fail(
-			CliError.Usage({
-				message: `${from} has uncommitted changes; commit them, then copy.`,
-			}).error,
-			json,
-		);
 	const folder = join(appsDir(), name);
 	await mkdir(folder);
 	const copied = await copySource(from, source, name, join(folder, 'code'));
@@ -338,6 +320,22 @@ async function copySource(
 						: `${from} has no epicenter.ts that Git tracks; name the app's folder`,
 				);
 			}
+			// `new` copies a commit, so the local code it copies must be that
+			// commit: Git's own answer, the same one export asks. Only the code
+			// counts, so a container's uncommitted records do not stop a copy.
+			if (
+				source.kind === 'local' &&
+				(await checkedGit(source.repository, [
+					'status',
+					'--porcelain',
+					'--untracked-files=all',
+					'--',
+					source.folder || '.',
+				]))
+			)
+				return usage(
+					`${from} has uncommitted changes; commit them, then copy.`,
+				);
 			// Keep full paths and ancestor attributes in the index. Select checkout paths
 			// separately, so root-owned LFS attributes still apply to a subfolder copy.
 			await checkedGit(clone, ['read-tree', 'HEAD']);

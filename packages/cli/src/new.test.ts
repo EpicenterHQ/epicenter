@@ -229,7 +229,7 @@ test('a refreshed export is refused until its publication commit exists, and a l
 	);
 });
 
-test('a local source with uncommitted code is refused before anything is made; ignored files and changes outside it are not', async () => {
+test('a local source with uncommitted code is refused and nothing is kept; ignored files, its records and changes outside it are not', async () => {
 	const f = await setup();
 	const source = join(f.root, 'source');
 	const prefix = 'apps/original/code';
@@ -239,6 +239,7 @@ test('a local source with uncommitted code is refused before anything is made; i
 			[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Source',actions:{}});`,
 			[`${prefix}/kept.ts`]: 'original',
 			[`${prefix}/.gitignore`]: 'ignored.txt\n',
+			'apps/original/data/record.md': 'committed record',
 			'README.md': 'outside selected code',
 		},
 		{ git: true },
@@ -267,6 +268,9 @@ test('a local source with uncommitted code is refused before anything is made; i
 	}
 	await writeFile(join(source, prefix, 'ignored.txt'), 'ignored file');
 	await writeFile(join(source, 'README.md'), 'changed outside code');
+	// A live app's records change all the time; the copy takes only code/.
+	await writeFile(join(source, 'apps/original/data/record.md'), 'edited');
+	await writeFile(join(source, 'apps/original/data/new.md'), 'untracked');
 	const copied = await f.run('new', 'copy', '--from', from, '--json');
 	expect(copied.code).toBe(0);
 	expect(JSON.parse(copied.stdout).source).toEqual({
