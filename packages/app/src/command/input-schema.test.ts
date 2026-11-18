@@ -16,7 +16,6 @@ import { expect, setDefaultTimeout, test } from 'bun:test';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Value } from 'typebox/value';
-import { isAction } from '../action.ts';
 import { type Action, type App, type Folder, folderOnDisk } from '../index.ts';
 import { exampleCommand } from './input.ts';
 import { connectMcp, fixture } from './runner.test-support.ts';
@@ -47,9 +46,13 @@ const data = defineData(folder, {
 		fields: { theme: field.select(['light', 'dark']), size: field.integer({ optional: true }) },
 	},
 });
+const settings = data['settings.md'].actions('get', 'patch', 'edit', 'delete');
 return { description: 'Generated data actions', data, actions: {
-	notes: data.notes.actions('list', 'get', 'create', 'patch', 'edit', 'delete'),
-	settings: data['settings.md'].actions('get', 'patch', 'edit', 'delete'),
+	...data.notes.actions('list', 'get', 'create', 'patch', 'edit', 'delete'),
+	'get-settings': settings.get,
+	'patch-settings': settings.patch,
+	'edit-settings': settings.edit,
+	'delete-settings': settings.delete,
 } };
 });
 `;
@@ -73,27 +76,18 @@ const REQUIRED: Record<string, Record<string, string[]>> = {
 		search: [],
 	},
 	data: {
-		'notes list': [],
-		'notes get': ['id'],
-		'notes create': ['title', 'authors', 'kind'],
-		'notes patch': ['id'],
-		'notes edit': ['id', 'old', 'new'],
-		'notes delete': ['id'],
-		'settings get': [],
-		'settings patch': [],
-		'settings edit': ['old', 'new'],
-		'settings delete': [],
+		list: [],
+		get: ['id'],
+		create: ['title', 'authors', 'kind'],
+		patch: ['id'],
+		edit: ['id', 'old', 'new'],
+		delete: ['id'],
+		'get-settings': [],
+		'patch-settings': [],
+		'edit-settings': ['old', 'new'],
+		'delete-settings': [],
 	},
 };
-
-/** Every action nested in `actions`, by its words one space apart. */
-function byWords(actions: object, words: string[] = []): [string, Action][] {
-	return Object.entries(actions).flatMap(([word, entry]) =>
-		isAction(entry)
-			? [[[...words, word].join(' '), entry] as [string, Action]]
-			: byWords(entry, [...words, word]),
-	);
-}
 
 /** An Epicenter holding the example apps and the generated data actions, each loaded here too. */
 async function epicenterOfExamples() {
@@ -114,7 +108,7 @@ async function epicenterOfExamples() {
 			folder: Folder;
 		}) => App;
 		const app = define({ folder: folderOnDisk(join(f.apps, name)) });
-		apps[name] = byWords(app.actions);
+		apps[name] = Object.entries(app.actions);
 	}
 	return { f, apps };
 }
@@ -178,7 +172,7 @@ test('MCP inputSchema and list --json carry the same complete schema as the acti
 				actions: { name: string; inputSchema: object }[];
 			};
 			for (const [key, action] of actions) {
-				const tool = `${name}_${key.replaceAll(' ', '_')}`;
+				const tool = `${name}_${key}`;
 				const stored = JSON.parse(JSON.stringify(action.input));
 				expect(stored.required).toEqual(REQUIRED[name]?.[key]);
 				expect(tools.find((each) => each.name === tool)?.inputSchema).toEqual(

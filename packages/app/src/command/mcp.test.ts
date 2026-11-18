@@ -20,22 +20,19 @@ test('tools list plain schemas and annotations and return structured answers or 
 	try {
 		expect(client.getInstructions()).toBe('Use the app actions.\n');
 		const listed = await client.listTools();
-		const show = listed.tools.find(
-			(tool) => tool.name === 'vault_calendar_show',
-		);
+		const show = listed.tools.find((tool) => tool.name === 'vault_show-day');
 		expect(show).toMatchObject({
 			annotations: { readOnlyHint: true, destructiveHint: false },
 			inputSchema: { type: 'object', properties: { day: { type: 'string' } } },
 		});
 		// An action that states no hints has none: the client applies MCP's defaults.
 		expect(
-			listed.tools.find((tool) => tool.name === 'vault_calendar_add')
-				?.annotations,
+			listed.tools.find((tool) => tool.name === 'vault_add-day')?.annotations,
 		).toBeUndefined();
 		expect(JSON.stringify(listed)).not.toContain('positional');
 		expect(JSON.stringify(listed)).not.toContain('~kind');
 		const answer = await client.callTool({
-			name: 'vault_calendar_show',
+			name: 'vault_show-day',
 			arguments: { day: '2026-11-08' },
 		});
 		const shown = { data: { day: '2026-11-08' }, error: null };
@@ -46,17 +43,17 @@ test('tools list plain schemas and annotations and return structured answers or 
 		expect(
 			(
 				await client.callTool({
-					name: 'vault_calendar_show',
+					name: 'vault_show-day',
 					arguments: { day: 3 },
 				})
 			).isError,
 		).toBe(true);
-		const missing = await client.callTool({ name: 'vault_calendar_show' });
+		const missing = await client.callTool({ name: 'vault_show-day' });
 		expect(missing.isError).toBe(true);
 		expect(missing.content).toEqual([
 			{
 				type: 'text',
-				text: 'day is needed\nRun: epicenter vault calendar show --help',
+				text: 'day is needed\nRun: epicenter vault show-day --help',
 			},
 		]);
 		expect(missing.structuredContent).toEqual({
@@ -65,13 +62,13 @@ test('tools list plain schemas and annotations and return structured answers or 
 				name: 'NotStarted',
 				message: 'day is needed',
 				cause: 'usage',
-				next: 'epicenter vault calendar show --help',
+				next: 'epicenter vault show-day --help',
 			},
 		});
 		expect(
 			(
 				await client.callTool({
-					name: 'vault_calendar_show',
+					name: 'vault_show-day',
 					arguments: { day: '2026-11-08', extra: 1 },
 				})
 			).isError,

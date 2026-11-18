@@ -36,7 +36,7 @@ type Reading = {
 			minutes: number;
 			book: string | null;
 		}>;
-		week: { show: () => Ok<number> };
+		'show-week': () => Ok<number>;
 		explode: () => never;
 	};
 };
@@ -107,18 +107,18 @@ test('HTTP tools/list offers app actions', async () => {
 		result: { tools: { name: string }[] };
 	};
 	expect(body.result.tools.map((tool) => tool.name)).toEqual([
-		'reading_books_list',
-		'reading_books_get',
-		'reading_books_create',
-		'reading_books_patch',
+		'reading_list',
+		'reading_get',
+		'reading_create',
+		'reading_patch',
 		'reading_log',
 		'reading_between',
-		'reading_week_show',
+		'reading_show-week',
 		'reading_explode',
 	]);
 });
 
-test('GET / answers the one listing as JSON, naming no path, and tools/list offers its actions', async () => {
+test('GET /actions/ answers the one listing as JSON, naming no path, and tools/list offers its actions', async () => {
 	const f = await setup(async (f) => {
 		await f.folder(join(f.apps, 'reading'), readingApp);
 		// Bun names the importing file by its path, and a failed read names its file.
@@ -131,9 +131,7 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 		await writeFile(locked, '');
 		await chmod(locked, 0);
 	});
-	const response = await fetch(`${f.base}/`, {
-		headers: { accept: 'application/json' },
-	});
+	const response = await fetch(`${f.base}/actions/`);
 	expect(response.status).toBe(200);
 	const text = await response.text();
 	expect(text).not.toContain(f.userDir);
@@ -143,12 +141,17 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 	);
 	expect(listing.routines[0].problem).toContain("'./routines/locked.md'");
 	// A call to the app answers the same problems, also without a path.
-	const refused = await fetch(`${f.base}/broken/go`, {
+	const refused = await fetch(`${f.base}/actions/broken/go`, {
 		method: 'POST',
 		body: '{}',
 	});
-	expect(refused.status).toBe(400);
-	expect(await refused.text()).not.toContain(f.userDir);
+	expect(refused.status).toBe(200);
+	const refusal = await refused.text();
+	expect(refusal).not.toContain(f.userDir);
+	expect(JSON.parse(refusal).answer.error).toMatchObject({
+		name: 'NotStarted',
+		cause: 'app-problems',
+	});
 	expect(Object.keys(listing)).toEqual([
 		'version',
 		'apps',
@@ -159,6 +162,11 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 		result: { tools: unknown[] };
 	};
 	expect(tools.result.tools).toEqual(listing.apps[0].actions);
+	// GET / is the launcher page, even asked for JSON.
+	const page = await fetch(`${f.base}/`, {
+		headers: { accept: 'application/json' },
+	});
+	expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
 });
 
 test("an error serve sends names the Epicenter's folder as . and the home folder as ~", async () => {
@@ -170,7 +178,7 @@ export default defineApp(() => ({ description: 'Leak', actions: { tell: defineAc
 		),
 	);
 	const shown = 'at ./apps/leak/code/epicenter.ts in ~/notes';
-	const call = await fetch(`${f.base}/leak/tell`, {
+	const call = await fetch(`${f.base}/actions/leak/tell`, {
 		method: 'POST',
 		body: '{}',
 	});
@@ -186,11 +194,11 @@ export default defineApp(() => ({ description: 'Leak', actions: { tell: defineAc
 	// cannot read fails with Bun's message, which names its path.
 	await chmod(join(f.apps, 'leak'), 0);
 	try {
-		const refused = await fetch(`${f.base}/leak/tell`, {
+		const refused = await fetch(`${f.base}/actions/leak/tell`, {
 			method: 'POST',
 			body: '{}',
 		});
-		expect(refused.status).toBe(400);
+		expect(refused.status).toBe(200);
 		const text = await refused.text();
 		expect(text).toContain("'./apps/leak");
 		expect(text).not.toContain(f.userDir);
@@ -224,7 +232,7 @@ test('the browser client calls a tool without initialize and writes its record',
 		app: 'reading',
 		url: `${f.base}/`,
 	});
-	expect(expectOk(await client.log({ minutes: 30 }))).toEqual({
+	expect(expectOk(await client.call('log', { minutes: 30 }))).toEqual({
 		minutes: 30,
 		book: null,
 	});
@@ -238,10 +246,10 @@ test('read-only calls return and a write followed by a throw preserves its error
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const client = connect<() => Reading>({ app: 'reading', url: `${f.base}/` });
 	// Read-only calls and throwing calls preserve their return/error contracts.
-	expect(expectOk(await client.week.show())).toBe(210);
-	expect(expectOk(await client.week.show())).toBe(210);
+	expect(expectOk(await client.call('show-week'))).toBe(210);
+	expect(expectOk(await client.call('show-week'))).toBe(210);
 
-	expect(expectErr(await client.explode())).toEqual({
+	expect(expectErr(await client.call('explode'))).toEqual({
 		name: 'Threw',
 		message: 'line 4 is not a number',
 		thrown: undefined,
@@ -253,8 +261,8 @@ test('concurrent updates to one record both land', async () => {
 	const folder = f.made;
 	const client = connect<() => Reading>({ app: 'reading', url: `${f.base}/` });
 	for (const result of await Promise.all([
-		client.log({ minutes: 10 }),
-		client.log({ minutes: 20 }),
+		client.call('log', { minutes: 10 }),
+		client.call('log', { minutes: 20 }),
 	]))
 		expectOk(result);
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toMatch(
@@ -279,11 +287,11 @@ test('two calls at once on different files preserve both records', async () => {
 		}
 	>({ app: 'notes', url: `${f.base}/` });
 	// Changes beside concurrent calls survive their writes.
-	expectOk(await client.write({ page: 'sunday' }));
+	expectOk(await client.call('write', { page: 'sunday' }));
 	await writeFile(join(folder, 'data/by-hand.md'), 'by hand\n');
 	for (const result of await Promise.all([
-		client.write({ page: 'monday' }),
-		client.write({ page: 'tuesday' }),
+		client.call('write', { page: 'monday' }),
+		client.call('write', { page: 'tuesday' }),
 	]))
 		expectOk(result);
 	expect(await readFile(join(folder, 'data/monday.md'), 'utf8')).toBe('monday');
@@ -447,7 +455,7 @@ test("a request under /apps/<app>/ is a built file first, then the app's fetch, 
 	// An answer whose headers cannot change still carries serve's own header.
 	const back = await at('mail/back', { redirect: 'manual' });
 	expect(back.status).toBe(302);
-	expect(back.headers.get('x-epicenter-home')).not.toBeNull();
+	expect(back.headers.get('x-epicenter')).toBe('1');
 	expect((await at('mail/boom')).status).toBe(500);
 	expect((await at('mail/odd')).status).toBe(500);
 	// An app without fetch answers 404 for a path no file answers.
@@ -571,7 +579,8 @@ test("a UI's call hears each update in order, then its answer; a raw call reads 
 		app: 'talk',
 		url: `${f.base}/`,
 	});
-	const said = await client.say(
+	const said = await client.call(
+		'say',
 		{ words: 'one two three' },
 		{ onUpdate: (word) => heard.push(word) },
 	);
@@ -609,7 +618,7 @@ test("a UI's call hears each update in order, then its answer; a raw call reads 
 	expect(body.result.structuredContent).toEqual({ data: 'x y', error: null });
 });
 
-test('a call serve never started answers NotStarted alone, as the body of a 400', async () => {
+test('a call serve never started answers NotStarted alone, as the one line of a 200', async () => {
 	const f = await setup(async (f) => {
 		await f.app('talk', talk);
 		await f.folder(join(f.apps, 'broken'), {
@@ -679,28 +688,31 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 		],
 	] as const) {
 		const response = await post(path, body);
-		expect(response.status).toBe(400);
-		expect(await response.json()).toEqual(notStarted(fields));
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('application/x-ndjson');
+		expect(await linesOf(response)).toEqual([{ answer: notStarted(fields) }]);
 	}
-	// A word past an action, a missing word, and a segment that is not a name
-	// are refused the same way, with nothing run.
-	expect(await (await post('talk/say/extra', '{}')).json()).toEqual(
-		notStarted({
-			message: 'talk has no action "say extra"',
-			cause: 'usage',
-			next: 'epicenter talk',
-		}),
-	);
-	for (const path of ['talk', 'talk/', 'talk/Say', 'talk.say', 'talk//say']) {
+	// A segment past the action, a missing one, and a segment that is not a
+	// name are refused the same way, with nothing run.
+	for (const path of [
+		'talk',
+		'talk/',
+		'talk/say/extra',
+		'talk/Say',
+		'talk.say',
+		'talk//say',
+	]) {
 		const response = await post(path, '{}');
-		expect(response.status).toBe(400);
-		expect(await response.json()).toEqual(
-			notStarted({
-				message: `/actions/${path} is not an action's address: /actions/<app>/<word>/<word>`,
-				cause: 'usage',
-				next: 'epicenter',
-			}),
-		);
+		expect(response.status).toBe(200);
+		expect(await linesOf(response)).toEqual([
+			{
+				answer: notStarted({
+					message: `/actions/${path} is not an action's address: /actions/<app>/<action>`,
+					cause: 'usage',
+					next: 'epicenter',
+				}),
+			},
+		]);
 	}
 	expect((await fetch(`${f.base}/actions/talk/say`)).status).toBe(405);
 	// The old address answers nothing.
@@ -711,7 +723,9 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 		app: 'talk',
 		url: `${f.base}/`,
 	});
-	expect(expectErr(await client.sing({ words: 'la' })) as unknown).toEqual(
+	expect(
+		expectErr(await client.call('sing', { words: 'la' })) as unknown,
+	).toEqual(
 		notStarted({
 			message: 'talk has no action "sing"',
 			cause: 'usage',
@@ -766,7 +780,8 @@ test('a listener that fails does not stop the action or the call', async () => {
 	const bug = new Error('UI callback failed');
 	try {
 		const heard: number[] = [];
-		const answer = await client.drip(
+		const answer = await client.call(
+			'drip',
 			{},
 			{
 				onUpdate: (count) => {
@@ -834,7 +849,7 @@ export default defineApp(({ folder }) => ({ description: 'Failure', actions: {
 		'json',
 		'returned',
 	]) {
-		const error = expectErr(await client.fail({ kind }));
+		const error = expectErr(await client.call('fail', { kind }));
 		expect(error.name).toBe('Threw');
 		if (kind !== 'returned')
 			expect(error).toMatchObject({
@@ -911,7 +926,7 @@ export default defineApp(({ folder }) => ({ description: 'Shared failures', acti
 			'PlainUnreachable',
 			'Custom',
 		]) {
-			const error = expectErr(await client.fail({ kind, how }));
+			const error = expectErr(await client.call('fail', { kind, how }));
 			const reserved = /^(Plain)?(NotStarted|Unreachable)$/.exec(kind);
 			if (how === 'throw') {
 				expect(error).toMatchObject({
@@ -1011,9 +1026,9 @@ export default defineApp(() => ({ description: 'Echo', actions: {
 		app: 'echo',
 		url: `${f.base}/`,
 	});
-	expect(expectOk(await client.hello())).toBe('one');
+	expect(expectOk(await client.call('hello'))).toBe('one');
 	await writeFile(join(f.made, 'code/word.ts'), "export const word = 'two';\n");
-	expect(expectOk(await client.hello())).toBe('two');
+	expect(expectOk(await client.call('hello'))).toBe('two');
 	await writeFile(
 		join(f.made, 'code/epicenter.ts'),
 		`${header}export default defineApp(() => ({ description: 'Echo', actions: {
@@ -1021,7 +1036,7 @@ export default defineApp(() => ({ description: 'Echo', actions: {
 } }));
 `,
 	);
-	expect(expectOk(await client.hello())).toBe('three');
+	expect(expectOk(await client.call('hello'))).toBe('three');
 });
 
 test('mismatched Origin is forbidden, and / refuses an event stream and other methods', async () => {
@@ -1091,7 +1106,8 @@ test('an update precedes a returned app refusal for UI and raw HTTP callers', as
 	const heard: string[] = [];
 	expect(
 		expectErr(
-			await client.refuse(
+			await client.call(
+				'refuse',
 				{},
 				{
 					onUpdate: (word) => {

@@ -79,10 +79,13 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	).toEqual({
 		broken: ['code/epicenter.ts: import exploded'],
 		// An object default is checked as defineApp checks it, since defineApp returns its argument.
-		invalid: ['code/epicenter.ts: An app needs a description'],
-		// An action's words are its keys' path: one key holds one word.
+		invalid: [
+			'code/epicenter.ts: An app needs a description',
+			"code/epicenter.ts: actions.bad is not an action: each action has one name, such as actions: { 'create-word': createWord }",
+		],
+		// An action's name is one key: a space cannot join two words of one.
 		spaced: [
-			'code/epicenter.ts: actions has the key "week show" at actions.week show, which is not lowercase letters, digits, and dashes, starting with a letter',
+			'code/epicenter.ts: actions has the key "week show", which is not lowercase letters, digits, and dashes, starting with a letter',
 		],
 		serve: [
 			'its folder\'s name cannot name an app: "serve" is an epicenter command',
@@ -100,7 +103,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).not.toContain('epicenter reading');
 	expect((await f.run('reading')).stdout).toContain(
-		'epicenter reading week summary\n    Weekly minutes (read-only)',
+		'epicenter reading week-summary\n    Weekly minutes (read-only)',
 	);
 });
 
@@ -127,8 +130,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(human.stdout).toContain('minutes: 15');
 	expect(human.stderr).toBe('');
 	expect(
-		(await f.run('vault', 'calendar', 'show', '{"day":"2026-11-08"}', '--json'))
-			.stdout,
+		(await f.run('vault', 'show-day', '{"day":"2026-11-08"}', '--json')).stdout,
 	).toBe('{"data":{"day":"2026-11-08"},"error":null}\n');
 });
 
@@ -139,7 +141,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'nope'], 'reading has no action "nope". Its actions:'],
 		[
 			['reading', 'lgo', '{"minutes":3}'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week summary\n',
+			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week-summary\n',
 		],
 		[['reading', 'log', '{"minutes":3,"nope":1}'], '"nope" is not a key'],
 		[['reading', 'log'], 'minutes is needed'],
@@ -156,7 +158,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		// --help answers a mistyped action as a call does.
 		[
 			['reading', 'lgo', '--help'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week summary\n',
+			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week-summary\n',
 		],
 		// Not names: sent as they are, they would reach / or the root.
 		[['..', 'add'], 'Unknown app ".."'],
@@ -219,7 +221,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 	const f = await setup();
 	await f.folder(f.epicenter, {
 		'routines/review.md':
-			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week", "summary", {"note": "it\'s here"}, "two words"]\n---\n',
+			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week-summary", {"note": "it\'s here"}, "two words"]\n---\n',
 		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
 	});
 	// Every file in the Epicenter outside its install, with its text.
@@ -254,7 +256,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 			name: 'review',
 			cron: '0 8 * * *',
 			next: expect.any(String),
-			command: `epicenter reading week summary '{"note":"it'\\''s here"}' 'two words'`,
+			command: `epicenter reading week-summary '{"note":"it'\\''s here"}' 'two words'`,
 		},
 	]);
 	// The version the Epicenter has installed, read from its node_modules.
@@ -310,7 +312,7 @@ test('a misused command answers its usage line, with its help as the next step',
 		error: { name: 'NotStarted', cause: 'usage' },
 	});
 	expect((await f.run('serve', '--help')).stdout).toContain(
-		'POST /actions/<app>/<word>/<word>',
+		'POST /actions/<app>/<action>',
 	);
 	expect((await f.run('check', '--help')).stdout).toStartWith(
 		`${check}\nReads every data key`,
