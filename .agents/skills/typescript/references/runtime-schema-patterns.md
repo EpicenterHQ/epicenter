@@ -50,29 +50,31 @@ arktype `Type` share one PascalCase name.
 
 Inside an Epicenter, a `defineData` folder key names each record by its id, the file's name. For example, the [writing app](../../../../examples/writing/epicenter.ts) declares a `notes` key, so a note lives at `data/notes/<id>.md` and its actions use `id` to identify it. Whispering’s outside-app [file contract](../../../../apps/whispering/src/lib/contract.ts) still uses `defineContract`.
 
-Here is the writing app's collection declaration:
+Here is the writing app's data declaration:
 
 ```typescript
-import { defineCollection, field } from '@epicenter/app';
+import { defineData, field } from '@epicenter/app';
 
 const kinds = ['thought', 'quote', 'link'] as const;
-const notes = defineCollection({
-	path: 'data/notes/{time}.md',
-	fields: {
-		kind: field.select(kinds),
-		source: field.text({
-			optional: true,
-			description: 'Where this came from: a person, book, or URL',
-		}),
-		project: field.text({
-			optional: true,
-			description: 'The piece of writing this might belong to',
-		}),
+const data = defineData({
+	notes: {
+		description: 'writing note',
+		fields: {
+			kind: field.select(kinds),
+			source: field.text({
+				optional: true,
+				description: 'Where this came from: a person, book, or URL',
+			}),
+			project: field.text({
+				optional: true,
+				description: 'The piece of writing this might belong to',
+			}),
+		},
 	},
 });
 ```
 
-There is no `time` field in `fields`. The `{time}` placeholder supplies the record key; `kind`, `source`, and `project` describe the record's data.
+There is no `id` field in `fields`. The file's name is the record's id, and an action passes it beside the fields, as `data.notes.create(timeId(), { ... })` does; `kind`, `source`, and `project` describe the record's data.
 
 ## Arktype-Validated IDs: Type First, Validator Annotated, Optional `as*` Helper
 
