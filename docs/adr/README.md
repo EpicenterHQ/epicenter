@@ -1162,3 +1162,4 @@ When you add an ADR, add its row here.
 | [0955](0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md) | `new` makes a blank app, and taking an app is copying its folder | Proposed (supersedes 0929) |
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
+| [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942, 0944 and 0948) |

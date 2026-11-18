@@ -8,7 +8,7 @@ import { COMMANDS } from './commands.ts';
 const bin = resolve(import.meta.dir, 'bin.ts');
 
 /**
- * A test home's `package.json`: the workspace `init` writes, without the
+ * A test home's `package.json`: the workspace an Epicenter is, without the
  * two dependencies, which `bun install` would ask the registry for.
  * `installPackages` puts them in place instead.
  */
@@ -226,15 +226,6 @@ export async function fixture() {
 		return { stdout, stderr, code };
 	}
 	const run = (...args: string[]) => runIn(root, ...args);
-	/**
-	 * `epicenter init <folder>` with `args`, leaving the install out, then the
-	 * packages put in place as for this fixture's own home.
-	 */
-	async function init(folder: string, ...args: string[]) {
-		const result = await run('init', folder, '--no-install', ...args);
-		if (result.code === 0) await installPackages(folder);
-		return result;
-	}
 	return {
 		root,
 		home,
@@ -246,7 +237,6 @@ export async function fixture() {
 		app,
 		run,
 		runIn,
-		init,
 		serve,
 		stopServe,
 		serving,

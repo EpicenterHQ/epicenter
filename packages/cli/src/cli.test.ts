@@ -173,11 +173,9 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 		[['check', '--help'], 0],
 		[['check'], 0],
 		[['new', 'garden'], 0],
-		[['init', join(f.root, 'other'), '--no-install'], 0],
 		[['nope'], 2],
 		[['check', 'nope'], 2],
 		[['new'], 2],
-		[['init', f.home], 2],
 		[['export', 'reading'], 2],
 		[['serve'], 2],
 	];
@@ -279,7 +277,6 @@ test('a misused command answers its usage line, with its help as the next step',
 		['new'],
 		['new', 'garden', '--from', './x'],
 		['check', 'reading', 'vault'],
-		['init', '--port'],
 	] as const;
 	for (const [command, ...words] of misused) {
 		const result = await f.run(command, ...words, '--json');
@@ -294,13 +291,6 @@ test('a misused command answers its usage line, with its help as the next step',
 			},
 		});
 	}
-	// A reason the usage line does not show is its own sentence.
-	expect(await f.run('init', '--port', '0')).toEqual({
-		code: 2,
-		stdout: '',
-		stderr:
-			'--port must be a whole number from 1 to 65535\nRun: epicenter init --help\n',
-	});
 	expect(JSON.parse((await f.run('serve', '--json')).stdout)).toMatchObject({
 		data: null,
 		error: { name: 'NotStarted', cause: 'usage' },
@@ -465,7 +455,7 @@ test('app and action views include locations, schemas, field help and version', 
 	expect((await f.run('--help')).stdout).not.toContain('epicenter install');
 });
 
-test('an empty Epicenter lists its next step and a missing marker suggests init', async () => {
+test('an empty Epicenter lists its next step and a missing marker suggests making one', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	expect((await f.run()).stdout).toContain(
@@ -473,13 +463,12 @@ test('an empty Epicenter lists its next step and a missing marker suggests init'
 	);
 	await rm(f.home, { recursive: true });
 	expect((await f.run('--json')).code).toBe(2);
-	expect((await f.run()).stderr).toContain(`epicenter init ${f.home}`);
+	const make = `mkdir -p ${f.home} && touch ${join(f.home, 'EPICENTER.md')}`;
+	expect((await f.run()).stderr).toContain(make);
 	const missing = await f.run('reading', '--json');
 	expect(missing.code).toBe(2);
 	expect(JSON.parse(missing.stdout).error.message).toContain('EPICENTER.md');
-	expect(JSON.parse(missing.stdout).error.next).toBe(
-		`epicenter init ${f.home}`,
-	);
+	expect(JSON.parse(missing.stdout).error.next).toBe(make);
 });
 
 test('an app is named by its folder in the home, whatever its description says', async () => {

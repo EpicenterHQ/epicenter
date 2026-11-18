@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Amends:** the vocabulary of [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md), [ADR-0936](0936-one-serve-per-home-runs-every-action.md), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) and [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md). Their decisions stand; their titles keep the word they were written with.
-- **Unbuilt:** all of it. Identifiers, docs, `init`'s starter text and the `x-epicenter-home` header still say "home".
+- **Unbuilt:** all of it. Identifiers, docs and the `x-epicenter-home` header still say "home".
 
 ## Context
 
@@ -34,7 +34,7 @@ only it.**
   port. It carries the root's absolute path, which shows the account name to
   every device on the private network. A name or a hash of the path would do
   the same job; that change is left for its own decision.
-- `init` writes `"name": "epicenter"` in the root `package.json`. It is
+- The root `package.json` is named `epicenter`. It is
   private and never published, so the unrelated public `epicenter` package on
   npm does not matter.
 - App, action, record, routine, `serve`, `apps/`, `code/`, `data/`, `local/`,
@@ -45,8 +45,8 @@ only it.**
 - People meet one noun for what they own and reach from their phone: their
   Epicenter. Nothing they type changes.
 - About 45 identifiers and some 300 mentions in comments and tests change,
-  mostly in `packages/cli`. The command's README, the vision, the
-  `epicenter-app` skill and `init`'s starter text are rewritten.
+  mostly in `packages/cli`. The command's README, the vision and the
+  `epicenter-app` skill are rewritten.
 - An existing Epicenter renames one private package name and refreshes its
   `AGENTS.md`. Its folders and commands stay as they are.
 
