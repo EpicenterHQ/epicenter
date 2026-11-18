@@ -38,10 +38,6 @@ export async function whoAnswers(
 	}
 }
 
-/** The call never reached this home's serve, so the action did not begin. */
-const unavailable = (message: string, next?: string): Answer =>
-	ActionError.NotStarted({ message, cause: 'unavailable', next });
-
 /**
  * Send the call to this home's serve and give its answer. Each update goes to
  * `onUpdate` as it arrives. With no serve of this home to take it, the answer
@@ -72,10 +68,11 @@ export async function sendToServe(
 		// taken, as when the action ends serve, so the action may have run.
 		const { code } = error as { code?: string };
 		if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
-			return unavailable(
-				'Epicenter is not running for this home.',
-				'epicenter serve',
-			);
+			return ActionError.NotStarted({
+				cause: 'unavailable',
+				message: 'Epicenter is not running for this home.',
+				next: 'epicenter serve',
+			});
 		return ActionError.Unreachable({
 			message:
 				'The connection to Epicenter ended before the answer; the action may still be running, or may have finished',
@@ -85,9 +82,10 @@ export async function sendToServe(
 	const home = response.headers.get(HOME_HEADER);
 	if (home !== (await homeName())) {
 		await response.body?.cancel().catch(() => undefined);
-		return unavailable(
-			`Port ${port} answers for another ${home === null ? 'program' : 'Epicenter'}. Set a different \`port\` in ${MARKER}.`,
-		);
+		return ActionError.NotStarted({
+			cause: 'unavailable',
+			message: `Port ${port} answers for another ${home === null ? 'program' : 'Epicenter'}. Set a different \`port\` in ${MARKER}.`,
+		});
 	}
 	return readAnswer(response, onUpdate);
 }

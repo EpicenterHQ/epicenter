@@ -3,12 +3,32 @@
  * such as path, body, problems, or added, and an error as its message and next
  * step. JSON mode keeps the answer.
  */
-import { expect, test } from 'bun:test';
-import { ActionError } from '@epicenter/app';
+import { expect, spyOn, test } from 'bun:test';
+import { ActionError, type Answer } from '@epicenter/app';
 import { Err, Ok } from 'wellcrafted/result';
-import { renderAnswer } from './output.ts';
+import { presentAnswer } from './output.ts';
 
-const ok = (value: unknown) => renderAnswer(Ok(value));
+/** What `presentAnswer` writes for a person, and the exit code it returns. */
+function present(answer: Answer) {
+	const written = { stdout: '', stderr: '' };
+	const stdout = spyOn(process.stdout, 'write').mockImplementation((text) => {
+		written.stdout += String(text);
+		return true;
+	});
+	const stderr = spyOn(process.stderr, 'write').mockImplementation((text) => {
+		written.stderr += String(text);
+		return true;
+	});
+	try {
+		const code = presentAnswer(answer, false);
+		return { ...written, code };
+	} finally {
+		stdout.mockRestore();
+		stderr.mockRestore();
+	}
+}
+
+const ok = (value: unknown) => present(Ok(value));
 
 test('objects keep every defined key in order; a nested object renders beneath its key, and other values as compact JSON', () => {
 	expect(
@@ -150,12 +170,12 @@ test('strings print as is, empty arrays print nothing, and other values use JSON
 
 test('an error renders its message and next step, and exits 2 only for NotStarted', () => {
 	expect(
-		renderAnswer(
+		present(
 			Err({ name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' }),
 		),
 	).toEqual({ stdout: '', stderr: 'No route from LAX\n', code: 1 });
 	expect(
-		renderAnswer(
+		present(
 			ActionError.Refused({
 				message: 'Declined',
 				next: 'epicenter flights add',
@@ -167,14 +187,14 @@ test('an error renders its message and next step, and exits 2 only for NotStarte
 		code: 1,
 	});
 	expect(
-		renderAnswer(ActionError.Threw({ message: 'Unexpected end of input' })),
+		present(ActionError.Threw({ message: 'Unexpected end of input' })),
 	).toEqual({ stdout: '', stderr: 'Unexpected end of input\n', code: 1 });
 	expect(
-		renderAnswer(ActionError.Unreachable({ message: 'The connection ended' })),
+		present(ActionError.Unreachable({ message: 'The connection ended' })),
 	).toEqual({ stdout: '', stderr: 'The connection ended\n', code: 1 });
 	for (const cause of ['usage', 'refused', 'unavailable'] as const)
 		expect(
-			renderAnswer(ActionError.NotStarted({ message: 'm', cause, next: 'n' })),
+			present(ActionError.NotStarted({ message: 'm', cause, next: 'n' })),
 		).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
 	for (const error of [
 		ActionError.NotStarted({ message: 'm', cause: 'internal' }),
@@ -185,12 +205,12 @@ test('an error renders its message and next step, and exits 2 only for NotStarte
 			problems: ['p'],
 		}),
 	])
-		expect(renderAnswer(error)).toEqual({
+		expect(present(error)).toEqual({
 			stdout: '',
 			stderr: 'm\n',
 			code: 2,
 		});
 	// The name is what counts: an app's own `NotStarted` never reaches here,
 	// because serve answers it as `Threw`.
-	expect(renderAnswer(Err({ name: 'Refused', message: 'm' })).code).toBe(1);
+	expect(present(Err({ name: 'Refused', message: 'm' })).code).toBe(1);
 });

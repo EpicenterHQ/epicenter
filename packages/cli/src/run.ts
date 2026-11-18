@@ -18,44 +18,6 @@ import { stderrJsonLines } from './output.ts';
 
 type Thrown = { name: string; message: string } & Record<string, unknown>;
 
-/**
- * What the action threw, as `Threw` carries it. A thrown tagged error (a
- * frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
- * makes) is kept whole when it survives JSON. A value that cannot be read
- * or serialized still answers as an action throw, with a safe message.
- */
-function threwOf(cause: unknown): {
-	message: string;
-	thrown?: Thrown;
-} {
-	let message = 'The action threw a value that could not be read';
-	try {
-		message = extractErrorMessage(cause).slice(0, 4096);
-	} catch {
-		// Even extracting a message can fail for a cyclic array or a getter.
-	}
-	try {
-		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
-			return { message };
-		const json = JSON.stringify(cause);
-		if (json.length > 4096) return { message };
-		const thrown: unknown = JSON.parse(json);
-		if (
-			typeof thrown === 'object' &&
-			thrown !== null &&
-			!Array.isArray(thrown) &&
-			'name' in thrown &&
-			typeof thrown.name === 'string' &&
-			'message' in thrown &&
-			typeof thrown.message === 'string'
-		)
-			return { message, thrown: thrown as Thrown };
-	} catch {
-		// Error details are best effort; they must not prevent the call's answer.
-	}
-	return { message };
-}
-
 /** Where serve writes one record for each run, when it ends. */
 const runLog = createLogger('cli/run', stderrJsonLines);
 
@@ -77,62 +39,82 @@ export async function runAction(
 	{ onUpdate, log = runLog }: Following = {},
 ): Promise<Answer> {
 	const started = performance.now();
-	const answer = await settle(key, action, input, located, onUpdate);
+	let answer: Answer;
 	try {
-		log.info('action run ended', {
-			app: located.name,
-			action: key,
-			durationMs: Math.round(performance.now() - started),
-			...outcomeOf(answer),
-		});
-	} catch {
-		// The record is for the owner; it must not change the caller's answer.
-	}
-	return answer;
-}
-
-/**
- * How a run ended, as its record states it: for a failure, the error's name
- * as the answer carries it, and for `Threw` the thrown value's name when it
- * has one. A message can quote what the person typed, so it stays out.
- */
-function outcomeOf({ error }: Answer) {
-	if (error === null) return { outcome: 'ok' as const };
-	const thrown = (error as { thrown?: { name?: unknown } }).thrown?.name;
-	return {
-		outcome: 'error' as const,
-		error: error.name,
-		...(typeof thrown === 'string' && { thrown }),
-	};
-}
-
-/** Run the action and answer what it did, whether it returned or threw. */
-async function settle(
-	key: string,
-	action: Action,
-	input: Record<string, unknown>,
-	located: Runnable,
-	onUpdate: Following['onUpdate'],
-): Promise<Answer> {
-	const context = {
-		...located.context,
-	};
-	try {
-		const result = await inRun(context, () => action(input, { onUpdate }));
+		const result = await inRun({ ...located.context }, () =>
+			action(input, { onUpdate }),
+		);
 		// An action made without `defineAction` is checked here, where every call passes.
 		if (!isActionResult(result))
 			throw new TypeError(
 				`The action "${key}" must return Ok(data) or Err(error)`,
 			);
 		const encoded = encodeActionResult(result);
-		if (encoded.error && RESERVED_NAMES.includes(encoded.error.name))
-			return ActionError.Threw({
-				message: `The action "${key}" returned ${encoded.error.name}, a name only Epicenter answers`,
-			});
-		return encoded;
+		answer =
+			encoded.error && RESERVED_NAMES.includes(encoded.error.name)
+				? ActionError.Threw({
+						message: `The action "${key}" returned ${encoded.error.name}, a name only Epicenter answers`,
+					})
+				: encoded;
 	} catch (cause) {
-		return ActionError.Threw(threwOf(cause));
+		// What the action threw, as `Threw` carries it. A thrown tagged error (a
+		// frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
+		// makes) is kept whole when it survives JSON. A value that cannot be read
+		// or serialized still answers as an action throw, with a safe message.
+		let message = 'The action threw a value that could not be read';
+		try {
+			message = extractErrorMessage(cause).slice(0, 4096);
+		} catch {
+			// Even extracting a message can fail for a cyclic array or a getter.
+		}
+		let thrown: Thrown | undefined;
+		try {
+			if (
+				typeof cause === 'object' &&
+				cause !== null &&
+				!(cause instanceof Error)
+			) {
+				const json = JSON.stringify(cause);
+				const copy: unknown = json.length > 4096 ? undefined : JSON.parse(json);
+				if (
+					typeof copy === 'object' &&
+					copy !== null &&
+					!Array.isArray(copy) &&
+					'name' in copy &&
+					typeof copy.name === 'string' &&
+					'message' in copy &&
+					typeof copy.message === 'string'
+				)
+					thrown = copy as Thrown;
+			}
+		} catch {
+			// Error details are best effort; they must not prevent the call's answer.
+		}
+		answer = ActionError.Threw(thrown ? { message, thrown } : { message });
 	}
+	// The record states a failure by the error's name as the answer carries it,
+	// and for `Threw` the thrown value's name when it has one. A message can
+	// quote what the person typed, so it stays out.
+	const { error } = answer;
+	const thrownName = (error as { thrown?: { name?: unknown } } | null)?.thrown
+		?.name;
+	try {
+		log.info('action run ended', {
+			app: located.name,
+			action: key,
+			durationMs: Math.round(performance.now() - started),
+			...(error === null
+				? { outcome: 'ok' }
+				: {
+						outcome: 'error',
+						error: error.name,
+						...(typeof thrownName === 'string' && { thrown: thrownName }),
+					}),
+		});
+	} catch {
+		// The record is for the owner; it must not change the caller's answer.
+	}
+	return answer;
 }
 
 /** Who follows a call as it runs. */

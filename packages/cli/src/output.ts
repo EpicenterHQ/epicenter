@@ -53,14 +53,6 @@ export function outcome(
 	};
 }
 
-/** Render a successful value or a failure diagnostic for the terminal. */
-export function renderAnswer(answer: Answer) {
-	const result = outcome(answer);
-	return result.code === 0
-		? { ...readable(result.data), code: result.code }
-		: { stdout: '', stderr: result.stderr, code: result.code };
-}
-
 type Fields = Record<string, unknown>;
 
 const isFields = (value: unknown): value is Fields =>
@@ -143,29 +135,30 @@ function rows(items: Fields[]): string {
 }
 
 /** Render the returned value without assuming what its keys mean. */
-function readable(value: unknown): { stdout: string; stderr: string } {
+function readable(value: unknown): string {
 	const line = (text: string) => (text.endsWith('\n') ? text : `${text}\n`);
-	if (Array.isArray(value) && value.length === 0)
-		return { stdout: '', stderr: '' };
-	if (typeof value === 'string') return { stdout: line(value), stderr: '' };
+	if (Array.isArray(value) && value.length === 0) return '';
+	if (typeof value === 'string') return line(value);
 	if (isFields(value)) {
 		const fields = fieldLines(value);
-		return { stdout: fields.length ? line(fields.join('\n')) : '', stderr: '' };
+		return fields.length ? line(fields.join('\n')) : '';
 	}
-	if (isRows(value)) return { stdout: line(rows(value)), stderr: '' };
-	return { stdout: line(JSON.stringify(value)), stderr: '' };
+	if (isRows(value)) return line(rows(value));
+	return line(JSON.stringify(value));
 }
 
-/** Present an answer, as one JSON value or for a person, and return its exit code. */
+/**
+ * Present an answer and return its exit code. With `json`, stdout is the one
+ * JSON answer. Without it, success data renders on stdout, and an error's
+ * message and next step go to stderr.
+ */
 export function presentAnswer(answer: Answer, json: boolean): number {
-	if (json) {
+	const result = outcome(answer);
+	if (json)
 		process.stdout.write(
 			`${JSON.stringify({ data: answer.data, error: answer.error })}\n`,
 		);
-		return outcome(answer).code;
-	}
-	const { stdout, stderr, code } = renderAnswer(answer);
-	process.stdout.write(stdout);
-	process.stderr.write(stderr);
-	return code;
+	else if (result.code === 0) process.stdout.write(readable(result.data));
+	else process.stderr.write(result.stderr);
+	return result.code;
 }
