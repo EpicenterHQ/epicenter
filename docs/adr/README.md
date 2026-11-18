@@ -1062,10 +1062,10 @@ When you add an ADR, add its row here.
 | [0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) | Git speaks to a folder through a remote helper, and the CLI speaks a person's verbs | Superseded by 0840 |
 | [0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) | A save is one numbered write, a reset deletes nothing, and Epicenter owns the pages every app links to | Superseded by 0840 |
 | [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Accepted (supersedes 0835, 0836, 0837, 0838, and 0839; amended by 0870, 0896, 0897, and 0899) |
-| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted (amended by 0903) |
+| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted (amended by 0903 and 0964) |
 | [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted (amended by 0903; amended by 0910) |
 | [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted (amended by 0899) |
-| [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted (amended by 0903) |
+| [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted (amended by 0903 and 0964) |
 | [0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) | An app declares collections, each a path and fields, which the hub views | Accepted |
 | [0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) | Epicenter owns no infrastructure, and each repository has one meeting point | Accepted |
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
@@ -1166,3 +1166,5 @@ When you add an ADR, add its row here.
 | [0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) | The command sends an action's words to serve, and serve alone reads them | Proposed (amends 0936) |
 | [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858) |
 | [0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md) | `local/` ignores itself, and serve refuses a `.env` that Git would commit | Proposed (amends 0939) |
+| [0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md) | A folder is on disk, and it holds a path and the calls that change files | Proposed (amends 0841 and 0844) |
+| [0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md) | The command finds its Epicenter by walking up, and serve starts in its folder | Proposed |

@@ -46,12 +46,12 @@ as many as it has folders; a folder that holds several is only a grouping.
 ```
 
 **Which Epicenter.** The nearest folder at or above the current directory
-holding `EPICENTER.md`; else `EPICENTER_ROOT`; else `~/Epicenter`.
-Where you stand wins over the variable, because a variable exported in a shell
-profile is a default, and `cd` into Bryce's Epicenter must reach Bryce's apps.
+holding `EPICENTER.md`, and nothing else
+([ADR-0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md)).
+`cd` into Bryce's Epicenter reaches Bryce's apps, and outside any Epicenter
+the command refuses.
 `serve` starts each run with the Epicenter's folder as its working directory,
-so the run finds the same one. A chosen folder without the file is refused,
-naming `epicenter init <folder>`. Epicenters do not nest.
+so the run finds the same one. Epicenters do not nest.
 
 **The marker is `EPICENTER.md`, a note for people with optional front
 matter.** Its name sits beside `AGENTS.md` and `README.md` as a file to read

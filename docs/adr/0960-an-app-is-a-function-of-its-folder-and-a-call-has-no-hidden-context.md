@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) at three points. The refusal of an app that resolves a second copy of `@epicenter/app` goes, and so does the alternative it kept, "the context stays". "Two packages are published, at one version" becomes one package: the command folds into `@epicenter/app`, and `@epicenter/cli` is retired. This reverses the two packages at one version from PR #2660. One install and one version line are unchanged.
-- **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (the first shape, `run(input, { folder })`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (the hidden run, which goes), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (no `env` or `model` function: an action reads `process.env`, so nothing but the folder reads the hidden run), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when the function is called).
-- **Unbuilt:** All of it. `defineApp` takes an object, `folder` is an import that reads the run, and the copy check runs before every load. `@epicenter/cli` is still published beside `@epicenter/app`. The typed client for a UI has no form for a function app yet; the first thing to exist is a `defineApp` whose argument is a function of `{ folder }`.
+- **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (the first shape, `run(input, { folder })`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (the hidden run, which goes), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (no `env` or `model` function: an action reads `process.env`, so nothing but the folder reads the hidden run), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when the function is called), [ADR-0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md) (what the folder is, and the one a test passes).
+- **Unbuilt:** All of it. `defineApp` takes an object, `folder` is an import that reads the run, and the copy check runs before every load. `@epicenter/cli` is still published beside `@epicenter/app`. `connect` in `packages/app/src/client.ts` does not yet accept a function app's type. The first thing to exist is a `defineApp` whose argument is a function of `{ folder }`.
 
 ## Context
 
@@ -85,9 +85,12 @@ export default defineApp(({ folder }) => {
 - **The folder still limits writes.** A write outside `data/` and `local/`
   throws. The check moves from the imported `folder` into the folder the
   loader builds.
-- **A test passes a folder.** It calls the app with a folder held in memory
-  and calls an action on the result. A test can reach live records only by
-  passing the disk folder.
+- **What the folder holds is ADR-0964's.** `path`, `write` (text or bytes),
+  `update`, `edit` and `delete`. An app and `defineData` read through
+  `folder.path` with plain file calls.
+- **A test passes a folder.** It calls the app with a folder on a temporary
+  directory (ADR-0964) and calls an action on the result. A test can reach
+  live records only by passing the live folder.
 - **No copy check.** Nothing is shared in memory between the loader and the
   app, and the loader recognizes an action by its shape. `library.ts` and its
   call in `packages/cli/src/home.ts` are deleted.
@@ -130,15 +133,19 @@ gains the bin:
 ## Consequences
 
 - Every app file is wrapped in one function. In the owner's Epicenter, about
-  ten app files import `folder` and over twenty test files call `inRun`; each
-  changes.
+  ten app files import `folder`, and 24 files call `inRun` or
+  `createMemoryContext` at about 400 places; each changes.
 - "Loading an app never touches its files" becomes a convention. Today
   `folder` throws outside a run. The function body could read a file while
-  loading; it should not.
+  loading; it should not. Under ADR-0959 an app loads once, when serve
+  starts, so a stray read costs one read per start. A loader could keep the
+  rule by handing over a folder that throws until the function returns;
+  nothing here adds that.
 - A helper that touches files takes the folder as a parameter. This is the
   cost ADR-0857 named, limited to helpers outside the function.
-- A UI imports the app as a type today. With a function app, the typed client
-  reads the function's return type. The form of that is not designed.
+- A UI imports the app as a type and writes `connect<typeof app>()`. With a
+  function app, `connect` reads the function's return type, so no page
+  changes. Only `connect`'s type parameter changes.
 - The command and the library cannot be at two versions, so nothing checks
   that they match. The input schema and the answer shape are shared inside
   one package.

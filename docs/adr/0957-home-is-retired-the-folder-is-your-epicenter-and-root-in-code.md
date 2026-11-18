@@ -23,7 +23,7 @@ only it.**
 
 | Thing | A person reads | Code says |
 | --- | --- | --- |
-| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `rootFolder()`; `EPICENTER_ROOT` |
+| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `rootFolder()` |
 | The computer it runs on | the computer | not named |
 | One app's folder, `apps/<app>/` | the app | the app folder; `folder.path` |
 
