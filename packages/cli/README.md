@@ -18,8 +18,8 @@ container:
       epicenter.ts  package.json  README.md
       ui/                       source
         dist/                   ignored build
-    data/                       records and settings
-    local/                      stays on this computer: tokens, caches, databases
+    data/                       what you want back if this computer is lost: records, settings
+    local/                      what this computer can rebuild or sign in again: sign-ins, caches
 ```
 
 [ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
@@ -699,8 +699,8 @@ that holds:
 | `code/epicenter.ts` | The declaration: its default export is `defineApp(...)` |
 | `code/package.json` | `"name": "<name>"`, `"private": true`, and the packages the app itself imports, never `@epicenter/app` |
 | `code/.gitignore` | `node_modules/` and `ui/dist/` |
-| `data/` | The app's records; it may be absent until the first write |
-| `local/` | What stays on this computer; the root `.gitignore` keeps it out of Git |
+| `data/` | What you would want back if this computer were lost: the app's records and settings. It may be absent until the first write |
+| `local/` | What this computer can rebuild or sign in again, or must keep to itself: sign-ins, caches, databases. The root `.gitignore` keeps it out of Git |
 
 `<name>` is lowercase letters, digits, and dashes, starts with a letter, and
 is not `check` or `serve`. Two packages in one Bun workspace cannot share a
