@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Relates:** [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (code runs as it sits on disk), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (serve keeps nothing about a call), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a view calls actions).
+- **Waits:** nothing is built until an app needs it. A review of the action protocol on 2026-11-17 found no app that does, agreed that WebSocket and `publish` should wait longest, and found the guard gap below.
 - **Unbuilt:** all of it. The first thing to exist is a request to `/<app>/.http/` that `packages/cli/src/http.ts` hands to the app's `fetch`; today that path answers 404.
 
 ## Context
@@ -77,6 +78,13 @@ What a person or an agent should be able to do is an action.
 tunnel header, a `Host` that is not private, or an `Origin` that is not its
 own `Host` is refused before it reaches an app. A browser sends `Origin` on a
 WebSocket upgrade, so another site cannot open a socket to the home.
+
+Those guards are not enough for a `GET`. Serve checks `Origin` only when the
+browser sends one, and a browser sends none on a plain cross-site `GET`, such
+as an `<img>` or a link on another site the owner visits. That request arrives
+with a private `Host` and no `Origin`. Today this is safe only because every
+action is a `POST`. Before an app's `fetch` receives a `GET`, serve must
+also refuse a request whose `Sec-Fetch-Site` is `cross-site`.
 
 ## Consequences
 
