@@ -15,6 +15,7 @@ import {
 // Only types are checked here, so the folder is never used.
 const data = defineData(unusedFolder, {
 	words: {
+		description: 'words',
 		fields: {
 			meaning: field.text(),
 			note: field.text({ optional: true }),
@@ -53,7 +54,7 @@ test('action inputs retain required create fields, optional nullable patches, an
 		Equal<
 			Parameters<typeof actions.create>[0],
 			{
-				id?: string;
+				id: string;
 				meaning: string;
 				note?: string;
 				rank: number;

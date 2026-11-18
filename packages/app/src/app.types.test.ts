@@ -28,8 +28,14 @@ import {
 
 const vocab = defineApp(({ folder }) => {
 	const data = defineData(folder, {
-		words: { fields: { meaning: field.text({ optional: true }) } },
-		settings: { fields: { dailyGoal: field.integer({ optional: true }) } },
+		words: {
+			description: 'words',
+			fields: { meaning: field.text({ optional: true }) },
+		},
+		settings: {
+			description: 'settings',
+			fields: { dailyGoal: field.integer({ optional: true }) },
+		},
 	});
 
 	const learn = defineAction({

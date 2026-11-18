@@ -17,13 +17,12 @@ import type {
 } from './data.ts';
 import { ActionError } from './errors.ts';
 import { field, isOptional } from './field.ts';
-import { timeId } from './time.ts';
 
 export type Verb = 'list' | 'get' | 'create' | 'patch' | 'edit' | 'delete';
 type ActionInput<TDef extends DataDef, TVerb extends Verb> = {
 	list: Record<string, never>;
 	get: { id: string };
-	create: Flat<{ id?: string } & Input<TDef['fields']>>;
+	create: Flat<{ id: string } & Input<TDef['fields']>>;
 	patch: Flat<{ id: string } & Change<TDef['fields']>>;
 	edit: Flat<{ id: string } & Passage>;
 	delete: { id: string };
@@ -64,10 +63,7 @@ export function dataActions(
 }
 
 function dataAction(key: string, def: DataDef, handle: AnyHandle, verb: Verb) {
-	const what = (def.description ?? `${key} file`).replace(
-		/^(?:a|an|the)\s+/i,
-		'',
-	);
+	const what = def.description;
 	// Text, not field.id: the handle's Misfit names the problem with the key.
 	const id = field.text({ description: `The name of the ${what}` });
 	const hints = { openWorldHint: false } as const;
@@ -96,23 +92,16 @@ function dataAction(key: string, def: DataDef, handle: AnyHandle, verb: Verb) {
 			});
 		case 'create':
 			return defineAction({
-				description: `Make a new ${what}, named by id or, without one, by the moment it is made; Changed (there) when one is already at its path. A caller that may retry should send an id, so a repeat answers Changed (there) instead of making a second`,
-				input: {
-					id: field.text({
-						optional: true,
-						description: `The name of the new ${what}; left out, it is named by the moment it is made`,
-					}),
-					...def.fields,
-					body,
-				},
+				description: `Make a new ${what} named by id; Changed (there) when one is already at its path, so a repeat makes no second`,
+				input: { id, ...def.fields, body },
 				annotations: {
 					readOnlyHint: false,
 					destructiveHint: false,
-					// Without an id, each call makes another record.
-					idempotentHint: false,
+					// A repeat with the same id answers Changed (there) and writes nothing.
+					idempotentHint: true,
 					...hints,
 				},
-				run: ({ id, ...record }) => handle.create(id ?? timeId(), record),
+				run: ({ id, ...record }) => handle.create(id, record),
 			});
 		case 'patch': {
 			const patch: Record<string, TSchema> = {};

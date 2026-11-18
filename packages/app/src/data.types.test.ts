@@ -11,6 +11,7 @@ import { assertType, type Equal, tempFolder } from './library.test-support.ts';
 const { folder } = await tempFolder();
 const data = defineData(folder, {
 	notes: {
+		description: 'notes',
 		fields: {
 			title: field.text(),
 			note: field.text({ optional: true }),
@@ -22,9 +23,10 @@ const data = defineData(folder, {
 			created: field.datetime(),
 		},
 	},
-	settings: { fields: { level: field.integer() } },
-	watches: { fields: {} },
+	settings: { description: 'settings', fields: { level: field.integer() } },
+	watches: { description: 'watches', fields: {} },
 	checks: {
+		description: 'checks',
 		fields: {
 			watch: field.ref('watches'),
 			many: field.list(field.ref('watches')),
@@ -127,6 +129,7 @@ describe('type errors', () => {
 		() =>
 			defineData(folder, {
 				notes: {
+					description: 'notes',
 					fields: {
 						// @ts-expect-error target must exist in this declaration
 						target: field.ref('missing'),
@@ -136,6 +139,7 @@ describe('type errors', () => {
 		() =>
 			defineData(folder, {
 				notes: {
+					description: 'notes',
 					fields: {
 						// @ts-expect-error list items retain the missing ref target
 						targets: field.list(field.ref('missing')),
@@ -145,6 +149,7 @@ describe('type errors', () => {
 		() =>
 			defineData(folder, {
 				notes: {
+					description: 'notes',
 					fields: {
 						// @ts-expect-error optional refs retain the missing target
 						target: field.ref('missing', { optional: true }),

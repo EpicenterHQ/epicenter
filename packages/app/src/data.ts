@@ -18,8 +18,12 @@ import {
 	type Loose,
 } from './markdown-records.ts';
 
-/** One folder or one file's declared Markdown fields. */
-export type DataDef = { description?: string; fields: Fields };
+/**
+ * One data key: what one of its records is, as a noun ("task", "writing
+ * note"), and the declared Markdown fields of each. Its actions say the
+ * description in sentences such as "Read one task".
+ */
+export type DataDef = { description: string; fields: Fields };
 type Spec = Record<string, DataDef>;
 export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
 export type Change<TFields extends Fields> = Flat<
@@ -107,7 +111,10 @@ export type AnyData = Record<
 >;
 
 /** Markdown yields JSON values, so a handle at runtime is typed by them; `Data` keeps each field's schema. */
-export type AnyHandle = Handle<{ fields: Record<string, TUnsafe<JsonValue>> }>;
+export type AnyHandle = Handle<{
+	description: string;
+	fields: Record<string, TUnsafe<JsonValue>>;
+}>;
 
 /** One handle per key: its definition, its verbs, and its actions. */
 export type Data<TSpec extends Spec> = {
@@ -154,9 +161,13 @@ export function defineData<const TSpec extends Spec>(
 	folder: Folder,
 	spec: TSpec & ValidRefs<TSpec>,
 ): Data<TSpec> {
-	for (const [key, { fields }] of Object.entries(spec)) {
+	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))
 			throw new Error(`The data key ${JSON.stringify(key)} must be a name`);
+		if (typeof description !== 'string' || description.trim() === '')
+			throw new Error(
+				`The data key ${key} needs a description: what one record is, such as "task"`,
+			);
 		JSON.stringify(fields);
 		for (const [field, schema] of Object.entries(fields)) {
 			// An action folds a record's fields beside its id and body, and a read gives its path.

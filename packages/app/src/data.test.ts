@@ -24,6 +24,7 @@ async function setup(seed: Record<string, string> = {}) {
 	const { folder, read, files } = await tempFolder(seed);
 	const data = defineData(folder, {
 		notes: {
+			description: 'notes',
 			fields: {
 				title: field.text(),
 				count: field.integer({ optional: true }),
@@ -32,6 +33,7 @@ async function setup(seed: Record<string, string> = {}) {
 			},
 		},
 		settings: {
+			description: 'settings',
 			fields: { title: field.text(), count: field.integer({ optional: true }) },
 		},
 	});
@@ -209,7 +211,10 @@ test('concurrent edits of one data file each land, each computed from the record
 		'data/counters/a.md': '---\nn: 0\n---\n',
 	});
 	const { counters } = defineData(folder, {
-		counters: { fields: { n: field.integer({ optional: true }) } },
+		counters: {
+			description: 'counters',
+			fields: { n: field.integer({ optional: true }) },
+		},
 	});
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
@@ -274,7 +279,7 @@ test.each(invalidIds)(
 			delete: untouched,
 		};
 		const { notes } = defineData(guarded, {
-			notes: { fields: { title: field.text() } },
+			notes: { description: 'notes', fields: { title: field.text() } },
 		});
 		for (const result of [
 			await notes.get(id),
@@ -386,13 +391,15 @@ test.each([
 	'',
 	'1notes',
 ])('definitions refuse the data key %j', (key) => {
-	expect(() => defineData(unusedFolder, { [key]: { fields: {} } })).toThrow(
-		JSON.stringify(key),
-	);
+	expect(() =>
+		defineData(unusedFolder, { [key]: { description: 'x', fields: {} } }),
+	).toThrow(JSON.stringify(key));
 });
 test.each(['path', 'body', 'id'])('definitions reserve the field %s', (key) => {
 	expect(() =>
-		defineData(unusedFolder, { notes: { fields: { [key]: field.text() } } }),
+		defineData(unusedFolder, {
+			notes: { description: 'notes', fields: { [key]: field.text() } },
+		}),
 	).toThrow(`"${key}"`);
 });
 
@@ -400,6 +407,7 @@ test('a field may be named edit, old, or new, since no verb folds a passage besi
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
+				description: 'notes',
 				fields: { edit: field.text(), old: field.text(), new: field.text() },
 			},
 		}),
@@ -515,7 +523,9 @@ test('definitions refuse cyclic schemas before they can break discovery', () => 
 	};
 	schema.properties.self = schema;
 	expect(() =>
-		defineData(unusedFolder, { records: { fields: { value: schema } } }),
+		defineData(unusedFolder, {
+			records: { description: 'records', fields: { value: schema } },
+		}),
 	).toThrow(TypeError);
 });
 
@@ -523,6 +533,7 @@ test('definitions refuse readOnly fields', () => {
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
+				description: 'notes',
 				fields: {
 					created: Type.String({ format: 'date-time', readOnly: true }),
 				},
@@ -535,8 +546,9 @@ test('handles write refs as given without opening the referenced file', async ()
 	// A file where the target's folder would be: opening anything in it throws.
 	const { folder } = await tempFolder({ 'data/watches': 'not a folder' });
 	const data = defineData(folder, {
-		watches: { fields: {} },
+		watches: { description: 'watches', fields: {} },
 		checks: {
+			description: 'checks',
 			fields: {
 				watch: field.ref('watches'),
 				many: field.list(field.ref('watches'), { optional: true }),
@@ -564,8 +576,8 @@ test('data refs validate their target at runtime', () => {
 		const ref = Type.String({ 'x-epicenter-ref': { key: target } });
 		expect(() =>
 			defineData(unusedFolder, {
-				notes: { fields: { ref } },
-				settings: { fields: {} },
+				notes: { description: 'notes', fields: { ref } },
+				settings: { description: 'settings', fields: {} },
 			}),
 		).toThrow(target);
 	}
@@ -592,8 +604,8 @@ test('a write rewrites only the lines it names, in the form the writer gives the
 	expect(await read('data/notes/a.md')).toBe(
 		'---\ntitle: "a"\ntags: ["x","y"]\ndone: true\n---\nbody',
 	);
-	// A spread names every field, so tags is written again, though its value is the same.
-	expectOk(await data.notes.edit('a', (record) => Ok({ ...record })));
+	// A field named in the change is written again, though its value is the same.
+	expectOk(await data.notes.edit('a', (record) => Ok({ tags: record?.tags })));
 	expect(await read('data/notes/a.md')).toBe(
 		'---\ntitle: "a"\ntags: ["x", "y"]\ndone: true\n---\nbody',
 	);
@@ -613,25 +625,35 @@ test('a write gives a file without front matter its fences, and an empty change 
 	);
 });
 
-test('edit accepts a whole record spread without storing its path or id as fields', async () => {
+test('edit refuses a returned patch that names path or id, and writes nothing', async () => {
 	const { read, data } = await setup();
 	await data.notes.create('a', { title: 'first' });
+	const before = await read('data/notes/a.md');
 	expect(
-		expectOk(
+		expectErr(
 			await data.notes.edit('a', (record) =>
 				Ok({ ...record, title: 'second' }),
 			),
-		).title,
+		),
+	).toMatchObject({
+		name: 'Misfit',
+		problems: [
+			{
+				line: 'edit returned path and id; return only the fields that change, such as Ok({ done: true })',
+			},
+		],
+	});
+	expect(await read('data/notes/a.md')).toBe(before);
+	expect(
+		expectOk(await data.notes.edit('a', () => Ok({ title: 'second' }))).title,
 	).toBe('second');
-	const text = await read('data/notes/a.md');
-	expect(text).not.toContain('path:');
-	expect(text).not.toContain('id:');
 });
 
 test('data definitions refuse defaults', () => {
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
+				description: 'notes',
 				fields: {
 					nested: Type.Object({ number: Type.Number({ default: 1 }) }),
 				},
@@ -644,7 +666,9 @@ test.skipIf(!foldsCase)(
 	'create refuses a name the disk already holds under another case',
 	async () => {
 		const { folder, read } = await tempFolder();
-		const { notes } = defineData(folder, { notes: { fields: {} } });
+		const { notes } = defineData(folder, {
+			notes: { description: 'notes', fields: {} },
+		});
 		expect(expectOk(await notes.create('Dune', { body: 'first' })).body).toBe(
 			'first',
 		);

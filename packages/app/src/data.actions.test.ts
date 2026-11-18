@@ -8,7 +8,7 @@ import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { isAction } from './action.ts';
 import { encodeActionResult } from './action-result.ts';
-import { type ActionError, defineData, field } from './index.ts';
+import { type ActionError, defineData, field, timeId } from './index.ts';
 import { tempFolder } from './library.test-support.ts';
 
 async function setup(seed: Record<string, string> = {}) {
@@ -20,7 +20,7 @@ async function setup(seed: Record<string, string> = {}) {
 		tags: field.list(field.text(), { optional: true }),
 	};
 	const data = defineData(folder, {
-		notes: { description: 'a note', fields },
+		notes: { description: 'note', fields },
 	});
 	return {
 		read,
@@ -193,8 +193,11 @@ test('list retains full fitting records and Misfit Results', async () => {
 test('generated writes accept refs as given and expose a declared was field as ordinary data', async () => {
 	const { folder } = await tempFolder();
 	const data = defineData(folder, {
-		targets: { fields: {} },
-		notes: { fields: { target: field.ref('targets'), was: field.text() } },
+		targets: { description: 'targets', fields: {} },
+		notes: {
+			description: 'notes',
+			fields: { target: field.ref('targets'), was: field.text() },
+		},
 	});
 	const { create, patch } = data.notes.actions('create', 'patch');
 	expect(
@@ -205,18 +208,16 @@ test('generated writes accept refs as given and expose a declared was field as o
 	).toMatchObject({ target: 'also-absent', was: 'last' });
 });
 
-test('create without an id names the record by the moment and returns that id; with one it uses it', async () => {
+test('create needs an id: a repeat with it answers Changed (there), and timeId() names one by the moment', async () => {
 	const { files, notes } = await setup();
-	const named = expectOk(await notes.create({ title: 'untitled' }));
-	expect(named.id).toMatch(/^\d{4}-\d\d-\d\dT[\d-]+Z-[0-9a-z]{8}$/);
-	expect(named.path).toBe(`data/notes/${named.id}.md`);
-	expect(expectOk(await notes.get({ id: named.id })).title).toBe('untitled');
-	expect(expectOk(await notes.create({ id: 'Dune', title: 'Dune' })).id).toBe(
-		'Dune',
-	);
-	expect((await files('data/notes')).sort()).toEqual(
-		['data/notes/Dune.md', named.path].sort(),
-	);
+	const id = timeId();
+	const named = expectOk(await notes.create({ id, title: 'untitled' }));
+	expect(named.path).toBe(`data/notes/${id}.md`);
+	expect(
+		expectErr<ActionError>(await notes.create({ id, title: 'untitled' })),
+	).toMatchObject({ name: 'Changed', cause: 'there' });
+	expect(await files('data/notes')).toEqual([named.path]);
+	expect(Value.Check(notes.create.input, { title: 'untitled' })).toBe(false);
 });
 
 test('generated verbs take the id as the file name and refuse one that cannot name a file, saying why', async () => {
@@ -265,12 +266,12 @@ test('an encoded Misfit answer keeps the id of its record', async () => {
 });
 
 // Discovery metadata and schemas are the boundary used by CLI, HTTP, and MCP.
-test('schemas require create fields but not an id, permit only optional-field removal, and give edit only id, old, and new', async () => {
+test('schemas require create fields and an id, permit only optional-field removal, and give edit only id, old, and new', async () => {
 	const { notes } = await setup();
 	const create = notes.create.input;
 	const patch = notes.patch.input;
 	expect(Value.Check(create, { id: 'a', title: 'yes' })).toBe(true);
-	expect(Value.Check(create, { title: 'yes' })).toBe(true);
+	expect(Value.Check(create, { title: 'yes' })).toBe(false);
 	for (const input of [{ id: 'a' }, { id: 7, title: 'yes' }])
 		expect(Value.Check(create, input)).toBe(false);
 	expect(Value.Check(patch, { id: 'a', note: null })).toBe(true);
@@ -300,8 +301,7 @@ test('schemas require create fields but not an id, permit only optional-field re
 		'new',
 	]);
 	expect(notes.create.input.properties.id).toMatchObject({
-		description:
-			'The name of the new note; left out, it is named by the moment it is made',
+		description: 'The name of the note',
 	});
 });
 
@@ -315,8 +315,8 @@ test('only named verbs are returned, every action is callable, and annotations s
 	const expected: Record<string, object> = {
 		list: { readOnlyHint: true, openWorldHint: false },
 		get: { readOnlyHint: true, openWorldHint: false },
-		// Without an id, each call makes another record.
-		create: { ...written, destructiveHint: false, idempotentHint: false },
+		// A repeat with the same id answers Changed (there).
+		create: { ...written, destructiveHint: false, idempotentHint: true },
 		patch: { ...written, destructiveHint: true, idempotentHint: true },
 		// Replacing a with ab twice gives abb.
 		edit: { ...written, destructiveHint: true, idempotentHint: false },
@@ -334,9 +334,7 @@ test('only named verbs are returned, every action is callable, and annotations s
 		'A missing note answers Missing and is never made',
 	);
 	expect(notes.patch.description).toContain('replaces the whole body');
-	expect(notes.create.description).toContain(
-		'A caller that may retry should send an id',
-	);
+	expect(notes.create.description).toContain('so a repeat makes no second');
 	expect(notes.edit.description).toContain('exactly one occurrence of old');
 	expect(notes.edit.description).toContain('Missing');
 	expect(notes.edit.description).toContain('Not safe to repeat');

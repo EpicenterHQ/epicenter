@@ -239,13 +239,17 @@ export function createMarkdownRecords({
 						throw new Error(
 							'The change given to edit must return a record patch inside Ok',
 						);
+					patch = result.data;
 					// A spread of the record carries its path and id, which are not fields.
-					const identity = ['path', 'id'];
-					patch = Object.fromEntries(
-						Object.entries(result.data).filter(
-							([key]) => !identity.includes(key),
-						),
+					const named = ['path', 'id'].filter((key) =>
+						Object.hasOwn(patch, key),
 					);
+					if (named.length)
+						return unfit(
+							path,
+							`edit returned ${named.join(' and ')}; return only the fields that change, such as Ok({ done: true })`,
+							'edit returned the record, not the fields that change',
+						);
 				}
 
 				const { body, ...given } = patch;
