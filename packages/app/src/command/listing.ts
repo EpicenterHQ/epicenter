@@ -132,7 +132,7 @@ export async function listApps(
 }
 
 /** Where the app `name` lives in the Epicenter, which the command knows and serve does not say. */
-const appFolder = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
+const appPath = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
 	join(root.folder, 'apps', name);
 
 /** " (read-only)" for an action that says it changes nothing; the other hints are for MCP clients. */
@@ -163,7 +163,7 @@ export function rootReport(
 			apps: apps.map((app) => withFolder(app, root)),
 			problems: problems.map(({ entry, problems }) => ({
 				entry,
-				folder: appFolder(root, entry),
+				folder: appPath(root, entry),
 				problems,
 			})),
 			routines,
@@ -184,7 +184,7 @@ export function rootReport(
 		for (const { entry, problems: each } of problems)
 			lines.push(
 				`  ${entry}`,
-				`    ${appFolder(root, entry)}`,
+				`    ${appPath(root, entry)}`,
 				...each.map((problem) => `    ${problem}`),
 			);
 	}
@@ -211,7 +211,7 @@ function withFolder(
 	{ name, description, ...rest }: AppListing,
 	root: Pick<EpicenterRoot, 'folder'>,
 ) {
-	return { name, description, folder: appFolder(root, name), ...rest };
+	return { name, description, folder: appPath(root, name), ...rest };
 }
 
 /**
@@ -245,7 +245,7 @@ export function appReport(
 	return Ok(
 		[
 			`${app.name}  ${app.description}`,
-			`folder: ${appFolder(root, app.name)}`,
+			`folder: ${appPath(root, app.name)}`,
 			'',
 			...Object.entries(app.data ?? {}).flatMap(([key, each]) => [
 				`  ${key}  ${each.path}`,

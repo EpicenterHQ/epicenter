@@ -151,6 +151,8 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 			'--version stands alone',
 		],
 		[['setup'], 'Unknown app "setup"'],
+		[['Setup', 'add'], 'Unknown app "Setup"'],
+		[['setup', 'add'], 'Unknown app "setup"'],
 	];
 	for (const [args, message] of cases) {
 		const result = await f.run(...args, '--json');

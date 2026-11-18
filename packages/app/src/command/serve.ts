@@ -413,10 +413,11 @@ async function post(root: EpicenterRoot, request: Request) {
 	} catch {
 		return notFound();
 	}
-	if (!isName(app) || more.length) return notFound();
-	return action === undefined
-		? commandCall(root, app, request)
-		: pageCall(root, app, action, request);
+	if (more.length) return notFound();
+	// The command's words name an app as typed, and serve says when none has that name.
+	if (action === undefined) return commandCall(root, app, request);
+	if (!isName(app)) return notFound();
+	return pageCall(root, app, action, request);
 }
 
 /**

@@ -35,7 +35,7 @@ export const COMMAND_WORDS = ['check', 'serve'] as const;
  * lowercase letters, digits, and dashes, starting with a letter, and not a
  * word the `epicenter` command keeps for itself.
  */
-export function nameProblem(name: unknown): string | undefined {
+function nameProblem(name: unknown): string | undefined {
 	if (!isName(name))
 		return `${JSON.stringify(name)} is not lowercase letters, digits, and dashes, starting with a letter`;
 	if ((COMMAND_WORDS as readonly string[]).includes(name))
