@@ -285,9 +285,9 @@ is used for module imports and invalidation, the check for one shared
 record paths intact.
 
 `init` runs `bun install` at the top of the home with the Bun that
-runs the command, so a new home's first commit holds `bun.lock`. A failure prints Bun's message and
-`Run: cd <home> && bun install`. A home with no `package.json` is told what
-one needs. Build reports malformed layout entries without stopping other apps.
+runs the command, the way `bun create` does: the install is what puts the
+`epicenter` command in the new home. A failure prints Bun's message and
+`Run: cd <home> && bun install`.
 
 An action's input is one argument after its words, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
