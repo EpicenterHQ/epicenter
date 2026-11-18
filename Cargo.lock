@@ -6196,6 +6196,7 @@ version = "7.11.1"
 dependencies = [
  "epicenter-transcription-build",
  "keyring",
+ "log",
  "percent-encoding",
  "serde_json",
  "tauri",

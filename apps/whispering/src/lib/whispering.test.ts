@@ -25,6 +25,8 @@
  * - A recording is kept when a transcript for it was saved after the
  *   person confirmed deleting it
  * - A note that does not read is listed for repair and repaired as text
+ * - "Change…" waits for nothing: it is refused while a take or a
+ *   transcription is under way, and while it runs nothing new starts
  *
  * Run with `--conditions=browser` (`bun run test`): the library is Svelte
  * state over the folder query, and Svelte's server runtime notifies nothing.
@@ -519,4 +521,47 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 		body: 'notes\n',
 	});
 	expect(library.repairs).toEqual([]);
+});
+
+test('changing the folder is refused while a transcription runs, and nothing starts while it changes', async () => {
+	const held = deferred<void>();
+	const opened = await fixture({
+		transcribe: async () => {
+			await held.promise;
+			return Ok({ text: 'late' });
+		},
+	});
+	const { whispering, library } = opened;
+	const recording = await record(opened);
+	await eventually(() => library.audioOf(recording.id).kind === 'here');
+
+	const running = library.transcribe(recording.id);
+	await eventually(() => library.transcribing(recording.id));
+	let changed = 0;
+	const change = async () => {
+		changed++;
+		return 'moved' as const;
+	};
+	expect(expectErr(await whispering.changeFolder(change))).toContain(
+		'transcriptions and saves under way',
+	);
+	held.resolve();
+	expectOk(await running);
+	await eventually(() => !library.transcribing(recording.id));
+
+	// While the folder changes, no recording or transcription starts.
+	const moving = deferred<void>();
+	const changing = whispering.changeFolder(async () => {
+		await moving.promise;
+		return change();
+	});
+	await whispering.startRecording();
+	expect(whispering.recorder.phase).toBe('idle');
+	expect(whispering.recorderError).toContain('changing its folder');
+	expect(expectErr(await library.transcribe(recording.id)).message).toContain(
+		'changing its folder',
+	);
+	moving.resolve();
+	expect(expectOk(await changing)).toBe('moved');
+	expect(changed).toBe(1);
 });

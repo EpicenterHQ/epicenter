@@ -82,17 +82,13 @@
 		if (path === null) return;
 		const { open } = await import('@tauri-apps/plugin-dialog');
 		const picked = await open({ directory: true, recursive: true, defaultPath: path, title: 'Choose an empty folder or a Whispering folder' });
-		if (typeof picked !== 'string' || picked === path || recording) return;
+		if (typeof picked !== 'string' || picked === path) return;
 		changing = true;
-		const changed = await changeFolder(path, picked).then(
-			(done) => ({ done, problem: null }),
-			(cause: unknown) => ({ done: null, problem: cause instanceof Error ? cause.message : String(cause) }),
-		);
+		const { data: done, error } = await whispering.changeFolder(() => changeFolder(path, picked));
 		changing = false;
-		if (changed.done === null)
-			return toast.error('The folder was not changed', { description: changed.problem ?? undefined });
+		if (error !== null) return toast.error('The folder was not changed', { description: error });
 		folderPath.set(picked);
-		previousFolderPath.set(changed.done === 'opened' ? path : null);
+		previousFolderPath.set(done === 'opened' ? path : null);
 		location.reload();
 	}
 

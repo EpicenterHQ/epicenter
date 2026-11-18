@@ -36,6 +36,9 @@ const WINDOW: &str = "whispering:main";
 const DEFAULT_FOLDER: &str = "data";
 
 fn main() {
+    log::set_logger(&STDERR)
+        .map(|()| log::set_max_level(log::LevelFilter::Info))
+        .expect("no logger is installed before this one");
     let context = tauri::generate_context!();
     let app = tauri::Builder::default()
         // First, so a second launch stops before anything else starts.
@@ -89,7 +92,7 @@ fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let folder = local_data.join(DEFAULT_FOLDER);
     std::fs::create_dir_all(&folder)
         .map_err(|error| format!("{} could not be made: {error}", folder.display()))?;
-    app.manage(files::Opened::default());
+    app.manage(files::Folders::default());
     app.fs_scope()
         .allow_directory(&folder, true)
         .map_err(|error| format!("{} could not be opened: {error}", folder.display()))?;
@@ -109,9 +112,33 @@ fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
-/// Say what went wrong without stopping: the shell has no logger of its own.
-fn log_warning(message: &str) {
-    eprintln!("Whispering: {message}");
+/// Writes log records to stderr: Whispering's own crates' from `Info`, and
+/// every other crate's from `Warn`. Without a logger every `log` call is
+/// dropped.
+struct Stderr;
+
+static STDERR: Stderr = Stderr;
+
+impl log::Log for Stderr {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        let ours = ["whispering", "tauri_plugin_epicenter"]
+            .iter()
+            .any(|prefix| metadata.target().starts_with(prefix));
+        metadata.level()
+            <= if ours {
+                log::Level::Info
+            } else {
+                log::Level::Warn
+            }
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{} {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
 }
 
 /// Bring the open window forward, for a second launch.

@@ -49,6 +49,8 @@ type RecorderState =
 	| { readonly phase: 'stopping' };
 
 const CLOSING = 'Whispering is closing, so nothing was changed.';
+const CHANGING_FOLDER =
+	'Whispering is changing its folder, so nothing was changed.';
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -85,8 +87,11 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 	/** Cleanup also fences new work and late replies. */
 	let disposed = false;
+	/** "Change…" is moving the folder, or has and the page is about to load the new one. */
+	let changingFolder = false;
 	/** Why nothing new starts now, if it does not. */
-	const refused = () => (disposed ? CLOSING : undefined);
+	const refused = () =>
+		disposed ? CLOSING : changingFolder ? CHANGING_FOLDER : undefined;
 
 	// --- models, microphone -------------------------------------------------
 
@@ -264,8 +269,36 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		choose,
 		chosen,
 		transcribe,
-		/** Why nothing new starts now, if it does not: Whispering is closing. */
+		/** Why nothing new starts now, if it does not: Whispering is closing, or changing its folder. */
 		refused,
+		/**
+		 * Run `change`, "Change…", while nothing else touches the folder. It
+		 * is refused while a take is under way (from Start until its note is
+		 * written) or while any write or transcription is pending, and while
+		 * it runs no recording or transcription starts and no transcript is
+		 * kept (`refused`). The shell refuses its file commands on the folder
+		 * meanwhile too. After it succeeds the page loads the other folder,
+		 * so nothing starts here again.
+		 */
+		async changeFolder<T>(
+			change: () => Promise<T>,
+		): Promise<Result<T, string>> {
+			const why = refused();
+			if (why !== undefined) return Err(why);
+			if (takeInProgress !== undefined || captureState.phase !== 'idle')
+				return Err('Stop the recording, then change the folder.');
+			if (query.queryClient.isMutating() > 0)
+				return Err(
+					'Wait for the transcriptions and saves under way to finish, then change the folder.',
+				);
+			changingFolder = true;
+			try {
+				return Ok(await change());
+			} catch (cause) {
+				changingFolder = false;
+				return Err(describe(cause));
+			}
+		},
 		/** The microphone the next recording uses, and the test of it. */
 		input,
 
@@ -304,8 +337,10 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		 * into the files as it records; its note waits for Stop.
 		 */
 		async startRecording() {
-			if (captureState.phase !== 'idle' || refused() !== undefined) return;
-			recorderError = undefined;
+			if (captureState.phase !== 'idle' || disposed) return;
+			// A shortcut can press Start while the folder changes: say why nothing started.
+			recorderError = refused();
+			if (recorderError !== undefined) return;
 			const attempt = new AbortController();
 			const at = new Date();
 			const id = timeId(at);

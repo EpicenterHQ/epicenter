@@ -13,6 +13,8 @@ epicenter-transcription-build = { path = "../packages/epicenter-transcription-bu
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
+# The facade the crates log through; `main.rs` writes its records to stderr.
+log = "0.4"
 # Provider API keys, as Keychain items (`secrets.rs`).
 keyring = "4.2"
 # Decodes the folder and path a raw write carries in its headers (`files.rs`).
