@@ -279,24 +279,26 @@ action, a UI, and the files an agent opens. The proposed data-root API of
 ```ts
 import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
 
-const data = defineData({
-  tasks: {
-    description: 'task',
-    fields: { title: field.text(), done: field.boolean() },
-  },
-});
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, {
+    tasks: {
+      description: 'task',
+      fields: { title: field.text(), done: field.boolean() },
+    },
+  });
 
-const add = defineAction({
-  description: 'Add a task to do',
-  input: { title: field.text({ description: 'What to do' }) },
-  annotations: { destructiveHint: false },
-  run: ({ title }) => data.tasks.create(timeId(), { title }),
-});
+  const add = defineAction({
+    description: 'Add a task to do',
+    input: { title: field.text({ description: 'What to do' }) },
+    annotations: { destructiveHint: false },
+    run: ({ title }) => data.tasks.create(timeId(), { title }),
+  });
 
-export default defineApp({
-  description: 'Things I mean to do',
-  data,
-  actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
+  return {
+    description: 'Things I mean to do',
+    data,
+    actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
+  };
 });
 ```
 
@@ -305,8 +307,8 @@ Tasks' actions are `tasks list`, `get`, and `patch` from its data key, and the
 `epicenter tasks patch '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
 On the command line an action's input is one JSON object, as an agent gives
 it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action reads and writes through its
-data handles, or through the `folder` it imports; whatever runs it supplies the
-container. `code/epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies
+data handles, or through the `folder` its app is given; whatever runs the app
+supplies the container. `code/epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies
 when it runs. Install other dependencies in code/.
 
 ## How a write happens

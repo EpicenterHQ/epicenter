@@ -18,6 +18,7 @@ first write until it ends (`run.ts`). An earlier draft of named locks took kerne
 locks on files so work in one process could exclude work in another. Mail holds a
 SQLite transaction, Flights runs `/usr/bin/lockf`, and Codex queues on
 `globalThis`. Removing the app lock (ADR-0850) exposed one more: `edit` in
+<!-- doc-path-check: ignore-next-line (moved into packages/app/src/folder.ts, ADR-0964) -->
 `packages/cli/src/disk.ts` reads a file and then renames over it, which is
 safe inside one process and can lose a write between two.
 

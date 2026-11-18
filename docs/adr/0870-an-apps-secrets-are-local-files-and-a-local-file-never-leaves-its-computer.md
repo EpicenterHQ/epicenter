@@ -10,6 +10,7 @@
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line (deleted when an app became a function of its folder, ADR-0960) -->
 A run reaches two things: `folder` and `secrets` (`packages/app/src/context.ts`).
 `secrets.get`, `set`, and `delete` go to the macOS Keychain through
 `Bun.secrets`, under the service `epicenter.<id>.<app>`. Here `<id>` is the
@@ -132,6 +133,7 @@ refreshing at once each write over the text they read.
 
 **The Keychain and the `secrets` capability are deleted:**
 
+<!-- doc-path-check: ignore-next-line (deleted when an app became a function of its folder, ADR-0960) -->
 - `secrets` and `Secrets` from `@epicenter/app` (`packages/app/src/context.ts`,
   `index.ts`), and `createMemorySecrets` from `memory.ts`;
 - `afdcba86af^:packages/cli/src/secrets.ts`, with `keychain`, `keychainService`, and

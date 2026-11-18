@@ -9,6 +9,7 @@
 ## Context
 
 An action reaches its app's folder through a value it never receives. The
+<!-- doc-path-check: ignore-next-line (deleted when an app became a function of its folder, ADR-0960) -->
 library keeps one `AsyncLocalStorage` in `packages/app/src/context.ts`. The
 runner fills it with `inRun(context, work)`, and the imported `folder` and
 every data handle read it. Outside a run they throw.
@@ -25,6 +26,7 @@ that differ by request carries a value that is fixed for each app.
 Keeping it has a price:
 
 - The runner and the app must load the same copy of the library, or the app
+<!-- doc-path-check: ignore-next-line (deleted with the copy check, ADR-0960) -->
   reads an empty store. `packages/cli/src/library.ts` exists to refuse an app
   that would load another copy.
 - A test must wrap each call in `inRun`.
@@ -37,6 +39,7 @@ tied at one version (ADR-0942, PR #2660). `@epicenter/cli` names
 (`packages/cli/package.json`). `packages/cli/scripts/version.ts` writes one
 version into both manifests, and `bun run check:versions` and
 `packages/cli/scripts/pack.ts` refuse while they differ. `libraryProblem` in
+<!-- doc-path-check: ignore-next-line (deleted with the copy check, ADR-0960) -->
 `packages/cli/src/library.ts` refuses to load an app on another copy or
 another version. A home names both:
 `"dependencies": { "@epicenter/cli": "0.7.0", "@epicenter/app": "0.7.0" }`.

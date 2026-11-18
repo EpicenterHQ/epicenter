@@ -254,7 +254,9 @@ with its usage line and its help command as the next step.
 ## Discover and load an app
 
 Discovery lists `apps/`, skips dot entries, and accepts a directory or a link
-to one with `code/epicenter.ts`. The file must default-export `defineApp(...)`.
+to one with `code/epicenter.ts`. The file must default-export
+`defineApp(({ folder }) => ...)`. The loader calls that function once with
+`folderOnDisk(<container>)` and lists what it returns.
 An entry with `code/` or `data/` but no declaration is listed with
 `code/epicenter.ts is missing`. Other folders are skipped. Discovery reads
 `apps/` only, never the `workspaces` list, so a package the owner added to
@@ -262,15 +264,14 @@ that list is not taken for an app.
 
 An import or declaration failure is listed under that app's problems with a
 `code/epicenter.ts:` prefix. A wrong default export is also a problem, and so
-is an app that would load its own copy of `@epicenter/app`. One broken app
+is a `local/` with no `.gitignore` (the app still runs). One broken app
 does not hide the others. Listings include container locations, data keys,
 schemas, and actions. The listing's `Version` is the running command's. They carry no per-app Git status. An
 empty Epicenter says `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 
-The container's real path stays in `context.folder` and `folder.path`.
-Contracts address `data/...` from that container. A separate real `codePath`
-is used for module imports and invalidation, the check for one shared
-`@epicenter/app`, and UI builds and serving. Replacing `code/` leaves
+The container's real path is `folder.path`. Contracts address `data/...`
+from that container. A separate real `codePath` is used for module imports
+and invalidation, and for UI builds and serving. Replacing `code/` leaves
 record paths intact.
 
 An action's input is one argument after its words, `epicenter <app> <action>
@@ -470,9 +471,9 @@ Nothing locks a call. Serve is the one process that runs actions, so two
 actions never replace one file at the same moment, whether they came from a
 page, an agent, or two commands started together.
 
-`folder.update` reads the text, computes from it, and replaces the file, with
-no other update between. Every data write uses it. Plain `folder.write`
-is last-write-wins. Neither guards against a writer outside Epicenter, such
+`folder.edit` reads the text, computes from it, and replaces the file, with
+no other write through the folder between. Every data write uses it. Plain
+`folder.write` is last-write-wins. Neither guards against a writer outside Epicenter, such
 as an editor or a `git pull`.
 
 Writes through `folder` stay under `data/` and `local/`.
@@ -697,7 +698,7 @@ that holds:
 
 | Path | Holds |
 | --- | --- |
-| `code/epicenter.ts` | The declaration: its default export is `defineApp(...)` |
+| `code/epicenter.ts` | The declaration: its default export is `defineApp(({ folder }) => ...)` |
 | `code/package.json` | `"name": "<name>"`, `"private": true`, and the packages the app itself imports, never `@epicenter/app` |
 | `code/.gitignore` | `node_modules/` and `ui/dist/` |
 | `data/` | What you would want back if this computer were lost: the app's records and settings. It may be absent until the first write |

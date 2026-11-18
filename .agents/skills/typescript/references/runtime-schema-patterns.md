@@ -50,13 +50,13 @@ arktype `Type` share one PascalCase name.
 
 Inside an Epicenter, a `defineData` folder key names each record by its id, the file's name. For example, the [writing app](../../../../examples/writing/epicenter.ts) declares a `notes` key, so a note lives at `data/notes/<id>.md` and its actions use `id` to identify it. Whispering’s outside-app [file contract](../../../../apps/whispering/src/lib/contract.ts) still uses `defineContract`.
 
-Here is the writing app's data declaration:
+Here is the writing app's data declaration, made inside its `defineApp` function, which is given the app's `folder`:
 
 ```typescript
 import { defineData, field } from '@epicenter/app';
 
 const kinds = ['thought', 'quote', 'link'] as const;
-const data = defineData({
+const data = defineData(folder, {
 	notes: {
 		description: 'writing note',
 		fields: {
