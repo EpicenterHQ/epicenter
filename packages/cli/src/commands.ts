@@ -27,10 +27,10 @@ With --from, copy one app's code without its Git history or records, from a fold
 checkout (a path: /, ./, ../, ~/) or a folder on GitHub at a branch, tag, or full commit.
 To copy from another host, clone it first. Copies the source commit, and refuses a local
 folder with uncommitted changes.
-The app's code/package.json is named <name> and lists only its own packages: the copy's
-name is rewritten, and its bun.lock and any @epicenter/app entry are left out, since the
-home has one lock and one @epicenter/app. It runs nothing: it prints the command that
-installs the app's packages and builds its UI, cd <home> && bun install && bun run build.`,
+A copy is a Git checkout of that one folder; its package.json, if it has one, is renamed
+<name>, since two packages in one workspace cannot share a name. It runs nothing: it prints
+the command that installs the app's packages and builds its UI,
+cd <home> && bun install && bun run build.`,
 	},
 	export: {
 		usage:

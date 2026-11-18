@@ -756,9 +756,8 @@ epicenter new notes --from ~/Code/shared-apps/apps/notes
 ```
 
 An app container is accepted when its tracked `code/epicenter.ts` identifies
-the code subtree instead of a top-level declaration. A folder that holds
-several apps is refused with their names and the `--from` for one of them.
-Anything else, such as a Git URL or a bare word, is refused with a hint.
+the code subtree instead of a top-level declaration. A folder with neither is
+refused; name the app's folder. Anything else, such as a Git URL or a bare word, is refused with a hint.
 
 The copy uses the source's commit. The code it copies must match it: when
 `git status` shows any change or untracked file in that code (an app
@@ -773,13 +772,12 @@ export that is not committed is still outside the publication's copied commit.
 
 With `--json`, a copy adds `source: { commit }` to the result.
 
-The command uses a temporary clone, then checks out selected committed
-files into the new container's ignored `.code-build-copy-*` directory before
-renaming them to `code/`. It excludes data/, local paths, node_modules at any
-depth, ui/dist, and old SOURCE.md. It preserves modes and symlinks, refuses
-gitlinks, materializes LFS content, and retains inherited LFS attributes that
-the destination root does not already supply. No nested repository or remote
-is created. Changes from the source are later work for the app's owner.
+The copy is a Git checkout. `new` clones the source into the new container
+without checking anything out, checks out only the app's folder (a sparse
+checkout), moves that folder to `code/`, and deletes the clone. What the
+commit holds is what you get: Git keeps modes and links, and fetches Git LFS
+files when your Git has `git lfs install`. No nested repository or remote is
+created. Changes from the source are later work for the app's owner.
 
 `code/SOURCE.md` records where the code came from, one field per line:
 `Repository` (the GitHub address, or a local checkout's `origin` with HTTP
@@ -790,10 +788,11 @@ if the destination has the same file, so an app keeps what its UI uses, its
 palette too, as files in `code/`.
 
 A copy joins the home's workspace: its `package.json` is named for the new
-app, since two packages in one workspace cannot share a name; any
-`@epicenter/app` it listed is removed, since the home supplies one copy; and
-a `bun.lock` it carried is left out, since the home has one lock. Code with no
-`package.json` gets the one blank code has. The rest of the file is kept.
+app, since two packages in one workspace cannot share a name, and the rest of
+the file is kept. A `package.json` that is a link is refused, since renaming it
+would rewrite the file it points to. A copy that lists its own
+`@epicenter/app` is reported by `epicenter`, like any app that would load its
+own copy.
 
 Copy failure removes only the container this command created. `new` never
 runs copied code: the printed command installs its packages and runs its

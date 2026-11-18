@@ -35,8 +35,7 @@ checked. `source` in `--json` is `{ commit }`.
 - Copying from a checkout with a stray untracked file or an edited tracked
   file is refused even when the commit is fine. Commit, `git stash -u`, or
   copy from a clean clone.
-- The check covers the copied folder as Git sees it, not the copy's filter,
-  so a changed tracked file under `code/ui/dist/` refuses too. Files the
-  source ignores do not.
+- The check covers the copied folder as Git sees it, so a changed tracked
+  file under `code/ui/dist/` refuses too. Files the source ignores do not.
 - A commit made in the source during the copy is no longer reported. The copy
   takes whatever commit it cloned, and `SOURCE.md` names it.

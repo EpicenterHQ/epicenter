@@ -1,4 +1,4 @@
-/** New apps use code/data containers; source copies preserve committed modes and links while excluding records and caches. */
+/** New apps use code/data containers; a copy is a Git checkout of one committed app folder. */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import {
@@ -104,7 +104,7 @@ for (const form of [
 	'local-folder',
 	'container',
 ] as const) {
-	test(`new --from copies committed code from ${form}, excludes records and caches, and records provenance`, async () => {
+	test(`new --from copies the committed code from ${form} and records provenance`, async () => {
 		const f = await setup();
 		const source = join(f.root, 'source');
 		const prefix =
@@ -118,9 +118,6 @@ for (const form of [
 			source,
 			{
 				[`${prefix}epicenter.ts`]: code,
-				[`${prefix}data/record.md`]: 'private',
-				[`${prefix}node_modules/unused/x`]: 'dependency',
-				[`${prefix}ui/dist/index.html`]: 'old build',
 				[`${prefix}SOURCE.md`]: 'old provenance',
 				[`${prefix}tool.sh`]: '#!/bin/sh\n',
 			},
@@ -153,12 +150,6 @@ for (const form of [
 		expect(JSON.parse(result.stdout).source).toEqual({ commit });
 		const dest = join(f.apps, 'copy');
 		expect(await readFile(join(dest, 'code/epicenter.ts'), 'utf8')).toBe(code);
-		for (const path of [
-			'code/data/record.md',
-			'code/node_modules/unused/x',
-			'code/ui/dist/index.html',
-		])
-			expect(await Bun.file(join(dest, path)).exists()).toBe(false);
 		expect((await lstat(join(dest, 'code/tool.sh'))).mode & 0o111).not.toBe(0);
 		expect(await readFile(join(dest, 'code/SOURCE.md'), 'utf8')).toContain(
 			`Repository: ${local ? await realpath(source) : 'https://github.com/owner/source'}\nFolder: ${prefix.replace(/\/$/, '') || '.'}\nCommit: ${commit}\n`,
@@ -324,39 +315,6 @@ test('copy failure removes only the created container and reports the source fol
 	expect(await Bun.file(join(f.apps, 'copy')).exists()).toBe(false);
 });
 
-test('a folder holding several apps lists them and names one', async () => {
-	const f = await setup();
-	const app = (description: string) =>
-		`${header}export default defineApp({description:'${description}',actions:{}});`;
-	const source = await f.folder(
-		join(f.root, 'shared'),
-		{
-			'examples/writing/epicenter.ts': app('Writing'),
-			'examples/tasks/code/epicenter.ts': app('Tasks'),
-			'examples/notes.md': 'not an app',
-		},
-		{ git: true },
-	);
-	const local = await f.run('new', 'copy', '--from', join(source, 'examples'));
-	expect(local.code).toBe(2);
-	expect(local.stderr).toContain(
-		`holds 2 apps: tasks, writing. Run: epicenter new copy --from ${join(await realpath(source), 'examples/tasks')}`,
-	);
-	await gitIn(source, 'tag', 'v1');
-	github(f, 'owner/shared', source);
-	const remote = await f.run(
-		'new',
-		'copy',
-		'--from',
-		'owner/shared/examples#v1',
-	);
-	expect(remote.code).toBe(2);
-	expect(remote.stderr).toContain(
-		'Run: epicenter new copy --from owner/shared/examples/tasks#v1',
-	);
-	expect(await Bun.file(join(f.apps, 'copy')).exists()).toBe(false);
-});
-
 test('a GitHub folder is copied at a branch, a tag, or a full commit', async () => {
 	const f = await setup();
 	const app = (description: string) =>
@@ -469,83 +427,30 @@ test('new --from descends into a code container and preserves a linked declarati
 	expect((await f.run('copy', '--json')).code).toBe(0);
 });
 
-test('copied LFS bytes retain inherited attributes under apps/name/code', async () => {
+test("new --from names the copy's package for the app, so it installs beside the app it came from", async () => {
 	const f = await setup();
-	const source = join(f.root, 'lfs-source');
-	await f.folder(source, {
-		'.gitattributes': '*.bin filter=lfs diff=lfs merge=lfs -text\n',
-		'starter/epicenter.ts': `${header}export default defineApp({description:'LFS',actions:{}});`,
-		'starter/image.bin': 'binary fixture bytes',
-	});
-	await gitIn(source, 'init', '-q');
-	await gitIn(source, 'lfs', 'install', '--local');
-	await gitIn(source, 'add', '.');
-	await gitIn(source, 'commit', '-qm', 'lfs fixture');
-	await gitIn(f.home, 'init', '-q');
-	const result = await f.run(
-		'new',
-		'copy',
-		'--from',
-		join(source, 'starter'),
-		'--json',
-	);
-	expect(result.code).toBe(0);
-	const copied = join(f.apps, 'copy/code');
-	expect(await readFile(join(copied, 'image.bin'), 'utf8')).toBe(
-		'binary fixture bytes',
-	);
-	expect(
-		await gitIn(
-			f.home,
-			'check-attr',
-			'filter',
-			'--',
-			'apps/copy/code/image.bin',
-		),
-	).toBe('apps/copy/code/image.bin: filter: lfs');
-	expect(await readFile(join(copied, '.gitattributes'), 'utf8')).toContain(
-		'filter=lfs',
-	);
-	await noNestedGit(f.apps);
-});
-
-test('new --from makes the copy a package of this home: named for the new app, without its lock or its own @epicenter/app', async () => {
-	const f = await setup();
-	// An app of this home with a lock of its own, as an older home kept one. A
-	// second package named `notes` would stop the install.
+	// A second package named `notes` would stop the install.
 	await f.folder(
 		f.home,
 		{
 			'apps/notes/code/epicenter.ts': `${header}export default defineApp({description:'Notes',actions:{}});\n`,
 			'apps/notes/code/package.json': `${JSON.stringify(
-				{
-					name: 'notes',
-					private: true,
-					scripts: { test: 'bun test' },
-				},
+				{ name: 'notes', private: true, scripts: { test: 'bun test' } },
 				null,
 				'\t',
 			)}\n`,
-			'apps/notes/code/bun.lock': '{ "lockfileVersion": 1 }\n',
 			'.gitignore': 'node_modules/\n',
 		},
 		{ git: true },
 	);
-	const made = await f.run(
-		'new',
-		'journal',
-		'--from',
-		join(f.apps, 'notes'),
-		'--json',
-	);
-	expect(made).toMatchObject({ code: 0 });
-	const code = join(f.apps, 'journal/code');
+	const made = await f.run('new', 'journal', '--from', join(f.apps, 'notes'));
+	expect(made.code).toBe(0);
 	// Only the name changed; the rest reads as it did.
-	expect(await readFile(join(code, 'package.json'), 'utf8')).toBe(
+	expect(
+		await readFile(join(f.apps, 'journal/code/package.json'), 'utf8'),
+	).toBe(
 		`${JSON.stringify({ name: 'journal', private: true, scripts: { test: 'bun test' } }, null, '\t')}\n`,
 	);
-	expect(existsSync(join(code, 'bun.lock'))).toBe(false);
-	// Renamed, the copy installs beside the app it came from.
 	const install = Bun.spawn([process.execPath, 'install'], {
 		cwd: f.home,
 		stdout: 'ignore',
@@ -560,29 +465,35 @@ test('new --from makes the copy a package of this home: named for the new app, w
 		'journal',
 		'notes',
 	]);
+});
 
-	// From elsewhere: an app that listed the library itself, and one with no
-	// package.json, which gets the one blank code has.
-	const source = await f.folder(
-		join(f.root, 'source'),
-		{
-			'old/epicenter.ts': `${header}export default defineApp({description:'Old',actions:{}});\n`,
-			'old/package.json': JSON.stringify({
-				name: 'old-name',
-				dependencies: { '@epicenter/app': '0.1.0' },
-			}),
-			'bare/epicenter.ts': `${header}export default defineApp({description:'Bare',actions:{}});\n`,
-		},
-		{ git: true },
-	);
-	for (const app of ['old', 'bare']) {
-		const from = join(source, app);
-		expect((await f.run('new', app, '--from', from)).code).toBe(0);
-	}
-	expect(await Bun.file(join(f.apps, 'old/code/package.json')).json()).toEqual({
-		name: 'old',
+test('new --from refuses a linked package.json and leaves the file it points to alone', async () => {
+	const f = await setup();
+	const rootPackage = join(f.home, 'package.json');
+	const before = await readFile(rootPackage, 'utf8');
+	const source = join(f.root, 'source');
+	await f.folder(source, {
+		'apps/linked/code/epicenter.ts': `${header}export default defineApp({description:'Linked',actions:{}});`,
+		'package.json': '{ "name": "source" }\n',
 	});
-	expect(await Bun.file(join(f.apps, 'bare/code/package.json')).json()).toEqual(
-		{ name: 'bare', private: true },
+	// Copied into apps/<name>/code/, the link points at the home's own file.
+	await symlink(
+		'../../../package.json',
+		join(source, 'apps/linked/code/package.json'),
 	);
+	await gitIn(source, 'init', '-q');
+	await gitIn(source, 'add', '.');
+	await gitIn(source, 'commit', '-qm', 'link');
+	const refused = await f.run(
+		'new',
+		'linked',
+		'--from',
+		join(source, 'apps/linked'),
+	);
+	expect(refused.code).toBe(2);
+	expect(refused.stderr).toContain(
+		'has a package.json that is a link to ../../../package.json',
+	);
+	expect(await readFile(rootPackage, 'utf8')).toBe(before);
+	expect(existsSync(join(f.apps, 'linked'))).toBe(false);
 });

@@ -1157,3 +1157,4 @@ When you add an ADR, add its row here.
 | [0946](0946-new-from-a-local-folder-refuses-uncommitted-code.md) | `new --from` a local folder refuses uncommitted code | Proposed (amends 0929) |
 | [0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) | A credential the owner pastes goes in the home's `.env`, which only `env()` reads | Proposed (amends 0870 and 0939) |
 | [0949](0949-an-action-reaches-a-model-through-model-and-the-home-names-its-default-in-epicenter-md.md) | An action reaches a model through `model()`, and the home names its default in `EPICENTER.md` | Proposed |
+| [0950](0950-new-from-is-a-sparse-git-checkout-of-one-folder.md) | `new --from` is a sparse Git checkout of one folder | Proposed (amends 0929 and 0946) |

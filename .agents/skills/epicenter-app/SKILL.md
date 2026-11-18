@@ -600,8 +600,8 @@ Run tests one file or package at a time.
 Only when the person asks, on the computer that runs `epicenter serve`:
 
 - `epicenter new <app> --from <folder | owner/repo/folder#ref>` takes committed code into
-  apps/<app>/code/ and creates empty data/. It names the copy's package.json
-  for the app, leaves out a copied bun.lock and any @epicenter/app entry, and prints
+  apps/<app>/code/ as a Git checkout of that folder and creates empty data/. It
+  renames the copy's package.json for the app, and prints
   the one command to run next: `cd <home> && bun install && bun run build`.
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
