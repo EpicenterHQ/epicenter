@@ -1,5 +1,5 @@
 /**
- * Data checks run the real CLI against records in a temporary home.
+ * Data checks run the real CLI against records in a temporary Epicenter.
  * Counts, filename rules, aliases, exact references, and single files stay
  * consistent between human reports and JSON.
  */
@@ -20,7 +20,7 @@ afterEach(async () => {
 
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	const app = await f.app(
 		'flights',
 		`export default defineApp(({ folder }) => ({

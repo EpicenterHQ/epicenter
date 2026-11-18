@@ -19,7 +19,7 @@ needed the context passed on, and data defined at the top of the file could
 not use it.
 
 The value in that store never changes between calls. `load` in
-`packages/app/src/command/home.ts` builds one context for an app, and `settle` in
+`packages/app/src/command/apps.ts` builds one context for an app, and `settle` in
 `packages/app/src/command/run.ts` copies it for each call. A store made for values
 that differ by request carries a value that is fixed for each app.
 
@@ -100,7 +100,7 @@ export default defineApp(({ folder }) => {
   live records only by passing the live folder.
 - **No copy check.** Nothing is shared in memory between the loader and the
   app, and the loader recognizes an action by its shape. `library.ts` and its
-  call in `packages/app/src/command/home.ts` are deleted.
+  call in `packages/app/src/command/apps.ts` are deleted.
 
 **The command and the library are one package, `@epicenter/app`, and
 `@epicenter/cli` is retired.** The command's source moves from

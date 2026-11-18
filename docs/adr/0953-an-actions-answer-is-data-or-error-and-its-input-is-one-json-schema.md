@@ -50,7 +50,7 @@ Rebuilt from that JSON, `meaning` is required. `packages/app/src/command/input.t
 | HTTP, `POST /<app>/<action>` | the final `{"answer": ...}` line; a call refused before it starts is the body of a 400 |
 | `epicenter <app> <action> --json` | the one JSON value on stdout |
 | MCP `tools/call` | `structuredContent` |
-| `packages/app/src/command/serve-call.ts` | what `sendToServe` returns to the CLI |
+| `packages/app/src/command/send.ts` | what `sendToServe` returns to the CLI |
 
 ```json
 {"data":{"id":"dune"},"error":null}

@@ -102,7 +102,7 @@ return {description: 'Route notes', data, actions: {
 			await mcp.close();
 		}
 	} finally {
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 }, 30_000);
 
@@ -200,6 +200,6 @@ export default defineApp(({ folder }) => ({description: 'Staged drafts', actions
 			await mcp.close();
 		}
 	} finally {
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 }, 30_000);

@@ -16,5 +16,5 @@ export async function writingSource(f: Awaited<ReturnType<typeof fixture>>) {
 			continue;
 		files[`writing/${path}`] = await readFile(join(code, path), 'utf8');
 	}
-	return f.folder(join(f.root, 'source'), files);
+	return f.folder(join(f.userDir, 'source'), files);
 }

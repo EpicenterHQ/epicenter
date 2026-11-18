@@ -1,16 +1,24 @@
 /**
  * Action call tests.
- * A command sends its action to the home's serve, the one process that runs
+ * A command sends its action to the Epicenter's serve, the one process that runs
  * actions, and never runs it itself.
  *
  * Key behaviors:
  * - Exit codes and answers are the same through the command and MCP.
  * - Concurrent calls in one serve lose no write and leave no temporary file.
  * - With serve stopped, or another holder on the port, a command is refused and nothing runs.
- * - A second serve says whether this home or something else has the port.
+ * - A second serve says whether this Epicenter or something else has the port.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	stat,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	connectMcp,
@@ -123,7 +131,7 @@ const notesApp = {
 
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	const folder = await f.folder(join(f.apps, 'notes'), notesApp);
 	const json = async (...args: string[]) => {
 		const result = await f.run(...args, '--json');
@@ -187,7 +195,7 @@ test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits
 		error: {
 			name: 'Unreachable',
 			message:
-				'The connection to Epicenter ended before the answer; the action may still be running, or may have finished',
+				'The connection to serve ended before the answer; the action may still be running, or may have finished',
 		},
 	});
 	const unknown = await f.json('notes', 'nope');
@@ -266,19 +274,31 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 		const inServe = await pidOf();
 		expect(inServe).not.toBe(process.pid);
 		expect(await pidOf()).toBe(inServe);
-		// A call that names another home is refused before the action runs.
-		const other = await fetch(`${served.base}/where/am`, {
-			method: 'POST',
-			headers: { 'x-epicenter-home': 'elsewhere' },
-			body: '{}',
-		});
-		expect(other.status).toBe(409);
+		// A request that names another Epicenter is refused before anything runs,
+		// and the refusal does not name this one.
+		for (const request of [
+			fetch(`${served.base}/where/am`, {
+				method: 'POST',
+				headers: { 'x-epicenter-root': encodeURIComponent('/elsewhere') },
+				body: '{}',
+			}),
+			fetch(`${served.base}/`, {
+				headers: {
+					'x-epicenter-root': encodeURIComponent('/elsewhere'),
+					accept: 'application/json',
+				},
+			}),
+		]) {
+			const other = await request;
+			expect(other.status).toBe(409);
+			expect(await other.text()).toBe('This call is for another Epicenter');
+		}
 	} finally {
 		await served.stop();
 	}
 	await f.stopServe();
 	expect(await ran()).toBe('xx');
-	const message = 'serve is not running; its output says why it stopped';
+	const message = 'serve is not running; if it stopped, its output says why';
 	expect(await f.run('where', 'am')).toEqual({
 		code: 2,
 		stdout: '',
@@ -296,27 +316,70 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 		},
 	});
 	expect(await ran()).toBe('xx');
+	// Listings and help come from serve too, so each is refused alike.
+	for (const words of [[], ['where'], ['where', 'am', '--help']])
+		expect((await f.json(...words)).answer.error).toMatchObject({
+			cause: 'unavailable',
+			message,
+		});
+});
+
+test('only serve loads app code: the command asks it for the listing, help and calls', async () => {
+	const f = await setup();
+	const loads = join(f.userDir, 'loads.txt');
+	await f.folder(join(f.apps, 'where'), {
+		'code/epicenter.ts': `${header}
+import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(loads)}, process.pid + '\\n');
+export default defineApp(() => ({ description: 'Where', actions: {
+	am: defineAction({ description: 'Say which process ran this', input: {}, run: () => Ok(process.pid) }),
+} }));
+`,
+	});
+	for (const words of [[], ['where'], ['where', 'am', '--help']])
+		expect((await f.run(...words)).code).toBe(0);
+	const inServe = (await f.json('where', 'am')).answer.data;
+	const loaders = new Set(
+		(await readFile(loads, 'utf8')).trim().split('\n').map(Number),
+	);
+	expect([...loaders]).toEqual([inServe]);
 });
 
 /** Hold the fixture's port as `answer` does, in place of its serve. */
+/**
+ * What the command or a second serve prints when `holder` has the port of
+ * the Epicenter at `folder`: the refusal names that Epicenter's marker.
+ */
+function held(
+	port: number,
+	holder: 'another Epicenter' | 'another program',
+	folder: string,
+) {
+	const marker = join(folder, 'EPICENTER.md');
+	return holder === 'another Epicenter'
+		? `Port ${port} is in use by another Epicenter's serve, not the one for ${folder}. Set a different \`port\` in ${marker}.\n`
+		: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}. If it is an epicenter serve from before an upgrade, stop it and start it again.\n`;
+}
+
 async function holdPort(
 	f: Awaited<ReturnType<typeof setup>>,
-	answer: () => Response,
+	answer: (request: Request) => Response,
 ) {
 	await f.stopServe();
 	return Bun.serve({ hostname: '127.0.0.1', port: f.port, fetch: answer });
 }
 
-test('a command is refused, and runs nothing, when its port answers for another Epicenter or another program', async () => {
+test('a command is refused, and runs nothing, when its port is held by another Epicenter or another program', async () => {
 	const f = await setup();
-	for (const [headers, holder] of [
-		[{ 'x-epicenter-home': 'elsewhere' }, 'Epicenter'],
-		[{}, 'program'],
+	for (const [status, headers, holder] of [
+		[409, { 'x-epicenter': '1' }, 'another Epicenter'],
+		[200, {}, 'another program'],
 	] as const) {
-		let asked = 0;
-		const other = await holdPort(f, () => {
-			asked++;
+		const named: (string | null)[] = [];
+		const other = await holdPort(f, (request) => {
+			named.push(request.headers.get('x-epicenter-root'));
 			return new Response('{"answer":{"data":"theirs","error":null}}\n', {
+				status,
 				headers,
 			});
 		});
@@ -324,9 +387,10 @@ test('a command is refused, and runs nothing, when its port answers for another 
 			expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
 				code: 2,
 				stdout: '',
-				stderr: `Port ${f.port} answers for another ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
+				stderr: held(f.port, holder, f.epicenter),
 			});
-			expect(asked).toBe(1);
+			// The command named its root, by its real path, on the one request it made.
+			expect(named).toEqual([encodeURIComponent(f.epicenter)]);
 		} finally {
 			await other.stop(true);
 		}
@@ -334,7 +398,7 @@ test('a command is refused, and runs nothing, when its port answers for another 
 	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
 });
 
-test('every answer of serve names its home, and a call through it adds no line', async () => {
+test('every answer of serve says it is an Epicenter and names no path, and a call through it adds no line', async () => {
 	const f = await setup();
 	const served = await startServe(f);
 	try {
@@ -342,9 +406,13 @@ test('every answer of serve names its home, and a call through it adds no line',
 			await fetch(`${served.base}/`),
 			await fetch(`${served.base}/missing/`),
 			await fetch(`${served.base}/notes/same`, { method: 'POST', body: '{}' }),
+			await fetch(`${served.base}/`, {
+				headers: { 'x-epicenter-root': 'elsewhere' },
+			}),
 		]) {
-			expect(response.headers.get('x-epicenter-home')).toBe(
-				encodeURIComponent(f.home),
+			expect(response.headers.get('x-epicenter')).toBe('1');
+			expect([...response.headers.values()].join('\n')).not.toContain(
+				f.userDir,
 			);
 			await response.body?.cancel();
 		}
@@ -353,42 +421,104 @@ test('every answer of serve names its home, and a call through it adds no line',
 			headers: { 'cf-connecting-ip': '203.0.113.7' },
 		});
 		expect(tunnelled.status).toBe(403);
-		expect(tunnelled.headers.get('x-epicenter-home')).toBeNull();
+		expect(tunnelled.headers.get('x-epicenter')).toBeNull();
 		expect(await f.run('notes', 'same', '--json')).toMatchObject({
 			code: 0,
 			stderr: '',
 		});
+		// The command refuses an input past the limit before sending it; Bun
+		// refuses a larger body from anyone else with a bare 413.
+		const largePath = join(f.userDir, 'large.json');
+		await writeFile(largePath, 'x'.repeat(25 * 1024 * 1024 + 1));
+		const largeRun = Bun.spawn(
+			[process.execPath, f.bin, 'notes', 'same', '-', '--json'],
+			{
+				cwd: f.epicenter,
+				env: f.env,
+				stdin: Bun.file(largePath),
+				stdout: 'pipe',
+			},
+		);
+		expect(await largeRun.exited).toBe(2);
+		expect(
+			JSON.parse(await new Response(largeRun.stdout).text()),
+		).toMatchObject({
+			error: { name: 'NotStarted', message: 'The input is larger than 25 MiB' },
+		});
+		const large = await fetch(`${served.base}/notes/same`, {
+			method: 'POST',
+			body: 'x'.repeat(25 * 1024 * 1024 + 1),
+		});
+		expect(large.status).toBe(413);
+		// A handler that throws answers a plain 500 that names no path: with
+		// apps/ a file, reading it throws ENOTDIR.
+		await rename(f.apps, `${f.apps}.moved`);
+		await writeFile(f.apps, '');
+		try {
+			const threw = await fetch(`${served.base}/`, {
+				headers: { accept: 'application/json' },
+			});
+			expect(threw.status).toBe(500);
+			expect(threw.headers.get('x-epicenter')).toBe('1');
+			expect(await threw.text()).toBe('serve could not answer');
+		} finally {
+			await rm(f.apps);
+			await rename(`${f.apps}.moved`, f.apps);
+		}
 	} finally {
 		await served.stop();
 	}
 });
 
-test('a second serve says this home is already served, and a port something else holds says to set another', async () => {
+test('a stray EPICENTER.md below the root is an Epicenter, and the refusal names it', async () => {
 	const f = await setup();
-	const taken = `Port ${f.port} is in use by another program or another Epicenter. Set a different \`port\` in EPICENTER.md.\n`;
+	// A command finds the nearest marker, as Git finds the nearest .git, so one
+	// in an app's data is a root of its own. Real strays take the default port,
+	// the one the real serve holds; this one names the fixture's port to match.
+	const stray = f.data;
+	await mkdir(stray, { recursive: true });
+	await writeFile(join(stray, 'EPICENTER.md'), `---\nport: ${f.port}\n---\n`);
+	await f.serve();
+	expect(await f.runIn(stray, 'notes', 'write', '{"page":"monday"}')).toEqual({
+		code: 2,
+		stdout: '',
+		stderr: held(f.port, 'another Epicenter', stray),
+	});
+	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
+});
+
+test('a second serve says this Epicenter is already served, and names who else holds the port', async () => {
+	const f = await setup();
+	const taken = (holder: 'another Epicenter' | 'another program') =>
+		held(f.port, holder, f.epicenter);
 	const served = await startServe(f);
 	try {
 		expect(await f.run('serve')).toEqual({
 			code: 2,
 			stdout: '',
-			stderr: `Epicenter is already serving this home on port ${f.port}.\n`,
+			stderr: `serve is already running for this Epicenter on port ${f.port}.\n`,
 		});
 		expect((await fetch(`${served.base}/`)).status).toBe(200);
 	} finally {
 		await served.stop();
 	}
-	const elsewhere = await holdPort(
-		f,
-		() => new Response('', { headers: { 'x-epicenter-home': 'elsewhere' } }),
-	);
-	try {
-		expect(await f.run('serve')).toEqual({
-			code: 2,
-			stdout: '',
-			stderr: taken,
-		});
-	} finally {
-		await elsewhere.stop(true);
+	for (const [answer, holder] of [
+		[
+			() => new Response('', { status: 409, headers: { 'x-epicenter': '1' } }),
+			'another Epicenter',
+		],
+		[() => new Response(''), 'another program'],
+	] as const) {
+		const other = await holdPort(f, answer);
+		try {
+			expect(await f.run('serve')).toEqual({
+				code: 2,
+				stdout: '',
+				stderr: taken(holder),
+			});
+		} finally {
+			await other.stop(true);
+		}
 	}
 	// A program that does not speak HTTP is found only when the port will not bind.
 	const silent = Bun.listen({
@@ -400,7 +530,7 @@ test('a second serve says this home is already served, and a port something else
 		expect(await f.run('serve')).toEqual({
 			code: 2,
 			stdout: '',
-			stderr: taken,
+			stderr: taken('another program'),
 		});
 	} finally {
 		silent.stop(true);
@@ -409,7 +539,7 @@ test('a second serve says this home is already served, and a port something else
 
 test('C12 runs leave no temporary file', async () => {
 	const f = await setup();
-	const temp = join(f.root, 'tmp');
+	const temp = join(f.userDir, 'tmp');
 	await mkdir(temp);
 	// The actions run in serve, so serve is what must leave nothing behind.
 	const served = await startServe(f, [], {

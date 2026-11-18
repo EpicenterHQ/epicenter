@@ -53,18 +53,18 @@ function body does not survive from one call to the next: keep it in a file.
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
-the app, and the package that holds that command too. A home is one Bun
+the app, and the package that holds that command too. An Epicenter is one Bun
 workspace whose `package.json` depends on `@epicenter/app`, so `bun install`
-at the top of the home installs one copy, puts `epicenter` in
+at the top of the Epicenter installs one copy, puts `epicenter` in
 `node_modules/.bin/`, and `epicenter.ts`, the editor, `bun test` and the UI's
 build all find it by ordinary resolution.
 An app's `code/package.json` names only the app's own dependencies and never
-lists `@epicenter/app`, so the app runs the version the home names. After
-the home's packages change, restart `serve`. An app's name is its folder's.
+lists `@epicenter/app`, so the app runs the version the Epicenter names. After
+the Epicenter's packages change, restart `serve`. An app's name is its folder's.
 
 The package ships its TypeScript source and runs under Bun. See
-[the command's README](src/command/README.md#a-home-is-a-bun-workspace) for the
-home's `package.json`, upgrading, and trying an unreleased change.
+[the command's README](src/command/README.md#an-epicenter-is-a-bun-workspace) for the
+Epicenter's `package.json`, upgrading, and trying an unreleased change.
 
 ## Three values, composed
 
@@ -424,7 +424,7 @@ Reads are plain file reads through `folder.path`, with `node:fs` or
 parts.
 
 An action changes files and makes no Git commit. Its writes remain pending,
-including when it returns an Err, throws, or stops. Git stores the home, and its
+including when it returns an Err, throws, or stops. Git stores the Epicenter, and its
 commits record code and records together
 ([ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Reads tolerate records that no longer fit the declaration; repair follows a
@@ -490,7 +490,7 @@ const sync = defineAction({
 	},
 });
 
-// Any caller, in the home or in a page:
+// Any caller, in the Epicenter or in a page:
 await sync({ account }, { onUpdate: ({ copied, of }) => show(copied, of) });
 ```
 
@@ -566,7 +566,7 @@ the action ran:
 | `usage` | the words, input or target do not fit | `next?` |
 | `app-problems` | the app cannot load | `app`, `problems` |
 | `internal` | Epicenter failed before it ran | none |
-| `unavailable` | no serve for this home answers | `next?` |
+| `unavailable` | no serve for this Epicenter answers | `next?` |
 
 An action cannot answer `NotStarted` or
 `Unreachable`: serve turns an action's own into `Threw`, by its name alone. An action may still return `Threw`.
@@ -624,14 +624,19 @@ A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
 
-## Upgrading to an app that is a function of its folder
+## Upgrading from 0.7.0
 
 The release after 0.7.0 makes an app a function of the folder it is handed
 ([ADR-0960](../../docs/adr/0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)),
 keeps that folder on disk
 ([ADR-0964](../../docs/adr/0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md)),
-and puts the `epicenter` command in this package. TypeScript flags each
-change in the table, so in each app run the type-check and fix what it names.
+and puts the `epicenter` command in this package. The command now finds its
+Epicenter only by walking up, and asks serve for everything it shows
+([ADR-0965](../../docs/adr/0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md),
+[ADR-0961](../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
+TypeScript flags each change in the first table, so in each app run the
+type-check and fix what it names; the sections after it list what it does
+not flag, then the steps in order.
 
 | 0.7.0 | After |
 | --- | --- |
@@ -672,13 +677,19 @@ Some other names 0.7.0 exported are gone:
 - `epicenter serve` will not start while a `.env` at the root of the Epicenter is tracked by Git or not ignored ([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)). It says which, and the fix: `git rm --cached .env`, or add `.env*` to `.gitignore`.
 - The folder writes `local/.gitignore` when it makes `local/`. A `local/` made another way runs, and is listed as a problem with the one-line fix.
 
+### Where the command runs, and what needs serve
+
+- A command finds its Epicenter only by walking up from the folder it runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd` into your Epicenter, or set a script's working directory there.
+- `epicenter serve` starts only in the Epicenter's own folder. Started anywhere else it refuses and exits, so a job that restarts it on exit fails again each time. Set the job's working directory to your Epicenter: `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=` in a systemd unit.
+- Bare `epicenter`, `epicenter <app>` and an action's `--help` ask serve, and are refused while it is stopped. `epicenter check` still works without it.
+
 ### Upgrade steps
 
 1. In the root `package.json`, remove `@epicenter/cli` and set `@epicenter/app` to the new version.
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass.
 4. Run `bun run build` in each app that has a UI.
-5. Restart `epicenter serve`. Nothing reminds you; until you do, the old version answers every call.
+5. Restart `epicenter serve`. Until you do, the command reads the old serve as another program on the port and runs nothing.
 6. Commit the result as one commit, so reverting it returns everything to 0.7.0.
 
 ## Upgrading from 0.6
@@ -765,9 +776,9 @@ field helper made that marker, so the check is gone.
 
 ### Steps
 
-1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the home's `package.json`.
+1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the Epicenter's `package.json`.
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass.
 4. Run `bun run build` in each app that has a UI.
 5. Restart `epicenter serve`. Nothing reminds you; until you do, the old version answers every call.
-6. Commit the result as one commit, so reverting it returns the home to 0.6.
+6. Commit the result as one commit, so reverting it returns the Epicenter to 0.6.
