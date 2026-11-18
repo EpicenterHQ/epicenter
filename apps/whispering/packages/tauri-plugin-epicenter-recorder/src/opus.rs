@@ -233,6 +233,57 @@ pub(crate) mod tests {
         assert!(decoded(&std::fs::read(&path).unwrap()).is_empty());
     }
 
+    /// A take a crash cut off is read as it is, with no repair: whole
+    /// seconds, perhaps a torn one at its end, and no Duration or Cues.
+    /// The decoder transcription uses reads every whole block in its
+    /// place, wherever the cut falls, and a torn end costs at most its
+    /// last second.
+    #[test]
+    fn a_take_cut_off_decodes_as_it_is() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("a.webm");
+        let samples = sweep(6 * RECORDING_RATE as usize + 4_000);
+        let original = as_f32(&samples);
+        let mut recording = OpusRecording::new(File::create(&path).unwrap()).unwrap();
+        recording.write(&samples).unwrap();
+        // Dropped unfinished: the file as a crash leaves it.
+        drop(recording);
+        let bytes = std::fs::read(&path).unwrap();
+
+        let cut_off = decoded(&bytes);
+        assert!(
+            cut_off.len() >= 5 * RECORDING_RATE as usize,
+            "{} samples",
+            cut_off.len()
+        );
+        assert_eq!(best_lag(&original, &cut_off), 0);
+        assert!(likeness(&original, &cut_off, 0) > 0.95);
+
+        // Every 29th byte from the first Cluster on, about twice in every
+        // block: a cut before the first Cluster holds no audio at all.
+        let first_cluster = bytes
+            .windows(4)
+            .position(|id| id == [0x1F, 0x43, 0xB6, 0x75])
+            .unwrap();
+        let cuts = (first_cluster..bytes.len()).step_by(29);
+        for (index, cut) in cuts.enumerate() {
+            let torn =
+                tauri_plugin_epicenter_transcription::audio::decode_to_pcm16k_mono(&bytes[..cut])
+                    .unwrap_or_else(|error| panic!("torn at {cut} of {}: {error}", bytes.len()));
+            assert!(torn.len() <= cut_off.len(), "torn at {cut}");
+            let whole_seconds = cut_off.len() * cut / bytes.len();
+            assert!(
+                torn.len() + RECORDING_RATE as usize >= whole_seconds,
+                "torn at {cut}: {} samples, about {whole_seconds} expected",
+                torn.len()
+            );
+            // Lining up is slow; every 10th cut is enough to show it.
+            if index % 10 == 0 && torn.len() > 3_000 {
+                assert_eq!(best_lag(&original, &torn), 0, "torn at {cut}");
+            }
+        }
+    }
+
     /// Cut off at random bytes, a recording is finished from its whole
     /// seconds, decodes to exactly the samples it says it plays, each in
     /// its place, and a second recovery writes nothing.

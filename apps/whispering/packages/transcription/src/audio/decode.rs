@@ -235,6 +235,12 @@ fn decode_via_libopus(
                 break;
             }
             Err(SymphoniaError::ResetRequired) => break,
+            // A take a crash cut off mid-write ends in a torn block, which
+            // Matroska reads as an element running past its Cluster: the
+            // audio ends at the last whole block.
+            Err(SymphoniaError::DecodeError(reason)) if reason.contains("past master element") => {
+                break;
+            }
             Err(e) => return Err(AudioError::decode(format!("next_packet failed: {e}"))),
         };
 
