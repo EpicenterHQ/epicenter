@@ -4,7 +4,7 @@
 - **Date:** 2026-11-13
 - **Supersedes:** [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) (a program's Git clone, filed by the host) and [ADR-0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) (merging what a clone pushes).
 - **Amends:** [ADR-0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) at the default folder (`data/` in the program's local data directory, not `~/Whispering`), at `recordings/k3x9.local.webm` (audio is `recordings/k3x9.webm`), and at "holds only what the contract declares" (and the files beside a record that share its id). [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) at the `clone` noun, which goes. [ADR-0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) at "Import from Whispering 7", which goes. [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) at the `.local` row's "precious, kept here on purpose", the "Keep audio on this Mac only" setting, and the rejection of the app data directory. [ADR-0856](0856-binary-files-go-through-git-lfs.md) at Whispering's "Keep audio on this Mac only", which goes.
-- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the folder sync product, whose client Whispering stops using), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) and ADR-0890 (a program's sign-ins stay in the Keychain), [ADR-0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) (a record's path, which is its path in this folder), [ADR-0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) (how recordings reach a home), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it).
+- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the folder sync product, whose client Whispering stops using), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) and ADR-0890 (a program's sign-ins stay in the Keychain), [ADR-0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) (a record's path, which is its path in this folder), [ADR-0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) (how recordings reach a home), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it), [ADR-0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) (Epicenter's models, reached with an API key).
 - **Unbuilt:** all of it, in Whispering 8.0.
 
 ## Context
@@ -51,8 +51,7 @@ and no account. Audio is never deleted unless the person asks.**
     transcriptions/r7p2.md       one transcript of a recording
     settings.md                  the person's settings, as Markdown
   local-transcription.json       the local engine's own state
-Keychain                         secrets: provider API keys, and the sign-in
-                                 (its refresh token and who it is)
+Keychain                         secrets: provider API keys, Epicenter's among them
 WebView localStorage             the rest of this computer's state: where the
                                  folder is, the microphone
 Hugging Face cache               local models, shared with other programs
@@ -96,9 +95,7 @@ Hugging Face cache               local models, shared with other programs
 
   | Kind | Desktop | Browser |
   | --- | --- | --- |
-  | Kind | Desktop | Browser |
-  | --- | --- | --- |
-  | Secrets: provider API keys, the account's refresh token, and who is signed in beside it | The Keychain (the platform's credential store elsewhere), behind the shell's `Secrets` | `localStorage` |
+  | Secrets: provider API keys, Epicenter's among them | The Keychain (the platform's credential store elsewhere), behind the shell's `Secrets` | `localStorage` |
   | Everything else: where the folder is, the microphone, a home's address (ADR-0900) | `localStorage` | `localStorage` |
 
   The rule is one sentence: a secret goes in the Keychain on the desktop,
@@ -110,26 +107,27 @@ Hugging Face cache               local models, shared with other programs
   a page can put an API key in.
 
   The page holds what it sends, in both builds. On the desktop it reads a
-  key or the account's access token from the shell when a request needs
-  one, and sends the request itself through `@tauri-apps/plugin-http`; in a
-  browser it reads `localStorage` and uses `fetch`. The shell still signs
-  in through the system browser, where social sign-in works, and keeps the
-  refresh token. Anything on Whispering's page can read what the page
+  key from the shell when a request needs one, and sends the request itself
+  through `@tauri-apps/plugin-http`; in a browser it reads `localStorage`
+  and uses `fetch`. Anything on Whispering's page can read what the page
   holds, so neither build loads a remote script, both set a strict Content
   Security Policy, and Settings says where keys are kept. Clearing a
-  browser's site data signs the person out and forgets the keys and the
-  microphone; the recordings in OPFS are cleared with it.
-- **An Epicenter account is optional in both builds, and unlocks only paid
-  models.** Either build works fully before sign-in, and signing in later
-  adds the paid models. Paid models are one endpoint in the model picker,
-  beside the person's own provider keys, local servers, and the engine inside the app. A person with
-  no account uses any of the others; the paid endpoint refuses before
-  sending, and nothing else in Whispering changes. `@epicenter/account` stays
-  for that endpoint alone.
+  browser's site data forgets the keys and the microphone; the recordings
+  in OPFS are cleared with it.
+- **Epicenter's paid models are one more connection, and optional in both
+  builds.** Either build works fully without them. Epicenter is a preset in
+  `settings.md`'s connections, beside the person's own providers, local
+  servers, and the engine inside the app; its key is an Epicenter API key
+  (ADR-0950). "Connect" in Settings opens Epicenter's website, where the
+  person signs in and approves this device, and the key comes back to the
+  app: through `tauri-plugin-oauth` on the desktop, and from a popup in a
+  browser. Settings shows "Connected as" with the account's email, the
+  balance, "Buy more", and "Disconnect", which revokes the key. Whispering
+  has no sign-in of its own and does not import `@epicenter/account`.
 - **Settings calls it an "Epicenter account".** "Epicenter" alone names a
   person's folder of apps and the command that serves it. An account belongs
-  to Epicenter, the company, and has nothing to do with a home, which signs
-  no one in.
+  to Epicenter, the company, lives on its website, and has nothing to do
+  with a home, which signs no one in.
 - **The browser build keeps its recordings in the Origin Private File
   System, in the same layout as `data/`.** Export from either build is a copy
   of the same tree. The browser build asks for `navigator.storage.persist()`,
@@ -187,7 +185,7 @@ Hugging Face cache               local models, shared with other programs
 - **No import from v7.** A person who wants their v7 recordings copies the
   Markdown files.
 - **First run asks one question:** where transcription runs, a local model,
-  an API key, or a paid model with an Epicenter account. It asks for no home.
+  an API key, or Epicenter's models through Connect. It asks for no home.
 
 **In an app's data folder, a `.local` file is this computer's working file:
 rebuildable or re-enterable.** Secrets, caches, locks, and temporary files
@@ -198,8 +196,8 @@ none.
 
 - Whispering 8.0 ships without an Epicenter, a home, or Git, and commits only
   to the file format.
-- A person who never signs in loses nothing but the paid models.
-- **Five packages are deleted, two are cut down, and their surviving
+- A person who never connects Epicenter loses nothing but its models.
+- **Six packages are deleted, three are cut down, and their surviving
   callers are recomposed:**
 
   ```txt
@@ -218,7 +216,12 @@ none.
                                         and apps/api/ui; WhenOpen, recovery, note-repair,
                                         folder onboarding go
   packages/ai                           its agent and its settings files go; Whispering
-                                        passes it choices and connections
+                                        passes it choices and connections; hosted() becomes
+                                        a preset connection
+  packages/tauri-epicenter-account      deleted; Connect uses tauri-plugin-oauth, and a few
+                                        lines in Whispering's shell keep Keychain items
+  packages/account                      keeps the dashboard's cookie session alone;
+                                        browser-oauth.ts, tauri.ts, and relay.ts go
   ```
 
   The packages only Whispering uses (`@epicenter/recorder`,
@@ -229,12 +232,12 @@ none.
   hosted API loses its `/folders` routes, the `folders` audience and scopes,
   and the R2 binding; dropping their production tables is a later,
   separate step.
-- The hosted API is cut to what Whispering uses in the same change;
-  [ADR-0950](0950-api-epicenter-so-is-whisperings-account-server.md)
-  records what it keeps and loses.
-- `tauri-epicenter-account` moves into `apps/whispering` without its relay:
-  `connection.rs`, `relay.rs`, and `packages/account/src/relay.ts` go, and
-  `credentials.json` becomes Keychain items. The checks that guarded the
+- Whispering's OAuth sign-in goes in this change. Its paid models come back
+  through Connect in the change that builds ADR-0950 and ADR-0951, which
+  also ends the hosted OAuth server. Whispering 8 is unreleased, so `main`
+  has no paid models in between. This change removes only the hosted
+  folder routes.
+- The checks that guarded the
   old layout (`check-clean-break`, `check-state-paths`) go, and the `auth`
   and `platform-seams` skills lose what described them.
 - `apps/whispering/AGENTS.md` changes where it says the browser keeps
@@ -251,7 +254,6 @@ none.
   | A watcher on the folder | A change another program makes appears when Whispering regains focus, not at once; a note changed elsewhere is not overwritten | The person, who sees the newer text |
   | `@epicenter/folder`, its plugin, `@epicenter/local`, and `@epicenter/definition` | Nothing a person sees | Whispering's maintainers: `Files`, its three implementations, the conformance suite, the recorder's own staging and repair, and Keychain items behind the shell's `Secrets`; the API's maintainers: their own origins and audience |
   | The hosted `/folders` routes and `folders` audience | Nothing; no account holds data there | The owner, who approves deleting the empty tables later |
-  | Device sign-in for the CLI | A home cannot sign in to the hosted API | Whoever designs a later hosted service for homes, which brings its own sign-in |
   | A desktop key the page never sees | Code that reaches Whispering's desktop page can read a key, as in the browser; it could already spend one through the relay | Whispering's maintainers, who load no remote script and keep a strict Content Security Policy |
   | A per-computer shortcut override | Two computers sharing one folder share one shortcut | The person |
   | One store that every device opened | A recording reaches another device only by export, a file syncer, or a later sharing decision | The person |
@@ -286,15 +288,15 @@ none.
   a device held `.git`; with none, beside its note is simpler.
 - **Discard audio after transcribing unless kept.** v7 kept audio by default,
   and its author wants it kept.
-- **No sign-in at all.** Removes `@epicenter/account` from Whispering, and
-  leaves a person no paid model unless they bring a provider's key.
+- **No Epicenter connection at all.** Leaves a person no paid model unless
+  they bring a provider's key.
 - **A sign-in every person passes.** v7.11.0 works with none, and a local
   model needs no service.
 - **A second `Files` for this computer's state.** A file store for a few
   small values that `localStorage` holds and reads at once, which would
   bring back the wait before a page can read a setting.
-- **Who is signed in in `account.json`, which the shell writes,** as built.
-  Two places say who is signed in; the Keychain entry already holds it.
+- **Sign in to Whispering through OAuth, as built.** ADR-0950 gives the
+  reasons a key replaces it.
 - **Encrypt the browser's keys with WebCrypto.** The page that can read them
   can also decrypt them.
 - **Sync API keys with the folder.** A copied folder or a Git backup would
