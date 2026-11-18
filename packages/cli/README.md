@@ -357,14 +357,9 @@ When something else holds the port, it says so instead:
 Port 4747 is in use by another program or another Epicenter. Set a different `port` in EPICENTER.md.
 ```
 
-Serve states its version in an `x-epicenter-version` header. After an
-upgrade, the serve that was already running is still the old version until it
-restarts. A command sent to it uses the answer, because the action ran, and
-adds one line to stderr:
-
-```txt
-Epicenter is running version 0.4.1 and this command is version 0.5.0. Stop `epicenter serve` and start it again.
-```
+After an upgrade, the serve that was already running is still the old
+version until you restart it. Nothing warns you: restart serve after every
+upgrade.
 
 An action runs in serve's environment: it does not see variables exported in
 the caller's shell, and what it prints goes to serve's output, not to the

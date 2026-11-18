@@ -164,12 +164,10 @@ export async function runCli(argv: string[]): Promise<number> {
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve runs every action; this process only sends the call.
 		invoked = true;
-		const sent = await sendToServe(name, matched.key, given.input, onUpdate);
-		if (sent.version !== undefined && sent.version !== VERSION)
-			writeErr(
-				`Epicenter is running ${sent.version === null ? 'an older version' : `version ${sent.version}`} and this command is version ${VERSION}. Stop \`epicenter serve\` and start it again.`,
-			);
-		return presentAnswer(sent.answer, json);
+		return presentAnswer(
+			await sendToServe(name, matched.key, given.input, onUpdate),
+			json,
+		);
 	} catch (error) {
 		if (invoked) {
 			// Stdout may be what failed, so nothing more goes there.

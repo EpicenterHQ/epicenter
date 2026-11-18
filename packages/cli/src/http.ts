@@ -18,9 +18,10 @@
  * that leaves stops reading, and nothing stops the action from outside.
  *
  * A home has one `serve`, and its port is how it is found. Every answer names
- * the home (`x-epicenter-home`) and states this `epicenter`'s version
- * (`x-epicenter-version`), so a command can tell whose serve it reached, and
- * a second `serve` can say whether this home or something else has the port.
+ * the home (`x-epicenter-home`), so a command can tell whose serve it reached,
+ * and a second `serve` can say whether this home or something else has the
+ * port. Serve does not say its version: after an upgrade, the owner restarts
+ * it.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
@@ -44,7 +45,6 @@ import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
@@ -52,12 +52,7 @@ import { fail, notStarted, writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
-import {
-	HOME_HEADER,
-	homeName,
-	VERSION_HEADER,
-	whoAnswers,
-} from './serve-call.ts';
+import { HOME_HEADER, homeName, whoAnswers } from './serve-call.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
@@ -373,10 +368,9 @@ export function startHttpServer(port: number) {
 			: pathname === '/'
 				? site.launcher(request)
 				: site.ui(request));
-		// Every answer to a request serve accepts names its home and states its
-		// version, so a command or a second serve can tell who holds the port.
+		// Every answer to a request serve accepts names its home, so a command
+		// or a second serve can tell who holds the port.
 		response.headers.set(HOME_HEADER, await homeName());
-		response.headers.set(VERSION_HEADER, VERSION);
 		return response;
 	};
 	const server = Bun.serve({

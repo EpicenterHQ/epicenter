@@ -13,7 +13,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { VERSION } from './engines.ts';
 import {
 	connectMcp,
 	fixture,
@@ -343,38 +342,7 @@ test('a command is refused, and runs nothing, when its port answers for another 
 	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
 });
 
-test('a command uses the answer of a serve of another version, and says to restart it', async () => {
-	const f = await setup();
-	for (const [version, running] of [
-		['0.0.1', 'version 0.0.1'],
-		[undefined, 'an older version'],
-	] as const) {
-		const old = await holdPort(
-			f,
-			() =>
-				new Response(
-					'{"update":"halfway"}\n{"answer":{"data":"ran","error":null}}\n',
-					{
-						headers: {
-							'x-epicenter-home': encodeURIComponent(f.home),
-							...(version ? { 'x-epicenter-version': version } : {}),
-						},
-					},
-				),
-		);
-		try {
-			expect(await f.run('notes', 'same', '--json')).toEqual({
-				code: 0,
-				stdout: '{"data":"ran","error":null}\n',
-				stderr: `"halfway"\nEpicenter is running ${running} and this command is version ${VERSION}. Stop \`epicenter serve\` and start it again.\n`,
-			});
-		} finally {
-			await old.stop(true);
-		}
-	}
-});
-
-test('every answer of serve names its home and version, and a serve of the same version adds no line', async () => {
+test('every answer of serve names its home, and a call through it adds no line', async () => {
 	const f = await setup();
 	const served = await startServe(f);
 	try {
@@ -386,7 +354,6 @@ test('every answer of serve names its home and version, and a serve of the same 
 			expect(response.headers.get('x-epicenter-home')).toBe(
 				encodeURIComponent(f.home),
 			);
-			expect(response.headers.get('x-epicenter-version')).toBe(VERSION);
 			await response.body?.cancel();
 		}
 		// A tunnel's request is refused before serve says anything about itself.
