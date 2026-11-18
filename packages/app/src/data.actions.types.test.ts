@@ -1,6 +1,6 @@
 /**
  * Generated action types preserve exactly the selected verbs and declared fields.
- * Checks caller inputs, precise Result outputs, and filled fields.
+ * Checks caller inputs, precise Result outputs, and optional fields.
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';

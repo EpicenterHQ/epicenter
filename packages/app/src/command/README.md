@@ -585,7 +585,7 @@ stdout is their `{ data, error }`, and the exit code follows the same rule.
 `serve` prints no answer while it serves; a serve that cannot start answers
 `NotStarted`, and `serve --json` is refused.
 
-A one-file data key's `patch` makes its file when it is absent, so `epicenter vocab patch-settings '{"goal":20}'` works on a fresh install. A folder key's `patch` answers `Missing` for an absent record and never makes one. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
+A data key's `patch` answers `Missing` for an absent record and never makes one, so `epicenter vocab patch-settings '{"id":"settings","goal":20}'` on a fresh install answers `Missing`; the app makes such a record in code, with `edit`. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
 
 ```txt
 $ epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'
@@ -610,7 +610,7 @@ body: |
   The deck is in Drive.
 ```
 
-`id` prints as a field: the command reads only the answer. A folder key's `get`, `create`, `patch`, `edit`, and `delete` take `id` flat in the input object, beside the fields. `create` without `id` names the record by the moment it is made and returns that id.
+`id` prints as a field: the command reads only the answer. A data key's `get`, `create`, `patch`, `edit`, and `delete` take `id` flat in the input object, beside the fields. `create` needs the `id` the caller chooses; a repeat with the same `id` answers `Changed` (`there`) and writes nothing.
 
 ## Check records
 
@@ -629,8 +629,7 @@ matter no field declares is not a problem: a read does not give it, every
 write keeps it, and the check does not report it.
 
 For each key the report gives how many files it holds and how many have
-problems, or `fits` for a one-file key whose file fits or is absent; then
-each file's path under `data/` and its problem lines.
+problems, then each file's path under `data/` and its problem lines.
 
 ```txt
 $ epicenter check flights

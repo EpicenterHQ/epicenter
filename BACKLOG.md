@@ -283,17 +283,3 @@ not create a second implementation assignment.
 - Revisit when: A Whispering pass, or before closing stale pull requests. Close
   nothing on the strength of this entry alone; a community pull request gets a
   comment that says what happened to its idea.
-
-## After 0.7.0
-
-### Revisit the rules for absent switches and lists
-
-- Desired result: Decide whether an absent switch should still read as `false`
-  and an absent list as `[]`, or whether code should see what the file holds.
-- Grounding: `absentValue` in [`field.ts`](packages/app/src/field.ts) and the
-  `x-epicenter-field` marker supply those values. Removing them means
-  migrating the home's apps that read lists directly, including Capture's page
-  and Mail's `proposals.ts`. The two create paths also disagree: the generated
-  `create` action writes `false` and `[]` into the file, while
-  `handle.create(id, {})` leaves them out (`packages/app/src/data.actions.test.ts`).
-- Revisit when: After 0.7.0.
