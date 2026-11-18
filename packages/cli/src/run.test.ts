@@ -6,7 +6,7 @@
  * ended, and holds none of the input or result data, which can be personal.
  *
  * Key behaviors:
- * - Each outcome (ok, returned, fault) writes exactly one `info` record
+ * - Each outcome (ok, or an error by its name) writes exactly one `info` record
  * - A failure's record carries only its name: a message can quote the input
  * - Neither the input nor the result reaches the record
  * - A logger that throws does not change the answer
@@ -68,7 +68,7 @@ test('a run that returns Ok writes one ok record without its input or result', a
 	expect(JSON.stringify(events)).not.toContain(SECRET);
 });
 
-test('a run that returns Err writes one returned record with only its name', async () => {
+test('a run that returns Err writes one error record with only its name', async () => {
 	const { log, events } = recorder();
 	const answer = await run(
 		'route',
@@ -76,17 +76,17 @@ test('a run that returns Err writes one returned record with only its name', asy
 			Err({ name: 'NoRoute', message: 'No route from LAX', asked: text }),
 		log,
 	);
-	expect(expectErr(answer).kind).toBe('returned');
+	expect(expectErr(answer).name).toBe('NoRoute');
 	expect(events).toHaveLength(1);
 	expect(events[0]?.data).toMatchObject({
 		action: 'route',
-		outcome: 'returned',
+		outcome: 'error',
 		error: 'NoRoute',
 	});
 	expect(JSON.stringify(events)).not.toContain(SECRET);
 });
 
-test('a run that throws writes one fault record with only the thrown name', async () => {
+test('a run that throws writes one Threw record with only the thrown name', async () => {
 	const { log, events } = recorder();
 	const answer = await run(
 		'print',
@@ -95,12 +95,13 @@ test('a run that throws writes one fault record with only the thrown name', asyn
 		},
 		log,
 	);
-	expect(expectErr(answer).kind).toBe('fault');
+	expect(expectErr(answer).name).toBe('Threw');
 	expect(events).toHaveLength(1);
 	expect(events[0]?.data).toMatchObject({
 		action: 'print',
-		outcome: 'fault',
-		error: 'Jammed',
+		outcome: 'error',
+		error: 'Threw',
+		thrown: 'Jammed',
 	});
 	expect(JSON.stringify(events)).not.toContain(SECRET);
 });

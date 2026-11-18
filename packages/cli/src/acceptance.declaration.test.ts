@@ -86,7 +86,7 @@ export default defineApp({ description: 'The misplaced app', actions: { show } }
 
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
-	const listing = JSON.parse(result.stdout);
+	const listing = JSON.parse(result.stdout).data;
 	expect(listing.epicenter).toBe(f.home);
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'clash',
@@ -144,7 +144,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		'vocab',
 		`${words}export default defineApp({ description: 'The vocab app', data, actions: {} });\n`,
 	);
-	const listing = JSON.parse((await f.run('--json')).stdout);
+	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	const reading = listing.apps.find(
 		(app: { name: string }) => app.name === 'reading',
 	);
@@ -209,7 +209,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		},
 	});
 	expect(vocab.actions).toEqual([]);
-	const one = JSON.parse((await f.run('reading', '--json')).stdout);
+	const one = JSON.parse((await f.run('reading', '--json')).stdout).data;
 	expect(one.name).toBe('reading');
 	expect(one).not.toHaveProperty('keychain');
 	expect(one.actions).toEqual(reading.actions);
@@ -224,7 +224,7 @@ test('a listing marks an action that declares mcp: false', async () => {
   send: defineAction({ description: 'Send a message as me', mcp: false, input: {}, run: () => Ok(null) }),
  } });`,
 	);
-	const listing = JSON.parse((await f.run('messages', '--json')).stdout);
+	const listing = JSON.parse((await f.run('messages', '--json')).stdout).data;
 	expect(listing.actions.map((tool: { mcp?: boolean }) => tool.mcp)).toEqual([
 		undefined,
 		false,
@@ -297,7 +297,7 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	] as const) {
 		const refused = await f.run('reading', ...args, '--json');
 		expect(refused.code).toBe(2);
-		expect(JSON.parse(refused.stdout).error.reason.message).toContain(message);
+		expect(JSON.parse(refused.stdout).error.message).toContain(message);
 	}
 
 	const help = await f.run('reading', 'between', '--help');
@@ -331,7 +331,7 @@ test("D5 an epicenter.ts importing @epicenter/app loads from the home's install,
 test('D6 serve answers initialize, lists the same tools as --json, and runs a call', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
-	const listing = JSON.parse((await f.run('--json')).stdout);
+	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	const { client, close } = await connectMcp(f);
 	try {
 		expect(client.getServerVersion()?.name).toBe('epicenter');
@@ -364,7 +364,7 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 		decoy,
 	);
 	f.env.EPICENTER_HOME = decoy;
-	const listing = JSON.parse((await f.run('--json')).stdout);
+	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
@@ -559,10 +559,10 @@ test("D8 an app of one data key's verbs creates, reads, changes, and deletes its
 	});
 	const misfit = await json('get', '{"id":"broken"}');
 	expect(misfit.code).toBe(1);
-	expect(misfit.answer.error.reason.name).toBe('Misfit');
+	expect(misfit.answer.error.name).toBe('Misfit');
 	const missing = await json('get', '{"id":"nope"}');
 	expect(missing.code).toBe(1);
-	expect(missing.answer.error.reason.name).toBe('Missing');
+	expect(missing.answer.error.name).toBe('Missing');
 	await rm(join(folder, 'data/items/broken.md'));
 	expect((await f.run('capture', 'get', '{"id":"dune"}')).stdout).toBe(
 		'path: data/items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',

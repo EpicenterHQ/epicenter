@@ -97,16 +97,3 @@ export function projectFields(
 	}
 	return { fields: values, problems };
 }
-
-/** Whether a schema contains a temporary upload field at any depth. */
-export function containsFileMarker(
-	value: unknown,
-	seen = new WeakSet<object>(),
-): boolean {
-	if (!value || typeof value !== 'object' || seen.has(value)) return false;
-	seen.add(value);
-	return (
-		Object.hasOwn(value, 'x-epicenter-file') ||
-		Object.values(value).some((child) => containsFileMarker(child, seen))
-	);
-}

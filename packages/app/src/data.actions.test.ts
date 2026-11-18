@@ -4,10 +4,8 @@
  * exact and refused ids, time-named creates, verb refusals, and MCP annotations.
  */
 import { expect, test } from 'bun:test';
-import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { isActionError } from './errors.ts';
 import {
 	type ActionError,
 	createMemoryContext,
@@ -120,12 +118,12 @@ test('folder get and patch answer Missing while a duplicate create answers Chang
 			),
 		).toMatchObject({
 			name: 'Changed',
-			why: 'there',
+			cause: 'there',
 			path: 'data/notes/same.md',
 		});
 		expect(expectOk(await notes.get({ id: 'same' })).title).toBe('first');
 		expect(expectErr<ActionError>(await notes.get({ id: '../bad' })).name).toBe(
-			'Refused',
+			'Misfit',
 		);
 	});
 });
@@ -189,17 +187,17 @@ test.each(['folder', 'one-file'] as const)(
 					? notes.patch({ id: 'a', body: 'again again' })
 					: settings.patch({ title: 'old', body: 'again again' })),
 			);
-			for (const [old, why] of [
+			for (const [old, cause] of [
 				['missing', 'quote'],
 				['again', 'twice'],
 			] as const) {
 				expect(
 					expectErr<ActionError>(await edit({ old, new: 'new' })),
-				).toMatchObject({ name: 'Changed', why });
+				).toMatchObject({ name: 'Changed', cause });
 			}
 			expect(
 				expectErr<ActionError>(await edit({ old: '', new: 'new' })).name,
-			).toBe('Refused');
+			).toBe('Misfit');
 			const record = expectOk(
 				await (kind === 'folder' ? notes.get({ id: 'a' }) : settings.get({})),
 			);
@@ -308,13 +306,16 @@ test('generated verbs take the id as the file name and refuse one that cannot na
 		for (const [id, message] of [
 			[
 				' Caf\u00e9 ',
-				'notes: " Caf\u00e9 ": an id cannot start or end with whitespace; send "Caf\u00e9"',
+				'data/notes does not fit its fields:\ndata/notes: " Caf\u00e9 ": an id cannot start or end with whitespace; send "Caf\u00e9"',
 			],
 			[
 				'Cafe\u0301',
-				'notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
+				'data/notes does not fit its fields:\ndata/notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
 			],
-			['../bad', 'notes: "../bad": an id cannot contain / or \\'],
+			[
+				'../bad',
+				'data/notes does not fit its fields:\ndata/notes: "../bad": an id cannot contain / or \\',
+			],
 		] as const)
 			for (const result of [
 				await notes.get({ id }),
@@ -323,7 +324,7 @@ test('generated verbs take the id as the file name and refuse one that cannot na
 				await notes.edit({ id, old: 'one', new: 'x' }),
 				await notes.delete({ id }),
 			])
-				expect(expectErr(result)).toMatchObject({ name: 'Refused', message });
+				expect(expectErr(result)).toMatchObject({ name: 'Misfit', message });
 		expect(
 			expectOk(await notes.edit({ id: 'Caf\u00e9', old: 'one', new: 'three' }))
 				.body,
@@ -343,7 +344,6 @@ test('an encoded Misfit answer keeps the id of a folder record and has none for 
 			JSON.parse(JSON.stringify(expectErr(encodeActionResult(result))));
 		const folderMisfit = sent(await notes.get({ id: 'a' }));
 		expect(folderMisfit).toMatchObject({ name: 'Misfit', id: 'a' });
-		expect(isActionError(folderMisfit)).toBe(true);
 		const single = sent(await settings.get({}));
 		expect(single).toMatchObject({ name: 'Misfit', path: 'data/settings.md' });
 		expect(single).not.toHaveProperty('id');
@@ -353,16 +353,14 @@ test('an encoded Misfit answer keeps the id of a folder record and has none for 
 // Discovery metadata and schemas are the boundary used by CLI, HTTP, and MCP.
 test('schemas require create fields but not an id, permit only optional-field removal, and give edit only id, old, and new', () => {
 	const { notes, settings } = setup();
-	const create = Type.Object(notes.create.input, {
-		additionalProperties: false,
-	});
-	const patch = Type.Object(notes.patch.input, { additionalProperties: false });
+	const create = notes.create.input;
+	const patch = notes.patch.input;
 	expect(Value.Check(create, { id: 'a', title: 'yes' })).toBe(true);
 	expect(Value.Check(create, { title: 'yes' })).toBe(true);
 	for (const input of [{ id: 'a' }, { id: 7, title: 'yes' }])
 		expect(Value.Check(create, input)).toBe(false);
 	for (const action of [notes.patch, settings.patch]) {
-		const schema = Type.Object(action.input, { additionalProperties: false });
+		const schema = action.input;
 		const id = action === notes.patch ? { id: 'a' } : {};
 		expect(Value.Check(schema, { ...id, note: null })).toBe(true);
 		expect(Value.Check(schema, { ...id, title: null })).toBe(false);
@@ -373,7 +371,7 @@ test('schemas require create fields but not an id, permit only optional-field re
 	expect(Value.Check(patch, { title: 'missing id' })).toBe(false);
 	expect(Value.Check(patch, { id: 'a', was: {} })).toBe(false);
 	for (const action of [notes.edit, settings.edit]) {
-		const schema = Type.Object(action.input, { additionalProperties: false });
+		const schema = action.input;
 		const id = action === notes.edit ? { id: 'a' } : {};
 		expect(Value.Check(schema, { ...id, old: 'x', new: '' })).toBe(true);
 		expect(Value.Check(schema, { ...id, old: '', new: 'x' })).toBe(false);
@@ -386,14 +384,23 @@ test('schemas require create fields but not an id, permit only optional-field re
 			false,
 		);
 	}
-	expect(Object.keys(notes.edit.input)).toEqual(['id', 'old', 'new']);
-	expect(Object.keys(settings.edit.input)).toEqual(['old', 'new']);
-	expect(notes.create.input.id).toMatchObject({
+	expect(Object.keys(notes.edit.input.properties)).toEqual([
+		'id',
+		'old',
+		'new',
+	]);
+	expect(Object.keys(settings.edit.input.properties)).toEqual(['old', 'new']);
+	expect(notes.create.input.properties.id).toMatchObject({
 		description:
 			'The name of the new note; left out, it is named by the moment it is made',
 	});
-	expect(Object.keys(settings.get.input)).toEqual([]);
-	expect(Object.keys(settings.delete.input)).toEqual([]);
+	expect(settings.get.input).toEqual({
+		type: 'object',
+		properties: {},
+		required: [],
+		additionalProperties: false,
+	});
+	expect(Object.keys(settings.delete.input.properties)).toEqual([]);
 });
 
 test('only named verbs are returned, every action is callable, and annotations say which writes are safe to repeat', () => {

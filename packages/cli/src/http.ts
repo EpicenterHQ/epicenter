@@ -16,16 +16,17 @@
  *
  * A call's body is its input as JSON. Its answer is JSON lines:
  * `{"update": value}` for each update the action sends, then
- * `{"answer": ...}`. A call that is refused before it runs answers that one
- * answer as the body of an HTTP error, and writes no line. An action runs to
- * its end whether or not its caller stays: a caller that leaves stops
- * reading, nothing stops the action from outside, and its line on stderr is
- * what remains of how it ended.
+ * `{"answer": {data, error}}` (ADR-0953). A call refused before it begins
+ * answers that one answer, a `NotStarted`, as the body of a 400, and writes
+ * no line. An action runs to its end whether or not its caller stays: a
+ * caller that leaves stops reading, nothing stops the action from outside,
+ * and its line on stderr is what remains of how it ended.
  *
  * A home has one `serve`, and its port is how it is found. Every answer names
- * the home (`x-epicenter-home`) and states this `epicenter`'s version
- * (`x-epicenter-version`), so a command can tell whose serve it reached, and
- * a second `serve` can say whether this home or something else has the port.
+ * the home (`x-epicenter-home`), so a command can tell whose serve it reached,
+ * and a second `serve` can say whether this home or something else has the
+ * port. Serve does not say its version: after an upgrade, the owner restarts
+ * it.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
@@ -47,22 +48,15 @@
 import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
-import { isName } from '@epicenter/app';
+import { ActionError, type Answer, isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { VERSION } from './engines.ts';
-import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { fail, refused, writeErr } from './output.ts';
+import { writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
-import {
-	HOME_HEADER,
-	homeName,
-	VERSION_HEADER,
-	whoAnswers,
-} from './serve-call.ts';
+import { HOME_HEADER, homeName, whoAnswers } from './serve-call.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
@@ -199,7 +193,7 @@ function createSite(): Site {
 					const { data: located } = await loadHomeApp(entry.entry);
 					return {
 						name: entry.entry,
-						description: located?.ok ? located.app.description : '',
+						description: located?.app.description ?? '',
 						icon: (await uiFile(entry.entry, 'icon.png')).ok,
 					};
 				}),
@@ -266,14 +260,18 @@ async function callAnswer(request: Request): Promise<Response> {
 	if (parts.length !== 3 || !isName(app) || !words.every(isName))
 		return notFound();
 	const key = words.join(' ');
-	const refuse = (status: number, message: string) =>
-		Response.json(refused(CliError.Usage({ message }).error), { status });
 	const bytes = await request.arrayBuffer();
 	let input: unknown;
 	try {
 		input = JSON.parse(new TextDecoder().decode(bytes));
 	} catch {
-		return refuse(400, 'The input is not valid JSON');
+		return Response.json(
+			ActionError.NotStarted({
+				cause: 'usage',
+				message: 'The input is not valid JSON',
+			}),
+			{ status: 400 },
+		);
 	}
 	const resolved = await resolveAction(app, key, input);
 	if (resolved.refusal) return Response.json(resolved.refusal, { status: 400 });
@@ -378,10 +376,9 @@ export function startHttpServer(port: number) {
 			: pathname === '/'
 				? site.launcher(request)
 				: site.ui(request));
-		// Every answer to a request serve accepts names its home and states its
-		// version, so a command or a second serve can tell who holds the port.
+		// Every answer to a request serve accepts names its home, so a command
+		// or a second serve can tell who holds the port.
 		response.headers.set(HOME_HEADER, await homeName());
-		response.headers.set(VERSION_HEADER, VERSION);
 		return response;
 	};
 	const server = Bun.serve({
@@ -420,18 +417,19 @@ export function startHttpServer(port: number) {
 	};
 }
 
-/** Serve until the process receives SIGINT or SIGTERM, then exit. */
-export async function serveHttp(port: number): Promise<number> {
-	/** Say who holds the port, as the refusal that ends this command. */
+/**
+ * Serve until the process receives SIGINT or SIGTERM, then answer nothing:
+ * serve prints no answer. When the port is taken it never starts, and
+ * answers who holds it.
+ */
+export async function serveHttp(port: number): Promise<Answer | undefined> {
 	const portTaken = (holder: { home: boolean }) =>
-		fail(
-			CliError.Refused({
-				message: holder.home
-					? `Epicenter is already serving this home on port ${port}.`
-					: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
-			}).error,
-			false,
-		);
+		ActionError.NotStarted({
+			cause: 'unavailable',
+			message: holder.home
+				? `Epicenter is already serving this home on port ${port}.`
+				: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
+		});
 	const holder = await whoAnswers(port);
 	if (holder) return portTaken(holder);
 	let server: ReturnType<typeof startHttpServer>;
@@ -448,5 +446,5 @@ export async function serveHttp(port: number): Promise<number> {
 		process.once('SIGTERM', resolve);
 	});
 	server.stop();
-	return 0;
+	return undefined;
 }

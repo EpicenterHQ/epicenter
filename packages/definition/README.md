@@ -17,21 +17,16 @@ application-data root and so runs only in Bun or Node.
 
 ## The file contract
 
-The package is seven subpaths.
+The package is six subpaths.
 
 | Subpath | What it holds |
 | --- | --- |
 | `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the shapes of a contract's notes and files (`NoteOf`, `FileEntryOf`, `InvalidNoteOf`, `NotePatch`), and a note as text (`noteText`, `readNoteText`) |
-| `@epicenter/definition/front-matter` | The front-matter primitive of ADR-0796 and ADR-0797, with no YAML: `parseFrontMatter`, `patchFrontMatter`, `merge3` (fields by key, the body by lines, ADR-0795), and `mergeLines`, a port of Git's three-way line merge. `sync` in `@epicenter/folder/sync` merges with `merge3`; a folder's own write and its note codec do not use the primitive yet |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge a folder runs over a note that changed under its write, plus conflict blocks and the hashes their labels use |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
 | `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`), `resolveOAuthAudiences` (the `api` audience at the origin and the `folders` audience at `<origin>/folders`, ADR-0828), an app's folder and data identifier from its production site (ADR-0722), and a folder's id, addresses (`folderUrl`, `foldersApiUrl`), roles (`member`, `reader`), and listing on the server (ADR-0811, ADR-0820) |
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
-
-`fixtures/front-matter.json` holds every front-matter case with its exact
-output bytes, for the one TypeScript primitive (ADR-0804 retired the Rust
-twin); its test also checks each body merge against Git's own `merge-file`.
 
 `fixtures/app-names.json` holds the site naming cases. `site/app-names.test.ts`
 and the standalone desktop shell (`packages/tauri-epicenter-standalone`) both
@@ -79,10 +74,8 @@ before it writes it, and settles a change made since with `settle`
 
 `settle(base, current, incoming, { parties })` is the note merge a folder
 runs when a note changed between showing it and writing it, and an agent's
-`epicenter mcp` write runs through it. Sync merges with `merge3` from
-`@epicenter/definition/front-matter` (a field by key, a body by Git's line
-merge, this computer's change the later one), and the server never merges
-(ADR-0773). `incoming` is the later arrival:
+`epicenter mcp` write runs through it. The server never merges (ADR-0773).
+`incoming` is the later arrival:
 
 ```ts
 import { settle } from '@epicenter/definition/merge';
@@ -113,9 +106,8 @@ Pay Alice later
 A front matter key both sides set goes to the later arrival. The body merges
 by line, then by word within a line both sides changed; two different changes
 at the same spot make one conflict block of whole lines. ADR-0830 withdrew the
-merge by word, which splices a rewrite without a mark, so `merge3` merges by
-line alone; `settle` still merges by word first, and goes when the whole-note
-formatter does (ADR-0796). An edit beats a
+merge by word, which splices a rewrite without a mark; `settle` still merges
+by word first, and goes when the whole-note formatter does (ADR-0796). An edit beats a
 delete. A binary file never merges: `settlePointer` lands the later write,
 and the version it replaced stays in history (ADR-0771). Whatever `settle`
 writes is in house style.

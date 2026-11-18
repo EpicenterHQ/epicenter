@@ -4,12 +4,11 @@
  * occurrence since its last check. It keeps that one moment in memory and
  * writes nothing: a routine file is the whole declaration, and a command's
  * deadline, overlap, output, and result are the command's own. Commands
- * inherit serve's output and process group.
+ * inherit serve's output and process group, and find programs on serve's
+ * `PATH` with the home's `node_modules/.bin` and Bun's folder first.
  */
-import { spawn } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { delimiter, dirname, join } from 'node:path';
 import { isName, readMarkdown } from '@epicenter/app';
 import { writeErr } from './output.ts';
 
@@ -80,13 +79,15 @@ export function readRoutine(name: string, text: string): Routine {
  */
 export function createRoutines({ folder }: { folder: string }) {
 	const directory = join(folder, 'routines');
-	// This command is a script Bun runs: the Bun running it now, then its entry.
-	// `--no-install`, as its own first line asks: Bun never fetches a package this home lacks.
-	const epicenter: [string, ...string[]] = [
-		process.execPath,
-		'--no-install',
-		fileURLToPath(new URL('./bin.ts', import.meta.url)),
-	];
+	// A routine finds commands the way a terminal in the home would after
+	// `bun install`: the home's own commands first, then the Bun running serve.
+	const PATH = [
+		join(folder, 'node_modules', '.bin'),
+		dirname(process.execPath),
+		process.env.PATH,
+	]
+		.filter(Boolean)
+		.join(delimiter);
 	// The only state: an occurrence that passes while serve is down does not run.
 	let since = new Date();
 
@@ -115,24 +116,18 @@ export function createRoutines({ folder }: { folder: string }) {
 	}
 
 	function start(name: string, { run }: Routine) {
-		const [program, ...args] = run;
-		const argv =
-			program === 'epicenter'
-				? [...epicenter, ...args]
-				: program === 'bun'
-					? [process.execPath, ...args]
-					: run;
-		spawn(argv[0] as string, argv.slice(1), {
-			cwd: folder,
-			env: {
-				...process.env,
-				EPICENTER_ROOT: folder,
-				EPICENTER_COMMAND: JSON.stringify(epicenter),
-			},
-			stdio: 'inherit',
-		}).once('error', (error) =>
-			writeErr(`Routine ${name} could not start: ${messageOf(error)}`),
-		);
+		// The working directory already names the Epicenter, so the command
+		// needs no variable to find it. The failure is only reported here, so
+		// a plain catch is the whole handling: no caller receives it.
+		try {
+			Bun.spawn(run, {
+				cwd: folder,
+				env: { ...process.env, PATH },
+				stdio: ['ignore', 'inherit', 'inherit'],
+			});
+		} catch (error) {
+			writeErr(`Routine ${name} could not start: ${messageOf(error)}`);
+		}
 	}
 
 	return {

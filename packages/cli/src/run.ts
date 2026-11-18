@@ -2,61 +2,31 @@
 
 import {
 	type Action,
+	ActionError,
+	type Answer,
+	Err,
 	encodeActionResult,
 	inRun,
 	isActionResult,
+	RESERVED_NAMES,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Err } from 'wellcrafted/result';
-import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
-import { type RunAnswer, refused, stderrJsonLines } from './output.ts';
+import { stderrJsonLines } from './output.ts';
 
-/**
- * What the action threw, as the answer carries it. A thrown tagged error (a
- * frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
- * makes) is kept whole when it survives JSON. A value that cannot be read
- * or serialized still answers as an action throw, with a safe message.
- */
-function threwOf(cause: unknown): {
-	message: string;
-	thrown?: Record<string, unknown>;
-} {
-	let message = 'The action threw a value that could not be read';
-	try {
-		message = extractErrorMessage(cause).slice(0, 4096);
-	} catch {
-		// Even extracting a message can fail for a cyclic array or a getter.
-	}
-	try {
-		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
-			return { message };
-		const json = JSON.stringify(cause);
-		if (json.length > 4096) return { message };
-		const thrown: unknown = JSON.parse(json);
-		if (
-			typeof thrown === 'object' &&
-			thrown !== null &&
-			!Array.isArray(thrown) &&
-			'name' in thrown &&
-			typeof thrown.name === 'string' &&
-			'message' in thrown &&
-			typeof thrown.message === 'string'
-		)
-			return { message, thrown };
-	} catch {
-		// Error details are best effort; they must not prevent the call's answer.
-	}
-	return { message };
-}
+type Thrown = { name: string; message: string } & Record<string, unknown>;
 
 /** Where serve writes one record for each run, when it ends. */
 const runLog = createLogger('cli/run', stderrJsonLines);
 
 /**
- * Run a checked action. Nothing locks it: one process runs actions (ADR-0936).
+ * Run a checked action and answer what it did: its own Result, or `Threw`.
+ * An error it returns named `NotStarted` or `Unreachable` answers `Threw`:
+ * only Epicenter says a call never began or that its outcome is unknown, and
+ * the name alone says so (ADR-0953). Nothing locks it: one process runs
+ * actions (ADR-0936).
  * When it ends, `log` gets one record: the app, the action, the outcome and
  * how long it took, and for a failure the error's name. The
  * record has neither the input nor the result, which can hold personal data.
@@ -67,62 +37,84 @@ export async function runAction(
 	action: Action,
 	input: Record<string, unknown>,
 	{ onUpdate, log = runLog }: Following = {},
-): Promise<RunAnswer> {
+): Promise<Answer> {
 	const started = performance.now();
-	const answer = await settle(key, action, input, located, onUpdate);
+	let answer: Answer;
 	try {
-		log.info('action run ended', {
-			app: located.name,
-			action: key,
-			durationMs: Math.round(performance.now() - started),
-			...outcomeOf(answer),
-		});
-	} catch {
-		// The record is for the owner; it must not change the caller's answer.
-	}
-	return answer;
-}
-
-/**
- * How a run ended, as its record states it: for a failure, the error's name
- * alone. A message can quote what the person typed, so it stays out.
- */
-function outcomeOf({ error }: RunAnswer) {
-	if (error === null) return { outcome: 'ok' as const };
-	if (error.kind === 'returned')
-		return { outcome: 'returned' as const, error: error.reason.name };
-	const name = error.thrown?.name;
-	return {
-		outcome: 'fault' as const,
-		...(typeof name === 'string' && { error: name }),
-	};
-}
-
-/** Run the action and answer what it did, whether it returned or threw. */
-async function settle(
-	key: string,
-	action: Action,
-	input: Record<string, unknown>,
-	located: Runnable,
-	onUpdate: Following['onUpdate'],
-): Promise<RunAnswer> {
-	const context = {
-		...located.context,
-	};
-	try {
-		const result = await inRun(context, () => action(input, { onUpdate }));
+		const result = await inRun({ ...located.context }, () =>
+			action(input, { onUpdate }),
+		);
 		// An action made without `defineAction` is checked here, where every call passes.
 		if (!isActionResult(result))
 			throw new TypeError(
 				`The action "${key}" must return Ok(data) or Err(error)`,
 			);
 		const encoded = encodeActionResult(result);
-		return encoded.error === null
-			? encoded
-			: Err({ kind: 'returned', reason: encoded.error });
+		answer =
+			encoded.error && RESERVED_NAMES.includes(encoded.error.name)
+				? ActionError.Threw({
+						message: `The action "${key}" returned ${encoded.error.name}, a name only Epicenter answers`,
+					})
+				: encoded;
 	} catch (cause) {
-		return Err({ kind: 'fault', ...threwOf(cause) });
+		// What the action threw, as `Threw` carries it. A thrown tagged error (a
+		// frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
+		// makes) is kept whole when it survives JSON. A value that cannot be read
+		// or serialized still answers as an action throw, with a safe message.
+		let message = 'The action threw a value that could not be read';
+		try {
+			message = extractErrorMessage(cause).slice(0, 4096);
+		} catch {
+			// Even extracting a message can fail for a cyclic array or a getter.
+		}
+		let thrown: Thrown | undefined;
+		try {
+			if (
+				typeof cause === 'object' &&
+				cause !== null &&
+				!(cause instanceof Error)
+			) {
+				const json = JSON.stringify(cause);
+				const copy: unknown = json.length > 4096 ? undefined : JSON.parse(json);
+				if (
+					typeof copy === 'object' &&
+					copy !== null &&
+					!Array.isArray(copy) &&
+					'name' in copy &&
+					typeof copy.name === 'string' &&
+					'message' in copy &&
+					typeof copy.message === 'string'
+				)
+					thrown = copy as Thrown;
+			}
+		} catch {
+			// Error details are best effort; they must not prevent the call's answer.
+		}
+		answer = ActionError.Threw(thrown ? { message, thrown } : { message });
 	}
+	// The record states a failure by the error's name as the answer carries it,
+	// and for `Threw` the thrown value's name when it has one. A message can
+	// quote what the person typed, so it stays out.
+	const { error } = answer;
+	const thrownName = (error as { thrown?: { name?: unknown } } | null)?.thrown
+		?.name;
+	try {
+		log.info('action run ended', {
+			app: located.name,
+			action: key,
+			durationMs: Math.round(performance.now() - started),
+			...(error === null
+				? { outcome: 'ok' }
+				: {
+						outcome: 'error',
+						error: error.name,
+						...(typeof thrownName === 'string' && { thrown: thrownName }),
+					}),
+		});
+	} catch {
+		// The record is for the owner; it must not change the caller's answer.
+	}
+	return answer;
 }
 
 /** Who follows a call as it runs. */
@@ -133,9 +125,9 @@ export type Following = {
 	log?: Logger;
 };
 
-/** A call that is ready to run, or the refusal that answers it instead. */
+/** A call that is ready to run, or the `NotStarted` that answers it instead. */
 export type Resolved =
-	| { refusal: ReturnType<typeof refused> }
+	| { refusal: Answer }
 	| {
 			refusal?: undefined;
 			located: Runnable;
@@ -153,17 +145,11 @@ export async function resolveAction(
 	raw: unknown,
 ): Promise<Resolved> {
 	const usage = (message: string, next?: string) => ({
-		refusal: refused(CliError.Usage({ message, next }).error),
+		refusal: ActionError.NotStarted({ cause: 'usage', message, next }),
 	});
 	try {
-		const { data: located, error: notFound } = await loadHomeApp(name);
-		if (notFound) return { refusal: refused(notFound) };
-		if (!located.ok)
-			return {
-				refusal: refused(
-					CliError.AppProblems({ app: name, problems: located.problems }).error,
-				),
-			};
+		const { data: located, error: notLoaded } = await loadHomeApp(name);
+		if (notLoaded) return { refusal: Err(notLoaded) };
 		const action = Object.hasOwn(located.actions, key)
 			? located.actions[key]
 			: undefined;
@@ -177,7 +163,10 @@ export async function resolveAction(
 		return { located, action, input: checked.input };
 	} catch (cause) {
 		return {
-			refusal: refused(CliError.Internal({ cause }).error),
+			refusal: ActionError.NotStarted({
+				cause: 'internal',
+				message: extractErrorMessage(cause),
+			}),
 		};
 	}
 }

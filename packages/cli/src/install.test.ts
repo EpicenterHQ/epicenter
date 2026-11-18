@@ -71,7 +71,7 @@ test('a package nested inside an app, added to workspaces by hand, installs with
 	expect(lock).toContain('"apps/notes/code"');
 	expect(lock).toContain('"apps/notes/code/render"');
 
-	const listed = JSON.parse((await f.run('--json')).stdout);
+	const listed = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'notes',
 	]);
@@ -82,7 +82,7 @@ test('a package nested inside an app, added to workspaces by hand, installs with
 		(await Bun.file(join(f.home, 'package.json')).json()).workspaces,
 	).toEqual(['apps/*/code', 'apps/notes/code/render']);
 	expect(
-		JSON.parse((await f.run('--json')).stdout).apps.map(
+		JSON.parse((await f.run('--json')).stdout).data.apps.map(
 			(app: { name: string }) => app.name,
 		),
 	).toEqual(['garden', 'notes']);
@@ -100,7 +100,7 @@ test('an app that would load a second copy of @epicenter/app is a problem naming
 	await writeFile(join(own, 'src/index.ts'), 'export {};\n');
 	const ours = await realpath(join(import.meta.dir, '../../app'));
 	const next = 'run bun install at the top of the home';
-	expect(JSON.parse((await f.run('--json')).stdout).problems).toEqual([
+	expect(JSON.parse((await f.run('--json')).stdout).data.problems).toEqual([
 		{
 			entry: 'notes',
 			folder: f.notes,
@@ -112,7 +112,7 @@ test('an app that would load a second copy of @epicenter/app is a problem naming
 
 	await rm(join(f.notes, 'code/node_modules'), { recursive: true });
 	await rm(join(f.home, 'node_modules'), { recursive: true });
-	const uninstalled = JSON.parse((await f.run('--json')).stdout);
+	const uninstalled = JSON.parse((await f.run('--json')).stdout).data;
 	expect(uninstalled.problems[0].problems).toEqual([
 		`apps/notes finds no @epicenter/app from ${await realpath(join(f.notes, 'code'))}; ${next}`,
 	]);
