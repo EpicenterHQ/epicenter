@@ -98,8 +98,13 @@ Hugging Face cache               local models, shared with other programs
   recording dated from the file; a note with no audio stays a recording.
   Before audio is deleted, its note is written if there is none.
 - **A recording keeps several transcripts.** Each is its own file in
-  `transcriptions/`, with its model, endpoint, and time, and transformation
-  runs name the transcript they read.
+  `transcriptions/`, with its model, endpoint, and time.
+- **Transformations wait for a later release.** Whispering 8 records,
+  transcribes, and keeps the transcript; it has no saved prompts and runs
+  none on a transcript or on pasted text, so the folder has no
+  `transformations/`, `transformation_runs/`, or `text_runs/`. They return
+  as a feature of their own, built on the services and query layer. The
+  tag `whispering-transformations` marks the last commit that has them.
 - **The person's settings are one Markdown file, `settings.md`, at the top
   of the folder,** in both builds. Its front matter holds the model for
   each job, each provider connection and its endpoint (never its key), and
@@ -176,8 +181,8 @@ Hugging Face cache               local models, shared with other programs
   is letters, digits, `-`, and `_`, the last may end in one extension, and
   none starts with a dot. Both id formats (`k3x9a2f8` and
   `2026-10-30T22-41-05-123Z-k3x9a2f8`) pass; `..`, an absolute path, and a
-  hidden file are refused. Recordings, transcriptions, transformations,
-  runs, and `settings.md` are read and written on top of `Files`. One
+  hidden file are refused. Recordings, transcriptions, and `settings.md` are
+  read and written on top of `Files`. One
   TypeScript module declares the layout: each kind of note's directory and
   its fields as a TypeBox object, and why a note does not read, by field
   and line. Nothing publishes it; the published `contract.json` and its
@@ -419,8 +424,8 @@ none.
 - **The note is required, and audio without one is recovered into a note.**
   Recovery code for a state a listing can show as it is.
 - **A recording's transcript in its note's body.** Whispering keeps several
-  transcripts per recording, each with its own model and time, and
-  transformation runs name one; the note's body is the person's notes.
+  transcripts per recording, each with its own model and time; the note's
+  body is the person's notes.
 - **Keep `@epicenter/definition/site` as a shared package.** Two
   constants per app, read by two apps, after the folders audience goes.
 - **Keep the hosted folder for the browser build.** A server for a build
