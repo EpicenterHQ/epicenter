@@ -1,7 +1,7 @@
 /**
  * Data checks run the real CLI against records in a temporary Epicenter.
- * Counts, filename rules, aliases, exact references, and a fixed-id settings record stay
- * consistent between human reports and JSON.
+ * Counts, filename rules, aliases, exact references, and a key with no
+ * records stay consistent between human reports and JSON.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -46,7 +46,7 @@ const foldsCase = (() => {
 	return folds;
 })();
 
-test('fitting folders and an absent settings record exit 0 without counting ignored entries', async () => {
+test('fitting folders and a key with no records exit 0 without counting ignored entries', async () => {
 	const f = await setup();
 	await f.folder(f.dataPath, {
 		'watches/sfo-nyc.md': '---\nfrom: "SFO"\n---\n',
