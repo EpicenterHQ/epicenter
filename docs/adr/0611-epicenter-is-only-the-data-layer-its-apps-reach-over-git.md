@@ -35,7 +35,7 @@ records audio through Rust
 ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
 All desktop Git runs in the CLI
 ([ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)),
-whose `packages/cli/src/commands.ts` carries `check`, `query`, `generate`,
+whose `packages/app/src/command/commands.ts` carries `check`, `query`, `generate`,
 `status`, `history`, `save-version`, `sync --to`, `clone`, `repos`, the
 `app` group with `f16c69134b49:packages/cli/src/installed-apps.ts`, the `auth` group,
 `auth key`, `send`, `declare-epicenter-folder`, and `install-command`
@@ -93,7 +93,7 @@ app-specific validation.
 Git operations include repos, clone, sync, status, login, and logout in the
 planned CLI. Existing auth key and send capabilities retain bring-your-own
 provider configuration and optional hosted inference. Credentials remain
-outside synchronized data. packages/cli/README.md documents implemented
+outside synchronized data. packages/app/src/command/README.md documents implemented
 commands; the installed CLI still has the legacy auth group. Its app group,
 the source installer, was deleted on 2026-10-20 along with the desktop app's
 installer, manifests, and commit-pinned builds.

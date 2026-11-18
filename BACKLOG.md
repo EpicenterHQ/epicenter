@@ -223,8 +223,9 @@ not create a second implementation assignment.
 - Desired result: Published legacy versions explain their status without
   breaking existing installs or mislabeling packages restored in this repo.
 - Grounding: The earlier retirement list included `@epicenter/workspace`,
-  `@epicenter/filesystem`, and `@epicenter/cli`. `@epicenter/cli` and
-  `@epicenter/app` are published again; `@epicenter/folder` is private now, and
+  `@epicenter/filesystem`, and `@epicenter/cli`. `@epicenter/cli` was
+  published again and is retired once more, folded into `@epicenter/app`
+  (ADR-0960); `@epicenter/app` is published; `@epicenter/folder` is private now, and
   whether it was ever published is unchecked. Check current registry metadata
   and intended version ranges before proposing any deprecation; preserve the
   license of each previously published version.

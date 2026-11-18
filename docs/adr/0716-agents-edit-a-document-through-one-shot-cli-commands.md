@@ -40,7 +40,7 @@ apply in any order; the lock keeps two writers from appending at once.
 **`set` validates against the document's fields.** A value its field
 ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)) refuses exits nonzero with the reason, and `--json` reports it
 the way the CLI's other commands do (`writeJson` in
-`packages/cli/src/output.ts`).
+`packages/app/src/command/output.ts`).
 
 **A copy from an older generation ([ADR-0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md)) is refused like any other
 device's.** The command exits nonzero and names "Discard local copy" and

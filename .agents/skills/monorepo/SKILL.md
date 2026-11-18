@@ -43,7 +43,7 @@ Run these scripts from the repository root. The [root manifest](../../../package
 | `bun dev:api` | The backend alone. |
 | `bun dev:landing` | The landing site. |
 
-Apps in a person's `~/Epicenter/apps/` run through the [Epicenter CLI](../../../packages/cli/README.md). Use `epicenter serve` to open their UIs.
+Apps in a person's `~/Epicenter/apps/` run through the [Epicenter CLI](../../../packages/app/src/command/README.md). Use `epicenter serve` to open their UIs.
 
 For database scripts, `db:*:local` selects local Postgres. `db:*:remote` runs through Infisical against production and is an admin operation.
 

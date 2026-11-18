@@ -6,7 +6,7 @@
 - **Amends:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: it is any HTTPS tunnel to a second listener that serves only connectors (ADR-0871, ADR-0881). [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
 - **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (secrets are `.local` files, so the marker carries no `id`), [ADR-0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) (the public listener and its OAuth), [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md) (the `connectors` block), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
 - **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md): the `connectors` block (`url`, `port`, `tailnet`) replaces `public` and `publicPort`, and `epicenter access`, now `epicenter connectors`, no longer invites or revokes people. Then [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) removed the public address, its connectors, and the `connectors` block.
-- **Built:** 2026-11-12: the `connectors` block ADR-0881 adds to `EPICENTER.md` (`packages/cli/src/root.ts`), read by `serve` and `epicenter connectors`. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
+- **Built:** 2026-11-12: the `connectors` block ADR-0881 adds to `EPICENTER.md` (`packages/app/src/command/root.ts`), read by `serve` and `epicenter connectors`. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
 
 ## Context
 
@@ -46,12 +46,12 @@ as many as it has folders; a folder that holds several is only a grouping.
 ```
 
 **Which Epicenter.** The nearest folder at or above the current directory
-holding `EPICENTER.md`; else `EPICENTER_ROOT`; else `~/Epicenter`.
-Where you stand wins over the variable, because a variable exported in a shell
-profile is a default, and `cd` into Bryce's Epicenter must reach Bryce's apps.
+holding `EPICENTER.md`, and nothing else
+([ADR-0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md)).
+`cd` into Bryce's Epicenter reaches Bryce's apps, and outside any Epicenter
+the command refuses.
 `serve` starts each run with the Epicenter's folder as its working directory,
-so the run finds the same one. A chosen folder without the file is refused,
-naming `epicenter init <folder>`. Epicenters do not nest.
+so the run finds the same one. Epicenters do not nest.
 
 **The marker is `EPICENTER.md`, a note for people with optional front
 matter.** Its name sits beside `AGENTS.md` and `README.md` as a file to read

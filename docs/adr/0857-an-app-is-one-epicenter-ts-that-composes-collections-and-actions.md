@@ -103,14 +103,12 @@ call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`. This
 settles addressing by placeholder as the author's choice, not a framework
 feature; a UI routes by the whole path, URL-encoded.
 
-**Whatever runs an action opens its run.** The runner calls
-`inRun({ folder }, () => action(input))`; for the length of the call, the
-app's collections and the imported `folder` reach that folder, however deep
-the code, through `AsyncLocalStorage`.
-An action that calls another stays in the same run. Outside a run they throw,
-so loading an app never touches its files. `epicenter` supplies one copy of
-`@epicenter/app` to every `epicenter.ts`, so the runner and the app share the
-run.
+**An app is a function of its folder** ([ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)).
+`epicenter.ts` default-exports `defineApp(({ folder }) => ({ ... }))`, and
+the runner calls it once with the app's folder. The app's data and actions
+are declared inside that function and reach the folder through its argument,
+however deep the code; a helper outside it takes the folder as a parameter.
+Nothing is shared in memory between the runner and the app.
 
 **A definition is checked when it is made.** Each `define*` throws, one problem
 a line, for what its types cannot say, and for a list of paths, which Bun

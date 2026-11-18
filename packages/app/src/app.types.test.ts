@@ -12,13 +12,13 @@ import type {
 	ActionOutput,
 	AppClient,
 } from './client.ts';
+import { connect } from './client.ts';
 import {
-	createMemoryContext,
 	defineAction,
 	defineApp,
 	defineData,
+	type Folder,
 	field,
-	inRun,
 } from './index.ts';
 
 type Equal<X, Y> =
@@ -27,64 +27,68 @@ type Equal<X, Y> =
 		: false;
 const assertType = <T extends true>(): T | undefined => undefined;
 
-const data = defineData({
-	words: { fields: { meaning: field.text({ optional: true }) } },
-	'settings.md': { fields: { dailyGoal: field.integer({ optional: true }) } },
-});
+const vocab = defineApp(({ folder }) => {
+	const data = defineData(folder, {
+		words: { fields: { meaning: field.text({ optional: true }) } },
+		'settings.md': { fields: { dailyGoal: field.integer({ optional: true }) } },
+	});
 
-const learn = defineAction({
-	description: 'Learn a word',
-	input: { word: field.text(), meaning: field.text({ optional: true }) },
-	run: async ({ word, meaning }) => {
-		assertType<Equal<typeof word, string>>();
-		assertType<Equal<typeof meaning, string | undefined>>();
-		const setting = await data['settings.md'].get();
-		if (setting.error) return setting;
-		const goal = setting.data?.dailyGoal;
-		assertType<Equal<typeof goal, number | undefined>>();
-		return data.words.create(word, { meaning });
-	},
-});
-
-const review = defineAction({
-	description: 'Review a word',
-	input: { word: field.text() },
-	run: async ({ word }) => {
-		const read = await data.words.get(word);
-		if (read.error) return read;
-		const found = read.data;
-		assertType<
-			Equal<NonNullable<typeof found>['meaning'], string | undefined>
-		>();
-		const changed = await data.words.patch(word, { meaning: null });
-		if (changed.error) return changed;
-		// A row names its own record by its id.
-		for (const row of await data.words.list()) {
-			if (row.error) return row;
-			await data.words.delete(row.data.id);
-		}
-		// @ts-expect-error a folder key names its record by its id
-		await data.words.get();
-		// @ts-expect-error which record, then the change: two arguments
-		await data.words.patch({ meaning: 'x' });
-		return Ok(found?.meaning);
-	},
-});
-
-const vocab = defineApp({
-	description: 'Words I am learning',
-	data,
-	actions: {
-		words: {
-			...data.words.actions('list', 'get', 'patch', 'edit'),
-			create: learn,
+	const learn = defineAction({
+		description: 'Learn a word',
+		input: { word: field.text(), meaning: field.text({ optional: true }) },
+		run: async ({ word, meaning }) => {
+			assertType<Equal<typeof word, string>>();
+			assertType<Equal<typeof meaning, string | undefined>>();
+			const setting = await data['settings.md'].get();
+			if (setting.error) return setting;
+			const goal = setting.data?.dailyGoal;
+			assertType<Equal<typeof goal, number | undefined>>();
+			return data.words.create(word, { meaning });
 		},
-		settings: data['settings.md'].actions('get', 'patch'),
-		review,
-	},
+	});
+
+	const review = defineAction({
+		description: 'Review a word',
+		input: { word: field.text() },
+		run: async ({ word }) => {
+			const read = await data.words.get(word);
+			if (read.error) return read;
+			const found = read.data;
+			assertType<
+				Equal<NonNullable<typeof found>['meaning'], string | undefined>
+			>();
+			const changed = await data.words.patch(word, { meaning: null });
+			if (changed.error) return changed;
+			// A row names its own record by its id.
+			for (const row of await data.words.list()) {
+				if (row.error) return row;
+				await data.words.delete(row.data.id);
+			}
+			// @ts-expect-error a folder key names its record by its id
+			await data.words.get();
+			// @ts-expect-error which record, then the change: two arguments
+			await data.words.patch({ meaning: 'x' });
+			return Ok(found?.meaning);
+		},
+	});
+
+	return {
+		description: 'Words I am learning',
+		data,
+		actions: {
+			words: {
+				...data.words.actions('list', 'get', 'patch', 'edit'),
+				create: learn,
+			},
+			settings: data['settings.md'].actions('get', 'patch'),
+			review,
+		},
+	};
 });
 
-type Actions = typeof vocab.actions;
+/** The app as its folder makes it. */
+declare const made: ReturnType<typeof vocab>;
+type Actions = typeof made.actions;
 type In<A> = A extends (input: infer I) => unknown ? I : never;
 type Out<A> = A extends (input: never) => infer O ? Awaited<O> : never;
 
@@ -111,7 +115,7 @@ describe('an app author', () => {
 			>
 		>();
 		// @ts-expect-error an edit names both old and new
-		() => vocab.actions.words.edit({ id: 'a', old: 'x' });
+		() => made.actions.words.edit({ id: 'a', old: 'x' });
 		assertType<Equal<In<Actions['words']['get']>, { id: string }>>();
 		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
 		type Item = NonNullable<Out<Actions['words']['list']>['data']>[number];
@@ -144,10 +148,12 @@ describe('an app author', () => {
 		>();
 	});
 
-	test('an action is called as a function, inside a run', async () => {
-		await inRun(createMemoryContext(), () =>
-			vocab.actions.words.create({ word: '你好' }),
-		);
+	test('an app is a function of its folder, and its actions are functions of their input', () => {
+		assertType<Equal<Parameters<typeof vocab>, [{ folder: Folder }]>>();
+		() =>
+			vocab({ folder: {} as Folder }).actions.words.create({ word: '你好' });
+		// @ts-expect-error an app is called with its folder
+		() => vocab();
 	});
 
 	test('a list with min is required, to give and in a read, and never always filled', () => {
@@ -219,11 +225,12 @@ describe('an app author', () => {
 		assertType<Equal<ActionUpdate<typeof say>, string | { step: number }>>();
 		assertType<Equal<ActionUpdate<typeof tag>, never>>();
 		assertType<Equal<ActionUpdate<Actions['words']['patch']>, never>>();
-		const chat = defineApp({ description: 'Chat', actions: { say } });
+		const chat = defineApp(() => ({ description: 'Chat', actions: { say } }));
+		type ChatActions = ReturnType<typeof chat>['actions'];
 		assertType<
-			Equal<ActionUpdate<typeof chat.actions.say>, string | { step: number }>
+			Equal<ActionUpdate<ChatActions['say']>, string | { step: number }>
 		>();
-		const chatUi = {} as AppClient<typeof chat.actions>;
+		const chatUi = connect<typeof chat>({ app: 'chat' });
 		() =>
 			chatUi.say(
 				{ message: 'hi' },
@@ -254,7 +261,8 @@ describe('an app author', () => {
 	});
 
 	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
-		const vocabUi = {} as AppClient<Actions>;
+		const vocabUi = connect<typeof vocab>({ app: 'vocab' });
+		assertType<Equal<typeof vocabUi, AppClient<Actions>>>();
 		const call = () => vocabUi.words.patch({ id: 'a', meaning: 'x' });
 		type Answer = Awaited<ReturnType<typeof call>>;
 		assertType<

@@ -1,42 +1,43 @@
 /**
- * An app: what its `epicenter.ts` default-exports. Its data and actions are
- * values, defined on their own and composed by `defineApp`:
+ * An app: what its `epicenter.ts` default-exports (ADR-0960). It is a
+ * function of its folder. Whoever loads it calls it with the folder, and it
+ * returns its description, its data and its actions:
  *
  * ```ts
- * import { defineAction, defineApp, defineData, field } from '@epicenter/app';
+ * import { defineAction, defineApp, defineData, field, Ok } from '@epicenter/app';
  *
- * const data = defineData({
- *   words: { fields: { meaning: field.text() } },
- *   'settings.md': { fields: { dailyGoal: field.integer({ optional: true }) } },
- * });
+ * export default defineApp(({ folder }) => {
+ *   const data = defineData(folder, {
+ *     words: { fields: { meaning: field.text() } },
+ *   });
  *
- * const learn = defineAction({
- *   description: 'Learn a word',
- *   input: { word: field.text(), meaning: field.text() },
- *   run: ({ word, meaning }) => data.words.create(word, { meaning }),
- * });
+ *   const learn = defineAction({
+ *     description: 'Learn a word',
+ *     input: { word: field.text(), meaning: field.text() },
+ *     run: ({ word, meaning }) => data.words.create(word, { meaning }),
+ *   });
  *
- * export default defineApp({
- *   description: 'Words I am learning',
- *   data,
- *   actions: {
- *     words: { ...data.words.actions('list', 'get', 'patch'), create: learn },
- *     settings: data['settings.md'].actions('get', 'patch'),
- *   },
+ *   return {
+ *     description: 'Words I am learning',
+ *     data,
+ *     actions: { words: { ...data.words.actions('list', 'get', 'patch'), create: learn } },
+ *   };
  * });
  * ```
  *
  * The actions nest as they are called: `app.actions.words.create({ word })` in
  * code, `epicenter vocab words create` on the command line, `vocab_words_create`
- * over MCP. An app's name is its folder's.
+ * over MCP. An app's name is its folder's. Serve calls the function with the
+ * app's folder; a test calls it with a folder on a temporary directory.
  */
 import { type Action, isAction } from './action.ts';
 import type { AnyData } from './data.ts';
+import type { Folder } from './folder.ts';
 
 /** An app's actions, nested: a key holds an action, or a group of them under that word. */
 export type Actions = { readonly [word: string]: Action | Actions };
 
-/** An app as `defineApp` returns it: what it was given, checked. */
+/** What an app's function returns: its description, data and actions. */
 export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
 	readonly description: string;
 	/** What `defineData` returned, when the app keeps records. */
@@ -45,19 +46,35 @@ export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
 	readonly actions: A;
 };
 
+/** What an app's function is called with: the one thing it is handed. */
+type Given = { folder: Folder };
+
 /**
- * Define an app: its description, its data when it keeps records, and its
- * actions, `{}` for none. Each action's words are its keys in `actions`, so
+ * Define an app as a function of its folder. The function returns the
+ * app's description, its data when it keeps records, and its actions, `{}`
+ * for none. Each action's words are its keys in `actions`, so
  * `words: { ...data.words.actions('list', 'get', 'create'), create: learn }`
- * gives `words list` and `words get`, with `words create` replaced by `learn`. A later
- * key replaces an earlier one, as in any object. Returns `app` itself; throws
- * when it is wrong in a way its types cannot say, so `epicenter` checks an
- * app it loads by calling this again.
+ * gives `words list` and `words get`, with `words create` replaced by
+ * `learn`. A later key replaces an earlier one, as in any object.
+ *
+ * Returns the function, which, when called, throws if what it returned is
+ * wrong in a way its types cannot say; so `epicenter` checks an app it
+ * loads by calling this again. Loading an app should not touch its files:
+ * read and write inside actions.
  */
-export function defineApp<const TApp extends App>(app: TApp): TApp {
-	const problems = appProblems(app);
-	if (problems.length) throw new Error(problems.join('\n'));
-	return app;
+export function defineApp<const TApp extends App>(
+	app: (given: Given) => TApp,
+): (given: Given) => TApp {
+	if (typeof app !== 'function')
+		throw new Error(
+			'An app is a function of its folder: defineApp(({ folder }) => ({ description, data, actions }))',
+		);
+	return (given) => {
+		const made = app(given);
+		const problems = appProblems(made);
+		if (problems.length) throw new Error(problems.join('\n'));
+		return made;
+	};
 }
 
 /**
@@ -78,7 +95,9 @@ const isObject = (value: unknown): value is object =>
 /** What is wrong with `app` beyond its types, one sentence each. */
 function appProblems(app: unknown): string[] {
 	if (!isObject(app))
-		return ['An app is an object: defineApp({ description, data, actions })'];
+		return [
+			'An app returns an object: defineApp(({ folder }) => ({ description, data, actions }))',
+		];
 	const { description, data, actions } = app as Partial<App>;
 	const problems: string[] = [];
 	if (typeof description !== 'string' || description.trim() === '')

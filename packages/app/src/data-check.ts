@@ -1,14 +1,39 @@
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import { folder } from './context.ts';
 import type { AnyData } from './data.ts';
 import type { Problem } from './errors.ts';
 import { refKeyOf } from './field.ts';
+import { filesIn } from './folder.ts';
 import { idProblem } from './id.ts';
 import type { AnyRecord } from './markdown-records.ts';
 
-/** Check declared data through its handles, including filenames and exact reference ids. */
-export async function checkData(data: AnyData) {
+/** One data key as `checkData` found it. */
+export type CheckedKey = {
+	/** True for a one-file key. */
+	single: boolean;
+	/** The key's file, or its folder ending in `/`. */
+	path: string;
+	/** How many files it matched. */
+	files: number;
+	/** How many of them have problems. */
+	withProblems: number;
+	/** Each kind of problem and how many files have it, most frequent first. */
+	kinds: { kind: string; count: number }[];
+	/** Each file with problems, by its path under `data/`, with its problem lines. */
+	records: { path: string; problems: string[] }[];
+};
+
+/**
+ * Check declared data through its handles, including filenames and exact
+ * reference ids. `root` is the app's folder on disk, the one `data` was
+ * defined with. Each key's report counts its files and the kinds of problem
+ * among them, and lists each file with problems by its path under `data/`
+ * and its problem lines.
+ */
+export async function checkData(
+	root: string,
+	data: AnyData,
+): Promise<Record<string, CheckedKey>> {
 	const checked: Record<
 		string,
 		{
@@ -52,10 +77,9 @@ export async function checkData(data: AnyData) {
 		const each = checked[key];
 		if ('list' in handle) {
 			const names = new Map<string, string[]>();
-			for (const path of (await folder.list(base)).sort()) {
-				if (!path.startsWith(`${base}/`) || !path.endsWith('.md')) continue;
-				const name = path.slice(base.length + 1);
-				if (name.includes('/') || name.startsWith('.')) continue;
+			for (const name of await filesIn(root, base)) {
+				if (!name.endsWith('.md') || name.startsWith('.')) continue;
+				const path = `${base}/${name}`;
 				each.files++;
 				const problem = idProblem(name.slice(0, -3));
 				if (problem) report(key, [path], [{ line: problem, kind: problem }]);
@@ -156,5 +180,16 @@ export async function checkData(data: AnyData) {
 			a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
 		);
 	}
-	return checked;
+	return Object.fromEntries(
+		Object.entries(checked).map(([key, each]) => [
+			key,
+			{
+				...each,
+				records: each.records.map(({ path, problems }) => ({
+					path,
+					problems: problems.map(({ line }) => line),
+				})),
+			},
+		]),
+	);
 }

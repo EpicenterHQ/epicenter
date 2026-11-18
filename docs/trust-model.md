@@ -4,8 +4,8 @@ Your Epicenter is on the home, and whoever can read the home can read it.
 Nothing is encrypted, nothing syncs, and `epicenter serve` signs no one in.
 That is the trust model, and everything below follows from it.
 
-This page describes what the code does today, in `packages/cli` and
-`packages/app`. [The vision](vision.md) names the pieces, and
+This page describes what the code does today, in `packages/app`
+and its command, `packages/app/src/command`. [The vision](vision.md) names the pieces, and
 [ADR-0903](adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)
 decides that the home is a computer its person controls, owned or rented.
 
@@ -19,7 +19,7 @@ encrypts them.
 | Home | Who can read your files |
 | --- | --- |
 | One you own, such as a Mac you keep on | You, and whatever you let in: a user account, a backup tool, an agent you give a shell. |
-| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, `.local` files included. Epicenter adds nothing against that. |
+| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, each app's `local/` folder included. Epicenter adds nothing against that. |
 
 Choosing where to rent a home is choosing who can read it, in the way choosing
 which agents get a shell is. Epicenter's hosted services hold no part of your
@@ -28,7 +28,7 @@ Epicenter and none of its sign-ins.
 ## Reaching the home
 
 `epicenter serve` offers every app's actions over MCP at `/`, and each app's
-UI at `/<app>/` (`packages/cli/src/http.ts`). It signs no one in: it trusts
+UI at `/<app>/` (`packages/app/src/command/http.ts`). It signs no one in: it trusts
 this computer and the tailnet, and who reaches it is the home's decision
 ([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
 Anything that reaches it can call every action of every app.
@@ -62,12 +62,13 @@ would any program you install.
 
 ## Sign-ins are files that stay on the home
 
-An app keeps a sign-in, such as Mail's Google token, in a `.local` file in its
-own folder ([ADR-0870](adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
-The home's `.gitignore` keeps each app's `local/` folder, and files named
-`*.local` or `*.local.*`, out of every commit. That file is the only guard:
+An app keeps a sign-in, such as Mail's Google token, in a file in its `local/`
+folder, such as `apps/mail/local/`
+([ADR-0939](adr/0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md)).
+The home's root `.gitignore` keeps every app's `local/` folder out of every
+commit with one line, `/apps/*/local/`. That line is the only guard:
 Epicenter has no command that commits (ADR-0940). A new file written under
-`local/` through `folder` is `0600`. So a local file reaches a backup or a clone
+`local/` through `folder` is `0600`. So a file there reaches a backup or a clone
 only if that ignore line is removed or the file is added by force. It is a plain
 file, though: anyone who can read the home can read it, the provider of a
 rented home included.
@@ -80,13 +81,13 @@ included records. Its `origin` is an optional push-only backup
 Agents edit the working files; the commits you make record them. Publishing an app copies only its code into a separate history.
 Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
 your own Git server, can read what is pushed: every committed file and its
-history, never a `.local` file.
+history, never a file under `local/`.
 
 ## Outside apps
 
 A service such as Gmail already holds its own data. An inside app brings it to
 the home only by a pull, which copies items inward and never writes the
-source; Mail keeps its mailbox as a `.local` SQLite cache on the home. A change
+source; Mail keeps its mailbox as a SQLite cache in its `local/` folder on the home. A change
 to the service is an action you run, such as `epicenter mail apply`, which
 changes Gmail through your own sign-in
 ([ADR-0882](adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md),

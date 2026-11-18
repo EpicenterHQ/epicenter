@@ -124,11 +124,11 @@ a completed migration, not a current cleanup target.
 
 ## Current example of the destination
 
-The [CLI's action runner](../../../../packages/cli/src/run.ts)
+The [CLI's action runner](../../../../packages/app/src/command/run.ts)
 uses `createLogger`, accepts a caller-supplied logger through its `log`
 option, and writes one record for each run through that interface.
 
-Its [tests](../../../../packages/cli/src/run.test.ts)
+Its [tests](../../../../packages/app/src/command/run.test.ts)
 supply a logger backed by `memorySink`, allowing emitted events to be
 inspected without intercepting global console output.
 

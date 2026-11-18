@@ -11,7 +11,7 @@ import { resultMutations, resultQueries } from 'wellcrafted/query';
 import type { MutationFunctionContext } from '@tanstack/svelte-query';
 import type tasksApp from '../../../epicenter.js';
 
-type Actions = (typeof tasksApp)['actions'];
+type Actions = ReturnType<typeof tasksApp>['actions'];
 
 const app = connect<typeof tasksApp>();
 

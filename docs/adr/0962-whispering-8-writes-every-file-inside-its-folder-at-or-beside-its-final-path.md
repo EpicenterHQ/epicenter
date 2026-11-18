@@ -44,6 +44,7 @@ app's `local/` folder (ADR-0939), `.env`, and Whispering's
 **A home does not feel the tension, because it owns the level above the
 open folder.** In `apps/<app>/`, `data/` is the open folder. `local/` sits
 beside it, on the same disk, under one ignore line (`/apps/*/local/`). The
+<!-- doc-path-check: ignore-next-line (moved into packages/app/src/folder.ts, ADR-0964) -->
 home's `put` (`packages/cli/src/disk.ts`) stages there. Whispering is
 handed only the open folder: the person picks it, and Whispering owns
 nothing above it.
@@ -224,6 +225,7 @@ repairs a file.**
 
 ## Not decided
 
+<!-- doc-path-check: ignore-next-line (moved into packages/app/src/folder.ts, ADR-0964) -->
 - Whether the home's `put` (`packages/cli/src/disk.ts`), which stages in
   `local/.tmp/` (ADR-0939), should write its temporary file beside the
   target instead. The home keeps its rule.

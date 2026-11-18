@@ -4,11 +4,11 @@
 - **Date:** 2026-11-17
 - **Relates:** [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (code runs as it sits on disk), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (serve keeps nothing about a call), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a view calls actions).
 - **Waits:** nothing is built until an app needs it. A review of the action protocol on 2026-11-17 found no app that does, agreed that WebSocket and `publish` should wait longest, and found the guard gap below.
-- **Unbuilt:** all of it. The first thing to exist is a request to `/<app>/.http/` that `packages/cli/src/http.ts` hands to the app's `fetch`; today that path answers 404.
+- **Unbuilt:** all of it. The first thing to exist is a request to `/<app>/.http/` that `packages/app/src/command/http.ts` hands to the app's `fetch`; today that path answers 404.
 
 ## Context
 
-`epicenter serve` answers five kinds of request (`packages/cli/src/http.ts`):
+`epicenter serve` answers five kinds of request (`packages/app/src/command/http.ts`):
 
 ```txt
 POST /                MCP

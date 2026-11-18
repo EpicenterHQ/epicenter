@@ -5,21 +5,16 @@
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import {
-	ActionError,
-	createMemoryContext,
-	defineData,
-	field,
-	inRun,
-	Ok,
-} from './index.ts';
+import { ActionError, defineData, field, Ok } from './index.ts';
+import { tempFolder } from './temp-folder.test-support.ts';
 
 type Equal<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
 		? true
 		: false;
 const assertType = <T extends true>(): T | undefined => undefined;
-const data = defineData({
+const { folder } = await tempFolder();
+const data = defineData(folder, {
 	notes: {
 		fields: {
 			title: field.text(),
@@ -78,20 +73,18 @@ test('record and method types retain the exact declared fields', () => {
 });
 
 test('computed changes retain field types and callback errors', async () => {
-	await inRun(createMemoryContext(), async () => {
-		expect(
-			expectOk(
-				await data['settings.md'].edit((record) => {
-					assertType<Equal<typeof record, Settings | undefined>>();
-					return Ok({ level: record?.level ?? 1 });
-				}),
-			).level,
-		).toBe(1);
-		const result = await data.notes.edit('a', () =>
-			ActionError.Refused({ message: 'stop' }),
-		);
-		expect(expectErr(result).message).toBe('stop');
-	});
+	expect(
+		expectOk(
+			await data['settings.md'].edit((record) => {
+				assertType<Equal<typeof record, Settings | undefined>>();
+				return Ok({ level: record?.level ?? 1 });
+			}),
+		).level,
+	).toBe(1);
+	const result = await data.notes.edit('a', () =>
+		ActionError.Refused({ message: 'stop' }),
+	);
+	expect(expectErr(result).message).toBe('stop');
 });
 
 test('a passage edit answers exactly Missing, Changed, or Misfit', () => {
@@ -150,7 +143,7 @@ describe('type errors', () => {
 	});
 	test('refs reject missing and one-file targets on the field', () => {
 		() =>
-			defineData({
+			defineData(folder, {
 				notes: {
 					fields: {
 						// @ts-expect-error target must exist in this declaration
@@ -159,7 +152,7 @@ describe('type errors', () => {
 				},
 			});
 		() =>
-			defineData({
+			defineData(folder, {
 				'settings.md': { fields: {} },
 				notes: {
 					fields: {
@@ -169,7 +162,7 @@ describe('type errors', () => {
 				},
 			});
 		() =>
-			defineData({
+			defineData(folder, {
 				notes: {
 					fields: {
 						// @ts-expect-error list items retain the missing ref target
@@ -178,7 +171,7 @@ describe('type errors', () => {
 				},
 			});
 		() =>
-			defineData({
+			defineData(folder, {
 				notes: {
 					fields: {
 						// @ts-expect-error optional refs retain the missing target

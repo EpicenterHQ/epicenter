@@ -4,16 +4,15 @@
  * `key: <JSON>` lines between `---` fences, then the body. A note Whispering
  * writes is one `epicenter check` reads, and both builds share this reader.
  *
- * A change rewrites only the lines of the keys it names (`withFields`), so
+ * A change rewrites only the lines of the keys it names (`changeMarkdown`), so
  * a key Whispering does not know and a line whose text is not JSON stay as
  * they are. Front matter that cannot be read is never rewritten.
  */
 import {
+	changeMarkdown,
 	type FieldValues,
 	type JsonValue,
-	markdownOf,
 	readMarkdown,
-	withFields,
 } from '@epicenter/app/markdown';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
@@ -48,7 +47,7 @@ export function parseNote(text: string): Result<ParsedNote, NoteRefusal> {
 		return Err({
 			reason: `${notJson.key} is not a JSON value: ${notJson.text}`,
 			field: notJson.key,
-			line: notJson.line,
+			line: notJson.lineNumber,
 		});
 	return Ok({ fields: read.fields, body: read.body });
 }
@@ -76,7 +75,7 @@ export function newNote(
 	body: string,
 	order: readonly string[],
 ): string {
-	return markdownOf(ordered(defined(fields), order), body);
+	return changeMarkdown('', { set: ordered(defined(fields), order), body });
 }
 
 /**
@@ -95,10 +94,7 @@ export function changeNote(
 		if (value === undefined) removed.push(key);
 		else given[key] = value as JsonValue;
 	}
-	const changed = withFields(text, given, removed);
-	if (body === undefined) return changed;
-	const kept = readMarkdown(changed).body;
-	return changed.slice(0, changed.length - kept.length) + body;
+	return changeMarkdown(text, { set: given, removed, body });
 }
 
 /** The 1-based line of `key`'s front matter line in `text`, when it has one. */

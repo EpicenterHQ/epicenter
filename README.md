@@ -41,7 +41,7 @@
 A home is a folder that depends on Epicenter, as any Bun project depends on a
 package. It requires [Bun](https://bun.sh) and Git. An AI account is not
 required. Make `~/Epicenter` from the files
-[the CLI README](packages/cli/README.md#make-an-epicenter) lists, then copy
+[the CLI README](packages/app/src/command/README.md#make-an-epicenter) lists, then copy
 the Writing app:
 
 ```sh
@@ -68,7 +68,7 @@ bun install && bun run build
 ```
 
 For CLI commands, MCP setup, and keeping `serve` running in the background, see
-[the CLI guide](packages/cli/README.md).
+[the CLI guide](packages/app/src/command/README.md).
 
 ## How it works
 
@@ -81,23 +81,25 @@ repository holds the home, and you commit code and records together when you cho
 ```ts
 import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
 
-const data = defineData({
-  tasks: {
-    description: 'task',
-    fields: { title: field.text(), done: field.boolean() },
-  },
-});
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, {
+    tasks: {
+      description: 'task',
+      fields: { title: field.text(), done: field.boolean() },
+    },
+  });
 
-const add = defineAction({
-  description: 'Add a task to do',
-  input: { title: field.text() },
-  run: ({ title }) => data.tasks.create(timeId(), { title }),
-});
+  const add = defineAction({
+    description: 'Add a task to do',
+    input: { title: field.text() },
+    run: ({ title }) => data.tasks.create(timeId(), { title }),
+  });
 
-export default defineApp({
-  description: 'Things I mean to do',
-  data,
-  actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
+  return {
+    description: 'Things I mean to do',
+    data,
+    actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
+  };
 });
 ```
 
@@ -121,13 +123,13 @@ Whispering. An inside app brings its data in through actions. Mail pulls a copy
 of your mailbox to the home, and an agent changes Gmail only through a proposal
 you apply.
 
-[The vision](docs/vision.md) | [The `epicenter` command](packages/cli/README.md) | [What an app imports](packages/app/README.md)
+[The vision](docs/vision.md) | [The `epicenter` command](packages/app/src/command/README.md) | [What an app imports](packages/app/README.md)
 
 ## Status
 
-The CLI developer preview is two packages, `@epicenter/cli` and
-`@epicenter/app`, which a home depends on: a home is one Bun workspace, and
-its `package.json` names the version it runs. Writing is an exported app
+The CLI developer preview is one package, `@epicenter/app`, which a home
+depends on: a home is one Bun workspace, and its `package.json` names the
+version it runs. Writing is an example app
 copied separately from GitHub. Each app is ordinary editable source.
 `serve` is one process; keep it running as you would any program.
 
@@ -180,8 +182,7 @@ Applications under `apps/` are outside apps
 
 | Package | What it is |
 | --- | --- |
-| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools and serves UIs. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
-| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineData`, `defineAction`, fields, `folder`, and the client a UI calls actions with. A home depends on it beside the command. Published with the command, always at the same version. |
+| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports (`defineApp`, `defineData`, `defineAction`, fields, `folderOnDisk`), the client a UI calls actions with, and the `epicenter` command, which runs each app's actions as commands and MCP tools and serves UIs. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |
 | [`@epicenter/server`](packages/server) | The Hono library `apps/api` composes. |
@@ -201,8 +202,8 @@ Whispering's own packages, and the folder sync product's code it still imports
     code/ui/                   the UI's source, built into code/ui/dist/
     data/                      the app's records in the private root history
 
-packages/cli                   epicenter: runs actions, serve, snapshots, backup
 packages/app                   what epicenter.ts imports
+packages/app/src/command       epicenter: runs actions, serve, check
 apps/api                       Epicenter's hosted services, an outside app from a home
 ```
 

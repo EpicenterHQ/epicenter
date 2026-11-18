@@ -104,11 +104,11 @@ collection there. Epicenter builds neither.
 Each waits for a person who needs it, and building one needs the owner's yes.
 
 - A program delivering records to a home through actions. Actions accept
-  JSON only (`packages/cli/src/http.ts:141`), so audio cannot travel.
+  JSON only (`packages/app/src/command/http.ts:141`), so audio cannot travel.
 - An offline outbox for actions.
 - Moving a collection's truth between a folder and a service.
 - A published protocol for third parties. `serve` prints a contract as JSON
-  Schema (`packages/cli/src/listing.ts:108`), unpromised.
+  Schema (`packages/app/src/command/listing.ts:108`), unpromised.
 - `serve` pulling cached collections on a clock. Mail catches up when asked;
   the vision refuses schedules.
 - A field declaring a collection's form.

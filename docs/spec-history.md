@@ -16,13 +16,16 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1489 specs ever** (3 still in tree, 1486 removed).
+**1492 specs ever** (2 still in tree, 1490 removed).
 
 
 ## 2026
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-11-17 | shared-documents-with-yjs-on-fetch-and-websocket | in tree | specs/20261117T150000-shared-documents-with-yjs-on-fetch-and-websocket.md |
+| 2026-11-15 | collections-select-by-key-and-keep-their-files | in tree | specs/20261115T150000-collections-select-by-key-and-keep-their-files.md |
+| 2026-11-07 | epicenter-is-where-personal-software-lives | removed | specs/20261107T222922-epicenter-is-where-personal-software-lives.md |
 | 2026-11-04 | one-sync-core-on-every-native-platform | removed | specs/20261104T160000-one-sync-core-on-every-native-platform.md |
 | 2026-11-04 | the-machine | removed | specs/20261104T070000-the-machine.md |
 | 2026-11-03 | folder-identity | removed | specs/20261103T190000-folder-identity.md |
@@ -201,7 +204,7 @@
 | 2026-06-23 | inference-connections-and-presets | removed | specs/20260623T120000-inference-connections-and-presets.md |
 | 2026-06-22 | chat-settle-render-and-romanizer | removed | specs/20260622T205500-chat-settle-render-and-romanizer.md |
 | 2026-06-22 | push-to-talk-recording-lifecycle | removed | apps/whispering/specs/20260622T214212-push-to-talk-recording-lifecycle.md |
-| 2026-06-21 | local-books-cli-sync-engine | in tree | specs/20260621T100000-local-books-cli-sync-engine.md |
+| 2026-06-21 | local-books-cli-sync-engine | removed | specs/20260621T100000-local-books-cli-sync-engine.md |
 | 2026-06-21 | inference-server-openai-compatible-collapse | removed | specs/20260621T180000-inference-server-openai-compatible-collapse.md |
 | 2026-06-20 | transcription-model-selector-collapse | removed | apps/whispering/specs/20260620T173000-transcription-model-selector-collapse.md |
 | 2026-06-20 | local-books-agent-over-sql | removed | specs/20260620T180000-local-books-agent-over-sql.md |

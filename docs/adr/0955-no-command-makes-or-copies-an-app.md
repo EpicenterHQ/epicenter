@@ -4,7 +4,7 @@
 - **Date:** 2026-11-18
 - **Supersedes:** [ADR-0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md): `new --from` no longer exists. [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md): `export` no longer exists.
 - **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) at "`epicenter export` reads": no command exports, so the `epicenter` command runs no Git.
-- **Relates:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) (copying is the only way to take an app's code; the owner does the copying), [ADR-0943](0943-epicenters-core-invariants.md) (rule 7), [ADR-0958](0958-no-command-makes-an-epicenter.md) (no command makes an Epicenter).
+- **Relates:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) (copying is the only way to take an app's code; the owner does the copying), [ADR-0943](0943-epicenters-core-invariants.md) (rule 6), [ADR-0958](0958-no-command-makes-an-epicenter.md) (no command makes an Epicenter).
 
 ## Context
 
@@ -16,7 +16,7 @@ forced on, renamed the copy's package and wrote `SOURCE.md`. That was about
 removed first.
 
 Two commands that set an app up were left in `COMMANDS`
-(`d413cc7a78:packages/cli/src/commands.ts`):
+(`d413cc7a78:packages/app/src/command/commands.ts`):
 
 - `epicenter new <name>` (`d413cc7a78:packages/cli/src/new.ts`, 75 lines)
   wrote `apps/<name>/code/` with `.gitignore`, a `package.json` named
@@ -33,8 +33,9 @@ Two commands that set an app up were left in `COMMANDS`
 
 An app is a folder of plain files. `new` wrote three files of fixed text,
 and `export` copied a folder. The owner, or the agent working for them,
-writes files and copies folders without a command. By rule 7 of ADR-0943,
-Epicenter does not wrap those steps, and ADR-0958 had already removed `init`
+writes files and copies folders without a command. Neither step needs an
+app's declaration or the running serve, so by rule 6 of ADR-0943 Epicenter
+does not wrap them, and ADR-0958 had already removed `init`
 on that rule.
 
 ## Decision
@@ -44,9 +45,9 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 `epicenter.ts`, a `package.json` named `<name>` and a `.gitignore`, beside
 `data/`.**
 
-- `COMMANDS` in `packages/cli/src/commands.ts` holds `check` and `serve`.
+- `COMMANDS` in `packages/app/src/command/commands.ts` holds `check` and `serve`.
   `new` and `export` are not in it.
-- "What an app holds" in `packages/cli/README.md` lists those files. It is
+- "What an app holds" in `packages/app/src/command/README.md` lists those files. It is
   the only description of a new app. The README's quick start has one line
   that fetches the Writing example; it gives no general procedure for
   copying or publishing an app.
@@ -56,7 +57,7 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 - An Epicenter with no apps says
   `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 - The `epicenter` command starts neither Git nor Bun. The one program it
-  starts is a routine's own `run`, in `packages/cli/src/routines.ts`.
+  starts is a routine's own `run`, in `packages/app/src/command/routines.ts`.
 - Taking an app's code stays a copy that nothing merges (ADR-0904). The
   owner makes it with their own tools.
 
@@ -89,7 +90,7 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 
 - **`new` keeps making a blank app.** It was three files of fixed text that
   the README's table now states, and one more word no app could be named.
-- **`export` stays for its safety checks.** Rule 7 of ADR-0943 had named it
+- **`export` stays for its safety checks.** ADR-0943's old rule 7 had named it
   an exception, because Git alone refuses neither a link that leaves the
   folder nor uncommitted code. It was 600 lines and the only reason the
   command ran Git, for a step the owner reviews before pushing.

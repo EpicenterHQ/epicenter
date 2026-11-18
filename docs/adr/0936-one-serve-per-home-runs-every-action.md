@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the app lock: nothing locks an app, and nothing locks the home to run an action. [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) on who runs a command's action: serve does.
+- **Amended by:** [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md): the command loads no app before it sends a call, and names its Epicenter on the request; serve's answers carry `x-epicenter: 1` and no path.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`folder.update`), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (the call and its route), [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) (routines run commands).
 
 ## Context
@@ -17,6 +18,7 @@ first write until it ends (`run.ts`). An earlier draft of named locks took kerne
 locks on files so work in one process could exclude work in another. Mail holds a
 SQLite transaction, Flights runs `/usr/bin/lockf`, and Codex queues on
 `globalThis`. Removing the app lock (ADR-0850) exposed one more: `edit` in
+<!-- doc-path-check: ignore-next-line (moved into packages/app/src/folder.ts, ADR-0964) -->
 `packages/cli/src/disk.ts` reads a file and then renames over it, which is
 safe inside one process and can lose a write between two.
 

@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) on the schedule (`daily` becomes `cron`), what makes a routine due, interrupted attempts, `paused`, `timeout`, the routine lock and process-group supervision, local state and logs, `routines run`, and `routines.set`. Its folder and command argv stand. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the checkpoint clock: `serve` keeps none, and a home checkpoints only if it has a routine that does.
+- **Amended by:** [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md): routine commands start in their own process group, and serve waits for them on stop as it waits for calls.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (actions make no commits).
 
 ## Context

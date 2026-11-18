@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
+<!-- doc-path-check: ignore-next-line (deleted when an app became a function of its folder, ADR-0960) -->
 - **Unbuilt:** all of it. `defineCollection` takes no `files`, `Folder` in `packages/app/src/context.ts` has no `move`, and a collection has no `dirOf`.
 
 ## Context

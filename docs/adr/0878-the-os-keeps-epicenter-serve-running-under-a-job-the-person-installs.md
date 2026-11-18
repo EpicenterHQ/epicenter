@@ -3,14 +3,14 @@
 - **Status:** Accepted
 - **Date:** 2026-11-11
 - **Amended by:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md): serve supervises opted-in daily commands, while the OS keeps serve alive. [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md): `epicenter` writes no job and `epicenter service` is removed.
-- **Unbuilt:** a Linux user unit and the Mac app's registration; the Studio's `serve` still runs from a monorepo worktree until the person runs `epicenter service install` there. Built: `epicenter service install|uninstall|restart|status` as a macOS LaunchAgent with the installing shell's `PATH` ([packages/cli/src/service.ts at d1980af95a](https://github.com/EpicenterHQ/epicenter/blob/d1980af95a/packages/cli/src/service.ts), removed by ADR-0941), and `AGENTS.md` read on each MCP initialize (`packages/cli/src/mcp.ts`).
+- **Unbuilt:** a Linux user unit and the Mac app's registration; the Studio's `serve` still runs from a monorepo worktree until the person runs `epicenter service install` there. Built: `epicenter service install|uninstall|restart|status` as a macOS LaunchAgent with the installing shell's `PATH` ([packages/cli/src/service.ts at d1980af95a](https://github.com/EpicenterHQ/epicenter/blob/d1980af95a/packages/cli/src/service.ts), removed by ADR-0941), and `AGENTS.md` read on each MCP initialize (`packages/app/src/command/mcp.ts`).
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (your server is the computer that runs `serve`), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (several Epicenters on one computer), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the installed command).
 
 ## Context
 
 `serve` must outlive the terminal or agent that started it and come back after
 a reboot or a crash. On the Studio today it is
-`bun <worktree>/packages/cli/src/bin.ts serve`, started by an agent: deleting
+`bun <worktree>/packages/app/src/command/bin.ts serve`, started by an agent: deleting
 that worktree stops the server, switching its branch changes it, and nothing
 starts it again. An agent asked to install a LaunchAgent was stopped by its
 permission checks; a program that starts at every login is the person's
