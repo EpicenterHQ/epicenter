@@ -1,6 +1,6 @@
 /**
  * Data handles read and patch top-level Markdown records in the folder they were defined with.
- * Covers both key shapes, exact and refused ids, create, passage edits, concurrent computed
+ * Covers a fixed-id key, exact and refused ids, create, passage edits, concurrent computed
  * edits, repairs, diagnostics, list membership, refused definitions, and the separation
  * between app writes and reference checks.
  */
@@ -10,28 +10,23 @@ import { join } from 'node:path';
 import { type TSchema, Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { idProblem } from './id.ts';
-import {
-	ActionError,
-	defineData,
-	type Folder,
-	field,
-	Ok,
-	timeId,
-} from './index.ts';
+import { ActionError, defineData, type Folder, field, Ok } from './index.ts';
 import { foldsCase, tempFolder, unusedFolder } from './library.test-support.ts';
 
 async function setup(seed: Record<string, string> = {}) {
 	const { folder, read, files } = await tempFolder(seed);
 	const data = defineData(folder, {
 		notes: {
+			description: 'note',
 			fields: {
 				title: field.text(),
 				count: field.integer({ optional: true }),
-				done: field.boolean(),
-				tags: field.list(field.text()),
+				done: field.boolean({ optional: true }),
+				tags: field.list(field.text(), { optional: true }),
 			},
 		},
-		'settings.md': {
+		settings: {
+			description: 'settings record',
 			fields: { title: field.text(), count: field.integer({ optional: true }) },
 		},
 	});
@@ -52,8 +47,6 @@ test('folder verbs read, create, patch, compute, list, and delete flat records',
 		id: 'Dune',
 		title: 'Dune',
 		body: 'Arrakis',
-		done: false,
-		tags: [],
 	});
 	expect(expectOk(await notes.get('Dune'))).toEqual(added);
 	expect(
@@ -75,34 +68,36 @@ test('folder verbs read, create, patch, compute, list, and delete flat records',
 	expect(expectOk(await notes.get('Dune'))).toBeUndefined();
 });
 
-test('one-file verbs read absent, create through patch, compute, and delete without an id', async () => {
-	const { data } = await setup();
-	const settings = data['settings.md'];
-	expect(settings).not.toHaveProperty('list');
-	expect(settings).not.toHaveProperty('create');
-	expect(settings.path()).toBe('data/settings.md');
-	expect(expectOk(await settings.get())).toBeUndefined();
-	expect(
-		expectOk(await settings.patch({ title: 'Daily', body: 'notes' })),
-	).toEqual({ path: 'data/settings.md', title: 'Daily', body: 'notes' });
-	expect(
-		expectOk(
-			await settings.edit((now) => Ok({ count: (now?.count ?? 0) + 1 })),
-		),
-	).toMatchObject({ title: 'Daily', count: 1 });
-	expect(expectOk(await settings.get())).not.toHaveProperty('id');
-	expect(expectOk(await settings.delete())).toBe(true);
-	expect(expectOk(await settings.delete())).toBe(false);
+test('one settings record is an ordinary key with a fixed id, made by edit', async () => {
+	const {
+		data: { settings },
+	} = await setup();
+	expect(settings.path('settings')).toBe('data/settings/settings.md');
+	expect(expectOk(await settings.get('settings'))).toBeUndefined();
 	let sawAbsent = false;
 	expect(
 		expectOk(
-			await settings.edit((now) => {
+			await settings.edit('settings', (now) => {
 				sawAbsent = now === undefined;
-				return Ok({ title: 'New' });
+				return Ok({ title: 'Daily', body: 'notes' });
 			}),
 		),
-	).toMatchObject({ title: 'New' });
+	).toEqual({
+		path: 'data/settings/settings.md',
+		id: 'settings',
+		title: 'Daily',
+		body: 'notes',
+	});
 	expect(sawAbsent).toBe(true);
+	expect(
+		expectOk(
+			await settings.edit('settings', (now) =>
+				Ok({ count: (now?.count ?? 0) + 1 }),
+			),
+		),
+	).toMatchObject({ title: 'Daily', count: 1 });
+	expect(expectOk(await settings.delete('settings'))).toBe(true);
+	expect(expectOk(await settings.delete('settings'))).toBe(false);
 });
 
 test('create refuses an existing file even when another create supplies identical content', async () => {
@@ -127,18 +122,21 @@ test('create refuses an existing file even when another create supplies identica
 	expect(expectOk(await notes.get('same'))).toMatchObject({ title: 'first' });
 });
 
-test('folder patch returns Missing, one-file patch creates only a fitting record, and a computed edit may create', async () => {
+test('patch returns Missing, a computed edit creates only a fitting record, and may create', async () => {
 	const { read, data } = await setup();
 	expect(expectErr(await data.notes.patch('typo', { title: 'x' })).name).toBe(
 		'Missing',
 	);
 	// A change that does not fit is Misfit, like a file that does not, with
 	// each problem and its kind, and no record.
-	expect(expectErr(await data['settings.md'].patch({ count: 1 }))).toEqual({
+	expect(
+		expectErr(await data.settings.edit('settings', () => Ok({ count: 1 }))),
+	).toEqual({
 		name: 'Misfit',
 		message:
-			'data/settings.md does not fit its fields:\ndata/settings.md: title is missing',
-		path: 'data/settings.md',
+			'data/settings/settings.md does not fit its fields:\ndata/settings/settings.md: title is missing',
+		path: 'data/settings/settings.md',
+		id: 'settings',
 		problems: [{ line: 'title is missing', kind: 'title is missing' }],
 	});
 	expect(
@@ -151,10 +149,7 @@ test('folder patch returns Missing, one-file patch creates only a fitting record
 		id: 'a',
 		problems: [{ line: 'has no field "color"', kind: 'has no such field' }],
 	});
-	expect(await read('data/settings.md')).toBeUndefined();
-	expect(expectOk(await data['settings.md'].patch({ title: 'x' })).title).toBe(
-		'x',
-	);
+	expect(await read('data/settings/settings.md')).toBeUndefined();
 	let absent = false;
 	expect(
 		expectOk(
@@ -167,12 +162,9 @@ test('folder patch returns Missing, one-file patch creates only a fitting record
 	expect(absent).toBe(true);
 });
 
-test('plain patch repairs misfits and preserves undeclared lines and body for both key shapes', async () => {
+test('plain patch repairs misfits and preserves undeclared lines and body', async () => {
 	const text = '---\ntitle: 123\nextra: unquoted\ncount: 2\n---\nkept body';
-	const { read, data } = await setup({
-		'data/notes/a.md': text,
-		'data/settings.md': text,
-	});
+	const { read, data } = await setup({ 'data/notes/a.md': text });
 	expect(expectErr(await data.notes.get('a'))).toMatchObject({
 		name: 'Misfit',
 		record: { id: 'a', count: 2, body: 'kept body' },
@@ -183,11 +175,9 @@ test('plain patch repairs misfits and preserves undeclared lines and body for bo
 		count: 2,
 		body: 'kept body',
 	});
-	expect(
-		expectOk(await data['settings.md'].patch({ title: 'fixed' })).title,
-	).toBe('fixed');
-	for (const path of ['data/notes/a.md', 'data/settings.md'])
-		expect(await read(path)).toBe(text.replace('title: 123', 'title: "fixed"'));
+	expect(await read('data/notes/a.md')).toBe(
+		text.replace('title: 123', 'title: "fixed"'),
+	);
 });
 
 test('edit returns Misfit before calling its function and patch cannot rewrite unreadable front matter', async () => {
@@ -195,27 +185,17 @@ test('edit returns Misfit before calling its function and patch cannot rewrite u
 		'---\ntitle: 123\n---\nbody',
 		'---\nnot a field\n---\nbody',
 	]) {
-		const { read, data } = await setup({
-			'data/notes/a.md': text,
-			'data/settings.md': text,
-		});
+		const { read, data } = await setup({ 'data/notes/a.md': text });
 		const change = () => {
 			throw new Error('must not call on a misfit');
 		};
 		expect(expectErr(await data.notes.edit('a', change)).name).toBe('Misfit');
-		expect(expectErr(await data['settings.md'].edit(change)).name).toBe(
-			'Misfit',
-		);
 		if (text.includes('not a field')) {
 			expect(
 				expectErr(await data.notes.patch('a', { title: 'fixed' })).name,
 			).toBe('Misfit');
-			expect(
-				expectErr(await data['settings.md'].patch({ title: 'fixed' })).name,
-			).toBe('Misfit');
 		}
 		expect(await read('data/notes/a.md')).toBe(text);
-		expect(await read('data/settings.md')).toBe(text);
 	}
 });
 
@@ -224,7 +204,10 @@ test('concurrent edits of one data file each land, each computed from the record
 		'data/counters/a.md': '---\nn: 0\n---\n',
 	});
 	const { counters } = defineData(folder, {
-		counters: { fields: { n: field.integer({ optional: true }) } },
+		counters: {
+			description: 'counter',
+			fields: { n: field.integer({ optional: true }) },
+		},
 	});
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
@@ -242,21 +225,21 @@ test('computed refusals and faults leave a fitting file unchanged', async () => 
 	await data.notes.create('a', { title: 'a' });
 	const refusal = ActionError.Refused({ message: 'stop' });
 	expect(await data.notes.edit('a', () => refusal)).toBe(refusal);
-	expect(await data['settings.md'].edit(() => refusal)).toBe(refusal);
+	expect(await data.notes.edit('b', () => refusal)).toBe(refusal);
 	await expect(
 		data.notes.edit('a', () => {
 			throw new Error('fault');
 		}),
 	).rejects.toThrow('fault');
-	// A thrown refusal on an absent one-file key escapes as the same object.
-	const thrown = await data['settings.md']
-		.edit(() => {
+	// A thrown refusal on an absent record escapes as the same object.
+	const thrown = await data.notes
+		.edit('b', () => {
 			throw refusal.error;
 		})
 		.catch((cause: unknown) => cause);
 	expect(thrown).toBe(refusal.error);
 	expect(expectOk(await data.notes.get('a'))?.title).toBe('a');
-	expect(expectOk(await data['settings.md'].get())).toBeUndefined();
+	expect(expectOk(await data.notes.get('b'))).toBeUndefined();
 });
 
 // Each refusal happens before any folder operation; path checks nothing.
@@ -289,7 +272,7 @@ test.each(invalidIds)(
 			delete: untouched,
 		};
 		const { notes } = defineData(guarded, {
-			notes: { fields: { title: field.text() } },
+			notes: { description: 'note', fields: { title: field.text() } },
 		});
 		for (const result of [
 			await notes.get(id),
@@ -352,21 +335,15 @@ test.each([
 	},
 );
 
-test('a Misfit carries the id of a folder record and none for a one-file key', async () => {
+test('a Misfit carries the id of its record', async () => {
 	const text = '---\ntitle: 123\n---\nbody';
-	const { data } = await setup({
-		'data/notes/a.md': text,
-		'data/settings.md': text,
-	});
+	const { data } = await setup({ 'data/notes/a.md': text });
 	expect(expectErr(await data.notes.get('a'))).toMatchObject({
 		name: 'Misfit',
 		path: 'data/notes/a.md',
 		id: 'a',
 	});
 	expect(expectErr((await data.notes.list())[0] ?? Ok(null)).id).toBe('a');
-	const single = expectErr(await data['settings.md'].get());
-	expect(single.path).toBe('data/settings.md');
-	expect(single).not.toHaveProperty('id');
 });
 
 test('ids retain internal spaces, case, NFC accents, and the byte limit', async () => {
@@ -400,20 +377,20 @@ test.each([
 	'two/parts',
 	'notes.txt',
 	'notes.local',
-	'notes.local.md',
-	'notes.md.local',
 	'notes.local.local',
 	'.local',
 	'',
 	'1notes',
 ])('definitions refuse the data key %j', (key) => {
-	expect(() => defineData(unusedFolder, { [key]: { fields: {} } })).toThrow(
-		JSON.stringify(key),
-	);
+	expect(() =>
+		defineData(unusedFolder, { [key]: { description: 'x', fields: {} } }),
+	).toThrow(JSON.stringify(key));
 });
 test.each(['path', 'body', 'id'])('definitions reserve the field %s', (key) => {
 	expect(() =>
-		defineData(unusedFolder, { notes: { fields: { [key]: field.text() } } }),
+		defineData(unusedFolder, {
+			notes: { description: 'note', fields: { [key]: field.text() } },
+		}),
 	).toThrow(`"${key}"`);
 });
 
@@ -421,65 +398,51 @@ test('a field may be named edit, old, or new, since no verb folds a passage besi
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
+				description: 'note',
 				fields: { edit: field.text(), old: field.text(), new: field.text() },
 			},
 		}),
 	).not.toThrow();
 });
 
-test.each(['folder', 'one-file'] as const)(
-	'%s passage edit replaces exactly one occurrence and refuses a missing, repeated, or empty passage without writing',
-	async (kind) => {
-		const path = kind === 'folder' ? 'data/notes/a.md' : 'data/settings.md';
-		const text = '---\ntitle: "a"\n---\none two two';
-		const { read, data } = await setup({ [path]: text });
-		const edit = (passage: { old: string; new: string }) =>
-			kind === 'folder'
-				? data.notes.edit('a', passage)
-				: data['settings.md'].edit(passage);
-		expect(expectErr(await edit({ old: 'three', new: 'x' }))).toMatchObject({
-			name: 'Changed',
-			cause: 'quote',
-			path,
-		});
-		expect(expectErr(await edit({ old: 'two', new: 'x' }))).toMatchObject({
-			name: 'Changed',
-			cause: 'twice',
-			path,
-		});
-		expect(expectErr(await edit({ old: '', new: 'x' })).name).toBe('Misfit');
-		expect(await read(path)).toBe(text);
-		expect(expectOk(await edit({ old: 'one', new: 'ONE' })).body).toBe(
-			'ONE two two',
-		);
-	},
-);
+test('a passage edit replaces exactly one occurrence and refuses a missing, repeated, or empty passage without writing', async () => {
+	const path = 'data/notes/a.md';
+	const text = '---\ntitle: "a"\n---\none two two';
+	const { read, data } = await setup({ [path]: text });
+	const edit = (passage: { old: string; new: string }) =>
+		data.notes.edit('a', passage);
+	expect(expectErr(await edit({ old: 'three', new: 'x' }))).toMatchObject({
+		name: 'Changed',
+		cause: 'quote',
+		path,
+	});
+	expect(expectErr(await edit({ old: 'two', new: 'x' }))).toMatchObject({
+		name: 'Changed',
+		cause: 'twice',
+		path,
+	});
+	expect(expectErr(await edit({ old: '', new: 'x' })).name).toBe('Misfit');
+	expect(await read(path)).toBe(text);
+	expect(expectOk(await edit({ old: 'one', new: 'ONE' })).body).toBe(
+		'ONE two two',
+	);
+});
 
-test('a passage edit of an absent file is Missing for folder and one-file keys, and writes nothing', async () => {
+test('a passage edit of an absent file is Missing, and writes nothing', async () => {
 	const { files, data } = await setup();
 	expect(
 		expectErr(await data.notes.edit('a', { old: 'x', new: 'y' })),
 	).toMatchObject({ name: 'Missing', path: 'data/notes/a.md' });
-	expect(
-		expectErr(await data['settings.md'].edit({ old: 'x', new: 'y' })),
-	).toMatchObject({ name: 'Missing', path: 'data/settings.md' });
 	expect(await files('data')).toEqual([]);
 });
 
 test('a passage edit of a misfit returns the Misfit before any change', async () => {
 	const text = '---\ntitle: 123\n---\nold body';
-	const { read, data } = await setup({
-		'data/notes/a.md': text,
-		'data/settings.md': text,
-	});
+	const { read, data } = await setup({ 'data/notes/a.md': text });
 	expect(
 		expectErr(await data.notes.edit('a', { old: 'old', new: 'new' })).name,
 	).toBe('Misfit');
-	expect(
-		expectErr(await data['settings.md'].edit({ old: 'old', new: 'new' })).name,
-	).toBe('Misfit');
 	expect(await read('data/notes/a.md')).toBe(text);
-	expect(await read('data/settings.md')).toBe(text);
 });
 
 test.each([
@@ -501,11 +464,9 @@ test.each([
 	const { data } = await setup({
 		'data/notes/a.md': '---\ntitle: "a"\n---\nx',
 	});
-	for (const result of [
-		await data.notes.edit('a', change as never),
-		await data['settings.md'].edit(change as never),
-	])
-		expect(expectErr(result).name).toBe('Misfit');
+	expect(expectErr(await data.notes.edit('a', change as never)).name).toBe(
+		'Misfit',
+	);
 });
 
 test('list reads only directly contained Markdown files with valid ids, sorted by path', async () => {
@@ -553,7 +514,9 @@ test('definitions refuse cyclic schemas before they can break discovery', () => 
 	};
 	schema.properties.self = schema;
 	expect(() =>
-		defineData(unusedFolder, { records: { fields: { value: schema } } }),
+		defineData(unusedFolder, {
+			records: { description: 'record', fields: { value: schema } },
+		}),
 	).toThrow(TypeError);
 });
 
@@ -561,6 +524,7 @@ test('definitions refuse readOnly fields', () => {
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
+				description: 'note',
 				fields: {
 					created: Type.String({ format: 'date-time', readOnly: true }),
 				},
@@ -573,11 +537,12 @@ test('handles write refs as given without opening the referenced file', async ()
 	// A file where the target's folder would be: opening anything in it throws.
 	const { folder } = await tempFolder({ 'data/watches': 'not a folder' });
 	const data = defineData(folder, {
-		watches: { fields: {} },
+		watches: { description: 'watch', fields: {} },
 		checks: {
+			description: 'check',
 			fields: {
 				watch: field.ref('watches'),
-				many: field.list(field.ref('watches')),
+				many: field.list(field.ref('watches'), { optional: true }),
 				count: field.integer(),
 			},
 		},
@@ -596,29 +561,20 @@ test('handles write refs as given without opening the referenced file', async ()
 	expect(expectOk(await data.checks.get('a'))?.watch).toBe('also-missing');
 });
 
-test('data refs validate their target at runtime', () => {
-	for (const target of ['missing', 'settings.md']) {
-		// Dynamic schemas exercise runtime validation without bypassing the public types.
-		const ref = Type.String({ 'x-epicenter-ref': { key: target } });
+test('defineData refuses a ref to a key it does not declare, in a list or optional too', () => {
+	for (const target of [
+		field.ref('missing'),
+		field.list(field.ref('missing')),
+		field.ref('missing', { optional: true }),
+	])
 		expect(() =>
 			defineData(unusedFolder, {
-				notes: { fields: { ref } },
-				'settings.md': { fields: {} },
+				notes: { description: 'note', fields: { target } },
+				settings: { description: 'settings record', fields: {} },
 			}),
-		).toThrow(target);
-	}
-});
-
-test('timeId preserves the UTC ISO stamp and adds exactly eight lowercase base36 characters', () => {
-	const at = new Date('2026-11-16T09:12:04.120Z');
-	const ids = Array.from({ length: 100 }, () => timeId(at));
-	expect(
-		ids.every((id) => /^2026-11-16T09-12-04-120Z-[a-z0-9]{8}$/.test(id)),
-	).toBe(true);
-	expect(new Set(ids).size).toBe(100);
-	expect(
-		ids.every((id) => timeId(new Date('2026-11-16T09:12:04.121Z')) > id),
-	).toBe(true);
+		).toThrow(
+			'The data key notes\'s field "target" refers to "missing", which must name a key in this defineData',
+		);
 });
 
 test('a write rewrites only the lines it names, in the form the writer gives them', async () => {
@@ -630,48 +586,108 @@ test('a write rewrites only the lines it names, in the form the writer gives the
 	expect(await read('data/notes/a.md')).toBe(
 		'---\ntitle: "a"\ntags: ["x","y"]\ndone: true\n---\nbody',
 	);
-	// A spread names every field, so tags is written again, though its value is the same.
-	expectOk(await data.notes.edit('a', (record) => Ok({ ...record })));
+	// A field named in the change is written again, though its value is the same.
+	expectOk(await data.notes.edit('a', (record) => Ok({ tags: record?.tags })));
 	expect(await read('data/notes/a.md')).toBe(
 		'---\ntitle: "a"\ntags: ["x", "y"]\ndone: true\n---\nbody',
 	);
 });
 
 test('a write gives a file without front matter its fences, and an empty change writes nothing', async () => {
-	const { read, data } = await setup({ 'data/settings.md': 'old text' });
-	expectErr(await data['settings.md'].patch({}));
-	expect(await read('data/settings.md')).toBe('old text');
-	expectOk(await data['settings.md'].patch({ title: 'T', body: 'new text' }));
-	expect(await read('data/settings.md')).toBe('---\ntitle: "T"\n---\nnew text');
+	const { read, data } = await setup({
+		'data/settings/settings.md': 'old text',
+	});
+	expectErr(await data.settings.patch('settings', {}));
+	expect(await read('data/settings/settings.md')).toBe('old text');
+	expectOk(
+		await data.settings.patch('settings', { title: 'T', body: 'new text' }),
+	);
+	expect(await read('data/settings/settings.md')).toBe(
+		'---\ntitle: "T"\n---\nnew text',
+	);
 });
 
-test('edit accepts a whole record spread without storing its path or id as fields', async () => {
+test('patch and edit refuse a change that names path or id in one wording, and write nothing', async () => {
 	const { read, data } = await setup();
 	await data.notes.create('a', { title: 'first' });
-	await data['settings.md'].patch({ title: 'first' });
+	const before = await read('data/notes/a.md');
+	const refusal = (named: string) => ({
+		name: 'Misfit',
+		problems: [
+			{
+				line: `the change names ${named}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
+			},
+		],
+	});
 	expect(
-		expectOk(
+		expectErr(
 			await data.notes.edit('a', (record) =>
 				Ok({ ...record, title: 'second' }),
 			),
-		).title,
-	).toBe('second');
+		),
+	).toMatchObject(refusal('path and id'));
 	expect(
-		expectOk(
-			await data['settings.md'].edit((record) =>
-				Ok({ ...record, title: 'second' }),
-			),
-		).title,
+		expectErr(await data.notes.patch('a', { id: 'b' } as { title?: string })),
+	).toMatchObject(refusal('id'));
+	expect(await read('data/notes/a.md')).toBe(before);
+	expect(
+		expectOk(await data.notes.edit('a', () => Ok({ title: 'second' }))).title,
 	).toBe('second');
-	const text = await read('data/notes/a.md');
-	expect(text).not.toContain('path:');
-	expect(text).not.toContain('id:');
+});
+
+test('edit of an absent record that returns an empty change makes it, as create with no fields does', async () => {
+	const { folder, read } = await tempFolder();
+	const data = defineData(folder, {
+		marks: {
+			description: 'mark',
+			fields: { note: field.text({ optional: true }) },
+		},
+	});
+	expect(expectOk(await data.marks.edit('a', () => Ok({})))).toEqual({
+		path: 'data/marks/a.md',
+		id: 'a',
+		body: '',
+	});
+	expectOk(await data.marks.create('b', {}));
+	expect(await read('data/marks/a.md')).toBe(await read('data/marks/b.md'));
+	// On a record that is there, the same empty change leaves the file alone.
+	const before = await read('data/marks/a.md');
+	expectOk(await data.marks.edit('a', () => Ok({})));
+	expect(await read('data/marks/a.md')).toBe(before);
+});
+
+test('a key named like a file says every key is a folder now, and what to write', () => {
+	expect(() =>
+		defineData(unusedFolder, {
+			'settings.md': { description: 'settings record', fields: {} },
+		}),
+	).toThrow(
+		'The data key "settings.md" must be a name: every key is a folder of records now, so write "settings", give the one record a fixed id, and move data/settings.md to data/settings/<id>.md',
+	);
+});
+
+test('definitions name a key with no description or no fields', () => {
+	expect(() =>
+		defineData(unusedFolder, {
+			notes: { fields: {} } as unknown as { description: string; fields: {} },
+		}),
+	).toThrow(
+		'The data key notes needs a description: what one record is, such as "task"',
+	);
+	expect(() =>
+		defineData(unusedFolder, {
+			notes: { description: 'note' } as { description: string; fields: {} },
+		}),
+	).toThrow(
+		'The data key notes needs fields: an object of field schemas, {} for none',
+	);
 });
 
 test('data definitions refuse defaults', () => {
 	expect(() =>
 		defineData(unusedFolder, {
 			notes: {
+				description: 'note',
 				fields: {
 					nested: Type.Object({ number: Type.Number({ default: 1 }) }),
 				},
@@ -684,7 +700,9 @@ test.skipIf(!foldsCase)(
 	'create refuses a name the disk already holds under another case',
 	async () => {
 		const { folder, read } = await tempFolder();
-		const { notes } = defineData(folder, { notes: { fields: {} } });
+		const { notes } = defineData(folder, {
+			notes: { description: 'note', fields: {} },
+		});
 		expect(expectOk(await notes.create('Dune', { body: 'first' })).body).toBe(
 			'first',
 		);

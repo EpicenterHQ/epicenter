@@ -1,76 +1,45 @@
 import { type TSchema, Type } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import { type Action, defineAction } from './action.ts';
+import { type Action, defineAction, type Flat } from './action.ts';
 import type {
+	AnyHandle,
 	Change,
 	Changed,
 	DataDef,
 	DataRecord,
-	Flat,
-	Handle,
-	Input,
 	Misfit,
 	Missing,
+	NewRecord,
 	Passage,
 	Unfit,
 	WriteError,
 } from './data.ts';
 import { ActionError } from './errors.ts';
 import { field, isOptional } from './field.ts';
-import { timeId } from './time.ts';
 
-type Verb = 'list' | 'get' | 'create' | 'patch' | 'edit' | 'delete';
-/** A one-file key offers no list or create. */
-export type Offered<TKey extends string> = TKey extends `${string}.md`
-	? Exclude<Verb, 'list' | 'create'>
-	: Verb;
-/** The id a change sits beside: none for a one-file key. */
-type IdOf<TKey extends string> = TKey extends `${string}.md`
-	? unknown
-	: { id: string };
-type ActionInput<
-	TKey extends string,
-	TDef extends DataDef,
-	TVerb extends Verb,
-> = TVerb extends 'list'
-	? Record<string, never>
-	: TVerb extends 'create'
-		? Flat<{ id?: string } & Input<TDef['fields']>>
-		: TVerb extends 'patch'
-			? Flat<IdOf<TKey> & Change<TDef['fields']>>
-			: TVerb extends 'edit'
-				? Flat<IdOf<TKey> & Passage>
-				: TKey extends `${string}.md`
-					? Record<string, never>
-					: { id: string };
-type ActionOutput<
-	TKey extends string,
-	TDef extends DataDef,
-	TVerb extends Verb,
-> = {
-	list: Result<Result<DataRecord<TKey, TDef>, Misfit<TKey, TDef>>[], never>;
-	get: Result<
-		DataRecord<TKey, TDef> | (TKey extends `${string}.md` ? undefined : never),
-		Misfit<TKey, TDef> | (TKey extends `${string}.md` ? never : Unfit | Missing)
-	>;
-	create: Result<DataRecord<TKey, TDef>, Unfit | Changed>;
-	patch: Result<
-		DataRecord<TKey, TDef>,
-		WriteError<TKey, TDef> | (TKey extends `${string}.md` ? never : Missing)
-	>;
-	edit: Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | Missing>;
-	delete: Result<boolean, TKey extends `${string}.md` ? never : Unfit>;
+export type Verb = 'list' | 'get' | 'create' | 'patch' | 'edit' | 'delete';
+type ActionInput<TDef extends DataDef, TVerb extends Verb> = {
+	list: Record<string, never>;
+	get: { id: string };
+	create: Flat<{ id: string } & NewRecord<TDef['fields']>>;
+	patch: Flat<{ id: string } & Change<TDef['fields']>>;
+	edit: Flat<{ id: string } & Passage>;
+	delete: { id: string };
+}[TVerb];
+type ActionOutput<TDef extends DataDef, TVerb extends Verb> = {
+	list: Result<Result<DataRecord<TDef>, Misfit<TDef>>[], never>;
+	get: Result<DataRecord<TDef>, Misfit<TDef> | Unfit | Missing>;
+	create: Result<DataRecord<TDef>, Unfit | Changed>;
+	patch: Result<DataRecord<TDef>, WriteError<TDef> | Missing>;
+	edit: Result<DataRecord<TDef>, WriteError<TDef> | Missing>;
+	delete: Result<boolean, Unfit>;
 }[TVerb];
 
 /** Each named verb's action, retaining its input and Result types. */
-export type DataActions<
-	TKey extends string,
-	TDef extends DataDef,
-	TVerb extends Verb,
-> = {
+export type DataActions<TDef extends DataDef, TVerb extends Verb> = {
 	[V in TVerb]: Action<
-		ActionInput<TKey, TDef, V>,
-		Promise<ActionOutput<TKey, TDef, V>>,
+		ActionInput<TDef, V>,
+		Promise<ActionOutput<TDef, V>>,
 		never
 	>;
 };
@@ -82,7 +51,7 @@ export type DataActions<
 export function dataActions(
 	key: string,
 	def: DataDef,
-	handle: Handle,
+	handle: AnyHandle,
 	verbs: string[],
 ) {
 	if (!verbs.length)
@@ -92,24 +61,16 @@ export function dataActions(
 	);
 }
 
-function dataAction(key: string, def: DataDef, handle: Handle, verb: Verb) {
-	const keyed = 'list' in handle;
-	const what = (def.description ?? `${key} file`).replace(
-		/^(?:a|an|the)\s+/i,
-		'',
-	);
-	// Text, not field.id: the handle's Misfit names the problem with the key.
+function dataAction(key: string, def: DataDef, handle: AnyHandle, verb: Verb) {
+	const what = def.description;
+	// Plain text: the handle refuses an id that cannot name a file, and its Misfit says why.
 	const id = field.text({ description: `The name of the ${what}` });
-	const keys: Record<string, typeof id> = keyed ? { id } : {};
 	const hints = { openWorldHint: false } as const;
 	const body = Type.Optional(
 		Type.String({ description: 'The text after the front matter' }),
 	);
-	const offersNo = () =>
-		new Error(`The data key ${key} offers no action "${verb}"`);
 	switch (verb) {
 		case 'list':
-			if (!keyed) throw offersNo();
 			return defineAction({
 				description: `Every ${what}: one result per file with its path, fields, and body; a file that does not fit its fields is an error beside the records`,
 				input: {},
@@ -119,35 +80,27 @@ function dataAction(key: string, def: DataDef, handle: Handle, verb: Verb) {
 		case 'get':
 			return defineAction({
 				description: `Read one ${what}: its fields and body; a file that does not fit its fields is an error`,
-				input: keys,
+				input: { id },
 				annotations: { readOnlyHint: true, ...hints },
 				run: async ({ id }) => {
-					const found = await (keyed ? handle.get(id as string) : handle.get());
-					if (keyed && found.error === null && found.data === undefined)
-						return ActionError.Missing({ path: handle.path(id as string) });
+					const found = await handle.get(id);
+					if (found.error === null && found.data === undefined)
+						return ActionError.Missing({ path: handle.path(id) });
 					return found;
 				},
 			});
 		case 'create':
-			if (!keyed) throw offersNo();
 			return defineAction({
-				description: `Make a new ${what}, named by id or, without one, by the moment it is made; Changed (there) when one is already at its path. A caller that may retry should send an id, so a repeat answers Changed (there) instead of making a second`,
-				input: {
-					id: field.text({
-						optional: true,
-						description: `The name of the new ${what}; left out, it is named by the moment it is made`,
-					}),
-					...def.fields,
-					body,
-				},
+				description: `Make a new ${what} named by id; Changed (there) when one is already at its path, so a repeat makes no second`,
+				input: { id, ...def.fields, body },
 				annotations: {
 					readOnlyHint: false,
 					destructiveHint: false,
-					// Without an id, each call makes another record.
-					idempotentHint: false,
+					// A repeat with the same id answers Changed (there) and writes nothing.
+					idempotentHint: true,
 					...hints,
 				},
-				run: ({ id, ...record }) => handle.create(id ?? timeId(), record),
+				run: ({ id, ...record }) => handle.create(id, record),
 			});
 		case 'patch': {
 			const patch: Record<string, TSchema> = {};
@@ -164,28 +117,22 @@ function dataAction(key: string, def: DataDef, handle: Handle, verb: Verb) {
 				);
 			}
 			return defineAction({
-				description: keyed
-					? `Change one ${what}: the fields given, keeping the rest (null removes one that may be absent), and body, which replaces the whole body. A missing ${what} answers Missing and is never made`
-					: `Change the ${what}: the fields given, keeping the rest (null removes one that may be absent), and body, which replaces the whole body. The file is made when it is absent`,
-				input: { ...keys, ...patch, body },
+				description: `Change one ${what}: the fields given, keeping the rest (null removes one that may be absent), and body, which replaces the whole body. A missing ${what} answers Missing and is never made`,
+				input: { id, ...patch, body },
 				annotations: {
 					readOnlyHint: false,
 					destructiveHint: true,
 					idempotentHint: true,
 					...hints,
 				},
-				run: (input) => {
-					// The dynamic keys schema supplies id only for folder keys.
-					const { id, ...change } = input as typeof input & { id: string };
-					return keyed ? handle.patch(id, change) : handle.patch(change);
-				},
+				run: ({ id, ...change }) => handle.patch(id, change),
 			});
 		}
 		case 'edit':
 			return defineAction({
-				description: `Replace exactly one occurrence of old in the body of ${keyed ? `one ${what}` : `the ${what}`} with new; Changed when old is not there or is there more than once, and Missing when the ${what} is absent. Not safe to repeat: a second call edits the result of the first`,
+				description: `Replace exactly one occurrence of old in the body of one ${what} with new; Changed when old is not there or is there more than once, and Missing when the ${what} is absent. Not safe to repeat: a second call edits the result of the first`,
 				input: {
-					...keys,
+					id,
 					old: Type.String({
 						minLength: 1,
 						description:
@@ -199,32 +146,22 @@ function dataAction(key: string, def: DataDef, handle: Handle, verb: Verb) {
 					idempotentHint: false,
 					...hints,
 				},
-				run: (input) => {
-					const {
-						id,
-						old,
-						new: replacement,
-					} = input as typeof input & {
-						id: string;
-					};
-					const passage = { old, new: replacement };
-					return keyed ? handle.edit(id, passage) : handle.edit(passage);
-				},
+				run: ({ id, old, new: replacement }) =>
+					handle.edit(id, { old, new: replacement }),
 			});
 		case 'delete':
 			return defineAction({
 				description: `Delete one ${what}; true when there was one`,
-				input: keys,
+				input: { id },
 				annotations: {
 					readOnlyHint: false,
 					destructiveHint: true,
 					idempotentHint: true,
 					...hints,
 				},
-				run: ({ id }) =>
-					keyed ? handle.delete(id as string) : handle.delete(),
+				run: ({ id }) => handle.delete(id),
 			});
 		default:
-			throw offersNo();
+			throw new Error(`The data key ${key} offers no action "${verb}"`);
 	}
 }

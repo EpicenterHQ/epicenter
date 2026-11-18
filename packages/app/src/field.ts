@@ -4,35 +4,27 @@
  * Every caller gives an action's input as one JSON object whose keys are its
  * fields; MCP shows each as a property of the tool's input.
  *
- * A field is required unless it says `optional`. A switch (`boolean`) is
- * never required, and an absent one is `false`. A list (`list`) is not
- * required, and an absent one is empty, unless it says `min` of 1 or more:
- * then `[]` would not fit, so it is required like any other field. That is a
- * rule of these two helpers, which mark their schema with its kind
- * (`absentValue`); no field carries a JSON Schema `default`, and a definition
- * that has one is refused (`defaultIn`). Fields describe data; an action
- * declares private input handling separately.
+ * Every field is required unless it says `optional`, and an absent optional
+ * field stays absent: nothing is filled in. The code that reads a value
+ * writes its default, as `({ done = false, tags = [] })`. No field carries a
+ * JSON Schema `default`, and a definition that has one is refused
+ * (`defaultIn`). Fields describe data; an action declares private input
+ * handling separately.
  */
 import {
-	type TArray,
-	type TBoolean,
 	type TLiteral,
 	type TOptional,
 	type TSchema,
-	type TString,
 	type TUnion,
 	Type,
 } from 'typebox';
 import { Value } from 'typebox/value';
 
+/** What every field helper takes: a description, and whether it may be absent. */
 type Options = {
 	description?: string;
+	optional?: boolean;
 };
-
-type MaybeOptional = Options & { optional?: boolean };
-
-/** `O`, with each option `Allowed` does not declare typed `never`, so `field.integer({ default: 50 })` is a type error. */
-type Only<O, Allowed> = O & { [K in Exclude<keyof O, keyof Allowed>]: never };
 
 /**
  * Throw when `options` names one `helper` does not declare, so it is never
@@ -43,6 +35,13 @@ function only(
 	options: object | undefined,
 	declared: readonly string[],
 ): void {
+	if (
+		options !== undefined &&
+		(typeof options !== 'object' || options === null || Array.isArray(options))
+	)
+		throw new Error(
+			`field.${helper} takes its options as an object, such as { optional: true }, not ${JSON.stringify(options)}`,
+		);
 	for (const key of Object.keys(options ?? {})) {
 		if (declared.includes(key)) continue;
 		throw new Error(
@@ -53,30 +52,8 @@ function only(
 	}
 }
 
-const OPTIONS = ['description'] as const;
-const MAYBE_OPTIONAL = [...OPTIONS, 'optional'] as const;
-const BOUNDED = [...MAYBE_OPTIONAL, 'min', 'max'] as const;
-
-/**
- * The JSON Schema keyword `field.boolean` and `field.list` mark their schema
- * with: `"x-epicenter-field": "switch"` or `"list"`. It names the field's
- * kind, not a value; `absentValue` holds what that kind means when absent.
- */
-const KIND = 'x-epicenter-field';
-
-/**
- * What a field reads as when its key is absent: `false` for `field.boolean`,
- * `[]` for a `field.list` with no `min`, and `undefined` for every other
- * field, a list that needs an item included. A read of a file and a call of
- * an action both use it, so the two agree.
- */
-export function absentValue(schema: unknown): false | [] | undefined {
-	if (typeof schema !== 'object' || schema === null) return undefined;
-	const { [KIND]: kind, minItems } = schema as Record<string, unknown>;
-	if (kind === 'switch') return false;
-	if (kind === 'list' && !minItems) return [];
-	return undefined;
-}
+const OPTIONS = ['description', 'optional'] as const;
+const BOUNDED = [...OPTIONS, 'min', 'max'] as const;
 
 /**
  * One object whose keys are fields, as plain JSON Schema: each field under
@@ -142,30 +119,8 @@ export type OptionalKeys<F> = {
 	[K in keyof F]: F[K] extends { '~optional': true } ? K : never;
 }[keyof F];
 
-/**
- * The keys of `F` that are a switch or a list that may be empty, which a read
- * and an action's `run` always have. A list with a `min` is required, so it is
- * there as any required field is.
- */
-export type FilledKeys<F> = {
-	[K in keyof F]: F[K] extends { [KIND]: 'switch' | 'list'; '~optional': true }
-		? K
-		: never;
-}[keyof F];
-
-/** A switch: `false` unless its key is given, or is in the file. */
-export type TSwitch = TOptional<TBoolean> & { [KIND]: 'switch' };
-
-/** A list of `T`: empty unless given. */
-export type TList<T extends TSchema> = TOptional<TArray<T>> & {
-	[KIND]: 'list';
-};
-
 /** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a folder key>" } }`. */
 const REF = 'x-epicenter-ref';
-
-/** A data ref retains its target key for declaration-time checking. */
-type RefSchema<TTarget extends string> = TString & { [REF]: { key: TTarget } };
 
 /** The folder key named by a data ref, or undefined for another field. */
 export function refKeyOf(schema: unknown): string | undefined {
@@ -175,40 +130,12 @@ export function refKeyOf(schema: unknown): string | undefined {
 	return typeof key === 'string' ? key : undefined;
 }
 
-/** A list that needs at least one item: required, and never filled when absent. */
-export type TRequiredList<T extends TSchema> = TArray<T> & { [KIND]: 'list' };
-
 type ListOptions = Options & {
-	/** The fewest items it holds; 1 or more makes it required, since `[]` would not fit. */
+	/** The fewest items it holds. */
 	min?: number;
 };
 
-/** A list of `item`: optional and empty unless given, or required with at least `min` items. */
-function list<const T extends TSchema, const O extends ListOptions>(
-	item: T,
-	options?: Only<O, ListOptions>,
-) {
-	only('list', options, [...OPTIONS, 'min']);
-	const min = options?.min ?? 0;
-	if (!Number.isInteger(min) || min < 0)
-		throw new Error(
-			`field.list's min must be a whole number of at least 0, not ${min}`,
-		);
-	const array = Type.Array(item, {
-		...schemaOptions(options),
-		...(min > 0 ? { minItems: min } : {}),
-		[KIND]: 'list',
-	});
-	return (min > 0 ? array : Type.Optional(array)) as unknown as O extends {
-		min: infer M extends number;
-	}
-		? M extends 0
-			? TList<T>
-			: TRequiredList<T>
-		: TList<T>;
-}
-
-function maybeOptional<T extends TSchema, O extends MaybeOptional>(
+function maybeOptional<T extends TSchema, O extends Options>(
 	schema: T,
 	options: O | undefined,
 ): Optionally<T, O> {
@@ -241,10 +168,8 @@ export const field = {
 	 * a `description` that reads after "must be", since that is how a refusal
 	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
 	 */
-	text: <const O extends MaybeOptional & { pattern?: string }>(
-		options?: Only<O, MaybeOptional & { pattern?: string }>,
-	) => {
-		only('text', options, [...MAYBE_OPTIONAL, 'pattern']);
+	text: <const O extends Options & { pattern?: string }>(options?: O) => {
+		only('text', options, [...OPTIONS, 'pattern']);
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
@@ -255,9 +180,7 @@ export const field = {
 	},
 
 	/** A number, at least `min` and at most `max` when they are given. */
-	number: <const O extends MaybeOptional & Bounds>(
-		options?: Only<O, MaybeOptional & Bounds>,
-	) => {
+	number: <const O extends Options & Bounds>(options?: O) => {
 		only('number', options, BOUNDED);
 		return maybeOptional(
 			Type.Number({ ...schemaOptions(options), ...bounds(options) }),
@@ -266,9 +189,7 @@ export const field = {
 	},
 
 	/** A whole number, at least `min` and at most `max` when they are given. */
-	integer: <const O extends MaybeOptional & Bounds>(
-		options?: Only<O, MaybeOptional & Bounds>,
-	) => {
+	integer: <const O extends Options & Bounds>(options?: O) => {
 		only('integer', options, BOUNDED);
 		return maybeOptional(
 			Type.Integer({ ...schemaOptions(options), ...bounds(options) }),
@@ -277,10 +198,8 @@ export const field = {
 	},
 
 	/** A moment, written RFC 3339 with an offset (`2026-11-10T22:41:05+08:00`): JSON Schema's `format: 'date-time'`. */
-	datetime: <const O extends MaybeOptional>(
-		options?: Only<O, MaybeOptional>,
-	) => {
-		only('datetime', options, MAYBE_OPTIONAL);
+	datetime: <const O extends Options>(options?: O) => {
+		only('datetime', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date-time' }),
 			options,
@@ -288,8 +207,8 @@ export const field = {
 	},
 
 	/** A day, written `2026-11-08`: JSON Schema's `format: 'date'`, which TypeBox checks, so `2026-13-45` is refused. */
-	date: <const O extends MaybeOptional>(options?: Only<O, MaybeOptional>) => {
-		only('date', options, MAYBE_OPTIONAL);
+	date: <const O extends Options>(options?: O) => {
+		only('date', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date' }),
 			options,
@@ -299,12 +218,12 @@ export const field = {
 	/** One of `values`, as `field.select(['archive', 'trash'])`. */
 	select: <
 		const V extends readonly [string, ...string[]],
-		const O extends MaybeOptional,
+		const O extends Options,
 	>(
 		values: V,
-		options?: Only<O, MaybeOptional>,
+		options?: O,
 	) => {
-		only('select', options, MAYBE_OPTIONAL);
+		only('select', options, OPTIONS);
 		return maybeOptional(
 			Type.Union(
 				values.map((value) => Type.Literal(value)),
@@ -314,35 +233,44 @@ export const field = {
 		);
 	},
 
-	/** A switch: `false` unless given, and never required. */
-	boolean: <const O extends Options>(options?: Only<O, Options>) => {
+	/** True or false. */
+	boolean: <const O extends Options>(options?: O) => {
 		only('boolean', options, OPTIONS);
-		return Type.Optional(
-			Type.Boolean({ ...schemaOptions(options), [KIND]: 'switch' }),
-		) as unknown as TSwitch;
+		return maybeOptional(Type.Boolean(schemaOptions(options)), options);
 	},
 
 	/**
-	 * A list of any field: `field.list(field.select(['x', 'threads']))`. It is
-	 * not required, and reads as `[]` when absent. `{ min: 1 }` makes it need
-	 * at least one item: then it is required, and an absent one is missing.
+	 * A list of any field: `field.list(field.select(['x', 'threads']))`.
+	 * `{ min: 1 }` makes it need at least one item when it is given.
 	 */
-	list,
+	list: <const T extends TSchema, const O extends ListOptions>(
+		item: T,
+		options?: O,
+	) => {
+		only('list', options, [...OPTIONS, 'min']);
+		const min = options?.min ?? 0;
+		if (!Number.isInteger(min) || min < 0)
+			throw new Error(
+				`field.list's min must be a whole number of at least 0, not ${min}`,
+			);
+		return maybeOptional(
+			Type.Array(item, {
+				...schemaOptions(options),
+				...(min > 0 ? { minItems: min } : {}),
+			}),
+			options,
+		);
+	},
 
 	/**
-	 * One id in a folder key of the same `defineData`: text that `check`
-	 * confirms names a file there. Reads open no other file.
+	 * One id in another key of the same `defineData`: text that `check`
+	 * confirms names a file there. Reads open no other file. `defineData`
+	 * refuses a target that is not one of its keys.
 	 */
-	ref: <const TTarget extends string, const O extends MaybeOptional>(
-		target: TTarget,
-		options?: Only<O, MaybeOptional>,
-	) => {
-		only('ref', options, MAYBE_OPTIONAL);
+	ref: <const O extends Options>(target: string, options?: O) => {
+		only('ref', options, OPTIONS);
 		return maybeOptional(
-			Type.String({
-				...schemaOptions(options),
-				[REF]: { key: target },
-			}) as RefSchema<TTarget>,
+			Type.String({ ...schemaOptions(options), [REF]: { key: target } }),
 			options,
 		);
 	},

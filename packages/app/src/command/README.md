@@ -585,7 +585,7 @@ stdout is their `{ data, error }`, and the exit code follows the same rule.
 `serve` prints no answer while it serves; a serve that cannot start answers
 `NotStarted`, and `serve --json` is refused.
 
-A one-file data key's `patch` makes its file when it is absent, so `epicenter vocab patch-settings '{"goal":20}'` works on a fresh install. A folder key's `patch` answers `Missing` for an absent record and never makes one. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
+A data key's `patch` answers `Missing` for an absent record and never makes one, so `epicenter vocab patch-settings '{"id":"settings","goal":20}'` on a fresh install answers `Missing`; the app makes such a record in code, with `edit`. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
 
 ```txt
 $ epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'
@@ -610,7 +610,7 @@ body: |
   The deck is in Drive.
 ```
 
-`id` prints as a field: the command reads only the answer. A folder key's `get`, `create`, `patch`, `edit`, and `delete` take `id` flat in the input object, beside the fields. `create` without `id` names the record by the moment it is made and returns that id.
+`id` prints as a field: the command reads only the answer. A data key's `get`, `create`, `patch`, `edit`, and `delete` take `id` flat in the input object, beside the fields. `create` needs the `id` the caller chooses; a repeat with the same `id` answers `Changed` (`there`) and writes nothing.
 
 ## Check records
 
@@ -624,13 +624,16 @@ the records or the declaration.
 It runs `checkData` from `@epicenter/app` in a run of the app's folder and
 writes nothing. Besides files that do not fit, it reports a file in a folder
 key whose name is not a record id, names that are one file on a disk that
-ignores case, and a `field.ref` that names no file in its target key. Front
+ignores case, a `field.ref` that names no file in its target key, and a
+`data/<key>.md` for a declared key: a one-file record from before every key
+was a folder, read by nothing until it moves to `data/<key>/<key>.md`
+(listed with the app's problems). Every other file or folder directly under
+`data/` is the app's own and is not reported. Front
 matter no field declares is not a problem: a read does not give it, every
 write keeps it, and the check does not report it.
 
 For each key the report gives how many files it holds and how many have
-problems, or `fits` for a one-file key whose file fits or is absent; then
-each file's path under `data/` and its problem lines.
+problems, then each file's path under `data/` and its problem lines.
 
 ```txt
 $ epicenter check flights
@@ -640,11 +643,11 @@ flights
     checks/bad.md
       watch: 3 is not text
       day: "soon" is not a day like 2026-11-12
-  settings.md  fits
+  settings  0 files, none with problems
 ```
 
 With `--json` its `data` is
-`{ "apps": { <app>: { <key>: { path, single, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
+`{ "apps": { <app>: { <key>: { path, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
 A kind is a problem line without the value it quotes, so `due: "next week"`
 and `due: "soon"` are one kind; when most files share one kind, the
 declaration is often too narrow, and one change to `epicenter.ts` repairs

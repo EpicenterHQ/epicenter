@@ -2,14 +2,29 @@ import {
 	ActionError,
 	defineAction,
 	defineApp,
+	defineData,
 	timeId,
 	field,
 } from "@epicenter/app";
 
-import { tasksData } from "./data.ts";
-
 export default defineApp(({ folder }) => {
-	const data = tasksData(folder);
+	// One Markdown file per task under data/tasks/.
+	const data = defineData(folder, {
+		tasks: {
+			description: "task",
+			fields: {
+				title: field.text({
+					pattern: "^[^\\r\\n]*\\S[^\\r\\n]*$",
+					description: "one line, not blank, saying what to do",
+				}),
+				done: field.boolean({ description: "Whether it is done" }),
+				due: field.date({
+					optional: true,
+					description: "The day it is due, as 2026-11-10; absent when it has none",
+				}),
+			},
+		},
+	});
 
 	/** `add`: a title of several lines keeps its first line as the title. */
 	const add = defineAction({

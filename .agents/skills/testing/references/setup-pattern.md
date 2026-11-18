@@ -22,15 +22,18 @@ async function setup() {
 	await mkdir(join(dir, 'data/books'), { recursive: true });
 	await writeFile(join(dir, 'data/books/dune.md'), '---\n---\nA book\n');
 	const data = defineData(folderOnDisk(dir), {
-		books: { fields: { tags: field.list(field.text()) } },
+		books: {
+			description: 'book',
+			fields: { tags: field.list(field.text(), { optional: true }) },
+		},
 	});
 	return { data };
 }
 
-test('a missing list reads as empty', async () => {
+test('a missing optional list stays absent', async () => {
 	const { data } = await setup();
 	expect(await data.books.get('dune')).toEqual(Ok({
-		path: 'data/books/dune.md', id: 'dune', tags: [], body: 'A book\n',
+		path: 'data/books/dune.md', id: 'dune', body: 'A book\n',
 	}));
 });
 ```

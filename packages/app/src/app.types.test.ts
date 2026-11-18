@@ -28,8 +28,14 @@ import {
 
 const vocab = defineApp(({ folder }) => {
 	const data = defineData(folder, {
-		words: { fields: { meaning: field.text({ optional: true }) } },
-		'settings.md': { fields: { dailyGoal: field.integer({ optional: true }) } },
+		words: {
+			description: 'word',
+			fields: { meaning: field.text({ optional: true }) },
+		},
+		settings: {
+			description: 'settings record',
+			fields: { dailyGoal: field.integer({ optional: true }) },
+		},
 	});
 
 	const learn = defineAction({
@@ -38,7 +44,7 @@ const vocab = defineApp(({ folder }) => {
 		run: async ({ word, meaning }) => {
 			assertType<Equal<typeof word, string>>();
 			assertType<Equal<typeof meaning, string | undefined>>();
-			const setting = await data['settings.md'].get();
+			const setting = await data.settings.get('settings');
 			if (setting.error) return setting;
 			const goal = setting.data?.dailyGoal;
 			assertType<Equal<typeof goal, number | undefined>>();
@@ -72,7 +78,7 @@ const vocab = defineApp(({ folder }) => {
 	});
 
 	// Two keys' verbs share names, so the second key's are named apart.
-	const settings = data['settings.md'].actions('get', 'patch');
+	const settings = data.settings.actions('get', 'patch');
 	return {
 		description: 'Words I am learning',
 		data,
@@ -119,7 +125,7 @@ describe('an app author', () => {
 		// @ts-expect-error an edit names both old and new
 		() => made.actions.edit({ id: 'a', old: 'x' });
 		assertType<Equal<In<Actions['get']>, { id: string }>>();
-		assertType<Equal<In<Actions['get-settings']>, Record<string, never>>>();
+		assertType<Equal<In<Actions['get-settings']>, { id: string }>>();
 		type Item = NonNullable<Out<Actions['list']>['data']>[number];
 		assertType<
 			Equal<
@@ -136,7 +142,7 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				In<Actions['patch-settings']>,
-				{ dailyGoal?: number | null | undefined; body?: string }
+				{ id: string; dailyGoal?: number | null | undefined; body?: string }
 			>
 		>();
 		assertType<
@@ -157,14 +163,14 @@ describe('an app author', () => {
 		() => vocab();
 	});
 
-	test('a list with min is required, to give and in a read, and never always filled', () => {
+	test('a list is required unless it says optional, with or without a min', () => {
 		const route = defineAction({
 			description: 'Save a route',
 			input: {
 				airports: field.list(field.text(), { min: 1 }),
-				stops: field.list(field.text(), { min: 0 }),
+				stops: field.list(field.text(), { optional: true }),
 			},
-			run: ({ airports, stops }) => {
+			run: ({ airports, stops = [] }) => {
 				assertType<Equal<typeof airports, string[]>>();
 				assertType<Equal<typeof stops, string[]>>();
 				return Ok(airports.length + stops.length);
@@ -175,13 +181,17 @@ describe('an app author', () => {
 		>();
 	});
 
-	test('a caller may leave out a defaulted field, and run receives it', () => {
+	test('a caller may leave out an optional field, and run writes its default', () => {
 		const tag = defineAction({
 			description: 'Tag',
-			input: { tags: field.list(field.text()), done: field.boolean() },
-			run: ({ tags, done }) => {
+			input: {
+				tags: field.list(field.text(), { optional: true }),
+				done: field.boolean({ optional: true }),
+			},
+			run: (input) => {
+				assertType<Equal<typeof input.done, boolean | undefined>>();
+				const { tags = [], done = false } = input;
 				assertType<Equal<typeof tags, string[]>>();
-				assertType<Equal<typeof done, boolean>>();
 				return Ok({ count: tags.length, at: done ? 'now' : undefined });
 			},
 		});
@@ -243,12 +253,12 @@ describe('an app author', () => {
 				},
 			);
 		const vocabUi = {} as AppClient<Actions>;
-		// @ts-expect-error an action that only returns takes no onUpdate
+		// @ts-expect-error a page's call of an action that only returns takes its input alone
 		() => vocabUi.call('review', { word: 'a' }, { onUpdate: () => {} });
 		// The same two arguments call it in the Epicenter.
 		() => say({ message: 'hi' }, { onUpdate: (value) => void value });
-		// @ts-expect-error in the Epicenter too
-		() => tag({ word: 'a' }, { onUpdate: () => {} });
+		// In the library every action takes options; one that only returns never calls onUpdate.
+		() => tag({}, { onUpdate: () => {} });
 	});
 
 	test('raw TypeBox sits beside fields', () => {
@@ -290,7 +300,7 @@ describe('an app author', () => {
 		() => vocabUi.call('words');
 		// @ts-expect-error no action has this name
 		() => vocabUi.action('words');
-		() => vocabUi.call('get-settings');
+		() => vocabUi.call('get-settings', { id: 'settings' });
 		() => vocabUi.call('list');
 		() => vocabUi.action('review')({ word: 'a' });
 	});

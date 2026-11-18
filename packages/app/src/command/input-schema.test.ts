@@ -2,7 +2,7 @@
  * An action's input is one JSON Schema object (ADR-0953)
  *
  * Every declaration this repository ships, the example apps and the data
- * actions `defineData` generates for a folder key and a one-file key, carries
+ * actions `defineData` generates for a key and a fixed-id settings key, carries
  * an input that survives `JSON.stringify` whole: what an agent, a page, or
  * another language receives is what validation uses.
  *
@@ -25,28 +25,29 @@ setDefaultTimeout(30_000);
 
 const examples = join(import.meta.dir, '../../../../examples');
 
-/** Generated data actions for a folder key and a one-file key, with a field of each kind. */
+/** Generated data actions for a key and a fixed-id settings key, with a field of each kind. */
 const generated = `export default defineApp(({ folder }) => {
 const data = defineData(folder, {
-	shelves: { fields: {} },
+	shelves: { description: 'shelf', fields: {} },
 	notes: {
 		description: 'note',
 		fields: {
 			title: field.text(),
 			subtitle: field.text({ optional: true }),
-			pinned: field.boolean(),
-			tags: field.list(field.text()),
+			pinned: field.boolean({ optional: true }),
+			tags: field.list(field.text(), { optional: true }),
 			authors: field.list(field.text(), { min: 1 }),
 			kind: field.select(['thought', 'quote']),
 			day: field.date({ optional: true }),
 			shelf: field.ref('shelves', { optional: true }),
 		},
 	},
-	'settings.md': {
+	settings: {
+		description: 'settings record',
 		fields: { theme: field.select(['light', 'dark']), size: field.integer({ optional: true }) },
 	},
 });
-const settings = data['settings.md'].actions('get', 'patch', 'edit', 'delete');
+const settings = data.settings.actions('get', 'patch', 'edit', 'delete');
 return { description: 'Generated data actions', data, actions: {
 	...data.notes.actions('list', 'get', 'create', 'patch', 'edit', 'delete'),
 	'get-settings': settings.get,
@@ -78,14 +79,14 @@ const REQUIRED: Record<string, Record<string, string[]>> = {
 	data: {
 		list: [],
 		get: ['id'],
-		create: ['title', 'authors', 'kind'],
+		create: ['id', 'title', 'authors', 'kind'],
 		patch: ['id'],
 		edit: ['id', 'old', 'new'],
 		delete: ['id'],
-		'get-settings': [],
-		'patch-settings': [],
-		'edit-settings': ['old', 'new'],
-		'delete-settings': [],
+		'get-settings': ['id'],
+		'patch-settings': ['id'],
+		'edit-settings': ['id', 'old', 'new'],
+		'delete-settings': ['id'],
 	},
 };
 
@@ -95,7 +96,6 @@ async function epicenterOfExamples() {
 	const read = (path: string) => readFile(join(examples, path), 'utf8');
 	await f.folder(join(f.apps, 'tasks'), {
 		'code/epicenter.ts': await read('tasks/epicenter.ts'),
-		'code/data.ts': await read('tasks/data.ts'),
 	});
 	await f.folder(join(f.apps, 'writing'), {
 		'code/epicenter.ts': await read('writing/epicenter.ts'),
