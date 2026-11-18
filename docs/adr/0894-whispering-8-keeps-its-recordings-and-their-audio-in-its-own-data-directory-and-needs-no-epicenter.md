@@ -50,9 +50,10 @@ and no account. Audio is never deleted unless the person asks.**
     recordings/k3x9.webm         audio, kept, sharing its record's id
     transcriptions/r7p2.md       one transcript of a recording
     settings.md                  the person's settings, as Markdown
-  staging/                       files on their way into the folder: the take
-                                 being recorded, a note being saved
-  local-transcription.json       the local engine's own state
+  local/                         this computer's own; never moves with the folder
+    recording/k3x9.webm          the take being recorded, until Stop places it
+    .tmp/                        a save on its way into the folder; safe to delete
+    local-transcription.json     the local engine's own state
 Keychain                         secrets: provider API keys, Epicenter's among them
 WebView localStorage             the rest of this computer's state: where the
                                  folder is, the microphone
@@ -67,16 +68,28 @@ Hugging Face cache               local models, shared with other programs
   path itself is kept in `localStorage`. A page cannot widen the app's file
   access, because only the dialog grants it, and every native command that
   touches a file checks the folder against that grant
-  (`app.fs_scope().is_allowed`). The default folder is granted by the app's
-  capabilities. On the computer that runs the home, it may be
+  (`app.fs_scope().is_allowed`). That scope starts empty: a capability's
+  grant counts only inside `@tauri-apps/plugin-fs`'s own commands. So the
+  shell grants the default folder itself at startup (`allow_directory`).
+  On the computer that runs the home, the folder may be
   `~/Epicenter/apps/whispering/data`: Whispering then writes its records
   there and stays their one writer. The inside app reads them and never
   writes a file Whispering writes; anything it adds is its own file, named
   by the recording's id, in a collection of its own (ADR-0896). The home's
-  Git keeps the audio
-  through Git LFS (ADR-0856). When the folder is inside a Git repository
-  with no LFS rule for `webm`, Settings says the audio would go into Git
-  whole. The browser build's folder is always its OPFS directory.
+  Git keeps the audio through Git LFS (ADR-0856). When the folder is inside
+  a Git repository with no LFS rule for `webm`, Settings says the audio
+  would go into Git whole. The browser build's folder is always its OPFS
+  directory.
+- **"Change…" moves the recordings or opens another Whispering folder,
+  depending on what the person picks.**
+
+  | Picked | Whispering |
+  | --- | --- |
+  | An empty folder | Moves the recordings into it: one rename on the same volume; across volumes, a copy it checks before it removes the old files |
+  | A Whispering folder (one holding `settings.md` or `recordings/`), such as a home's or one synced from another computer | Opens it, and leaves the old folder where it was; Settings shows the old path so its recordings can be exported |
+  | Any other folder | Refuses, and asks for an empty folder or a Whispering folder |
+
+  Whispering never merges two folders.
 - **Audio is kept.** Settings shows its size and offers "Delete audio older
   than…". Nothing deletes audio on its own.
 - **A recording is its id, found from its note or its finished audio.**
@@ -193,34 +206,38 @@ Hugging Face cache               local models, shared with other programs
   it, so a note Whispering writes is one `epicenter check` reads.
 - `tauri-plugin-epicenter-folder` goes without a replacement.
 - **The folder only ever receives finished files, each by one rename.**
-  Every file on its way into the folder waits in one directory of this
-  computer's own, `staging/` in the app's local data directory, and one
-  place step, shared by `files_write` and the recorder, moves it in. A
-  home's checkpoint (`git add -A`), Git LFS, a file syncer, and
-  Whispering's own listing therefore never see a half-written file. Only
-  when the folder is on another volume, where a rename cannot reach, does
-  the place step copy to a temporary file beside the target
-  (`.ep-<random>.save`), sync it, and rename that. Opening the folder
-  clears `staging/` of everything but takes.
+  Every file on its way into the folder waits outside it, in `local/` in
+  the app's local data directory, and one place step, shared by
+  `files_write` and the recorder, moves it in. A home's checkpoint
+  (`git add -A`), Git LFS, a file syncer, and Whispering's own listing
+  therefore never see a half-written file. Only when the folder is on
+  another volume, where a rename cannot reach, does the place step copy to
+  a temporary file beside the target (`.ep-<random>.save`), sync it, and
+  rename that. `local/` has the shape of a home app's `local/`
+  (`apps/<app>/local/.tmp/` is where the home stages its own writes), and
+  stays in the app's local data directory wherever the folder moves.
+  Its two directories each keep one rule: `local/.tmp/` holds saves, which
+  are safe to delete at any time, and opening the folder clears it;
+  `local/recording/` holds takes, which are never deleted, only placed.
 - **`write` replaces a file whole.** On the desktop it writes and syncs the
-  bytes in `staging/`, renames them over the target, and syncs the
+  bytes in `local/.tmp/`, renames them over the target, and syncs the
   directory. The rename replaces the file in one step on macOS and Linux;
   on Windows it replaces the file without that promise. In a browser
   `write` uses `createWritable()`, whose changes reach the file only when
   the stream closes. A failed write keeps the unsaved text on screen and
   offers to retry.
-- **A take is recorded in `staging/` and placed at Stop.** The recorder
-  plugin keeps its capture and encoding unchanged:
+- **A take is recorded in `local/recording/` and placed at Stop.** The
+  recorder plugin keeps its capture and encoding unchanged:
 
   ```ts
-  recorder.start({ dir, id, device }) // records into <appLocalDataDir>/staging/<id>.webm
+  recorder.start({ dir, id, device }) // records into <appLocalDataDir>/local/recording/<id>.webm
   recorder.stop()                     // → { id, durationMs }, placed at <dir>/recordings/<id>.webm
   recorder.recover({ dir })           // → { recovered, unplaced }: takes a crash cut short
   ```
 
   Placing a take replaces nothing: the rename refuses an existing target,
   and `start` refuses an id whose audio or take already exists. If placing
-  fails, `stop` answers `Unplaced` and the take stays in `staging/`, so
+  fails, `stop` answers `Unplaced` and the take stays in `local/recording/`, so
   nothing recorded is lost, and `recover` places it later. The path check
   is the one `Files` uses. In a browser the recorder keeps a take in memory
   and writes it once at Stop through `Files`; a tab that crashes while
@@ -400,6 +417,15 @@ none.
   a file syncer uploads it again each time it grows.
 - **`recordings/k3x9.local.webm` while recording.** Git LFS commits the
   partial take, and the listing reads its id as `k3x9.local`.
+- **`local/` beside whatever folder the person picks.** Inside a synced
+  folder it would be synced, growing take and all, and a person would find
+  it among their recordings.
+- **One staging directory for takes and saves.** Clearing it would need an
+  exception for the takes it must never lose.
+- **"Change…" points at the new folder without moving anything.** The
+  recordings would stay behind in the app's data directory unnoticed.
+- **Merge two Whispering folders.** Two settings files and possible clashes
+  of ids, for a case a person can handle by exporting from one.
 - **A hidden staging directory inside the folder, with its own
   `.gitignore`.** A file Whispering plants in the person's folder, and a
   file syncer still uploads the growing take.
