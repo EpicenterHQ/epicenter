@@ -21,8 +21,8 @@ only `shortcut.rs` (77 lines), the global shortcut, is a feature no
 capability covers.
 
 Each app publishes its contract through a script of its own:
-`apps/whispering/scripts/write-contract.ts` writes `static/contract.json`
-from the contract in `apps/whispering/src/lib/contract.ts`, and Capture,
+`folder-package:apps/whispering/scripts/write-contract.ts` writes `static/contract.json`
+from the contract in `folder-package:apps/whispering/src/lib/contract.ts`, and Capture,
 Honeycrisp, Messages, Todos, and Vocab do the same.
 
 React Native solved the same repetition with autolinking: its CLI reads each

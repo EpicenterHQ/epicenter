@@ -1,6 +1,6 @@
 <!--
-	A note that does not read: why, its text to repair (checked against the
-	contract as it is typed, so the person sees what is wrong before saving),
+	A note that does not read: why, its text to repair (checked against its
+	kind's fields as it is typed, so the person sees what is wrong before saving),
 	and Save repair, which writes the text as typed. Text that still does not
 	read is written anyway, and the note stays here with its new problems.
 	A note changed elsewhere since it was shown is not overwritten: the newer
@@ -11,9 +11,8 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { folder } from '$lib/app.js';
-	import { whispering as contract } from '$lib/contract.js';
 	import { notePath } from '$lib/deletion.js';
-	import { checkContract } from '$lib/format/contract/index.js';
+	import { checkNote, NOTES } from '$lib/format/folder.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 
@@ -31,7 +30,7 @@
 	const problems = $derived(
 		typed === null
 			? repair.issues.map(({ message }) => message)
-			: (checkContract(contract, [{ path, text }]).data ?? []).map(({ line, message }) =>
+			: (checkNote(NOTES[repair.collection].fields, text).error ?? []).map(({ line, message }) =>
 					line === undefined ? message : `Line ${line}: ${message}`,
 				),
 	);

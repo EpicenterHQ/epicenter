@@ -7,10 +7,9 @@ text with instructions you write, and keeps every recording, transcript,
 instruction, and result as an ordinary file on your own device. It needs no
 account and no server.
 
-Those files follow Whispering's contract, `src/lib/contract.ts`, published
-unchanged as `static/contract.json` (`bun run contract` rewrites it after a
-change), the file `epicenter check <dir> --contract <url>/contract.json` checks a folder
-against. Any program that writes the layout is a valid writer.
+Each note is Markdown with its fields in front matter, one `key: <JSON>`
+line each. `src/lib/format/folder.ts` declares the paths and each note's
+fields. Any program that writes this layout is a valid writer.
 
 | Path | What it is |
 | --- | --- |
@@ -275,7 +274,7 @@ and the commands the build script declares, and how an accelerator parses.
   change.
 - Deleting old audio in bulk, and showing the audio's size.
 - A Files view, a Source tab for notes that read, renaming files, and files
-  outside the contract. A note that does not read is repaired as text where
+  outside this layout. A note that does not read is repaired as text where
   it is listed.
 - System-wide dictation beyond the desktop's one start-and-stop shortcut:
   push-to-talk, voice-activated recording, and delivering text to the

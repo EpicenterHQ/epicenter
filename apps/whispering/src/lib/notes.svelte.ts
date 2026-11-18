@@ -8,8 +8,8 @@
  * no cache beyond that.
  *
  * Notes are read and written in the home's Markdown grammar
- * (`format/note.ts`, from `@epicenter/app/markdown`), so a note Whispering
- * writes is one `epicenter check` reads.
+ * (`format/note.ts`, from `@epicenter/app/markdown`); each kind's fields
+ * are declared in `format/folder.ts`.
  *
  * Another program may write the folder (a file syncer, a Git command in a
  * home), so a write never replaces what it has not shown: it reads the file
@@ -20,6 +20,7 @@
  * Every write answers a `Result`: a failed one changes nothing shown, and
  * an editor keeps what was typed and offers to try again (`editNote`).
  */
+import type { Static, TObject } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -30,14 +31,10 @@ import {
 	type FilesError,
 } from './files/files.js';
 import {
-	type Collection,
-	type CompiledCollection,
-	compileContract,
-	type FieldsOf,
-	type InvalidNoteOf,
-	type NoteOf,
-	type NotePatch,
-} from './format/contract/index.js';
+	checkNote,
+	fieldNamesOf,
+	type NoteIssue,
+} from './format/folder.js';
 import { changeNote, newNote, parseNote } from './format/note.js';
 
 export const NoteError = defineErrors({
@@ -58,8 +55,34 @@ export type NoteError = InferErrors<typeof NoteError>;
 /** Why a note write did not happen. */
 export type NoteWriteError = NoteError | FilesError;
 
-/** A note collection whose one placeholder is `{id}`, the file's stem. */
-export type IdCollection = Collection & { readonly path: `${string}/{id}.md` };
+/** A kind of note with an id: its notes are `<dir>/<id>.md`, with `fields`. */
+export type IdCollection = { readonly dir: string; readonly fields: TObject };
+
+/** One object type from an intersection, so a hover shows its keys. */
+type Flat<T> = { [K in keyof T]: T[K] } & {};
+
+/** A note as read: its id, its fields, and its body. */
+export type NoteOf<C extends IdCollection> = Flat<
+	{ id: string } & Static<C['fields']> & { body: string }
+>;
+
+/** What a note write changes: some fields (`undefined` removes one), the body, or both. */
+export type NotePatch<C extends IdCollection> = Partial<
+	Static<C['fields']> & { body: string }
+>;
+
+/**
+ * A note at one of a collection's paths that does not read: its front
+ * matter does not parse, its fields do not fit, or it is not UTF-8. Its id,
+ * why, and its text as it is (null when not UTF-8), so it can be repaired
+ * or deleted.
+ */
+export type InvalidNote = {
+	readonly id: string;
+	readonly path: string;
+	readonly issues: readonly NoteIssue[];
+	readonly text: string | null;
+};
 
 /** One note as held: its text, what it reads as, and the listing it was read at. */
 type Held<C extends IdCollection> = {
@@ -68,7 +91,7 @@ type Held<C extends IdCollection> = {
 	/** Its size and modified time when a load read it; null after a write, so the next load reads it again. */
 	readonly stamp: string | null;
 	readonly note: NoteOf<C> | null;
-	readonly invalid: InvalidNoteOf<C> | null;
+	readonly invalid: InvalidNote | null;
 };
 
 /** A listed file's size and modified time, which change when another program writes it. */
@@ -87,27 +110,13 @@ function textOf(bytes: Uint8Array): string | null {
 	}
 }
 
-/** `collection` compiled once. It is written in code, so one that does not compile throws. */
-export function compiledOf(name: string, collection: Collection) {
-	const compiled = compileContract({ collections: { [name]: collection } });
-	if (compiled.error !== null)
-		throw new Error(compiled.error.message, { cause: compiled.error });
-	const [one] = compiled.data.collections;
-	if (one === undefined) throw new Error(`${collection.path} is not compiled`);
-	return one;
-}
-
-/** What a note's bytes read as: its fields and body, or why not. */
+/** What a note's bytes read as, with `fields`: its fields and body, or why not. */
 export function readNote(
-	compiled: CompiledCollection,
+	fields: TObject,
 	bytes: Uint8Array,
 ):
 	| { kind: 'note'; fields: Record<string, unknown>; body: string }
-	| {
-			kind: 'invalid';
-			text: string | null;
-			issues: { field: string; message: string }[];
-	  } {
+	| { kind: 'invalid'; text: string | null; issues: NoteIssue[] } {
 	const text = textOf(bytes);
 	if (text === null)
 		return {
@@ -115,19 +124,10 @@ export function readNote(
 			text: null,
 			issues: [{ field: '', message: 'The note is not UTF-8 text' }],
 		};
-	const parsed = parseNote(text);
-	if (parsed.error !== null)
-		return {
-			kind: 'invalid',
-			text,
-			issues: [
-				{ field: parsed.error.field ?? '', message: parsed.error.reason },
-			],
-		};
-	const { fields, body } = parsed.data;
-	const issues = compiled.checkFields(fields);
-	if (issues.length > 0) return { kind: 'invalid', text, issues };
-	return { kind: 'note', fields: { ...fields }, body };
+	const checked = checkNote(fields, text);
+	if (checked.error !== null)
+		return { kind: 'invalid', text, issues: checked.error };
+	return { kind: 'note', ...checked.data };
 }
 
 /**
@@ -143,14 +143,13 @@ export function oneAtATime() {
 	};
 }
 
-/** The notes of `collection`, named `name` in the contract, over `files`. */
+/** The notes of `collection` over `files`. */
 export function noteList<const C extends IdCollection>(
 	files: Files,
-	name: string,
 	collection: C,
 ) {
-	const compiled = compiledOf(name, collection);
-	const dir = collection.path.slice(0, collection.path.lastIndexOf('/'));
+	const { dir, fields } = collection;
+	const fieldNames = fieldNamesOf(fields);
 	const pathOf = (id: string) => `${dir}/${id}.md`;
 	/** Every note by path. Replaced whole, so a read of it tracks. */
 	let held = $state.raw(new Map<string, Held<C>>());
@@ -172,7 +171,7 @@ export function noteList<const C extends IdCollection>(
 		bytes: Uint8Array,
 		stamp: string | null,
 	): Held<C> {
-		const read = readNote(compiled, bytes);
+		const read = readNote(fields, bytes);
 		const seen = seenOf(bytes);
 		if (read.kind === 'note')
 			return {
@@ -185,22 +184,13 @@ export function noteList<const C extends IdCollection>(
 			seen,
 			stamp,
 			note: null,
-			invalid: {
-				id,
-				path,
-				issues: read.issues,
-				text: read.text,
-			} as unknown as InvalidNoteOf<C>,
+			invalid: { id, path, issues: read.issues, text: read.text },
 		};
 	}
 
-	/** The id a listed name in the directory is the note of, or null. */
-	function idOf(name: string): string | null {
-		if (!name.endsWith('.md')) return null;
-		const id = name.slice(0, -'.md'.length);
-		const path = compiled.pathOf({ id });
-		return path.error === null && path.data === pathOf(id) ? id : null;
-	}
+	/** The id a listed name in the directory is the note of, or null. A listing holds only plain names, so the stem is one. */
+	const idOf = (name: string) =>
+		name.endsWith('.md') ? name.slice(0, -'.md'.length) : null;
 
 	const items = $derived(
 		[...held.values()].flatMap((entry) => (entry.note ? [entry.note] : [])),
@@ -242,14 +232,14 @@ export function noteList<const C extends IdCollection>(
 	return {
 		/** The directory the collection's notes are in. */
 		dir,
-		/** The fields the contract declares, in its order. */
-		fieldNames: compiled.keys as readonly string[],
+		/** The fields the collection declares, in its order. */
+		fieldNames,
 		/** The notes that read. */
 		items(): readonly NoteOf<C>[] {
 			return items;
 		},
 		/** The notes at the collection's paths that do not read, with their text. */
-		invalid(): readonly InvalidNoteOf<C>[] {
+		invalid(): readonly InvalidNote[] {
 			return invalid;
 		},
 		/** The note `id`, when it reads. */
@@ -331,7 +321,7 @@ export function noteList<const C extends IdCollection>(
 				const { body: newBody, ...named } = changes as Record<string, unknown>;
 				const body = typeof newBody === 'string' ? newBody : undefined;
 				if (now.data === null)
-					return write(id, encode(newNote(named, body ?? '', compiled.keys)));
+					return write(id, encode(newNote(named, body ?? '', fieldNames)));
 				// A note whose fields do not fit still reads, and takes the change.
 				const text = textOf(now.data);
 				const parsed = text === null ? null : parseNote(text);
@@ -377,7 +367,7 @@ export type NoteList<C extends IdCollection> = ReturnType<typeof noteList<C>>;
 /** What `edit` takes beside the note's id. */
 export type EditOptions<C extends IdCollection> = {
 	/** The fields a save gives the note when none is there yet, beside what was typed. */
-	create?: () => FieldsOf<C> & { body?: string };
+	create?: () => Static<C['fields']> & { body?: string };
 };
 
 /** Typing waits this long for more before it saves. */

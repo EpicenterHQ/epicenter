@@ -16,27 +16,26 @@ import type {
 	ConnectionStore,
 	ModelChoice,
 } from '@epicenter/ai';
+import type { Static } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type Whispering, whispering } from './contract.js';
 import { decode, encode, type Files, type FilesError } from './files/files.js';
-import type { FieldsOf } from './format/contract/index.js';
+import { fieldNamesOf, SETTINGS } from './format/folder.js';
 import { changeNote, newNote } from './format/note.js';
 import {
-	compiledOf,
 	NoteError,
 	type NoteWriteError,
 	oneAtATime,
 	readNote,
 } from './notes.svelte.js';
 
-export const SETTINGS_PATH = 'settings.md';
+export const SETTINGS_PATH = SETTINGS.path;
 
 /** The jobs a model is chosen for. */
 export type Job = 'transcribe' | 'chat';
 
 /** What `settings.md` holds. */
-export type SettingsFields = FieldsOf<Whispering['collections']['settings']>;
+export type SettingsFields = Static<typeof SETTINGS.fields>;
 
 /** The global shortcut when `settings.md` names none. */
 export const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+;';
@@ -69,7 +68,7 @@ type Held = {
 const NONE: Held = { seen: null, fields: {}, body: '', problem: null };
 
 export function openSettings(files: Files) {
-	const compiled = compiledOf('settings', whispering.collections.settings);
+	const fieldNames = fieldNamesOf(SETTINGS.fields);
 	let held = $state.raw<Held>(NONE);
 	const listeners = new Set<() => void>();
 	const run = oneAtATime();
@@ -82,7 +81,7 @@ export function openSettings(files: Files) {
 	function heldOf(bytes: Uint8Array | null): Held {
 		if (bytes === null) return NONE;
 		const seen = decode(bytes);
-		const read = readNote(compiled, bytes);
+		const read = readNote(SETTINGS.fields, bytes);
 		if (read.kind === 'note')
 			return {
 				seen,
@@ -129,7 +128,7 @@ export function openSettings(files: Files) {
 							},
 							undefined,
 						)
-					: newNote(after, held.body, compiled.keys);
+					: newNote(after, held.body, fieldNames);
 			const bytes = encode(text);
 			const written = await files.write(SETTINGS_PATH, bytes);
 			if (written.error !== null) return Err(written.error);

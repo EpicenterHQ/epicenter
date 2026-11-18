@@ -53,7 +53,7 @@ export type {
 export type { Run, RunState } from './runs.svelte.js';
 
 /** A note that does not read, for the person to repair as text or delete. */
-export type Repair = InvalidNote<NoteName> & {
+export type Repair = InvalidNote & {
 	readonly collection: NoteName;
 	/** Why it does not read, in a line. */
 	readonly reason: string;
@@ -64,10 +64,10 @@ const describe = (cause: unknown) =>
 
 const repairsOf = <TName extends NoteName>(
 	collection: TName,
-	invalid: readonly InvalidNote<TName>[],
+	invalid: readonly InvalidNote[],
 ): Repair[] =>
 	invalid.map((note) => ({
-		...(note as InvalidNote<NoteName>),
+		...note,
 		collection,
 		reason: describeIssues(note.issues),
 	}));

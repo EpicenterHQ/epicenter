@@ -6,12 +6,12 @@ It keeps its recordings on the device it runs on
 ([ADR-0894](../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)):
 in a Tauri window in `data/` in the app's local data directory, unless the
 person picked another folder, and in a browser in `data/` in the Origin
-Private File System. Both hold the same tree, the `whispering` contract's
-files (`src/lib/contract.ts`): five note collections, the audio beside each
-recording, and `settings.md`.
+Private File System. Both hold the same tree (`src/lib/format/folder.ts`):
+five note collections, the audio beside each recording, and `settings.md`.
 
 ```text
-src/lib/contract.ts          the contract (published as static/contract.json)
+src/lib/format/folder.ts     the folder's paths and each note's fields, and why a note does not read
+src/lib/format/note.ts       a note as text: the home's Markdown grammar
 src/lib/files/               Files: read, write, list, remove; tauri, opfs and memory, one conformance suite
 src/lib/notes.svelte.ts      one note collection over Files: its list, its writes, an editor
 src/lib/settings.svelte.ts   settings.md: the model per job, the connections, the shortcut
@@ -62,6 +62,15 @@ Notes are read and written in the home's Markdown grammar,
 `@epicenter/app/markdown` (`src/lib/format/note.ts`): `key: <JSON>` lines
 between `---` fences, then the body. A change rewrites only the lines of
 the keys it names.
+
+Each kind of note declares its fields as a TypeBox object in
+`src/lib/format/folder.ts` (`NOTES`, `SETTINGS`). A field is required
+unless it is optional, and a key no kind declares is kept and never
+checked. `checkNote(fields, text)` answers a note's fields and body, or
+every reason it does not read: front matter that does not parse, or each
+field that does not fit, by field and at its line. A list shows a note
+that does not read for repair, and `NoteRepair.svelte` runs the same check
+as the person types.
 
 ## Notes, settings and the folder
 

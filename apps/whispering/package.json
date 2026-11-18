@@ -12,7 +12,6 @@
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"build:desktop": "tauri build --bundles app",
 		"check": "bun run typecheck",
-		"contract": "bun scripts/write-contract.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"

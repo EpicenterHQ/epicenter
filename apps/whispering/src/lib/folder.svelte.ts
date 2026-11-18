@@ -16,21 +16,21 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
-import { type Whispering, whispering } from './contract.js';
 import type { Entry, Files, FilesError } from './files/files.js';
-import type { InvalidNoteOf, NoteOf } from './format/contract/index.js';
+import { NOTES } from './format/folder.js';
 import { timeOf } from './format/ids.js';
 import {
 	type NoteList,
+	type NoteOf,
 	type NoteWriteError,
 	noteList,
 } from './notes.svelte.js';
 import { openSettings } from './settings.svelte.js';
 
-type Collections = Whispering['collections'];
+type Collections = typeof NOTES;
 
 /** The library's note collections, by name: a note per id. */
-export type NoteName = Exclude<keyof Collections, 'audio' | 'settings'>;
+export type NoteName = keyof Collections;
 
 /** A note of `name` as the lists show it: its fields and body. */
 export type Listed<TName extends NoteName> = NoteOf<Collections[TName]>;
@@ -40,10 +40,7 @@ export type TransformationNote = Listed<'transformations'>;
 export type TransformationRunNote = Listed<'transformation_runs'>;
 export type TextRunNote = Listed<'text_runs'>;
 
-/** A note at one of `name`'s paths that does not read, with its text. */
-export type InvalidNote<TName extends NoteName> = InvalidNoteOf<
-	Collections[TName]
->;
+export type { InvalidNote } from './notes.svelte.js';
 
 /** One audio file a recording has. */
 export type AudioFile = {
@@ -109,25 +106,12 @@ function audioFileOf({ name, size, modifiedMs }: Entry): AudioFile | null {
 
 /** Whispering's folder over `files`. */
 export function openFolder(files: Files) {
-	const { collections } = whispering;
 	const lists = {
-		recordings: noteList(files, 'recordings', collections.recordings),
-		transcriptions: noteList(
-			files,
-			'transcriptions',
-			collections.transcriptions,
-		),
-		transformations: noteList(
-			files,
-			'transformations',
-			collections.transformations,
-		),
-		transformation_runs: noteList(
-			files,
-			'transformation_runs',
-			collections.transformation_runs,
-		),
-		text_runs: noteList(files, 'text_runs', collections.text_runs),
+		recordings: noteList(files, NOTES.recordings),
+		transcriptions: noteList(files, NOTES.transcriptions),
+		transformations: noteList(files, NOTES.transformations),
+		transformation_runs: noteList(files, NOTES.transformation_runs),
+		text_runs: noteList(files, NOTES.text_runs),
 	};
 	const settings = openSettings(files);
 	/** Every audio file in `recordings/`. Replaced whole, so a read of it tracks. */

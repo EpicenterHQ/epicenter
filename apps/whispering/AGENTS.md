@@ -5,8 +5,8 @@ Whispering keeps its recordings on the device it runs on
 One build serves two places: in the desktop app (`src-tauri/`) the folder
 is `data/` in the app's local data directory unless the person moved it,
 and in a browser it is `data/` in the Origin Private File System. Both hold
-the same tree of plain files that fit the `whispering` contract
-(`src/lib/contract.ts`), and neither needs an account, a server, or Git.
+the same tree of plain files, laid out as `src/lib/format/folder.ts`
+declares, and neither needs an account, a server, or Git.
 Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
 
 ## Constraints

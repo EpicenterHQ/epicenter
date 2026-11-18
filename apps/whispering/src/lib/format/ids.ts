@@ -1,11 +1,10 @@
 /**
  * Whispering's ids: helpers for naming files.
  *
- * A contract never mints a file's name (decision 5): `create` takes every
- * placeholder from its caller. These are the two names a caller usually
- * wants. `timeId()` sorts by when it was made, which suits captures and
- * recordings, and `timeOf()` reads that moment back; `nanoid()` is a short
- * random name.
+ * Nothing mints a file's name on its own: every id comes from its caller.
+ * These are the two names a caller usually wants. `timeId()` sorts by when
+ * it was made, which suits captures and recordings, and `timeOf()` reads
+ * that moment back; `nanoid()` is a short random name.
  */
 import { customAlphabet } from 'nanoid';
 

@@ -2,7 +2,7 @@
  * Name Helper Tests
  *
  * `timeId()` names captures and recordings, so its order is the order a
- * listing shows, and it must fit every path segment a contract uses.
+ * listing shows, and it must be one plain name, as every path segment is.
  *
  * Key behaviors:
  * - Ids sort by the moment they were made, which `timeOf` reads back
