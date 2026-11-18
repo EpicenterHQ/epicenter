@@ -80,9 +80,9 @@ run it.
 - `defineAction` returns the action as a function of its input, carrying its
   description, input, and `annotations`. It exists to type
   `run`'s input from `input`: an action written inline in `defineApp` would
-  have an untyped input. However it is called, `run` gets an absent switch as
-  `false` and an absent list as `[]` (unless the list has a `min`), and every
-  other field as the caller gave it. Every action returns one Wellcrafted
+  have an untyped input. However it is called, `run` gets the input as the
+  caller gave it: an absent field stays absent, and `run` writes its default,
+  as `({ done = false })`. Every action returns one Wellcrafted
   Result. Return `Ok(value)`, return a tagged Err, or forward the Result of
   another call. `@epicenter/app` exports `Ok`, `Err`, `Result`, and
   `defineErrors`. Error factories already return Err. `run` may take a
@@ -110,17 +110,18 @@ drops its call; `defineApp` refuses it and says to use `defineAction`.
 
 ## Data
 
-`defineData` declares an app's records as top-level keys under `data/`. A
-key's name decides its shape:
-
-| Key | Files | A record's name |
-| --- | --- | --- |
-| `notes` | every `.md` file directly in `data/notes/` | its id, the file name without `.md` |
-| `settings.md` | the one file `data/settings.md` | none |
-
+`defineData(folder, { ... })` declares an app's records, inside the app's
+function. Each key is a folder under `data/`: `notes` holds every `.md` file
+directly in `data/notes/`, and a record's id is its file name without `.md`.
 A key is a name (lowercase letters, digits, and dashes, starting with a
-letter), optionally followed by `.md`. Each key gives `fields`, and may give a
-`description` of one record, which its verbs' descriptions use.
+letter). Each key gives a `description`, what one record is as a noun such
+as `"task"`, which its verbs' descriptions use (`Read one task`), and
+`fields`.
+
+An app with one record of a kind, such as its settings, gives it a fixed id:
+the key `settings` and the id `settings` are the file
+`data/settings/settings.md`, read with `data.settings.get('settings')` and
+made with `data.settings.edit('settings', (now) => Ok({ ... }))`.
 
 An id is the file's name exactly as it is on disk: non-empty NFC text of at
 most 200 UTF-8 bytes, without `/`, `\`, control characters, a leading dot,
@@ -131,9 +132,9 @@ An app trims or normalises what a person typed before it passes it on.
 `list` skips a file whose name is not an id. An action that takes an id
 takes it as `field.text()`; the handle refuses one that cannot name a file
 when the action reads or writes it. A new record's id comes from the caller
-or the app. A generated `create` takes `id` optionally and names the record
-with `timeId()` when it is left out; the `create(id, record)` method always
-takes one.
+or the app: the method and the generated `create` both require one, and
+`timeId()` names a record by the moment it is made, as
+`create({ id: timeId(), title })`.
 
 Each file's fields are its front matter, as `key: <JSON>` lines, and its body
 is the text after it. Each line is read on its own, and no YAML is read
@@ -158,17 +159,17 @@ Results for the other files.
 
 ### Methods and verbs
 
-An action reads and writes through a key's handle. A folder key's method
-that names one record takes its id first, and a method that changes it takes
-the change second. A one-file key's methods take no id.
+An action reads and writes through a key's handle. A method that names one
+record takes its id first, and a method that changes it takes the change
+second.
 
 | Method | What it does |
 | --- | --- |
 | `get(id)` | `Ok(record)`, `Ok(undefined)` when the file is absent, or an Err with the reason |
-| `list()` | one Result per file, sorted by path; folder keys only |
-| `create(id, record)` | creates the file, or returns `Changed` (`there`) when it exists; folder keys only |
-| `patch(id, change)` | merges a change into an existing record; an absent id returns `Missing`. A one-file `patch(change)` creates its file |
-| `edit(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it |
+| `list()` | one Result per file, sorted by path |
+| `create(id, record)` | creates the file, or returns `Changed` (`there`) when it exists |
+| `patch(id, change)` | merges a change into an existing record; an absent id returns `Missing` |
+| `edit(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it. The patch holds only the fields that change: one that names `path` or `id`, as a spread of the record does, is refused with `Misfit` |
 | `edit(id, { old, new })` | replaces the one passage `old` of the body with `new`; `Changed` (`quote` or `twice`) unless `old` is there exactly once, and `Missing` when the file is absent |
 | `delete(id)` | returns whether a file existed |
 | `path(id)` | the record's path for the id as given, without checking it or the disk |
@@ -181,20 +182,18 @@ A change merges as JSON Merge Patch: `null` removes an optional field, and
 `body` replaces the whole text after the front matter.
 
 A name can go wrong two ways. `create` refuses a name that is taken, and a
-folder key's `patch` refuses one that is not there, so a mistyped id never
+`patch` refuses one that is not there, so a mistyped id never
 makes a stray file. Code that computes a name and makes the record when it is
 absent uses `edit` with a function.
 
-`actions(...verbs)` gives the verbs it names, and only those: a folder key
-offers `list`, `get`, `create`, `patch`, `edit`, and `delete`, and a one-file
-key `get`, `patch`, `edit`, and `delete`. A verb's input is its method's
+`actions(...verbs)` gives the verbs it names, and only those: `list`, `get`,
+`create`, `patch`, `edit`, and `delete`. A verb's input is its method's
 arguments folded into one object: the id as `id`, and the change's keys
 beside it, so `epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'`
 calls `patch('serendipity', { meaning: 'a lucky find' })`. The function form
-of `edit` stays in code, since a caller cannot send a function. Two verbs
-differ from their method: `create` names the record with `timeId()` when
-`id` is left out, and `get` returns `Missing` for an absent folder id where
-the method returns `Ok(undefined)`. `list` returns `Ok(rows)`, one Result per
+of `edit` stays in code, since a caller cannot send a function. One verb
+differs from its method: `get` returns `Missing` for an absent id where the
+method returns `Ok(undefined)`. `list` returns `Ok(rows)`, one Result per
 file, bodies included; `delete` returns the boolean in Ok.
 
 The `edit` verb takes `id`, `old`, and `new`, and no fields. `old` is a
@@ -208,10 +207,10 @@ epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'
 epicenter vocab edit '{"id":"serendipity","old":"First seen.\n","new":"First seen in a novel.\n"}'
 ```
 
-`patch` and `delete` are safe to repeat, and their annotations say so.
-`create` without an id makes another record on each call, and a repeated
-`edit` replaces again in the text it already changed, so neither is marked
-idempotent. A caller that may retry `create` sends an id.
+`create`, `patch` and `delete` are safe to repeat, and their annotations say
+so: a repeated `create` answers `Changed` (`there`) and writes nothing. A
+repeated `edit` replaces again in the text it already changed, so it is not
+marked idempotent.
 
 Two callers patching the same field from stale screens: the last write wins.
 Two callers patching different fields both land, since a write changes only
@@ -237,8 +236,8 @@ and only an action reads or writes.
 
 ### What a read gives
 
-A record is its `path`, its `id` for a folder key, its fields, and its
-`body`. A computed read forwards a refusal or handles it before using fields:
+A record is its `path`, its `id`, its fields, and its `body`. An optional
+field absent from the file is absent from the record; nothing is filled in. A computed read forwards a refusal or handles it before using fields:
 
 ```ts
 const read = await data.watches.get(id);
@@ -247,8 +246,8 @@ if (!read.data) return ActionError.Missing({ path: data.watches.path(id) });
 return Ok(read.data.from);
 ```
 
-`Misfit` carries the file path, the record's `id` in a folder key (a one-file
-key has none), and its diagnostic lines and kinds. When
+`Misfit` carries the file path, the record's `id`, and its diagnostic lines
+and kinds. When
 front matter is readable, it also carries `record`: the path, id, body, and
 the fields that fit, for a repair form. `partitionResults(await data.watches.list())`
 from `@epicenter/app` separates fitting records from files that need repair.
@@ -263,14 +262,15 @@ no file, each as one line.
 
 `defineData` refuses:
 
-- a key that is not a name, optionally followed by `.md`;
+- a key that is not a name;
+- a key without a `description`;
 - a field named `path`, `body`, or `id`: a read gives `path`, and a verb's
   input folds the fields beside `id` and `body`;
 - a field marked `readOnly`: an app offers only the verbs a caller may use;
 - a field name that a front matter line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
   code where the value is read: `(record.limit ?? 50)`;
-- a `field.ref` whose target is not a folder key of the same `defineData`.
+- a `field.ref` whose target is not a key of the same `defineData`.
 
 ### Naming a record
 
@@ -289,24 +289,20 @@ should take what they know. Vocab's `review` takes `{ word, grade }` and calls
 | `field.date()` | `string`, `2026-11-08` | `"name": "2026-11-08"` |
 | `field.datetime()` | `string`, RFC 3339 | `"name": "2026-11-10T22:41:05+08:00"` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `"name": "a"` |
-| `field.boolean()` | `boolean`, `false` unless given | `"name": true` |
-| `field.list(item, { min })` | an array of `item`'s value, empty unless given, or required with at least `min` items | `"name": ["a", "b"]` |
-| `field.ref('shelves')` | `string`, the id of a record in the folder key `shelves` | `"name": "essays"` |
+| `field.boolean()` | `boolean` | `"name": true` |
+| `field.list(item, { min })` | an array of `item`'s value, with at least `min` items | `"name": ["a", "b"]` |
+| `field.ref('shelves')` | `string`, the id of a record in the key `shelves` | `"name": "essays"` |
 
 `field.list(item)` is a list of any field: `field.list(field.select(['x', 'threads']))`
 is several of a fixed set, and `field.list(Type.Object({ name: Type.String() }))`
-is several objects. It is not required, reads as `[]` when its line is
-absent, and a write may leave it out. `field.list(item, { min: 1 })` needs at
-least one item: its schema has `minItems`, it is required like any other
-field, and an absent one is missing rather than `[]`, which would not fit.
-An action that cannot run without an item says so this way, so `--help` and
-the schema an agent receives call it required. `min: 0` is the same as none.
+is several objects. Like every field it is required unless it says
+`optional: true`. `field.list(item, { min: 1 })` needs at least one item
+when it is given: its schema has `minItems`. `min: 0` is the same as none.
 
-`field.ref('shelves')` holds the id of a record in the folder key `shelves`
-of the same `defineData`: `"essays"` for `data/shelves/essays.md`, never the
-path. `field.list(field.ref('shelves'))` holds several. `defineData` refuses
-a ref whose target is not a folder key beside it, in its types and when it
-runs.
+`field.ref('shelves')` holds the id of a record in the key `shelves` of the
+same `defineData`: `"essays"` for `data/shelves/essays.md`, never the path.
+`field.list(field.ref('shelves'))` holds several. `defineData` refuses a ref
+whose target is not a key beside it when it runs; the types do not check it.
 
 - A write takes a ref as given and opens no other file, so a ref may name a
   record that is not there. `epicenter check` reports each one, such as
@@ -320,16 +316,15 @@ A reference's JSON Schema is text with its target key, which the app
 listing prints with the rest of the schema:
 `{ "type": "string", "x-epicenter-ref": { "key": "shelves" } }`.
 
-Each field is JSON Schema, so any TypeBox schema works as a field too. A field
-is required unless it says `optional: true`. A field helper given an
-option it does not declare, such as `field.integer({ default: 50 })`, is a
-type error and throws naming it. No field has a `default`: `defineData`
-and `defineAction` refuse a schema with one at any depth, so the default is
-written in code where the value is read. `field.boolean` and `field.list`
-mark their schema `"x-epicenter-field": "switch"` or `"list"`, which names
-their kind rather than a value; a read and an action's call give an absent
-one as `false` or `[]`, except a list with `minItems`, which is required.
-Raw JSON Schema annotations pass through unchanged. Schemas must serialize as
+Each field is JSON Schema, so any TypeBox schema works as a field too. Every
+field, `field.boolean` and `field.list` included, is required unless it says
+`optional: true`, and an absent optional field stays absent in a read and in
+an action's input: nothing is filled in. A field helper given an option it
+does not declare, such as `field.integer({ default: 50 })`, throws when the
+field is made, naming the options it takes. No field has a `default`:
+`defineData` and `defineAction` refuse a schema with one at any depth, so
+the default is written in code where the value is read:
+`run: ({ done = false, tags = [] }) => ...`. Raw JSON Schema annotations pass through unchanged. Schemas must serialize as
 finite JSON; recursive schemas use references rather than cyclic JavaScript
 objects. No field name is reserved: the command line reads the input as one
 JSON object, so `json`, `help`, and `input` are keys like any other.
@@ -390,7 +385,8 @@ An action's `annotations` are MCP's tool annotations, verbatim:
 MCP's defaults. An action that does not say otherwise reads as one that may
 destroy. They are hints for an MCP client, which decides from them how careful
 to be before a call. Epicenter forwards them and enforces none: an action
-marked `readOnlyHint: true` that writes is the action's own mistake.
+marked `readOnlyHint: true` that writes is the action's own mistake. Write no annotations by default, and `readOnlyHint: true` on an action that
+only reads.
 
 An action that declares `mcp: false` is not offered to agents over MCP:
 `tools/list` leaves it out and `tools/call` refuses its name. The Messages app
@@ -503,8 +499,9 @@ await sync({ account }, { onUpdate: ({ copied, of }) => show(copied, of) });
 - An update reports and is never the answer. A caller that passes no
   `onUpdate` loses nothing, and a page must show the right thing after the
   call ends even if every update was lost.
-- An action that leaves the argument out sends no updates, and its callers
-  take no `onUpdate`. `run` is never an `async function*`; `defineAction`
+- An action that leaves the argument out sends no updates. In the library
+  every action still takes `options?: { onUpdate? }`, which it never calls.
+  `run` is never an `async function*`; `defineAction`
   refuses one.
 - The CLI sends its call to serve and writes each update to stderr as one
   line of JSON. MCP sends the tool result alone.
@@ -617,16 +614,16 @@ run, so the page rereads its records.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionUpdate<A>` name what action
 `A` takes from a caller, returns to a client, and reports while it runs:
-`ActionInput<ReturnType<typeof app>['actions']['patch']>`. A switch and a list without `min` are
-optional in `ActionInput`; an action that only returns reports `never`.
+`ActionInput<ReturnType<typeof app>['actions']['patch']>`. An action that
+only returns reports `never` as its `ActionUpdate`.
 
 A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
 
-## Upgrading to an app that is a function of its folder
+## Upgrading to 0.8.0
 
-The release after 0.7.0 makes an app a function of the folder it is handed
+0.8.0 makes an app a function of the folder it is handed
 ([ADR-0960](../../docs/adr/0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)),
 keeps that folder on disk
 ([ADR-0964](../../docs/adr/0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md)),
@@ -662,6 +659,25 @@ Some other names 0.7.0 exported are gone:
 | `App<A, D>` | `App`, which takes no type parameters |
 | `isUnderLocal`, `normalizePath`, `readMarkdown`, `isAction`, `isActionResult`, `encodeActionResult`, `whatFits`, `whatTakes`, `RESERVED_NAMES` | nothing; they were the library's own helpers |
 
+### Data and fields
+
+Every data key is a folder, nothing is filled in, and the library invents no
+value. The compiler flags each row except where the table says so.
+
+| 0.7.0 | 0.8.0 |
+| --- | --- |
+| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md` |
+| one-file `data['settings.md'].patch(change)`, which made the file | `data.settings.edit('settings', () => Ok(change))`, which may make it; `patch` refuses an absent record |
+| `tasks: { fields }` | `tasks: { description: 'task', fields }`: a description is required, a noun without "a" or "the" |
+| `create({ title })` through the generated action, named by the moment | `create({ id: timeId(), title })` |
+| `done: field.boolean()`, absent read as `false` | `done: field.boolean({ optional: true })` and `({ done = false })` where it is read, or `field.boolean()` and every file and caller gives it |
+| `tags: field.list(field.text())`, absent read as `[]` | `tags: field.list(field.text(), { optional: true })` and `({ tags = [] })` where it is read |
+| `field.list(item, { min: 1 })`, required because of its `min` | the same, required because it does not say `optional` |
+| `edit(id, (record) => Ok({ ...record, done: true }))` | `edit(id, () => Ok({ done: true }))`; not flagged by the compiler: a patch naming `path` or `id` is refused with `Misfit` at run time |
+| `field.ref('missing')` a type error | not flagged by the compiler; `defineData` still throws when it runs |
+| `field.integer({ default: 50 })` a type error | not flagged by the compiler; the helper still throws when the field is made |
+| `DataRecord<'words', typeof data.words>` | `DataRecord<typeof data.words>` |
+
 ### Changes the compiler does not flag
 
 - `epicenter` imports the app and calls its function each time it loads the app, today on every call. A cache or counter kept in the function body starts over each time; keep it in a file.
@@ -669,6 +685,9 @@ Some other names 0.7.0 exported are gone:
 - A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
 - The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
 - `checkAnswer` refuses a `Threw` whose `thrown` is not a plain object, such as an `Error` instance a test passes in, and answers `Unreachable`. An answer read from serve is parsed JSON, so it is unaffected.
+- A record read from disk no longer has `false` for an absent switch or `[]` for an absent list: an optional one is absent, and a required one that is absent makes the file a `Misfit` with "<field> is missing". Code that reads `record.tags.length` on an optional list reads `(record.tags ?? []).length`.
+- The generated `create` no longer writes `done: false` and `tags: []` into a new file for fields the caller left out; it writes what `data.<key>.create(id, record)` writes.
+- A data action's description uses the key's `description` as written, so `description: 'a note'` reads "Read one a note". Write `'note'`.
 - `epicenter serve` will not start while a `.env` at the root of the Epicenter is tracked by Git or not ignored ([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)). It says which, and the fix: `git rm --cached .env`, or add `.env*` to `.gitignore`.
 - The folder writes `local/.gitignore` when it makes `local/`. A `local/` made another way runs, and is listed as a problem with the one-line fix.
 

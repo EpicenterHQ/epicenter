@@ -180,3 +180,14 @@ callback.
 - **The handle's `add(record)` making a time id when none is given.** A rule the reader cannot see in code; `add(timeId(), record)` says it.
 - **`data.at(id).get()`, a record handle.** One more call per use; the methods already take the record's name first.
 - **A standalone `defineCollection('notes', { fields })` per collection.** Refs by name could not be checked in one place, and a collection would learn its folder only when registered.
+
+## Amendment (2026-11-18): one handle shape, and edit returns only what changes
+
+With ADR-0933's amendment of the same date there is no one-file key, so every
+handle method that names a record takes its id: `data.settings.get('settings')`.
+The one-file rules above (`patch(change)` creating its file, a record with no
+`id`) no longer apply; code that makes a fixed-id record when it is absent
+uses `edit(id, fn)`. The patch an `edit` function returns holds only the
+fields that change. One that names `path` or `id`, as `Ok({ ...record, done:
+true })` does, is refused with `Misfit` saying to return only the fields that
+change; the handle used to drop those keys without a word.

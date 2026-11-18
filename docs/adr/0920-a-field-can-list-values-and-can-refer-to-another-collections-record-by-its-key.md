@@ -107,3 +107,11 @@ add meaning to a value but never stand for a value of another type.
   check threw out of the callback, read, and ran it again.
 - **The app listing names the action that lists a reference's target.** Built
   and removed. It needed a mark on every generated verb, and no page reads it.
+
+## Amendment (2026-11-18): a list is required unless it says optional; refs are checked when defineData runs
+
+A list follows ADR-0923's amendment of the same date: like every field it is
+required unless it says `optional: true`, and an absent one is absent, never
+`[]`. `min` bounds its length when it is given. `defineData` still refuses a
+`field.ref` whose target is not one of its keys, when it runs; the types no
+longer check the target, so `field.ref` takes any text as its target.
