@@ -6,7 +6,7 @@ This page maps the code of the folder sync product, which is retired
 ([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)). Some of that code
 is still in this repository while Whispering imports it, and the page names some
 files deleted since. It does not describe Epicenter today: [the vision](vision.md)
-says what Epicenter is, and the READMEs of `packages/cli` and `packages/app` say
+says what Epicenter is, and the READMEs of `packages/app` and its command say
 how it works in code.
 
 For that product,
@@ -178,7 +178,7 @@ one folder or, with `--all`, `syncEvery`.
 
 ### `epicenter mcp`
 
-1. `epicenter mcp [<dir> ...] [--all]` (`packages/cli/src/mcp.ts`) serves the
+1. `epicenter mcp [<dir> ...] [--all]` (`packages/app/src/command/mcp.ts`) serves the
    MCP protocol on stdin and stdout.
 2. Its tools are every entry of `OPERATIONS`, with the same input and output
    schemas and the same code, and, for each folder it reaches, tools derived
@@ -221,6 +221,6 @@ hosted API alone. The package READMEs describe their contracts:
 [folder](../packages/folder/README.md),
 [definition](../packages/definition/README.md),
 [server](../packages/server/README.md),
-[cli](../packages/cli/README.md), [apps](../apps/README.md),
+[cli](../packages/app/src/command/README.md), [apps](../apps/README.md),
 [the Epicenter app](../apps/epicenter/README.md), and
 [the API](../apps/api/README.md).

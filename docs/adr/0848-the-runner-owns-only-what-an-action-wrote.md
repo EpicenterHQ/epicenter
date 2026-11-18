@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at what an action's commit and undo cover: the paths the action wrote, not every path that changed while it ran.
 - **Relates:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) (who runs actions, and when).
-- **Unbuilt:** all of it. Today's `packages/cli/src/run.ts` commits every path that changed during the run and, when an action throws, restores or deletes every path that changed and was clean before, which can revert or delete an edit an agent makes at the same moment. `readOnly` is a hint `run.ts` ignores, a failed commit leaves the action's writes uncommitted with no record, and the lock waits up to a day.
+- **Unbuilt:** all of it. Today's `packages/app/src/command/run.ts` commits every path that changed during the run and, when an action throws, restores or deletes every path that changed and was clean before, which can revert or delete an edit an agent makes at the same moment. `readOnly` is a hint `run.ts` ignores, a failed commit leaves the action's writes uncommitted with no record, and the lock waits up to a day.
 
 ## Context
 

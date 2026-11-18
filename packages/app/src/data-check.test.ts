@@ -39,17 +39,13 @@ test.skipIf(foldsCase)(
 		});
 		expect(
 			report.notes?.records.filter(({ problems }) =>
-				problems.some(
-					({ line }) => line === 'are one file on a disk that ignores case',
-				),
+				problems.includes('are one file on a disk that ignores case'),
 			),
 		).toHaveLength(4);
 		expect(
 			report.notes?.records.find(({ path }) => path === 'notes/cafe\u0301.md')
 				?.problems,
-		).toEqual([
-			{ line: 'an id must be Unicode NFC', kind: 'an id must be Unicode NFC' },
-		]);
+		).toEqual(['an id must be Unicode NFC']);
 		expect(JSON.stringify(report)).not.toContain('not parsed');
 	},
 );
@@ -81,9 +77,7 @@ test('an id over 200 UTF-8 bytes is counted and never read', async () => {
 	expect(report.notes).toMatchObject({
 		files: 1,
 		withProblems: 1,
-		records: [
-			{ problems: [{ line: 'an id must be at most 200 UTF-8 bytes' }] },
-		],
+		records: [{ problems: ['an id must be at most 200 UTF-8 bytes'] }],
 	});
 });
 
@@ -112,9 +106,7 @@ test('refs in a one-file key and nested lists resolve targets declared later', a
 		records: [
 			{
 				path: 'settings.md',
-				problems: [
-					{ line: 'nested[0][1] "missing" names no file in watches/' },
-				],
+				problems: ['nested[0][1] "missing" names no file in watches/'],
 			},
 		],
 	});

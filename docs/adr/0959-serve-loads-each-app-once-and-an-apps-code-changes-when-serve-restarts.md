@@ -9,7 +9,7 @@
 ## Context
 
 Serve imports an app again on every call. `load` in
-`packages/cli/src/home.ts` drops every module under the app's `code/` and
+`packages/app/src/command/home.ts` drops every module under the app's `code/` and
 imports `epicenter.ts`, so an edit reaches the next call (ADR-0880). The
 action runner, the MCP tool list and the launcher page each call it; one
 `tools/list` request imports every app.
@@ -25,9 +25,9 @@ That rule has three costs:
 The owner's agents are always present on the computer. They can stop and
 start serve, so reloading on each call serves nobody who cannot restart.
 
-Routine commands start with `Bun.spawn` in `packages/cli/src/routines.ts`
+Routine commands start with `Bun.spawn` in `packages/app/src/command/routines.ts`
 and share serve's process group, so a Ctrl-C or a service manager's stop
-signal reaches them with serve (`stop` in `packages/cli/src/http.ts`).
+signal reaches them with serve (`stop` in `packages/app/src/command/http.ts`).
 ADR-0937 accepted that because "the service has restarted only on installs".
 
 ## Decision
@@ -93,7 +93,7 @@ running, and exits.
 is kept running differs by owner: a terminal, a launchd job or a systemd
 unit (ADR-0941), so Epicenter cannot name one command. Serve already sends
 `AGENTS.md` to every MCP client at initialize (`rootInstructions` in
-`packages/cli/src/root.ts`), and reads it again on each initialize. The
+`packages/app/src/command/root.ts`), and reads it again on each initialize. The
 command's README gives the line to add, for example
 `Restart serve: launchctl kickstart -k gui/$(id -u)/<label>`, and the
 changed-code line points there when it says `restart serve`.

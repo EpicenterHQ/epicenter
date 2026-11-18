@@ -19,7 +19,7 @@ Serve wrapped every failure in an envelope whose `kind` said what happened to th
 {"data":null,"error":{"kind":"refused","reason":{"name":"Usage","message":"\"idd\" is not a key this action takes; it takes id","next":"epicenter reading get --help"}}}
 ```
 
-`packages/cli/src/output.ts` built it (`RunFailure`, `refused()`), and `outcome()` read `kind` for the exit code: 2 for `refused`, 1 otherwise. `packages/app/src/client.ts` unwrapped it for a page: `returned` gave the reason, `fault` became `ActionError.Threw`, and `refused` became `ActionError.Refused`. An app's own actions also return `ActionError.Refused`, for example when a task has no title. A page could not tell "serve never started my call" from "the action looked and said no."
+`packages/app/src/command/output.ts` built it (`RunFailure`, `refused()`), and `outcome()` read `kind` for the exit code: 2 for `refused`, 1 otherwise. `packages/app/src/client.ts` unwrapped it for a page: `returned` gave the reason, `fault` became `ActionError.Threw`, and `refused` became `ActionError.Refused`. An app's own actions also return `ActionError.Refused`, for example when a task has no title. A page could not tell "serve never started my call" from "the action looked and said no."
 
 The `kind` repeated what a name can carry. Each `kind` maps to one fact about the call, and each fact has one error name that can carry it.
 
@@ -37,7 +37,7 @@ input: { word: field.text(), meaning: field.text({ optional: true }) },
 {"word":{"type":"string"},"meaning":{"type":"string"}}
 ```
 
-Rebuilt from that JSON, `meaning` is required. `packages/cli/src/input.ts` wraps the live record in `Type.Object` for each check, and `jsonSchema()` and `requiredKeys()` rebuild `required` for MCP, `--help` and `list --json`. Each reader rebuilds the schema its own way.
+Rebuilt from that JSON, `meaning` is required. `packages/app/src/command/input.ts` wraps the live record in `Type.Object` for each check, and `jsonSchema()` and `requiredKeys()` rebuild `required` for MCP, `--help` and `list --json`. Each reader rebuilds the schema its own way.
 
 ## Decision
 
@@ -50,7 +50,7 @@ Rebuilt from that JSON, `meaning` is required. `packages/cli/src/input.ts` wraps
 | HTTP, `POST /<app>/<action>` | the final `{"answer": ...}` line; a call refused before it starts is the body of a 400 |
 | `epicenter <app> <action> --json` | the one JSON value on stdout |
 | MCP `tools/call` | `structuredContent` |
-| `packages/cli/src/serve-call.ts` | what `sendToServe` returns to the CLI |
+| `packages/app/src/command/serve-call.ts` | what `sendToServe` returns to the CLI |
 
 ```json
 {"data":{"id":"dune"},"error":null}
@@ -103,7 +103,7 @@ The CLI's own commands, `init`, `new`, `export`, `check` and `serve`, are not ac
 ## Consequences
 
 - A page can switch on `error.name` alone. `NotStarted` and an app's `Refused` are different names, so "my call never ran" and "the app said no" no longer collide.
-- `packages/cli/src/output.ts` loses `RunFailure`, `refused()` and the `kind` branches of `outcome()`. `client.ts` loses its envelope decoder, and `serve-call.ts` stops casting serve's body to an answer without checking it.
+- `packages/app/src/command/output.ts` loses `RunFailure`, `refused()` and the `kind` branches of `outcome()`. `client.ts` loses its envelope decoder, and `serve-call.ts` stops casting serve's body to an answer without checking it.
 - Anything that read `kind` or `reason` breaks: a page or test that faked the envelope, a script that read `.error.kind` from `--json`, and an agent prompt that described it. `Refused` from a call that never started is now `NotStarted`. A page that matched `Refused` to catch both now handles them apart.
 - An app that returned `ActionError.Unreachable` for a dependency that did not answer now answers `Threw` instead. It returns its own error name, or `Ok` with a field saying the result was not confirmed.
 - An app may not define its own error named `NotStarted` or `Unreachable`; serve turns either into `Threw`.
@@ -120,7 +120,7 @@ The CLI's own commands, `init`, `new`, `export`, `check` and `serve`, are not ac
 
 ## Amendment, 2026-11-17: CLI commands answer the same way
 
-D1 left the CLI's own commands outside the answer. They printed `{"error": ...}` from a separate `CliError` family, so a script read one shape from an action call and another from `epicenter --json`, and two refusals were both named `Refused`: the CLI's, and an app's. Now every command ends in one `{ data, error }` answer, and one function, `presentAnswer` in `packages/cli/src/output.ts`, prints it and sets the exit code from `outcome()`.
+D1 left the CLI's own commands outside the answer. They printed `{"error": ...}` from a separate `CliError` family, so a script read one shape from an action call and another from `epicenter --json`, and two refusals were both named `Refused`: the CLI's, and an app's. Now every command ends in one `{ data, error }` answer, and one function, `presentAnswer` in `packages/app/src/command/output.ts`, prints it and sets the exit code from `outcome()`.
 
 **Every command's `--json` is `{ data, error }`.** That holds for `init`, `new`, `export`, `check`, the home listing, one app's listing, action help, `--version` and `--help`. Without `--json` a command prints what it printed before. Exit codes are D1's: 0 for no error, 2 for exactly `NotStarted`, 1 for any other error. `serve` prints no answer while it serves; its refusals before serving are answers, and `serve --json` is refused as `usage`.
 

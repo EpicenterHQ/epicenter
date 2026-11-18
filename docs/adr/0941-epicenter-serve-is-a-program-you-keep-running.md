@@ -39,6 +39,6 @@ and exits 2.
   guessed from the reader's computer, in two formats Epicenter keeps nowhere
   else.
 - **A parent process that restarts serve after a crash.** An action that throws
-  already returns a failed answer (`runAction` in `packages/cli/src/run.ts`).
+  already returns a failed answer (`runAction` in `packages/app/src/command/run.ts`).
   What remains, such as an action calling `process.exit`, is a bug that a
   restart would hide.

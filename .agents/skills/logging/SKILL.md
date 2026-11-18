@@ -193,7 +193,7 @@ The whole surface is pure JS and browser-safe.
 
 A host whose work has a clear start and end can write one record when each unit ends, instead of several lines along the way. One action run in `epicenter serve` and one HTTP request in the hosted API are units of work. The record carries the outcome, the duration, and the error's name if there was one. This is the [canonical log line](https://stripe.com/blog/canonical-log-lines) pattern.
 
-It needs no new logger API, only one `info` call when the work ends. `epicenter serve` writes one for each action run in [`runAction`](../../../packages/cli/src/run.ts), through a [JSON-line sink on stderr](../../../packages/cli/src/output.ts):
+It needs no new logger API, only one `info` call when the work ends. `epicenter serve` writes one for each action run in [`runAction`](../../../packages/app/src/command/run.ts), through a [JSON-line sink on stderr](../../../packages/app/src/command/output.ts):
 
 ```ts
 log.info('action run ended', {

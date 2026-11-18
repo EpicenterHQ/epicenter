@@ -121,10 +121,10 @@
 		"yaml": "^2.9.0"
 	},
 	"bin": {
-		"epicenter": "./packages/cli/src/bin.ts"
+		"epicenter": "./packages/app/src/command/bin.ts"
 	},
 	"scripts": {
-		"epicenter": "bun --no-install packages/cli/src/bin.ts",
+		"epicenter": "bun --no-install packages/app/src/command/bin.ts",
 		"build": "bun run --filter '*' build",
 		"build:whispering:desktop": "bun run --cwd apps/whispering build:desktop",
 		"check": "bun run lint:ci && bun run typecheck && bun run test && bun run check:structure",
@@ -151,12 +151,11 @@
 		"check:doc-hygiene": "bun run scripts/check-doc-hygiene.ts",
 		"check:clean-break": "bun run scripts/check-clean-break.ts",
 		"check:catalog-pins": "bun run scripts/check-catalog-pins.ts",
-		"check:versions": "bun packages/cli/scripts/version.ts",
 		"check:api-paths": "bun run scripts/check-api-paths.ts",
 		"check:vocabulary": "bun run scripts/check-vocabulary.ts",
 		"check:state-paths": "bun run scripts/check-state-paths.ts",
 		"worktrees": "bun run scripts/worktree-audit.ts",
-		"check:structure": "bun run check:doc-paths && bun run check:catalog-pins && bun run check:versions && bun run check:api-paths && bun run check:ui-boundary && bun run check:boot-purity && bun run check:vocabulary && bun run check:state-paths && bun run check:clean-break",
+		"check:structure": "bun run check:doc-paths && bun run check:catalog-pins && bun run check:api-paths && bun run check:ui-boundary && bun run check:boot-purity && bun run check:vocabulary && bun run check:state-paths && bun run check:clean-break",
 		"gen:spec-history": "bun run scripts/generate-spec-history.ts",
 		"bump-version": "bun run scripts/bump-version.ts",
 		"clean": "bun run scripts/clean.ts",
