@@ -101,7 +101,7 @@ function clientUsage() {
 	void app.call('count', { to: 'three' });
 	// @ts-expect-error A call takes no signal: nothing stops an action from outside.
 	void app.call('count', { to: 3 }, { signal: new AbortController().signal });
-	// @ts-expect-error An action that sends no updates takes no options.
+	// Every call takes options, as every action does; one that sends no updates never calls onUpdate.
 	void app.call('start-day', {}, { onUpdate: () => {} });
 	void app.call('start-day', {});
 	void app.call('start-day');
