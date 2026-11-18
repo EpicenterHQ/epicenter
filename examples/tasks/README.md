@@ -136,6 +136,6 @@ notes must stay disabled until it finishes. Leaving notes to click Tomorrow
 must save both changes on that first click. No notes draft is retained in
 browser storage.
 
-The declaration in `data.ts` has one folder key, `tasks`; ids keep existing
+The `defineData` call in `epicenter.ts` has one key, `tasks`; ids keep existing
 file stems. No data or local-file moves are needed. None of the actions
 streams updates. Devices call serve directly while online.
