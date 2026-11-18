@@ -4,10 +4,15 @@
  * the actions on several of them do.
  *
  * Everything here is read from what the library (`library.svelte.ts`)
- * lists now. Nothing is kept: the search text, the sort, and the selection
- * are the library's, and are handed in. A row's identity is its recording's
- * id, so a selection survives a new sort and a new search, and a recording
- * that is gone is simply no longer selected.
+ * lists now. Nothing is kept: the search text, the sort, the page, and the
+ * selection are the library's, and are handed in. A row's identity is its
+ * recording's id, so a selection survives a new sort, a new search, and a
+ * turn of the page, and a recording that is gone is simply no longer
+ * selected.
+ *
+ * The search and the sort run over every recording; the table then draws
+ * one page of what they keep, so a folder of thousands of recordings draws
+ * a hundred rows.
  *
  * The actions on several rows are Whispering's own actions on one row,
  * taken one at a time in table order. A transcription is asked for once for
@@ -41,7 +46,7 @@ type RecordingRow = {
 	/** Its transcripts, newest first. */
 	readonly transcripts: readonly TranscriptionNote[];
 	readonly status: RecordingStatus;
-	/** Where its audio is. */
+	/** Where its audio is, looked up when read: the table reads it only for the rows on its page. */
 	readonly audio: RecordingAudio;
 };
 
@@ -77,7 +82,9 @@ function recordingRows(library: Source): RecordingRow[] {
 		title: titleOf(note),
 		transcripts: library.transcriptsFor(note.id),
 		status: statusOf(library, note.id),
-		audio: library.audioOf(note.id),
+		get audio() {
+			return library.audioOf(note.id);
+		},
 	}));
 }
 
@@ -91,12 +98,15 @@ function matches(row: RecordingRow, needle: string): boolean {
 	].some((text) => text.toLowerCase().includes(needle));
 }
 
+/** The text a search looks for: two searches with the same needle keep the same rows. */
+const needleOf = (query: string) => query.trim().toLowerCase();
+
 /** The rows a search keeps. Notes that need repair are listed apart and never searched out. */
 function searchRows(
 	rows: readonly RecordingRow[],
 	query: string,
 ): RecordingRow[] {
-	const needle = query.trim().toLowerCase();
+	const needle = needleOf(query);
 	if (needle === '') return [...rows];
 	return rows.filter((row) => matches(row, needle));
 }
@@ -116,7 +126,7 @@ export function transcriptExcerpt(
 	row: RecordingRow,
 	query: string,
 ): string | undefined {
-	const needle = query.trim().toLowerCase();
+	const needle = needleOf(query);
 	const texts = row.transcripts
 		.map((transcript) => transcript.body.replace(/\s+/g, ' ').trim())
 		.filter((text) => text !== '');
@@ -190,6 +200,78 @@ export function shownRows(
 	return sortRows(searchRows(recordingRows(library), query), sort);
 }
 
+// --- pages ----------------------------------------------------------------
+
+/** How many rows one page of the table draws. */
+export const PAGE_SIZE = 100;
+
+type TablePage<TRow> = {
+	/** The rows on this page, in table order. */
+	readonly rows: TRow[];
+	/** Which page this is, from 0. */
+	readonly index: number;
+	/** How many pages there are: at least one, so an empty table is one empty page. */
+	readonly count: number;
+	/** The first and last row on this page, counted from 1 over every page; both 0 with no rows. */
+	readonly from: number;
+	readonly to: number;
+	/** How many rows there are on every page together. */
+	readonly total: number;
+};
+
+/**
+ * Page `index` of `rows`, brought into range. A page past the last is the
+ * last, so deleting the rows of the last page, or a folder that shrinks,
+ * shows the page before instead of an empty one.
+ */
+export function pageOf<TRow>(
+	rows: readonly TRow[],
+	index: number,
+	size = PAGE_SIZE,
+): TablePage<TRow> {
+	const count = Math.max(1, Math.ceil(rows.length / size));
+	const at = Math.min(Math.max(0, Math.trunc(index)), count - 1);
+	const start = at * size;
+	const onPage = rows.slice(start, start + size);
+	return {
+		rows: onPage,
+		index: at,
+		count,
+		from: onPage.length > 0 ? start + 1 : 0,
+		to: start + onPage.length,
+		total: rows.length,
+	};
+}
+
+/** What the table shows: its search, its order, and its page. */
+type TableView = Pick<
+	Library['ui'],
+	'recordingQuery' | 'recordingSort' | 'recordingPage'
+>;
+
+/**
+ * The view after `change`. A new search or a new order starts at its first
+ * page, since the page the person was on now lists other recordings. The
+ * same search or order set again (a space typed after the search text, the
+ * sort chosen that is already chosen) keeps the page.
+ */
+export function viewWith(
+	view: TableView,
+	change: Partial<TableView>,
+): TableView {
+	const recordingQuery = change.recordingQuery ?? view.recordingQuery;
+	const recordingSort = change.recordingSort ?? view.recordingSort;
+	const changed =
+		needleOf(recordingQuery) !== needleOf(view.recordingQuery) ||
+		recordingSort.key !== view.recordingSort.key ||
+		recordingSort.direction !== view.recordingSort.direction;
+	return {
+		recordingQuery,
+		recordingSort,
+		recordingPage: changed ? 0 : (change.recordingPage ?? view.recordingPage),
+	};
+}
+
 // --- selection ------------------------------------------------------------
 
 /**
@@ -225,21 +307,57 @@ export function toggleSelected(
 }
 
 /**
- * Select or clear every shown row. Selected rows the search hides stay as
- * they are: clearing what is on screen does not clear what is not.
+ * Select or clear every row given: a page, or every row the search keeps.
+ * Selected rows not given stay as they are, so clearing a page does not
+ * clear the pages after it or what the search hides.
  */
-export function toggleAllShown(
+export function toggleRows(
 	selected: readonly string[],
-	shown: readonly RecordingRow[],
+	rows: readonly RecordingRow[],
 	on: boolean,
 	library: Pick<Library, 'entries'>,
 ): string[] {
 	const present = new Set(library.entries.map((note) => note.id));
-	const visible = new Set(shown.map((row) => row.id));
-	const kept = selected.filter(
-		(item) => present.has(item) && !visible.has(item),
-	);
-	return on ? [...kept, ...visible] : kept;
+	const given = new Set(rows.map((row) => row.id));
+	const kept = selected.filter((item) => present.has(item) && !given.has(item));
+	return on ? [...kept, ...given] : kept;
+}
+
+/**
+ * The selection after a shift-click on row `id` of a page: every row from
+ * the last row clicked, `anchor`, to this one is ticked or cleared, as this
+ * one now is. A range stays on one page; with no anchor on this page only
+ * this row changes.
+ */
+export function selectRange(
+	selected: readonly string[],
+	page: readonly RecordingRow[],
+	anchor: string | undefined,
+	id: string,
+	on: boolean,
+	library: Pick<Library, 'entries'>,
+): string[] {
+	const to = page.findIndex((row) => row.id === id);
+	const from = page.findIndex((row) => row.id === anchor);
+	if (to < 0 || from < 0) return toggleSelected(selected, id, on, library);
+	const range = page.slice(Math.min(from, to), Math.max(from, to) + 1);
+	return toggleRows(selected, range, on, library);
+}
+
+/**
+ * How much of the table the selection covers, as a mail client tells it.
+ * `'all'` when every row the search keeps is selected and they fill more
+ * than one page; `'page'` when every row on this page is selected and more
+ * rows match, which is when the table offers to select them all.
+ */
+export function selectionReach(
+	selected: ReadonlySet<string>,
+	page: Pick<TablePage<RecordingRow>, 'rows' | 'count'>,
+	shown: readonly RecordingRow[],
+): 'all' | 'page' | undefined {
+	if (page.count < 2) return undefined;
+	if (!page.rows.every((row) => selected.has(row.id))) return undefined;
+	return shown.every((row) => selected.has(row.id)) ? 'all' : 'page';
 }
 
 // --- actions on several rows ---------------------------------------------
