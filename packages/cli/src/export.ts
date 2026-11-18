@@ -1,7 +1,5 @@
 /** Export committed app code into replaceable directories, leaving publication to Git. */
 import {
-	chmod,
-	copyFile,
 	cp,
 	lstat,
 	mkdir,
@@ -29,7 +27,6 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import {
 	checkoutCodeFiles,
 	EXPORT_MARKER,
-	isCopiedCodePath,
 	readCodeFiles,
 } from './code-copy.js';
 import { misuse, nameProblem, parseWords } from './commands.js';
@@ -134,62 +131,27 @@ async function checkDestination(directory: string, expected: ExportMarker) {
 }
 
 /**
- * Keep internal links when their targets travel with the app. A relative
- * link to a committed shared file outside apps/ is copied by value instead;
- * private records and another app's files never enter through a link.
+ * Refuse a link whose target leaves the app's code/. An app keeps what it
+ * uses, its palette too, as files in code/, so nothing outside travels.
  */
-async function materializeLinks(
-	repository: string,
-	commit: string,
+async function refuseOutsideLinks(
 	entries: { path: string; mode: string }[],
 	tree: string,
 	prefix: string,
-	lfsStorage: string,
 ) {
-	const materialized: { path: string; from: string }[] = [];
 	for (const entry of entries.filter(({ mode }) => mode === '120000')) {
-		const file = join(tree, entry.path);
-		const target = await readlink(file);
-		const path = entry.path.slice(prefix.length + 1);
+		const target = await readlink(join(tree, entry.path));
 		const resolved = posix.normalize(
 			posix.join(posix.dirname(entry.path), target),
 		);
 		if (
 			posix.isAbsolute(target) ||
-			resolved === '..' ||
-			resolved.startsWith('../')
+			(resolved !== prefix && !resolved.startsWith(`${prefix}/`))
 		)
-			refuse(`${path} links outside this Epicenter: ${target}`);
-		if (resolved === prefix || resolved.startsWith(`${prefix}/`)) continue;
-		if (
-			resolved === '.' ||
-			resolved === 'apps' ||
-			resolved.startsWith('apps/') ||
-			resolved.split('/').includes('data') ||
-			!isCopiedCodePath(resolved)
-		)
-			refuse(`${path} links to private or excluded files: ${target}`);
-		const listed = await checkedGit(repository, [
-			'ls-tree',
-			'-z',
-			commit,
-			'--',
-			resolved,
-		]);
-		if (!/^100[0-7]{3} blob /.test(listed))
-			refuse(`${path} must link to a committed regular shared file: ${target}`);
-		const mode = listed.slice(0, 6);
-		// Two links can share a target; checkout-index refuses to overwrite its first copy.
-		if (!(await info(join(tree, resolved))))
-			await checkoutCodeFiles(repository, [{ path: resolved, mode }], tree, {
-				lfsStorage,
-			});
-		await rm(file);
-		await copyFile(join(tree, resolved), file);
-		await chmod(file, mode === '100755' ? 0o755 : 0o644);
-		materialized.push({ path, from: resolved });
+			refuse(
+				`${entry.path.slice(prefix.length + 1)} links outside the app's code/: ${target}. Copy the file into code/ instead.`,
+			);
 	}
-	return materialized;
 }
 
 /** Validate links independently of the checkout's code/ or collection app name. */
@@ -296,7 +258,15 @@ export async function exportCommand(
 		for (const { app, entries } of apps) {
 			// Git's own answer, so its ignore rules decide what counts as a change.
 			const code = `apps/${app}/code`;
-			if (await checkedGit(source, ['status', '--porcelain', '--', code]))
+			if (
+				await checkedGit(source, [
+					'status',
+					'--porcelain',
+					'--untracked-files=all',
+					'--',
+					code,
+				])
+			)
 				refuse(`${code} has uncommitted changes; commit them, then export.`);
 			if (
 				!entries.some(
@@ -322,32 +292,14 @@ export async function exportCommand(
 			tree,
 			{ lfsStorage },
 		);
-		const reports = [];
 		for (const { app, selected } of apps) {
 			const prefix = `apps/${app}/code`;
-			const materialized = await materializeLinks(
-				repository,
-				commit,
-				selected,
-				tree,
-				prefix,
-				lfsStorage,
-			);
+			await refuseOutsideLinks(selected, tree, prefix);
 			// A random root also catches chains that leave and reenter a folder named code.
 			const prepared = await mkdtemp(join(scratch, 'app-'));
 			await rename(join(tree, prefix), prepared);
 			await checkLinks(prepared, selected, prefix);
 			await rename(prepared, all ? join(output, app) : output);
-			const pending = await checkedGit(source, [
-				'status',
-				'--porcelain=v1',
-				'-z',
-				'--untracked-files=all',
-				'--',
-				prefix,
-				...materialized.map(({ from }) => from),
-			]);
-			reports.push({ app, materialized, uncommitted: pending !== '' });
 		}
 		const omitted = all
 			? (await homeEntries())
@@ -373,24 +325,14 @@ export async function exportCommand(
 			writeJson({
 				commit,
 				directory,
-				apps: reports,
+				apps: apps.map(({ app }) => app),
 				omitted,
 			});
 		else {
 			writeOut(
-				`Exported ${reports.length} app${reports.length === 1 ? '' : 's'} to ${directory}`,
+				`Exported ${apps.length} app${apps.length === 1 ? '' : 's'} to ${directory}`,
 			);
 			writeOut(`Exported source: ${commit}`);
-			for (const report of reports) {
-				for (const file of report.materialized)
-					writeOut(
-						`${report.app}/${file.path}: copied shared file ${file.from}`,
-					);
-				if (report.uncommitted)
-					writeErr(
-						`${report.app}: uncommitted changes were left out; commit them, then export.`,
-					);
-			}
 			for (const name of omitted)
 				writeErr(`${name}: no committed code tree; not exported`);
 		}
