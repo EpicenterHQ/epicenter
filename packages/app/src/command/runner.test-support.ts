@@ -101,8 +101,9 @@ function callsAction(args: string[]) {
 /**
  * A temporary `HOME` whose `Epicenter` folder is the app home, a Bun
  * workspace with its packages in place (`installPackages`), its apps in
- * `apps`, and the real `bin.ts` run against it, so output, exit codes, and the folders on disk are
- * tested together. Nothing here reads the person's own home.
+ * `apps`, and the real `bin.ts` run inside it, as a person runs it, so
+ * output, exit codes, and the folders on disk are tested together. Nothing
+ * here reads the person's own home.
  *
  * Only serve runs an action, so a `run` of one starts `epicenter serve` for
  * this home unless one is running, and it is stopped when the test ends.
@@ -157,7 +158,7 @@ export async function fixture() {
 		if (serving.byTest || serving.off) return;
 		fixtures.add(serving);
 		if (!serving.own) {
-			const own = spawnServe(serving, command, root, env);
+			const own = spawnServe(serving, command, home, env);
 			serving.own = own;
 			// An action can end serve; the next one starts it again.
 			void own
@@ -192,7 +193,8 @@ export async function fixture() {
 		]);
 		return { stdout, stderr, code };
 	}
-	const run = (...args: string[]) => runIn(root, ...args);
+	// A command acts on the Epicenter it runs in, as a person runs it.
+	const run = (...args: string[]) => runIn(home, ...args);
 	return {
 		root,
 		home,
@@ -229,7 +231,7 @@ export async function startServe(
 	const own = f.serving.own;
 	f.serving.own = undefined;
 	await (await own?.catch(() => undefined))?.kill();
-	return spawnServe(f.serving, command, f.root, env, true);
+	return spawnServe(f.serving, command, f.home, env, true);
 }
 
 async function spawnServe(

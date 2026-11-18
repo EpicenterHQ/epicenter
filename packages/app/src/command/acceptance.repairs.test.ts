@@ -77,7 +77,10 @@ test('F1 a broken root is a usage error', async () => {
 	const f = await setup();
 	await rm(f.home, { recursive: true });
 	await writeFile(f.home, 'not a folder');
-	const listed = await f.json();
+	const listed = await f.runIn(f.root, '--json').then((result) => ({
+		...result,
+		report: JSON.parse(result.stdout),
+	}));
 	expect(listed.code).toBe(2);
 	expect(listed.report.error).toMatchObject({
 		name: 'NotStarted',

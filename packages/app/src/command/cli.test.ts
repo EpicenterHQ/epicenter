@@ -455,10 +455,10 @@ test('an empty Epicenter says what an app is and a missing marker suggests makin
 		'No apps yet. An app is apps/<name>/code/epicenter.ts',
 	);
 	await rm(f.home, { recursive: true });
-	expect((await f.run('--json')).code).toBe(2);
+	expect((await f.runIn(f.root, '--json')).code).toBe(2);
 	const make = `mkdir -p ${f.home} && touch ${join(f.home, 'EPICENTER.md')}`;
-	expect((await f.run()).stderr).toContain(make);
-	const missing = await f.run('reading', '--json');
+	expect((await f.runIn(f.root)).stderr).toContain(make);
+	const missing = await f.runIn(f.root, 'reading', '--json');
 	expect(missing.code).toBe(2);
 	expect(JSON.parse(missing.stdout).error.message).toContain('EPICENTER.md');
 	expect(JSON.parse(missing.stdout).error.next).toBe(make);

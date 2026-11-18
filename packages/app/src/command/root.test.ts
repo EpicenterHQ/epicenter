@@ -34,9 +34,11 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 		'code/epicenter.ts': bareApp('tasks'),
 	});
 	f.env.EPICENTER_ROOT = other;
-	const fromOutside = JSON.parse((await f.run('--json')).stdout).data;
+	const fromOutside = JSON.parse((await f.runIn(f.root, '--json')).stdout).data;
 	expect(fromOutside.epicenter).toBe(other);
-	expect((await f.run()).stdout).toContain(`Epicenter: other (${other})`);
+	expect((await f.runIn(f.root)).stdout).toContain(
+		`Epicenter: other (${other})`,
+	);
 	expect(fromOutside.apps.map((app: { name: string }) => app.name)).toEqual([
 		'tasks',
 	]);
@@ -50,11 +52,12 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	const unmarked = join(f.root, 'unmarked');
 	f.env.EPICENTER_ROOT = unmarked;
 	const make = `mkdir -p ${unmarked} && touch ${join(unmarked, 'EPICENTER.md')}`;
-	const missing = await f.run('--json');
+	const missing = await f.runIn(f.root, '--json');
 	expect(missing.code).toBe(2);
 	expect(JSON.parse(missing.stdout).error.next).toBe(make);
 	expect(
-		JSON.parse((await f.run('invalid_name', '--json')).stdout).error.next,
+		JSON.parse((await f.runIn(f.root, 'invalid_name', '--json')).stdout).error
+			.next,
 	).toBe(make);
 });
 
