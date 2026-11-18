@@ -346,6 +346,21 @@ export default defineApp(() => ({ description: 'Where', actions: {
 });
 
 /** Hold the fixture's port as `answer` does, in place of its serve. */
+/**
+ * What the command or a second serve prints when `holder` has the port of
+ * the Epicenter at `folder`: the refusal names that Epicenter's marker.
+ */
+function held(
+	port: number,
+	holder: 'another Epicenter' | 'another program',
+	folder: string,
+) {
+	const marker = join(folder, 'EPICENTER.md');
+	return holder === 'another Epicenter'
+		? `Port ${port} is in use by another Epicenter's serve, not the one for ${folder}. Set a different \`port\` in ${marker}.\n`
+		: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}.\n`;
+}
+
 async function holdPort(
 	f: Awaited<ReturnType<typeof setup>>,
 	answer: (request: Request) => Response,
@@ -357,7 +372,7 @@ async function holdPort(
 test('a command is refused, and runs nothing, when its port is held by another Epicenter or another program', async () => {
 	const f = await setup();
 	for (const [status, headers, holder] of [
-		[409, { 'x-epicenter': '1' }, "another Epicenter's serve"],
+		[409, { 'x-epicenter': '1' }, 'another Epicenter'],
 		[200, {}, 'another program'],
 	] as const) {
 		const named: (string | null)[] = [];
@@ -372,7 +387,7 @@ test('a command is refused, and runs nothing, when its port is held by another E
 			expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
 				code: 2,
 				stdout: '',
-				stderr: `Port ${f.port} is in use by ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
+				stderr: held(f.port, holder, f.epicenter),
 			});
 			// The command named its root, by its real path, on the one request it made.
 			expect(named).toEqual([encodeURIComponent(f.epicenter)]);
@@ -411,7 +426,7 @@ test('a command is refused, and runs nothing, when its port is held by another E
 	);
 	try {
 		expect((await f.run('notes', 'write', '{"page":"monday"}')).stderr).toBe(
-			`Port ${f.port} is in use by another Epicenter's serve. Set a different \`port\` in EPICENTER.md.\n`,
+			held(f.port, 'another Epicenter', f.epicenter),
 		);
 	} finally {
 		await otherOlder.stop(true);
@@ -490,10 +505,27 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 	}
 });
 
+test('a stray EPICENTER.md below the root is an Epicenter, and the refusal names it', async () => {
+	const f = await setup();
+	// A command finds the nearest marker, as Git finds the nearest .git, so one
+	// in an app's data is a root of its own. Real strays take the default port,
+	// the one the real serve holds; this one names the fixture's port to match.
+	const stray = f.data;
+	await mkdir(stray, { recursive: true });
+	await writeFile(join(stray, 'EPICENTER.md'), `---\nport: ${f.port}\n---\n`);
+	await f.serve();
+	expect(await f.runIn(stray, 'notes', 'write', '{"page":"monday"}')).toEqual({
+		code: 2,
+		stdout: '',
+		stderr: held(f.port, 'another Epicenter', stray),
+	});
+	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
+});
+
 test('a second serve says this Epicenter is already served, and names who else holds the port', async () => {
 	const f = await setup();
-	const taken = (holder: string) =>
-		`Port ${f.port} is in use by ${holder}. Set a different \`port\` in EPICENTER.md.\n`;
+	const taken = (holder: 'another Epicenter' | 'another program') =>
+		held(f.port, holder, f.epicenter);
 	const served = await startServe(f);
 	try {
 		expect(await f.run('serve')).toEqual({
@@ -508,7 +540,7 @@ test('a second serve says this Epicenter is already served, and names who else h
 	for (const [answer, holder] of [
 		[
 			() => new Response('', { status: 409, headers: { 'x-epicenter': '1' } }),
-			"another Epicenter's serve",
+			'another Epicenter',
 		],
 		[() => new Response(''), 'another program'],
 	] as const) {

@@ -74,7 +74,7 @@ async function reach(
 	const holder = answeredBy(response, root);
 	if (holder !== 'its serve') {
 		await response.body?.cancel().catch(() => undefined);
-		return portHeld(root.port, holder);
+		return portHeld(root, holder);
 	}
 	return Ok(response);
 }

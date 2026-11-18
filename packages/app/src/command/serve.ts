@@ -537,7 +537,7 @@ export async function serveHttp(
 					cause: 'unavailable',
 					message: `serve is already running for this Epicenter on port ${port}.`,
 				})
-			: portHeld(port, holder);
+			: portHeld(root, holder);
 	const holder = await whoAnswers(root);
 	if (holder) return portTaken(holder);
 	let server: ReturnType<typeof startHttpServer>;

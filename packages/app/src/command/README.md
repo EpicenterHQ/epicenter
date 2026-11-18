@@ -211,7 +211,11 @@ in another repository changes folder first, for example
 The marker's optional front matter
 accepts only `port`, an integer from 1 to 65535; the default is 4747. An empty
 marker is valid. Nothing refuses an Epicenter inside another: a command uses
-the nearest marked folder at or above where it runs.
+the nearest marked folder at or above where it runs. So a file named
+`EPICENTER.md` below your Epicenter, even in an app's `data/`, makes commands
+run under it look for an Epicenter there; when that one's port is your serve's,
+the refusal names the folder it took, such as `Port 4747 is in use by another
+Epicenter's serve, not the one for /Users/ada/Epicenter/apps/vault/data`.
 
 ```sh
 epicenter

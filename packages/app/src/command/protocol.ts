@@ -4,6 +4,7 @@
  * a port, and what each says when the port is held by someone else. Serve
  * and the sender each import this; neither imports the other.
  */
+import { join } from 'node:path';
 import { ActionError } from '../index.ts';
 import { type EpicenterRoot, MARKER } from './root.ts';
 
@@ -64,18 +65,29 @@ export function answeredBy(
 }
 
 /**
- * The refusal when `port` is held by anyone but this Epicenter's current
- * serve, the same from the command and from a second serve.
+ * The refusal when `root`'s port is held by anyone but its current serve,
+ * the same from the command and from a second serve. It names the root the
+ * command found, by its marker's full path: a stray `EPICENTER.md` below the
+ * real one is a root on the default port, and the message shows which
+ * folder was taken. Only this computer's terminal prints it; serve never
+ * sends it in an answer, so the path is not hidden.
  */
-export function portHeld(port: number, holder: Exclude<Holder, 'its serve'>) {
+export function portHeld(
+	{ folder, port }: EpicenterRoot,
+	holder: Exclude<Holder, 'its serve'>,
+) {
 	if (holder === 'an older serve')
 		return ActionError.NotStarted({
 			cause: 'unavailable',
 			message: `Port ${port} is in use by a serve started before Epicenter was upgraded; stop it and start it again`,
 			next: 'epicenter serve',
 		});
+	const marker = join(folder, MARKER);
 	return ActionError.NotStarted({
 		cause: 'unavailable',
-		message: `Port ${port} is in use by ${holder === 'another Epicenter' ? "another Epicenter's serve" : 'another program'}. Set a different \`port\` in ${MARKER}.`,
+		message:
+			holder === 'another Epicenter'
+				? `Port ${port} is in use by another Epicenter's serve, not the one for ${folder}. Set a different \`port\` in ${marker}.`
+				: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}.`,
 	});
 }
