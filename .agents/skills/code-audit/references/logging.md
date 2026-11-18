@@ -124,11 +124,11 @@ a completed migration, not a current cleanup target.
 
 ## Current example of the destination
 
-The [browser OAuth client](../../../../packages/account/src/browser-oauth.ts)
-uses `createLogger`, accepts a caller-supplied logger, and sends its
-diagnostics through that interface.
+The [CLI's action runner](../../../../packages/cli/src/run.ts)
+uses `createLogger`, accepts a caller-supplied logger through its `log`
+option, and writes one record for each run through that interface.
 
-Its [tests](../../../../packages/account/src/browser-oauth.test.ts)
+Its [tests](../../../../packages/cli/src/run.test.ts)
 supply a logger backed by `memorySink`, allowing emitted events to be
 inspected without intercepting global console output.
 

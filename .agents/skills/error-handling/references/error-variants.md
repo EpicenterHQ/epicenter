@@ -166,7 +166,7 @@ type ConnectionError = InferError<typeof HttpError.Connection>;
 
 `defineErrors` builds a discriminated union tagged by `name`. When you *translate the whole union* (every variant mapped to another error, an exit code, a UI state), discriminate with an exhaustive `switch (error.name)` and pin it with `default: error satisfies never`. Do not use an `if/else` chain.
 
-The [recorder’s `fromNative`](../../../../packages/recorder/src/tauri.ts) translates each native refusal into the error its callers handle. `InputUnavailable` needs the input label, while `Busy` carries the shell’s reason. Its final branch serves two purposes:
+The [recorder’s `fromNative`](../../../../apps/whispering/packages/recorder/src/tauri.ts) translates each native refusal into the error its callers handle. `InputUnavailable` needs the input label, while `Busy` carries the shell’s reason. Its final branch serves two purposes:
 
 ```ts
 default:

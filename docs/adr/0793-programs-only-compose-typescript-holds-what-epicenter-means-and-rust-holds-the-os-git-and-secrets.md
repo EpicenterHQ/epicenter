@@ -7,7 +7,7 @@
 - **Amended by:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at `settle` having one TypeScript implementation: bodies merge by Git's merge, and front matter by a key rule written once in each language under one fixture.
 - **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at "Rust decides nothing about a note": Rust holds the front-matter primitive and key merge as TypeScript's twin.
 - **Amended by:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at Rust holding a round's Git work: Rust holds no Git.
-- **Unbuilt:** the CLI's own OAuth client and credentials file in place of the keychain (`afdcba86af^:packages/cli/src/secrets.ts`, removed in afdcba86af); the query's table builder as a TypeScript package given a SQLite handle, `bun:sqlite` in the CLI and sqlite-wasm in the library's page; the CLI's installer apart from the Epicenter app, and the library's offer to install it (the app no longer bundles or links the CLI); the server's path rule in `packages/tauri-plugin-epicenter-folder/fixtures/path-rules.json`, and a path check at checkout.
+- **Unbuilt:** the CLI's own OAuth client and credentials file in place of the keychain (`afdcba86af^:packages/cli/src/secrets.ts`, removed in afdcba86af); the query's table builder as a TypeScript package given a SQLite handle, `bun:sqlite` in the CLI and sqlite-wasm in the library's page; the CLI's installer apart from the Epicenter app, and the library's offer to install it (the app no longer bundles or links the CLI); the server's path rule in `folder-package:packages/tauri-plugin-epicenter-folder/fixtures/path-rules.json`, and a path check at checkout.
 
 ## Context
 
@@ -24,7 +24,7 @@ reviewers, each reading the code, agreed on the rule below.
 Two languages cannot be reduced: a page runs JavaScript, and Git's object
 store, the file system, and secrets kept from a page need native code.
 `settle` depends on the note format, canonical YAML, and the contract's key
-order (`packages/definition/src/merge/settle.ts`, `note/canonical.ts`); a
+order (`folder-package:packages/definition/src/merge/settle.ts`, `note/canonical.ts`); a
 Rust port is about 1,900 lines held to byte parity, and the page would still
 settle its own writes in TypeScript.
 

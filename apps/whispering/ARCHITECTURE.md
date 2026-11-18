@@ -282,7 +282,7 @@ the page is left while one is out.
 ## Tests
 
 `bun run test` runs under Svelte's browser runtime (`--conditions=browser`
-with `packages/svelte/src/svelte-dom.test-support.ts`), since `reactive`
+with `folder-package:packages/svelte/src/svelte-dom.test-support.ts`), since `reactive`
 notifies nothing on the server runtime, and under the `test` condition,
 where `app.ts`'s folder and this computer's settings are memory
 (`app.test.ts`). `services.test-support.ts` makes a place in memory

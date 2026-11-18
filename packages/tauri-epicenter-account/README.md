@@ -177,4 +177,4 @@ export const auth = reactive(createTauriAuth());
 ```
 
 `cargo test -p epicenter-account`, which runs a streamed answer from a local
-server; the page's client is tested in `packages/account/src/tauri.test.ts`.
+server; the page's client is tested in `folder-package:packages/account/src/tauri.test.ts`.

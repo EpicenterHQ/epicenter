@@ -257,8 +257,8 @@ not create a second implementation assignment.
 - Grounding: The [logging skill](.agents/skills/logging/SKILL.md) forbids a
   `new Error` at a log call site, yet six subscriber loops still do it:
   `packages/ai/src/open-ai.ts`, `packages/ai/src/local-servers.ts`,
-  `packages/ai/src/agent/loop.ts`, and in the retired Folder package
-  `packages/folder/src/folder.ts` (two) and `note-edit.ts`. The six are the
+  `folder-package:packages/ai/src/agent/loop.ts`, and in the retired Folder package
+  `folder-package:packages/folder/src/folder.ts` (two) and `note-edit.ts`. The six are the
   same catch-and-log loop copied; one shared helper may replace them. The
   skill names one hosted API request as a unit of work, but no per-request
   record exists.

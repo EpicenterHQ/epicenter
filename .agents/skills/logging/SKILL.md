@@ -22,7 +22,7 @@ All of it ships from **`wellcrafted/logger`**: `createLogger`, `consoleSink`, `m
 
 ## Quickstart
 
-The [browser OAuth client](../../../packages/account/src/browser-oauth.ts) defaults its `log` parameter to `createLogger('auth/browser-oauth')`. A listener can fail after the client has changed state. Log the failure and continue notifying the remaining listeners.
+A library module defaults its `log` parameter to `createLogger('<source>')`, so a caller can supply another (see [DI, not globals](#di-not-globals)). A listener can fail after the module has changed state. Log the failure and continue notifying the remaining listeners.
 
 ```ts
 try {
@@ -62,7 +62,7 @@ Not every error belongs on the record. An expected outcome that a caller will pr
 
 Record a failure once, at the last place that still holds its detail. Usually that is where the failure is settled, or where it stops because nobody is waiting. Do not log at each layer as an error passes upward. The billing client above is the other case: it replaces the provider's error with a vendor-neutral `ProviderRequestFailed()`, so it records the detail it discards.
 
-When a call returns a Result, branch on `result.error` if the caller also needs to act on the success value. For a background operation with no awaiting caller, handle the rejection where the work starts. The [browser OAuth client](../../../packages/account/src/browser-oauth.ts) records why automatic renewal failed:
+When a call returns a Result, branch on `result.error` if the caller also needs to act on the success value. For a background operation with no awaiting caller, handle the rejection where the work starts. For example, a client that renews a session in the background records why renewal failed:
 
 ```ts
 void authorizeOnce(true).catch((cause) => {
@@ -181,7 +181,7 @@ Do NOT assert on `console.*` output. Inject a `memorySink` and inspect the event
 
 ## DI, not globals
 
-Let the caller supply a logger when it needs a different sink. The [OAuth tests](../../../packages/account/src/browser-oauth.test.ts) give each test world its own `memorySink()` and pass `log: createLogger('auth/browser-oauth', logs.sink)` to the client options. Opening two tabs in that world sends both clients’ events to the same sink. A separate test world gets its own event list.
+Let the caller supply a logger when it needs a different sink. The [CLI run tests](../../../packages/cli/src/run.test.ts) give each test its own `memorySink()` and pass `createLogger('cli/run', sink)` to `runAction` as its `log` option. Each test reads its own event list, and none of them touches stderr, where the runner's default logger writes.
 
 Add a `log` option to a package factory only when a caller needs records to go somewhere other than the default. Do not add one to every factory ahead of that need.
 

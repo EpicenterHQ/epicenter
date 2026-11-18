@@ -18,7 +18,7 @@ v7.11.0 has no sign-in and calls no Epicenter service.
 
 On `main`, unreleased, Whispering writes through `@epicenter/folder`, the
 client of the folder sync product (`apps/whispering/src/lib/app.ts:44`).
-`home()` (`packages/folder/src/home.ts`) opens the data folder through
+`home()` (`folder-package:packages/folder/src/home.ts`) opens the data folder through
 `tauri-plugin-epicenter-folder` on the desktop, and in a browser joins a
 folder on the hosted server at `api.epicenter.so/folders/<id>`, which needs
 the `folders` OAuth audience. The browser build is not deployed. Its
@@ -302,7 +302,7 @@ none.
 - **Sync API keys with the folder.** A copied folder or a Git backup would
   carry every key.
 - **Provider keys in `credentials.json`,** as built
-  (`packages/tauri-epicenter-account/src/credentials.rs`). A plain file on a
+  (`folder-package:packages/tauri-epicenter-account/src/credentials.rs`). A plain file on a
   laptop.
 - **A settings file per capability** (`models.md`, `connections.md`,
   `shortcuts.md`). Three files because three modules kept one each; with

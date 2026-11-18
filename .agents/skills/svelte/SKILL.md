@@ -146,7 +146,6 @@ Choose the owner before declaring state or extracting a handler:
 
 - Read [UI verification](../ui-design/references/verification.md) for visible or interactive changes: view screenshots for appearance, exercise changed interactions, and check desktop UI in the native app.
 - Read [Lifecycle and reactivity](references/lifecycle-and-reactivity.md) for keyed resources, readiness promises, cleanup, stable owners, value maps, reactive collections, or state modules.
-- When maintaining Whispering’s existing folder editors and `<WhenOpen>` layout, use [the folder and editor API](../../../packages/svelte/README.md#an-apps-folder).
 - Read [query-layer](../query-layer/SKILL.md) for mutation arguments and shared options; read [mutation lifecycle](../query-layer/references/mutation-lifecycle.md) for callback ownership, ordering, admission guards, and retained variables.
 - Read [mutation examples](references/mutation-examples.md) for complete async buttons, local exports, direct `await`, and the point at which an interaction needs a mutation.
 - Read [Input ownership](references/input-ownership.md) for native controls, reactive drafts, commit-on-blur, submission cleanup, or proxy and snapshot choices.

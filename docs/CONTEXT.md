@@ -1,9 +1,10 @@
 # Context: the folder sync product's vocabulary
 
 These are the words of the folder sync product, which is retired
-([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)). Some of its code
-is still in this repository while Whispering imports it, so the words still
-name that code. They do not describe Epicenter today. Today's vocabulary is in
+([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)). Its code is no
+longer in this repository; the `folder-package` tag holds the last commit that
+had it, and the package names below refer to that commit. They do not describe
+Epicenter today. Today's vocabulary is in
 [the vision](vision.md), under "The pieces": the home, an inside app, an outside
 app, a program, a service.
 
@@ -56,7 +57,7 @@ The vocabulary decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in
 | Item | One file of a collection, with its attachments: files that share its directory and name are one item. Its name is its file name, and there is no identity beyond it: a rename is a `set` at the new name and a `delete` of the old ([ADR-0776](adr/0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md), [ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)). The code says note (`NoteOf`, `FolderNotes`, `invalid()`), and `{id}` for the name in path patterns; the decided word is `{name}`. The rename is pending. The word "note" comes from Honeycrisp, a notes app that has since left the tree. |
 | Attachment | Any other file an item owns, such as a recording's audio. Its version is the SHA-256 of its bytes, as every file's is, and bytes over 16 KiB are fetched at `blobs/<sha256>` ([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)). |
 | Field, value, body | A front matter key, its complete value, and the Markdown text after front matter. Front matter is the machine's; the body is the person's and the app's, and Epicenter reads nothing in it but conflict markers. **Direction:** a field Epicenter writes is one line, `key: <JSON>`, and a write patches only the lines of the fields it changes ([ADR-0796](adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md)). |
-| Front matter grammar | YAML restricted to `key: <JSON>`: a `---` first line, a later `---`, and between them one key, a colon, a space, and a JSON value per line, each key once. A file outside the grammar has no front matter: it is all body, shows in `invalid()`, and merges by lines ([ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)). `@epicenter/definition/front-matter` reads, patches, and merges it, and sync uses it; a folder's writes still format the whole note as block YAML in the contract's key order (`packages/definition/src/note/canonical.ts`). |
+| Front matter grammar | YAML restricted to `key: <JSON>`: a `---` first line, a later `---`, and between them one key, a colon, a space, and a JSON value per line, each key once. A file outside the grammar has no front matter: it is all body, shows in `invalid()`, and merges by lines ([ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)). `@epicenter/definition/front-matter` reads, patches, and merges it, and sync uses it; a folder's writes still format the whole note as block YAML in the contract's key order (`folder-package:packages/definition/src/note/canonical.ts`). |
 | Normalize | **Direction:** rewriting another tool's YAML header into the grammar, only when nothing is lost. It runs when a write touches the item, or when a person asks from the repair editor, the Epicenter app, or `epicenter normalize`; never on a read ([ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)). |
 | File, path, root | Source bytes, their address relative to opened data, and that address's boundary. |
 | Hidden path | A path with a segment starting with `.`. It is not a folder's data: no contract claims it, no watcher reports a change to it, sync never carries it, and listings show hidden files for their readers to skip ([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)). |
@@ -72,7 +73,7 @@ The vocabulary decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in
 Node, `served(url)`, or `memory()` in a test. A place opens to a store: bytes
 at paths, with four verbs, `list`, `read`, `watch`, and `put(path, bytes | null,
 expect)`, which lands only over the version expected and otherwise fails with
-`Moved` (`packages/folder/src/device/store.ts`,
+`Moved` (`folder-package:packages/folder/src/device/store.ts`,
 [ADR-0779](adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md),
 [ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)).
 Memory, a Bun directory, the desktop shell's root, a served directory, and the

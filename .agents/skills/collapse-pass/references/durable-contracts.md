@@ -4,8 +4,8 @@ Identify the system being changed and its current contract owners before
 simplifying storage, sync, auth, or public schemas. Start with its README,
 exports, callers, and tests. For local Epicenter apps, follow
 [@epicenter/app](../../../../packages/app/README.md) and
-[the CLI](../../../../packages/cli/README.md); the synced-folder packages and
-hosted services have their own contract owners.
+[the CLI](../../../../packages/cli/README.md); hosted services have their
+own contract owners.
 
 Exact names and layouts belong in source and subsystem READMEs. A copied
 inventory in a skill can turn an earlier architecture into a false constraint.
@@ -17,11 +17,9 @@ app. These paths are starting points to verify against exports and callers:
 
 - Local apps: [app contracts](../../../../packages/app/README.md) and
   [CLI commands and storage](../../../../packages/cli/README.md).
-- The earlier synced-folder product: [folder files](../../../../packages/folder/README.md)
-  and [file contracts](../../../../packages/definition/README.md).
-- Hosted folder access: [server folders](../../../../packages/server/src/folders.ts)
-  and [routes](../../../../packages/server/src/routes). Trace durable authority
-  names and how a request resolves whose data it may reach.
+- Hosted API access: [server routes](../../../../packages/server/src/routes).
+  Trace durable authority names and how a request resolves whose data it may
+  reach.
 - Account identity: [auth schemas](../../../../packages/account/src/auth-types.ts)
   and [principal types](../../../../packages/account/src/principal.ts). Trace
   persisted values, wire schemas, and consumers before changing fields or brands.

@@ -196,7 +196,7 @@ An adapted capability keeps its methods. Reading `auth.state()` in markup,
 `$derived`, or an effect tracks the capability. Reading it in component setup
 or an event handler takes a snapshot. Actions pass through untracked, so an
 effect can call `void ai.refresh()` without subscribing to that action.
-See [the adapter contract](../../../../packages/svelte/README.md#one-adapter-for-every-capability).
+See [the adapter contract](../../../../apps/api/ui/src/lib/reactive.ts).
 
 A check on one call to `auth.state()` cannot narrow the answer to a second
 call. Read it once when several expressions need the same answer. The
