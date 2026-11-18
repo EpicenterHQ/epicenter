@@ -2,14 +2,15 @@
 
 Things to do, as an app in `~/Epicenter/apps/tasks`. This `code/` folder holds
 the software; sibling `data/` holds the tasks. The home’s private Git
-repository checkpoints both, separately from actions. `epicenter serve`
+repository holds both, and actions make no commits. `epicenter serve`
 serves its UI at `/tasks/`.
 
 Use the latest Epicenter CLI for a new home. Tasks runs on 0.2.0 or later.
 To add Tasks to your home, run these at the top of the home
 
 ```sh
-epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
+mkdir -p apps/tasks/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 epicenter-main/examples/tasks
 bun install && bun run build
 epicenter serve
 ```
@@ -86,8 +87,8 @@ returns Missing and does not recreate it.
 To change the colors, open [ui/src/theme.css](ui/src/theme.css) beside this
 README in the app's `code/` folder.
 Set `--primary` under `:root` for the light-mode Add button and under `.dark`
-for dark mode. Run `bun run build` in `code/` and reload the page. The exported
-app includes its own copy of the palette.
+for dark mode. Run `bun run build` in `code/` and reload the page. The app
+includes its own copy of the palette.
 
 `ui/`: the list (`#/`) with a quick add and optional due date. Open tasks are
 grouped as Overdue, Today, Upcoming, and No date. Done tasks fold under Completed.

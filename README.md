@@ -40,14 +40,15 @@
 
 A home is a folder that depends on Epicenter, as any Bun project depends on a
 package. It requires [Bun](https://bun.sh) and Git. An AI account is not
-required. With Git's `user.name` and `user.email` configured, create your
-Epicenter and copy the Writing app:
+required. Make `~/Epicenter` from the files
+[the CLI README](packages/cli/README.md#make-an-epicenter) lists, then copy
+the Writing app:
 
 ```sh
-bun x @epicenter/cli init ~/Epicenter
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
-epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+mkdir -p apps/writing/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
 bun install && bun run build
 epicenter serve
 ```
@@ -61,7 +62,8 @@ To add
 [Tasks](examples/tasks/README.md) to your home, run
 
 ```sh
-epicenter new tasks --from EpicenterHQ/epicenter/examples/tasks
+mkdir -p apps/tasks/code
+curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 epicenter-main/examples/tasks
 bun install && bun run build
 ```
 
@@ -74,7 +76,7 @@ For CLI commands, MCP setup, and keeping `serve` running in the background, see
 home. It holds a folder per app in `apps/`. Each app has a `code/epicenter.ts`
 that declares its data and actions, an optional UI under `code/ui/`,
 and a sibling `data/` folder of Markdown files you can read. One private Git
-repository holds the home. Checkpoints save pending code and records together.
+repository holds the home, and you commit code and records together when you choose.
 
 ```ts
 import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
@@ -100,7 +102,7 @@ export default defineApp({
 ```
 
 The `epicenter` command runs an app's actions on the home. Actions change files;
-checkpoints record their state in Git:
+Git records them when you commit:
 
 ```sh
 epicenter tasks add '{"title":"Call the bank"}'
@@ -132,8 +134,8 @@ copied separately from GitHub. Each app is ordinary editable source.
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Zhongwen)
 run on their home, outside this runtime source repository. Each app has
 `apps/<app>/code/` and sibling `data/` in the home's one private Git
-repository. Root checkpoints record pending code and records together;
-actions make no commits. App publication copies only code into a separate
+repository. Its owner commits code and records together; actions make no
+commits. App publication copies only code into a separate
 history ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and

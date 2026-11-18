@@ -41,8 +41,8 @@
  * Calls leave their writes pending (`run.ts`). Serve keeps one clock: once a
  * minute it starts each routine whose schedule had an occurrence since its
  * last check, a moment it keeps in memory (ADR-0908, ADR-0937). It commits
- * nothing: Git stores the home, and a home commits itself with a routine
- * that runs its own script.
+ * nothing: Git stores the home, and its owner commits it, by hand or from a
+ * routine that runs their own script.
  */
 
 import { realpath, stat } from 'node:fs/promises';
@@ -50,9 +50,11 @@ import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { ActionError, type Answer, isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
+import { createLogger } from 'wellcrafted/logger';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { writeErr } from './output.ts';
+import { stderrJsonLines, writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
@@ -66,6 +68,29 @@ const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
 
 /** The largest input a call takes; Bun answers 413 past it. */
 const MAX_INPUT_BYTES = 25 * 1024 * 1024;
+
+/** What serve could not do in the background. Nobody awaits it, so it is logged. */
+const ServeError = defineErrors({
+	DroppedLine: ({
+		app,
+		key,
+		cause,
+	}: {
+		app: string;
+		key: string;
+		cause: unknown;
+	}) => ({
+		message: `${app} ${key}: dropped a line that is not JSON: ${extractErrorMessage(cause)}`,
+		app,
+		key,
+	}),
+	RoutinesUnchecked: ({ cause }: { cause: unknown }) => ({
+		message: `Checking routines failed: ${extractErrorMessage(cause)}`,
+	}),
+});
+
+/** Serve's record of what it could not do, beside its run records. */
+const serveLog = createLogger('cli/serve', stderrJsonLines);
 
 const escapeHtml = (text: string) =>
 	text.replace(
@@ -287,9 +312,7 @@ async function callAnswer(request: Request): Promise<Response> {
 				} catch (cause) {
 					// A line that is not JSON, such as a cyclic update, is dropped
 					// alone: the call goes on and its answer still arrives.
-					writeErr(
-						`${app} ${key}: dropped a line that is not JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
-					);
+					serveLog.warn(ServeError.DroppedLine({ app, key, cause }).error);
 					return;
 				}
 				try {
@@ -393,10 +416,8 @@ export function startHttpServer(port: number) {
 	const checkRoutines = () =>
 		routines
 			.check()
-			.catch((error) =>
-				writeErr(
-					`Checking routines failed: ${error instanceof Error ? error.message : String(error)}`,
-				),
+			.catch((cause) =>
+				serveLog.warn(ServeError.RoutinesUnchecked({ cause }).error),
 			);
 	// Routines start without being awaited, so a long one never delays a check.
 	const routineClock = setInterval(() => {

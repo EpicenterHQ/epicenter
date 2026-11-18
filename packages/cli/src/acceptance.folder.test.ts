@@ -71,15 +71,13 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 
 test('W5 a symlinked entry loads an app where it lives, when its code is inside the home', async () => {
 	const f = await setup();
-	const loose = await f.folder(
-		join(f.home, 'shelf', 'loose'),
-		{ 'code/epicenter.ts': bareApp('loose'), 'data/notes/a.md': 'a\n' },
-		{ git: false },
-	);
+	const loose = await f.folder(join(f.home, 'shelf', 'loose'), {
+		'code/epicenter.ts': bareApp('loose'),
+		'data/notes/a.md': 'a\n',
+	});
 	await symlink(loose, join(f.apps, 'loose'));
 	expect((await lstat(join(f.apps, 'loose'))).isSymbolicLink()).toBe(true);
 	expect(await readlink(join(f.apps, 'loose'))).toBe(loose);
-	expect(existsSync(join(loose, '.git'))).toBe(false);
 	expect(existsSync(join(loose, '.gitignore'))).toBe(false);
 
 	const vault = await f.folder(join(f.home, 'shelf', 'vault'), {

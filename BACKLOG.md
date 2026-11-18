@@ -91,8 +91,8 @@ not create a second implementation assignment.
   generated practice; that does not establish a review-history or scheduling
   product. Settle the first retrieval interaction before choosing a scheduler or
   schema.
-- Distribution: A person gets an app by copying its code into their home with
-  `epicenter new` ([ADR-0929](docs/adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md)).
+- Distribution: A person gets an app by copying its `code/` folder into their
+  home; no command does it ([ADR-0955](docs/adr/0955-no-command-makes-or-copies-an-app.md)).
 - Revisit when: Chinese study becomes the next product milestone.
 
 ### Make Whispering's dictation loop clear from speech to delivered text
@@ -284,32 +284,6 @@ not create a second implementation assignment.
   comment that says what happened to its idea.
 
 ## After 0.7.0
-
-### Ship a new Epicenter's starter files as a template
-
-- Desired result: `epicenter init` copies a `template/` folder that
-  `@epicenter/cli` ships, instead of writing file contents held in TypeScript
-  strings. Doc text in those strings has drifted from the code before.
-- Grounding: [`init.ts`](packages/cli/src/init.ts) holds `STARTER_AGENTS`, the
-  checkpoint routine and script, `.gitignore`, and `package.json` as literals.
-  Keep init's logic: the nested-home refusal, the Git identity check, adopting
-  an existing folder, and version pinning. Stop turning on Git LFS whenever
-  `git-lfs` is installed (`init.ts:297`).
-- Revisit when: After 0.7.0. Decide whether `init` becomes `bun create` together
-  with the postponed one-package question.
-
-### Report nested repositories from Git instead of walking folders
-
-- Desired result: The backup report keeps its status (last commit, uncommitted
-  files, commits not yet pushed) and finds nested repositories without its own
-  folder walk.
-- Grounding: `nestedRepositories` in
-  [`repository.ts`](packages/cli/src/repository.ts) walks `apps/` for `.git`.
-  `git status --porcelain -uall` already reports them, and it skips ignored
-  folders, so it also ends a false warning about a `.git` under an app's
-  ignored `local/`. The status fields stay: they are the only visible sign that
-  checkpointing failed.
-- Revisit when: After 0.7.0.
 
 ### Revisit the rules for absent switches and lists
 

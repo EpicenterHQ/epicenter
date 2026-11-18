@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { readMarkdown } from '@epicenter/app';
 
 export const MARKER = 'EPICENTER.md';
-export const DEFAULT_PORT = 4747;
+const DEFAULT_PORT = 4747;
 
 export type EpicenterRoot = {
 	folder: string;
@@ -34,7 +34,7 @@ export class RootUsageError extends Error {
 }
 
 /** Expand a person's `~` and make a folder path absolute. */
-export function folderPath(path: string): string {
+function folderPath(path: string): string {
 	return resolve(
 		path === '~'
 			? homedir()
@@ -50,7 +50,7 @@ export function folderPath(path: string): string {
  * as `EPICENTER.md`, so the name is looked up in the folder's listing rather
  * than opened.
  */
-export function isMarked(folder: string): boolean {
+function isMarked(folder: string): boolean {
 	try {
 		return readdirSync(folder).includes(MARKER);
 	} catch {
@@ -59,7 +59,7 @@ export function isMarked(folder: string): boolean {
 }
 
 /** The nearest folder at or above `start` that is marked as an Epicenter. */
-export function ancestorWithMarker(start: string): string | undefined {
+function ancestorWithMarker(start: string): string | undefined {
 	let folder = start;
 	for (;;) {
 		if (isMarked(folder)) return folder;
@@ -135,13 +135,13 @@ export function epicenterDir(): string {
 	if (!isMarked(folder))
 		throw new RootUsageError(
 			`There is no ${MARKER} in ${folder}`,
-			`epicenter init ${folder}`,
+			`mkdir -p ${folder} && touch ${join(folder, MARKER)}`,
 		);
 	return folder;
 }
 
 /** The folder in an Epicenter that holds its apps, each holding code/, data/ and local/. */
-export const APPS = 'apps';
+const APPS = 'apps';
 
 /** The selected Epicenter's `apps/`. */
 export function appsDir(): string {

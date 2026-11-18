@@ -31,19 +31,15 @@ with its own scripts. Bun already builds a page from an `index.html`, and
   `"build": "bun build ui/index.html --outdir ui/dist"`.
 - `epicenter init` writes `"build": "bun run --filter '*' --if-present build"` into the
   home's `package.json`, so `bun run build` at the top builds every app.
-- `epicenter new` runs nothing. It writes the app and prints the one command
-  that installs its packages and builds its UI:
-  `Run: cd <home> && bun install && bun run build`. `epicenter init` still
-  installs once, which puts the `epicenter` command in the new home.
+- No command installs or builds. The owner runs
+  `cd <home> && bun install && bun run build`
+  ([ADR-0955](0955-no-command-makes-or-copies-an-app.md),
+  [ADR-0958](0958-no-command-makes-an-epicenter.md)).
 - A page load for an app with no `ui/dist/index.html` answers a plain 404.
 - An app owns its palette. `init` writes no root `theme.css`; an app keeps its
   colors in a file under `code/ui/`, copied from a sibling app rather than
-  linked. A link out of `code/` breaks when the app is copied or exported.
-- `export` refuses a link that leaves the app's `code/` and says to copy the
-  file in. It no longer copies a shared file by value, and its report drops
-  `materialized` and `uncommitted`: `apps` is a list of names. `new` no
-  longer reports links that do not resolve; a build that needs the file says
-  so.
+  linked. A link out of `code/` breaks when the app is copied. No command
+  reports a link that does not resolve; a build that needs the file says so.
 - `epicenter build` is removed.
 
 ## Consequences
@@ -58,16 +54,14 @@ with its own scripts. Bun already builds a page from an `index.html`, and
   so a page loaded during a build may find it missing or partial. Reloading
   after the build fixes it.
 - Epicenter keeps no stamp, fingerprint, or failure memory for UIs.
-- `new` never runs copied code. The person runs the printed command, which
-  installs packages, runs their scripts, and builds, and sees Bun's errors
+- No command runs an app's code to set it up. The person runs the install
+  and the build, which run the packages' scripts, and sees Bun's errors
   directly. Until then the app's actions may lack packages and its page
   answers 404. A `new` that installed and built had to report three kinds of
   failure and decide which left the app in place.
 - Two apps that share colors hold two copies, which drift apart once either
-  is edited. That is the cost of an app that copies, exports, and travels
-  whole. Existing homes keep working: a root `theme.css` that apps link to is
-  left alone, and those links still resolve in that home. Such an app cannot
-  be exported until its link is replaced by a copy.
+  is edited. That is the cost of an app that is copied whole. Existing homes keep working: a root `theme.css` that apps link to is
+  left alone, and those links still resolve in that home.
 - A home made before this change has no `build` script at its top, and an app
   whose UI was a bare `ui/index.html` has none of its own. Add
   `"build": "bun run --filter '*' --if-present build"` to the home's

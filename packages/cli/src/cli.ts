@@ -9,10 +9,8 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { checkCommand } from './check.ts';
 import { COMMANDS, type Command, parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { exportCommand } from './export.js';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
-import { initCommand } from './init.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
 import {
 	actionHelp,
@@ -20,14 +18,12 @@ import {
 	homeListing,
 	oneAppListing,
 } from './listing.ts';
-import { newCommand } from './new.ts';
 import { presentAnswer, writeErr } from './output.ts';
-import { repositoryStatus } from './repository.ts';
 import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { sendToServe } from './serve-call.ts';
 
-const HELP = `epicenter                              your apps, routines and repository
+const HELP = `epicenter                              your apps and routines
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<input>]
 ${Object.values(COMMANDS)
@@ -55,9 +51,6 @@ const HANDLERS: {
 		json: boolean,
 	) => Promise<Answer | undefined>;
 } = {
-	init: initCommand,
-	new: newCommand,
-	export: exportCommand,
 	check: checkCommand,
 	async serve(words, json) {
 		if (json)
@@ -66,7 +59,7 @@ const HANDLERS: {
 				message: 'serve prints no answer; --json does not apply',
 				next: 'epicenter serve --help',
 			});
-		const { error } = parseWords('serve', words, {}, [0, 0]);
+		const { error } = parseWords('serve', words, [0, 0]);
 		if (error) return Err(error);
 		return serveHttp(epicenterRoot().port);
 	},
@@ -102,19 +95,18 @@ export async function runCli(argv: string[]): Promise<number> {
 			if (help) return Ok(HELP);
 			epicenterRoot();
 			// A report only: it reads the home and starts, fetches and writes nothing.
-			const [found, routines, repository] = await Promise.all([
+			const [found, routines] = await Promise.all([
 				discoverAll(),
 				createRoutines({ folder: epicenterDir() }).list(),
-				repositoryStatus(epicenterDir()),
 			]);
-			return Ok(homeListing(found, { routines, repository }, json));
+			return Ok(homeListing(found, routines, json));
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
 		if (Object.hasOwn(HANDLERS, name)) {
 			const command = name as Command;
 			if (help)
 				return Ok(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
-			if (command !== 'init') epicenterRoot();
+			epicenterRoot();
 			begun = true;
 			return HANDLERS[command](words, json);
 		}

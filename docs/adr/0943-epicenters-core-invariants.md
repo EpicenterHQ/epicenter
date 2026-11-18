@@ -40,9 +40,44 @@ change the software and compose it with other tools.
 | **Your Epicenter lives on one computer you control and keep running.** Your phone, laptop, and agents reach it through your private connection. | Complete copies and runtimes on every device; distributing the home's service credentials among them; a separate home sign-in system. | Access while the home or its connection is unavailable; automatic failover; public access with separate caller permissions. Outside services still have their own sign-ins. |
 | **Every collection has one place where edits count.** That place is the home's folder or an outside source. | Reconciling independently writable copies, merge policies, conflict files, and queues of offline edits to the same collection. | Editing both a source and its copy and expecting them to converge. A cached copy may be stale; a backup does not become another active home. |
 | **One running Epicenter process executes every action.** The terminal, browser, and agents all call it. | The CLI's separate action runner and fallback; cross-process action locks and their waits. | Running actions while `serve` is stopped; process isolation between apps; an automatic transaction covering an entire action. |
-| **What you make belongs in files you can use without Epicenter.** Apps record outcomes that need to survive; Git checkpoints those files. | Mandatory SDK access to records; a second platform execution history with run IDs, replay, and receipts. | Automatic recovery of unsaved progress and a complete audit of every attempt. An app must save any receipt it needs; Git records checkpoints, not every event. |
+| **What you make belongs in files you can use without Epicenter.** Apps record outcomes that need to survive; Git keeps the history their owner commits. | Mandatory SDK access to records; a second platform execution history with run IDs, replay, and receipts. | Automatic recovery of unsaved progress and a complete audit of every attempt. An app must save any receipt it needs; Git records the commits its owner makes, not every event. |
 | **You can change the software you run.** Each app is ordinary, editable code that you or your agents can inspect and adapt. You choose which code to trust. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | A promise that every behavior can be configured without code; isolation from a faulty app. The owner is responsible for the code and dependencies they run. |
 | **Epicenter composes tools that already do the job.** Git keeps history, Bun manages packages, and the operating system keeps Epicenter running. | Reimplementing version control, package management, and process supervision. | One platform-managed solution to every operational problem. Some work remains ordinary Git, shell, Bun, or operating-system work. |
+
+### Eight rules for checking a proposal
+
+The commitments are long to hold in mind while judging a proposal. These
+eight rules are the short form. For a proposed feature, ask which rule
+already answers it; when the answer is that a tool or the owner does the
+work, the feature is a line of documentation, not code.
+
+| Rule | Restates |
+| --- | --- |
+| 1. Your Epicenter is a folder: a Git repository that is also a Bun project. | [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) |
+| 2. Serve is a program: you start it, stop it, and restart it after its packages change. An app's own code reloads on each call. | The first and third commitments; [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) |
+| 3. An action is a function: JSON in, JSON out, with optional updates on the way. | [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) |
+| 4. Data is files, and Git is the history. `apps/*/local/` and `.env` stay out of Git on purpose: they hold tokens, credentials and caches. | The fourth commitment; [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) |
+| 5. Every description is plain JSON: action inputs, settings, field values. | New. Nothing a person or agent reads about an app needs Epicenter's code to interpret. |
+| 6. The code is yours: copy it and edit it. There is no plugin system, and no Epicenter setting beyond `EPICENTER.md`. | The fifth commitment |
+| 7. If a tool does it in a step the owner would type (Git, Bun, the operating system), Epicenter does not. | The sixth commitment |
+| 8. Serve keeps no outcome between calls: anything an app must remember goes in a file. | The fourth commitment; ADR-0930 |
+
+Rule 7 is tested against one step. Restarting serve after an upgrade is one
+command the owner types, so Epicenter does nothing about upgrades (ADR-0953).
+`init`, `new` and `export` each wrapped such steps, and none stays
+([ADR-0955](0955-no-command-makes-or-copies-an-app.md),
+[ADR-0958](0958-no-command-makes-an-epicenter.md)). `export` refused
+uncommitted code and links outside the folder, checks Git alone does not
+make; the owner makes them now.
+
+Rule 8 is about outcomes, not time or state. Serve still holds loaded
+packages, caches and the routine schedule, as "Specialized guarantees belong
+where they are needed" below allows, and routines still run on their clock.
+
+The second and third commitments, one place where edits count and one
+process that runs every action, have no rule of their own and stay in force.
+A proposal that passes the eight rules but adds a writable copy or a second
+action runner still fails.
 
 ### One process does not mean one action at a time
 
@@ -98,9 +133,10 @@ keeps `serve` running under their own operating system job
 
 ## Consequences
 
-The six commitments are a design test, not a requirement to delete every
-wrapper, guard, or piece of state. A proposed simplification must name the
-guarantee it removes and who accepts the loss. A feature that needs a
+The six commitments and the eight rules are a design test, not a
+requirement to delete every wrapper, guard, or piece of state. A proposed
+simplification must name what it removes, what the owner loses, and who
+takes on the work. A feature that needs a
 different authority, trust boundary, or execution model calls for a new
 decision rather than an exception hidden in the implementation.
 

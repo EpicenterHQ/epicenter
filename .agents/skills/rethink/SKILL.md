@@ -1,6 +1,6 @@
 ---
 name: rethink
-description: Zoom out from accumulated fixes, exceptions, and individually reasonable decisions to imagine the whole afresh and find the most tasteful way to recompose it around its purpose. Use when the user asks to zoom out, rethink from first principles, explore greenfield or radical alternatives, redraw the line of best fit, or reconsider the question, assumptions, or boundaries shaping the current approach.
+description: Reconsider accumulated fixes, exceptions, and decisions in light of the original purpose. Use when the user asks to rethink from first principles, explore greenfield or radical alternatives, redraw the line of best fit, or reconsider the question, assumptions, or boundaries shaping the current approach.
 ---
 
 # Rethink
