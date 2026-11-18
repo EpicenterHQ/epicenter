@@ -1,43 +1,19 @@
 ---
 name: delegate-claude
-description: Delegate a bounded implementation, prototype, benchmark, or file artifact to Claude Code, which owns the reasoning and delivery in the current checkout or a selected standalone clone, directing a Codex helper as sole code writer for substantial changes. Use when Claude should own a completed assignment or when asked to delegate execution to Claude. Bounded reasoning questions and text drafts belong to consult-claude, including when Codex owns the surrounding implementation.
+description: Hand Claude Code a bounded implementation, prototype, benchmark, or file artifact to deliver itself, using plain `claude -p` with edit permission. Use when Claude should own a piece of work from investigation to result, or when asked to delegate execution to Claude. Read-only questions and text drafts belong to consult-claude.
 ---
 
 # Delegate Claude
 
-Give Claude a piece of work to own, from deciding how to do it to delivering the result.
+Give Claude a piece of work to own, from deciding how to do it to delivering
+the result. Claude reads, edits files, and runs tests in the assigned checkout.
+Codex checks the result.
 
-For substantial changes, Claude investigates, decides, briefs, inspects, and
-directs corrections while a Codex helper writes the code. A small edit tightly
-coupled to Claude's reasoning can stay with Claude directly. The coordinating
-Codex owns overall continuity and focused acceptance. It pauses its own edits
-to that checkout until Claude returns, and it does not repeat Claude's
-investigation or copy the result into another checkout. Prefer Claude when
-reasoning, design judgment, or taste can improve the delivered result. Codex need
-not solve the question before assigning delivery, and a small change can warrant
-Claude when the choice matters. Keep purely mechanical changes with Codex. Give
-Claude a coherent outcome and observable acceptance criteria, including the
-investigation needed to deliver it.
-
-Choose the division of work for the quality of the result. Claude retains the
-judgment and understanding needed to inspect supporting work; Codex helpers
-handle bounded evidence gathering or implementation. Elapsed time, attention,
-and usage are context rather than objectives for this workflow.
-
-The user's request to delegate, or authorization to complete the parent task,
-bounds the assignment; that authorization already covers bounded delegation.
-Delegation does not authorize publishing, deploying, sending messages, changing
-credentials, or expanding the product outcome. Use
-[consult-claude](../consult-claude/SKILL.md) when Claude should own an answer,
-recommendation, or text draft, including when Codex owns the surrounding
-implementation. Authorization to implement does not by itself select
-delegation. When Claude owns delivery, give it the investigation, design
-judgment, and implementation in one assignment; an uncertain mechanism or
-design does not require a separate consultation first. Name the checks Claude
-cannot run for coordinator acceptance. Claude can still own UI delivery when
-the coordinator handles the live checks.
-Reserve independent adversarial review for consequential decisions,
-rather than every worker result.
+Prefer Claude when design judgment or taste affects the result. Keep purely
+mechanical changes with Codex. The user's authorization for the task covers
+delegating part of it; it does not cover publishing, deploying, sending
+messages, or growing the scope. For a question rather than a change, use
+[consult-claude](../consult-claude/SKILL.md).
 
 ## Brief the assignment
 
@@ -55,12 +31,11 @@ Ask Claude to bring back a decision if a missing requirement or tradeoff would
 change the agreed result, break an agreed guarantee, or expand the assignment.
 Have it pause the affected work and explain what it found, the options and
 their consequences, and what it recommends. It can continue work within scope
-that does not depend on the decision. Use [rethink](../rethink/SKILL.md) when a
-discovery calls for reconsidering the agreed direction.
+that does not depend on the decision.
 
-Ask for the changed paths or artifacts, the checks Claude ran and their actual
-results, and anything still unresolved. If blocked, have it return the concrete
-blocker and any useful partial work.
+Ask for the changed paths, the checks Claude ran and their actual results, and
+anything still unresolved. If blocked, have it return the blocker and any
+useful partial work.
 
 > Build and run a reproducible local benchmark to help us decide whether a
 > commit should finish before the API responds. Measure commit times for small
@@ -72,189 +47,79 @@ blocker and any useful partial work.
 
 ## Choose the checkout
 
-Omit `--workspace` to deliver into the current checkout: the Git root containing
-the launcher's working directory, which may be a linked worktree. Each checkout
-has one code writer. While Claude works, the coordinating Codex and other agents
-do not edit that checkout; Codex can keep reading, planning, or working
-elsewhere.
+Each checkout has one writer. While Claude works in a checkout, Codex and other
+agents do not edit it.
 
-The current checkout can contain unrelated uncommitted work. Before dispatch,
-record `git status` and name the allowed paths in the brief. If an allowed file
-is already modified, record its existing diff so acceptance can separate it from
-Claude's work. Claude preserves unrelated changes and does not stage, stash,
-commit, or reset.
+- **The current checkout.** Record `git status` first and name the allowed
+  paths in the brief, so the review can separate Claude's changes from work
+  that was already there.
+- **A separate worktree,** when Codex keeps editing the current checkout or
+  the experiment should not touch it:
+  `git worktree add ../<name> -b <branch>`. Copy in any uncommitted files the
+  assignment needs. Its result reaches the main checkout only when Codex
+  applies it.
 
-Select an external standalone clone with `--workspace` only when isolation earns
-its cost, such as Codex continuing to edit the live checkout in parallel or an
-experiment that should not touch it. Create a fresh disposable clone so the
-worker cannot overwrite valuable unfinished work in an existing clone. Only
-this route needs a transfer: use
-`git clone --no-local /absolute/source/checkout /absolute/worker/clone` outside
-the current checkout, select the intended commit, and copy the relevant uncommitted and untracked task files,
-including intended deletions; exclude unrelated changes and secrets. Record the
-baseline and transferred paths. A clone's result reaches the live checkout only
-when the coordinator applies it. Do not use the shared stash or stage files in
-the coordinating checkout to manufacture a snapshot.
+Install dependencies before sending the assignment. Claude has no browser or
+desktop tools, so name the visual and native-app checks Codex will run itself.
 
-`--workspace` accepts the current checkout root or an external standalone clone.
-The launcher refuses paths inside or containing the current checkout, external
-linked worktrees, non-repositories, and external clones whose origin is not the
-coordinating checkout's absolute local path. These checks establish source
-provenance, not whether an existing clone is disposable. Consultation never
-accepts `--workspace`.
+## Send it
 
-Prepare required dependencies before launch. This route provides no
-task-network allowlist or local server binding. Claude and its helpers do not
-inherit the coordinator's browser or computer-use tools. Before dispatch, identify the
-checks Claude can run and the live checks Codex owns during acceptance:
-screenshots of changed views, exercised journeys, and desktop behavior in the
-native app. Ask Claude to return the views, states, and journeys those checks
-should cover. A blocked check remains unverified until Codex performs it.
-
-## Dispatch and continue
-
-Requires Bun, Git, and authenticated Claude Code 2.1.285 or later with access to
-the selected model. Codex-assisted delivery also requires the authenticated
-Codex CLI and protocol dependency described in
-[Codex assistance](../consult-claude/references/codex-assistance.md). Direct
-delivery requires a working native Bash sandbox. Use the same launcher as
-consultation. New and resumed delegations default to Opus 5.5 high; explicit
-`--model` and `--effort` flags override that. Codex helpers use the selected
-helper model at medium reasoning. Sonnet is an explicit choice for routine
-bounded work.
-
-Substantial delivery defaults to Codex assistance. Claude then has Read, Glob,
-Grep and the host's evidence and implementation tools, with no Edit, Write or
-Bash. Codex is the sole code writer in the assigned checkout. Claude chooses
-specific evidence requests, defines bounded implementation assignments, reads
-deciding source and resulting edits, checks reported verification, and directs
-corrections. Read [Codex assistance](../consult-claude/references/codex-assistance.md)
-before enabling it. Host limits and sandboxing apply independently to the
-helper; neither its execution nor external-provider usage is bounded by
-Claude's budget.
+Run from the assigned checkout:
 
 ```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts \
-  --account personal --account-email claude@example.com \
-  --mode delegate --codex --codex-model gpt-6.1-sol <<'ASSIGNMENT'
-[Result, consumers, requirements, baseline, allowed paths, checks, stop.]
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+  claude -p --setting-sources project --strict-mcp-config \
+  --mcp-config '{"mcpServers":{"deepwiki":{"type":"http","url":"https://mcp.deepwiki.com/mcp"}}}' \
+  --permission-mode acceptEdits \
+  --allowedTools 'Bash(bun test*)' 'Bash(bun run test*)' \
+    'Bash(bun run typecheck*)' 'Bash(bun run check*)' 'Bash(bun run lint*)' \
+    'Bash(bun run format*)' \
+    'Bash(git status:*)' 'Bash(git diff:*)' 'Bash(git log:*)' \
+    WebSearch mcp__deepwiki \
+  --model claude-opus-5-5 --effort high --output-format json <<'ASSIGNMENT'
+[Result, who it affects, what must still work, allowed paths, checks, when to stop.]
 ASSIGNMENT
 ```
 
-Add `--workspace /absolute/path/to/standalone-clone` to select a clone.
+- `--permission-mode acceptEdits` lets Claude edit files inside the checkout.
+  Writes outside it are refused.
+- `--allowedTools` lists the only shell commands Claude can run: tests, the
+  check, lint, format and typecheck scripts, and read-only Git. Anything else, including `git add`, `git commit`
+  and `git push`, is refused and appears in `permission_denials`. If the
+  assignment needs another command, add a narrow entry for it.
+- `--setting-sources project` keeps the repository's own rules, such as
+  refusing to read `.env`, and drops personal settings that would allow more.
+- DeepWiki and web search let Claude check library behavior itself, as in
+  consult-claude. `env -u`, the work account, and the Codex sandbox login fix
+  also work as in [consult-claude](../consult-claude/SKILL.md#send-it).
 
-For a small edit tightly coupled to Claude's reasoning, omit both `--codex`
-and `--codex-model` to use direct delivery. Do not add a Sonnet handoff or a
-helper merely because editing begins.
+## Follow up
 
-Without `--codex`, the launcher supplies Read, Glob, Grep, Edit, Write, and Bash;
-disables hooks and MCP tools; confines file-tool access; and explicitly approves
-Bash under a required sandbox with no unsandboxed retry. The sandbox unsets
-inherited application variables before each shell command while leaving
-standard shell variables such as `PATH`, `HOME`, and `TMPDIR` available; the
-Claude process itself keeps the verified native profile. Prepare checks that
-do not require credentials or network access. Missing sandbox support fails
-instead of silently widening execution. Normal temporary-file writes
-remain available. It does not create clones, stage or commit changes, or copy
-them between checkouts. Claude's instructions prohibit child agents, commits,
-remote changes, publishing, and access changes.
-Those instruction boundaries are separate from filesystem enforcement.
+Read `result`, `is_error`, `session_id` and `permission_denials` from the JSON.
+A successful exit does not mean the work is done; the review decides that.
 
-The helper's write sandbox keeps `.git`, `.agents`, `.codex` and `.aws`
-read-only. When the assignment edits a skill, the coordinator adds
-`--codex-write-root .agents/skills/<name>` for each assigned skill directory on
-the first turn and every resume. Each root must resolve, after symlinks, to a
-real directory inside the assigned checkout's `.agents/skills`. The launcher
-refuses roots for consultation or direct delegation. Only the implementation
-tool receives them; evidence stays read-only, and neither Claude nor tool
-arguments can add a root. A root reopens its whole directory, including any
-launcher scripts inside it, so name the allowed files in the brief.
+For a failed check, new evidence, or a correction, resume the same session
+from the same checkout with the same flags plus `--resume <session_id>`. Say
+what is still accepted, what failed, and paste the raw output.
 
-Every launch requires the shared launcher's `--account personal|work` and
-`--account-email` flags on the first turn and every resume. Account setup,
-identity checks, and profile ownership are described in
-[Choose a subscription account](../consult-claude/references/launcher.md#choose-a-subscription-account).
+## Review the result
 
-Read native `result`, `session_id`, `is_error`, `permission_denials`, and actual
-model usage. A zero process exit alone does not establish completion. Monitor
-yielded processes and keep the user informed. Resume the same session for
-the same assignment in the same checkout, repeating any `--workspace`, `--codex`
-and write-root choices. New evidence, a failed check, or a correction does not
-need a new conversation:
+Inspect the diff before running any code Claude wrote. Use a Git command that
+ignores hooks a worker could have changed:
 
 ```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts \
-  --account personal --account-email claude@example.com \
-  --mode delegate --codex --codex-model gpt-6.1-sol \
-  --resume <session_id> <<'FOLLOWUP'
-[Failed acceptance check, raw evidence, and focused correction.]
-FOLLOWUP
+git -c core.fsmonitor= -c core.hooksPath=/dev/null diff --no-ext-diff <baseline>
+git -c core.fsmonitor= -c core.hooksPath=/dev/null ls-files --others --exclude-standard
 ```
 
-State what remains accepted and what changed, and retain useful partial work.
-Keep one writer per checkout: parallel workers need separate clones and
-independently reviewable results.
+Check that only the allowed paths changed, then rerun the checks that decide
+acceptance, especially the ones Claude could not run. Note which evidence came
+from Claude and which you reproduced. Send a focused failure back to the same
+session instead of editing alongside Claude.
 
-The launcher reapplies Opus 5.5 high on resumes while retaining the native
-conversation history, so an older Sonnet session continues as Opus unless
-`--model` repeats Sonnet. Repeat any deliberate nondefault `--model` or
-`--effort` on each follow-up. For a failed acceptance check, send the evidence
-and a focused correction to the same session. If a session deliberately used
-Sonnet or lower effort, return to the default when a specific unresolved
-ownership, lifecycle, or mechanism decision needs deeper judgment, or when
-repeated attempts cannot explain a failure. Model escalation does not fix
-missing dependencies or blocked permissions; Codex fixes the environment or owns
-the blocked check. An explicit scope boundary still applies.
+For an independent judgment of Claude's work, start a fresh
+[consult-claude](../consult-claude/SKILL.md) session and give it the desired
+behavior and the diff before Claude's explanation. Two models agreeing does not
+prove the result correct.
 
-Use `--dry-run` to inspect arguments without calling Claude. Do not switch a
-read-only session into a worker to bypass its assignment scope.
-
-Follow [the continuation record](../consult-claude/references/launcher.md#record-a-session-for-continuation) for
-assignments that may outlive the current context, including the workspace
-choice. Repeat the same `--codex` capability, helper model, limits and write
-roots on parent resumes. Within one launcher run, Claude can resume a helper
-session that the same tool returned. A parent resume starts a fresh helper
-connection that refuses earlier helper IDs, so Claude sends a new brief with
-the earlier findings and changed source. Do not switch a session between direct
-execution and helper-backed delivery.
-
-## Accept the delivery
-
-The coordinating Codex accepts the result in the assigned checkout. Inspect the
-artifact or diff against the recorded baseline before executing worker code.
-Git metadata is also untrusted: inspect with
-`git -c core.fsmonitor= -c core.hooksPath=/dev/null diff --no-ext-diff --no-textconv <recorded-baseline>`
-to cover staged and unstaged tracked changes. List untracked artifacts with
-`git -c core.fsmonitor= -c core.hooksPath=/dev/null ls-files --others --exclude-standard`
-and inspect their contents before running checks with the coordinator's
-authority. Check the allowed paths and consumer contract, and reproduce the
-checks that decide acceptance, especially those Claude could not run, such as
-the visual and native checks named at dispatch. Identify which evidence came
-from Claude and which Codex reproduced. Do not repeat the full investigation.
-Return a focused failure to the same session rather than editing alongside
-Claude or commissioning another full panel. After acceptance, Codex resumes
-edits and owns continuity, including any post-implementation review the parent
-task requires. For a clone delivery,
-Codex applies accepted changes to the live checkout when the task needs them
-there.
-
-Use consultation with a fresh session when independent judgment is needed on
-Claude's output. Run it from the idle assigned checkout or a snapshot containing
-the reviewed evidence; give it the desired behavior, baseline, callers, and
-cumulative diff before the worker's justification. From a worker clone, invoke
-the launcher by its absolute path in the coordinating checkout, with the clone
-as the working directory. Adversarial-review owns reviewer staffing for a
-consequential checkpoint.
-
-Keep acceptance review proportional to the consequence. Tests establish their
-covered behaviors; direct caller inspection and counterexamples can expose
-missing requirements. Two models agreeing does not prove correctness.
-
-Return the user-facing result and material limitations. Preserve a clone until
-its accepted contents are retained; clean up only task-owned temporary work.
-Judge delegation by the soundness of the reasoning, quality of design and
-implementation, and evidence that the result meets its requirements. When
-recording a delegation outcome in existing task notes, include the actual model,
-accepted result, deciding evidence, corrections, and unresolved limits. Use
-observed outcomes to adjust the division of work; do not create a separate
-tracking system or count a worker's successful exit as accepted work.
+After acceptance, Codex resumes edits in that checkout and owns what follows.

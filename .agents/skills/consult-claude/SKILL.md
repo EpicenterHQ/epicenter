@@ -1,70 +1,86 @@
 ---
 name: consult-claude
-description: Give Claude ownership of a read-only investigation, recommendation, or text draft. Use when a question benefits from Claude's reasoning or taste, when the user asks for Claude's take or critique, or when Claude is a reviewer in an adversarial review.
+description: Ask Claude Code a read-only question and get its own answer, using plain `claude -p`. Use when a question benefits from Claude's reasoning or taste, when the user asks for Claude's take or critique, or when Claude is a reviewer in an adversarial review.
 ---
 
 # Consult Claude
 
-Ask Claude to think through a question and give us its own answer.
+Ask Claude to think through a question and give us its own answer. Claude
+reads the checkout; it cannot run commands or change files. To have Claude
+deliver a change, use [delegate-claude](../delegate-claude/SKILL.md).
 
-Claude owns the answer. Codex checks the claims that drive the decision and
-handles any authorized execution. Bring Claude in early, while its judgment
-can still shape the result. When Claude should deliver a change or run an
-experiment, use [delegate-claude](../delegate-claude/SKILL.md) and assign the
-investigation and delivery together.
+Bring Claude in early, while its judgment can still shape the result.
 
 ## Brief the question
 
-Give Claude the question, why it matters, and the source it needs to answer.
-Say what would settle the question. Point to current files and callers, and
-distinguish requirements and observed behavior from assumptions.
+Give Claude the question, why it matters, and the files it should read. Say
+what would settle the question, and separate what you observed from what you
+assume.
 
-If the user wants Claude's own take, let it form a view before sharing yours.
-Compare the reasoning after Claude answers. If the user wants a critique,
-include the proposal and its rationale in the first brief.
+If the user wants Claude's own take, let it form a view before you share
+yours. If the user wants a critique, put the proposal and its reasoning in the
+first brief. For an adversarial review, follow
+[adversarial-review](../adversarial-review/SKILL.md) for briefing and staffing.
 
-For an adversarial review, follow [adversarial-review](../adversarial-review/SKILL.md)
-for briefing and staffing. Have Claude perform its assigned review itself.
+A brief from this repository:
 
-## Send a brief
+> `@epicenter/cli` and `@epicenter/app` are released at one version, and the
+> command checks for a second copy of the library before loading an app. Read
+> `packages/app/README.md`, `packages/cli/README.md` and the command's loader.
+> Is there still a reason for two packages, or should the command fold into
+> `@epicenter/app`? Name each thing that depends on the split. The answer
+> decides whether we retire `@epicenter/cli`.
 
-Run from the checkout containing the evidence. The launcher gives Claude
-read-only access to that checkout for one turn per brief. Keep the source
-stable during the turn. For parallel work or a delegated clone, see
-[preparing review source](references/launcher.md#prepare-source-for-a-review).
+## Send it
 
-Every turn requires `--account personal|work` and
-`--account-email <verified Claude email>`. Use the
-[launcher reference](references/launcher.md#choose-a-subscription-account)
-for account setup and login troubleshooting. The launcher defaults to Opus
-5.5 at high effort. Pass any model and effort required by the assignment
-explicitly.
+Run from the checkout Claude should read:
 
 ```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts \
-  --account personal --account-email claude@example.com <<'BRIEF'
-[Question, why it matters, source paths, and what would settle it.]
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+  claude -p --setting-sources project --strict-mcp-config \
+  --mcp-config '{"mcpServers":{"deepwiki":{"type":"http","url":"https://mcp.deepwiki.com/mcp"}}}' \
+  --tools Read,Glob,Grep,Skill,WebSearch --allowedTools WebSearch mcp__deepwiki \
+  --model claude-opus-5-5 --effort high --output-format json <<'BRIEF'
+[Question, why it matters, files to read, and what would settle it.]
 BRIEF
 ```
 
-For optional read-only evidence gathering by a Codex helper, see
-[Codex assistance](references/codex-assistance.md).
+- `env -u` removes API keys and proxies, so the call uses the Claude
+  subscription login instead of billing an API key.
+- `--tools` leaves Claude only reading, the repository's skills, web search,
+  and DeepWiki. It cannot write files or run commands, and reads outside the
+  checkout are refused.
+- `--strict-mcp-config` with `--mcp-config` gives Claude DeepWiki and no other
+  MCP server, so it can check library behavior itself. Leave library questions
+  to Claude rather than researching them first and pasting the answers into the
+  brief: Claude knows which details its reasoning depends on.
+- `--setting-sources project` keeps `AGENTS.md`, the skills and the
+  repository's permission rules, and drops personal settings that would allow
+  more. Do not use `--restricted`: it also hides `AGENTS.md` and every skill,
+  so Claude answers without the repository's conventions.
+- The default login is the personal account. For the work account, prefix the
+  command with `CLAUDE_CONFIG_DIR="$HOME/.claude-work"`. Check which account
+  is active with `claude auth status` once per task.
+- If `claude auth status` reports `loggedIn: false` inside the Codex sandbox,
+  the sandbox is hiding the macOS Keychain. Run the command with a sandbox
+  exception rather than logging in again.
 
-## Review the answer and follow up
+Keep the files Claude is reading unchanged until it answers.
 
-Monitor the launcher until it finishes. Read the native JSON `result`,
-`is_error`, and any permission denials. Save the `session_id` and check
-the actual model in the result when attribution matters.
+## Read the answer and follow up
 
-Check the deciding claims against the source. If Claude asks for a useful check
-within the user's authorization, run it and share the command and relevant
-output. Resume the same assignment with `--resume <session_id>` from the same
-checkout and account. Repeat any explicit model, effort, and helper options.
-Say what changed, include the new evidence, and ask the next question. Start
-a fresh session for an independent review of Claude-authored work. For work
-that spans contexts, [record how to resume](references/launcher.md#record-a-session-for-continuation).
+The JSON output has `result` (the answer), `is_error`, `session_id`, and
+`permission_denials`. Check the claims that drive the decision against the
+source yourself.
 
-Return the answer, the evidence that supports it, and any open disagreement
-that matters to the decision. Stop when the question has enough evidence to
-move forward. See [the example workflow](references/example-workflow.md) when
-evaluating how the consultation went.
+A run cannot be steered once it starts, so steer between turns. Keep each
+brief to one question, and ask Claude to stop and say so when the answer turns
+on something only the user can decide. To continue the same conversation with
+new evidence or a correction, run the same command from the same checkout with
+`--resume <session_id>`. Say what
+changed and ask the next question. If Claude asks for a test or command
+output, run it and paste the output into the follow-up. Start a fresh session
+when you need an independent review of Claude's own work.
+
+Return Claude's answer, the evidence behind it, and any disagreement that
+matters to the decision.
