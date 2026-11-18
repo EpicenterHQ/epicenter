@@ -11,8 +11,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./client": "./src/client.ts",
-		"./testing": "./src/testing.ts"
+		"./client": "./src/client.ts"
 	},
 	"files": [
 		"src",
