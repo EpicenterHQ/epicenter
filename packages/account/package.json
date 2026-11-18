@@ -3,20 +3,15 @@
 	"version": "0.1.1",
 	"private": true,
 	"type": "module",
-	"description": "An app's Epicenter account: sign-in, the account-bound fetch, and the PrincipalId that keys every storage partition.",
+	"description": "Dashboard cookie session contracts and hosted principal types.",
 	"exports": {
-		".": "./src/index.ts",
-		"./relay": "./src/relay.ts",
-		"./tauri": "./src/tauri.ts"
+		".": "./src/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@epicenter/definition": "workspace:*",
-		"@epicenter/local": "workspace:*",
-		"@tauri-apps/api": "catalog:",
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"
 	},
