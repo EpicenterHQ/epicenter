@@ -1062,10 +1062,10 @@ When you add an ADR, add its row here.
 | [0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) | Git speaks to a folder through a remote helper, and the CLI speaks a person's verbs | Superseded by 0840 |
 | [0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) | A save is one numbered write, a reset deletes nothing, and Epicenter owns the pages every app links to | Superseded by 0840 |
 | [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Accepted (supersedes 0835, 0836, 0837, 0838, and 0839; amended by 0870, 0896, 0897, and 0899) |
-| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted (amended by 0903) |
+| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted (amended by 0903 and 0964) |
 | [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted (amended by 0903; amended by 0910) |
 | [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted (amended by 0899) |
-| [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted (amended by 0903) |
+| [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted (amended by 0903 and 0964) |
 | [0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) | An app declares collections, each a path and fields, which the hub views | Accepted |
 | [0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) | Epicenter owns no infrastructure, and each repository has one meeting point | Accepted |
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
@@ -1143,13 +1143,13 @@ When you add an ADR, add its row here.
 | [0927](0927-serve-listens-only-on-this-computer.md) | `serve` listens only on this computer, and the owner's network brings other devices in | Accepted (amends 0883) |
 | [0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md) | `new` copies an app's code from a folder in Git or a folder on GitHub | Superseded by 0955 |
 | [0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) | An action call is a function call, and serve keeps nothing about it | Proposed (supersedes 0915 and 0917; amends 0879, 0883, 0914 and 0926; amended by 0953) |
-| [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Proposed (amends 0910 and 0880) |
-| [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Proposed (amends 0908, 0910) |
+| [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Accepted (amends 0910 and 0880; amended by 0961) |
+| [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Accepted (amends 0908, 0910; amended by 0959) |
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
-| [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Accepted (amends 0870 and 0910) |
+| [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Accepted (amends 0870 and 0910; amended by 0963) |
 | [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Accepted (amends 0850, 0910, 0937 and 0939; amended by 0955 and 0956) |
 | [0941](0941-epicenter-serve-is-a-program-you-keep-running.md) | `epicenter serve` is a program you keep running | Accepted (amends 0878) |
-| [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Accepted (supersedes 0873; amends 0880 and 0910; amended by 0944) |
+| [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Accepted (supersedes 0873; amends 0880 and 0910; amended by 0944, 0959 and 0960) |
 | [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
 | [0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) | An app builds its own UI, and serve only serves it | Proposed (amends 0904, 0910, 0911, and 0942) |
 | [0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) | An app may answer HTTP and WebSocket requests under its address | Proposed |
@@ -1161,4 +1161,10 @@ When you add an ADR, add its row here.
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
 | [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942, 0944 and 0962) |
+| [0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) | Serve loads each app once, and an app's code changes when serve restarts | Proposed (amends 0937 and 0942) |
+| [0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) | An app is a function of its folder, and a call has no hidden context | Proposed (amends 0942) |
+| [0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) | The command sends an action's words to serve, and serve alone reads them | Proposed (amends 0936) |
 | [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858; amended by 0958) |
+| [0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md) | `local/` ignores itself, and serve refuses a `.env` that Git would commit | Proposed (amends 0939) |
+| [0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md) | A folder is on disk, and it holds a path and the calls that change files | Proposed (amends 0841 and 0844) |
+| [0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md) | The command finds its Epicenter by walking up, and serve starts in its folder | Proposed |
