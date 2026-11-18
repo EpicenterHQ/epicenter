@@ -278,7 +278,7 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 	}
 	await f.stopServe();
 	expect(await ran()).toBe('xx');
-	const message = 'Epicenter is not running for this home.';
+	const message = 'serve is not running; its output says why it stopped';
 	expect(await f.run('where', 'am')).toEqual({
 		code: 2,
 		stdout: '',

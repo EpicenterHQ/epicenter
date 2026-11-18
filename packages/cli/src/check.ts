@@ -9,7 +9,12 @@
 import { ActionError, type Answer, checkData, Err, Ok } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { parseWords } from './commands.ts';
-import { discoverAll, loadHomeApp, type Runnable } from './home.ts';
+import {
+	discoverAll,
+	loadHomeApp,
+	localProblem,
+	type Runnable,
+} from './home.ts';
 
 /** One data key as the check found it. */
 type Checked = {
@@ -27,7 +32,7 @@ type Checked = {
 	records: { path: string; problems: string[] }[];
 };
 
-/** An app that could not be checked: it did not load, or a read failed. */
+/** An app with a problem outside its records: it did not load, a read failed, or its `local/` could reach Git. */
 type Unchecked = { entry: string; folder: string; problems: string[] };
 
 /** Every data key of `located`, read from its folder; nothing is written. */
@@ -87,7 +92,7 @@ function render(
 
 /**
  * Check one app, or every app when none is named. The report is what it
- * found: the records with problems, and the apps that could not be checked.
+ * found: the records with problems, and the apps with problems outside them.
  * A clean report is `Ok`; any problem makes it `Problems`, carrying the same
  * report. A named app that does not load is `NotStarted`.
  */
@@ -109,6 +114,13 @@ export async function checkCommand(
 		const { data: one, error } = await loadHomeApp(name);
 		if (error) return Err(error);
 		runnable = [one];
+		const local = await localProblem(one.entry, one.realPath);
+		if (local)
+			unchecked.push({
+				entry: one.entry,
+				folder: one.folder,
+				problems: [local],
+			});
 	}
 	const apps: Record<string, Record<string, Checked>> = {};
 	for (const located of runnable) {
@@ -129,11 +141,7 @@ export async function checkCommand(
 	return ActionError.Problems({
 		message: [
 			...counted(files, 'file has problems', 'files have problems'),
-			...counted(
-				unchecked.length,
-				'app could not be checked',
-				'apps could not be checked',
-			),
+			...counted(unchecked.length, 'app has problems', 'apps have problems'),
 		].join('; '),
 		report,
 	});

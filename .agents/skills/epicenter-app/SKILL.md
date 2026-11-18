@@ -157,9 +157,11 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   this computer. A large copy of a source, such as Mail's mailbox database, is
   `local/` though it is data: the source can send it again. `local/` appears
   with the first write there. What is in `local/` stays on the computer that
-  runs the app: the root `.gitignore` leaves it out of every
-  commit, and `folder` makes a new file there `0600`. Git's ignore rules are
-  the only guard, so never `git add -f` a file there. It holds plain files, not
+  runs the app: `folder` writes `local/.gitignore` containing `*` when it
+  makes `local/`, the root `.gitignore` names `/apps/*/local/` as a second
+  guard, and `folder` makes a new file there `0600`. A `local/` made another
+  way without that file is listed as a problem with the one-line fix; run it.
+  Never `git add -f` a file there. It holds plain files, not
   data keys: a token, a cache, a database. Keep a secret, such as a sign-in
   token, with `folder.write('local/google.md', token)` and read it with
   `folder.read('local/google.md')`, which gives `undefined` before sign-in.

@@ -308,7 +308,7 @@ answer is `NotStarted` with cause `unavailable`:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
-Epicenter is not running for this home.
+serve is not running; its output says why it stopped
 Run: epicenter serve
 ```
 
@@ -482,12 +482,21 @@ at `../tasks/data/tasks/<id>.md`.
 An action's MCP annotations, `readOnlyHint` among them, are forwarded to MCP
 clients and refuse nothing. `folder` is not a sandbox.
 
-What is in an app's `local/` stays on this computer: the root `.gitignore`
-names `/apps/*/local/`, which covers every app whoever makes the folder.
-Git's ignore rules are the only guard: nothing else refuses a commit of a
-file there, so keep that line and never `git add -f` such a file. A file made under `local/` through folder methods is readable by its
-owner alone (`0600`), and a directory made there is `0700`; one already there
-keeps its mode. An action keeps a token with
+What is in an app's `local/` stays on this computer. When `folder` makes
+`local/`, it writes `local/.gitignore` containing `*`, so Git ignores the
+folder whatever the root `.gitignore` says. The root line `/apps/*/local/`
+stays as a second guard, for a `local/` an app made itself with `node:fs`
+or SQLite. Such a `local/` without its own `.gitignore` is listed as a
+problem by the Epicenter listing, `epicenter check` and serve's start, with
+the fix:
+
+```txt
+apps/notes/local has no .gitignore; run: echo '*' > apps/notes/local/.gitignore
+```
+
+Never `git add -f` a file there. A file made under `local/` through folder
+methods is readable by its owner alone (`0600`), and a directory made there
+is `0700`; one already there keeps its mode. An action keeps a token with
 `folder.write('local/google.md', token)`. `local/` appears when an action
 first writes there. A write replaces a file by writing `local/.tmp/<uuid>`
 and renaming it over the target, so nothing unfinished is ever under `data/`.
@@ -605,9 +614,10 @@ declaration is often too narrow, and one change to `epicenter.ts` repairs
 them all. `records` holds only files with problems. Without an app named, an
 app that does not load is listed under `problems`, as in the Epicenter
 listing, and the other apps are still checked; a read that fails lists its
-app there too. A named app that does not load did not run: `NotStarted`,
-exit 2. A clean report is `data`, exit 0. When a file has a problem or an
-app could not be checked, the answer is `Problems`, exit 1, carrying the same
+app there too, and so does an app whose `local/` has no `.gitignore`, with
+the command that adds one. A named app that does not load did not run:
+`NotStarted`, exit 2. A clean report is `data`, exit 0. When a file or an
+app has a problem, the answer is `Problems`, exit 1, carrying the same
 report as `error.report` and a one-line summary as its message. Without
 `--json` the report prints on stdout either way, and the summary on stderr.
 
@@ -643,7 +653,8 @@ with Git, by hand or from a [routine](#routines) that runs a script of your
 own. A commit made while serve runs samples files, not intent: it can hold a
 partial edit or part of a running action's writes. Keep origin private: it
 receives every app's records. Git's ignore rules alone decide what is
-committed.
+committed. The only Git commands Epicenter runs are two questions about
+`.env` when serve starts ([Make an Epicenter](#make-an-epicenter)).
 
 ## Make an Epicenter
 
@@ -658,7 +669,10 @@ No command makes one. An Epicenter is a folder that holds:
 
 Then run `git init` and `bun install` at its top, and commit. Write the
 `.gitignore` before the first commit: what `local/` and `.env` hold must
-never reach origin. Ignoring `/apps/*/code/ui/dist/` keeps build output out
+never reach origin. Serve refuses to start while a `.env` at the top would
+reach Git, and prints the fix: `.env is not ignored by Git; add .env* to
+.gitignore`, or `.env is tracked by Git; run git rm --cached .env`. A folder
+that is not a Git repository has nothing to commit to, so serve starts. Ignoring `/apps/*/code/ui/dist/` keeps build output out
 of commits.
 
 To bring a home back on another computer:

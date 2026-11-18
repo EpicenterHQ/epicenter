@@ -67,7 +67,7 @@ test('with no app named, checks every app and lists one that does not load under
 	expect(data).toBeNull();
 	expect(error).toMatchObject({
 		name: 'Problems',
-		message: '1 file has problems; 1 app could not be checked',
+		message: '1 file has problems; 1 app has problems',
 	});
 	expect(Object.keys(error).sort()).toEqual(['message', 'name', 'report']);
 	const { report } = error;
@@ -91,9 +91,7 @@ test('with no app named, checks every app and lists one that does not load under
 	expect(human.stdout).toEndWith(
 		`Problems:\n  broken\n    ${join(f.apps, 'broken')}\n    code/epicenter.ts: import exploded\n`,
 	);
-	expect(human.stderr).toBe(
-		'1 file has problems; 1 app could not be checked\n',
-	);
+	expect(human.stderr).toBe('1 file has problems; 1 app has problems\n');
 });
 
 test('a clean check answers its report as data, exit 0', async () => {

@@ -203,16 +203,57 @@ function byWords(
 	);
 }
 
-/** Import every app entry independently so one broken app does not hide the rest. */
+/**
+ * Why the `local/` of the app `entry`, whose folder is `realPath`, could reach
+ * Git, or undefined when it has no `local/` or the folder ignores itself
+ * (ADR-0963). The fix is named, not made: the owner or an agent runs it.
+ */
+export async function localProblem(
+	entry: string,
+	realPath: string,
+): Promise<string | undefined> {
+	const local = join(realPath, 'local');
+	if (!(await lstat(local).catch(() => undefined))?.isDirectory())
+		return undefined;
+	if (await lstat(join(local, '.gitignore')).catch(() => undefined))
+		return undefined;
+	return `apps/${entry}/local has no .gitignore; run: echo '*' > apps/${entry}/local/.gitignore`;
+}
+
+/**
+ * Import every app entry independently so one broken app does not hide the
+ * rest. An app whose `local/` does not ignore itself still runs, and is also
+ * listed with that problem.
+ */
 export async function discoverAll() {
 	const found = await homeEntries();
 	const loaded = await Promise.all(
-		found.map((entry) => load(entry, entry.entry)),
+		found.map(async (entry) => {
+			const located = await load(entry, entry.entry);
+			const local = await localProblem(entry.entry, entry.realPath);
+			if (!local) return { located };
+			if (!located.ok)
+				return {
+					located: { ...located, problems: [...located.problems, local] },
+				};
+			const { entry: name, folder, realPath, codePath } = located;
+			const listed: Extract<Located, { ok: false }> = {
+				entry: name,
+				folder,
+				realPath,
+				codePath,
+				ok: false,
+				problems: [local],
+			};
+			return { located, listed };
+		}),
 	);
 	return {
 		epicenter: epicenterRoot().folder,
-		apps: loaded.filter((located) => located.ok),
-		problems: loaded.filter((located) => !located.ok),
+		apps: loaded.flatMap(({ located }) => (located.ok ? [located] : [])),
+		problems: loaded.flatMap(({ located, listed }) =>
+			listed ? [listed] : located.ok ? [] : [located],
+		),
 	};
 }
 

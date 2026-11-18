@@ -15,8 +15,9 @@ export const COMMANDS = {
 does not fit its key's fields. Each key shows how many files it holds and how
 many have problems, then each file's problems. Many files with one kind of
 problem usually mean the declaration is too narrow, not the files. It reads
-only. Exit 0 when nothing has a problem, 1 when a file has one or an app
-could not be checked, and 2 when a named app does not load.`,
+only. An app whose local/ has no .gitignore is listed with the command that
+adds one. Exit 0 when nothing has a problem, 1 when a file or an app has one,
+and 2 when a named app does not load.`,
 	},
 	serve: {
 		usage: 'epicenter serve',
