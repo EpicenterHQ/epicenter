@@ -125,33 +125,6 @@ export type Data<TSpec extends Spec> = {
 		};
 };
 
-type RefTargets<TSchema> = TSchema extends {
-	'x-epicenter-ref': { key: infer TKey extends string };
-}
-	? TKey
-	: TSchema extends { items: infer TItem }
-		? RefTargets<TItem>
-		: TSchema extends { properties: infer TProperties }
-			? {
-					[K in keyof TProperties]: RefTargets<TProperties[K]>;
-				}[keyof TProperties]
-			: TSchema extends { anyOf: infer TChoices extends readonly unknown[] }
-				? RefTargets<TChoices[number]>
-				: never;
-type RefKeys<TSpec> = keyof TSpec & string;
-type ValidRefs<TSpec extends Spec> = {
-	[K in keyof TSpec]: {
-		fields: {
-			[F in keyof TSpec[K]['fields']]: Exclude<
-				RefTargets<TSpec[K]['fields'][F]>,
-				RefKeys<TSpec>
-			> extends never
-				? unknown
-				: `Data ref "${Exclude<RefTargets<TSpec[K]['fields'][F]>, RefKeys<TSpec>>}" must name a folder key in this defineData`;
-		};
-	};
-};
-
 /**
  * Declare an app's data: each key a folder of Markdown records under
  * `data/`, one file per id. Each handle reads and writes in `folder`, the
@@ -159,7 +132,7 @@ type ValidRefs<TSpec extends Spec> = {
  */
 export function defineData<const TSpec extends Spec>(
 	folder: Folder,
-	spec: TSpec & ValidRefs<TSpec>,
+	spec: TSpec,
 ): Data<TSpec> {
 	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))

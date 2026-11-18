@@ -570,17 +570,20 @@ test('handles write refs as given without opening the referenced file', async ()
 	expect(expectOk(await data.checks.get('a'))?.watch).toBe('also-missing');
 });
 
-test('data refs validate their target at runtime', () => {
-	for (const target of ['missing', 'settings.md']) {
-		// Dynamic schemas exercise runtime validation without bypassing the public types.
-		const ref = Type.String({ 'x-epicenter-ref': { key: target } });
+test('defineData refuses a ref to a key it does not declare, in a list or optional too', () => {
+	for (const target of [
+		field.ref('missing'),
+		field.list(field.ref('missing')),
+		field.ref('missing', { optional: true }),
+	])
 		expect(() =>
 			defineData(unusedFolder, {
-				notes: { description: 'notes', fields: { ref } },
+				notes: { description: 'note', fields: { target } },
 				settings: { description: 'settings', fields: {} },
 			}),
-		).toThrow(target);
-	}
+		).toThrow(
+			'The data key notes\'s field "target" refers to "missing", which must name a key in this defineData',
+		);
 });
 
 test('timeId preserves the UTC ISO stamp and adds exactly eight lowercase base36 characters', () => {

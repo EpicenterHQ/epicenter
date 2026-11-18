@@ -1,6 +1,7 @@
 /**
  * Data declaration types retain field inference for each key's handle.
- * Negative cases keep ids mandatory and refs confined to declared keys.
+ * Negative cases keep ids mandatory and field types exact. A ref to a key
+ * that is not declared is refused when defineData runs (data.test.ts).
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -124,37 +125,5 @@ describe('type errors', () => {
 		() => data.notes.create('a', { title: 'only title' });
 		// @ts-expect-error undeclared fields cannot be written
 		() => data.notes.patch('a', { missing: 'x' });
-	});
-	test('refs reject missing targets on the field', () => {
-		() =>
-			defineData(folder, {
-				notes: {
-					description: 'notes',
-					fields: {
-						// @ts-expect-error target must exist in this declaration
-						target: field.ref('missing'),
-					},
-				},
-			});
-		() =>
-			defineData(folder, {
-				notes: {
-					description: 'notes',
-					fields: {
-						// @ts-expect-error list items retain the missing ref target
-						targets: field.list(field.ref('missing')),
-					},
-				},
-			});
-		() =>
-			defineData(folder, {
-				notes: {
-					description: 'notes',
-					fields: {
-						// @ts-expect-error optional refs retain the missing target
-						target: field.ref('missing', { optional: true }),
-					},
-				},
-			});
 	});
 });

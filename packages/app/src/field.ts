@@ -15,7 +15,6 @@ import {
 	type TLiteral,
 	type TOptional,
 	type TSchema,
-	type TString,
 	type TUnion,
 	Type,
 } from 'typebox';
@@ -119,9 +118,6 @@ export type OptionalKeys<F> = {
 
 /** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a folder key>" } }`. */
 const REF = 'x-epicenter-ref';
-
-/** A data ref retains its target key for declaration-time checking. */
-type RefSchema<TTarget extends string> = TString & { [REF]: { key: TTarget } };
 
 /** The folder key named by a data ref, or undefined for another field. */
 export function refKeyOf(schema: unknown): string | undefined {
@@ -277,19 +273,17 @@ export const field = {
 	list,
 
 	/**
-	 * One id in a folder key of the same `defineData`: text that `check`
-	 * confirms names a file there. Reads open no other file.
+	 * One id in another key of the same `defineData`: text that `check`
+	 * confirms names a file there. Reads open no other file. `defineData`
+	 * refuses a target that is not one of its keys.
 	 */
-	ref: <const TTarget extends string, const O extends MaybeOptional>(
-		target: TTarget,
+	ref: <const O extends MaybeOptional>(
+		target: string,
 		options?: Only<O, MaybeOptional>,
 	) => {
 		only('ref', options, MAYBE_OPTIONAL);
 		return maybeOptional(
-			Type.String({
-				...schemaOptions(options),
-				[REF]: { key: target },
-			}) as RefSchema<TTarget>,
+			Type.String({ ...schemaOptions(options), [REF]: { key: target } }),
 			options,
 		);
 	},
