@@ -28,7 +28,6 @@ import {
 	Ok,
 } from '@epicenter/app';
 import { folderOnDisk } from './disk.ts';
-import { gitIn } from './runner.test-support.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -36,11 +35,10 @@ afterEach(async () => {
 		roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
 	);
 });
-/** A repository to write in, and its folder. */
+/** A directory to write in, and its folder. */
 async function setup() {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-disk-'));
 	roots.push(root);
-	await gitIn(root, 'init', '-q');
 	return { root, folder: folderOnDisk(root) };
 }
 

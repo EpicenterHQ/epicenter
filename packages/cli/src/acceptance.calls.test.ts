@@ -15,7 +15,6 @@ import { join } from 'node:path';
 import {
 	connectMcp,
 	fixture,
-	gitignore,
 	header,
 	startServe,
 } from './runner.test-support.js';
@@ -118,7 +117,6 @@ export default defineApp({
 `;
 
 const notesApp = {
-	'code/.gitignore': gitignore,
 	'data/a.md': 'base a\n',
 	'code/epicenter.ts': notesCode,
 };
@@ -220,7 +218,6 @@ test('C11 concurrent patches of different fields on one file all land', async ()
 	const f = await setup();
 	const fields = Array.from({ length: 10 }, (_, i) => `f${i}`);
 	await f.folder(join(f.apps, 'many'), {
-		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `${header}
 const data = defineData({ items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
 export default defineApp({ description: 'Many fields', data, actions: { items: data.items.actions('patch') } });
@@ -246,7 +243,6 @@ export default defineApp({ description: 'Many fields', data, actions: { items: d
 test('a command sends its action to serve, and is refused and runs nothing while serve is stopped', async () => {
 	const f = await setup();
 	const where = await f.folder(join(f.apps, 'where'), {
-		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `${header}
 export default defineApp({ description: 'Where', actions: {
 	am: defineAction({ description: 'Say which process ran this', input: {}, run: async (_input, update) => {

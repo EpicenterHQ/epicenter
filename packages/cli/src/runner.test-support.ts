@@ -37,23 +37,6 @@ export async function installPackages(folder: string) {
 	);
 }
 
-/** Run git in `dir`, throwing with its stderr when it fails. */
-export async function gitIn(dir: string, ...args: string[]) {
-	// Bun passes the environment it started with unless told; the preload changed `process.env`.
-	const child = Bun.spawn(['git', '-C', dir, ...args], {
-		env: process.env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`git ${args.join(' ')}: ${stderr}`);
-	return stdout.trim();
-}
-
 /**
  * A port nothing listens on, for a home's `EPICENTER.md`. It is below the
  * range the system hands to outgoing connections, so nothing takes it between
@@ -160,13 +143,11 @@ export async function fixture() {
 	}
 
 	/**
-	 * An app container at `<epicenter>/apps/<entry>`: `code/.gitignore` and
-	 * `code/epicenter.ts` of `source` after an import of everything an app
-	 * defines itself with.
+	 * An app container at `<epicenter>/apps/<entry>`: its `code/epicenter.ts`
+	 * is `source` after an import of everything an app defines itself with.
 	 */
 	async function app(entry: string, source: string, epicenter = home) {
 		return folder(join(epicenter, 'apps', entry), {
-			'code/.gitignore': gitignore,
 			'code/epicenter.ts': `${header}${source}`,
 		});
 	}
@@ -341,9 +322,6 @@ export async function connectMcp(
 	};
 }
 
-/** The ignore file every test app carries. */
-export const gitignore = 'node_modules/\nui/dist/\n';
-
 /** The import every test app's `epicenter.ts` starts with. */
 export const header = `import { defineAction, defineApp, defineData, field, folder, Err, Ok } from '@epicenter/app';\n`;
 
@@ -354,7 +332,6 @@ export function bareApp(name: string) {
 
 /** Reading, as an app's files: a books data key and actions that write a CSV. */
 export const readingApp = {
-	'code/.gitignore': gitignore,
 	'code/epicenter.ts': `${header}
 const data = defineData({ books: { fields: { title: field.text() } } });
 

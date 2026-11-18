@@ -195,7 +195,7 @@ type ActionOutput<
 }[TVerb];
 
 /** Each named verb's action, retaining its input and Result types. */
-export type DataActions<
+type DataActions<
 	TKey extends string,
 	TDef extends DataDef,
 	TVerb extends Verb,

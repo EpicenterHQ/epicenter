@@ -9,8 +9,6 @@
 import type { Answer } from '@epicenter/app';
 import type { LogSink } from 'wellcrafted/logger';
 
-export type { Answer } from '@epicenter/app';
-
 /** Write diagnostics separately from the answer or MCP protocol. */
 export function writeErr(text: string) {
 	process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);

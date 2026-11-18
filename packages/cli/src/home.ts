@@ -22,6 +22,7 @@ import {
 	isName,
 	type NotStarted,
 } from '@epicenter/app';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
 import { folderOnDisk } from './disk.ts';
@@ -44,7 +45,7 @@ type Place = {
  * its `epicenter.ts` exports, or an entry with the problems that keep it from
  * running.
  */
-export type Located =
+type Located =
 	| (Place & {
 			ok: true;
 			name: string;
@@ -157,7 +158,7 @@ async function load(
 		return broken([`its folder's name cannot name an app: ${named}`]);
 	const thrown = (error: unknown) =>
 		broken(
-			message(error)
+			extractErrorMessage(error)
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
@@ -206,10 +207,6 @@ function byWords(
 	);
 }
 
-function message(error: unknown) {
-	return error instanceof Error ? error.message : String(error);
-}
-
 /** Import every app entry independently so one broken app does not hide the rest. */
 export async function discoverAll() {
 	const found = await homeEntries();
@@ -235,19 +232,14 @@ const unknownApp = (name: string) =>
 	});
 
 /** One entry as `homeEntries` lists it. */
-export type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
+type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
 
-/**
- * Every app entry in the Epicenter, or only the one named, for a command
- * that works on each app or one.
- */
-export async function chooseApps(
-	name?: string,
-): Promise<Result<Entry[], NotStarted>> {
-	const entries = await homeEntries();
-	if (name === undefined) return Ok(entries);
-	const chosen = entries.filter((entry) => entry.entry === name);
-	return chosen.length ? Ok(chosen) : unknownApp(name);
+/** The app entry named `name`, loaded or not, for a request that names one. */
+export async function findEntry(
+	name: string,
+): Promise<Result<Entry, NotStarted>> {
+	const entry = (await homeEntries()).find((entry) => entry.entry === name);
+	return entry ? Ok(entry) : unknownApp(name);
 }
 
 /**

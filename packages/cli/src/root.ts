@@ -18,7 +18,7 @@ import { readMarkdown } from '@epicenter/app';
 export const MARKER = 'EPICENTER.md';
 const DEFAULT_PORT = 4747;
 
-export type EpicenterRoot = {
+type EpicenterRoot = {
 	folder: string;
 	/** The port `serve` listens on: the marker's, else 4747. */
 	port: number;

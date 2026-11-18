@@ -14,7 +14,6 @@ import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	fixture,
-	gitignore,
 	header,
 	readingApp,
 	startServe,
@@ -266,7 +265,6 @@ test('serve serves ui/dist/ as the build left it and never builds; an unbuilt UI
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'reading'), {
 			...readingApp,
-			'code/.gitignore': `${readingApp['code/.gitignore']}ui/dist/\n`,
 			'code/package.json': `${JSON.stringify({ scripts: { build: 'touch built-by-serve' } })}\n`,
 			'code/ui/page.txt': 'one\n',
 		}),
@@ -385,7 +383,6 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 	const f = await setup(async (f) => {
 		await f.app('talk', talk);
 		await f.folder(join(f.apps, 'broken'), {
-			'code/.gitignore': gitignore,
 			'code/epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
 		});
 	});
@@ -731,7 +728,6 @@ test('serve keeps nothing about a call: a second call runs the action again', as
 test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'echo'), {
-			'code/.gitignore': gitignore,
 			'code/word.ts': "export const word = 'one';\n",
 			'code/epicenter.ts': `${header}import { word } from './word.ts';
 export default defineApp({ description: 'Echo', actions: {

@@ -118,7 +118,7 @@ export async function runAction(
 }
 
 /** Who follows a call as it runs. */
-export type Following = {
+type Following = {
 	/** Each update the action sends, in order. The action never waits for it. */
 	onUpdate?: (value: unknown) => unknown;
 	/** Where the record of the run's end goes: stderr, as JSON lines, unless a test passes its own. */
@@ -126,7 +126,7 @@ export type Following = {
 };
 
 /** A call that is ready to run, or the `NotStarted` that answers it instead. */
-export type Resolved =
+type Resolved =
 	| { refusal: Answer }
 	| {
 			refusal?: undefined;

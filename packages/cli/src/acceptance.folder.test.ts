@@ -3,7 +3,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { lstat, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, gitignore, header } from './runner.test-support.ts';
+import { bareApp, fixture, header } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
 
@@ -47,7 +47,6 @@ export default defineApp({
 `;
 
 const journal = {
-	'code/.gitignore': gitignore,
 	'code/epicenter.ts': journalCode,
 };
 
@@ -78,7 +77,6 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 	await symlink(loose, join(f.apps, 'loose'));
 	expect((await lstat(join(f.apps, 'loose'))).isSymbolicLink()).toBe(true);
 	expect(await readlink(join(f.apps, 'loose'))).toBe(loose);
-	expect(existsSync(join(loose, '.gitignore'))).toBe(false);
 
 	const vault = await f.folder(join(f.home, 'shelf', 'vault'), {
 		'recipes/code/epicenter.ts': bareApp('recipes'),

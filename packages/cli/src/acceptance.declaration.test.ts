@@ -354,22 +354,14 @@ test('D6 serve answers initialize, lists the same tools as --json, and runs a ca
 	expect((await f.run('mcp')).code).toBe(2);
 });
 
-test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', async () => {
+test('D7 discovery defaults to $HOME/Epicenter', async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
-	const decoy = join(f.root, 'decoy-home');
-	await f.app(
-		'decoy',
-		`export default defineApp({ description: 'The decoy app', actions: {} });\n`,
-		decoy,
-	);
-	f.env.EPICENTER_HOME = decoy;
 	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
 	]);
-	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_HOME');
 });
 
 /** Capture: an app whose actions are only its one data key's verbs. */

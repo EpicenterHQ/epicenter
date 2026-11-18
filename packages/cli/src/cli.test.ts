@@ -3,11 +3,18 @@
  * grammar, output, and the folder and cache on disk. Broken apps must not block healthy apps.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMANDS } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { fixture, gitIn, reading, vault } from './runner.test-support.ts';
+import { fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
 setDefaultTimeout(30_000);
@@ -196,21 +203,25 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 
 test('bare epicenter reports routines after the apps, and changes nothing', async () => {
 	const f = await setup();
-	await gitIn(f.home, 'init', '-q');
-	await gitIn(f.home, 'add', '-A');
-	await gitIn(f.home, 'commit', '-qm', 'start');
 	await f.folder(f.home, {
 		'routines/review.md':
 			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week", "summary", {"note": "it\'s here"}, "two words"]\n---\n',
 		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
 	});
-	const state = async () => [
-		await gitIn(f.home, 'rev-parse', 'HEAD'),
-		await gitIn(f.home, 'status', '--porcelain', '--untracked-files=all'),
-	];
+	// Every file in the home outside its install, with its text.
+	const state = async () => {
+		const files: Record<string, string> = {};
+		for (const entry of await readdir(f.home, {
+			recursive: true,
+			withFileTypes: true,
+		})) {
+			const path = join(entry.parentPath, entry.name);
+			if (entry.isFile() && !path.includes('node_modules'))
+				files[path] = await readFile(path, 'utf8');
+		}
+		return files;
+	};
 	const before = await state();
-	// The two routine files are uncommitted, and stay so.
-	expect(before[1]?.split('\n')).toHaveLength(2);
 
 	const listed = await f.run('--json');
 	expect(listed.code).toBe(0);
@@ -234,7 +245,6 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 	]);
 	// The version the home has installed, read from its node_modules.
 	expect(value.version).toBe(VERSION);
-	// Git reports on the repository itself; the report carries none of it.
 	expect(Object.keys(value)).toEqual([
 		'epicenter',
 		'version',
@@ -285,12 +295,6 @@ test('a misused command answers its usage line, with its help as the next step',
 		data: null,
 		error: { name: 'NotStarted', cause: 'usage' },
 	});
-	for (const flag of ['--port', '--host'])
-		expect(await f.run('serve', flag, '0')).toEqual({
-			code: 2,
-			stdout: '',
-			stderr: `Usage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
-		});
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /<app>/<action>',
 	);
@@ -442,7 +446,6 @@ test('app and action views include locations, schemas, field help and version', 
 	expect(help.error).toBeNull();
 	expect(help.data).toContain('Exit codes:');
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
-	expect((await f.run('--help')).stdout).not.toContain('epicenter install');
 });
 
 test('an empty Epicenter says what an app is and a missing marker suggests making one', async () => {

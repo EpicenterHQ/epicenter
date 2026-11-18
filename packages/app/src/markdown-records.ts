@@ -25,7 +25,7 @@ export type AnyRecord = Record<string, unknown> & {
 	path: string;
 	body: string;
 };
-export type Write = { fields: Record<string, unknown>; body?: unknown };
+type Write = { fields: Record<string, unknown>; body?: unknown };
 type Need = 'absent' | 'present' | 'either';
 type Found = ReturnType<typeof readMarkdown>;
 

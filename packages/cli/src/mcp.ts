@@ -14,7 +14,7 @@
  * an MCP client reads only the answer.
  */
 
-import { ActionError } from '@epicenter/app';
+import { ActionError, type Answer } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
@@ -24,7 +24,7 @@ import {
 import { VERSION } from './engines.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, outcome, writeErr } from './output.ts';
+import { outcome, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { resolveAction, runAction } from './run.ts';
 
