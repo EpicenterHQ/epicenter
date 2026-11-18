@@ -10,9 +10,10 @@ live in `apps/<app>/`: `code/` is an ordinary Bun project and sibling `data/`
 holds records and settings. The source and live Epicenter use this layout
 (ADR-0910, Accepted). Inspect an existing app before editing it.
 
-`epicenter` selects the nearest marked ancestor of the current folder, then
-`EPICENTER_ROOT`, then `~/Epicenter`; a temporary Epicenter for testing stays
-apart from the person's own this way. `epicenter serve` listens only on this
+`epicenter` acts on the nearest folder at or above the current one that holds
+`EPICENTER.md`, and refuses outside any; run it from inside the Epicenter you
+mean, so a temporary one for testing stays apart from the person's own.
+`epicenter serve` starts only in the Epicenter's own folder and listens only on this
 computer and offers MCP at `/` and each UI at `/<app>/`, on the marker's `port`
 or 4747 when absent. Other devices reach it through the owner's private network,
 such as `tailscale serve`.

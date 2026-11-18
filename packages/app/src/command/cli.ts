@@ -5,6 +5,7 @@
  * runs.
  */
 
+import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
@@ -32,8 +33,8 @@ ${Object.values(COMMANDS)
 	.join('\n')}
 epicenter --version
 
-Uses the nearest Epicenter above the current folder, then EPICENTER_ROOT,
-then ~/Epicenter. An Epicenter has EPICENTER.md.
+Acts on the Epicenter it runs in: the nearest folder at or above this one
+that holds EPICENTER.md. serve starts in that folder.
 An action's input is one JSON object, such as '{"title":"Call the bank"}',
 or - to read it from stdin; null removes a field that takes it.
 --json prints every command's answer as one JSON value, {"data": ..., "error": ...},
@@ -63,6 +64,13 @@ const HANDLERS: {
 			});
 		const { error } = parseWords('serve', words, [0, 0]);
 		if (error) return Err(error);
+		// Bun reads .env from the folder a process starts in, so serve starts in the root's (ADR-0965).
+		if (realpathSync(process.cwd()) !== root.folder)
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message: `serve starts in your Epicenter's folder, ${root.folder}`,
+				next: `cd ${root.folder} && epicenter serve`,
+			});
 		return serveHttp(root);
 	},
 };

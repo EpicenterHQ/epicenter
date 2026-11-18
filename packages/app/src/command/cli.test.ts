@@ -365,7 +365,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 			'--json',
 		],
 		{
-			cwd: f.root,
+			cwd: f.home,
 			env: f.env,
 			stdout: 'pipe',
 			stderr: 'pipe',
@@ -448,20 +448,12 @@ test('app and action views include locations, schemas, field help and version', 
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
 });
 
-test('an empty Epicenter says what an app is and a missing marker suggests making one', async () => {
+test('an empty Epicenter says what an app is', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	expect((await f.run()).stdout).toContain(
 		'No apps yet. An app is apps/<name>/code/epicenter.ts',
 	);
-	await rm(f.home, { recursive: true });
-	expect((await f.runIn(f.root, '--json')).code).toBe(2);
-	const make = `mkdir -p ${f.home} && touch ${join(f.home, 'EPICENTER.md')}`;
-	expect((await f.runIn(f.root)).stderr).toContain(make);
-	const missing = await f.runIn(f.root, 'reading', '--json');
-	expect(missing.code).toBe(2);
-	expect(JSON.parse(missing.stdout).error.message).toContain('EPICENTER.md');
-	expect(JSON.parse(missing.stdout).error.next).toBe(make);
 });
 
 test('an app is named by its folder in the home, whatever its description says', async () => {

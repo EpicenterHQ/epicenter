@@ -200,9 +200,13 @@ Your Epicenter lives on a computer you control and keep on. `epicenter serve`
 offers its apps to devices on a private connection. An older laptop with
 Tailscale is one setup. See [a computer that stays on](../../../../docs/vision.md#a-computer-that-stays-on).
 
-The command selects the nearest marked ancestor of the current directory,
-then `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without the
-marker is refused with the command that makes one. The marker's optional front matter
+A command acts on the Epicenter it runs in: the nearest folder at or above
+the current one that holds `EPICENTER.md`, as Git finds the nearest `.git`.
+Outside any Epicenter it refuses and says to `cd` into one. An agent working
+in another repository changes folder first, for example
+`(cd ~/Epicenter && epicenter reading log '{"minutes":30}')`
+([ADR-0965](../../../../docs/adr/0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md)).
+The marker's optional front matter
 accepts only `port`, an integer from 1 to 65535; the default is 4747. An empty
 marker is valid. Nothing refuses an Epicenter inside another: a command uses
 the nearest marked folder at or above where it runs.
@@ -354,9 +358,12 @@ serve stops its routine commands and exits.
 
 `epicenter serve` is one process. If it stops, it stays stopped, and every
 action is refused until something starts it again. Keep it running as you would
-any program, started from the home's folder: a terminal, tmux, a systemd user
-unit, or a LaunchAgent. What such a tool runs is Bun and the home's own
-command, `bun <home>/node_modules/.bin/epicenter serve`, so after an upgrade a
+any program: a terminal, tmux, a systemd user unit, or a LaunchAgent. Serve
+starts in the Epicenter's own folder, and refuses anywhere else, because Bun
+reads `.env` from the folder a process starts in. A unit sets
+`WorkingDirectory=` to that folder, and a LaunchAgent sets `WorkingDirectory`.
+What such a tool runs is Bun and the Epicenter's own command,
+`bun <folder>/node_modules/.bin/epicenter serve`, so after an upgrade a
 restart runs the new version. Actions and routines run with that tool's environment,
 including its `PATH` ([ADR-0941](../../../../docs/adr/0941-epicenter-serve-is-a-program-you-keep-running.md)).
 

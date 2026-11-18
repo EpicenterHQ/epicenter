@@ -5,7 +5,7 @@
  * `{ data, error }`.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	connectMcp,
@@ -73,14 +73,11 @@ function notes(f: Awaited<ReturnType<typeof setup>>) {
 	return f.folder(join(f.apps, 'notes'), repairsApp);
 }
 
-test('F1 a broken root is a usage error', async () => {
+test('F1 a marker that is not a file is no Epicenter', async () => {
 	const f = await setup();
-	await rm(f.home, { recursive: true });
-	await writeFile(f.home, 'not a folder');
-	const listed = await f.runIn(f.root, '--json').then((result) => ({
-		...result,
-		report: JSON.parse(result.stdout),
-	}));
+	await rm(join(f.home, 'EPICENTER.md'));
+	await mkdir(join(f.home, 'EPICENTER.md'));
+	const listed = await f.json();
 	expect(listed.code).toBe(2);
 	expect(listed.report.error).toMatchObject({
 		name: 'NotStarted',

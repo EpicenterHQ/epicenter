@@ -127,7 +127,6 @@ export async function fixture() {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME: root,
-		EPICENTER_ROOT: undefined,
 	};
 
 	/** Write `files` under `dir`. */

@@ -251,7 +251,7 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	/** Run with stdin open: `text` is written to it, and it is closed only when `close` is true. */
 	const piped = async (text: string, close: boolean, ...args: string[]) => {
 		const child = Bun.spawn([process.execPath, f.bin, ...args], {
-			cwd: f.root,
+			cwd: f.home,
 			env: f.env,
 			stdin: 'pipe',
 			stdout: 'pipe',
@@ -363,16 +363,6 @@ test('D6 serve answers initialize, lists the same tools as --json, and runs a ca
 		await close();
 	}
 	expect((await f.run('mcp')).code).toBe(2);
-});
-
-test('D7 discovery defaults to $HOME/Epicenter', async () => {
-	const f = await setup();
-	await f.folder(join(f.apps, 'reading'), readingApp);
-	const listing = JSON.parse((await f.run('--json')).stdout).data;
-	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
-	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
-		'reading',
-	]);
 });
 
 /** Capture: an app whose actions are only its one data key's verbs. */

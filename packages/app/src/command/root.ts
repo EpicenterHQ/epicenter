@@ -1,6 +1,6 @@
 /**
- * Find the Epicenter for this process and read its marker, `EPICENTER.md`
- * (ADR-0868): a note for people whose optional front matter says the port
+ * Find the Epicenter a command runs in and read its marker, `EPICENTER.md`
+ * (ADR-0868, ADR-0965): a note for people whose optional front matter says the port
  * `serve` listens on:
  *
  * ```yaml
@@ -11,8 +11,7 @@
  */
 import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Ok, type Result } from 'wellcrafted/result';
 import { readMarkdown } from '../front-matter.ts';
 import { ActionError, type NotStarted } from '../index.ts';
@@ -27,26 +26,18 @@ export type EpicenterRoot = {
 	/** The port `serve` listens on: the marker's, else 4747. */
 	port: number;
 };
-/** Expand a person's `~` and make a folder path absolute. */
-function folderPath(path: string): string {
-	return resolve(
-		path === '~'
-			? homedir()
-			: path.startsWith('~/')
-				? join(homedir(), path.slice(2))
-				: path,
-	);
-}
 
 /**
- * Whether `folder` holds `EPICENTER.md`, by its exact name; `false` for a
- * folder that cannot be listed. A case-insensitive disk opens `Epicenter.md`
- * as `EPICENTER.md`, so the name is looked up in the folder's listing rather
- * than opened.
+ * Whether `folder` holds the file `EPICENTER.md`, by its exact name; `false`
+ * for a folder that cannot be listed. A case-insensitive disk opens
+ * `Epicenter.md` as `EPICENTER.md`, so the name is looked up in the folder's
+ * listing rather than opened.
  */
 function isMarked(folder: string): boolean {
 	try {
-		return readdirSync(folder).includes(MARKER);
+		return readdirSync(folder, { withFileTypes: true }).some(
+			(entry) => entry.name === MARKER && !entry.isDirectory(),
+		);
 	} catch {
 		return false;
 	}
@@ -112,23 +103,19 @@ function readRoot(folder: string): Result<EpicenterRoot, NotStarted> {
 }
 
 /**
- * The Epicenter a command run in `start` acts on, its marker read and checked:
- * the nearest marked folder at or above `start`, then EPICENTER_ROOT, then
- * $HOME/Epicenter. A command finds it once and passes it down.
+ * The Epicenter a command run in `start` acts on, its marker read and
+ * checked: the nearest folder at or above `start` that holds `EPICENTER.md`,
+ * as Git finds the nearest `.git` (ADR-0965). There is no other way to choose
+ * one. A command finds it once and passes it down.
  */
 export function epicenterRoot(
 	start = process.cwd(),
 ): Result<EpicenterRoot, NotStarted> {
-	const folder =
-		ancestorWithMarker(start) ??
-		(process.env.EPICENTER_ROOT !== undefined
-			? folderPath(process.env.EPICENTER_ROOT)
-			: join(homedir(), 'Epicenter'));
-	if (!isMarked(folder))
+	const folder = ancestorWithMarker(start);
+	if (folder === undefined)
 		return ActionError.NotStarted({
 			cause: 'usage',
-			message: `There is no ${MARKER} in ${folder}`,
-			next: `mkdir -p ${folder} && touch ${join(folder, MARKER)}`,
+			message: `There is no ${MARKER} here or above; cd into your Epicenter`,
 		});
 	return readRoot(realpathSync(folder));
 }
