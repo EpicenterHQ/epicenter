@@ -4,7 +4,7 @@
  * `tools/list` leaves it out and `tools/call` refuses its name before it
  * reads the input, so the refusal tells an agent nothing more.
  *
- * Each request loads the apps it needs as they are on disk now (`home.ts`),
+ * Each request loads the apps it needs as they are on disk now (`apps.ts`),
  * so an edit between two calls is seen by the second. `tools/list` offers
  * the actions in serve's one listing (`listing.ts`); an app that cannot load
  * loses only its own tools, and why goes to stderr. `tools/call` decodes the

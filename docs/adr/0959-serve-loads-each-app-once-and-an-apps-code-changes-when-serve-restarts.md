@@ -9,7 +9,7 @@
 ## Context
 
 Serve imports an app again on every call. `load` in
-`packages/app/src/command/home.ts` drops every module under the app's `code/` and
+`packages/app/src/command/apps.ts` drops every module under the app's `code/` and
 imports `epicenter.ts`, so an edit reaches the next call (ADR-0880). The
 action runner, the MCP tool list and the launcher page each call it; one
 `tools/list` request imports every app.
@@ -27,7 +27,7 @@ start serve, so reloading on each call serves nobody who cannot restart.
 
 Routine commands start with `Bun.spawn` in `packages/app/src/command/routines.ts`
 and share serve's process group, so a Ctrl-C or a service manager's stop
-signal reaches them with serve (`stop` in `packages/app/src/command/http.ts`).
+signal reaches them with serve (`stop` in `packages/app/src/command/serve.ts`).
 ADR-0937 accepted that because "the service has restarted only on installs".
 
 ## Decision

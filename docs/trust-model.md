@@ -28,7 +28,7 @@ Epicenter and none of its sign-ins.
 ## Reaching the home
 
 `epicenter serve` offers every app's actions over MCP at `/`, and each app's
-UI at `/<app>/` (`packages/app/src/command/http.ts`). It signs no one in: it trusts
+UI at `/<app>/` (`packages/app/src/command/serve.ts`). It signs no one in: it trusts
 this computer and the tailnet, and who reaches it is the home's decision
 ([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
 Anything that reaches it can call every action of every app.

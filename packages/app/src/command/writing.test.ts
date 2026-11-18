@@ -1,5 +1,5 @@
 /**
- * Copy the writing app into a home and use it through real CLI and MCP calls. Captures retain sources,
+ * Copy the writing app into an Epicenter and use it through real CLI and MCP calls. Captures retain sources,
  * search reads bodies, and a stale edit cannot replace a note changed by another caller.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
@@ -83,7 +83,7 @@ test('the writing app copied as journal captures and finds text, sources, and pr
 		expect(await build.exited).toBe(0);
 		expect(existsSync(join(code, 'ui/dist/index.html'))).toBe(true);
 	} finally {
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });
 
@@ -147,6 +147,6 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 			await close();
 		}
 	} finally {
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });

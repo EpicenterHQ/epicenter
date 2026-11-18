@@ -51,12 +51,13 @@ async function setup<T = undefined>(
 	agents?: string,
 ) {
 	const f = await fixture();
-	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
+	if (agents !== undefined)
+		await writeFile(join(f.epicenter, 'AGENTS.md'), agents);
 	const made = (await prepare?.(f)) as T;
 	const served = await startServe(f);
 	cleanups.push(async () => {
 		await served.stop();
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	});
 	return { ...f, made, ...served };
 }
@@ -87,7 +88,7 @@ test('HTTP initialize sends the Epicenter AGENTS.md as it reads now', async () =
 		return body.result.instructions;
 	};
 	expect(await initialize()).toBe('Use these apps through their actions.\n');
-	await writeFile(join(f.home, 'AGENTS.md'), 'Ask before deleting.\n');
+	await writeFile(join(f.epicenter, 'AGENTS.md'), 'Ask before deleting.\n');
 	expect(await initialize()).toBe('Ask before deleting.\n');
 });
 
@@ -117,7 +118,7 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 	});
 	expect(response.status).toBe(200);
 	const text = await response.text();
-	expect(text).not.toContain(f.root);
+	expect(text).not.toContain(f.userDir);
 	const listing = JSON.parse(text);
 	expect(Object.keys(listing)).toEqual([
 		'version',
@@ -131,12 +132,12 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 	expect(tools.result.tools).toEqual(listing.apps[0].actions);
 });
 
-test('a crafted tool name cannot run an app outside the home', async () => {
+test('a crafted tool name cannot run an app outside the Epicenter', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'outside',
 			`export default defineApp(({ folder }) => ({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } }));`,
-			f.root,
+			f.userDir,
 		),
 	);
 	const outside = f.made;
@@ -248,7 +249,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		join(folder, 'code/epicenter.ts'),
 		join(folder, 'code', 'ui', 'dist', 'outside.ts'),
 	);
-	const outsideUi = join(f.root, 'outside-ui');
+	const outsideUi = join(f.userDir, 'outside-ui');
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
 	await mkdir(join(linked, 'code', 'ui'));

@@ -1,5 +1,5 @@
 /**
- * The `epicenter` command: a client of the home's serve, which alone loads
+ * The `epicenter` command: a client of the Epicenter's serve, which alone loads
  * app code (ADR-0961). It finds its Epicenter once, by walking up, and sends
  * what it was typed: the listing feeds bare `epicenter` and `epicenter
  * <app>`, and the words after an app's name go to serve as they are, which
@@ -14,7 +14,6 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, Ok } from '../index.ts';
 import { checkCommand } from './check.ts';
-import { serveHttp } from './http.ts';
 import {
 	type ActionTool,
 	actionHelp,
@@ -23,7 +22,8 @@ import {
 } from './listing.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import { epicenterRoot } from './root.ts';
-import { fetchListing, sendWords } from './serve-call.ts';
+import { fetchListing, sendWords } from './send.ts';
+import { serveHttp } from './serve.ts';
 
 /** The commands `epicenter` keeps for itself: each one's usage, and what its `--help` says beneath it. */
 const CHECK = {
@@ -170,7 +170,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		const message = extractErrorMessage(cause);
 		if (sent)
 			answered = ActionError.Unreachable({
-				message: `Epicenter invoked the action but could not report its outcome: ${message}`,
+				message: `serve took the action, but its outcome could not be reported: ${message}`,
 			});
 		else if (begun) answered = ActionError.Threw({ message });
 		else answered = ActionError.NotStarted({ cause: 'internal', message });
@@ -182,7 +182,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		if (!sent) throw cause;
 		// Stdout may be what failed, so nothing more goes there.
 		writeErr(
-			`Epicenter invoked the action but could not report its outcome: ${extractErrorMessage(cause)}`,
+			`serve took the action, but its outcome could not be reported: ${extractErrorMessage(cause)}`,
 		);
 		return 1;
 	}

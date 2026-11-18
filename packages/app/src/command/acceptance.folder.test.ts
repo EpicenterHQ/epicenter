@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	return f;
 }
 
@@ -59,7 +59,7 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	expect(existsSync(join(folder, 'local/index.sqlite'))).toBe(true);
 
 	// Bun keeps its own transpiler cache under ~/Library/Caches/bun; epicenter keeps none there.
-	expect(existsSync(join(f.root, 'Library/Caches/so.epicenter.apps'))).toBe(
+	expect(existsSync(join(f.userDir, 'Library/Caches/so.epicenter.apps'))).toBe(
 		false,
 	);
 	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_CACHE_HOME');
@@ -68,9 +68,9 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	).not.toHaveProperty('cache');
 });
 
-test('W5 a symlinked entry loads an app where it lives, when its code is inside the home', async () => {
+test('W5 a symlinked entry loads an app where it lives, when its code is inside the Epicenter', async () => {
 	const f = await setup();
-	const loose = await f.folder(join(f.home, 'shelf', 'loose'), {
+	const loose = await f.folder(join(f.epicenter, 'shelf', 'loose'), {
 		'code/epicenter.ts': bareApp('loose'),
 		'data/notes/a.md': 'a\n',
 	});
@@ -78,7 +78,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 	expect((await lstat(join(f.apps, 'loose'))).isSymbolicLink()).toBe(true);
 	expect(await readlink(join(f.apps, 'loose'))).toBe(loose);
 
-	const vault = await f.folder(join(f.home, 'shelf', 'vault'), {
+	const vault = await f.folder(join(f.epicenter, 'shelf', 'vault'), {
 		'recipes/code/epicenter.ts': bareApp('recipes'),
 		'journal/today.md': 'today\n',
 	});
@@ -93,10 +93,10 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 	]);
 	expect((await f.run('loose', '--json')).code).toBe(0);
 
-	// Code finds packages from where it really is, so code outside the home
-	// does not find the home's @epicenter/app, and the listing gives Bun's
+	// Code finds packages from where it really is, so code outside the Epicenter
+	// does not find the Epicenter's @epicenter/app, and the listing gives Bun's
 	// reason.
-	const outside = await f.folder(join(f.root, 'Code', 'outside'), {
+	const outside = await f.folder(join(f.userDir, 'Code', 'outside'), {
 		'code/epicenter.ts': bareApp('outside'),
 	});
 	await symlink(outside, join(f.apps, 'outside'));

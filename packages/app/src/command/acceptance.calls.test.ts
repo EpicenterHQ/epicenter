@@ -1,13 +1,13 @@
 /**
  * Action call tests.
- * A command sends its action to the home's serve, the one process that runs
+ * A command sends its action to the Epicenter's serve, the one process that runs
  * actions, and never runs it itself.
  *
  * Key behaviors:
  * - Exit codes and answers are the same through the command and MCP.
  * - Concurrent calls in one serve lose no write and leave no temporary file.
  * - With serve stopped, or another holder on the port, a command is refused and nothing runs.
- * - A second serve says whether this home or something else has the port.
+ * - A second serve says whether this Epicenter or something else has the port.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
@@ -123,7 +123,7 @@ const notesApp = {
 
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	const folder = await f.folder(join(f.apps, 'notes'), notesApp);
 	const json = async (...args: string[]) => {
 		const result = await f.run(...args, '--json');
@@ -187,7 +187,7 @@ test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits
 		error: {
 			name: 'Unreachable',
 			message:
-				'The connection to Epicenter ended before the answer; the action may still be running, or may have finished',
+				'The connection to serve ended before the answer; the action may still be running, or may have finished',
 		},
 	});
 	const unknown = await f.json('notes', 'nope');
@@ -266,7 +266,7 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 		const inServe = await pidOf();
 		expect(inServe).not.toBe(process.pid);
 		expect(await pidOf()).toBe(inServe);
-		// A request that names another home is refused before anything runs,
+		// A request that names another Epicenter is refused before anything runs,
 		// and the refusal does not name this one.
 		for (const request of [
 			fetch(`${served.base}/where/am`, {
@@ -318,7 +318,7 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 
 test('only serve loads app code: the command asks it for the listing, help and calls', async () => {
 	const f = await setup();
-	const loads = join(f.root, 'loads.txt');
+	const loads = join(f.userDir, 'loads.txt');
 	await f.folder(join(f.apps, 'where'), {
 		'code/epicenter.ts': `${header}
 import { appendFileSync } from 'node:fs';
@@ -367,7 +367,7 @@ test('a command is refused, and runs nothing, when its port answers for another 
 				stderr: `Port ${f.port} answers for ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
 			});
 			// The command named its root, by its real path, on the one request it made.
-			expect(named).toEqual([encodeURIComponent(f.home)]);
+			expect(named).toEqual([encodeURIComponent(f.epicenter)]);
 		} finally {
 			await other.stop(true);
 		}
@@ -388,7 +388,9 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 			}),
 		]) {
 			expect(response.headers.get('x-epicenter')).toBe('1');
-			expect([...response.headers.values()].join('\n')).not.toContain(f.root);
+			expect([...response.headers.values()].join('\n')).not.toContain(
+				f.userDir,
+			);
 			await response.body?.cancel();
 		}
 		// A tunnel's request is refused before serve says anything about itself.
@@ -406,7 +408,7 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 	}
 });
 
-test('a second serve says this home is already served, and names who else holds the port', async () => {
+test('a second serve says this Epicenter is already served, and names who else holds the port', async () => {
 	const f = await setup();
 	const taken = (holder: string) =>
 		`Port ${f.port} is in use by ${holder}. Set a different \`port\` in EPICENTER.md.\n`;
@@ -415,7 +417,7 @@ test('a second serve says this home is already served, and names who else holds 
 		expect(await f.run('serve')).toEqual({
 			code: 2,
 			stdout: '',
-			stderr: `Epicenter is already serving this home on port ${f.port}.\n`,
+			stderr: `serve is already running for this Epicenter on port ${f.port}.\n`,
 		});
 		expect((await fetch(`${served.base}/`)).status).toBe(200);
 	} finally {
@@ -458,7 +460,7 @@ test('a second serve says this home is already served, and names who else holds 
 
 test('C12 runs leave no temporary file', async () => {
 	const f = await setup();
-	const temp = join(f.root, 'tmp');
+	const temp = join(f.userDir, 'tmp');
 	await mkdir(temp);
 	// The actions run in serve, so serve is what must leave nothing behind.
 	const served = await startServe(f, [], {

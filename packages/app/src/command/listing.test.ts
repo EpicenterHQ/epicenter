@@ -17,7 +17,7 @@ import {
 	field,
 	Ok,
 } from '../index.ts';
-import type { LoadedApp } from './home.ts';
+import type { LoadedApp } from './apps.ts';
 import { appListing } from './listing.ts';
 
 test("a reference's schema names its target key in the listing", () => {

@@ -16,7 +16,7 @@ import { expect, test } from 'bun:test';
 import { createLogger, type Logger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineAction, Err, field, Ok } from '../index.ts';
-import type { LoadedApp } from './home.ts';
+import type { LoadedApp } from './apps.ts';
 import { runAction } from './run.ts';
 
 const SECRET = 'diary entry 4417';

@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/app",
 	"version": "0.7.0",
-	"description": "Epicenter: what an app's epicenter.ts imports to define its data and actions, the client its UI calls them through, and the epicenter command that runs them as commands and MCP tools. A home depends on it and runs it with Bun.",
+	"description": "Epicenter: what an app's epicenter.ts imports to define its data and actions, the client its UI calls them through, and the epicenter command that runs them as commands and MCP tools. An Epicenter depends on it and runs it with Bun.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/EpicenterHQ/epicenter.git",

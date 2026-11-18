@@ -33,7 +33,7 @@ const quietGit = {
 
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	Object.assign(f.env, quietGit);
 	await f.folder(join(f.apps, 'notes'), {
 		'code/epicenter.ts': bareApp('notes'),
@@ -89,30 +89,30 @@ test('an app whose local/ has no .gitignore runs, and the listing, check and ser
 
 test('serve refuses to start while Git would commit the root .env, and says the fix', async () => {
 	const f = await setup();
-	await git(f.home, 'init', '-q');
-	await writeFile(join(f.home, '.env'), 'KEY=secret\n');
+	await git(f.epicenter, 'init', '-q');
+	await writeFile(join(f.epicenter, '.env'), 'KEY=secret\n');
 	expect(await f.run('serve')).toEqual({
 		code: 2,
 		stdout: '',
 		stderr: '.env is not ignored by Git; add .env* to .gitignore\n',
 	});
 
-	await writeFile(join(f.home, '.gitignore'), '.env*\n');
-	await git(f.home, 'add', '-f', '.env');
+	await writeFile(join(f.epicenter, '.gitignore'), '.env*\n');
+	await git(f.epicenter, 'add', '-f', '.env');
 	expect(await f.run('serve')).toEqual({
 		code: 2,
 		stdout: '',
 		stderr: '.env is tracked by Git; run git rm --cached .env\n',
 	});
 
-	await git(f.home, 'rm', '-q', '--cached', '.env');
+	await git(f.epicenter, 'rm', '-q', '--cached', '.env');
 	const served = await startServe(f);
 	await served.stop();
 });
 
 test('serve starts with a .env in a folder that is not a Git repository', async () => {
 	const f = await setup();
-	await writeFile(join(f.home, '.env'), 'KEY=secret\n');
+	await writeFile(join(f.epicenter, '.env'), 'KEY=secret\n');
 	const served = await startServe(f);
 	await served.stop();
 });

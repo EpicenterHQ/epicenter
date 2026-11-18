@@ -116,7 +116,7 @@ async function appFolder(
 }
 
 /** The folders in `apps/` that look like apps, sorted by name, without importing any of them; none when there is no `apps/`. */
-export async function homeEntries(
+export async function rootEntries(
 	root: Pick<EpicenterRoot, 'folder'>,
 ): Promise<AppFolder[]> {
 	const names = (
@@ -134,7 +134,7 @@ export async function homeEntries(
 /**
  * Drop every module this process loaded from under `folder`, so the next
  * import reads the files as they are now (ADR-0880). A run already holding
- * the old modules keeps them. The packages an app imports are in the home's
+ * the old modules keeps them. The packages an app imports are in the Epicenter's
  * top `node_modules/`, outside its folder, so a changed package shows only
  * after this process restarts; `@epicenter/app` is one of them.
  */
@@ -219,7 +219,7 @@ export async function localProblem({
  */
 export async function discoverAll(root: Pick<EpicenterRoot, 'folder'>) {
 	const loaded = await Promise.all(
-		(await homeEntries(root)).map(async (found) => ({
+		(await rootEntries(root)).map(async (found) => ({
 			name: found.name,
 			result: await load(found),
 			local: await localProblem(found),
@@ -254,7 +254,7 @@ export async function findEntry(
  * Load only the requested app so unrelated apps cannot affect a run. An app
  * that does not load answers its problems.
  */
-export async function loadHomeApp(
+export async function loadApp(
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 ): Promise<Result<LoadedApp, NotStarted>> {

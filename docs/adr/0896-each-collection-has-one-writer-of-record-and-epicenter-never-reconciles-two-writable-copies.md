@@ -104,7 +104,7 @@ collection there. Epicenter builds neither.
 Each waits for a person who needs it, and building one needs the owner's yes.
 
 - A program delivering records to a home through actions. Actions accept
-  JSON only (`packages/app/src/command/http.ts:141`), so audio cannot travel.
+  JSON only (`packages/app/src/command/serve.ts:141`), so audio cannot travel.
 - An offline outbox for actions.
 - Moving a collection's truth between a folder and a service.
 - A published protocol for third parties. `serve` prints a contract as JSON

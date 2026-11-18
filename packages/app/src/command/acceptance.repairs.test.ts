@@ -60,7 +60,7 @@ const repairsApp = {
 
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	const json = async (...args: string[]) => {
 		const result = await f.run(...args, '--json');
 		return { ...result, report: JSON.parse(result.stdout) };
@@ -68,15 +68,15 @@ async function setup() {
 	return { ...f, json };
 }
 
-/** The notes app in the home, as its own repository. */
+/** The notes app in the Epicenter, as its own repository. */
 function notes(f: Awaited<ReturnType<typeof setup>>) {
 	return f.folder(join(f.apps, 'notes'), repairsApp);
 }
 
 test('F1 a marker that is not a file is no Epicenter', async () => {
 	const f = await setup();
-	await rm(join(f.home, 'EPICENTER.md'));
-	await mkdir(join(f.home, 'EPICENTER.md'));
+	await rm(join(f.epicenter, 'EPICENTER.md'));
+	await mkdir(join(f.epicenter, 'EPICENTER.md'));
 	const listed = await f.json();
 	expect(listed.code).toBe(2);
 	expect(listed.report.error).toMatchObject({

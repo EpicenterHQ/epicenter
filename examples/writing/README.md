@@ -5,7 +5,7 @@ The browser, terminal, and your agent use the same actions and Markdown files.
 No AI account or external service is needed.
 
 Use the latest Epicenter CLI.
-To add Writing to your home, run these at the top of the home
+To add Writing to your Epicenter, run these at the top of the Epicenter
 
 ```sh
 mkdir -p apps/writing/code

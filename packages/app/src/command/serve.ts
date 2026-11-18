@@ -18,7 +18,7 @@
  * feeds every view of the apps (`listing.ts`).
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
- * the call arrives (`home.ts`, `run.ts`), and stores nothing about it. When a
+ * the call arrives (`apps.ts`, `run.ts`), and stores nothing about it. When a
  * run ends, serve writes one JSON line to stderr naming the app, the action,
  * the outcome and how long it took, never the input or the result.
  *
@@ -30,11 +30,11 @@
  * caller that leaves stops reading, nothing stops the action from outside,
  * and its line on stderr is what remains of how it ended.
  *
- * A home has one `serve`, and its port is how it is found. A command names
+ * An Epicenter has one `serve`, and its port is how it is found. A command names
  * its root on each request (`x-epicenter-root`, its real path, sent only to
  * 127.0.0.1), and serve refuses one naming another root with 409, a body that
  * does not name its own. Every answer carries `x-epicenter: 1` and no path,
- * so a command or a second `serve` can tell this home's serve from another
+ * so a command or a second `serve` can tell this Epicenter's serve from another
  * Epicenter's or another program (ADR-0961). Serve does not say its version: after an upgrade, the owner restarts
  * it.
  *
@@ -51,7 +51,7 @@
  * Calls leave their writes pending (`run.ts`). Serve keeps one clock: once a
  * minute it starts each routine whose schedule had an occurrence since its
  * last check, a moment it keeps in memory (ADR-0908, ADR-0937). It commits
- * nothing: Git stores the home, and its owner commits it, by hand or from a
+ * nothing: Git stores the Epicenter, and its owner commits it, by hand or from a
  * routine that runs their own script.
  */
 
@@ -63,7 +63,7 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
-import { findEntry, homeEntries, localProblem } from './home.ts';
+import { findEntry, localProblem, rootEntries } from './apps.ts';
 import { actionTool, listApps } from './listing.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
@@ -77,12 +77,7 @@ import {
 	readCall,
 	runAction,
 } from './run.ts';
-import {
-	answeredBy,
-	homeName,
-	ROOT_HEADER,
-	SERVE_HEADER,
-} from './serve-call.ts';
+import { answeredBy, ROOT_HEADER, rootName, SERVE_HEADER } from './send.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
@@ -455,7 +450,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * starts.
  */
 function startHttpServer(root: EpicenterRoot) {
-	const name = homeName(root);
+	const name = rootName(root);
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();
@@ -473,8 +468,8 @@ function startHttpServer(root: EpicenterRoot) {
 			)
 				return forbidden();
 		}
-		// A request meant for another home is refused without naming this one,
-		// so a command in a second home cannot read or write here (ADR-0936,
+		// A request meant for another Epicenter is refused without naming this one,
+		// so a command in a second Epicenter cannot read or write here (ADR-0936,
 		// ADR-0961). A page or an MCP client names none and is not compared.
 		const meant = request.headers.get(ROOT_HEADER);
 		const { pathname } = new URL(request.url);
@@ -565,7 +560,7 @@ async function whoAnswers(root: EpicenterRoot) {
 		// This one reads no app: serve answers OPTIONS / with 405, or 409.
 		const response = await fetch(`http://${LOOPBACK}:${root.port}/`, {
 			method: 'OPTIONS',
-			headers: { [ROOT_HEADER]: homeName(root) },
+			headers: { [ROOT_HEADER]: rootName(root) },
 			signal: AbortSignal.timeout(2_000),
 		});
 		await response.body?.cancel().catch(() => undefined);
@@ -593,7 +588,7 @@ export async function serveHttp(
 			cause: 'unavailable',
 			message:
 				holder === 'its serve'
-					? `Epicenter is already serving this home on port ${port}.`
+					? `serve is already running for this Epicenter on port ${port}.`
 					: `Port ${port} is in use by ${holder === 'another Epicenter' ? "another Epicenter's serve" : 'another program'}. Set a different \`port\` in ${MARKER}.`,
 		});
 	const holder = await whoAnswers(root);
@@ -607,7 +602,7 @@ export async function serveHttp(
 		return portTaken((await whoAnswers(root)) ?? 'another program');
 	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
-	for (const found of await homeEntries(root)) {
+	for (const found of await rootEntries(root)) {
 		const local = await localProblem(found);
 		if (local) writeErr(local);
 	}

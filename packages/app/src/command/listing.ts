@@ -20,7 +20,7 @@ import type { TSchemaOptions } from 'typebox';
 import packageJson from '../../package.json' with { type: 'json' };
 import { type ObjectSchema, objectSchema, whatTakes } from '../field.ts';
 import { type Action, ActionError, type Answer, Ok } from '../index.ts';
-import { discoverAll, type LoadedApp } from './home.ts';
+import { discoverAll, type LoadedApp } from './apps.ts';
 import { exampleCommand, usageLine } from './input.ts';
 import type { EpicenterRoot } from './root.ts';
 import { createRoutines, type RoutineRow } from './routines.ts';

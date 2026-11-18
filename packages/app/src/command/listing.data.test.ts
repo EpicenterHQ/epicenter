@@ -16,7 +16,7 @@ afterEach(async () => {
 
 test('human and JSON app listings show data paths, descriptions, and field schemas', async () => {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	await f.app(
 		'flights',
 		`
@@ -66,7 +66,7 @@ return { description: 'Flights', data, actions: {} };
 		},
 		'settings.md': { path: 'data/settings.md', description: 'My settings' },
 	});
-	const home = await f.run('--json');
-	expect(home.code).toBe(0);
-	expect(JSON.parse(home.stdout).data.apps[0].data).toEqual(listed.data);
+	const report = await f.run('--json');
+	expect(report.code).toBe(0);
+	expect(JSON.parse(report.stdout).data.apps[0].data).toEqual(listed.data);
 });

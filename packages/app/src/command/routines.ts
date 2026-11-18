@@ -1,11 +1,11 @@
 /**
- * Home-owned scheduled commands (ADR-0908, ADR-0937). Once a minute `serve`
+ * Scheduled commands an Epicenter owns (ADR-0908, ADR-0937). Once a minute `serve`
  * reads `routines/` and starts each routine whose cron schedule had an
  * occurrence since its last check. It keeps that one moment in memory and
  * writes nothing: a routine file is the whole declaration, and a command's
  * deadline, overlap, output, and result are the command's own. Commands
  * inherit serve's output and process group, and find programs on serve's
- * `PATH` with the home's `node_modules/.bin` and Bun's folder first.
+ * `PATH` with the Epicenter's `node_modules/.bin` and Bun's folder first.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { delimiter, dirname, join } from 'node:path';
@@ -94,13 +94,13 @@ function readRoutine(name: string, text: string): Routine {
 }
 
 /**
- * Read and start one home's routines. `check` starts each routine with an
+ * Read and start one Epicenter's routines. `check` starts each routine with an
  * occurrence since the previous check, and never waits for it.
  */
 export function createRoutines({ folder }: { folder: string }) {
 	const directory = join(folder, 'routines');
-	// A routine finds commands the way a terminal in the home would after
-	// `bun install`: the home's own commands first, then the Bun running serve.
+	// A routine finds commands the way a terminal in the Epicenter would after
+	// `bun install`: the Epicenter's own commands first, then the Bun running serve.
 	const PATH = [
 		join(folder, 'node_modules', '.bin'),
 		dirname(process.execPath),

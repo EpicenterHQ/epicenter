@@ -11,12 +11,7 @@ import { join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { type CheckedKey, checkData } from '../data-check.ts';
 import { ActionError, type Answer, Err, Ok } from '../index.ts';
-import {
-	discoverAll,
-	type LoadedApp,
-	loadHomeApp,
-	localProblem,
-} from './home.ts';
+import { discoverAll, type LoadedApp, loadApp, localProblem } from './apps.ts';
 import type { EpicenterRoot } from './root.ts';
 
 /** An app with a problem outside its records: it did not load, a read failed, or its `local/` could reach Git. */
@@ -85,7 +80,7 @@ export async function checkCommand(
 		for (const { name, problems } of found.problems)
 			unchecked.push({ entry: name, folder: folder(name), problems });
 	} else {
-		const { data: one, error } = await loadHomeApp(root, name);
+		const { data: one, error } = await loadApp(root, name);
 		if (error) return Err(error);
 		loaded = [one];
 		const local = await localProblem(one);

@@ -43,7 +43,7 @@ No command makes an app or copies one
 A new app is three files you write under `apps/<app>/code/`: `epicenter.ts`,
 a `package.json` holding `"name": "<app>"` and `"private": true`, and a
 `.gitignore` holding `node_modules/` and `ui/dist/`. `data/` is made by the
-first write. Then run `bun install && bun run build` at the top of the home.
+first write. Then run `bun install && bun run build` at the top of the Epicenter.
 `<app>` is lowercase letters, digits, and dashes, starts with a letter, and
 is not `check` or `serve`; the bare `epicenter` reports an app that does not
 load, with what is wrong.
@@ -199,21 +199,21 @@ export default defineApp(({ folder }) => {
 });
 ```
 
-The home is one Bun workspace and an app's code/ is one package
-of it: `code/package.json` is named for the app, and the home has the one
+The Epicenter is one Bun workspace and an app's code/ is one package
+of it: `code/package.json` is named for the app, and the Epicenter has the one
 `bun.lock` and the one `node_modules/`, at its top. An app's actions may
 import anything its `package.json` names, plus Node's built-ins; declare
 every package the app imports. Add one with `bun add <package>` in code/.
-`@epicenter/app` comes from the home's `package.json`, which names the
-version of Epicenter the home runs, and is never listed in the app's. A package nested inside an app,
+`@epicenter/app` comes from the Epicenter's `package.json`, which names the
+version of Epicenter the Epicenter runs, and is never listed in the app's. A package nested inside an app,
 such as `apps/films/code/render/` with its own `package.json`, gets its
-packages only once its path is added by hand to `workspaces` in the home's
-`package.json`. `bun install` at the top of the home installs its packages;
+packages only once its path is added by hand to `workspaces` in the Epicenter's
+`package.json`. `bun install` at the top of the Epicenter installs its packages;
 no command runs it, and a call never installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter by editing the `@epicenter/app` version in the
-home's `package.json`, then running `bun install && bun run build` at the top.
+Epicenter's `package.json`, then running `bun install && bun run build` at the top.
 That one package is the library and the `epicenter` command.
 Write each action with `defineAction`, which types its
 `run` from its `input`. The action carries that input as one JSON Schema
@@ -256,8 +256,10 @@ closes, and keeps nothing about the call, so save what a reload must show
 
 Actions run inside `epicenter serve` itself, from the files as they are when
 the call arrives, so an edit takes effect on the next call. The command line
-sends its call to serve too: `epicenter <app> <action>` is refused with exit 2
-while serve is stopped, and never runs the action itself. Never call
+loads no app code: `epicenter`, `epicenter <app>`, an action's `--help` and
+`epicenter <app> <action>` all ask serve, and are refused with exit 2 while
+serve is stopped. `epicenter check` loads each app in its own process, so it
+tries changed code with serve stopped. Never call
 `process.exit`, `process.chdir`, or set `process.env` in an action: each
 reaches every app `serve` runs.
 
@@ -320,7 +322,7 @@ turn only when it is whole. Codex's voice reply keeps the recording in
 `local/` only when transcription fails.
 
 The outside world is the action's to handle. Epicenter promises one thing
-about the home's files, that one process writes them, and nothing about a
+about the Epicenter's files, that one process writes them, and nothing about a
 service, a model or a browser. It has no time limit, retry or stop for an
 action, and adds none: the action is ordinary code, and its author decides.
 
@@ -339,11 +341,11 @@ action, and adds none: the action is ordinary code, and its author decides.
 - Share as little as possible. Two calls of one action both run. Give each
   its own record id, temporary folder or browser tab, and none has to wait.
 
-Epicenter runs actions and serves pages. Git stores the home, and Epicenter
+Epicenter runs actions and serves pages. Git stores the Epicenter, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. After direct
 edits, make a named commit with Git, such as
 `git add -A && git commit -m "<what changed>"`. Nothing commits or pushes
-the home on its own: what is not committed is in neither its history nor its
+the Epicenter on its own: what is not committed is in neither its history nor its
 backup. The branch and index are shared, and a commit made while serve runs
 can capture a partial edit or part of a running action. Make a named commit before a risky change.
 
@@ -353,7 +355,7 @@ value, which reaches the command as one word of JSON text:
 
 `epicenter` on its own shows each routine with its next occurrence and its
 command as a line to copy into a terminal. For the repository, run Git at the
-top of the home: `git status -sb` shows the branch, commits not on origin and
+top of the Epicenter: `git status -sb` shows the branch, commits not on origin and
 each uncommitted file, and `git log -1 --format=%cr` how long ago the last
 commit was.
 
@@ -373,7 +375,7 @@ A whole `apps/<app>/` restore reverts both and deletes tracked files added
 later. Inspect the commit tree first. Commits from before a move into
 `apps/<app>/` use the old paths. An imported per-app commit can hold only code
 or only records: restore its code or data prefix, not the whole app. Keep the
-live home on its current branch.
+live Epicenter on its current branch.
 
 When recovering a bad write, inspect history and restore the relevant known
 version rather than retype its previous content, then record the repair in a
@@ -406,13 +408,13 @@ The app builds its own UI: its `code/package.json` has a `build` script that
 writes `ui/dist/`, and `serve` serves `ui/dist/` as it is and never builds. A
 plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`.
 The build writes relative URLs and is never told where it is served, and
-`@epicenter/app/client` comes from the home's install; never list
+`@epicenter/app/client` comes from the Epicenter's install; never list
 `@epicenter/app` in the app. `bun add` in `code/` installs a package, then
 restart `serve`.
 
 After any change under `ui/`, run `bun run build` in `code/`, read its errors,
 and fix them before saying the page changed: an unbuilt edit does not show.
-After upgrading Epicenter, run `bun run build` at the top of the home, which
+After upgrading Epicenter, run `bun run build` at the top of the Epicenter, which
 builds every app against the new client. Never
 commit `ui/dist/`. The UI owns unfinished input and local interaction state.
 Actions own stored records; the UI shows what serve answers and sends what the
@@ -508,7 +510,7 @@ reread the record before deciding what happened.
   write settles, the refreshed read takes over. Say a failed write in a toast
   with `error.message`.
 - Save on blur, on a pause, or on an explicit action, never on each keystroke.
-  The home's commits sample those files later; a call is not a commit boundary.
+  The Epicenter's commits sample those files later; a call is not a commit boundary.
 
 ### A draft over query data
 
@@ -573,30 +575,32 @@ use the replacement action rather than add conflict machinery by default.
 ## Verify without touching the person's data
 
 Never run anything against the real `~/Epicenter` until the person asks.
-Use a temporary home. Copy the source's code into it, rename its package,
+Use a temporary Epicenter. Copy the source's code into it, rename its package,
 then run `bun install && bun run build` and read the errors.
 
 ```sh
 bun test ./epicenter.test.ts                # from code/: actions over a temporary folder
 source_path=/absolute/path/to/source/code   # the folder that holds epicenter.ts
-test_home=$(mktemp -d)
-printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitconfig"
-mkdir -p "$test_home/Epicenter/apps" && cd "$test_home/Epicenter"
+test_dir=$(mktemp -d)
+printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_dir/.gitconfig"
+mkdir -p "$test_dir/Epicenter/apps" && cd "$test_dir/Epicenter"
 printf -- '---\nport: 4799\n---\n' > EPICENTER.md
-# package.json: the workspace, naming the Epicenter version the real home names
+# package.json: the workspace, naming the Epicenter version the real one names
 printf '/apps/*/local/\n.env*\n!.env.example\nnode_modules/\n' > .gitignore
 git init -q
 mkdir -p apps/example
 cp -R "$source_path" apps/example/code
 # set "name" in apps/example/code/package.json to "example"
 bun install && bun run build
-HOME="$test_home" epicenter example --help
-HOME="$test_home" epicenter serve               # drive /example/ on port 4799
+HOME="$test_dir" epicenter serve &             # drive /example/ on port 4799
+epicenter example --help
 ```
 
-Only serve runs an action, so keep that `serve` running, in the background or
-another terminal, while you call `epicenter example <action>` in the temporary
-home. Give the temporary home a port the real one does not use.
+Only serve loads app code, so keep that `serve` running, in the background or
+another terminal, while you call `epicenter example` and its actions. Run each
+command inside the temporary Epicenter: a command acts on the nearest
+`EPICENTER.md` at or above where it runs. Give the temporary Epicenter a port
+the real one does not use.
 
 In the monorepo, the source CLI is `bun <repo>/packages/app/src/command/bin.ts`.
 The temporary Git configuration isolates identity and signing settings.
@@ -612,14 +616,14 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 
 - Write the app's `code/` under apps/<app>/, or put a copy of an existing
   app's `code/` there with its package named `<app>`, then run
-  `bun install && bun run build` at the top of the home.
-- To adapt later code, inspect a committed copy in a temporary home, then
+  `bun install && bun run build` at the top of the Epicenter.
+- To adapt later code, inspect a committed copy in a temporary Epicenter, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
   Compare incoming code outside the live Epicenter, and test compatibility with the existing
   records before a named commit.
 - Back up the root to one optional private origin. Whatever commits the
-  home pushes only there. Restore with one root clone
+  Epicenter pushes only there. Restore with one root clone
   and `bun install` at its top, then recreate what each app kept in `local/`.
 - Sharing code requires a separate code-only history, deliberately made and
   reviewed for private content. Never publish the private root history.

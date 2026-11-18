@@ -1,9 +1,9 @@
 /**
- * Send the command's requests to the `epicenter serve` of this home, the one
+ * Send the command's requests to the `epicenter serve` of this Epicenter, the one
  * process that loads app code and runs its actions (ADR-0936, ADR-0961). The
  * command reads the listing at `GET /`, and sends the words it was typed to
  * `POST /<app>`, whose answer is JSON lines read by the same `readAnswer` a
- * page uses (ADR-0953). A home has one serve, found at the port in its
+ * page uses (ADR-0953). An Epicenter has one serve, found at the port in its
  * `EPICENTER.md`; a command never starts it and never runs an action in its
  * place.
  */
@@ -27,8 +27,8 @@ export const ROOT_HEADER = 'x-epicenter-root';
 /** The header serve sets to `1` on every answer, naming no path, so a caller can tell an Epicenter's serve from another program. */
 export const SERVE_HEADER = 'x-epicenter';
 
-/** This home as the header carries it: its real path, percent-encoded. */
-export function homeName({ folder }: Pick<EpicenterRoot, 'folder'>): string {
+/** This Epicenter as the header carries it: its root's real path, percent-encoded. */
+export function rootName({ folder }: Pick<EpicenterRoot, 'folder'>): string {
 	return encodeURIComponent(folder);
 }
 
@@ -43,8 +43,8 @@ export function answeredBy(response: Response) {
 }
 
 /**
- * Send one request to this home's serve and give its response. With no serve
- * of this home to take it, the answer is `NotStarted` (`unavailable`); a
+ * Send one request to this Epicenter's serve and give its response. With no serve
+ * of this Epicenter to take it, the answer is `NotStarted` (`unavailable`); a
  * connection that ends after it was taken is `Unreachable`, saying `ended`.
  */
 async function reach(
@@ -57,7 +57,7 @@ async function reach(
 	try {
 		response = await fetch(`http://127.0.0.1:${root.port}${path}`, {
 			...init,
-			headers: { ...init.headers, [ROOT_HEADER]: homeName(root) },
+			headers: { ...init.headers, [ROOT_HEADER]: rootName(root) },
 		});
 	} catch (error) {
 		// Refused means nothing listens. Any other end came after the request
@@ -132,7 +132,7 @@ export async function sendWords(
 		},
 		help
 			? 'The connection to serve ended before its answer'
-			: 'The connection to Epicenter ended before the answer; the action may still be running, or may have finished',
+			: 'The connection to serve ended before the answer; the action may still be running, or may have finished',
 	);
 	if (error) return Err(error);
 	return readAnswer(response, onUpdate);

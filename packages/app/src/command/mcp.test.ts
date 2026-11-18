@@ -15,7 +15,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 	const f = await fixture();
 	await f.app('reading', reading);
 	await f.app('vault', vault);
-	await writeFile(join(f.home, 'AGENTS.md'), 'Use the app actions.\n');
+	await writeFile(join(f.epicenter, 'AGENTS.md'), 'Use the app actions.\n');
 	const { client, close } = await connectMcp(f);
 	try {
 		expect(client.getInstructions()).toBe('Use the app actions.\n');
@@ -103,7 +103,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 		).toEqual({ data: { tags: [], done: false }, error: null });
 	} finally {
 		await close();
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });
 
@@ -148,7 +148,7 @@ test('discovery preserves tilde-prefixed properties', async () => {
 		).toEqual({ data: { '~label': 'kept' }, error: null });
 	} finally {
 		await close();
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });
 
@@ -173,7 +173,7 @@ test('MCP preserves a returned app error and matches the CLI host answer', async
 		expect(answer.structuredContent).toEqual(JSON.parse(cli.stdout));
 	} finally {
 		await close();
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });
 
@@ -216,6 +216,6 @@ test('an action with mcp: false is not offered or run over MCP, and still runs f
 		expect(await Bun.file(sent).text()).toBe('from me');
 	} finally {
 		await close();
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });

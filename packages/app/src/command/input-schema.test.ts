@@ -95,8 +95,8 @@ function byWords(actions: object, words: string[] = []): [string, Action][] {
 	);
 }
 
-/** A home holding the example apps and the generated data actions, each loaded here too. */
-async function home() {
+/** An Epicenter holding the example apps and the generated data actions, each loaded here too. */
+async function epicenterOfExamples() {
 	const f = await fixture();
 	const read = (path: string) => readFile(join(examples, path), 'utf8');
 	await f.folder(join(f.apps, 'tasks'), {
@@ -127,7 +127,7 @@ function exampleOf(name: string, key: string, action: Action) {
 }
 
 test('every action input survives JSON whole, names its required keys, and validates alike', async () => {
-	const { f, apps } = await home();
+	const { f, apps } = await epicenterOfExamples();
 	try {
 		for (const [name, actions] of Object.entries(apps)) {
 			expect(actions.map(([key]) => key)).toEqual(
@@ -164,12 +164,12 @@ test('every action input survives JSON whole, names its required keys, and valid
 			}
 		}
 	} finally {
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });
 
 test('MCP inputSchema and list --json carry the same complete schema as the action', async () => {
-	const { f, apps } = await home();
+	const { f, apps } = await epicenterOfExamples();
 	const { client, close } = await connectMcp(f);
 	try {
 		const { tools } = await client.listTools();
@@ -191,6 +191,6 @@ test('MCP inputSchema and list --json carry the same complete schema as the acti
 		}
 	} finally {
 		await close();
-		await rm(f.root, { recursive: true, force: true });
+		await rm(f.userDir, { recursive: true, force: true });
 	}
 });

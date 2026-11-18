@@ -45,7 +45,7 @@ only it.**
 - Once "Epicenter" names the folder, a message about the program names
   serve as its subject: `serve is not running` and `start it with epicenter
   serve`, not `Epicenter is not running for this home`
-  (`sendToServe` in `packages/app/src/command/serve-call.ts`).
+  (`sendToServe` in `packages/app/src/command/send.ts`).
 - The root `package.json` is named `epicenter`. It is
   private and never published, so the unrelated public `epicenter` package on
   npm does not matter.

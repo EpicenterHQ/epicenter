@@ -198,6 +198,7 @@ sorted, block YAML, body untouched. On the desktop the later arrival is `%A`
 under a merge and `%B` under a rebase.
 
 **The CLI is the desktop's interface to history.** Every verb is in
+<!-- doc-path-check: ignore-next-line (folded into packages/app/src/command/cli.ts, ADR-0961) -->
 `packages/app/src/command/commands.ts`:
 
 ```txt

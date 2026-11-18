@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 async function setup() {
 	const f = await fixture();
-	roots.push(f.root);
+	roots.push(f.userDir);
 	return f;
 }
 
@@ -38,8 +38,8 @@ ${words}return { description: 'The vocab app', data, actions: {} };
 	const linked = await f.app(
 		'journal',
 		`export default defineApp(() => ({ description: 'The journal app', actions: {} }));\n`,
-		// Inside the home: linked code finds packages from where it really is.
-		join(f.home, 'elsewhere'),
+		// Inside the Epicenter: linked code finds packages from where it really is.
+		join(f.epicenter, 'elsewhere'),
 	);
 	await symlink(linked, join(f.apps, 'journal'));
 	await f.folder(join(f.apps, 'readme-only'), { 'README.md': 'not an app\n' });
@@ -96,7 +96,7 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
 	const listing = JSON.parse(result.stdout).data;
-	expect(listing.epicenter).toBe(f.home);
+	expect(listing.epicenter).toBe(f.epicenter);
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'clash',
 		'journal',
@@ -251,7 +251,7 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	/** Run with stdin open: `text` is written to it, and it is closed only when `close` is true. */
 	const piped = async (text: string, close: boolean, ...args: string[]) => {
 		const child = Bun.spawn([process.execPath, f.bin, ...args], {
-			cwd: f.home,
+			cwd: f.epicenter,
 			env: f.env,
 			stdin: 'pipe',
 			stdout: 'pipe',
@@ -330,7 +330,7 @@ Example:
 	);
 });
 
-test("D5 an epicenter.ts importing @epicenter/app loads from the home's install, with no node_modules of its own", async () => {
+test("D5 an epicenter.ts importing @epicenter/app loads from the Epicenter's install, with no node_modules of its own", async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	expect(existsSync(join(folder, 'node_modules'))).toBe(false);

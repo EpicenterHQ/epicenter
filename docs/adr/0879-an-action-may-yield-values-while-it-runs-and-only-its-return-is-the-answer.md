@@ -11,7 +11,7 @@
 - **Built:** 2026-11-11: `run` as an `async function*` and `runYielding`
   (`packages/app/src/action.ts`), `onYield` on the UI client
   (`packages/app/src/client.ts`), and the call's route, its JSON lines, and
-  its stop (`packages/app/src/command/http.ts`, `run.ts`).
+  its stop (`packages/app/src/command/serve.ts`, `run.ts`).
 - **Unbuilt:** Vocab's chat, the first action that yields.
 - **Relates:** [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a UI calls only actions), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (an action runs where what it uses is), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call commits what it wrote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP for agents), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (`serve` runs each call itself).
 

@@ -51,18 +51,18 @@ parameter.
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
-the app, and the package that holds that command too. A home is one Bun
+the app, and the package that holds that command too. An Epicenter is one Bun
 workspace whose `package.json` depends on `@epicenter/app`, so `bun install`
-at the top of the home installs one copy, puts `epicenter` in
+at the top of the Epicenter installs one copy, puts `epicenter` in
 `node_modules/.bin/`, and `epicenter.ts`, the editor, `bun test` and the UI's
 build all find it by ordinary resolution.
 An app's `code/package.json` names only the app's own dependencies and never
-lists `@epicenter/app`, so the app runs the version the home names. After
-the home's packages change, restart `serve`. An app's name is its folder's.
+lists `@epicenter/app`, so the app runs the version the Epicenter names. After
+the Epicenter's packages change, restart `serve`. An app's name is its folder's.
 
 The package ships its TypeScript source and runs under Bun. See
-[the command's README](src/command/README.md#a-home-is-a-bun-workspace) for the
-home's `package.json`, upgrading, and trying an unreleased change.
+[the command's README](src/command/README.md#an-epicenter-is-a-bun-workspace) for the
+Epicenter's `package.json`, upgrading, and trying an unreleased change.
 
 ## Three values, composed
 
@@ -418,7 +418,7 @@ Reads are plain file reads through `folder.path`, with `node:fs` or
 parts.
 
 An action changes files and makes no Git commit. Its writes remain pending,
-including when it returns an Err, throws, or stops. Git stores the home, and its
+including when it returns an Err, throws, or stops. Git stores the Epicenter, and its
 commits record code and records together
 ([ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Reads tolerate records that no longer fit the declaration; repair follows a
@@ -484,7 +484,7 @@ const sync = defineAction({
 	},
 });
 
-// Any caller, in the home or in a page:
+// Any caller, in the Epicenter or in a page:
 await sync({ account }, { onUpdate: ({ copied, of }) => show(copied, of) });
 ```
 
@@ -560,7 +560,7 @@ the action ran:
 | `usage` | the words, input or target do not fit | `next?` |
 | `app-problems` | the app cannot load | `app`, `problems` |
 | `internal` | Epicenter failed before it ran | none |
-| `unavailable` | no serve for this home answers | `next?` |
+| `unavailable` | no serve for this Epicenter answers | `next?` |
 
 An action cannot answer `NotStarted` or
 `Unreachable`: serve turns an action's own into `Threw`, by its name alone. An action may still return `Threw`.
@@ -695,7 +695,7 @@ compile, so search each app's code and tests for `.input`.
 reached a serve older than itself. 0.7 drops that check: upgrading is the
 owner's step, not Epicenter's. After `bun install`, restart `epicenter serve`
 yourself. Nothing warns you if you forget; the old serve keeps answering with
-the old code. `epicenter` still refuses to load apps while the home names two
+the old code. `epicenter` still refuses to load apps while the Epicenter names two
 different versions of `@epicenter/app` and `@epicenter/cli`.
 
 A data field whose schema carried `x-epicenter-file` used to be refused. No
@@ -703,9 +703,9 @@ field helper made that marker, so the check is gone.
 
 ### Steps
 
-1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the home's `package.json`.
+1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the Epicenter's `package.json`.
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass.
 4. Run `bun run build` in each app that has a UI.
 5. Restart `epicenter serve`. Nothing reminds you; until you do, the old version answers every call.
-6. Commit the result as one commit, so reverting it returns the home to 0.6.
+6. Commit the result as one commit, so reverting it returns the Epicenter to 0.6.

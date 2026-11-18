@@ -11,7 +11,7 @@ import { ActionError } from './errors.ts';
 const line = (fields: unknown) => `${JSON.stringify(fields)}\n`;
 const invalid = {
 	name: 'Unreachable',
-	message: 'Epicenter sent an invalid answer',
+	message: 'serve sent an invalid answer',
 };
 
 test('an answer is data, the error itself, or a platform error with its fields', () => {
@@ -150,6 +150,6 @@ test('an HTTP error carries an answer only as NotStarted', async () => {
 			),
 		).toMatchObject({
 			name: 'Unreachable',
-			message: 'Epicenter answered 404 Not Found',
+			message: 'serve answered 404 Not Found',
 		});
 });

@@ -1,12 +1,12 @@
 # Tasks
 
 Things to do, as an app in `~/Epicenter/apps/tasks`. This `code/` folder holds
-the software; sibling `data/` holds the tasks. The home’s private Git
+the software; sibling `data/` holds the tasks. The Epicenter’s private Git
 repository holds both, and actions make no commits. `epicenter serve`
 serves its UI at `/tasks/`.
 
 Use the latest Epicenter CLI.
-To add Tasks to your home, run these at the top of the home
+To add Tasks to your Epicenter, run these at the top of the Epicenter
 
 ```sh
 mkdir -p apps/tasks/code

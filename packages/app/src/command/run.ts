@@ -16,7 +16,7 @@ import {
 	isName,
 	type NotStarted,
 } from '../index.ts';
-import { type LoadedApp, loadHomeApp } from './home.ts';
+import { type LoadedApp, loadApp } from './apps.ts';
 import { checkInput, matchAction, readInput, usageLine } from './input.ts';
 import { stderrJsonLines } from './output.ts';
 import type { EpicenterRoot } from './root.ts';
@@ -155,7 +155,7 @@ export function findAction(
 	key: string,
 ): Promise<Result<Found, NotStarted>> {
 	return guarded(async () => {
-		const { data: app, error } = await loadHomeApp(root, name);
+		const { data: app, error } = await loadApp(root, name);
 		if (error) return Err(error);
 		const action = Object.hasOwn(app.actions, key)
 			? app.actions[key]
@@ -177,7 +177,7 @@ export function findWords(
 	words: string[],
 ): Promise<Result<Found & { rest: string[] }, NotStarted>> {
 	return guarded(async () => {
-		const { data: app, error } = await loadHomeApp(root, name);
+		const { data: app, error } = await loadApp(root, name);
 		if (error) return Err(error);
 		const matched = matchAction(app.actions, words);
 		const action = matched && app.actions[matched.key];

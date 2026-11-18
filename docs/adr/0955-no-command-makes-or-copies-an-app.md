@@ -16,6 +16,7 @@ forced on, renamed the copy's package and wrote `SOURCE.md`. That was about
 removed first.
 
 Two commands that set an app up were left in `COMMANDS`
+<!-- doc-path-check: ignore-next-line (folded into packages/app/src/command/cli.ts, ADR-0961) -->
 (`d413cc7a78:packages/app/src/command/commands.ts`):
 
 - `epicenter new <name>` (`d413cc7a78:packages/cli/src/new.ts`, 75 lines)
@@ -45,6 +46,7 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 `epicenter.ts`, a `package.json` named `<name>` and a `.gitignore`, beside
 `data/`.**
 
+<!-- doc-path-check: ignore-next-line (folded into packages/app/src/command/cli.ts, ADR-0961) -->
 - `COMMANDS` in `packages/app/src/command/commands.ts` holds `check` and `serve`.
   `new` and `export` are not in it.
 - "What an app holds" in `packages/app/src/command/README.md` lists those files. It is
