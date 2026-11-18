@@ -248,6 +248,13 @@ test('computed refusals and faults leave a fitting file unchanged', async () => 
 			throw new Error('fault');
 		}),
 	).rejects.toThrow('fault');
+	// A thrown refusal on an absent one-file key escapes as the same object.
+	const thrown = await data['settings.md']
+		.edit(() => {
+			throw refusal.error;
+		})
+		.catch((cause: unknown) => cause);
+	expect(thrown).toBe(refusal.error);
 	expect(expectOk(await data.notes.get('a'))?.title).toBe('a');
 	expect(expectOk(await data['settings.md'].get())).toBeUndefined();
 });
