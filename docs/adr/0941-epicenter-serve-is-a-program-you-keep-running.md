@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) on who writes serve's job: `epicenter` writes none, and `epicenter service` is removed.
+- **Amends:** [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md) at "set up over SSH with `epicenter` and `epicenter service install`": a rented Linux home runs `serve` under the person's own systemd unit.
 - **Relates:** [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app registers its own LaunchAgent), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve per home runs every action).
 
 ## Context

@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-16)
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) on the listener: `serve` binds only `127.0.0.1`, and `--host` and `--port` are gone.
+- **Amends:** [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md) at "`serve` binds to loopback or a tailnet address only": loopback only, on a rented home too.
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (`EPICENTER.md` and its `port`), [ADR-0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) (the macOS job), [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md) (owned or rented).
 
 ## Context
