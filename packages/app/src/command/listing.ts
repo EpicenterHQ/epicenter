@@ -6,7 +6,7 @@
  * | Reader | What it prints |
  * | --- | --- |
  * | MCP `tools/list` | each action not marked `mcp: false` |
- * | the launcher page | each app with a UI or a `fetch` |
+ * | the launcher page | each app with a built page |
  * | bare `epicenter`, `--json` | every app, its problems, and the routines |
  * | `epicenter <app>`, an action's `--help` | one app, or one action and its input |
  *

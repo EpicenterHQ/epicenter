@@ -71,7 +71,8 @@ must go on offline keeps a clone and pushes to it (ADR-0887).**
   view is static files with hash routes (`#/c/<id>`); the server routes
   nothing. The server's own routes take their own first segment, such as
   `/actions/`, and apps live under `/apps/`, so no app name is reserved
-  (ADR-0967); Git for a clone is at `/<app>.git` (ADR-0887).
+  (ADR-0967). Git for a clone (ADR-0887, unbuilt) takes a first segment of
+  its own too.
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
 `epicenter.ts` of each repository its operator trusts, and offers its actions as

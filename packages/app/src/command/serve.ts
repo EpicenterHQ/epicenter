@@ -29,8 +29,9 @@
  * `{"update": value}` for each update the action sends, then
  * `{"answer": {data, error}}` (ADR-0953). A call refused before it begins
  * answers a 200 with that one line, a `NotStarted`, and writes no line to
- * stderr; any other status means serve did not take the call (ADR-0967). An action runs to its end whether or not its caller stays: a
- * caller that leaves stops reading, nothing stops the action from outside,
+ * stderr; any other status means serve did not take the call (ADR-0967).
+ * An action runs to its end whether or not its caller stays: a caller that
+ * leaves stops reading, nothing stops the action from outside,
  * and its line on stderr is what remains of how it ended.
  *
  * An Epicenter has one `serve`, and its port is how it is found. A command names

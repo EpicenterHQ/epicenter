@@ -56,7 +56,8 @@ export type App = {
 	 * Answer a web request under `/apps/<app>/` that no built file answers.
 	 * The request arrives as it was sent, whole path included: the app's
 	 * address is `/apps/` and its folder's name, so a Hono app is
-	 * `new Hono().basePath('/apps/mail')` and its `fetch` fits as it is.
+	 * `new Hono({ strict: false }).basePath('/apps/mail')`, and its `fetch`
+	 * fits as it is.
 	 */
 	readonly fetch?: (request: Request) => Response | Promise<Response>;
 };

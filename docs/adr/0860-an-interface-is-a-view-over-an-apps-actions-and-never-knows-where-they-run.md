@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/apps/<app>/` and `/`).
-- **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/app/src/command/serve.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which each app's own `bun run build` writes to `ui/dist/` (ADR-0944); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
+- **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/apps/<app>/` and MCP at `/` (`packages/app/src/command/serve.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which each app's own `bun run build` writes to `ui/dist/` (ADR-0944); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
 
 ## Context
 
@@ -45,13 +45,9 @@ TSX, and CSS beside it, needs one line:
 default output of Vite, Astro, Parcel, and Rsbuild. A page loaded during a
 build may find `ui/dist/` missing or partial; a reload after the build fixes
 it. A view routes with the hash. It refers to its own files by
-relative paths where its build can, as Bun's bundler and Vite's `base: './'`
-do. A build that cannot is told the path the view is served at:
-`epicenter` runs a `build` script with `EPICENTER_BASE=/apps/<app>`, since the
-worktree's folder name is not the app's. SvelteKit's hash router is such
-a build: its `index.html` names its assets from `paths.base` whatever
-`paths.relative` says, so the starters set `base` from `EPICENTER_BASE`. Any build that
-produces static files works; SvelteKit with Epicenter's components is the
+relative paths, as Bun's bundler and Vite's `base: './'` do, so it works at
+`/apps/<app>/` with no setting; serve tells a build nothing (ADR-0944).
+Any build that produces static files works; SvelteKit with Epicenter's components is the
 default starter, not a requirement.
 
 **A view follows four rules.**

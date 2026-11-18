@@ -36,7 +36,7 @@ import { defineApp } from '@epicenter/app';
 import { Hono } from 'hono';
 
 export default defineApp(({ folder }) => {
-  const web = new Hono().basePath('/apps/mail');
+  const web = new Hono({ strict: false }).basePath('/apps/mail');
   web.get('/oauth/callback', async (c) => {
     await folder.write('local/token.json', JSON.stringify({ code: c.req.query('code') }));
     return c.redirect('../');
@@ -59,7 +59,9 @@ export default defineApp(({ folder }) => {
 - **The app gets the request unchanged.** Its URL, method, headers and body
   are what the browser sent, so `/apps/mail/oauth/callback` arrives as
   itself. An app knows its address because its name is its folder's: a Hono
-  app is `new Hono().basePath('/apps/mail')`.
+  app is `new Hono({ strict: false }).basePath('/apps/mail')`; serve
+  redirects `/apps/mail` to `/apps/mail/`, and `strict: false` lets a page
+  route `'/'` match it.
 - **The body limit is serve's.** Bun refuses any request body over 25 MB
   (`MAX_INPUT_BYTES` in `packages/app/src/command/protocol.ts`) with 413, for
   `fetch` as for actions.

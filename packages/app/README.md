@@ -637,7 +637,7 @@ import { defineApp } from '@epicenter/app';
 import { Hono } from 'hono';
 
 export default defineApp(({ folder }) => {
-	const web = new Hono().basePath('/apps/mail');
+	const web = new Hono({ strict: false }).basePath('/apps/mail');
 	web.get('/oauth/callback', async (c) => {
 		await folder.write('local/code.txt', c.req.query('code') ?? '');
 		return c.redirect('../');
@@ -650,7 +650,9 @@ export default defineApp(({ folder }) => {
 there answers a file from `code/ui/dist/` when one matches; every other
 request goes to `fetch`, and an app without one answers 404. The request
 arrives as the browser sent it, whole path included, so the app names its
-own address: `basePath('/apps/mail')` above, after its folder. A body over
+own address: `basePath('/apps/mail')` above, after its folder. Serve
+redirects `/apps/mail` to `/apps/mail/`, so a page route `'/'` needs
+`strict: false`, which lets Hono match the trailing slash. A body over
 25 MB is refused with 413. A `fetch` that throws answers 500, and serve logs a line naming the app.
 
 `fetch` is for protocols someone else defined: an OAuth redirect, a file
@@ -750,6 +752,7 @@ must be rebuilt
 | `POST /<app>/<words joined by .>`, such as `POST /vocab/words.create` | `POST /actions/<app>/<action>`, such as `POST /actions/vocab/create-word` |
 | actions nested in groups, `actions: { words: { create } }` | one flat name each, `actions: { 'create-word': create }` |
 | `epicenter vocab words create`, MCP tool `vocab_words_create` | `epicenter vocab create-word`, MCP tool `vocab_create-word` |
+| a page calls `app.list(input)`, `app.words.create(input)` | `app.call('list', input)`, or `app.action('list')` held as a function |
 | a refused call: a 400 whose body is `{ data: null, error }` | a 200 whose one line is `{"answer": { data: null, error }}` |
 
 - **Rename grouped actions.** Give each action in a group one name of
