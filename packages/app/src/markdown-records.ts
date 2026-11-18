@@ -3,7 +3,7 @@ import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
 import { isActionResult } from './action-result.ts';
 import { folder } from './context.ts';
-import { ActionError } from './errors.ts';
+import { ActionError, type Problem } from './errors.ts';
 import { absentValue } from './field.ts';
 import {
 	type FieldValues,
@@ -46,9 +46,17 @@ export function createMarkdownRecords({
 	fields: Fields;
 	keysOf: (path: string) => Record<string, string> | undefined;
 }) {
+	/** A change that does not fit the declared fields, as one problem at `path`. */
+	function unfit(path: string, line: string, kind = line) {
+		return ActionError.Misfit({
+			path,
+			id: keysOf(path)?.id,
+			problems: [{ line, kind }],
+		});
+	}
 	function unknownField(path: string, key: string) {
 		if (!Object.hasOwn(fields, key))
-			return ActionError.Refused({ message: `${path} has no field "${key}"` });
+			return unfit(path, `has no field "${key}"`, 'has no such field');
 	}
 	/**
 	 * The file at `path` as a read gives it, with each problem and its kind,
@@ -95,27 +103,26 @@ export function createMarkdownRecords({
 			if (value === null && isOptional(fields[key] as TSchema))
 				removed.push(key);
 			else if (value === null && !creating) {
-				return ActionError.Refused({
-					message: `${key} is required, so it cannot be removed`,
-				});
+				return unfit(path, `${key} is required, so it cannot be removed`);
 			} else set[key] = value as JsonValue;
 		}
-		const problems: string[] = [];
+		const problems: Problem[] = [];
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
-					problems.push(misfit(key, schema, set[key]));
+					problems.push({
+						line: misfit(key, schema, set[key]),
+						kind: misfit(key, schema, set[key], true),
+					});
 			} else if (
 				creating &&
 				!isOptional(schema) &&
 				absentValue(schema) === undefined
 			)
-				problems.push(`${key} is missing`);
+				problems.push({ line: `${key} is missing`, kind: `${key} is missing` });
 		}
 		if (problems.length)
-			return ActionError.Refused({
-				message: problems.map((problem) => `${path}: ${problem}`).join('\n'),
-			});
+			return ActionError.Misfit({ path, id: keysOf(path)?.id, problems });
 		return Ok({ set: inDeclaredOrder(set, fields), removed });
 	}
 
@@ -134,7 +141,7 @@ export function createMarkdownRecords({
 			if (before === undefined && need === 'present')
 				return ActionError.Missing({ path });
 			if (before !== undefined && need === 'absent')
-				return ActionError.Changed({ path, why: 'there' });
+				return ActionError.Changed({ path, cause: 'there' });
 
 			const found = readMarkdown(before ?? '');
 			const current = before !== undefined ? project(path, found) : undefined;
@@ -144,7 +151,7 @@ export function createMarkdownRecords({
 			if (changed.error !== null) return changed;
 			const { fields: given, body } = changed.data;
 			if (body !== undefined && typeof body !== 'string')
-				return ActionError.Refused({ message: `${path}: body must be text` });
+				return unfit(path, 'body must be text');
 			const patch = patchOf(path, given, before === undefined);
 			if (patch.error !== null) return patch;
 			const { set, removed } = patch.data;

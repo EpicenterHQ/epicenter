@@ -1,4 +1,5 @@
 /** Export committed app code into replaceable directories, leaving publication to Git. */
+import { lstatSync } from 'node:fs';
 import {
 	cp,
 	lstat,
@@ -23,44 +24,41 @@ import {
 	resolve,
 	sep,
 } from 'node:path';
+import {
+	ActionError,
+	type Answer,
+	Err,
+	type NotStarted,
+	Ok,
+	type Result,
+} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import {
 	checkoutCodeFiles,
 	EXPORT_MARKER,
 	readCodeFiles,
 } from './code-copy.js';
-import { misuse, nameProblem, parseWords } from './commands.js';
-import { CliError } from './errors.js';
+import { nameProblem, parseWords } from './commands.js';
 import { checkedGit, git, isRepositoryTop } from './git.js';
 import { homeEntries } from './home.js';
-import { fail, writeErr, writeJson, writeOut } from './output.js';
 import { epicenterDir, folderPath } from './root.js';
 
 type ExportMarker = { export: 'all' } | { export: 'app'; app: string };
 
-function refuse(message: string): never {
-	throw CliError.Refused({ message }).error;
-}
-
-function isRefused(cause: unknown) {
-	return (
-		typeof cause === 'object' &&
-		cause !== null &&
-		'name' in cause &&
-		cause.name === 'Refused'
-	);
-}
-
-async function info(path: string) {
-	return lstat(path).catch((error: NodeJS.ErrnoException) => {
-		if (error.code === 'ENOENT') return undefined;
-		throw error;
+/**
+ * The source or the target does not allow this export, so it changed nothing.
+ * The help says what each must be.
+ */
+const refuse = (message: string) =>
+	ActionError.NotStarted({
+		cause: 'usage',
+		message,
+		next: 'epicenter export --help',
 	});
-}
 
 /** Resolve existing ancestors too, so aliases such as /tmp cannot bypass the boundary. */
 async function canonical(path: string): Promise<string> {
-	if (await info(path)) return realpath(path);
+	if (lstatSync(path, { throwIfNoEntry: false })) return realpath(path);
 	return join(await canonical(dirname(path)), basename(path));
 }
 
@@ -72,34 +70,43 @@ function contains(parent: string, child: string) {
 	);
 }
 
-async function checkLocation(directory: string, source: string) {
-	if ((await info(directory))?.isSymbolicLink())
-		refuse(`${directory} is a symbolic link; choose a real export directory`);
+async function checkLocation(
+	directory: string,
+	source: string,
+): Promise<Result<string, NotStarted>> {
+	if (lstatSync(directory, { throwIfNoEntry: false })?.isSymbolicLink())
+		return refuse(
+			`${directory} is a symbolic link; choose a real export directory`,
+		);
 	const resolved = await canonical(directory);
 	if (contains(source, resolved) || contains(resolved, source))
-		refuse(
+		return refuse(
 			`${directory} overlaps this Epicenter; export to a separate directory`,
 		);
 	if (resolved.split(sep).some((part) => part.toLowerCase() === '.git'))
-		refuse(`${directory} is inside Git's own files`);
-	return resolved;
+		return refuse(`${directory} is inside Git's own files`);
+	return Ok(resolved);
 }
 
 /** The marker grants overwrite permission; generated contents carry no independent state. */
-async function checkDestination(directory: string, expected: ExportMarker) {
-	const entry = await info(directory);
-	if (!entry) return;
-	if (!entry.isDirectory()) refuse(`${directory} is not a real directory`);
+async function checkDestination(
+	directory: string,
+	expected: ExportMarker,
+): Promise<Result<undefined, NotStarted>> {
+	const entry = lstatSync(directory, { throwIfNoEntry: false });
+	if (!entry) return Ok(undefined);
+	if (!entry.isDirectory())
+		return refuse(`${directory} is not a real directory`);
 	const path = join(directory, EXPORT_MARKER);
-	const marker = await info(path);
+	const marker = lstatSync(path, { throwIfNoEntry: false });
 	if (marker) {
 		if (!marker.isFile() || marker.size > 1024)
-			refuse(`${path} must be a regular export marker`);
+			return refuse(`${path} must be a regular export marker`);
 		let value: unknown;
 		try {
 			value = JSON.parse(await readFile(path, 'utf8'));
 		} catch {
-			refuse(`${path} is not a valid export marker`);
+			return refuse(`${path} is not a valid export marker`);
 		}
 		if (
 			typeof value !== 'object' ||
@@ -110,24 +117,30 @@ async function checkDestination(directory: string, expected: ExportMarker) {
 			(expected.export === 'app' &&
 				(!('app' in value) || value.app !== expected.app))
 		)
-			refuse(
+			return refuse(
 				`${directory} does not have a matching export marker; choose a new directory`,
 			);
 	} else if ((await readdir(directory)).some((name) => name !== '.DS_Store')) {
-		refuse(`${directory} is not empty and was not created by export`);
+		return refuse(`${directory} is not empty and was not created by export`);
 	}
 	// Never follow directory links while checking or deleting generated contents.
-	async function checkGit(folder: string) {
+	async function checkGit(
+		folder: string,
+	): Promise<Result<undefined, NotStarted>> {
 		for (const entry of await readdir(folder, { withFileTypes: true })) {
 			const path = join(folder, entry.name);
 			if (entry.name.toLowerCase() === '.git')
-				refuse(
+				return refuse(
 					`${path} contains Git metadata; keep Git outside the export directory`,
 				);
-			if (entry.isDirectory()) await checkGit(path);
+			if (entry.isDirectory()) {
+				const inner = await checkGit(path);
+				if (inner.error) return inner;
+			}
 		}
+		return Ok(undefined);
 	}
-	await checkGit(directory);
+	return checkGit(directory);
 }
 
 /**
@@ -139,7 +152,7 @@ async function checkLinks(
 	directory: string,
 	entries: { path: string; mode: string }[],
 	prefix: string,
-) {
+): Promise<Result<undefined, NotStarted>> {
 	const root = await realpath(directory);
 	for (const { path, mode } of entries) {
 		const relative = path.slice(prefix.length + 1);
@@ -154,19 +167,22 @@ async function checkLinks(
 			lexical === '..' ||
 			lexical.startsWith('../')
 		)
-			refuse(
+			return refuse(
 				`${relative} links outside the app's code/: ${target}. Copy the file into code/ instead.`,
 			);
-		const resolved = await realpath(file).catch(
-			(cause: NodeJS.ErrnoException) => {
-				if (cause.code === 'ENOENT' || cause.code === 'ELOOP')
-					refuse(`${relative} has a broken or cyclic link target`);
-				throw cause;
-			},
-		);
+		let resolved: string;
+		try {
+			resolved = await realpath(file);
+		} catch (cause) {
+			const { code } = cause as NodeJS.ErrnoException;
+			if (code === 'ENOENT' || code === 'ELOOP')
+				return refuse(`${relative} has a broken or cyclic link target`);
+			throw cause;
+		}
 		if (!contains(root, resolved))
-			refuse(`${relative} links outside the exported app`);
+			return refuse(`${relative} links outside the exported app`);
 	}
+	return Ok(undefined);
 }
 
 /**
@@ -174,32 +190,60 @@ async function checkLinks(
  * It exports what `HEAD` holds and never commits, stages or pushes: an app
  * whose `code/` has uncommitted changes is refused. Repeating either
  * invocation refreshes the same directory.
+ *
+ * A refusal, or a failure before the directory is filled, changes nothing
+ * and is `NotStarted`. A failure while filling it throws, and the CLI answers
+ * `Threw`: the directory may be partly filled, and a rerun repairs it. An
+ * `--all` export that left out apps with no committed code is `Problems`: it
+ * exported the others, and its report names the apps it left out.
  */
 export async function exportCommand(
 	words: string[],
 	json: boolean,
-): Promise<number> {
-	const given = parseWords(words, { all: { type: 'boolean' } }, [1, 2]);
-	if (!given || given.positionals.length !== (given.values.all ? 1 : 2))
-		return fail(misuse('export'), json);
+): Promise<Answer> {
+	const { data: given, error: misused } = parseWords(
+		'export',
+		words,
+		{ all: { type: 'boolean' } },
+		[1, 2],
+	);
+	if (misused) return Err(misused);
 	const all = given.values.all === true;
+	if (given.positionals.length !== (all ? 1 : 2))
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: all
+				? 'export --all takes one directory'
+				: 'export takes an app and a directory, or --all and a directory',
+			next: 'epicenter export --help',
+		});
 	const app = all ? undefined : given.positionals[0];
-	if (app !== undefined && nameProblem(app))
-		return fail(misuse('export', nameProblem(app)), json);
+	const problem = app === undefined ? undefined : nameProblem(app);
+	if (problem)
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: problem,
+			next: 'epicenter export --help',
+		});
 	const directory = folderPath(given.positionals[all ? 0 : 1]!);
 	let scratch: string | undefined;
+	let filling = false;
 	try {
 		const source = await realpath(epicenterDir());
-		await checkLocation(directory, source);
+		const located = await checkLocation(directory, source);
+		if (located.error) return located;
 
 		const marker: ExportMarker =
 			app === undefined ? { export: 'all' } : { export: 'app', app };
-		await checkDestination(directory, marker);
+		const destination = await checkDestination(directory, marker);
+		if (destination.error) return destination;
 		if (!(await isRepositoryTop(source)))
-			refuse(`${source} is not a Git repository`);
+			return refuse(`${source} is not a Git repository`);
 		const head = await git(source, ['rev-parse', '--verify', 'HEAD']);
 		if (head.code !== 0)
-			refuse('This Epicenter has no commits; commit its code, then export.');
+			return refuse(
+				'This Epicenter has no commits; commit its code, then export.',
+			);
 		const commit = head.stdout;
 		scratch = await mkdtemp(join(tmpdir(), 'epicenter-export-source-'));
 		const repository = join(scratch, 'repository');
@@ -259,18 +303,20 @@ export async function exportCommand(
 					code,
 				])
 			)
-				refuse(`${code} has uncommitted changes; commit them, then export.`);
+				return refuse(
+					`${code} has uncommitted changes; commit them, then export.`,
+				);
 			if (
 				!entries.some(
 					({ path, mode }) =>
 						path === `apps/${app}/code/epicenter.ts` && mode.startsWith('100'),
 				)
 			)
-				refuse(
+				return refuse(
 					`${app} has no committed code/epicenter.ts; commit its code before exporting`,
 				);
 			if (entries.some(({ mode }) => mode === '160000'))
-				refuse(
+				return refuse(
 					`${app} contains a gitlink; export code without embedded repositories`,
 				);
 		}
@@ -289,7 +335,8 @@ export async function exportCommand(
 			// A random root also catches chains that leave and reenter a folder named code.
 			const prepared = await mkdtemp(join(scratch, 'app-'));
 			await rename(join(tree, prefix), prepared);
-			await checkLinks(prepared, selected, prefix);
+			const links = await checkLinks(prepared, selected, prefix);
+			if (links.error) return links;
 			await rename(prepared, all ? join(output, app) : output);
 		}
 		const omitted = all
@@ -297,11 +344,14 @@ export async function exportCommand(
 					.filter(({ entry }) => !apps.some(({ app }) => app === entry))
 					.map(({ entry }) => entry)
 			: [];
-		await checkLocation(directory, source);
+		const relocated = await checkLocation(directory, source);
+		if (relocated.error) return relocated;
 		await mkdir(directory, { recursive: true });
-		await checkDestination(directory, marker);
+		const redestined = await checkDestination(directory, marker);
+		if (redestined.error) return redestined;
+		filling = true;
 		// Keep ownership through interruption: a rerun repairs an incomplete fill.
-		if (!(await info(join(directory, EXPORT_MARKER))))
+		if (!lstatSync(join(directory, EXPORT_MARKER), { throwIfNoEntry: false }))
 			await writeFile(
 				join(directory, EXPORT_MARKER),
 				`${JSON.stringify(marker)}\n`,
@@ -312,29 +362,30 @@ export async function exportCommand(
 				await rm(join(directory, name), { recursive: true, force: true });
 		}
 		await cp(output, directory, { recursive: true, verbatimSymlinks: true });
-		if (json)
-			writeJson({
-				commit,
-				directory,
-				apps: apps.map(({ app }) => app),
-				omitted,
+		const exported = [
+			`Exported ${apps.length} app${apps.length === 1 ? '' : 's'} to ${directory}`,
+			`Exported source: ${commit}`,
+		];
+		if (omitted.length)
+			return ActionError.Problems({
+				message: omitted
+					.map((name) => `${name}: no committed code tree; not exported`)
+					.join('\n'),
+				report: json
+					? { commit, directory, apps: apps.map(({ app }) => app), omitted }
+					: exported.join('\n'),
 			});
-		else {
-			writeOut(
-				`Exported ${apps.length} app${apps.length === 1 ? '' : 's'} to ${directory}`,
-			);
-			writeOut(`Exported source: ${commit}`);
-			for (const name of omitted)
-				writeErr(`${name}: no committed code tree; not exported`);
-		}
-		return omitted.length ? 1 : 0;
+		return Ok(
+			json
+				? { commit, directory, apps: apps.map(({ app }) => app) }
+				: exported.join('\n'),
+		);
 	} catch (cause) {
-		if (isRefused(cause))
-			return fail(
-				CliError.Refused({ message: extractErrorMessage(cause) }).error,
-				json,
-			);
-		return fail(CliError.Internal({ cause }).error, json);
+		if (filling) throw cause;
+		return ActionError.NotStarted({
+			cause: 'internal',
+			message: extractErrorMessage(cause),
+		});
 	} finally {
 		if (scratch) await rm(scratch, { recursive: true, force: true });
 	}

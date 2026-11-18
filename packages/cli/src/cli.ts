@@ -1,10 +1,14 @@
-/** Dispatch commands, and send each checked app action to the home's serve, which runs it. */
-import { isName } from '@epicenter/app';
+/**
+ * Dispatch commands, and send each checked app action to the home's serve,
+ * which runs it. Every command ends in one answer, `{ data, error }`, which
+ * `runCli` presents in one place (ADR-0953). Serve prints no answer while it
+ * runs.
+ */
+import { ActionError, type Answer, Err, isName, Ok } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { checkCommand } from './check.ts';
-import { COMMANDS, type Command, misuse, parseWords } from './commands.ts';
+import { COMMANDS, type Command, parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { CliError } from './errors.ts';
 import { exportCommand } from './export.js';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
@@ -17,16 +21,9 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { newCommand } from './new.ts';
-import {
-	fail,
-	presentAnswer,
-	refused,
-	writeErr,
-	writeJson,
-	writeOut,
-} from './output.ts';
+import { presentAnswer, writeErr } from './output.ts';
 import { repositoryStatus } from './repository.ts';
-import { epicenterDir, epicenterRoot, MARKER, RootUsageError } from './root.ts';
+import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { sendToServe } from './serve-call.ts';
 
@@ -42,25 +39,35 @@ Uses the nearest Epicenter above the current folder, then EPICENTER_ROOT,
 then ~/Epicenter. An Epicenter has EPICENTER.md.
 An action's input is one JSON object, such as '{"title":"Call the bank"}',
 or - to read it from stdin; null removes a field that takes it.
---json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
-Exit codes: 0 done, 1 ran with a failure or an unfinished export, 2 did not run.`;
+--json prints every command's answer as one JSON value, {"data": ..., "error": ...},
+and --help (-h) explains anything; both go anywhere before --.
+Exit codes: 0 done, 1 failed, ran in part or may have run, 2 did not run.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
-type Handler = (words: string[], json: boolean) => Promise<number>;
-
-/** What each command in `COMMANDS` does. */
-const HANDLERS: { [K in Command]: Handler } = {
+/**
+ * What each command in `COMMANDS` does. Each answers once, and `runCli`
+ * presents the answer. Serve answers only when it does not start; once it
+ * has served, it answers nothing.
+ */
+const HANDLERS: {
+	[K in Command]: (
+		words: string[],
+		json: boolean,
+	) => Promise<Answer | undefined>;
+} = {
 	init: initCommand,
 	new: newCommand,
 	export: exportCommand,
 	check: checkCommand,
 	async serve(words, json) {
 		if (json)
-			return fail(
-				misuse('serve', 'serve prints no answer; --json does not apply'),
-				json,
-			);
-		if (!parseWords(words, {}, [0, 0])) return fail(misuse('serve'), json);
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message: 'serve prints no answer; --json does not apply',
+				next: 'epicenter serve --help',
+			});
+		const { error } = parseWords('serve', words, {}, [0, 0]);
+		if (error) return Err(error);
 		return serveHttp(epicenterRoot().port);
 	},
 };
@@ -85,111 +92,98 @@ export async function runCli(argv: string[]): Promise<number> {
 			version = true;
 		else tokens.push(token);
 	}
-	const actionRequest =
-		tokens.length > 1 && !help && !Object.hasOwn(HANDLERS, tokens[0]!);
-	const reject = (error: CliError) =>
-		actionRequest ? presentAnswer(refused(error), json) : fail(error, json);
-	const print = (value: unknown) => {
-		if (json) writeJson(value);
-		else writeOut(String(value));
-	};
-	let invoked = false;
-	try {
+	// A throw after a command began is `Threw`; after an action call was sent, its outcome is unknown.
+	let begun = false;
+	let sent = false;
+	async function answer(): Promise<Answer | undefined> {
 		if (!tokens.length) {
-			if (version) print(json ? { version: VERSION } : `epicenter ${VERSION}`);
-			else if (help) print(HELP);
-			else {
-				epicenterRoot();
-				// A report only: it reads the home and starts, fetches and writes nothing.
-				const [found, routines, repository] = await Promise.all([
-					discoverAll(),
-					createRoutines({ folder: epicenterDir() }).list(),
-					repositoryStatus(epicenterDir()),
-				]);
-				print(homeListing(found, { routines, repository }, json));
-			}
-			return 0;
+			if (version)
+				return Ok(json ? { version: VERSION } : `epicenter ${VERSION}`);
+			if (help) return Ok(HELP);
+			epicenterRoot();
+			// A report only: it reads the home and starts, fetches and writes nothing.
+			const [found, routines, repository] = await Promise.all([
+				discoverAll(),
+				createRoutines({ folder: epicenterDir() }).list(),
+				repositoryStatus(epicenterDir()),
+			]);
+			return Ok(homeListing(found, { routines, repository }, json));
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
 		if (Object.hasOwn(HANDLERS, name)) {
-			const command = name as keyof typeof HANDLERS;
-			if (help) {
-				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
-				return 0;
-			}
+			const command = name as Command;
+			if (help)
+				return Ok(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
 			if (command !== 'init') epicenterRoot();
-			return await HANDLERS[command](words, json);
+			begun = true;
+			return HANDLERS[command](words, json);
 		}
 		epicenterRoot();
-		const { data: located, error: notFound } = await loadHomeApp(name);
-		if (notFound) return reject(notFound);
-		if (!located.ok)
-			return reject(
-				CliError.AppProblems({ app: name, problems: located.problems }).error,
-			);
-		if (!words.length) {
-			print(oneAppListing(located, json));
-			return 0;
-		}
+		const { data: located, error: notLoaded } = await loadHomeApp(name);
+		if (notLoaded) return Err(notLoaded);
+		if (!words.length) return Ok(oneAppListing(located, json));
 		const matched = matchAction(located.actions, words);
 		const action = matched && located.actions[matched.key];
 		if (!matched || !action) {
 			// The words that could name an action: those before the input.
 			const end = words.findIndex((word) => !isName(word));
 			const asked = words.slice(0, end < 0 ? undefined : end).join(' ');
-			return reject(
-				CliError.Usage({
-					message: `${name} has no action ${JSON.stringify(asked || words[0])}. Its actions:\n${Object.entries(
-						located.actions,
-					)
-						.map(([key, each]) => usageLine(name, key, each))
-						.join('\n')}`,
-					next: `epicenter ${name}`,
-				}).error,
-			);
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message: `${name} has no action ${JSON.stringify(asked || words[0])}. Its actions:\n${Object.entries(
+					located.actions,
+				)
+					.map(([key, each]) => usageLine(name, key, each))
+					.join('\n')}`,
+				next: `epicenter ${name}`,
+			});
 		}
-		if (help) {
-			print(
+		if (help)
+			return Ok(
 				json
 					? actionTool(located.name, matched.key, action)
 					: actionHelp(name, matched.key, action),
 			);
-			return 0;
-		}
-		const next = `epicenter ${name} ${matched.key} --help`;
 		const given = await readInput(action, matched.rest);
 		if ('error' in given)
-			return reject(CliError.Usage({ message: given.error, next }).error);
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message: given.error,
+				next: `epicenter ${name} ${matched.key} --help`,
+			});
 		// Each update is one line of JSON on stderr, as it arrives.
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve runs every action; this process only sends the call.
-		invoked = true;
-		const sent = await sendToServe(name, matched.key, given.input, onUpdate);
-		if (!sent.answer)
-			return reject(
-				CliError.Refused({
-					message:
-						sent.holder === 'nothing'
-							? 'Epicenter is not running for this home. Start it with `epicenter serve`.'
-							: `Port ${sent.port} answers for another ${sent.holder === 'epicenter' ? 'Epicenter' : 'program'}. Set a different \`port\` in ${MARKER}.`,
-				}).error,
-			);
-		if (sent.version !== undefined && sent.version !== VERSION)
-			writeErr(
-				`Epicenter is running ${sent.version === null ? 'an older version' : `version ${sent.version}`} and this command is version ${VERSION}. Stop \`epicenter serve\` and start it again.`,
-			);
-		return presentAnswer(sent.answer, json);
-	} catch (error) {
-		if (invoked) {
-			writeErr(
-				`Epicenter invoked the action but could not report its outcome: ${extractErrorMessage(error)}`,
-			);
-			return 1;
-		}
-		if (error instanceof RootUsageError)
-			return reject(
-				CliError.Usage({ message: error.message, next: error.next }).error,
-			);
-		return reject(CliError.Internal({ cause: error }).error);
+		sent = true;
+		return sendToServe(name, matched.key, given.input, onUpdate);
+	}
+	let answered: Answer | undefined;
+	try {
+		answered = await answer();
+	} catch (cause) {
+		const message = extractErrorMessage(cause);
+		if (sent)
+			answered = ActionError.Unreachable({
+				message: `Epicenter invoked the action but could not report its outcome: ${message}`,
+			});
+		else if (cause instanceof RootUsageError)
+			answered = ActionError.NotStarted({
+				cause: 'usage',
+				message,
+				next: cause.next,
+			});
+		else if (begun) answered = ActionError.Threw({ message });
+		else answered = ActionError.NotStarted({ cause: 'internal', message });
+	}
+	if (answered === undefined) return 0;
+	try {
+		return presentAnswer(answered, json);
+	} catch (cause) {
+		if (!sent) throw cause;
+		// Stdout may be what failed, so nothing more goes there.
+		writeErr(
+			`Epicenter invoked the action but could not report its outcome: ${extractErrorMessage(cause)}`,
+		);
+		return 1;
 	}
 }

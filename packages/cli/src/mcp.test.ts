@@ -59,6 +59,15 @@ test('tools list plain schemas and annotations and return structured answers or 
 				text: 'day is needed\nRun: epicenter vault calendar show --help',
 			},
 		]);
+		expect(missing.structuredContent).toEqual({
+			data: null,
+			error: {
+				name: 'NotStarted',
+				message: 'day is needed',
+				cause: 'usage',
+				next: 'epicenter vault calendar show --help',
+			},
+		});
 		expect(
 			(
 				await client.callTool({
@@ -70,9 +79,14 @@ test('tools list plain schemas and annotations and return structured answers or 
 		expect(await client.callTool({ name: 'reading_explode' })).toMatchObject({
 			isError: true,
 			content: [{ type: 'text', text: 'action exploded' }],
-			structuredContent: {
-				data: null,
-				error: { kind: 'fault', message: 'action exploded' },
+		});
+		expect(
+			(await client.callTool({ name: 'reading_explode' })).structuredContent,
+		).toEqual({
+			data: null,
+			error: {
+				name: 'Threw',
+				message: 'action exploded',
 			},
 		});
 		expect((await client.callTool({ name: 'unknown' })).isError).toBe(true);
@@ -122,7 +136,7 @@ test('discovery preserves tilde-prefixed properties', async () => {
 			},
 			required: ['value'],
 		});
-		const listed = JSON.parse((await f.run('shapes', '--json')).stdout);
+		const listed = JSON.parse((await f.run('shapes', '--json')).stdout).data;
 		expect(listed.actions[0].inputSchema).toEqual(tool?.inputSchema);
 		expect(
 			(

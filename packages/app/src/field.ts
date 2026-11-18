@@ -78,6 +78,31 @@ export function absentValue(schema: unknown): false | [] | undefined {
 	return undefined;
 }
 
+/**
+ * One object whose keys are fields, as plain JSON Schema: each field under
+ * `properties`, the keys a caller must give in `required` (`[]` when none
+ * is), and `additionalProperties: false`. It is also the TypeBox schema
+ * `Value.Check` validates with, and it survives `JSON.stringify` whole.
+ */
+export type ObjectSchema = {
+	readonly type: 'object';
+	readonly properties: Readonly<Record<string, TSchema>>;
+	readonly required: string[];
+	readonly additionalProperties: false;
+};
+
+/**
+ * The `ObjectSchema` of `fields`. TypeBox marks an optional field with a
+ * property `JSON.stringify` skips, so the one record of which keys are
+ * required is `required`, written here once (ADR-0953).
+ */
+export function objectSchema(fields: Record<string, TSchema>): ObjectSchema {
+	const schema = Type.Object(fields, { additionalProperties: false });
+	// TypeBox leaves `required` out when no key is; a reader should not have to know that.
+	(schema as { required?: string[] }).required ??= [];
+	return schema as unknown as ObjectSchema;
+}
+
 /** Keywords whose value is data, not a schema, so a `default` key inside it is a value. */
 const DATA_KEYWORDS = new Set(['const', 'enum', 'examples']);
 

@@ -74,12 +74,20 @@ test('new creates code and empty data without repositories and refuses taken and
 	await mkdir(join(f.apps, 'Reading'));
 	for (const name of ['reading', 'serve', 'init', 'Bad_Name'])
 		expect((await f.run('new', name, '--json')).code).toBe(2);
+	expect(JSON.parse((await f.run('new', 'reading', '--json')).stdout)).toEqual({
+		data: null,
+		error: {
+			name: 'NotStarted',
+			cause: 'usage',
+			message: `reading already exists in ${f.apps}`,
+		},
+	});
 	const made = await f.run('new', 'garden', '--json');
 	expect(made.code).toBe(0);
 	const container = join(f.apps, 'garden');
 	expect(JSON.parse(made.stdout)).toEqual({
-		name: 'garden',
-		folder: container,
+		data: { name: 'garden', folder: container },
+		error: null,
 	});
 	expect(await readFile(join(container, 'code/.gitignore'), 'utf8')).toBe(
 		'node_modules/\nui/dist/\n',
@@ -147,7 +155,7 @@ for (const form of [
 		const result = await f.run('new', 'copy', '--from', from, '--json');
 		expect(result).toMatchObject({ code: 0 });
 		const commit = await gitIn(source, 'rev-parse', 'HEAD');
-		expect(JSON.parse(result.stdout).source).toEqual({ commit });
+		expect(JSON.parse(result.stdout).data.source).toEqual({ commit });
 		const dest = join(f.apps, 'copy');
 		expect(await readFile(join(dest, 'code/epicenter.ts'), 'utf8')).toBe(code);
 		expect((await lstat(join(dest, 'code/tool.sh'))).mode & 0o111).not.toBe(0);
@@ -195,7 +203,7 @@ test('a refreshed export is refused until its publication commit exists, and a l
 	await gitIn(publication, 'stash', '-q');
 	const first = await f.run('new', 'my-writing', '--from', from, '--json');
 	expect(first.code).toBe(0);
-	expect(JSON.parse(first.stdout).source).toEqual({ commit: firstCommit });
+	expect(JSON.parse(first.stdout).data.source).toEqual({ commit: firstCommit });
 	expect(
 		await readFile(join(f.apps, 'my-writing/code/epicenter.ts'), 'utf8'),
 	).toBe(sourceCode('First version'));
@@ -264,7 +272,7 @@ test('a local source with uncommitted code is refused and nothing is kept; ignor
 	await writeFile(join(source, 'apps/original/data/new.md'), 'untracked');
 	const copied = await f.run('new', 'copy', '--from', from, '--json');
 	expect(copied.code).toBe(0);
-	expect(JSON.parse(copied.stdout).source).toEqual({
+	expect(JSON.parse(copied.stdout).data.source).toEqual({
 		commit: await gitIn(source, 'rev-parse', 'HEAD'),
 	});
 });
@@ -296,7 +304,7 @@ test('a copied link stays a link exactly as stored', async () => {
 	expect(await readlink(join(f.apps, 'copy/code/ui/src/theme.css'))).toBe(
 		'../../../../../theme.css',
 	);
-	expect(JSON.parse(result.stdout).links).toBeUndefined();
+	expect(JSON.parse(result.stdout).data.links).toBeUndefined();
 	await noNestedGit(f.apps);
 });
 
@@ -345,7 +353,7 @@ test('a GitHub folder is copied at a branch, a tag, or a full commit', async () 
 			'--json',
 		);
 		expect(made.code).toBe(0);
-		expect(JSON.parse(made.stdout).source).toEqual({ commit });
+		expect(JSON.parse(made.stdout).data.source).toEqual({ commit });
 		expect(
 			await readFile(join(f.apps, name, 'code/SOURCE.md'), 'utf8'),
 		).toContain(`Folder: apps/journal\nRef: ${ref}\nCommit: ${commit}\n`);
@@ -460,7 +468,7 @@ test("new --from names the copy's package for the app, so it installs beside the
 	expect(await readFile(join(f.home, 'bun.lock'), 'utf8')).toContain(
 		'"apps/journal/code"',
 	);
-	const listed = JSON.parse((await f.run('--json')).stdout);
+	const listed = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'journal',
 		'notes',
