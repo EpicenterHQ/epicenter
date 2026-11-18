@@ -168,7 +168,10 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   `ENOENT` before sign-in. Use `folder.edit` to compare the old token when
   refreshing it. No
   generated verb reaches `local/`, so no MCP client is handed the token. A
-  fresh clone has no `local/`, so the person signs in again.
+  fresh clone has no `local/`, so the person signs in again. Never keep a
+  secret in a `.env` at the root of the Epicenter that Git could commit:
+  `epicenter serve` will not start while that `.env` is tracked by Git or
+  not ignored (ADR-0963).
 - The data keys are the contract between code and records. Reads tolerate
   disagreement: undeclared keys are kept by every write and left out of a
   read, and a missing optional field is no problem. Rename or tighten a field
@@ -186,13 +189,16 @@ in the reader. Exercise either write path only against fake Gmail as an agent.
 
 `code/epicenter.ts` default-exports `defineApp(({ folder }) => ({
 description, data, actions }))` (ADR-0960). The app is a function of its
-folder: `epicenter` calls it once with `apps/<app>/`, and the data and
+folder: `epicenter` calls it with `apps/<app>/`, and the data and
 actions declared inside it reach the files through `folder`. A helper
 outside the function that touches files takes the folder as a parameter.
+`epicenter` imports the app afresh and calls the function each time it
+loads the app, which today is on every call, so a value kept in the
+function body does not survive between calls: keep it in a file.
 
 ```ts
 export default defineApp(({ folder }) => {
-  const data = defineData(folder, { words: { fields: { meaning: field.text() } } });
+  const data = defineData(folder, { words: { fields: { meaning: field.text(), reps: field.integer({ optional: true }) } } });
   const learn = defineAction({ /* ... */ });
   return { description: 'Words I am learning', data, actions: { ...data.words.actions('list', 'get'), learn } };
 });
@@ -419,7 +425,7 @@ person submits.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
 `connect<typeof tasksApp>()` from `@epicenter/app/client`, importing the app
-function as a type; `connect` reads its return type (`import type tasksApp from '../../../epicenter.js'`), and lists what the
+function as a type; `connect` reads its return type (`import type tasksApp from '../../../epicenter.ts'`), and lists what the
 pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts

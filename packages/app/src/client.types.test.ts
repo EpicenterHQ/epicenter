@@ -4,12 +4,7 @@ import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
 import { connect } from './client.ts';
 import { field } from './field.ts';
-
-type Equal<X, Y> =
-	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
-		? true
-		: false;
-const assertType = <T extends true>(): T | undefined => undefined;
+import { assertType, type Equal } from './library.test-support.ts';
 
 const count = defineAction({
 	description: 'Count',

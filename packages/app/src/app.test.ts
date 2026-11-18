@@ -1,8 +1,9 @@
 /**
- * App composition and action and data declarations. An app is a function of
- * its folder (ADR-0960): a test calls it with a folder on a temporary
- * directory. Declarations reject malformed metadata and cyclic schemas
- * before discovery.
+ * App composition and action declarations. An app is a function of its
+ * folder (ADR-0960): a test calls it with a folder on a temporary directory.
+ * `defineApp` refuses the old object form and anything its types cannot
+ * check; `defineAction` refuses malformed metadata. Data declarations are in
+ * `data.test.ts`.
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -12,12 +13,11 @@ import {
 	defineAction,
 	defineApp,
 	defineData,
-	type Folder,
 	field,
 	Ok,
 	type Update,
 } from './index.ts';
-import { tempFolder } from './temp-folder.test-support.ts';
+import { tempFolder, unusedFolder } from './library.test-support.ts';
 
 const reading = defineApp(({ folder }) => {
 	const data = defineData(folder, {
@@ -87,12 +87,9 @@ const shown = defineAction({
 	run: () => Ok('shown'),
 });
 
-/**
- * What `defineApp` makes of an app that returns `app`. The folder is never
- * used: these apps only declare.
- */
+/** What `defineApp` makes of an app that returns `app`. These apps only declare. */
 function made<const T extends App>(app: T): T {
-	return defineApp(() => app)({ folder: {} as Folder });
+	return defineApp(() => app)({ folder: unusedFolder });
 }
 
 /** What `make` throws, one problem a line. */
@@ -139,6 +136,40 @@ describe('defineApp', () => {
 		]);
 		expect(problems(() => made(undefined as never))).toEqual([
 			'An app returns an object: defineApp(({ folder }) => ({ description, data, actions }))',
+		]);
+	});
+
+	test('keeps the data handles it is given', () => {
+		const data = defineData(unusedFolder, {
+			notes: { fields: { title: field.text() } },
+		});
+		const app = made({ description: 'Notes', data, actions: {} });
+		expect(app.data.notes).toBe(data.notes);
+		expect(app.data.notes.path('one')).toBe('data/notes/one.md');
+	});
+
+	test('refuses data that is not what defineData returned, or a data key that is not a name', () => {
+		expect(
+			problems(() =>
+				made({ description: 'Bad', data: null, actions: {} } as never),
+			),
+		).toEqual(['An app needs data: the value returned by defineData(...)']);
+		expect(
+			problems(() =>
+				made({
+					description: 'Bad',
+					data: { notes: { fields: {} } },
+					actions: {},
+				} as never),
+			),
+		).toEqual(['data.notes is not a handle from defineData(...)']);
+		const data = defineData(unusedFolder, { notes: { fields: {} } });
+		expect(
+			problems(() =>
+				made({ description: 'Bad', data: { Notes: data.notes }, actions: {} }),
+			),
+		).toEqual([
+			'data has the key "Notes", which must be a name, optionally followed by .md',
 		]);
 	});
 
@@ -204,19 +235,6 @@ describe('defineApp', () => {
 			'actions.plain is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
 			'actions.group.five is neither an action nor a group of them',
 		]);
-	});
-});
-
-describe('defineData', () => {
-	test('rejects cyclic schemas at declaration before they can break discovery', () => {
-		const schema: { type: string; properties: Record<string, TSchema> } = {
-			type: 'object',
-			properties: {},
-		};
-		schema.properties.self = schema;
-		expect(() =>
-			defineData({} as Folder, { records: { fields: { value: schema } } }),
-		).toThrow(TypeError);
 	});
 });
 
