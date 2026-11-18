@@ -22,7 +22,7 @@ const actionOf = (url: Parameters<typeof fetch>[0]) => /\/tasks\/([^/]+)$/.exec(
 /** A call that answered with what the action returned. */
 const response = (returned: unknown) => new Response(`${JSON.stringify({ answer: { data: returned, error: null } })}\n`);
 /** Serve refusing a call before it runs. */
-const unavailable = () => new Response(JSON.stringify({ data: null, error: { kind: 'refused', reason: { name: 'Usage', message: 'unavailable' } } }), {
+const unavailable = () => new Response(JSON.stringify({ data: null, error: { name: 'NotStarted', message: 'unavailable', cause: 'internal', namespace: 'epicenter/action-error' } }), {
 	status: 503,
 });
 function stub(answer: (action: string | undefined) => Response) {

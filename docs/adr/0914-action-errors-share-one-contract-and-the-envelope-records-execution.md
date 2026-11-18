@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-15)
 - **Amended by:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on the action return contract and wire answer.
+- **Amended by:** [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) on the wire envelope: the `kind` envelope goes, and an error's name says whether the action ran.
 - **Date:** 2026-11-15
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md), [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md).
 

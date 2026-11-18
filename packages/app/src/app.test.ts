@@ -309,7 +309,31 @@ describe('defineAction', () => {
 			input: { value: schema },
 			run: () => Ok(true),
 		});
-		expect(action.input.value).toEqual(schema);
+		expect(action.input.properties.value).toEqual(schema);
+	});
+
+	test("refuses another action's input schema where its fields belong, and takes its properties", () => {
+		const show = defineAction({
+			description: 'Show a day',
+			input: { day: field.date(), note: field.text({ optional: true }) },
+			run: ({ day }) => Ok(day),
+		});
+		expect(() =>
+			defineAction({
+				description: 'Show again',
+				// @ts-expect-error an input schema is not a map of fields
+				input: show.input,
+				run: () => Ok(true),
+			}),
+		).toThrow(
+			"has another action's input schema as its input; write `input: other.input.properties`",
+		);
+		const again = defineAction({
+			description: 'Show again',
+			input: show.input.properties,
+			run: () => Ok(true),
+		});
+		expect(again.input).toEqual(show.input);
 	});
 
 	test('an action that sends updates resolves with its return, and a caller that listens hears them in order', async () => {

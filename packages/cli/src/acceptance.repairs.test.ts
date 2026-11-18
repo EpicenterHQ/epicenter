@@ -129,13 +129,17 @@ export default defineApp({ description: 'The loud app', actions: { hello: define
 		expect(unknown.isError).toBe(true);
 		expect(unknown.structuredContent).toMatchObject({
 			data: null,
-			error: { kind: 'refused', reason: { name: 'Usage' } },
+			error: { name: 'NotStarted', cause: 'usage' },
 		});
 		const broken = await client.callTool({ name: 'broken_x', arguments: {} });
 		expect(broken.isError).toBe(true);
 		expect(broken.structuredContent).toMatchObject({
 			data: null,
-			error: { kind: 'refused', reason: { name: 'AppProblems' } },
+			error: {
+				name: 'NotStarted',
+				cause: 'app-problems',
+				problems: [expect.any(String)],
+			},
 		});
 	} finally {
 		await close();
@@ -155,7 +159,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain(
-		'Exit codes: 0 done, 1 ran with a failure or an unfinished export, 2 did not run.',
+		'Exit codes: 0 done, 1 failed or may have run, or an unfinished export, 2 did not run.',
 	);
 	for (const gone of [
 		'epicenter types',
@@ -225,7 +229,5 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 		'{"from":"2026-13-45","to":"2026-11-08"}',
 	);
 	expect(bad.code).toBe(2);
-	expect(bad.report.error.reason.message).toBe(
-		'from must be a day like 2026-11-12',
-	);
+	expect(bad.report.error.message).toBe('from must be a day like 2026-11-12');
 });

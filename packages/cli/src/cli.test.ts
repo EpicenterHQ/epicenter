@@ -148,11 +148,28 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		expect(result.code).toBe(2);
 		expect(result.stderr).toBe('');
 		expect(result.stdout.trim().split('\n')).toHaveLength(1);
-		const reason = { name: 'Usage', message: expect.stringContaining(message) };
-		expect(JSON.parse(result.stdout)).toMatchObject(
+		const said = expect.stringContaining(message);
+		// An action call answers `NotStarted`; a bare word is not one, and
+		// answers the CLI's own `Usage`.
+		expect(JSON.parse(result.stdout)).toEqual(
 			args.length > 1
-				? { data: null, error: { kind: 'refused', reason } }
-				: { error: reason },
+				? {
+						data: null,
+						error: {
+							name: 'NotStarted',
+							message: said,
+							cause: 'usage',
+							next: expect.any(String),
+							namespace: 'epicenter/action-error',
+						},
+					}
+				: {
+						error: {
+							name: 'Usage',
+							message: said,
+							next: expect.any(String),
+						},
+					},
 		);
 	}
 	expect((await f.run('mcp', 'nope')).code).toBe(2);
@@ -291,7 +308,11 @@ test('a throwing action returns exit 1 with its message', async () => {
 	expect({ code, stderr }).toEqual({ code: 1, stderr: '' });
 	expect(JSON.parse(stdout)).toEqual({
 		data: null,
-		error: { kind: 'fault', message: 'action exploded' },
+		error: {
+			name: 'Threw',
+			message: 'action exploded',
+			namespace: 'epicenter/action-error',
+		},
 	});
 });
 

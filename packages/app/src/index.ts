@@ -13,6 +13,7 @@ export {
 	isActionResult,
 	type PublicError,
 } from './action-result.ts';
+export { type Answer, checkAnswer, readAnswer } from './answer.ts';
 export {
 	type Actions,
 	type App,
@@ -36,9 +37,16 @@ export {
 	defineData,
 } from './data.ts';
 export { checkData } from './data-check.ts';
-export { ActionError, type Problem } from './errors.ts';
+export {
+	ActionError,
+	type NotStartedCause,
+	type Problem,
+	RESERVED_NAMES,
+} from './errors.ts';
 export {
 	field,
+	type ObjectSchema,
+	objectSchema,
 	whatFits,
 	whatTakes,
 } from './field.ts';

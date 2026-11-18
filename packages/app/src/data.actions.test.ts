@@ -4,7 +4,6 @@
  * exact and refused ids, time-named creates, verb refusals, and MCP annotations.
  */
 import { expect, test } from 'bun:test';
-import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { isActionError } from './errors.ts';
@@ -353,16 +352,14 @@ test('an encoded Misfit answer keeps the id of a folder record and has none for 
 // Discovery metadata and schemas are the boundary used by CLI, HTTP, and MCP.
 test('schemas require create fields but not an id, permit only optional-field removal, and give edit only id, old, and new', () => {
 	const { notes, settings } = setup();
-	const create = Type.Object(notes.create.input, {
-		additionalProperties: false,
-	});
-	const patch = Type.Object(notes.patch.input, { additionalProperties: false });
+	const create = notes.create.input;
+	const patch = notes.patch.input;
 	expect(Value.Check(create, { id: 'a', title: 'yes' })).toBe(true);
 	expect(Value.Check(create, { title: 'yes' })).toBe(true);
 	for (const input of [{ id: 'a' }, { id: 7, title: 'yes' }])
 		expect(Value.Check(create, input)).toBe(false);
 	for (const action of [notes.patch, settings.patch]) {
-		const schema = Type.Object(action.input, { additionalProperties: false });
+		const schema = action.input;
 		const id = action === notes.patch ? { id: 'a' } : {};
 		expect(Value.Check(schema, { ...id, note: null })).toBe(true);
 		expect(Value.Check(schema, { ...id, title: null })).toBe(false);
@@ -373,7 +370,7 @@ test('schemas require create fields but not an id, permit only optional-field re
 	expect(Value.Check(patch, { title: 'missing id' })).toBe(false);
 	expect(Value.Check(patch, { id: 'a', was: {} })).toBe(false);
 	for (const action of [notes.edit, settings.edit]) {
-		const schema = Type.Object(action.input, { additionalProperties: false });
+		const schema = action.input;
 		const id = action === notes.edit ? { id: 'a' } : {};
 		expect(Value.Check(schema, { ...id, old: 'x', new: '' })).toBe(true);
 		expect(Value.Check(schema, { ...id, old: '', new: 'x' })).toBe(false);
@@ -386,14 +383,23 @@ test('schemas require create fields but not an id, permit only optional-field re
 			false,
 		);
 	}
-	expect(Object.keys(notes.edit.input)).toEqual(['id', 'old', 'new']);
-	expect(Object.keys(settings.edit.input)).toEqual(['old', 'new']);
-	expect(notes.create.input.id).toMatchObject({
+	expect(Object.keys(notes.edit.input.properties)).toEqual([
+		'id',
+		'old',
+		'new',
+	]);
+	expect(Object.keys(settings.edit.input.properties)).toEqual(['old', 'new']);
+	expect(notes.create.input.properties.id).toMatchObject({
 		description:
 			'The name of the new note; left out, it is named by the moment it is made',
 	});
-	expect(Object.keys(settings.get.input)).toEqual([]);
-	expect(Object.keys(settings.delete.input)).toEqual([]);
+	expect(settings.get.input).toEqual({
+		type: 'object',
+		properties: {},
+		required: [],
+		additionalProperties: false,
+	});
+	expect(Object.keys(settings.delete.input.properties)).toEqual([]);
 });
 
 test('only named verbs are returned, every action is callable, and annotations say which writes are safe to repeat', () => {

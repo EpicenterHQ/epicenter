@@ -25,7 +25,13 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 			thrown: { name: 'Custom', message: 'custom', id: 7 },
 		}),
 		ActionError.Refused({ message: 'declined', next: 'Try another input' }),
-		ActionError.Unreachable({ message: 'The model did not answer' }),
+		ActionError.Unreachable({ message: 'The connection dropped' }),
+		ActionError.NotStarted({
+			message: 'notes: epicenter.ts does not load',
+			cause: 'app-problems',
+			next: 'epicenter check notes',
+			problems: ['epicenter.ts does not load'],
+		}),
 	]) {
 		const received: unknown = JSON.parse(
 			JSON.stringify({ ...error, extra: 7 }),

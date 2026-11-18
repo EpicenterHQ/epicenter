@@ -6,16 +6,11 @@
  */
 
 import { basename } from 'node:path';
-import { type Action, whatTakes } from '@epicenter/app';
+import { type Action, objectSchema, whatTakes } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import { VERSION } from './engines.ts';
 import type { Discovery, Runnable } from './home.ts';
-import {
-	exampleCommand,
-	jsonSchema,
-	requiredKeys,
-	usageLine,
-} from './input.ts';
+import { exampleCommand, usageLine } from './input.ts';
 import { type RepositoryStatus, repositoryLine } from './repository.ts';
 
 /**
@@ -26,7 +21,7 @@ export function actionTool(app: string, key: string, action: Action) {
 	return {
 		name: `${app}_${key.replaceAll(' ', '_')}`,
 		description: action.description,
-		inputSchema: jsonSchema(action.input),
+		inputSchema: action.input,
 		...(action.annotations ? { annotations: action.annotations } : {}),
 		...(action.mcp === false ? { mcp: false as const } : {}),
 	};
@@ -52,7 +47,7 @@ function appListing(located: Runnable) {
 								...(handle.description
 									? { description: handle.description }
 									: {}),
-								fields: jsonSchema(handle.fields),
+								fields: objectSchema(handle.fields),
 							},
 						]),
 					),
@@ -166,7 +161,7 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 			? Object.entries(located.app.data).flatMap(([key, handle]) => [
 					`  ${key}  data/${key}${key.endsWith('.md') ? '' : '/'}`,
 					...(handle.description ? [`    ${handle.description}`] : []),
-					`    ${JSON.stringify(jsonSchema(handle.fields))}`,
+					`    ${JSON.stringify(objectSchema(handle.fields))}`,
 				])
 			: []),
 		...actionLines(located),
@@ -181,14 +176,14 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
  */
 export function actionHelp(name: string, key: string, action: Action): string {
 	const usage = [usageLine(name, key, action), action.description];
-	const keys = Object.keys(action.input);
+	const { properties, required } = action.input;
+	const keys = Object.keys(properties);
 	if (!keys.length) return usage.join('\n');
-	const required = requiredKeys(action.input);
-	const rows = Object.entries(action.input).map(([key, field]) => {
+	const rows = Object.entries(properties).map(([key, field]) => {
 		const { description } = field as TSchemaOptions;
 		return [
 			key,
-			required.has(key) ? 'required' : 'optional',
+			required.includes(key) ? 'required' : 'optional',
 			`${whatTakes(field)}${description ? `. ${description}` : ''}`,
 		] as const;
 	});

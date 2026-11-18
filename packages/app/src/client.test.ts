@@ -106,98 +106,40 @@ test('a listener that throws or rejects is reported and does not end the call', 
 	}
 });
 
-test('each kind of failure in an answer becomes its error', async () => {
-	for (const result of [
-		ActionError.Changed({ path: 'x', why: 'quote' }),
-		ActionError.Missing({ path: 'x' }),
-	]) {
-		const reason = { ...result.error, extra: 'retained' };
-		respond(failed({ kind: 'returned', reason }));
-		expect(expectErr(await app.count())).toEqual(reason);
-	}
-	respond(
-		failed({ kind: 'returned', reason: { name: 'NoRoute', message: 'no' } }),
-	);
-	expect(expectErr(await app.count())).toMatchObject({
-		name: 'NoRoute',
-		message: 'no',
-	});
-	respond(
-		failed({
-			kind: 'fault',
+test('an error in the answer is the error itself, whole', async () => {
+	for (const error of [
+		{ ...ActionError.Changed({ path: 'x', why: 'quote' }).error, extra: 7 },
+		ActionError.Missing({ path: 'x' }).error,
+		ActionError.Refused({ message: 'no title', next: 'retry' }).error,
+		{ name: 'NoRoute', message: 'no', airport: 'LAX' },
+		ActionError.Threw({
 			message: 'bad',
 			thrown: { name: 'Custom', message: 'bad' },
-		}),
-	);
-	expect(expectErr(await app.count())).toMatchObject({
-		name: 'Threw',
-		message: 'bad',
-		thrown: { name: 'Custom' },
-	});
-	respond(
-		failed({
-			kind: 'refused',
-			reason: { name: 'Usage', message: 'refused', next: 'retry' },
-		}),
-	);
-	expect(expectErr(await app.count())).toMatchObject({
-		name: 'Refused',
-		message: 'refused',
-		next: 'retry',
-	});
+		}).error,
+		ActionError.NotStarted({
+			message: 'title is needed',
+			cause: 'usage',
+			next: 'epicenter tasks add --help',
+		}).error,
+	]) {
+		respond(failed(error));
+		expect(expectErr(await app.count()) as unknown).toEqual(error);
+	}
 });
 
-test('a refusal before the action runs arrives as the body of an HTTP error', async () => {
-	respond(
-		JSON.stringify({
-			data: null,
-			error: {
-				kind: 'refused',
-				reason: { name: 'Usage', message: 'no such action' },
-			},
-		}),
-		{ status: 404 },
-	);
-	expect(expectErr(await app.count())).toMatchObject({
-		name: 'Refused',
-		message: 'no such action',
+test('a call serve never started arrives as NotStarted in the body of an HTTP error', async () => {
+	const refusal = ActionError.NotStarted({
+		message: 'tasks: epicenter.ts does not load',
+		cause: 'app-problems',
+		problems: ['epicenter.ts does not load'],
 	});
+	respond(JSON.stringify(refusal), { status: 400 });
+	expect(expectErr(await app.count())).toEqual(refusal.error);
 	respond('', { status: 503, statusText: 'Service Unavailable' });
 	expect(expectErr(await app.count())).toMatchObject({
-		name: 'Refused',
+		name: 'Unreachable',
 		message: 'Epicenter answered 503 Service Unavailable',
 	});
-});
-
-test('an answer that is not one is Unreachable, and so is a stream cut off before it', async () => {
-	for (const text of [
-		'not-json\n',
-		line([1]),
-		line({ neither: true }),
-		line({ answer: null }),
-		line({ answer: {} }),
-		line({ answer: { data: 1, error: { kind: 'fault', message: 'bad' } } }),
-		failed({ kind: 'fault' }),
-		failed({ kind: 'fault', message: 'bad', thrown: {} }),
-		failed({ kind: 'returned', reason: {} }),
-		failed({
-			kind: 'refused',
-			reason: { name: 'Usage', message: 'bad', next: 42 },
-		}),
-		failed({ kind: 'other' }),
-	]) {
-		respond(text);
-		expect(expectErr(await app.count())).toMatchObject({
-			name: 'Unreachable',
-			message: 'Epicenter sent an invalid answer',
-		});
-	}
-	for (const text of ['', line({ update: 1 }), answer('done').slice(0, -3)]) {
-		respond(text);
-		const error = expectErr(await app.count());
-		expect(error.name).toBe('Unreachable');
-		expect(error.message).toStartWith('The connection ended before the answer');
-	}
 });
 
 test('a failed fetch never claims the action did not start: it may have run', async () => {

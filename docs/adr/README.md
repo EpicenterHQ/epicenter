@@ -1129,7 +1129,7 @@ When you add an ADR, add its row here.
 | [0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) | Export copies an app's committed code into a refreshable directory | Accepted (amends 0910) |
 | [0912](0912-shared-app-code-comes-from-the-app-we-maintain.md) | Shared app code comes from the app we maintain | Proposed (amends 0891) |
 | [0913](0913-cli-developer-previews-are-non-latest-github-releases.md) | CLI developer previews are non-latest GitHub releases | Proposed (amends 0892) |
-| [0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) | Action errors share one contract and the envelope records execution | Accepted |
+| [0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) | Action errors share one contract and the envelope records execution | Accepted (amended by 0953) |
 | [0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) | Serve owns a page's runs and a file input is a temporary upload | Accepted |
 | [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |
 | [0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) | A page's calls are serve-owned runs, and observing is not cancelling | Accepted (amends 0879 and 0915) |
@@ -1140,10 +1140,10 @@ When you add an ADR, add its row here.
 | [0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) | A read gives only what the file holds, and no field has a default | Proposed |
 | [0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) | Front matter is `key: <JSON>` lines, each read on its own, and no YAML is read | Proposed |
 | [0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) | An action's input on the command line is one JSON object | Proposed (amends 0841 and 0907) |
-| [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | An action returns one Result from its collections to its callers | Accepted (amends 0850 and 0914) |
+| [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | An action returns one Result from its collections to its callers | Accepted (amends 0850 and 0914; amended by 0953) |
 | [0927](0927-serve-listens-only-on-this-computer.md) | `serve` listens only on this computer, and the owner's network brings other devices in | Accepted (amends 0883) |
 | [0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md) | `new` copies an app's code from a folder in Git or a folder on GitHub | Accepted (amends 0904, 0910, 0912) |
-| [0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) | An action call is a function call, and serve keeps nothing about it | Proposed (supersedes 0915 and 0917; amends 0879, 0883, 0914 and 0926) |
+| [0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) | An action call is a function call, and serve keeps nothing about it | Proposed (supersedes 0915 and 0917; amends 0879, 0883, 0914 and 0926; amended by 0953) |
 | [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Proposed (amends 0910 and 0880) |
 | [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Proposed (amends 0908, 0910) |
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
@@ -1157,3 +1157,4 @@ When you add an ADR, add its row here.
 | [0946](0946-new-from-a-local-folder-refuses-uncommitted-code.md) | `new --from` a local folder refuses uncommitted code | Proposed (amends 0929) |
 | [0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) | A credential the owner pastes goes in the home's `.env`, which only `env()` reads | Proposed (amends 0870 and 0939) |
 | [0949](0949-an-action-reaches-a-model-through-model-and-the-home-names-its-default-in-epicenter-md.md) | An action reaches a model through `model()`, and the home names its default in `EPICENTER.md` | Proposed |
+| [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |

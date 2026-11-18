@@ -14,7 +14,6 @@ import { defaultIn, field, refKeyOf } from './field.ts';
 import { isFieldKey, type JsonValue, readMarkdown } from './front-matter.ts';
 import { idProblem } from './id.ts';
 import {
-	containsFileMarker,
 	type Fields,
 	type Fitting,
 	isOptional,
@@ -272,10 +271,6 @@ export function defineData<const TSpec extends Spec>(
 			if (defaultIn(schema))
 				throw new Error(
 					`The data key ${key} has a default in field "${field}"; a read gives only what the file holds`,
-				);
-			if (containsFileMarker(schema))
-				throw new Error(
-					`The data key ${key} cannot keep the file input "${field}"`,
 				);
 			checkRefs(schema, key, field);
 		}

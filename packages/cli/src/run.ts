@@ -2,27 +2,31 @@
 
 import {
 	type Action,
+	ActionError,
+	type Answer,
 	encodeActionResult,
 	inRun,
 	isActionResult,
+	RESERVED_NAMES,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Err } from 'wellcrafted/result';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
-import { type RunAnswer, refused, stderrJsonLines } from './output.ts';
+import { notStarted, stderrJsonLines } from './output.ts';
+
+type Thrown = { name: string; message: string } & Record<string, unknown>;
 
 /**
- * What the action threw, as the answer carries it. A thrown tagged error (a
+ * What the action threw, as `Threw` carries it. A thrown tagged error (a
  * frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
  * makes) is kept whole when it survives JSON. A value that cannot be read
  * or serialized still answers as an action throw, with a safe message.
  */
 function threwOf(cause: unknown): {
 	message: string;
-	thrown?: Record<string, unknown>;
+	thrown?: Thrown;
 } {
 	let message = 'The action threw a value that could not be read';
 	try {
@@ -45,7 +49,7 @@ function threwOf(cause: unknown): {
 			'message' in thrown &&
 			typeof thrown.message === 'string'
 		)
-			return { message, thrown };
+			return { message, thrown: thrown as Thrown };
 	} catch {
 		// Error details are best effort; they must not prevent the call's answer.
 	}
@@ -56,7 +60,11 @@ function threwOf(cause: unknown): {
 const runLog = createLogger('cli/run', stderrJsonLines);
 
 /**
- * Run a checked action. Nothing locks it: one process runs actions (ADR-0936).
+ * Run a checked action and answer what it did: its own Result, or `Threw`.
+ * An error it returns named `NotStarted` or `Unreachable`, with or without
+ * the platform's namespace, answers `Threw`: only Epicenter says a call never
+ * began or that its outcome is unknown, and an action can copy the namespace
+ * (ADR-0953). Nothing locks it: one process runs actions (ADR-0936).
  * When it ends, `log` gets one record: the app, the action, the outcome and
  * how long it took, and for a failure the error's name. The
  * record has neither the input nor the result, which can hold personal data.
@@ -67,7 +75,7 @@ export async function runAction(
 	action: Action,
 	input: Record<string, unknown>,
 	{ onUpdate, log = runLog }: Following = {},
-): Promise<RunAnswer> {
+): Promise<Answer> {
 	const started = performance.now();
 	const answer = await settle(key, action, input, located, onUpdate);
 	try {
@@ -85,16 +93,16 @@ export async function runAction(
 
 /**
  * How a run ended, as its record states it: for a failure, the error's name
- * alone. A message can quote what the person typed, so it stays out.
+ * as the answer carries it, and for `Threw` the thrown value's name when it
+ * has one. A message can quote what the person typed, so it stays out.
  */
-function outcomeOf({ error }: RunAnswer) {
+function outcomeOf({ error }: Answer) {
 	if (error === null) return { outcome: 'ok' as const };
-	if (error.kind === 'returned')
-		return { outcome: 'returned' as const, error: error.reason.name };
-	const name = error.thrown?.name;
+	const thrown = (error as { thrown?: { name?: unknown } }).thrown?.name;
 	return {
-		outcome: 'fault' as const,
-		...(typeof name === 'string' && { error: name }),
+		outcome: 'error' as const,
+		error: error.name,
+		...(typeof thrown === 'string' && { thrown }),
 	};
 }
 
@@ -105,7 +113,7 @@ async function settle(
 	input: Record<string, unknown>,
 	located: Runnable,
 	onUpdate: Following['onUpdate'],
-): Promise<RunAnswer> {
+): Promise<Answer> {
 	const context = {
 		...located.context,
 	};
@@ -117,11 +125,13 @@ async function settle(
 				`The action "${key}" must return Ok(data) or Err(error)`,
 			);
 		const encoded = encodeActionResult(result);
-		return encoded.error === null
-			? encoded
-			: Err({ kind: 'returned', reason: encoded.error });
+		if (encoded.error && RESERVED_NAMES.includes(encoded.error.name))
+			return ActionError.Threw({
+				message: `The action "${key}" returned ${encoded.error.name}, a name only Epicenter answers`,
+			});
+		return encoded;
 	} catch (cause) {
-		return Err({ kind: 'fault', ...threwOf(cause) });
+		return ActionError.Threw(threwOf(cause));
 	}
 }
 
@@ -133,9 +143,9 @@ export type Following = {
 	log?: Logger;
 };
 
-/** A call that is ready to run, or the refusal that answers it instead. */
+/** A call that is ready to run, or the `NotStarted` that answers it instead. */
 export type Resolved =
-	| { refusal: ReturnType<typeof refused> }
+	| { refusal: Answer }
 	| {
 			refusal?: undefined;
 			located: Runnable;
@@ -153,14 +163,14 @@ export async function resolveAction(
 	raw: unknown,
 ): Promise<Resolved> {
 	const usage = (message: string, next?: string) => ({
-		refusal: refused(CliError.Usage({ message, next }).error),
+		refusal: notStarted(CliError.Usage({ message, next }).error),
 	});
 	try {
 		const { data: located, error: notFound } = await loadHomeApp(name);
-		if (notFound) return { refusal: refused(notFound) };
+		if (notFound) return { refusal: notStarted(notFound) };
 		if (!located.ok)
 			return {
-				refusal: refused(
+				refusal: notStarted(
 					CliError.AppProblems({ app: name, problems: located.problems }).error,
 				),
 			};
@@ -177,7 +187,7 @@ export async function resolveAction(
 		return { located, action, input: checked.input };
 	} catch (cause) {
 		return {
-			refusal: refused(CliError.Internal({ cause }).error),
+			refusal: notStarted(CliError.Internal({ cause }).error),
 		};
 	}
 }
