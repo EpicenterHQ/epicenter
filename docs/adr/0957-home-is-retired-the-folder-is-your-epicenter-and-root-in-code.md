@@ -23,13 +23,16 @@ only it.**
 
 | Thing | A person reads | Code says |
 | --- | --- | --- |
-| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `rootFolder()` |
+| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `epicenterRoot()` |
 | The computer it runs on | the computer | not named |
 | One app's folder, `apps/<app>/` | the app | the app folder; `folder.path` |
 
-- `epicenterDir()` in `packages/app/src/command/root.ts` becomes `rootFolder()`.
+- `epicenterDir()` in `packages/app/src/command/root.ts` is removed.
   `epicenterRoot()` already exists there and returns `{ folder, port }`, an
-  `EpicenterRoot`; it keeps its name. Each other identifier with "home" in
+  `EpicenterRoot`; it keeps its name, and the command's entry point calls it
+  once and passes the root on, so no function returns the folder alone.
+  (This record first renamed `epicenterDir()` to `rootFolder()`; passing the
+  root left nothing to call it.) Each other identifier with "home" in
   it takes "root" or loses the word: `loadHomeApp` is `loadApp`,
   `homeEntries` is `appEntries`, `installHome` is `installRoot`,
   `homeName` is `rootHeaderValue`, since it returns the header's encoded

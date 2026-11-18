@@ -627,8 +627,11 @@ route, so the route never spells the record's path.
 - **A command finds its Epicenter only by walking up** from the folder it
   runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd`
   into your Epicenter, or set a script's working directory there.
-- **`epicenter serve` starts only in the Epicenter's own folder.** A
-  launchd or systemd job sets its working directory to it.
+- **`epicenter serve` starts only in the Epicenter's own folder.** Started
+  anywhere else it refuses and exits, so a job that restarts it on exit
+  fails again each time. Set the job's working directory to your Epicenter:
+  `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=`
+  in a systemd unit.
 - **Bare `epicenter`, `epicenter <app>` and an action's `--help` ask
   serve**, and are refused while it is stopped. `epicenter check` still
   works without it.
