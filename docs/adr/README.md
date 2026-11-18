@@ -1154,8 +1154,8 @@ When you add an ADR, add its row here.
 | [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
 | [0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) | An app builds its own UI, and serve only serves it | Proposed (amends 0904, 0910, 0911, and 0942) |
 | [0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) | An app may answer HTTP and WebSocket requests under its address | Proposed |
-| [0948](0948-a-value-several-apps-share-goes-in-the-homes-env-and-a-run-reads-it-through-its-context.md) | A value several apps share goes in the home's `.env`, and a run reads it through its context | Proposed (amends 0870) |
-| [0949](0949-an-action-reaches-a-model-through-model-which-reads-its-connection-from-the-homes-env.md) | An action reaches a model through `model()`, which reads its connection from the home's `.env` | Proposed |
+| [0948](0948-a-secret-the-owner-pastes-goes-in-the-homes-env-and-serve-starts-with-it-in-its-environment.md) | A secret the owner pastes goes in the home's `.env`, and serve starts with it in its environment | Proposed (amends 0870) |
+| [0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) | An action calls a model with plain code, and Epicenter adds no function for it | Proposed |
 | [0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) | `api.epicenter.so` is a model API, and every client reaches it with an API key | Proposed (supersedes 0549 and 0331; amends 0634) |
 | [0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) | AI credits follow what a call uses: held before it and settled after | Proposed |
 | [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |
