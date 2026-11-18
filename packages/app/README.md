@@ -532,3 +532,37 @@ optional in `ActionInput`; an action that only returns reports `never`.
 A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
+
+## Upgrading from 0.6
+
+0.7.0 renames a data handle's write verbs and `pathOf`. Behavior is unchanged except where noted. TypeScript flags every call to an old method, so in each app run the type-check and fix what it names.
+
+| 0.6 | 0.7 |
+| --- | --- |
+| `data.books.add(id, record)` | `data.books.create(id, record)` |
+| `data.books.set(id, change)`, one-file `set(change)` | `data.books.patch(id, change)`, one-file `patch(change)` |
+| `data.books.update(id, fn)`, one-file `update(fn)` | `data.books.edit(id, fn)`, one-file `edit(fn)` |
+| `data.books.pathOf(id)`, one-file `pathOf()` | `data.books.path(id)`, one-file `path()` |
+| the generated `set` given `{ id, edit: { old, new } }` | the generated `edit` given `{ id, old, new }`, or `data.books.edit(id, { old, new })` in code |
+
+### What the compiler does not catch
+
+- **Action lists are strings.** In `data.<key>.actions(...)`, replace `'add'` with `'create'`, and `'set'` with `'patch', 'edit'`. Listing `edit` keeps passage edits available to agents.
+- **Pages call actions by name.** `app.set(...)` becomes `app.patch(...)`, and `app.add(...)` becomes `app.create(...)`. A page that sent `edit: { old, new }` to `set` now calls `app.edit({ id, old, new })`.
+- **Scripts, routines and docs** that run `epicenter <app> set` or `add` with a generated verb need the new name.
+- **An app's own action that happens to be named `add`** is not a generated verb. It keeps its name.
+
+### Behavior that changed
+
+- **Fields and a passage in one call.** The generated `edit` takes only `{ id, old, new }`. A caller that changed fields and a passage in one `set` call now sends a `patch` and then an `edit`, or the app defines an action that does both in one `edit(id, fn)`.
+- **One-file keys.** A passage `edit` on a missing file answers `Missing`. It used to answer `Changed` (`quote`).
+- **Idempotency hints.** `create` and `edit` now declare `idempotentHint: false`. An agent that may retry `create` should send an id.
+
+### Steps
+
+1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the home's `package.json`.
+2. Run `bun install`.
+3. Fix each app until `bun run typecheck` and `bun test` pass.
+4. Run `bun run build` in each app that has a UI.
+5. Restart `epicenter serve`.
+6. Commit the result as one commit, so reverting it returns the home to 0.6.
