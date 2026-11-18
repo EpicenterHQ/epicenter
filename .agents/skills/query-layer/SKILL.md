@@ -25,10 +25,12 @@ callback order, or adapter types, ask DeepWiki a narrow question about
 `TanStack/query`, then confirm the deciding detail in the installed
 `@tanstack/query-core` source. Skip this for the patterns below.
 
-## Build query and mutation maps
+## Compose a service into two maps
 
-For a single resource, list the reads and writes the UI observes under one
-namespace. The dashboard does this for its billing API (`apps/api/ui/src/lib/dashboard/runtime.ts`):
+Wrap the reads a UI observes in `resultQueries` and the writes in
+`resultMutations`. The first argument is the namespace, which starts every key;
+the second names the service functions. The dashboard does this for billing
+(`apps/api/ui/src/lib/dashboard/runtime.ts`):
 
 ```ts
 const billingQueries = resultQueries(['billing'], {
@@ -43,13 +45,21 @@ const billingMutations = resultMutations(['billing'], {
 });
 ```
 
-- A query entry takes the method's own arguments and returns options keyed
-  `[...namespace, method, [args]]`. `billingQueries.usage.key` is the prefix of
-  every argument variant; `billingQueries.usage(params).queryKey` is one entry,
-  typed for `getQueryData` and `setQueryData`.
-- A mutation entry is the options object itself, keyed `[...namespace, method]`.
-  Its method takes zero arguments or one input object; only that input reaches
-  it.
+Each key is the namespace, then the method name. A query key also ends with the
+call's arguments, kept together in one list:
+
+```ts
+billingQueries.usage.key                   // ['billing', 'usage']
+billingQueries.usage(params).queryKey      // ['billing', 'usage', [params]]
+billingMutations.checkoutTopUp.mutationKey // ['billing', 'checkoutTopUp']
+```
+
+The list keeps arguments apart from names, so an argument never reads as a
+method or namespace. Use `.key` for defaults that cover every call of a method;
+`.queryKey` is one cached answer, typed for `getQueryData` and `setQueryData`.
+
+- A query takes its method's own arguments. A mutation's method takes no
+  arguments or one input object, and only that input reaches it.
 - Pass functions only: bound methods or closures, with annotated parameters on
   a new wrapper. A wrapper that fixes a transport option is fine:
   `session: () => management.getSession({ query: { disableCookieCache: true } })`.
@@ -67,8 +77,8 @@ topUp.mutate({ successUrl: window.location.href }, { onSuccess, onError });
 
 ### Group a feature's maps by resource
 
-When a feature has several kinds of data, give each kind its own map and keep
-the maps in a plain object. The property names the resource, so each method can
+A namespace can have more than one part. When a feature holds several kinds of
+data, give each kind its own map and keep the maps in a plain object. The property names the resource, so each method can
 be a plain verb. Whispering does this for its folder
 (`apps/whispering/src/lib/folder-query.ts`):
 
@@ -108,8 +118,8 @@ it when it must not hold up the others. Whispering keys a transcription run
 ### Adapt an individual operation
 
 Use `resultQueryOptions` or `resultMutationOptions` for one function outside a
-namespace, a custom key shape, or a query that needs TanStack's context, such
-as its abort signal. Namespace entries never see it.
+map, a key of your own, or a query that needs TanStack's context, such as its
+abort signal. Map entries never see that context.
 
 For a Result-returning operation observed by one component, construct the
 mutation there. The adapter unwraps `Ok` and throws the original `Err` value
