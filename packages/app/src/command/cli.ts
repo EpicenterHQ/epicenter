@@ -13,7 +13,8 @@ import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
-import { appReport, helpReport, rootReport } from './listing.ts';
+import { noSuchAction } from './input.ts';
+import { appReport, helpReport, missingAction, rootReport } from './listing.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import { epicenterRoot } from './root.ts';
 import { callAction, fetchListing, MAX_INPUT_BYTES } from './send.ts';
@@ -175,7 +176,11 @@ export async function runCli(argv: string[]): Promise<number> {
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve reads the input and runs the action; this process only sends the call.
 		sent = true;
-		return callAction(root, name, key, input, onUpdate);
+		const answered = await callAction(root, name, key, input, onUpdate);
+		// Serve states that the action is missing; the command lists what to type instead.
+		if (answered.error?.message !== noSuchAction(name, key)) return answered;
+		const { data: listing } = await fetchListing(root);
+		return listing ? missingAction(listing, name, key) : answered;
 	}
 	let answered: Answer | undefined;
 	try {

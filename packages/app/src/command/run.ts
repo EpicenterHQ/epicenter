@@ -158,15 +158,7 @@ export function findAction(
 		const action = Object.hasOwn(app.actions, key)
 			? app.actions[key]
 			: undefined;
-		if (!action)
-			return usage(
-				noSuchAction(
-					name,
-					key,
-					Object.entries(app.actions).map(([each, { input }]) => [each, input]),
-				),
-				`epicenter ${name}`,
-			);
+		if (!action) return usage(noSuchAction(name, key), `epicenter ${name}`);
 		return Ok({ app, key, action });
 	});
 }

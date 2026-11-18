@@ -160,7 +160,7 @@ export function readInput(
 		raw = JSON.parse(text);
 	} catch {
 		return {
-			error: `The input is not JSON; give one JSON object, such as ${quoted(exampleInput(schema))}`,
+			error: `The input is not JSON; give one JSON object, such as ${exampleInput(schema)}`,
 		};
 	}
 	return checkObject(schema, raw);
@@ -173,22 +173,14 @@ export function checkObject(
 ): { input: Record<string, unknown> } | { error: string } {
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 		return {
-			error: `The input is not a JSON object; give one, such as ${quoted(exampleInput(schema))}`,
+			error: `The input is not a JSON object; give one, such as ${exampleInput(schema)}`,
 		};
 	return checkInput(schema, raw);
 }
 
 /**
- * The refusal of an action `app` does not have, listing the ones it does:
- * one line each, as `epicenter <app>` shows it. Serve and the command's
- * `--help` say it the same way.
+ * The refusal of an action `app` does not have, as serve states it to every
+ * caller. The command adds the app's actions beneath it from the listing.
  */
-export function noSuchAction(
-	app: string,
-	key: string,
-	actions: [key: string, input: ObjectSchema][],
-): string {
-	return `${app} has no action ${JSON.stringify(key)}. Its actions:\n${actions
-		.map(([each, input]) => usageLine(app, each, input))
-		.join('\n')}`;
-}
+export const noSuchAction = (app: string, key: string) =>
+	`${app} has no action ${JSON.stringify(key)}`;

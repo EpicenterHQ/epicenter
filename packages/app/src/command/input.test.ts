@@ -10,7 +10,7 @@ import {
 	field,
 	Ok,
 } from '../index.ts';
-import { checkInput, noSuchAction, readInput, usageLine } from './input.ts';
+import { checkInput, readInput, usageLine } from './input.ts';
 import { actionHelp, actionTool } from './listing.ts';
 
 /** Help as the command prints it: from the action's tool, after the trip through JSON serve sends it on. */
@@ -52,27 +52,12 @@ test('the text is the JSON object, checked against the schema', async () => {
 test('text that is not JSON, or JSON that is not an object, is refused with an example', async () => {
 	for (const word of ['Call the bank', '{title:"x"}', '--title', ''])
 		expect(await readInput(add.input, word)).toEqual({
-			error: `The input is not JSON; give one JSON object, such as '{"title":"text"}'`,
+			error: `The input is not JSON; give one JSON object, such as {"title":"text"}`,
 		});
 	for (const word of ['"Call the bank"', '3', 'null', '[]'])
 		expect(await readInput(add.input, word)).toEqual({
-			error: `The input is not a JSON object; give one, such as '{"title":"text"}'`,
+			error: `The input is not a JSON object; give one, such as {"title":"text"}`,
 		});
-});
-
-test('an action an app does not have is refused with the ones it has', () => {
-	expect(
-		noSuchAction('tasks', 'add hello', [
-			['add', add.input],
-			[
-				'list',
-				defineAction({ description: 'List', input: {}, run: () => Ok([]) })
-					.input,
-			],
-		]),
-	).toBe(
-		'tasks has no action "add hello". Its actions:\nepicenter tasks add <input>\nepicenter tasks list',
-	);
 });
 
 test('a key the action does not take is refused, naming the keys it takes', () => {

@@ -306,20 +306,32 @@ export function helpReport(
 	const { data: app, error } = listedApp(listing, name);
 	if (error) return Err(error);
 	const tool = app.actions.find((each) => each.name === toolName(name, key));
-	if (!tool)
-		return ActionError.NotStarted({
-			cause: 'usage',
-			message: noSuchAction(
-				name,
-				key,
-				app.actions.map((each) => [
-					fromToolName(each.name).key,
-					each.inputSchema,
-				]),
-			),
-			next: `epicenter ${name}`,
-		});
+	if (!tool) return missingAction(listing, name, key);
 	return Ok(json ? tool : actionHelp(tool));
+}
+
+/**
+ * The command's answer for an action `name` does not have: serve's
+ * refusal, then the app's actions from the listing, one line each, so a
+ * person sees what to type.
+ */
+export function missingAction(
+	listing: Listing,
+	name: string,
+	key: string,
+): Answer {
+	const { data: app, error } = listedApp(listing, name);
+	if (error) return Err(error);
+	return ActionError.NotStarted({
+		cause: 'usage',
+		message: [
+			`${noSuchAction(name, key)}. Its actions:`,
+			...app.actions.map((tool) =>
+				usageLine(name, fromToolName(tool.name).key, tool.inputSchema),
+			),
+		].join('\n'),
+		next: `epicenter ${name}`,
+	});
 }
 
 /**

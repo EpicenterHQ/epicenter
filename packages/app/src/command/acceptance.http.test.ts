@@ -491,8 +491,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 			'talk/sing',
 			'{}',
 			{
-				message:
-					'talk has no action "sing". Its actions:\nepicenter talk refuse\nepicenter talk say <input>\nepicenter talk drip\nepicenter talk tangle',
+				message: 'talk has no action "sing"',
 				cause: 'usage',
 				next: 'epicenter talk',
 			},
@@ -515,7 +514,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 			'talk/say',
 			'[]',
 			{
-				message: `The input is not a JSON object; give one, such as '{"words":"text"}'`,
+				message: `The input is not a JSON object; give one, such as {"words":"text"}`,
 				cause: 'usage',
 				next: 'epicenter talk say --help',
 			},
@@ -524,7 +523,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 			'talk/say',
 			'words',
 			{
-				message: `The input is not JSON; give one JSON object, such as '{"words":"text"}'`,
+				message: `The input is not JSON; give one JSON object, such as {"words":"text"}`,
 				cause: 'usage',
 				next: 'epicenter talk say --help',
 			},
@@ -551,9 +550,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 	});
 	expect(expectErr(await client.sing({ words: 'la' })) as unknown).toEqual(
 		notStarted({
-			message: expect.stringMatching(
-				/^talk has no action "sing"\. Its actions:\n/,
-			),
+			message: 'talk has no action "sing"',
 			cause: 'usage',
 			next: 'epicenter talk',
 		}).error,
