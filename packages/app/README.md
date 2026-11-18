@@ -725,15 +725,17 @@ Some other names 0.7.0 exported are gone:
 ### Data and fields
 
 Every data key is a folder, nothing is filled in, and the library invents no
-value. The compiler flags the rows that change a key, a call or a type, at
-each place the code breaks, except where a row says it does not. For the
+value. The compiler flags the rows that change a call or a type, at each
+place the code breaks, except where a row says it does not. It does not flag
+a key still named `'settings.md'`: that compiles, and `defineData` throws
+when the app loads, naming the key to write and where to move the file. For the
 `done` and `tags` rows it flags only code that leaves the field out of a
 record it passes or reads it as always there; the callers and files it
 cannot see are in the next section.
 
 | 0.7.0 | 0.8.0 |
 | --- | --- |
-| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings record', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md` |
+| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings record', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md`. Not flagged by the compiler for the key itself, only for the calls; a file left at `data/settings.md` is read by nothing, and `epicenter check` lists it |
 | one-file `data['settings.md'].patch(change)`, which made the file and repaired one that did not fit | no one call does both now: `data.settings.edit('settings', () => Ok(change))` makes an absent record but answers the `Misfit` for one that does not fit, and `data.settings.patch('settings', change)` repairs one that does not fit but answers `Missing` for an absent one |
 | `tasks: { fields }` | `tasks: { description: 'task', fields }`: a description is required, a noun without "a" or "the" |
 | `create({ title })` through the generated action, named by the moment | `create({ id: timeId(), title })` |
