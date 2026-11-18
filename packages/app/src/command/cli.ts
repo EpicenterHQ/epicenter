@@ -17,8 +17,9 @@ import { unknownApp } from './apps.ts';
 import { noSuchAction } from './input.ts';
 import { appReport, helpReport, missingAction, rootReport } from './listing.ts';
 import { presentAnswer, writeErr } from './output.ts';
+import { MAX_INPUT_BYTES } from './protocol.ts';
 import { epicenterRoot } from './root.ts';
-import { callAction, fetchListing, MAX_INPUT_BYTES } from './send.ts';
+import { callAction, fetchListing } from './send.ts';
 
 /** The commands `epicenter` keeps for itself: each one's usage, and what its `--help` says beneath it. */
 const CHECK = {

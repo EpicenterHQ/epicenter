@@ -354,10 +354,10 @@ async function holdPort(
 	return Bun.serve({ hostname: '127.0.0.1', port: f.port, fetch: answer });
 }
 
-test('a command is refused, and runs nothing, when its port answers for another Epicenter or another program', async () => {
+test('a command is refused, and runs nothing, when its port is held by another Epicenter or another program', async () => {
 	const f = await setup();
 	for (const [status, headers, holder] of [
-		[409, { 'x-epicenter': '1' }, 'another Epicenter'],
+		[409, { 'x-epicenter': '1' }, "another Epicenter's serve"],
 		[200, {}, 'another program'],
 	] as const) {
 		const named: (string | null)[] = [];
@@ -372,7 +372,7 @@ test('a command is refused, and runs nothing, when its port answers for another 
 			expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
 				code: 2,
 				stdout: '',
-				stderr: `Port ${f.port} answers for ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
+				stderr: `Port ${f.port} is in use by ${holder}. Set a different \`port\` in EPICENTER.md.\n`,
 			});
 			// The command named its root, by its real path, on the one request it made.
 			expect(named).toEqual([encodeURIComponent(f.epicenter)]);
@@ -393,10 +393,10 @@ test('a command is refused, and runs nothing, when its port answers for another 
 		expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
 			code: 2,
 			stdout: '',
-			stderr: `Port ${f.port} answers for a serve started before Epicenter was upgraded; stop it and start it again\nRun: epicenter serve\n`,
+			stderr: `Port ${f.port} is in use by a serve started before Epicenter was upgraded; stop it and start it again\nRun: epicenter serve\n`,
 		});
 		expect((await f.run('serve')).stderr).toBe(
-			`Port ${f.port} is in use by a serve started before Epicenter was upgraded; stop it, then run epicenter serve again.\n`,
+			`Port ${f.port} is in use by a serve started before Epicenter was upgraded; stop it and start it again\nRun: epicenter serve\n`,
 		);
 	} finally {
 		await older.stop(true);
@@ -411,7 +411,7 @@ test('a command is refused, and runs nothing, when its port answers for another 
 	);
 	try {
 		expect((await f.run('notes', 'write', '{"page":"monday"}')).stderr).toBe(
-			`Port ${f.port} answers for another Epicenter. Set a different \`port\` in EPICENTER.md.\n`,
+			`Port ${f.port} is in use by another Epicenter's serve. Set a different \`port\` in EPICENTER.md.\n`,
 		);
 	} finally {
 		await otherOlder.stop(true);

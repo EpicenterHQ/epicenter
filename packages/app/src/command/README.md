@@ -335,10 +335,11 @@ folder reads `~`, whether written as a path or a `file://` URL, so
 an action returns as data or sends as an update. Serve's own log on stderr
 keeps the full paths.
 
-A command whose port answers for something else runs nothing:
+A command whose port answers for something else runs nothing, and a second
+serve does not start; both say the same:
 
 ```txt
-Port 4747 answers for another Epicenter. Set a different `port` in EPICENTER.md.
+Port 4747 is in use by another Epicenter's serve. Set a different `port` in EPICENTER.md.
 ```
 
 It says `another program` when what answers is not an Epicenter's serve. A

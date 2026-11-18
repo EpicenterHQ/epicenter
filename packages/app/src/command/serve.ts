@@ -33,8 +33,9 @@
  * 127.0.0.1), and serve refuses one naming another root with 409, a body that
  * does not name its own. Every answer carries `x-epicenter: 1` and no path,
  * so a command or a second `serve` can tell this Epicenter's serve from another
- * Epicenter's or another program (ADR-0961). Serve does not say its version: after an upgrade, the owner restarts
- * it.
+ * Epicenter's or another program (ADR-0961). No header carries a version;
+ * the listing does, so bare `epicenter` prints the version serve runs. After
+ * an upgrade, the owner restarts serve.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
@@ -66,16 +67,18 @@ import { hidePaths } from './hide-paths.ts';
 import { listApps } from './listing.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
-import { type EpicenterRoot, MARKER } from './root.ts';
-import { createRoutines } from './routines.ts';
-import { type Call, checkCall, findAction, runAction } from './run.ts';
 import {
 	answeredBy,
+	type Holder,
 	MAX_INPUT_BYTES,
+	portHeld,
 	ROOT_HEADER,
 	rootHeaderValue,
 	SERVE_HEADER,
-} from './send.ts';
+} from './protocol.ts';
+import type { EpicenterRoot } from './root.ts';
+import { createRoutines } from './routines.ts';
+import { type Call, checkCall, findAction, runAction } from './run.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
@@ -528,16 +531,13 @@ export async function serveHttp(
 	const dotenv = await dotenvProblem(root.folder);
 	if (dotenv)
 		return ActionError.NotStarted({ cause: 'unavailable', message: dotenv });
-	const portTaken = (holder: ReturnType<typeof answeredBy>) =>
-		ActionError.NotStarted({
-			cause: 'unavailable',
-			message:
-				holder === 'its serve'
-					? `serve is already running for this Epicenter on port ${port}.`
-					: holder === 'an older serve'
-						? `Port ${port} is in use by a serve started before Epicenter was upgraded; stop it, then run epicenter serve again.`
-						: `Port ${port} is in use by ${holder === 'another Epicenter' ? "another Epicenter's serve" : 'another program'}. Set a different \`port\` in ${MARKER}.`,
-		});
+	const portTaken = (holder: Holder) =>
+		holder === 'its serve'
+			? ActionError.NotStarted({
+					cause: 'unavailable',
+					message: `serve is already running for this Epicenter on port ${port}.`,
+				})
+			: portHeld(port, holder);
 	const holder = await whoAnswers(root);
 	if (holder) return portTaken(holder);
 	let server: ReturnType<typeof startHttpServer>;
