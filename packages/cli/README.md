@@ -375,10 +375,8 @@ MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, whe
 A page calls actions through `@epicenter/app/client`, at
 `POST /<app>/<action>`. See [A call over HTTP](#a-call-over-http).
 
-Serve commits nothing. Git stores the home, and a home commits itself through
-a routine that runs its own script: see
-[The home commits itself](#the-home-commits-itself). Without that routine,
-nothing is committed or pushed on its own. On SIGINT or SIGTERM
+Serve commits nothing. Git stores the home, and its owner commits and pushes
+it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
 serve stops its routine commands and exits.
 
 ## Keep serve running

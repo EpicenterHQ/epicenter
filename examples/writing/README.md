@@ -69,6 +69,6 @@ Copying a folder makes a new app. To update this app, ask your agent to copy
 the incoming code into a temporary folder outside your live Epicenter, compare
 it with your `code/`, and reconcile it with your edits. Apply the reviewed
 changes only to `code/`, test them with your existing notes, and inspect any
-record problems before making a named checkpoint. Keep `data/`.
+record problems before making a named commit. Keep `data/`.
 
 There is no automatic updater.

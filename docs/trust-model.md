@@ -77,8 +77,7 @@ rented home included.
 The home has one private root Git repository holding every app's code and
 included records. Its `origin` is an optional push-only backup
 ([ADR-0910](adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
-Agents edit the working files; named or periodic checkpoints record pending
-changes. Publishing an app copies only its code into a separate history.
+Agents edit the working files; the commits you make record them. Publishing an app copies only its code into a separate history.
 Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
 your own Git server, can read what is pushed: every committed file and its
 history, never a `.local` file.

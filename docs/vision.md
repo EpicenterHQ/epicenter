@@ -64,7 +64,7 @@ with other tools.
 | **Your Epicenter lives on one computer you control and keep running.** Your devices and agents reach it through your private connection. | Complete copies and runtimes on every device; distributing the home's service credentials; a separate home sign-in system. | Access while the home is unreachable; automatic failover; public access with separate caller permissions. |
 | **Every kind of record has one place where edits count.** That place is the home's folder or an outside source. | Reconciling independently writable copies, merge policies, conflict files, and offline edit queues. | Editing both a source and its copy and expecting them to converge. Copies may be stale; backups are not active homes. |
 | **One running Epicenter process executes every action.** The terminal, browser, and agents all call it. | Separate CLI execution and fallback; cross-process action locks and their waits. | Actions while `serve` is stopped; process isolation between apps; automatic transactions across a whole action. |
-| **What you make belongs in files you can use without Epicenter.** Apps record lasting outcomes; Git checkpoints the files. | Mandatory SDK access to records; a second platform store for run histories, replay, and receipts. | Automatic recovery of unsaved progress after a reload; an automatic audit of every attempt. An app saves any receipt it needs. |
+| **What you make belongs in files you can use without Epicenter.** Apps record lasting outcomes; Git keeps their history. | Mandatory SDK access to records; a second platform store for run histories, replay, and receipts. | Automatic recovery of unsaved progress after a reload; an automatic audit of every attempt. An app saves any receipt it needs. |
 | **You can change the software you run.** Apps are editable code that you or your agents can inspect and adapt. You choose which code to trust. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | Configuring every behavior without code; isolation from a faulty app. You are responsible for what you run. |
 | **Epicenter composes tools that already do the job.** Git keeps history, Bun manages packages, and the operating system keeps Epicenter running. | Rebuilding version control, package management, and process supervision. | A platform-managed solution to every operational problem. Some work remains ordinary tool use. |
 
@@ -77,7 +77,7 @@ records ([ADR-0936]).
 
 Apps save what needs to survive a reload. Progress updates are for whoever
 is watching now; configuration, caches, and temporary runtime state still
-exist. Git records checkpoints, not every event ([ADR-0930]).
+exist. Git records the commits you make, not every event ([ADR-0930]).
 
 A specialized app can use a CRDT for concurrent editing and export a saved
 representation into Epicenter. The CRDT document owns the live edits; the
@@ -193,7 +193,7 @@ changes in place ([ADR-0910]).
   then applies the code change deliberately.
 - **A capture from the phone.** You open Capture's UI in your phone's browser
   at `/capture/` and save a quote. The UI calls `capture_add`; the home
-  writes `data/captures/<time>.md`; a checkpoint records pending files later.
+  writes `data/captures/<time>.md`, and your next commit records it.
 - **Tasks from anywhere.** You add a task on the phone through Tasks' UI. You
   also drop things into Todoist from your watch; an agent pulls that inbox,
   adds each item worth keeping with `epicenter tasks add`, and completes it in
@@ -230,7 +230,7 @@ changes in place ([ADR-0910]).
 | the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or under a job the person sets up ([ADR-0941]); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
-| Git | one private root history, sampled checkpoints, optional origin backup, LFS for binaries |
+| Git | one private root history of the commits you make, optional origin backup, LFS for binaries |
 
 Every app is inside an Epicenter or outside it. The test: does it work
 without an Epicenter? If it does, it is an outside app. Data crosses only
@@ -305,21 +305,20 @@ when it runs. Install other dependencies in code/.
 
 ## How a write happens
 
-**If you have the folder, write the files directly.** Root checkpoints record
-pending code and records in Git history. That is true for you in your editor, for
+**If you have the folder, write the files directly.** Your next commit records
+code and records together in Git history. That is true for you in your editor, for
 Claude Code on the home, and for a program writing there.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
 action.** That is true for Claude Desktop, an agent on another computer, and a
 UI.
 
-**History comes from Git, which the home runs itself.** Actions make no
+**History comes from Git, which you run.** Actions make no
 commits, nothing takes a lock, and one serve runs every action ([ADR-0936],
-Proposed). Epicenter has no command that commits: a home that wants automatic
-history has a routine that runs a short script of its own, for example every
-five minutes ([ADR-0937], [ADR-0940], Proposed). The script commits what is
-pending and pushes only to the optional private root origin. Its commits can
-contain partial direct edits or part of a running call. Make a named commit before a risky change ([ADR-0910]).
+Proposed). Nothing in Epicenter commits or pushes, on a command or on a
+schedule: you commit and push the home as you would any repository
+([ADR-0940], [ADR-0958], Proposed). What you have not committed is in neither
+its history nor its backup. Make a named commit before a risky change ([ADR-0910]).
 Exit codes say what happened: 0 returned, 1 threw, 2 did not run ([ADR-0867]).
 
 ## Where code runs
@@ -352,7 +351,7 @@ keeps nothing of its own.
 | Rung | You add | Every app gains |
 | --- | --- | --- |
 | 1. Files | nothing | any software reads and writes it |
-| 2. History | Git, `git-lfs`, optional `origin` | root checkpoints, optional private backup |
+| 2. History | Git, `git-lfs`, optional `origin` | the commits you make, optional private backup |
 | 3. Actions | `epicenter serve` running on the home | the CLI and agents call its actions |
 | 4. Everywhere | a private network such as Tailscale | your other devices reach it; its UIs open in a browser |
 
@@ -367,7 +366,7 @@ Whispering is whole at rung 1.
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
 | Reach a service's data | ask it each time | it needs search, offline reading, or history: a pull |
 | Join two apps | an agent | the steps are stable: an action in a personal app |
-| Record pending files | one root checkpoint | a named commit records intent |
+| Record history | a commit you make | never |
 | Back up the home | Git and an optional private origin | never |
 | Reach | MCP | never |
 | An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
@@ -447,6 +446,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0936]: adr/0936-one-serve-per-home-runs-every-action.md
 [ADR-0937]: adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md
 [ADR-0940]: adr/0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md
+[ADR-0958]: adr/0958-no-command-makes-an-epicenter.md
 
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md
 [ADR-0927]: adr/0927-serve-listens-only-on-this-computer.md
