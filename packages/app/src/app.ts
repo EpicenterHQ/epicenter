@@ -8,7 +8,7 @@
  *
  * export default defineApp(({ folder }) => {
  *   const data = defineData(folder, {
- *     words: { fields: { meaning: field.text() } },
+ *     words: { description: 'word', fields: { meaning: field.text() } },
  *   });
  *
  *   const learn = defineAction({
@@ -122,19 +122,16 @@ function appProblems(app: unknown): string[] {
 		problems.push('An app needs data: the value returned by defineData(...)');
 	if (isPlainObject(data)) {
 		for (const [key, handle] of Object.entries(data)) {
-			const name = key.replace(/\.md$/, '');
-			if (!isName(name))
+			if (!isName(key))
 				problems.push(
-					`data has the key ${JSON.stringify(key)}, which must be a name, optionally followed by .md`,
+					`data has the key ${JSON.stringify(key)}, which must be a name`,
 				);
 			if (
 				!isPlainObject(handle) ||
 				!isPlainObject(handle.fields) ||
 				typeof handle.get !== 'function' ||
 				typeof handle.path !== 'function' ||
-				(key.endsWith('.md')
-					? 'list' in handle && handle.list !== undefined
-					: !('list' in handle) || typeof handle.list !== 'function')
+				typeof handle.list !== 'function'
 			)
 				problems.push(`data.${key} is not a handle from defineData(...)`);
 		}

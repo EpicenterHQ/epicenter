@@ -173,3 +173,18 @@ owner's home sent both together.
 - **A required `id` on every generated `add`.** An earlier form of this record. Four apps then wrote their own `add` only to fill in a time, and an agent could not add a time-named record at all.
 - **An `id` option on a key to say whether `add` requires one.** A declaration to prevent a second record when a call is sent twice, which the owner accepts.
 - **One `effect: 'read' | 'add' | 'change' | 'delete'` on `defineAction` in place of the four hints.** It rules out contradictions such as read-only and destructive, but the four hints are MCP's own names, which agents already read.
+
+## Amendment (2026-11-18): create needs an id, and a key needs a description
+
+- `create` takes `id` as a required field, as the handle's `create(id,
+  record)` does. A caller names a record by the moment with
+  `create({ id: timeId(), ... })`. A repeat with the same id answers `Changed`
+  (`there`) and writes nothing, so `create` is now `idempotentHint: true`.
+  The rejected alternative in ADR-0934, a handle that makes a time id when
+  none is given, now applies to the generated verb too.
+- A data key's `description` is required, and the generated descriptions use
+  it as written: "Read one task". The fallback `<key> file` and the stripping
+  of a leading "a", "an" or "the" are gone, so a description is a noun
+  without an article.
+- There is no one-file key (ADR-0933's amendment), so every verb that names a
+  record takes `id`, and every key offers all six verbs.

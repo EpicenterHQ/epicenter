@@ -8,7 +8,7 @@
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
-import { type CheckedKey, checkData } from '../data-check.ts';
+import { type CheckedKey, checkData, strayData } from '../data-check.ts';
 import { ActionError, type Answer, Err, Ok } from '../index.ts';
 import {
 	type AppProblems,
@@ -37,10 +37,7 @@ function render(
 		lines.push(app);
 		if (!Object.keys(keys).length) lines.push('  no data keys');
 		for (const [name, each] of Object.entries(keys)) {
-			const status =
-				each.single && each.withProblems === 0
-					? 'fits'
-					: `${each.files} ${each.files === 1 ? 'file' : 'files'}, ${each.withProblems || 'none'} with problems`;
+			const status = `${each.files} ${each.files === 1 ? 'file' : 'files'}, ${each.withProblems || 'none'} with problems`;
 			lines.push(`  ${name}  ${status}`);
 			for (const record of each.records)
 				lines.push(
@@ -86,6 +83,14 @@ export async function checkCommand(
 	for (const each of loaded) {
 		try {
 			apps[each.name] = await checkApp(each);
+			const stray = await strayData(
+				each.realPath,
+				Object.keys(each.app.data ?? {}),
+			);
+			const listed = unchecked.find(({ entry }) => entry === each.name);
+			if (listed) listed.problems.push(...stray);
+			else if (stray.length)
+				unchecked.push({ entry: each.name, problems: stray });
 		} catch (error) {
 			unchecked.push({
 				entry: each.name,

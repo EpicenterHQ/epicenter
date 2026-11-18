@@ -21,7 +21,7 @@ import { tempFolder, unusedFolder } from './library.test-support.ts';
 
 const reading = defineApp(({ folder }) => {
 	const data = defineData(folder, {
-		books: { fields: { title: field.text() } },
+		books: { description: 'book', fields: { title: field.text() } },
 	});
 	const log = defineAction({
 		description: 'Record minutes read today',
@@ -142,7 +142,7 @@ describe('defineApp', () => {
 
 	test('keeps the data handles it is given', () => {
 		const data = defineData(unusedFolder, {
-			notes: { fields: { title: field.text() } },
+			notes: { description: 'note', fields: { title: field.text() } },
 		});
 		const app = made({ description: 'Notes', data, actions: {} });
 		expect(app.data.notes).toBe(data.notes);
@@ -159,19 +159,19 @@ describe('defineApp', () => {
 			problems(() =>
 				made({
 					description: 'Bad',
-					data: { notes: { fields: {} } },
+					data: { notes: { description: 'note', fields: {} } },
 					actions: {},
 				} as never),
 			),
 		).toEqual(['data.notes is not a handle from defineData(...)']);
-		const data = defineData(unusedFolder, { notes: { fields: {} } });
+		const data = defineData(unusedFolder, {
+			notes: { description: 'note', fields: {} },
+		});
 		expect(
 			problems(() =>
 				made({ description: 'Bad', data: { Notes: data.notes }, actions: {} }),
 			),
-		).toEqual([
-			'data has the key "Notes", which must be a name, optionally followed by .md',
-		]);
+		).toEqual(['data has the key "Notes", which must be a name']);
 	});
 
 	test('refuses a group: each action has one name', () => {
@@ -365,8 +365,11 @@ describe('defineAction', () => {
 		const { folder, read } = await tempFolder();
 		const say = defineAction({
 			description: 'Say',
-			input: { message: field.text(), loud: field.boolean() },
-			async run({ message, loud }, update: Update<string | { loud: boolean }>) {
+			input: { message: field.text(), loud: field.boolean({ optional: true }) },
+			async run(
+				{ message, loud = false },
+				update: Update<string | { loud: boolean }>,
+			) {
 				update(message);
 				update({ loud });
 				await folder.write('data/said.md', message);
@@ -427,20 +430,18 @@ describe('defineAction', () => {
 		).toThrow('reports by calling update, its second argument');
 	});
 
-	test('a call fills an absent switch and list, and nothing else', async () => {
+	test('a call fills in nothing: an absent field stays absent', async () => {
 		const tag = defineAction({
 			description: 'Tag',
 			input: {
-				tags: field.list(field.text()),
-				done: field.boolean(),
+				tags: field.list(field.text(), { optional: true }),
+				done: field.boolean({ optional: true }),
 				note: field.text({ optional: true }),
 			},
 			run: (input) => Ok(input),
 		});
-		const given = {};
-		expect(tag(given)).toEqual(Ok({ tags: [], done: false }));
-		expect(given).toEqual({});
-		expect(tag({ done: true })).toEqual(Ok({ tags: [], done: true }));
+		expect(tag({})).toEqual(Ok({}));
+		expect(tag({ done: true })).toEqual(Ok({ done: true }));
 	});
 
 	test('refuses a field with a default at any depth, and a field helper an option it does not declare', () => {
@@ -460,16 +461,22 @@ describe('defineAction', () => {
 			'The action "Research" has a default in "limit"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
 			'The action "Research" has a default in "filter"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
 		]);
-		expect(() =>
-			// @ts-expect-error no field helper takes a default
-			field.integer({ default: 50, min: 1 }),
-		).toThrow(
+		// The types let an unknown option through beside a known one; the helper refuses it.
+		expect(() => field.integer({ default: 50, min: 1 })).toThrow(
 			'field.integer takes no default: no field has one, so write the default in code where the value is read',
 		);
 		expect(() =>
-			// @ts-expect-error a switch takes no optional: it is never required
-			field.boolean({ optional: true }),
-		).toThrow('field.boolean takes no option "optional"; it takes description');
+			// @ts-expect-error an option object sharing no key with the helper's is a type error
+			field.boolean({ min: 1 }),
+		).toThrow(
+			'field.boolean takes no option "min"; it takes description, optional',
+		);
+		expect(() =>
+			// @ts-expect-error options are an object, not a description
+			field.text('A title'),
+		).toThrow(
+			'field.text takes its options as an object, such as { optional: true }, not "A title"',
+		);
 	});
 
 	test('names each problem its types cannot', () => {

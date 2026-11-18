@@ -36,13 +36,7 @@
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import { isActionResult, type PublicError } from './action-result.ts';
-import {
-	absentValue,
-	defaultIn,
-	type FilledKeys,
-	type ObjectSchema,
-	objectSchema,
-} from './field.ts';
+import { defaultIn, type ObjectSchema, objectSchema } from './field.ts';
 
 /**
  * An action's input as an app writes it: a record of fields, or of any
@@ -96,11 +90,6 @@ type ActionMeta = Shared & { readonly input: ObjectSchema };
  */
 export type Update<U> = (value: U) => void;
 
-/** A caller's second argument, which only an action that sends updates takes. */
-type Listening<U> = [U] extends [never]
-	? []
-	: [options?: { onUpdate?: (value: U) => unknown }];
-
 /**
  * An action: a function of its input, with what callers read to call it.
  * `U` is what it reports through `update` while it runs, `never` for one
@@ -110,21 +99,13 @@ type Listening<U> = [U] extends [never]
 // biome-ignore lint/suspicious/noExplicitAny: a bare Action is any action, whatever it reports.
 export type Action<In = any, Out = unknown, U = any> = ((
 	input: In,
-	...options: Listening<U>
+	options?: { onUpdate?: (value: U) => unknown },
 ) => Out) &
 	ActionMeta;
 
 /** What the action `A` reports while it runs, `never` when it only returns. */
-export type ActionUpdate<A> = A extends (
-	input: never,
-	...options: infer Rest
-) => unknown
-	? Rest extends [options?: { onUpdate?: (value: infer U) => unknown }]
-		? [] extends Required<Rest>
-			? never
-			: U
-		: never
-	: never;
+export type ActionUpdate<A> =
+	A extends Action<never, unknown, infer U> ? U : never;
 
 /**
  * What an action may return: a value that survives JSON, which is how the CLI,
@@ -141,18 +122,13 @@ type Returned =
 	| readonly Returned[]
 	| { readonly [key: string]: Returned };
 
-type Answer = Result<Returned, PublicError>;
-type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
+/** What `run` returns: a Result whose data survives JSON. */
+type RunResult = Result<Returned, PublicError>;
+/** `T` written out as one object type, without `readonly`, so an editor shows its keys. */
+export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
 
-/** The value `run` receives for `input`: a switch or a list with no `min` is always there, `false` or `[]` when the caller left it out. */
-type InputOf<I extends Input> = Simplify<
-	Omit<Static<TObject<I>>, FilledKeys<I>> & {
-		[K in FilledKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
-	}
->;
-
-/** What a caller gives for `input`: a switch or a list may be left out. */
-type CallerInput<I extends Input> = Simplify<Static<TObject<I>>>;
+/** The value of `input`, as a caller gives it and `run` receives it. */
+type InputOf<I extends Input> = Flat<Static<TObject<I>>>;
 
 /**
  * An action as an app writes it: `run` receives its input, typed by its
@@ -160,8 +136,8 @@ type CallerInput<I extends Input> = Simplify<Static<TObject<I>>>;
  */
 type ActionDef<
 	I extends Input,
-	Out extends Answer | Promise<Answer> = Answer | Promise<Answer>,
-	U extends Returned = never,
+	Out extends RunResult | Promise<RunResult>,
+	U extends Returned,
 > = Shared & {
 	/** Each key the action takes, as a field: `{ word: field.text() }`. */
 	readonly input: I;
@@ -202,19 +178,20 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields. The action carries its input as one JSON Schema object made
- * from the fields (`ActionMeta`). Calling it gives `run` an absent switch as
- * `false` and an absent list with no `min` as `[]`, as a read of a data file
- * does, however it is called. `run` reaches the app's data and `folder` as
+ * from the fields (`ActionMeta`). Calling it hands `run` the input as given:
+ * an absent field stays absent. `run` reaches the app's data and `folder` as
  * any closure does, from the app's function. The type of `run`'s `update` argument is the type
  * of every caller's `onUpdate`. Throws when the definition is wrong in a way
  * its types cannot say, such as a field with a `default`.
  */
 export function defineAction<
 	const I extends Input,
-	Out extends Answer | Promise<Answer>,
+	Out extends RunResult | Promise<RunResult>,
 	U extends Returned = never,
->(def: ActionDef<I, Out, U>): Action<CallerInput<I>, Out, U>;
-export function defineAction(def: ActionDef<Input, Answer, Returned>): Action {
+>(def: ActionDef<I, Out, U>): Action<InputOf<I>, Out, U>;
+export function defineAction(
+	def: ActionDef<Input, RunResult, Returned>,
+): Action {
 	// Fail at declaration, before a non-JSON schema can break tool discovery.
 	JSON.stringify(def.input);
 	const problems = actionProblems(def);
@@ -226,22 +203,15 @@ export function defineAction(def: ActionDef<Input, Answer, Returned>): Action {
 		);
 	const { run, ...meta } = def;
 	const input = objectSchema(def.input);
-	const filled = Object.entries(def.input).flatMap(([key, schema]) => {
-		const absent = absentValue(schema);
-		return absent === undefined ? [] : [[key, absent] as const];
-	});
 	const action = (
 		input: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
 	) => {
-		const given: Record<string, unknown> = { ...(input as object) };
-		for (const [key, absent] of filled)
-			if (given[key] === undefined) given[key] = structuredClone(absent);
 		const { update, close } = reporting(options?.onUpdate);
 		let answer: unknown;
 		try {
 			answer = (run as (input: unknown, update: Update<unknown>) => unknown)(
-				given,
+				input,
 				update,
 			);
 		} catch (cause) {

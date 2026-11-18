@@ -151,7 +151,7 @@ for (const outcome of [true, false, 'failed'] as const)
 test('a confirmed repair replaces the Misfit cache row and deletion removes it', async () => {
 	const client = cacheClient();
 	const listKey = reads.list().queryKey;
-	const broken = { data: null, error: { name: 'Misfit' as const, path: confirmed.path, message: 'Needs repair', problems: [{ line: 'Bad field', kind: 'field' }] } };
+	const broken = { data: null, error: { name: 'Misfit' as const, path: confirmed.path, id: confirmed.id, message: 'Needs repair', problems: [{ line: 'Bad field', kind: 'field' }] } };
 	client.setQueryData(listKey, [broken]);
 	const transport = stub((action) => action === 'patch' ? response(confirmed) : response(true));
 	try {

@@ -319,20 +319,6 @@ test('a misused command answers its usage line, with its help as the next step',
 	);
 });
 
-test('an absent switch is false and an absent list is empty', async () => {
-	const f = await setup();
-	const answer = async (...args: string[]) =>
-		JSON.parse((await f.run(...args, '--json')).stdout).data;
-	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
-	expect(await answer('reading', 'tag', '{"done":true}')).toEqual({
-		tags: [],
-		done: true,
-	});
-	expect(
-		await answer('reading', 'tag', '{"tags":["a","--b"],"done":true}'),
-	).toEqual({ tags: ['a', '--b'], done: true });
-});
-
 test('a throwing action returns exit 1 with its message', async () => {
 	const f = await setup();
 	const { code, stdout, stderr } = await f.run('reading', 'explode', '--json');

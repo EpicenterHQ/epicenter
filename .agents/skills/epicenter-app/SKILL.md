@@ -81,20 +81,21 @@ for their agent to adapt, with any record repair explained beside it.
 ## Decide the files first
 
 The files outlive every UI and agent, so their shape is the decision that
-matters most. Declare them with `defineData` in `code/epicenter.ts` (or a
-`data.ts` beside it), one key per kind of record under `data/`
-(`packages/app/README.md`). A key without `.md` is a folder: `tasks` holds
-`data/tasks/<id>.md`, one record per file, named by its id. A key ending in
-`.md` is one file: `settings.md` is `data/settings.md`. Each key gives
-`fields`, the front matter of each file, and may give a `description` of one
-record. `data.tasks.actions('list', 'get', 'create', 'patch', 'edit', 'delete')`
-gives the verbs it names and only those; a one-file key offers `get`, `patch`,
-`edit`, and `delete`. Spread a key's verbs into `actions`, so they are the app's
+matters most. Declare them with `defineData(folder, { ... })` inside the
+app's function in `code/epicenter.ts`, one key per kind of record under
+`data/` (`packages/app/README.md`). Every key is a folder: `tasks` holds
+`data/tasks/<id>.md`, one record per file, named by its id. One record of a
+kind, such as settings, is an ordinary key with a fixed id:
+`data/settings/settings.md`, read with `data.settings.get('settings')`. Each
+key gives a `description`, what one record is as a singular noun (`'task'`, not `'tasks'`), and
+`fields`, the front matter of each file.
+`data.tasks.actions('list', 'get', 'create', 'patch', 'edit', 'delete')`
+gives the verbs it names and only those. Spread a key's verbs into `actions`, so they are the app's
 own (`epicenter tasks patch`, MCP `tasks_patch`). Every action has one name and
 actions do not nest; an app with several keys names the others' verbs apart,
 such as `'list-proposals': proposals.list` (`epicenter mail list-proposals`). A record's address is its
 path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`. `defineData`
-refuses a key that is not a name, a field named `path`, `body`, or `id`
+refuses a key that is not a name, a key without a description, a field named `path`, `body`, or `id`
 (a verb's input folds the fields beside them), and a `readOnly` field. No field has a `default`: a definition with
 one is refused, so write the default where the value is read (`limit ?? 50`).
 
@@ -105,8 +106,9 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   `\`, control characters, a leading dot, or whitespace at either end. An id
   is the file name exactly: no method or generated verb changes it, and one
   that does not fit is `Misfit` with the reason, so trim what a person typed
-  before passing it. A generated `create` names the record with
-  `timeId()` when `id` is left out; a caller that may retry sends an id. An action takes an id as `field.text()`;
+  before passing it. `create` always takes an id, `create({ id: timeId(), ... })`
+  for a record named by the moment, so a retry answers `Changed` (`there`)
+  instead of making a second. An action takes an id as `field.text()`;
   the handle refuses a bad one, quoting it, with the name to send instead.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
@@ -121,7 +123,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
 - Keep fields few. `patch` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
   required field takes no `null`, and `body` replaces the whole body.
-- `create` refuses a name that is taken and a folder key's `patch` refuses
+- `create` refuses a name that is taken and `patch` refuses
   one that is not there, so a mistyped id never makes a stray file. Code that
   computes a name and makes the record when absent uses `edit` with a
   function.
@@ -132,28 +134,31 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   reading after "must be" (Tasks' title: `one line, not blank, saying what to
   do`), so the generated `patch` refuses what the app's own `add` would.
 - `get(id)` gives `Ok(record)` when the file fits: its `path`, `id`, fields,
-  and `body`. An absent switch reads as `false` and an absent list as `[]`. A
+  and `body`. Nothing is filled in: an optional field absent from the file is
+  absent from the record, and an action's input arrives as the caller gave it,
+  so the code that reads a value writes its default (`({ done = false })`). A
   missing file gives `Ok(undefined)` to the method and `Missing` to the
   generated action.
 - A malformed file gives `Err(Misfit)`. Its error carries a path, the
-  record's `id` in a folder key, and diagnostic lines. When the front matter is readable it also carries a
+  record's `id`, and diagnostic lines. When the front matter is readable it also carries a
   partial `record` for repair. A computed write refuses before its callback runs.
   A direct patch can repair readable front matter if the whole result fits.
   Unreadable front matter needs a file edit.
-- `field.list(item)` reads as `[]` when absent and is never needed from a
-  caller. An action that cannot run without an item declares
-  `field.list(item, { min: 1 })`: it is required, `--help` and the schema an
-  agent receives say so, and an empty list is refused before `run`.
+- Every field, `field.boolean` and `field.list` included, is required unless
+  it says `optional: true`. An action that cannot run without an item declares
+  `field.list(item, { min: 1 })`, and an empty list is refused before `run`.
 - A verb's input is its method's arguments folded into one object: the id as
   `id`, the change's keys beside it. The `edit` verb takes `{ id, old, new }`
   and no fields, and replaces the passage `old` of the body the caller last
   saw. `old` must be non-empty and occur exactly once: when the passage is
   gone or appears twice, it is refused with `Changed` (`cause` is `quote` or
-  `twice`) and nothing is written. It answers `Missing` for an absent record,
-  for a one-file key too. `edit` is not safe to repeat, so a page that changes
+  `twice`) and nothing is written. It answers `Missing` for an absent record.
+  `edit` is not safe to repeat, so a page that changes
   fields and notes sends a `patch` and an `edit`. In code,
   `edit(id, { old, new })` is the same replacement, and `edit(id, fn)`
-  computes a change from the record.
+  computes a change from the record and returns only the fields that change:
+  `Ok({ done: true })`, never a spread of the record, which carries `path`
+  and `id` and is refused.
 - An app is `code/`, `data/` and `local/`. Put a file in `data/` when the
   person would want it back if this computer were lost. Put it in `local/` when
   this computer can rebuild it or sign in again, or when it must never leave
@@ -201,7 +206,7 @@ function body does not survive between calls: keep it in a file.
 
 ```ts
 export default defineApp(({ folder }) => {
-  const data = defineData(folder, { words: { fields: { meaning: field.text(), reps: field.integer({ optional: true }) } } });
+  const data = defineData(folder, { words: { description: 'word', fields: { meaning: field.text(), reps: field.integer({ optional: true }) } } });
   const learn = defineAction({ /* ... */ });
   return { description: 'Words I am learning', data, actions: { ...data.words.actions('list', 'get'), learn } };
 });
@@ -260,10 +265,7 @@ screen (Capture's `recent`). Replace a verb by key, as in any object:
 read and write through the key's methods, which name a record by its id and
 take the change second (`data.words.get(word)`,
 `data.words.patch(word, { meaning, body })`, `data.words.edit(word, change)`),
-instead of parsing front matter again. A one-file key's methods take no id
-(`data['settings.md'].get()`); it reads as `Ok(undefined)` before the first
-write, has no `create`, and its `patch` method or verb can create the file. For
-other files, the app's `folder` has four members (ADR-0964): `path`, the
+instead of parsing front matter again. For other files, the app's `folder` has four members (ADR-0964): `path`, the
 container; `write(path, content)`, text or bytes; `edit(path, decide)`; and
 `delete(path)`. Read with `node:fs` or `Bun.file` through `folder.path`.
 `data.words.path(word)` gives a record's path; never build one by hand.

@@ -20,7 +20,7 @@ const lookup = defineAction({
 	description: 'Look for a route', input: {},
 	run: () => NotesError.NoRoute({ airport: 'LAX' }),
 });
-const data = defineData(folder, { notes: { fields: {count: field.integer()} } });
+const data = defineData(folder, { notes: { description: 'note', fields: {count: field.integer()} } });
 const read = defineAction({ description: 'Read a note', input: {}, run: () => data.notes.get('a') });
 return {description: 'Route notes', data, actions: {
 	inspect: defineAction({description: 'Inspect a note', input: {}, run: () => read({})}),

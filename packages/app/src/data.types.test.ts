@@ -1,6 +1,7 @@
 /**
- * Data declaration types retain field inference and select handles by the key suffix.
- * Negative cases keep ids mandatory for folders and refs confined to folder keys.
+ * Data declaration types retain field inference for each key's handle.
+ * Negative cases keep ids mandatory and field types exact. A ref to a key
+ * that is not declared is refused when defineData runs (data.test.ts).
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -11,20 +12,25 @@ import { assertType, type Equal, tempFolder } from './library.test-support.ts';
 const { folder } = await tempFolder();
 const data = defineData(folder, {
 	notes: {
+		description: 'note',
 		fields: {
 			title: field.text(),
 			note: field.text({ optional: true }),
 			n: field.integer(),
-			done: field.boolean(),
-			tags: field.list(field.text()),
+			done: field.boolean({ optional: true }),
+			tags: field.list(field.text(), { optional: true }),
 			choice: field.select(['yes', 'no']),
 			raw: Type.Number(),
 			created: field.datetime(),
 		},
 	},
-	'settings.md': { fields: { level: field.integer() } },
-	watches: { fields: {} },
+	settings: {
+		description: 'settings record',
+		fields: { level: field.integer() },
+	},
+	watches: { description: 'watch', fields: {} },
 	checks: {
+		description: 'check',
 		fields: {
 			watch: field.ref('watches'),
 			many: field.list(field.ref('watches')),
@@ -34,7 +40,7 @@ const data = defineData(folder, {
 });
 type Note = NonNullable<Awaited<ReturnType<typeof data.notes.get>>['data']>;
 type Settings = NonNullable<
-	Awaited<ReturnType<(typeof data)['settings.md']['get']>>['data']
+	Awaited<ReturnType<typeof data.settings.get>>['data']
 >;
 
 test('record and method types retain the exact declared fields', () => {
@@ -48,29 +54,28 @@ test('record and method types retain the exact declared fields', () => {
 				title: string;
 				note?: string;
 				n: number;
-				done: boolean;
-				tags: string[];
+				done?: boolean;
+				tags?: string[];
 				choice: 'yes' | 'no';
 				raw: number;
 				created: string;
 			}
 		>
 	>();
-	assertType<Equal<Settings, { path: string; body: string; level: number }>>();
+	assertType<
+		Equal<Settings, { path: string; id: string; body: string; level: number }>
+	>();
 	assertType<Equal<Parameters<typeof data.notes.get>, [id: string]>>();
-	assertType<Equal<Parameters<(typeof data)['settings.md']['get']>, []>>();
 	type Check = NonNullable<Awaited<ReturnType<typeof data.checks.get>>['data']>;
 	assertType<Equal<Check['watch'], string>>();
 	assertType<Equal<Check['many'], string[]>>();
 	assertType<Equal<Check['maybe'], string | undefined>>();
-	expect(data.notes).toHaveProperty('list');
-	expect(data['settings.md']).not.toHaveProperty('list');
 });
 
 test('computed changes retain field types and callback errors', async () => {
 	expect(
 		expectOk(
-			await data['settings.md'].edit((record) => {
+			await data.settings.edit('settings', (record) => {
 				assertType<Equal<typeof record, Settings | undefined>>();
 				return Ok({ level: record?.level ?? 1 });
 			}),
@@ -91,11 +96,9 @@ test('a passage edit answers exactly Missing, Changed, or Misfit', () => {
 			: never
 		: never;
 	const folderEdit = () => data.notes.edit('a', { old: 'x', new: 'y' });
-	const fileEdit = () => data['settings.md'].edit({ old: 'x', new: 'y' });
 	assertType<
 		Equal<Names<typeof folderEdit>, 'Missing' | 'Changed' | 'Misfit'>
 	>();
-	assertType<Equal<Names<typeof fileEdit>, 'Missing' | 'Changed' | 'Misfit'>>();
 	const computed = () =>
 		data.notes.edit('a', () => ActionError.Unreachable({ message: 'x' }));
 	assertType<
@@ -104,15 +107,9 @@ test('a passage edit answers exactly Missing, Changed, or Misfit', () => {
 });
 
 describe('type errors', () => {
-	test('folder and one-file handles require different arguments and verbs', () => {
-		// @ts-expect-error a folder record needs an id
+	test('handles require an id and the declared field types', () => {
+		// @ts-expect-error a record needs an id
 		() => data.notes.get();
-		// @ts-expect-error one-file keys have no list
-		() => data['settings.md'].list();
-		// @ts-expect-error one-file keys have no create
-		() => data['settings.md'].create('id', {});
-		// @ts-expect-error one-file reads take no id
-		() => data['settings.md'].get('id');
 		// @ts-expect-error numbers stay numbers
 		() => data.notes.patch('a', { n: 'bad' });
 		// @ts-expect-error required fields cannot be removed
@@ -127,52 +124,9 @@ describe('type errors', () => {
 		() => data.notes.edit('a', { old: 'x' });
 		// @ts-expect-error a passage carries no fields
 		() => data.notes.edit('a', { old: 'x', new: 'y', title: 'z' });
-		// @ts-expect-error one-file edit takes no id
-		() => data['settings.md'].edit('a', { old: 'x', new: 'y' });
-		// @ts-expect-error one-file keys have no fields in a passage either
-		() => data['settings.md'].edit({ level: 5 });
 		// @ts-expect-error create needs the required fields, including read-only fields
 		() => data.notes.create('a', { title: 'only title' });
 		// @ts-expect-error undeclared fields cannot be written
 		() => data.notes.patch('a', { missing: 'x' });
-	});
-	test('refs reject missing and one-file targets on the field', () => {
-		() =>
-			defineData(folder, {
-				notes: {
-					fields: {
-						// @ts-expect-error target must exist in this declaration
-						target: field.ref('missing'),
-					},
-				},
-			});
-		() =>
-			defineData(folder, {
-				'settings.md': { fields: {} },
-				notes: {
-					fields: {
-						// @ts-expect-error a one-file key is not a ref target
-						target: field.ref('settings.md'),
-					},
-				},
-			});
-		() =>
-			defineData(folder, {
-				notes: {
-					fields: {
-						// @ts-expect-error list items retain the missing ref target
-						targets: field.list(field.ref('missing')),
-					},
-				},
-			});
-		() =>
-			defineData(folder, {
-				notes: {
-					fields: {
-						// @ts-expect-error optional refs retain the missing target
-						target: field.ref('missing', { optional: true }),
-					},
-				},
-			});
 	});
 });

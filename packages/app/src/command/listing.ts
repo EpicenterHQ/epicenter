@@ -78,10 +78,8 @@ export function appListing({ name, app }: LoadedApp): AppListing {
 						Object.entries(app.data).map(([key, handle]) => [
 							key,
 							{
-								path: `data/${key}${key.endsWith('.md') ? '' : '/'}`,
-								...(handle.description
-									? { description: handle.description }
-									: {}),
+								path: `data/${key}/`,
+								description: handle.description,
 								fields: objectSchema(handle.fields),
 							},
 						]),

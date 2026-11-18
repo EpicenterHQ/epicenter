@@ -14,8 +14,8 @@ import { type ObjectSchema, whatFits } from '../field.ts';
 
 /**
  * Check an input against its action's schema (ADR-0953), the one check a
- * page, an agent, and the command line share. Nothing is filled: an action made by
- * `defineAction` fills its absent switches and lists itself, and a data
+ * page, an agent, and the command line share. Nothing is filled: an absent
+ * key stays absent, an action's `run` writes its own default, and a data
  * verb writes only what it was given. A key the action does not
  * take is refused, naming the keys it does.
  */

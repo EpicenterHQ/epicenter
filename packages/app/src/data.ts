@@ -1,9 +1,10 @@
 import { join } from 'node:path';
 import type { Static, TObject, TUnsafe } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
+import type { Flat } from './action.ts';
 import { isPlainObject, type PublicError } from './action-result.ts';
 import { isName } from './app.ts';
-import { type DataActions, dataActions, type Offered } from './data-actions.ts';
+import { type DataActions, dataActions, type Verb } from './data-actions.ts';
 import { ActionError } from './errors.ts';
 import { defaultIn, type OptionalKeys, refKeyOf } from './field.ts';
 import { type Folder, filesIn } from './folder.ts';
@@ -14,14 +15,16 @@ import {
 	type Compute,
 	createMarkdownRecords,
 	type Fields,
-	type Fitting,
 	type Loose,
 } from './markdown-records.ts';
 
-/** One folder or one file's declared Markdown fields. */
-export type DataDef = { description?: string; fields: Fields };
+/**
+ * One data key: what one of its records is, as a noun ("task", "writing
+ * note"), and the declared Markdown fields of each. Its actions say the
+ * description in sentences such as "Read one task".
+ */
+export type DataDef = { description: string; fields: Fields };
 type Spec = Record<string, DataDef>;
-export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
 export type Change<TFields extends Fields> = Flat<
 	{
 		[K in keyof TFields]?:
@@ -29,21 +32,20 @@ export type Change<TFields extends Fields> = Flat<
 			| (K extends OptionalKeys<TFields> ? null : never);
 	} & { body?: string }
 >;
-export type Input<TFields extends Fields> = Flat<
+/** What `create` takes: each declared field, and `body`. */
+export type NewRecord<TFields extends Fields> = Flat<
 	Static<TObject<TFields>> & { body?: string }
 >;
-type Named<TKey extends string> = TKey extends `${string}.md`
-	? { path: string; body: string }
-	: { path: string; id: string; body: string };
-/** A flat record with its path, folder id, declared fields, and body. */
-export type DataRecord<TKey extends string, TDef extends DataDef> = Flat<
-	Named<TKey> & Fitting<TDef['fields']>
+type Named = { path: string; id: string; body: string };
+/** A flat record with its path, id, declared fields, and body. */
+export type DataRecord<TDef extends DataDef> = Flat<
+	Named & Static<TObject<TDef['fields']>>
 >;
-export type Misfit<TKey extends string, TDef extends DataDef> = Flat<
-	Omit<Extract<ActionError, { name: 'Misfit' }>, 'id' | 'record'> &
-		(TKey extends `${string}.md` ? unknown : { id: string }) & {
-			record?: Flat<Named<TKey> & Loose<TDef['fields']>>;
-		}
+export type Misfit<TDef extends DataDef> = Flat<
+	Omit<Extract<ActionError, { name: 'Misfit' }>, 'id' | 'record'> & {
+		id: string;
+		record?: Flat<Named & Loose<TDef['fields']>>;
+	}
 >;
 /** A change or id that does not fit: a Misfit with no record to show. */
 export type Unfit = Flat<
@@ -51,155 +53,101 @@ export type Unfit = Flat<
 >;
 export type Changed = Extract<ActionError, { name: 'Changed' }>;
 export type Missing = Extract<ActionError, { name: 'Missing' }>;
-export type WriteError<TKey extends string, TDef extends DataDef> =
-	| Misfit<TKey, TDef>
-	| Unfit
-	| Changed;
+export type WriteError<TDef extends DataDef> = Misfit<TDef> | Unfit | Changed;
 /** One passage of the body and the text to put in its place. */
 export type Passage = { old: string; new: string };
-type Edit<
-	TKey extends string,
-	TDef extends DataDef,
-	TArgs extends unknown[],
-> = {
-	/**
-	 * Compute a patch from a fitting record, or undefined when absent; the
-	 * patch may create the file.
-	 */
-	<TError extends PublicError = never>(
-		...args: [
-			...TArgs,
-			change: (
-				record: DataRecord<TKey, TDef> | undefined,
-			) => Result<Change<TDef['fields']>, TError>,
-		]
-	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | TError>>;
-	/**
-	 * Replace the one passage `old` of the body with `new`. Changed (quote)
-	 * when it is not there, Changed (twice) when it is there more than once,
-	 * and Missing when the file is absent.
-	 */
-	(
-		...args: [...TArgs, passage: Passage]
-	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | Missing>>;
-};
 
-type OneFile<TKey extends string, TDef extends DataDef> = {
-	/** Read this file, or undefined before it exists. */
-	get(): Promise<
-		Result<DataRecord<TKey, TDef> | undefined, Misfit<TKey, TDef>>
-	>;
-	/** Patch fields and replace the body, creating the file when absent. */
-	patch(
-		change: Change<TDef['fields']>,
-	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef>>>;
-	/** Change the file based on what it holds now. */
-	edit: Edit<TKey, TDef, []>;
-	/** Delete the file, returning whether it existed. */
-	delete(): Promise<Result<boolean, never>>;
-	/** This key's file path, without disk access. */
-	path(): string;
-};
-type FolderHandle<TKey extends string, TDef extends DataDef> = {
+type Handle<TDef extends DataDef> = {
 	/**
 	 * Read one id, or undefined when absent. Every method that takes an id
 	 * uses it as the file name exactly, and refuses one that cannot be a name.
 	 */
 	get(
 		id: string,
-	): Promise<
-		Result<DataRecord<TKey, TDef> | undefined, Misfit<TKey, TDef> | Unfit>
-	>;
+	): Promise<Result<DataRecord<TDef> | undefined, Misfit<TDef> | Unfit>>;
 	/** One Result per directly contained record, sorted by path. */
-	list(): Promise<Result<DataRecord<TKey, TDef>, Misfit<TKey, TDef>>[]>;
+	list(): Promise<Result<DataRecord<TDef>, Misfit<TDef>>[]>;
 	/** Create one file, returning Changed (there) when it exists. */
 	create(
 		id: string,
-		record: Input<TDef['fields']>,
-	): Promise<Result<DataRecord<TKey, TDef>, Unfit | Changed>>;
+		record: NewRecord<TDef['fields']>,
+	): Promise<Result<DataRecord<TDef>, Unfit | Changed>>;
 	/** Patch fields and replace the body of an existing record; an absent id returns Missing. */
 	patch(
 		id: string,
 		change: Change<TDef['fields']>,
-	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | Missing>>;
+	): Promise<Result<DataRecord<TDef>, WriteError<TDef> | Missing>>;
 	/** Change one record based on what it holds now. */
-	edit: Edit<TKey, TDef, [id: string]>;
+	edit: {
+		/**
+		 * Compute a patch from a fitting record, or undefined when absent; the
+		 * patch may create the file.
+		 */
+		<TError extends PublicError = never>(
+			id: string,
+			change: (
+				record: DataRecord<TDef> | undefined,
+			) => Result<Change<TDef['fields']>, TError>,
+		): Promise<Result<DataRecord<TDef>, WriteError<TDef> | TError>>;
+		/**
+		 * Replace the one passage `old` of the body with `new`. Changed (quote)
+		 * when it is not there, Changed (twice) when it is there more than once,
+		 * and Missing when the file is absent.
+		 */
+		(
+			id: string,
+			passage: Passage,
+		): Promise<Result<DataRecord<TDef>, WriteError<TDef> | Missing>>;
+	};
 	/** Delete one id, returning whether its file existed. */
 	delete(id: string): Promise<Result<boolean, Unfit>>;
 	/** The file path for this id as given, without checking it or the disk. */
 	path(id: string): string;
 };
-/** Data metadata and reads; key names determine paths and file or folder shape. */
+/** Data metadata and reads: each key is a folder of records under `data/`. */
 export type AnyData = Record<
 	string,
-	DataDef &
-		(
-			| Pick<OneFile<`${string}.md`, DataDef>, 'get' | 'path'>
-			| Pick<FolderHandle<string, DataDef>, 'get' | 'list' | 'path'>
-		)
+	DataDef & Pick<Handle<DataDef>, 'get' | 'list' | 'path'>
 >;
 
 /** Markdown yields JSON values, so a handle at runtime is typed by them; `Data` keeps each field's schema. */
-type JsonDef = { fields: Record<string, TUnsafe<JsonValue>> };
-/** A handle of either shape, as the actions adapt it. */
-export type Handle =
-	| OneFile<`${string}.md`, JsonDef>
-	| FolderHandle<string, JsonDef>;
+export type AnyHandle = Handle<{
+	description: string;
+	fields: Record<string, TUnsafe<JsonValue>>;
+}>;
 
-/** One handle per key, selected only by whether its name ends in .md. */
+/** One handle per key: its definition, its verbs, and its actions. */
 export type Data<TSpec extends Spec> = {
 	[K in keyof TSpec & string]: TSpec[K] &
-		(K extends `${string}.md`
-			? OneFile<K, TSpec[K]>
-			: FolderHandle<K, TSpec[K]>) & {
+		Handle<TSpec[K]> & {
 			/** Expose only the named verbs. */
-			actions<V extends Offered<K>>(
-				...verbs: [V, ...V[]]
-			): DataActions<K, TSpec[K], V>;
+			actions<V extends Verb>(...verbs: [V, ...V[]]): DataActions<TSpec[K], V>;
 		};
-};
-
-type RefTargets<TSchema> = TSchema extends {
-	'x-epicenter-ref': { key: infer TKey extends string };
-}
-	? TKey
-	: TSchema extends { items: infer TItem }
-		? RefTargets<TItem>
-		: TSchema extends { properties: infer TProperties }
-			? {
-					[K in keyof TProperties]: RefTargets<TProperties[K]>;
-				}[keyof TProperties]
-			: TSchema extends { anyOf: infer TChoices extends readonly unknown[] }
-				? RefTargets<TChoices[number]>
-				: never;
-type RefKeys<TSpec> = Exclude<keyof TSpec & string, `${string}.md`>;
-type ValidRefs<TSpec extends Spec> = {
-	[K in keyof TSpec]: {
-		fields: {
-			[F in keyof TSpec[K]['fields']]: Exclude<
-				RefTargets<TSpec[K]['fields'][F]>,
-				RefKeys<TSpec>
-			> extends never
-				? unknown
-				: `Data ref "${Exclude<RefTargets<TSpec[K]['fields'][F]>, RefKeys<TSpec>>}" must name a folder key in this defineData`;
-		};
-	};
 };
 
 /**
  * Declare an app's data: each key a folder of Markdown records under
- * `data/`, or one Markdown file when it ends in `.md`. Each handle reads and
- * writes in `folder`, the app's own.
+ * `data/`, one file per id. Each handle reads and writes in `folder`, the
+ * app's own.
  */
 export function defineData<const TSpec extends Spec>(
 	folder: Folder,
-	spec: TSpec & ValidRefs<TSpec>,
+	spec: TSpec,
 ): Data<TSpec> {
-	for (const [key, { fields }] of Object.entries(spec)) {
-		const name = key.replace(/\.md$/, '');
-		if (!isName(name))
+	for (const [key, { description, fields }] of Object.entries(spec)) {
+		if (!isName(key))
 			throw new Error(
-				`The data key ${JSON.stringify(key)} must be a name, optionally followed by .md`,
+				(key as string).endsWith('.md')
+					? `The data key ${JSON.stringify(key)} must be a name: every key is a folder of records now, so write ${JSON.stringify((key as string).slice(0, -3))}, give the one record a fixed id, and move data/${key} to data/${(key as string).slice(0, -3)}/<id>.md`
+					: `The data key ${JSON.stringify(key)} must be a name`,
+			);
+		if (typeof description !== 'string' || description.trim() === '')
+			throw new Error(
+				`The data key ${key} needs a description: what one record is, such as "task"`,
+			);
+		if (!isPlainObject(fields))
+			throw new Error(
+				`The data key ${key} needs fields: an object of field schemas, {} for none`,
 			);
 		JSON.stringify(fields);
 		for (const [field, schema] of Object.entries(fields)) {
@@ -224,12 +172,9 @@ export function defineData<const TSpec extends Spec>(
 	function checkRefs(schema: unknown, key: string, field: string) {
 		if (typeof schema !== 'object' || schema === null) return;
 		const target = refKeyOf(schema);
-		if (
-			target !== undefined &&
-			(!Object.hasOwn(spec, target) || target.endsWith('.md'))
-		)
+		if (target !== undefined && !Object.hasOwn(spec, target))
 			throw new Error(
-				`The data key ${key}'s field "${field}" refers to ${JSON.stringify(target)}, which must name a folder key in this defineData`,
+				`The data key ${key}'s field "${field}" refers to ${JSON.stringify(target)}, which must name a key in this defineData`,
 			);
 		for (const child of Object.values(schema)) checkRefs(child, key, field);
 	}
@@ -243,20 +188,12 @@ export function defineData<const TSpec extends Spec>(
 
 /** The handle for one data key: its verbs, its definition, and its actions. */
 function createHandle(folder: Folder, key: string, def: DataDef) {
-	const single = key.endsWith('.md');
 	const base = `data/${key}`;
-	const records = createMarkdownRecords({
-		folder,
-		fields: def.fields,
-		keysOf: (path): Record<string, string> =>
-			single ? {} : { id: path.slice(base.length + 1, -3) },
-	});
-	const pathFor = (id: string) => `${base}/${id}.md`;
-	/** The path for `id` as given, or Misfit when it breaks ADR-0933's rule. */
-	function place(id?: string) {
-		if (single) return base;
+	const records = createMarkdownRecords({ folder, base, fields: def.fields });
+	/** Misfit when `id` breaks ADR-0933's rule, else undefined. */
+	function refusal(id: string) {
 		const problem = idProblem(id);
-		if (!problem) return pathFor(id as string);
+		if (!problem) return undefined;
 		// The id names no file, so the problem sits at the key's folder.
 		const unfit = (line: string) =>
 			ActionError.Misfit({ path: base, problems: [{ line, kind: problem }] });
@@ -270,69 +207,47 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 				: '';
 		return unfit(`${JSON.stringify(id)}: ${problem}${instead}`);
 	}
-	async function get(id?: string) {
-		const path = place(id);
-		if (typeof path !== 'string') return path;
-		return records.read(path);
-	}
-	async function patch(
-		id: string | undefined,
-		change: Record<string, unknown>,
-	) {
-		const path = place(id);
-		if (typeof path !== 'string') return path;
-		return records.write(path, single ? 'either' : 'present', change);
-	}
-	/** A function computes the change; `{ old, new }` is a fixed function that replaces one passage. */
-	async function edit(id: string | undefined, change: unknown) {
-		const path = place(id);
-		if (typeof path !== 'string') return path;
-		const compute =
-			typeof change === 'function'
-				? (change as Compute)
-				: replacing(path, change);
-		if (typeof compute !== 'function') return compute;
-		return records.write(path, 'either', compute);
-	}
-	async function remove(id?: string) {
-		const path = place(id);
-		if (typeof path !== 'string') return path;
-		const existed = await Bun.file(join(folder.path, path)).exists();
-		if (existed) await folder.delete(path);
-		return Ok(existed);
-	}
-	const handle = (
-		single
-			? {
-					get: () => get(),
-					path: () => base,
-					patch: (change: Record<string, unknown>) => patch(undefined, change),
-					edit: (change: unknown) => edit(undefined, change),
-					delete: () => remove(),
-				}
-			: {
-					get,
-					path: pathFor,
-					patch,
-					edit,
-					delete: remove,
-					async create(id: string, input: Record<string, unknown>) {
-						const path = place(id);
-						if (typeof path !== 'string') return path;
-						return records.write(path, 'absent', input);
-					},
-					async list() {
-						const found = [];
-						for (const name of await filesIn(folder.path, base)) {
-							if (!name.endsWith('.md') || idProblem(name.slice(0, -3)))
-								continue;
-							const read = await records.read(`${base}/${name}`);
-							if (read.error || read.data) found.push(read);
-						}
-						return found;
-					},
-				}
-	) as Handle;
+	const handle = {
+		path: records.path,
+		async get(id: string) {
+			return refusal(id) ?? records.read(id);
+		},
+		async list() {
+			const found = [];
+			for (const name of await filesIn(folder.path, base)) {
+				const id = name.slice(0, -3);
+				if (!name.endsWith('.md') || idProblem(id)) continue;
+				const read = await records.read(id);
+				if (read.error || read.data) found.push(read);
+			}
+			return found;
+		},
+		async create(id: string, input: Record<string, unknown>) {
+			return refusal(id) ?? records.write(id, 'absent', input);
+		},
+		async patch(id: string, change: Record<string, unknown>) {
+			return refusal(id) ?? records.write(id, 'present', change);
+		},
+		/** A function computes the change; `{ old, new }` is a fixed function that replaces one passage. */
+		async edit(id: string, change: unknown) {
+			const refused = refusal(id);
+			if (refused) return refused;
+			const compute =
+				typeof change === 'function'
+					? (change as Compute)
+					: replacing(records.path(id), change);
+			if (typeof compute !== 'function') return compute;
+			return records.write(id, 'either', compute);
+		},
+		async delete(id: string) {
+			const refused = refusal(id);
+			if (refused) return refused;
+			const path = records.path(id);
+			const existed = await Bun.file(join(folder.path, path)).exists();
+			if (existed) await folder.delete(path);
+			return Ok(existed);
+		},
+	} as AnyHandle;
 	return {
 		...def,
 		...handle,

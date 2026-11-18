@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { Static, TSchema } from 'typebox';
+import type { Static, TObject, TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
@@ -8,13 +8,7 @@ import {
 	type PublicError,
 } from './action-result.ts';
 import { ActionError, type Problem } from './errors.ts';
-import {
-	absentValue,
-	type FilledKeys,
-	isOptional,
-	type OptionalKeys,
-	whatFits,
-} from './field.ts';
+import { isOptional, whatFits } from './field.ts';
 import { type Folder, readText } from './folder.ts';
 import {
 	changeMarkdown,
@@ -28,28 +22,16 @@ import {
 /** Declared front matter fields, each a TypeBox schema. */
 export type Fields = Record<string, TSchema>;
 
-type ValueOf<F extends Fields, K extends keyof F> = Exclude<
-	Static<F[K]>,
-	undefined
->;
-type MayLack<F> = Exclude<OptionalKeys<F>, FilledKeys<F>>;
-
-/** Required fields, filled switches and lists, and possibly absent optional fields. */
-export type Fitting<F extends Fields> = {
-	-readonly [K in Exclude<keyof F, MayLack<F>>]-?: ValueOf<F, K>;
-} & { -readonly [K in MayLack<F>]?: ValueOf<F, K> };
-
 /** Fields that fit, with invalid or missing fields absent. */
-export type Loose<F extends Fields> = {
-	-readonly [K in keyof F]?: ValueOf<F, K>;
-};
+export type Loose<F extends Fields> = Partial<Static<TObject<F>>>;
 
 export type AnyRecord = Record<string, unknown> & {
 	path: string;
+	id: string;
 	body: string;
 };
 /** A change as data: each field to set, `null` to remove an optional one, and `body`. */
-export type Patch = Record<string, unknown>;
+type Patch = Record<string, unknown>;
 /** A change computed from the record: it returns `Ok(patch)` or `Err(error)`. */
 export type Compute = (record: AnyRecord | undefined) => unknown;
 type Misfit = Extract<ActionError, { name: 'Misfit' }>;
@@ -123,30 +105,35 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 /** Read and write records of declared Markdown fields without changing undeclared lines. */
 export function createMarkdownRecords({
 	folder,
+	base,
 	fields,
-	keysOf,
 }: {
 	folder: Folder;
+	/** The folder under the app's that holds one file per id, such as `data/notes`. */
+	base: string;
 	fields: Fields;
-	keysOf: (path: string) => Record<string, string>;
 }) {
-	/** A change that does not fit the declared fields, as one problem at `path`. */
-	function unfit(path: string, line: string, kind = line) {
+	/** The file for `id`, as given. */
+	const pathOf = (id: string) => `${base}/${id}.md`;
+
+	/** A change that does not fit the declared fields, as one problem. */
+	function unfit(id: string, line: string, kind = line) {
 		return ActionError.Misfit({
-			path,
-			id: keysOf(path).id,
+			path: pathOf(id),
+			id,
 			problems: [{ line, kind }],
 		});
 	}
 
 	/**
-	 * The record `file` gives at `path`, and the result a read answers: the
+	 * The record `file` gives for `id`, and the result a read answers: the
 	 * record, or a Misfit with each problem and, when the front matter can be
 	 * read, the record for repair. Each field is its value if it fits, else
-	 * absent; an absent switch or list is `false` or `[]`. `path`, the keys,
+	 * absent. `path`, `id`,
 	 * and `body` come from the file, and no field can be named as one of them.
 	 */
-	function project(path: string, file: MarkdownFile) {
+	function project(id: string, file: MarkdownFile) {
+		const path = pathOf(id);
 		const values: Record<string, unknown> = {};
 		const problems: Problem[] = file.readable ? [] : [UNREADABLE];
 		for (const [key, schema] of Object.entries(fields)) {
@@ -154,19 +141,16 @@ export function createMarkdownRecords({
 			const bare = file.notJson.find((each) => each.key === key);
 			if (bare) problems.push(notJsonProblem(key, schema, bare));
 			else if (!Object.hasOwn(file.fields, key)) {
-				const absent = absentValue(schema);
-				if (absent !== undefined) values[key] = structuredClone(absent);
-				else if (file.readable && !isOptional(schema))
+				if (file.readable && !isOptional(schema))
 					problems.push(problem(`${key} is missing`));
 			} else if (Value.Check(schema, value)) values[key] = value;
 			else problems.push(misfit(key, schema, value));
 		}
-		const keys = keysOf(path);
-		const record: AnyRecord = { path, ...keys, ...values, body: file.body };
+		const record: AnyRecord = { path, id, ...values, body: file.body };
 		const result: Result<AnyRecord, Misfit> = problems.length
 			? ActionError.Misfit({
 					path,
-					id: keys.id,
+					id,
 					problems,
 					...(file.readable ? { record } : {}),
 				})
@@ -174,27 +158,27 @@ export function createMarkdownRecords({
 		return { record, result };
 	}
 
-	/** The record at `path`, or undefined when there is no file. */
+	/** The record for `id`, or undefined when there is no file. */
 	async function read(
-		path: string,
+		id: string,
 	): Promise<Result<AnyRecord | undefined, Misfit>> {
-		const text = await readText(join(folder.path, path));
+		const text = await readText(join(folder.path, pathOf(id)));
 		if (text === undefined) return Ok(undefined);
-		return project(path, readMarkdown(text)).result;
+		return project(id, readMarkdown(text)).result;
 	}
 
 	/** Split a patch into fields to set and remove, and check each supplied value. */
-	function fieldsOf(path: string, given: Patch, creating: boolean) {
+	function fieldsOf(id: string, given: Patch, creating: boolean) {
 		const removed: string[] = [];
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
 			if (!Object.hasOwn(fields, key))
-				return unfit(path, `has no field "${key}"`, 'has no such field');
+				return unfit(id, `has no field "${key}"`, 'has no such field');
 			const schema = fields[key] as TSchema;
 			if (value === undefined) continue;
 			if (value === null && isOptional(schema)) removed.push(key);
 			else if (value === null && !creating)
-				return unfit(path, `${key} is required, so it cannot be removed`);
+				return unfit(id, `${key} is required, so it cannot be removed`);
 			else set[key] = value as JsonValue;
 		}
 		const problems: Problem[] = [];
@@ -202,15 +186,11 @@ export function createMarkdownRecords({
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
 					problems.push(misfit(key, schema, set[key]));
-			} else if (
-				creating &&
-				!isOptional(schema) &&
-				absentValue(schema) === undefined
-			)
+			} else if (creating && !isOptional(schema))
 				problems.push(problem(`${key} is missing`));
 		}
 		if (problems.length)
-			return ActionError.Misfit({ path, id: keysOf(path).id, problems });
+			return ActionError.Misfit({ path: pathOf(id), id, problems });
 		return Ok({ set: inDeclaredOrder(set, fields), removed });
 	}
 
@@ -221,10 +201,11 @@ export function createMarkdownRecords({
 	 * computed change sees only a record that fits.
 	 */
 	async function write(
-		path: string,
+		id: string,
 		need: Need,
 		change: Patch | Compute,
 	): Promise<Result<AnyRecord, PublicError>> {
+		const path = pathOf(id);
 		const written = await folder.edit<AnyRecord, PublicError>(
 			path,
 			(before) => {
@@ -234,7 +215,7 @@ export function createMarkdownRecords({
 					return ActionError.Changed({ path, cause: 'there' });
 
 				const file = readMarkdown(before ?? '');
-				const current = before === undefined ? undefined : project(path, file);
+				const current = before === undefined ? undefined : project(id, file);
 				const computed = typeof change === 'function';
 				if (current?.result.error && (computed || !file.readable))
 					return current.result;
@@ -251,19 +232,21 @@ export function createMarkdownRecords({
 						throw new Error(
 							'The change given to edit must return a record patch inside Ok',
 						);
-					// A spread of the record carries its path and keys, which are not fields.
-					const identity = ['path', ...Object.keys(keysOf(path))];
-					patch = Object.fromEntries(
-						Object.entries(result.data).filter(
-							([key]) => !identity.includes(key),
-						),
-					);
+					patch = result.data;
 				}
+				// A spread of the record carries its path and id, which name it and are not fields.
+				const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
+				if (named.length)
+					return unfit(
+						id,
+						`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
+						'the change names the record, not only the fields that change',
+					);
 
 				const { body, ...given } = patch;
 				if (body !== undefined && typeof body !== 'string')
-					return unfit(path, 'body must be text');
-				const checked = fieldsOf(path, given, before === undefined);
+					return unfit(id, 'body must be text');
+				const checked = fieldsOf(id, given, before === undefined);
 				if (checked.error !== null) return checked;
 				const { set, removed } = checked.data;
 				const after = changeMarkdown(before ?? '', { set, removed, body });
@@ -275,7 +258,7 @@ export function createMarkdownRecords({
 					return current.result.error
 						? current.result
 						: Ok({ value: current.record });
-				const next = project(path, readMarkdown(after)).result;
+				const next = project(id, readMarkdown(after)).result;
 				if (next.error !== null)
 					return current?.result.error ? current.result : next;
 				return Ok({ value: next.data, text: after });
@@ -285,5 +268,5 @@ export function createMarkdownRecords({
 		return written as Result<AnyRecord, PublicError>;
 	}
 
-	return { read, write };
+	return { path: pathOf, read, write };
 }

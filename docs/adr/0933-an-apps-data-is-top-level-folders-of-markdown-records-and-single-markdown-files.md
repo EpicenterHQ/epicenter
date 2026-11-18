@@ -198,3 +198,16 @@ deletes `defineCollection`.
 - **`defineRecords`.** More exact about what is declared, but `data.watches` reads as `data/watches/` at every call site, and the call site is what code reads.
 - **No app-owned JSON.** Front matter breaks on top-level arrays and large nested values; JSON stays a plain file the app reads.
 - **Only folder keys, with `settings/settings.md`.** Moves the cost of one rule into every one-file app as a folder of one file and an id repeated at every call.
+
+## Amendment (2026-11-18): every key is a folder
+
+A key ending in `.md` is no longer one file. Every data key is a folder of
+records, and a key is a name with no suffix. One record of a kind, such as
+settings, is an ordinary key with a fixed id: `settings` and the id
+`settings` are `data/settings/settings.md`. A single-file key gave a second
+handle shape, a second set of verbs and a conditional type on every handle
+method; a fixed id costs one argument. An app that had `settings.md` moves
+its file to `data/settings/settings.md`. Each key also needs a `description`,
+what one record is as a noun (ADR-0935's amendment of the same date). The
+title of this record keeps "single Markdown files" for its history; the rule
+above replaces it.

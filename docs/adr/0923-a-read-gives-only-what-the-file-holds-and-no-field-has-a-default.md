@@ -80,3 +80,17 @@ So `!record.problems` is the check that makes a required field safe to use.
   `?? false` and `?? []` for the two kinds whose absence has one meaning.
 - **Keep the fill and return the raw value beside it.** A reader that does
   not look still acts on a value the file does not hold.
+
+## Amendment (2026-11-18): nothing is filled in
+
+The considered alternative "Fill nothing, switches and lists included" is now
+the decision. When a field's key is not in the file, it is absent, whatever
+its kind, and `defineAction` hands `run` the input as the caller gave it.
+`field.boolean()` and `field.list(item)` are required unless they say
+`optional: true`, like every other field, and `min` on a list only bounds
+its length. The code that reads a value writes its default:
+`({ done = false, tags = [] })`. The `"x-epicenter-field"` kind marker and
+the types that tracked filled keys are gone. The rule that no field has a
+`default` stands. Filling had a bug of its own: the generated `create` wrote
+`done: false` and `tags: []` into a new file, while `create(id, record)`
+wrote neither; both now write what they were given.
