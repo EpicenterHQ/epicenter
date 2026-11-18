@@ -155,9 +155,9 @@ test('a confirmed repair replaces the Misfit cache row and deletion removes it',
 	const listKey = reads.list().queryKey;
 	const broken = { data: null, error: { name: 'Misfit' as const, namespace: 'epicenter/action-error' as const, path: confirmed.path, message: 'Needs repair', problems: [{ line: 'Bad field', kind: 'field' }] } };
 	client.setQueryData(listKey, [broken]);
-	const transport = stub((action) => action === 'set' ? response(confirmed) : response(true));
+	const transport = stub((action) => action === 'patch' ? response(confirmed) : response(true));
 	try {
-		await new MutationObserver(client, writes.set).mutate({ id, done: false });
+		await new MutationObserver(client, writes.patch).mutate({ id, done: false });
 		const row = confirmed;
 		expect(client.getQueryData(listKey)).toEqual([Ok(row)]);
 		client.setQueryData(listKey, [broken]);
@@ -170,17 +170,17 @@ test('a confirmed repair replaces the Misfit cache row and deletion removes it',
 	}
 });
 
-for (const body of ['', 'Before']) test(`notes save from ${body ? 'a quote' : 'an empty body'} sends one set`, async () => {
+for (const body of ['', 'Before']) test(`notes save from ${body ? 'a quote' : 'an empty body'} sends one ${body ? 'edit' : 'patch'}`, async () => {
 	const calls: string[] = [];
 	const transport = spyOn(globalThis, 'fetch').mockImplementation(Object.assign(async (url: Parameters<typeof fetch>[0], options?: RequestInit) => {
 		calls.push(String(url));
-		expect(JSON.parse(String(options?.body))).toEqual(body === '' ? { id: 'book', body: 'After' } : { id: 'book', edit: { old: body, new: 'After' } });
+		expect(JSON.parse(String(options?.body))).toEqual(body === '' ? { id: 'book', body: 'After' } : { id: 'book', old: body, new: 'After' });
 		return response({ id: 'book', path: 'data/tasks/book.md', title: 'Book', done: false, body: 'After' });
 	}, { preconnect: fetch.preconnect }));
 	const client = cacheClient();
 	try {
 		await new MutationObserver(client, writes.edit).mutate({ id: 'book', old: body, new: 'After' });
-		expect(calls).toEqual(['/tasks/set']);
+		expect(calls).toEqual([body === '' ? '/tasks/patch' : '/tasks/edit']);
 	} finally { client.clear(); transport.mockRestore(); }
 });
 
@@ -189,7 +189,7 @@ test('a failed save reports its error without a recovery read or another write',
 	const transport = stub(action => { calls.push(action); return new Response(''); });
 	const client = cacheClient();
 	try {
-		await expect(new MutationObserver(client, writes.set).mutate({ id: 'book', done: true })).rejects.toMatchObject({ name: 'Unreachable' });
-		expect(calls).toEqual(['set']);
+		await expect(new MutationObserver(client, writes.patch).mutate({ id: 'book', done: true })).rejects.toMatchObject({ name: 'Unreachable' });
+		expect(calls).toEqual(['patch']);
 	} finally { client.clear(); transport.mockRestore(); }
 });

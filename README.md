@@ -89,13 +89,13 @@ const data = defineData({
 const add = defineAction({
   description: 'Add a task to do',
   input: { title: field.text() },
-  run: ({ title }) => data.tasks.add(timeId(), { title }),
+  run: ({ title }) => data.tasks.create(timeId(), { title }),
 });
 
 export default defineApp({
   description: 'Things I mean to do',
   data,
-  actions: { ...data.tasks.actions('list', 'get', 'set'), add },
+  actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
 });
 ```
 

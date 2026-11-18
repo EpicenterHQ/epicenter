@@ -14,7 +14,7 @@
 		error: Extract<ActionError, { name: 'Misfit' }>;
 		onSaved: () => unknown;
 	} = $props();
-	const repair = createMutation(() => writes.set);
+	const repair = createMutation(() => writes.patch);
 </script>
 
 <section>

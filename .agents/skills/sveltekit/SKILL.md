@@ -37,6 +37,10 @@ Use the `svelte` skill for component runes and template mechanics.
 
 ## Types And Boundaries
 
+- Use `$lib` from routes to reach modules under the app’s `src/lib`.
+  Use relative imports for files that live together, such as a route
+  and its companion component. Import shared packages through their
+  public exports.
 - Import generated route types from `./$types` in route files.
 - Keep env reads in server code unless the value is intentionally public.
 - Keep redirects and errors explicit with SvelteKit helpers so status codes survive SSR and client navigation.

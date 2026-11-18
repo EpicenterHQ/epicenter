@@ -383,7 +383,7 @@ export default defineApp({
 	description: 'How much I read each week',
 	data,
 	actions: {
-		books: data.books.actions('list', 'get', 'add', 'set'),
+		books: data.books.actions('list', 'get', 'create', 'patch'),
 		log: defineAction({
 			description: 'Record minutes read today',
 			input: { minutes: field.number(), book: field.text({ optional: true }) },

@@ -7,7 +7,7 @@
  * const learn = defineAction({
  *   description: 'Learn a word, due now',
  *   input: { word: field.text(), meaning: field.text({ optional: true }) },
- *   run: ({ word, meaning }) => words.add({ word, meaning }),
+ *   run: ({ word, meaning }) => words.create(word, { meaning }),
  * });
  *
  * await learn({ word: '你好' });

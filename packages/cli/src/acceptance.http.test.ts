@@ -102,8 +102,8 @@ test('HTTP tools/list offers app actions', async () => {
 	expect(body.result.tools.map((tool) => tool.name)).toEqual([
 		'reading_books_list',
 		'reading_books_get',
-		'reading_books_add',
-		'reading_books_set',
+		'reading_books_create',
+		'reading_books_patch',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
@@ -315,6 +315,18 @@ const talk = `export default defineApp({ description: 'Talk', actions: {
 			return Ok('dripped');
 		},
 	}),
+	tangle: defineAction({
+		description: 'Send an update that is not JSON between two that are',
+		input: {},
+		async run(_input, update) {
+			const loop = {};
+			loop.self = loop;
+			update('before');
+			update(loop);
+			update('after');
+			return Ok('untangled');
+		},
+	}),
 } });
 `;
 
@@ -450,6 +462,20 @@ test('a listener that fails does not stop the action or the call', async () => {
 	} finally {
 		page.reportError = original;
 	}
+});
+
+test('an update that is not JSON is dropped alone, and the answer still arrives', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const response = await fetch(`${f.base}/talk/tangle`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: '{}',
+	});
+	expect(await linesOf(response)).toEqual([
+		{ update: 'before' },
+		{ update: 'after' },
+		{ answer: { data: 'untangled', error: null } },
+	]);
 });
 
 test('unserializable action throws still answer Threw, and preserve writes', async () => {

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-16
+- **Amended:** 2026-11-17: the verbs are `create`, `patch`, `edit`, and `delete` beside `list` and `get`; the passage edit is its own verb, and `create` and `edit` are not idempotent; see [the amendment](#amendment-2026-11-17-a-split-edit-and-corrected-hints).
 - **Amends:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on the generated `get` of a one-file key whose file is absent: it answers `Ok(undefined)`.
 - **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md) (the handle these are built from); [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (a caller whose answer was lost reads the record); [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one writer).
 
@@ -89,6 +90,48 @@ result fits. A caller whose answer was lost reads the record
 
 An app writes any other action with `defineAction`, its own description, and
 a handle. A refusal returns an `Err`, and a throw means a bug.
+
+## Amendment (2026-11-17): a split edit and corrected hints
+
+The handle's verbs are renamed
+([ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md#amendment-2026-11-17-create-patch-and-edit)),
+and the generated actions follow:
+
+| Verb | Input | `readOnlyHint` | `destructiveHint` | `idempotentHint` |
+| --- | --- | --- | --- | --- |
+| `list` | none | true | | |
+| `get` | `id` (none for a `.md` key) | true | | |
+| `create` | `id?`, the fields, `body?` | false | false | false |
+| `patch` | `id` (none for a `.md` key), fields, `body?` | false | true | true |
+| `edit` | `id` (none for a `.md` key), `old`, `new` | false | true | false |
+| `delete` | `id` (none for a `.md` key) | false | true | true |
+
+A folder key offers all six; a one-file key `get`, `patch`, `edit`, and
+`delete`. Each input is the handle method's arguments folded into one object.
+`create` without an `id` names the record with `timeId()`, and `get` answers
+`Missing` for an absent folder record; these are the fold's only two
+adaptations.
+
+**`edit` is its own verb.** It takes `id`, `old`, and `new` and no fields,
+and folds plainly to the handle's `edit(id, { old, new })`, with no logic of
+its own. `patch` no longer takes `edit`, so "body and edit together" and its
+`Refused` are gone. An absent record is `Missing` for a one-file key too.
+This replaces the rejected alternative below, "guards on the handle": the
+passage form lives on the handle because code calls it the same way the
+wire does, with no option only pages send.
+
+**Two hints were wrong.** `add` without an id made a new record on each
+call, yet said it was idempotent. A passage edit sent twice replaces twice:
+`a` → `ab` gives `abb`, yet `set` said it was idempotent. `create` and `edit`
+now say `idempotentHint: false`. `create`'s description tells a caller that
+may retry to send an id, so a repeat answers `Changed` (`there`). `edit`'s
+description says it is not safe to repeat. `patch` and `delete` stay
+idempotent.
+
+**What was given up:** an atomic change of fields and a passage in one wire
+call. A page that changes both now makes a `patch` and an `edit`, and must
+account for a completed `patch` when the `edit` fails. No caller in the
+owner's home sent both together.
 
 ## Consequences
 

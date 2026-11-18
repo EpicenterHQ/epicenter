@@ -167,7 +167,7 @@ test('concurrent updates of one data file each land, each computed from the reco
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
 			inRun(context, () =>
-				counters.update('a', (record) => Ok({ n: (record?.n ?? 0) + 1 })),
+				counters.edit('a', (record) => Ok({ n: (record?.n ?? 0) + 1 })),
 			),
 		),
 	);
@@ -225,11 +225,11 @@ test('a data update forwards returned Changed and lets a thrown Changed escape, 
 	for (const folder of [disk.folder, createMemoryContext().folder]) {
 		const path = 'data/counter.md';
 		const refusal = ActionError.Changed({ path, why: 'quote' });
-		expect(await inRun({ folder }, () => counter.update(() => refusal))).toBe(
+		expect(await inRun({ folder }, () => counter.edit(() => refusal))).toBe(
 			refusal,
 		);
 		const thrown = await inRun({ folder }, () =>
-			counter.update(() => {
+			counter.edit(() => {
 				throw refusal.error;
 			}),
 		).catch((cause: unknown) => cause);

@@ -119,19 +119,21 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 				(
 					await f.run(
 						'writing',
-						'set',
+						'edit',
 						JSON.stringify({
 							id,
-							edit: { old: 'The original quote', new: 'The corrected quote' },
+							old: 'The original quote',
+							new: 'The corrected quote',
 						}),
 					)
 				).code,
 			).toBe(0);
 			const stale = await client.callTool({
-				name: 'writing_set',
+				name: 'writing_edit',
 				arguments: {
 					id,
-					edit: { old: 'The original quote', new: 'A stale replacement' },
+					old: 'The original quote',
+					new: 'A stale replacement',
 				},
 			});
 			expect(stale.isError).toBe(true);

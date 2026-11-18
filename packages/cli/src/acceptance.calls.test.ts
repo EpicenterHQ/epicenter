@@ -219,14 +219,14 @@ test('C10 a read-only hint refuses nothing, and a file under local/ is readable 
 	expect((await stat(join(f.dir, 'local/token.md'))).mode & 0o777).toBe(0o600);
 });
 
-test('C11 concurrent sets of different fields on one file all land', async () => {
+test('C11 concurrent patches of different fields on one file all land', async () => {
 	const f = await setup();
 	const fields = Array.from({ length: 10 }, (_, i) => `f${i}`);
 	await f.folder(join(f.apps, 'many'), {
 		'code/.gitignore': gitignore,
 		'code/epicenter.ts': `${header}
 const data = defineData({ items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
-export default defineApp({ description: 'Many fields', data, actions: { items: data.items.actions('set') } });
+export default defineApp({ description: 'Many fields', data, actions: { items: data.items.actions('patch') } });
 `,
 		'data/items/one.md': '---\n---\n',
 	});
@@ -234,7 +234,7 @@ export default defineApp({ description: 'Many fields', data, actions: { items: d
 	// process, and no write is lost between them (ADR-0936).
 	const runs = await Promise.all(
 		fields.map((key, i) =>
-			f.run('many', 'items', 'set', JSON.stringify({ id: 'one', [key]: i })),
+			f.run('many', 'items', 'patch', JSON.stringify({ id: 'one', [key]: i })),
 		),
 	);
 	expect(runs.filter((run) => run.code !== 0 || run.stderr !== '')).toEqual([]);

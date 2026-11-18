@@ -22,13 +22,13 @@
 
 	const tasks = createQuery(() => reads.list());
 	const addTask = createMutation(() => writes.add);
-	const setTask = createMutation(() => writes.set);
+	const patchTask = createMutation(() => writes.patch);
 	let titleField: HTMLInputElement | null = null;
 	let dueField: HTMLInputElement | null = null;
 
 	const partition = $derived(splitTasks(tasks.data ?? []));
 	const broken = $derived(partition.errs);
-	const rows = $derived(partition.oks.map((task) => setTask.isPending && setTask.variables?.id === task.id ? { ...task, done: setTask.variables.done ?? task.done } : task));
+	const rows = $derived(partition.oks.map((task) => patchTask.isPending && patchTask.variables?.id === task.id ? { ...task, done: patchTask.variables.done ?? task.done } : task));
 
 	let showCompleted = $state(false);
 
@@ -49,7 +49,7 @@
 	 */
 	function toggle(task: Task, isDone: boolean) {
 		const label = task.title;
-		setTask.mutateAsync({ id: task.id, done: isDone }).then(
+		patchTask.mutateAsync({ id: task.id, done: isDone }).then(
 			() => {
 				if (!isDone) return;
 				toast(`Done: ${label}`, {
@@ -71,7 +71,7 @@
 		<div class="mx-auto max-w-xl px-4 pt-4 pb-3">
 			<div class="mb-3 flex items-baseline justify-between gap-2">
 				<h1 class="text-2xl font-semibold tracking-tight">Tasks</h1>
-				<span role="status" class="text-xs text-muted-foreground">{addTask.isPending || setTask.isPending ? 'Saving…' : ''}</span>
+				<span role="status" class="text-xs text-muted-foreground">{addTask.isPending || patchTask.isPending ? 'Saving…' : ''}</span>
 			</div>
 			<form
 				class="flex flex-wrap gap-2"
@@ -174,7 +174,7 @@
 					</h2>
 					<ul>
 						{#each group.tasks as task (task.id)}
-							<TaskRow {task} {today} showDue={group.key !== 'today'} onToggle={toggle} disabled={setTask.isPending} />
+							<TaskRow {task} {today} showDue={group.key !== 'today'} onToggle={toggle} disabled={patchTask.isPending} />
 						{/each}
 					</ul>
 				</section>
@@ -201,7 +201,7 @@
 					<Collapsible.Content>
 						<ul>
 							{#each done as task (task.id)}
-								<TaskRow {task} {today} onToggle={toggle} disabled={setTask.isPending} />
+								<TaskRow {task} {today} onToggle={toggle} disabled={patchTask.isPending} />
 							{/each}
 						</ul>
 					</Collapsible.Content>
