@@ -41,36 +41,16 @@ const NEXT = 'run bun install at the top of the home';
 export function libraryProblem(
 	app: string,
 	codePath: string,
-	link?: string,
 ): string | undefined {
 	let found: string;
 	try {
 		found = packageFolder(Bun.resolveSync('@epicenter/app', codePath));
 	} catch {
-		return link
-			? `apps/${app} is a link to ${link}, where no @epicenter/app is found: code finds packages from where it is, not from this home. Keep the app's code inside this home`
-			: `apps/${app} finds no @epicenter/app; ${NEXT}`;
+		return `apps/${app} finds no @epicenter/app from ${codePath}; ${NEXT}`;
 	}
 	if (found !== LIBRARY)
 		return `apps/${app} resolves @epicenter/app at ${found}, and epicenter runs ${LIBRARY}; ${NEXT}`;
 	if (LIBRARY_VERSION !== VERSION)
 		return `apps/${app} would run @epicenter/app ${LIBRARY_VERSION} under epicenter ${VERSION}, and the two are released together; set @epicenter/cli and @epicenter/app to one version in the home's package.json, then ${NEXT}`;
 	return undefined;
-}
-
-/**
- * The version of Epicenter the home at `folder` runs: what its
- * `node_modules/@epicenter/cli` says it is, or null when the home has no
- * install.
- */
-export async function installedVersion(folder: string): Promise<string | null> {
-	try {
-		const manifest: unknown = await Bun.file(
-			join(folder, 'node_modules', '@epicenter', 'cli', 'package.json'),
-		).json();
-		const version = (manifest as { version?: unknown } | null)?.version;
-		return typeof version === 'string' ? version : null;
-	} catch {
-		return null;
-	}
 }

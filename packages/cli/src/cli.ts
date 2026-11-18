@@ -10,7 +10,6 @@ import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
-import { installedVersion } from './library.ts';
 import {
 	actionHelp,
 	actionTool,
@@ -102,13 +101,12 @@ export async function runCli(argv: string[]): Promise<number> {
 			else {
 				epicenterRoot();
 				// A report only: it reads the home and starts, fetches and writes nothing.
-				const [found, routines, repository, version] = await Promise.all([
+				const [found, routines, repository] = await Promise.all([
 					discoverAll(),
 					createRoutines({ folder: epicenterDir() }).list(),
 					repositoryStatus(epicenterDir()),
-					installedVersion(epicenterDir()),
 				]);
-				print(homeListing(found, { routines, repository, version }, json));
+				print(homeListing(found, { routines, repository }, json));
 			}
 			return 0;
 		}
