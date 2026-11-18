@@ -4,7 +4,7 @@
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) at its first way a secret arrives, "the person edits the `.local` file": a value the owner pastes that more than one app reads goes in the home's `.env`. A value one app reads stays in that app's `local/` (ADR-0939).
 - **Relates:** [ADR-0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) (what stays on this computer lives in an app's `local/`), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (a home is any marked folder), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one process runs every action), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) (Epicenter does not commit), [ADR-0949](0949-an-action-reaches-a-model-through-model-which-reads-its-connection-from-the-homes-env.md) (model connections, the only shared values today and the only public reader).
-- **Unbuilt:** all of it but `init`'s lines, which #2687 adds. The first thing to exist is an `env` reader on a run's context, built by the CLI's loader in `packages/cli/src/home.ts` beside `folder`, and used inside `@epicenter/app` by `model()`. The live home already ignores `.env*` and has `env = false` in its `bunfig.toml`.
+- **Unbuilt:** all of it but `init`'s lines, which #2687 adds. The first thing to exist is `env` on a run's context, read by `runAction` in `packages/cli/src/run.ts` as the run begins, and used inside `@epicenter/app` by `model()`. The live home already ignores `.env*` and has `env = false` in its `bunfig.toml`.
 
 ## Context
 
@@ -31,24 +31,25 @@ whose context the loader builds: the HTTP route, MCP, and routines that call
 ## Decision
 
 **A value the owner pastes that more than one app reads goes in
-`<home>/.env`. Nothing loads it into `process.env`. The CLI gives each run a
-reader for it on the run's context, beside `folder`; `@epicenter/app` uses
-that reader inside `model()` and exports no reader of its own.**
+`<home>/.env`. Nothing loads it into `process.env`. The CLI reads it as each run
+begins and puts its lines on the run's context, beside `folder`;
+`@epicenter/app` uses them inside `model()` and exports no reader of its
+own.**
 
 ```ts
 // packages/app/src/context.ts
 export type Context = {
 	folder: Folder;
-	// One snapshot of the whole file, and its path for an error to name.
-	env: () => Promise<{ path: string; values: Record<string, string> }>;
+	// The whole file as the run began, and its path for an error to name.
+	env?: { path: string; values: Record<string, string> };
 };
 ```
 
 - `.env` sits at the top of the home, beside `EPICENTER.md`, one per home.
-- The reader parses the whole file on every call and returns it as one
-  snapshot, so an edit takes effect on the next call without restarting
-  serve, and a caller never mixes two versions of the file. A missing file
-  reads as empty.
+- The CLI parses the whole file as each run begins, so an edit takes effect
+  on the next call without restarting serve, and one run never mixes two
+  versions of the file. A run already under way keeps what it began with. A
+  missing file, or a context with no `env`, reads as empty.
 - `.gitignore` alone keeps `.env` out of commits, as it does every app's
   `local/`. Nothing asks Git before a read: a check there costs a Git process
   on every model call, makes each call depend on Git, and stops no push,
@@ -107,9 +108,12 @@ exports a reader too.
 - **`model()` finds the home itself.** An app linked from outside the home
   has a folder outside it, and the rule that picks a home (nearest marker,
   `EPICENTER_ROOT`, the default) lives in the CLI.
-- **A reader for one name at a time.** `model()` reads three names, so it
-  could read two versions of the file, and a value alone cannot carry the
-  file's path.
+- **A function on the context that reads the file when `model()` asks.**
+  Built and removed: `model()` became asynchronous, and the context carried a
+  function where data serves.
+- **Read `.env` once when serve starts.** It would be the one file the owner
+  edits by hand that needs a restart; code, data, and routines are all read
+  again on the next call. The read takes about 20 microseconds.
 - **Pass the context to `run` as arguments instead of AsyncLocalStorage.**
   The context is the same for every run of an app, which is what module-level
   code expects; passing it would thread `folder` and data handles through

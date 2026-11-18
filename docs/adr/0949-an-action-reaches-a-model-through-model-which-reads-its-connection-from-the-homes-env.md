@@ -29,7 +29,7 @@ several vendors (ADR-0950).
 
 **A connection is two lines in the home's `.env`: `<NAME>_BASE_URL` and
 `<NAME>_API_KEY`. A model's name is `<connection>/<id>`. `MODEL` names the
-home's default. `await model(name?)` turns a name into plain data: the base
+home's default. `model(name?)` turns a name into plain data: the base
 URL, the id, and the key.**
 
 ```txt
@@ -46,7 +46,7 @@ MODEL=epicenter/openai/gpt-5.5
 ```ts
 import { model } from '@epicenter/app';
 
-const chosen = await model(); // MODEL; or model('ollama/qwen3.5:9b')
+const chosen = model(); // MODEL; or model('ollama/qwen3.5:9b')
 if (chosen.error) return chosen; // "Add OLLAMA_API_KEY=... to /Users/you/Epicenter/.env"
 const { baseURL, id, apiKey } = chosen.data;
 const response = await fetch(`${baseURL}/chat/completions`, {
