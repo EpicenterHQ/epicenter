@@ -7,22 +7,20 @@
  *                       launcher; 405 when asked for an event stream (MCP)
  * GET  /<app>/...       the app's UI: ui/dist/ as static files, as the app's build left it
  * GET  /<app>           308 to /<app>/
- * POST /<app>           the command: {"words": [...]} as typed after the app's name
- * POST /<app>/<action>  a page's call; its words are joined by `.`
+ * POST /<app>/<action>  a call from a page or the command; its words are joined by `.`
  * ```
  *
- * Serve alone loads app code (ADR-0961). The `epicenter` command sends the
- * words it was given, and serve finds the action, reads and checks the input,
- * and answers "no such action" or "this input does not fit" itself; with
- * `"help": true` it answers the action's tool instead. The listing at `GET /`
- * feeds every view of the apps (`listing.ts`).
+ * Serve alone loads app code and reads an action's input (ADR-0961). A page
+ * and the `epicenter` command call an action the same way, and serve answers
+ * "no such action" or "this input does not fit" itself. The listing at
+ * `GET /` feeds every view of the apps (`listing.ts`).
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
  * the call arrives (`apps.ts`, `run.ts`), and stores nothing about it. When a
  * run ends, serve writes one JSON line to stderr naming the app, the action,
  * the outcome and how long it took, never the input or the result.
  *
- * A page's call's body is its input as JSON. A call's answer is JSON lines:
+ * A call's body is its input as JSON text. A call's answer is JSON lines:
  * `{"update": value}` for each update the action sends, then
  * `{"answer": {data, error}}` (ADR-0953). A call refused before it begins
  * answers that one answer, a `NotStarted`, as the body of a 400, and writes
@@ -61,22 +59,15 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok } from 'wellcrafted/result';
+import { Err } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
 import { appEntries, findEntry, localProblem } from './apps.ts';
-import { actionTool, listApps } from './listing.ts';
+import { listApps } from './listing.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import { type EpicenterRoot, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
-import {
-	type Call,
-	checkCall,
-	findAction,
-	findWords,
-	readCall,
-	runAction,
-} from './run.ts';
+import { type Call, checkCall, findAction, runAction } from './run.ts';
 import {
 	answeredBy,
 	ROOT_HEADER,
@@ -287,22 +278,6 @@ const JSON_LINES = {
 const refused = (error: NotStarted, status = 400) =>
 	Response.json(Err(error), { status });
 
-/** An answer that needs no run, as the one line a call's response ends with. */
-const answered = (answer: Answer) =>
-	new Response(`${JSON.stringify({ answer })}\n`, { headers: JSON_LINES });
-
-/** The body as JSON, or `undefined` when it is not JSON. */
-async function bodyJson(
-	request: Request,
-): Promise<{ value: unknown } | undefined> {
-	const text = new TextDecoder().decode(await request.arrayBuffer());
-	try {
-		return { value: JSON.parse(text) };
-	} catch {
-		return undefined;
-	}
-}
-
 /**
  * Run `call`, and answer its updates and then its answer as JSON lines.
  * Updates wait in order for a slow caller, because one can be a piece of
@@ -349,83 +324,26 @@ function stream(call: Call): Response {
 	return new Response(body, { headers: JSON_LINES });
 }
 
-/** `POST /<app>/<action>`: a page's call, its action's words joined by `.` and its input the body. */
-async function pageCall(
-	root: EpicenterRoot,
-	app: string,
-	path: string,
-	request: Request,
-) {
+/** `POST /<app>/<action>`: a call from a page or the command, its action's words joined by `.` and its input the body. */
+async function call(root: EpicenterRoot, request: Request) {
+	const [, first = '', path = '', ...more] = new URL(
+		request.url,
+	).pathname.split('/');
+	let app: string;
 	let words: string[];
 	try {
+		app = decodeURIComponent(first);
 		words = decodeURIComponent(path).split('.');
 	} catch {
 		return notFound();
 	}
-	if (!words.every(isName)) return notFound();
-	const body = await bodyJson(request);
-	if (!body)
-		return refused(
-			ActionError.NotStarted({
-				cause: 'usage',
-				message: 'The input is not valid JSON',
-			}).error,
-		);
+	if (more.length || !isName(app) || !words.every(isName)) return notFound();
+	const text = new TextDecoder().decode(await request.arrayBuffer());
 	const { data: found, error } = await findAction(root, app, words.join(' '));
 	if (error) return refused(error);
-	const { data: call, error: misfit } = checkCall(found, body.value);
+	const { data: checked, error: misfit } = checkCall(found, { text });
 	if (misfit) return refused(misfit);
-	return stream(call);
-}
-
-/**
- * `POST /<app>`: the command's words after the app's name as typed, as
- * `{"words": [...]}` (ADR-0961). Serve finds the action they name and reads
- * the word after it as the input. With `"help": true` it answers the
- * action's tool instead of running it.
- */
-async function commandCall(root: EpicenterRoot, app: string, request: Request) {
-	const body = await bodyJson(request);
-	const { words, help } = (body?.value ?? {}) as {
-		words?: unknown;
-		help?: unknown;
-	};
-	if (
-		!Array.isArray(words) ||
-		!words.length ||
-		!words.every((word) => typeof word === 'string')
-	)
-		return refused(
-			ActionError.NotStarted({
-				cause: 'usage',
-				message: 'The command sends {"words": [...]}, the words after the app',
-			}).error,
-		);
-	const { data: found, error } = await findWords(root, app, words);
-	if (error) return refused(error);
-	if (help === true)
-		return answered(Ok(actionTool(app, found.key, found.action)));
-	const { data: call, error: misfit } = readCall(found, found.rest);
-	if (misfit) return refused(misfit);
-	return stream(call);
-}
-
-/** `POST /<app>` from the command, or `POST /<app>/<action>` from a page. */
-async function post(root: EpicenterRoot, request: Request) {
-	const [, first = '', action, ...more] = new URL(request.url).pathname.split(
-		'/',
-	);
-	let app: string;
-	try {
-		app = decodeURIComponent(first);
-	} catch {
-		return notFound();
-	}
-	if (more.length) return notFound();
-	// The command's words name an app as typed, and serve says when none has that name.
-	if (action === undefined) return commandCall(root, app, request);
-	if (!isName(app)) return notFound();
-	return pageCall(root, app, action, request);
+	return stream(checked);
 }
 
 /**
@@ -505,7 +423,7 @@ function startHttpServer(root: EpicenterRoot) {
 			return request.method === 'POST'
 				? mcp(root, request)
 				: listing(root, request);
-		return request.method === 'POST' ? post(root, request) : ui(root, request);
+		return request.method === 'POST' ? call(root, request) : ui(root, request);
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,

@@ -1,9 +1,9 @@
 /**
  * Send the command's requests to the `epicenter serve` of this Epicenter, the one
  * process that loads app code and runs its actions (ADR-0936, ADR-0961). The
- * command reads the listing at `GET /`, and sends the words it was typed to
- * `POST /<app>`, whose answer is JSON lines read by the same `readAnswer` a
- * page uses (ADR-0953). An Epicenter has one serve, found at the port in its
+ * command reads the listing at `GET /`, and calls an action at
+ * `POST /<app>/<action>` as a page does, reading its JSON lines with the same
+ * `readAnswer` (ADR-0953). An Epicenter has one serve, found at the port in its
  * `EPICENTER.md`; a command never starts it and never runs an action in its
  * place.
  */
@@ -119,28 +119,26 @@ export async function fetchListing(
 }
 
 /**
- * Send the words typed after the app's name to serve, and give its answer.
- * Serve finds the action and reads its input (ADR-0961). With `help`, the
- * answer is the action's tool and nothing runs; otherwise each update goes
- * to `onUpdate` as it arrives.
+ * Call the action `key` of `app` with `input`, its JSON text as typed, and
+ * give serve's answer. Serve reads and checks the input (ADR-0961). Each
+ * update goes to `onUpdate` as it arrives.
  */
-export async function sendWords(
+export async function callAction(
 	root: EpicenterRoot,
 	app: string,
-	words: string[],
-	{ help, onUpdate }: { help: boolean; onUpdate?: (value: unknown) => void },
+	key: string,
+	input: string,
+	onUpdate: (value: unknown) => void,
 ): Promise<Answer> {
 	const { data: response, error } = await reach(
 		root,
-		`/${encodeURIComponent(app)}`,
+		`/${app}/${key.replaceAll(' ', '.')}`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(help ? { words, help } : { words }),
+			body: input,
 		},
-		help
-			? 'The connection to serve ended before its answer'
-			: 'The connection to serve ended before the answer; the action may still be running, or may have finished',
+		'The connection to serve ended before the answer; the action may still be running, or may have finished',
 	);
 	if (error) return Err(error);
 	return readAnswer(response, onUpdate);

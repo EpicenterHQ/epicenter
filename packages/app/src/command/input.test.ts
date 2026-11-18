@@ -10,27 +10,12 @@ import {
 	field,
 	Ok,
 } from '../index.ts';
-import { checkInput, matchAction, readInput, usageLine } from './input.ts';
+import { checkInput, noSuchAction, readInput, usageLine } from './input.ts';
 import { actionHelp, actionTool } from './listing.ts';
 
 /** Help as the command prints it: from the action's tool, after the trip through JSON serve sends it on. */
 const helpOf = (app: string, key: string, action: Action) =>
 	actionHelp(JSON.parse(JSON.stringify(actionTool(app, key, action))));
-
-test('action matching stops at the first word that cannot name an action', () => {
-	const actions = { log: 1, 'calendar show': 2, 'calendar add': 3 };
-	expect(matchAction(actions, ['log', '{"minutes":3}'])).toEqual({
-		key: 'log',
-		action: 1,
-		rest: ['{"minutes":3}'],
-	});
-	expect(matchAction(actions, ['calendar', 'show', '-'])).toEqual({
-		key: 'calendar show',
-		action: 2,
-		rest: ['-'],
-	});
-	expect(matchAction(actions, ['--json'])).toBeUndefined();
-});
 
 const add = defineAction({
 	description: 'Add a task to do',
@@ -41,49 +26,53 @@ const add = defineAction({
 	run: (input) => Ok(input),
 });
 
-test('no input is the empty object', async () => {
+test('the command sends no input as the empty object', async () => {
 	const list = defineAction({
 		description: 'List',
 		input: { tag: field.text({ optional: true }) },
 		run: () => Ok([]),
 	});
-	expect(await readInput(list.input, [])).toEqual({ input: {} });
-	expect(await readInput(add.input, [])).toEqual({ error: 'title is needed' });
+	expect(await readInput(list.input, '{}')).toEqual({ input: {} });
+	expect(await readInput(add.input, '{}')).toEqual({
+		error: 'title is needed',
+	});
 });
 
-test('one word is the JSON object, checked against the schema', async () => {
+test('the text is the JSON object, checked against the schema', async () => {
 	expect(
-		await readInput(add.input, [
-			'{"title":"Call the bank","due":"2026-11-12"}',
-		]),
+		await readInput(add.input, '{"title":"Call the bank","due":"2026-11-12"}'),
 	).toEqual({
 		input: { title: 'Call the bank', due: '2026-11-12' },
 	});
-	expect(await readInput(add.input, ['{"title":"x","due":"soon"}'])).toEqual({
+	expect(await readInput(add.input, '{"title":"x","due":"soon"}')).toEqual({
 		error: 'due must be a day like 2026-11-12',
 	});
 });
 
 test('text that is not JSON, or JSON that is not an object, is refused with an example', async () => {
-	for (const word of ['Call the bank', '{title:"x"}', '--title'])
-		expect(await readInput(add.input, [word])).toEqual({
+	for (const word of ['Call the bank', '{title:"x"}', '--title', ''])
+		expect(await readInput(add.input, word)).toEqual({
 			error: `The input is not JSON; give one JSON object, such as '{"title":"text"}'`,
 		});
 	for (const word of ['"Call the bank"', '3', 'null', '[]'])
-		expect(await readInput(add.input, [word])).toEqual({
+		expect(await readInput(add.input, word)).toEqual({
 			error: `The input is not a JSON object; give one, such as '{"title":"text"}'`,
 		});
 });
 
-test('two or more words are refused: the input is one argument', async () => {
-	for (const rest of [
-		['{"title":"a"}', '{"due":"2026-11-12"}'],
-		['--input', '{"title":"a"}'],
-		['-', '-'],
-	])
-		expect(await readInput(add.input, rest)).toEqual({
-			error: `The input is one argument, a JSON object such as '{"title":"text"}'; quote it whole`,
-		});
+test('an action an app does not have is refused with the ones it has', () => {
+	expect(
+		noSuchAction('tasks', 'add hello', [
+			['add', add.input],
+			[
+				'list',
+				defineAction({ description: 'List', input: {}, run: () => Ok([]) })
+					.input,
+			],
+		]),
+	).toBe(
+		'tasks has no action "add hello". Its actions:\nepicenter tasks add <input>\nepicenter tasks list',
+	);
 });
 
 test('a key the action does not take is refused, naming the keys it takes', () => {
@@ -111,7 +100,7 @@ test('no field name is reserved: json, help, and input are keys like any other',
 		run: (input) => Ok(input),
 	});
 	expect(
-		await readInput(show.input, ['{"json":true,"help":"h","input":"i"}']),
+		await readInput(show.input, '{"json":true,"help":"h","input":"i"}'),
 	).toEqual({ input: { json: true, help: 'h', input: 'i' } });
 });
 
@@ -162,9 +151,10 @@ test('every input shape works: lists of objects, and a reference checked as an i
 		run: (input) => Ok(input),
 	});
 	expect(
-		await readInput(invite.input, [
+		await readInput(
+			invite.input,
 			'{"people":[{"name":"Ada"}],"ratings":[4,5],"shelf":"no-such-shelf"}',
-		]),
+		),
 	).toEqual({
 		input: {
 			people: [{ name: 'Ada' }],
@@ -172,7 +162,7 @@ test('every input shape works: lists of objects, and a reference checked as an i
 			shelf: 'no-such-shelf',
 		},
 	});
-	expect(await readInput(invite.input, ['{"ratings":[9]}'])).toEqual({
+	expect(await readInput(invite.input, '{"ratings":[9]}')).toEqual({
 		error: 'ratings must be a list, each a whole number from 1 to 5',
 	});
 });

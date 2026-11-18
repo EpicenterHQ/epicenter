@@ -1,7 +1,6 @@
 /**
  * Run actions in serve: find one, check its input, and answer what it did.
- * A page and an agent name an action by its key; the command sends its words
- * as typed, and serve finds the action they name (ADR-0961).
+ * A page, the command and an agent each name an action by its key (ADR-0961).
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -13,11 +12,10 @@ import {
 	type Action,
 	ActionError,
 	type Answer,
-	isName,
 	type NotStarted,
 } from '../index.ts';
 import { type LoadedApp, loadApp } from './apps.ts';
-import { checkInput, matchAction, readInput, usageLine } from './input.ts';
+import { checkObject, noSuchAction, readInput } from './input.ts';
 import { stderrJsonLines } from './output.ts';
 import type { EpicenterRoot } from './root.ts';
 
@@ -161,61 +159,34 @@ export function findAction(
 			? app.actions[key]
 			: undefined;
 		if (!action)
-			return usage(`${name} has no action "${key}"`, `epicenter ${name}`);
+			return usage(
+				noSuchAction(
+					name,
+					key,
+					Object.entries(app.actions).map(([each, { input }]) => [each, input]),
+				),
+				`epicenter ${name}`,
+			);
 		return Ok({ app, key, action });
-	});
-}
-
-/**
- * Load the app's current code and find the action the command's words name:
- * the longest run of them that is an action's key. What follows the action's
- * words is `rest`, the input as typed.
- */
-export function findWords(
-	root: Pick<EpicenterRoot, 'folder'>,
-	name: string,
-	words: string[],
-): Promise<Result<Found & { rest: string[] }, NotStarted>> {
-	return guarded(async () => {
-		const { data: app, error } = await loadApp(root, name);
-		if (error) return Err(error);
-		const matched = matchAction(app.actions, words);
-		if (matched) return Ok({ app, ...matched });
-		// The words that could name an action: those before the input.
-		const end = words.findIndex((word) => !isName(word));
-		const asked = words.slice(0, end < 0 ? undefined : end).join(' ');
-		return usage(
-			`${name} has no action ${JSON.stringify(asked || words[0] || '')}. Its actions:\n${Object.entries(
-				app.actions,
-			)
-				.map(([key, each]) => usageLine(name, key, each.input))
-				.join('\n')}`,
-			`epicenter ${name}`,
-		);
 	});
 }
 
 /** Help for checking `found`'s input, after a refusal. */
 const helpFor = ({ app, key }: Found) => `epicenter ${app.name} ${key} --help`;
 
-/** Check an input a page or an agent sent as JSON, running nothing. */
+/**
+ * Check the input of a call, running nothing: the JSON text a page or the
+ * command sent, or the object an agent did.
+ */
 export function checkCall(
 	found: Found,
-	raw: unknown,
+	sent: { text: string } | { value: unknown },
 ): Result<Call, NotStarted> {
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
-		return usage('The input is not a JSON object');
-	const checked = checkInput(found.action.input, raw);
+	const { input } = found.action;
+	const checked =
+		'text' in sent
+			? readInput(input, sent.text)
+			: checkObject(input, sent.value);
 	if ('error' in checked) return usage(checked.error, helpFor(found));
 	return Ok({ ...found, input: checked.input });
-}
-
-/** Read and check the input the command typed after the action's words, running nothing. */
-export function readCall(
-	found: Found,
-	rest: string[],
-): Result<Call, NotStarted> {
-	const read = readInput(found.action.input, rest);
-	if ('error' in read) return usage(read.error, helpFor(found));
-	return Ok({ ...found, input: read.input });
 }

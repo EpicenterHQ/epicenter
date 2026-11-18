@@ -85,7 +85,9 @@ export async function createMcpServer(root: Pick<EpicenterRoot, 'folder'>) {
 					message: `${app} ${key} is not offered over MCP`,
 				}),
 			);
-		const { data: call, error: misfit } = checkCall(found, args ?? {});
+		const { data: call, error: misfit } = checkCall(found, {
+			value: args ?? {},
+		});
 		if (misfit) return toolResult(Err(misfit));
 		return toolResult(await runAction(call));
 	});

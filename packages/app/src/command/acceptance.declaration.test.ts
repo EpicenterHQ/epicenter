@@ -296,9 +296,18 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	expect(
 		await piped('{"minutes":5}', false, 'reading', 'week', 'show'),
 	).toMatchObject({ code: 0, stdout: '210\n' });
+	// Stdin is the input, never a word: `show` from stdin does not make `week show`.
+	const stdinWord = await piped('show', true, 'reading', 'week', '-', '--json');
+	expect(stdinWord.code).toBe(2);
+	expect(JSON.parse(stdinWord.stdout).error.message).toStartWith(
+		'reading has no action "week". Its actions:',
+	);
 
 	for (const [args, message] of [
 		[['between', '2026-11-01', '2026-11-08'], 'The input is one argument'],
+		// A word that is a name belongs to the action, so it is no input.
+		[['between', 'today'], 'reading has no action "between today"'],
+		[[between], 'Name an action of reading before its input'],
 		// No word starts with -, so a flag is refused before serve is asked.
 		[['between', '--from', '2026-11-01'], '--from is not an option'],
 		[['between', '--input', between], '--input is not an option'],

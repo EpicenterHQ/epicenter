@@ -1,9 +1,9 @@
 /**
  * The `epicenter` command: a client of the Epicenter's serve, which alone loads
- * app code (ADR-0961). It finds its Epicenter once, by walking up, and sends
- * what it was typed: the listing feeds bare `epicenter` and `epicenter
- * <app>`, and the words after an app's name go to serve as they are, which
- * finds the action, reads the input, and runs it. `check` reads the apps in
+ * app code (ADR-0961). It finds its Epicenter once, by walking up. The
+ * listing feeds bare `epicenter`, `epicenter <app>` and an action's
+ * `--help`; a call goes to serve as a page's does, with the action's words
+ * and the input as typed, and serve reads the input and runs the action. `check` reads the apps in
  * this process; `serve` is the process. Every command ends in one answer,
  * `{ data, error }`, which `runCli` presents in one place (ADR-0953). Serve
  * prints no answer while it runs.
@@ -13,10 +13,10 @@ import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
-import { actionHelp, appReport, isActionTool, rootReport } from './listing.ts';
+import { appReport, helpReport, rootReport } from './listing.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import { epicenterRoot } from './root.ts';
-import { fetchListing, sendWords } from './send.ts';
+import { callAction, fetchListing } from './send.ts';
 
 /** The commands `epicenter` keeps for itself: each one's usage, and what its `--help` says beneath it. */
 const CHECK = {
@@ -134,7 +134,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			begun = true;
 			return serveHttp(root);
 		}
-		// A word that is no name names no app, and would not reach POST /<app>: `..` is `/`.
+		// A word that is no name names no app, and would not reach POST /<app>/<action>: `..` is `/`.
 		if (name !== undefined && !isName(name))
 			return usage(`Unknown app "${name}"`, 'epicenter');
 		if (name === undefined || !rest.length) {
@@ -144,27 +144,33 @@ export async function runCli(argv: string[]): Promise<number> {
 				? Ok(rootReport(listing, root, json))
 				: appReport(listing, root, name, json);
 		}
+		// The action is the words that are names; an input is {...} or -, never one.
+		const end = rest.findIndex((word) => !isName(word));
+		const key = rest.slice(0, end < 0 ? undefined : end).join(' ');
+		const after = end < 0 ? [] : rest.slice(end);
+		if (!key)
+			return usage(
+				`Name an action of ${name} before its input`,
+				`epicenter ${name}`,
+			);
 		if (help) {
-			const { data: tool, error } = await sendWords(root, name, rest, {
-				help: true,
-			});
+			const { data: listing, error } = await fetchListing(root);
 			if (error) return Err(error);
-			if (!isActionTool(tool))
-				return ActionError.Unreachable({
-					message: 'serve sent an invalid action',
-				});
-			return Ok(json ? tool : actionHelp(tool));
+			return helpReport(listing, name, key, json);
 		}
+		if (after.length > 1)
+			return usage(
+				'The input is one argument, a JSON object; quote it whole',
+				`epicenter ${name} ${key} --help`,
+			);
 		// Only this process can read its stdin, so it reads `-` and sends the text.
-		const typed =
-			rest.at(-1) === '-'
-				? [...rest.slice(0, -1), await Bun.stdin.text()]
-				: rest;
+		const [typed = '{}'] = after;
+		const input = typed === '-' ? await Bun.stdin.text() : typed;
 		// Each update is one line of JSON on stderr, as it arrives.
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
-		// Serve runs every action; this process only sends the call.
+		// Serve reads the input and runs the action; this process only sends the call.
 		sent = true;
-		return sendWords(root, name, typed, { help: false, onUpdate });
+		return callAction(root, name, key, input, onUpdate);
 	}
 	let answered: Answer | undefined;
 	try {

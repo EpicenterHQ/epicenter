@@ -153,6 +153,11 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['setup'], 'Unknown app "setup"'],
 		[['Setup', 'add'], 'Unknown app "Setup"'],
 		[['setup', 'add'], 'Unknown app "setup"'],
+		// --help answers a mistyped action as a call does.
+		[
+			['reading', 'lgo', '--help'],
+			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week summary\n',
+		],
 		// Not names: sent as they are, they would reach / or the root.
 		[['..', 'add'], 'Unknown app ".."'],
 		[['.', 'add'], 'Unknown app "."'],

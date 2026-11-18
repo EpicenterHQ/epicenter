@@ -1,10 +1,8 @@
 /**
- * Which action a person meant, and its input (ADR-0841, ADR-0925, ADR-0961).
- * Serve reads the words the command sends as typed: the longest run of words
- * that names an action is the action, and after them comes at most one more
- * word, the input as one JSON object. The command reads `-` from its own
- * stdin and sends that text in its place. A page, an agent, and the command
- * line give the same object, and `checkInput` checks it for all three.
+ * An action's input, and the words that describe it (ADR-0925, ADR-0961). A
+ * page and the command send the input as JSON text, which `readInput`
+ * reads; an agent sends it as an object. `checkInput` checks it for all
+ * three, in serve.
  *
  * What an input takes is plain JSON Schema, so help and examples are written
  * from the schema alone, by serve or by a command that loaded no app.
@@ -13,26 +11,6 @@
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { type ObjectSchema, whatFits } from '../field.ts';
-import { isName } from '../index.ts';
-
-/**
- * Match the longest action prefix so spaced action keys keep their spelling.
- * Action words are name words, so the first word that cannot be one ends the
- * search.
- */
-export function matchAction<A>(
-	actions: Record<string, A>,
-	words: string[],
-): { key: string; action: A; rest: string[] } | undefined {
-	let end = words.findIndex((word) => !isName(word));
-	if (end < 0) end = words.length;
-	for (; end > 0; end--) {
-		const key = words.slice(0, end).join(' ');
-		if (Object.hasOwn(actions, key))
-			return { key, action: actions[key] as A, rest: words.slice(end) };
-	}
-	return undefined;
-}
 
 /**
  * Check an input against its action's schema (ADR-0953), the one check a
@@ -170,31 +148,47 @@ export function exampleCommand(
 }
 
 /**
- * Read an action's input from the words after its name: none is `{}`, and
- * one word is the JSON text of the object.
+ * Read an action's input from the JSON text a page or the command sent, and
+ * check it. Text that is not one JSON object is refused with an example.
  */
 export function readInput(
 	schema: ObjectSchema,
-	rest: string[],
+	text: string,
 ): { input: Record<string, unknown> } | { error: string } {
-	const example = quoted(exampleInput(schema));
-	if (rest.length > 1)
-		return {
-			error: `The input is one argument, a JSON object such as ${example}; quote it whole`,
-		};
-	const [word] = rest;
-	if (word === undefined) return checkInput(schema, {});
 	let raw: unknown;
 	try {
-		raw = JSON.parse(word);
+		raw = JSON.parse(text);
 	} catch {
 		return {
-			error: `The input is not JSON; give one JSON object, such as ${example}`,
+			error: `The input is not JSON; give one JSON object, such as ${quoted(exampleInput(schema))}`,
 		};
 	}
+	return checkObject(schema, raw);
+}
+
+/** Check a value that should be the input object, refusing one that is no object with an example. */
+export function checkObject(
+	schema: ObjectSchema,
+	raw: unknown,
+): { input: Record<string, unknown> } | { error: string } {
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 		return {
-			error: `The input is not a JSON object; give one, such as ${example}`,
+			error: `The input is not a JSON object; give one, such as ${quoted(exampleInput(schema))}`,
 		};
 	return checkInput(schema, raw);
+}
+
+/**
+ * The refusal of an action `app` does not have, listing the ones it does:
+ * one line each, as `epicenter <app>` shows it. Serve and the command's
+ * `--help` say it the same way.
+ */
+export function noSuchAction(
+	app: string,
+	key: string,
+	actions: [key: string, input: ObjectSchema][],
+): string {
+	return `${app} has no action ${JSON.stringify(key)}. Its actions:\n${actions
+		.map(([each, input]) => usageLine(app, each, input))
+		.join('\n')}`;
 }

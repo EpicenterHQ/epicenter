@@ -17,16 +17,24 @@
 
 import { basename } from 'node:path';
 import type { TSchemaOptions } from 'typebox';
+import type { Result } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import { type ObjectSchema, objectSchema, whatTakes } from '../field.ts';
-import { type Action, ActionError, type Answer, Ok } from '../index.ts';
+import {
+	type Action,
+	ActionError,
+	type Answer,
+	Err,
+	type NotStarted,
+	Ok,
+} from '../index.ts';
 import {
 	type AppProblems,
 	appPath,
 	discoverAll,
 	type LoadedApp,
 } from './apps.ts';
-import { exampleCommand, usageLine } from './input.ts';
+import { exampleCommand, noSuchAction, usageLine } from './input.ts';
 import type { EpicenterRoot } from './root.ts';
 import { createRoutines, type RoutineRow } from './routines.ts';
 
@@ -55,17 +63,6 @@ export type ActionTool = {
 	annotations?: Action['annotations'];
 	mcp?: false;
 };
-
-/** Whether `value`, as serve sent it, has what `actionHelp` reads from a tool. */
-export function isActionTool(value: unknown): value is ActionTool {
-	const tool = value as Partial<ActionTool> | null;
-	return (
-		typeof tool?.name === 'string' &&
-		typeof tool.description === 'string' &&
-		typeof tool.inputSchema?.properties === 'object' &&
-		Array.isArray(tool.inputSchema.required)
-	);
-}
 
 export function actionTool(
 	app: string,
@@ -239,32 +236,40 @@ function withFolder(
 }
 
 /**
- * What `epicenter <app>` prints: the app's data keys and actions and its
- * folder. A name the listing has no app for answers `NotStarted`: its
- * problems when it did not load, else that there is no such app.
+ * The app `name` in the listing. A name it has no app for answers
+ * `NotStarted`: its problems when it did not load, else that there is no
+ * such app.
  */
+function listedApp(
+	listing: Listing,
+	name: string,
+): Result<AppListing, NotStarted> {
+	const app = listing.apps.find((each) => each.name === name);
+	if (app) return Ok(app);
+	const broken = listing.problems.find(({ entry }) => entry === name);
+	if (broken)
+		return ActionError.NotStarted({
+			cause: 'app-problems',
+			message: `${name}: ${broken.problems.join('; ')}`,
+			app: name,
+			problems: broken.problems,
+		});
+	return ActionError.NotStarted({
+		cause: 'usage',
+		message: `Unknown app "${name}"`,
+		next: 'epicenter',
+	});
+}
+
+/** What `epicenter <app>` prints: the app's data keys and actions and its folder. */
 export function appReport(
 	listing: Listing,
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 	json: boolean,
 ): Answer {
-	const app = listing.apps.find((each) => each.name === name);
-	if (!app) {
-		const broken = listing.problems.find(({ entry }) => entry === name);
-		if (broken)
-			return ActionError.NotStarted({
-				cause: 'app-problems',
-				message: `${name}: ${broken.problems.join('; ')}`,
-				app: name,
-				problems: broken.problems,
-			});
-		return ActionError.NotStarted({
-			cause: 'usage',
-			message: `Unknown app "${name}"`,
-			next: 'epicenter',
-		});
-	}
+	const { data: app, error } = listedApp(listing, name);
+	if (error) return Err(error);
 	if (json) return Ok(withFolder(app, root));
 	return Ok(
 		[
@@ -284,6 +289,36 @@ export function appReport(
 			`Run: epicenter ${app.name} <action> --help`,
 		].join('\n'),
 	);
+}
+
+/**
+ * What `epicenter <app> <action> --help` prints: the action's tool, or its
+ * help as a person reads it. An action the app does not have is refused as
+ * serve refuses a call to one, listing those it has.
+ */
+export function helpReport(
+	listing: Listing,
+	name: string,
+	key: string,
+	json: boolean,
+): Answer {
+	const { data: app, error } = listedApp(listing, name);
+	if (error) return Err(error);
+	const tool = app.actions.find((each) => each.name === toolName(name, key));
+	if (!tool)
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: noSuchAction(
+				name,
+				key,
+				app.actions.map((each) => [
+					fromToolName(each.name).key,
+					each.inputSchema,
+				]),
+			),
+			next: `epicenter ${name}`,
+		});
+	return Ok(json ? tool : actionHelp(tool));
 }
 
 /**
