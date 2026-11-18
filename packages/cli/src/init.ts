@@ -236,6 +236,9 @@ export async function initCommand(
 		['package.json', HOME_PACKAGE, 0o644],
 		['routines/checkpoint.md', CHECKPOINT_ROUTINE, 0o644],
 		['scripts/checkpoint.sh', CHECKPOINT_SCRIPT, 0o755],
+		// Bun would otherwise load the root's .env into every process it starts,
+		// and a routine's child inherits it (ADR-0948).
+		['bunfig.toml', 'env = false\n', 0o644],
 	] as const) {
 		await mkdir(dirname(join(folder, path)), { recursive: true });
 		try {
@@ -290,7 +293,9 @@ async function startEpicenterRepository(root: string, wrote: string[]) {
 	if (!existsSync(join(root, '.gitignore'))) {
 		await writeFile(
 			join(root, '.gitignore'),
-			'/apps/*/local/\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
+			// The checkpoint routine stages everything and pushes, so a pasted
+			// credential in .env must be ignored before it exists (ADR-0948).
+			'/apps/*/local/\n.env*\n!.env.example\nnode_modules/\n.DS_Store\n/apps/*/code/ui/dist/\n/apps/*/.code-build-*/\n',
 		);
 		wrote.push('.gitignore');
 	}

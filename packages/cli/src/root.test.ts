@@ -330,13 +330,25 @@ test('a new home commits itself: the script init writes commits, pushes, waits o
 	// No origin: it commits what is pending and pushes nowhere.
 	// What an app keeps in local/ is never staged: the root ignore line covers
 	// it whoever made the folder.
+	// Neither is a credential the owner pasted into .env, which Bun does not
+	// load either; .env.example, which holds no values, is committed.
 	await f.folder(home, {
 		'apps/x/data/a.md': 'a',
 		'apps/x/local/google.md': 'token',
+		'.env': 'GOOGLE_CLIENT_SECRET=secret\n',
+		'.env.local': 'GOOGLE_CLIENT_SECRET=secret\n',
+		'.env.example': 'GOOGLE_CLIENT_SECRET=\n',
 	});
 	expect(await checkpoint()).toEqual({ code: 0, stderr: '' });
 	expect(await gitIn(home, 'log', '-1', '--format=%s')).toBe('checkpoint');
 	expect(await gitIn(home, 'ls-files', '--', 'apps')).toBe('apps/x/data/a.md');
+	expect(await gitIn(home, 'ls-files', '--', '.env*')).toBe('.env.example');
+	expect(await gitIn(home, 'show', 'HEAD:bunfig.toml')).toBe('env = false');
+	const child = Bun.spawn(
+		['bun', '-e', 'process.stdout.write(process.env.GOOGLE_CLIENT_SECRET ?? "")'],
+		{ cwd: home, env: process.env, stdout: 'pipe' },
+	);
+	expect(await new Response(child.stdout).text()).toBe('');
 	const clean = await head();
 	expect(await checkpoint()).toEqual({ code: 0, stderr: '' });
 	expect(await head()).toBe(clean);
