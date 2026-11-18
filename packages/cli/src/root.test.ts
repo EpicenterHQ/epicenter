@@ -31,7 +31,10 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	await writeFile(join(folder, 'AGENTS.md'), 'Keep this guidance.\n');
 	const result = await f.init(folder, '--port', '4748', '--json');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout)).toEqual({ folder, port: 4748 });
+	expect(JSON.parse(result.stdout)).toEqual({
+		data: { folder, port: 4748 },
+		error: null,
+	});
 	expect(await readFile(join(folder, 'EPICENTER.md'), 'utf8')).toBe(
 		'---\nport: 4748\n---\nThis folder is an Epicenter. Each folder in its `apps/` is an app: its code in `code/`, its records in `data/`. Run `epicenter` here to list them.\n',
 	);
@@ -48,7 +51,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	const fresh = join(f.root, 'fresh');
 	const defaulted = await f.init(fresh, '--json');
 	expect(defaulted.code).toBe(0);
-	expect(JSON.parse(defaulted.stdout).port).toBe(4747);
+	expect(JSON.parse(defaulted.stdout).data.port).toBe(4747);
 	expect(await readFile(join(fresh, 'EPICENTER.md'), 'utf8')).toStartWith(
 		'---\nport: 4747\n---\n',
 	);
@@ -97,7 +100,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(
 		JSON.parse(
 			(await f.runIn(current, 'init', '--no-install', '--json')).stdout,
-		).folder,
+		).data.folder,
 	).toBe(current);
 });
 
@@ -112,7 +115,7 @@ test('init installs the packages its package.json names, keeps a package.json al
 	});
 	const installed = await f.run('init', kept, '--json');
 	expect(installed.code).toBe(0);
-	expect(JSON.parse(installed.stdout)).toEqual({
+	expect(JSON.parse(installed.stdout).data).toEqual({
 		folder: kept,
 		port: 4747,
 	});
@@ -125,11 +128,20 @@ test('init installs the packages its package.json names, keeps a package.json al
 	const broken = join(f.root, 'broken');
 	await mkdir(broken);
 	await writeFile(join(broken, 'package.json'), '{ "dependencies": ');
-	const failed = await f.run('init', broken);
+	// It ran, so it is not NotStarted: Refused, exit 1, with the install as the next step.
+	const failed = await f.run('init', broken, '--json');
 	expect(failed.code).toBe(1);
-	expect(failed.stdout).toBe(`Made Epicenter at ${broken}.\n`);
-	expect(failed.stderr).toStartWith('Its packages did not install: ');
-	expect(failed.stderr).toEndWith(`Run: cd ${broken} && bun install\n`);
+	const { data, error } = JSON.parse(failed.stdout);
+	expect(data).toBeNull();
+	expect(error).toEqual({
+		name: 'Refused',
+		message: expect.any(String),
+		next: `cd ${broken} && bun install`,
+		namespace: 'epicenter/action-error',
+	});
+	expect(error.message).toStartWith(
+		`Made Epicenter at ${broken}.\nIts packages did not install: `,
+	);
 	// The home is made and committed, so the repair is the install alone.
 	expect((await f.runIn(broken, '--json')).code).toBe(0);
 	expect(await gitIn(broken, 'log', '--format=%s')).toBe('start the Epicenter');
@@ -146,7 +158,7 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 		'code/epicenter.ts': bareApp('tasks'),
 	});
 	f.env.EPICENTER_ROOT = other;
-	const fromOutside = JSON.parse((await f.run('--json')).stdout);
+	const fromOutside = JSON.parse((await f.run('--json')).stdout).data;
 	expect(fromOutside.epicenter).toBe(other);
 	expect((await f.run()).stdout).toContain(`Epicenter: other (${other})`);
 	expect(fromOutside.apps.map((app: { name: string }) => app.name)).toEqual([
@@ -160,7 +172,7 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	).toBe(true);
 	const fromInside = JSON.parse(
 		(await f.runIn(join(f.apps, 'reading'), '--json')).stdout,
-	);
+	).data;
 	expect(fromInside.epicenter).toBe(f.home);
 	expect(fromInside.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
@@ -189,7 +201,7 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	const marker = join(f.home, 'EPICENTER.md');
 	const listed = async () => f.runIn(join(inside, 'notes'), '--json');
 	await writeFile(marker, '---\nport: 4800\n---\nNotes for people.\n');
-	expect(JSON.parse((await listed()).stdout).epicenter).toBe(f.home);
+	expect(JSON.parse((await listed()).stdout).data.epicenter).toBe(f.home);
 	await writeFile(marker, '---\nport: 70000\nprot: 4748\n---\n');
 	const refused = await listed();
 	expect(refused.code).toBe(2);
@@ -215,7 +227,7 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	const elsewhere = join(f.root, 'elsewhere');
 	await mkdir(elsewhere);
 	expect(
-		JSON.parse((await f.runIn(elsewhere, '--json')).stdout).epicenter,
+		JSON.parse((await f.runIn(elsewhere, '--json')).stdout).data.epicenter,
 	).toBe(f.home);
 	expect((await f.init(join(f.root, 'beside'), '--json')).code).toBe(0);
 	const over = await f.run('init', f.root, '--no-install', '--json');
@@ -303,7 +315,9 @@ test('a new home commits itself: the script init writes commits, pushes, waits o
 		await gitIn(home, 'ls-files', '-s', 'scripts/checkpoint.sh'),
 	).toStartWith('100755 ');
 	// The routine file init wrote is one serve accepts.
-	expect(JSON.parse((await f.runIn(home, '--json')).stdout).routines).toEqual([
+	expect(
+		JSON.parse((await f.runIn(home, '--json')).stdout).data.routines,
+	).toEqual([
 		{
 			name: 'checkpoint',
 			cron: '*/5 * * * *',

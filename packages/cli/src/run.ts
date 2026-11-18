@@ -4,6 +4,7 @@ import {
 	type Action,
 	ActionError,
 	type Answer,
+	Err,
 	encodeActionResult,
 	inRun,
 	isActionResult,
@@ -11,10 +12,9 @@ import {
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
-import { notStarted, stderrJsonLines } from './output.ts';
+import { stderrJsonLines } from './output.ts';
 
 type Thrown = { name: string; message: string } & Record<string, unknown>;
 
@@ -163,17 +163,11 @@ export async function resolveAction(
 	raw: unknown,
 ): Promise<Resolved> {
 	const usage = (message: string, next?: string) => ({
-		refusal: notStarted(CliError.Usage({ message, next }).error),
+		refusal: ActionError.NotStarted({ cause: 'usage', message, next }),
 	});
 	try {
-		const { data: located, error: notFound } = await loadHomeApp(name);
-		if (notFound) return { refusal: notStarted(notFound) };
-		if (!located.ok)
-			return {
-				refusal: notStarted(
-					CliError.AppProblems({ app: name, problems: located.problems }).error,
-				),
-			};
+		const { data: located, error: notLoaded } = await loadHomeApp(name);
+		if (notLoaded) return { refusal: Err(notLoaded) };
 		const action = Object.hasOwn(located.actions, key)
 			? located.actions[key]
 			: undefined;
@@ -187,7 +181,10 @@ export async function resolveAction(
 		return { located, action, input: checked.input };
 	} catch (cause) {
 		return {
-			refusal: notStarted(CliError.Internal({ cause }).error),
+			refusal: ActionError.NotStarted({
+				cause: 'internal',
+				message: extractErrorMessage(cause),
+			}),
 		};
 	}
 }

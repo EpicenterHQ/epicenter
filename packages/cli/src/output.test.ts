@@ -6,8 +6,7 @@
 import { expect, test } from 'bun:test';
 import { ActionError } from '@epicenter/app';
 import { Err, Ok } from 'wellcrafted/result';
-import { CliError } from './errors.ts';
-import { notStarted, renderAnswer } from './output.ts';
+import { renderAnswer } from './output.ts';
 
 const ok = (value: unknown) => renderAnswer(Ok(value));
 
@@ -173,34 +172,25 @@ test('an error renders its message and next step, and exits 2 only for NotStarte
 	expect(
 		renderAnswer(ActionError.Unreachable({ message: 'The connection ended' })),
 	).toEqual({ stdout: '', stderr: 'The connection ended\n', code: 1 });
-	for (const cause of [
-		'usage',
-		'app-problems',
-		'internal',
-		'unavailable',
-	] as const)
+	for (const cause of ['usage', 'refused', 'unavailable'] as const)
 		expect(
 			renderAnswer(ActionError.NotStarted({ message: 'm', cause, next: 'n' })),
 		).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
+	for (const error of [
+		ActionError.NotStarted({ message: 'm', cause: 'internal' }),
+		ActionError.NotStarted({
+			message: 'm',
+			cause: 'app-problems',
+			app: 'a',
+			problems: ['p'],
+		}),
+	])
+		expect(renderAnswer(error)).toEqual({
+			stdout: '',
+			stderr: 'm\n',
+			code: 2,
+		});
 	// The name is what counts: an app's own `NotStarted` never reaches here,
 	// because serve answers it as `Threw`.
 	expect(renderAnswer(Err({ name: 'Refused', message: 'm' })).code).toBe(1);
-});
-
-test('a CliError before an action begins is NotStarted with its cause', () => {
-	expect(notStarted(CliError.Usage({ message: 'm', next: 'n' }).error)).toEqual(
-		ActionError.NotStarted({ message: 'm', cause: 'usage', next: 'n' }),
-	);
-	expect(
-		notStarted(CliError.AppProblems({ app: 'a', problems: ['p'] }).error),
-	).toEqual(
-		ActionError.NotStarted({
-			message: 'a: p',
-			cause: 'app-problems',
-			problems: ['p'],
-		}),
-	);
-	expect(
-		notStarted(CliError.Internal({ cause: new Error('boom') }).error),
-	).toEqual(ActionError.NotStarted({ message: 'boom', cause: 'internal' }));
 });

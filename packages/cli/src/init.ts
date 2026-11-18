@@ -2,12 +2,12 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
-import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
+import { ActionError, type Answer, Err, Ok } from '@epicenter/app';
+import { parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { CliError } from './errors.ts';
 import { checkedGit, git, isRepositoryTop } from './git.ts';
 import { installHome, installNext } from './install.ts';
-import { fail, writeErr, writeJson, writeOut } from './output.ts';
+import { writeErr } from './output.ts';
 import {
 	APPS,
 	ancestorWithMarker,
@@ -168,49 +168,57 @@ function actualFolder(path: string): string {
 	return resolve(realpathSync(existing), relative(existing, path));
 }
 
-/** Make a new Epicenter without nesting it inside another. */
+/**
+ * Make a new Epicenter without nesting it inside another. A home made whose
+ * packages did not install answers `Refused`, with the install as the next
+ * step: it ran, and installing again is the repair.
+ */
 export async function initCommand(
 	words: string[],
 	json: boolean,
-): Promise<number> {
-	const given = parseWords(
+): Promise<Answer> {
+	const { data: given, error: misused } = parseWords(
+		'init',
 		words,
 		{ port: { type: 'string' }, 'no-install': { type: 'boolean' } },
 		[0, 1],
 	);
-	if (!given) return fail(misuse('init'), json);
+	if (misused) return Err(misused);
 	const [path] = given.positionals;
-	const port =
-		given.values.port === undefined ? DEFAULT_PORT : portOf(given.values.port);
-	if (port === undefined) return fail(misuse('init', BAD_PORT), json);
+	const port = Number(given.values.port ?? DEFAULT_PORT);
+	if (
+		given.values.port !== undefined &&
+		!(/^\d+$/.test(given.values.port) && port >= 1 && port <= 65535)
+	)
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: '--port must be a whole number from 1 to 65535',
+			next: 'epicenter init --help',
+		});
 	const folder = actualFolder(folderPath(path ?? '.'));
 	if (isMarked(folder))
-		return fail(
-			CliError.Usage({ message: `${folder} is already an Epicenter` }).error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${folder} is already an Epicenter`,
+		});
 	const parent = ancestorWithMarker(dirname(folder));
 	if (parent)
-		return fail(
-			CliError.Usage({
-				message: `${folder} is inside the Epicenter at ${parent}`,
-			}).error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${folder} is inside the Epicenter at ${parent}`,
+		});
 	await mkdir(folder, { recursive: true });
 	// Establish Git identity before writing the marker, so a missing identity is retryable.
 	if (!(await isRepositoryTop(folder)))
 		await checkedGit(folder, ['init', '-q']);
 	for (const identity of ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT']) {
 		if ((await git(folder, ['var', identity])).code !== 0)
-			return fail(
-				CliError.Usage({
-					message:
-						'Git needs your name and email before creating an Epicenter. Set user.name and user.email in Git, then run init again.',
-					next: 'git config --global user.name "Your name" and git config --global user.email "you@example.com"',
-				}).error,
-				json,
-			);
+			return ActionError.NotStarted({
+				cause: 'usage',
+				message:
+					'Git needs your name and email before creating an Epicenter. Set user.name and user.email in Git, then run init again.',
+				next: 'git config --global user.name "Your name" and git config --global user.email "you@example.com"',
+			});
 	}
 	try {
 		await writeFile(join(folder, MARKER), marker(port), { flag: 'wx' });
@@ -220,12 +228,10 @@ export async function initCommand(
 		const taken = (await readdir(folder)).find(
 			(name) => name.toLowerCase() === MARKER.toLowerCase(),
 		);
-		return fail(
-			CliError.Usage({
-				message: `${folder} holds ${taken ?? MARKER}, which this disk does not tell apart from ${MARKER}; rename it, then run init again`,
-			}).error,
-			json,
-		);
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: `${folder} holds ${taken ?? MARKER}, which this disk does not tell apart from ${MARKER}; rename it, then run init again`,
+		});
 	}
 	const wrote = [MARKER];
 	if (!existsSync(join(folder, 'AGENTS.md'))) {
@@ -252,35 +258,29 @@ export async function initCommand(
 		: await installHome(folder);
 	if (!hadLock && existsSync(join(folder, 'bun.lock'))) wrote.push('bun.lock');
 	await startEpicenterRepository(folder, wrote);
-	if (failed) {
+	if (failed)
 		// The home is made; only its packages are missing, and installing again is the repair.
-		if (json) writeJson({ folder, port, error: failed });
-		else {
-			writeOut(`Made Epicenter at ${folder}.`);
-			writeErr(`Its packages did not install: ${failed.message}`);
-			writeErr(`Run: ${failed.next}`);
-		}
-		return 1;
-	}
-	if (json) writeJson({ folder, port });
-	else {
-		writeOut(`Made Epicenter at ${folder}.`);
-		if (given.values['no-install']) writeErr(`Run: ${installNext(folder)}`);
-		const apps = join(folder, APPS);
-		const hasApps = (
-			await readdir(apps, { withFileTypes: true }).catch(() => [])
-		).some(
-			(entry) =>
-				entry.isDirectory() &&
-				existsSync(join(apps, entry.name, 'code', 'epicenter.ts')),
-		);
-		writeErr(
-			hasApps
-				? 'Run: epicenter'
-				: 'Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing',
-		);
-	}
-	return 0;
+		return ActionError.Refused({
+			message: `Made Epicenter at ${folder}.\nIts packages did not install: ${failed.message}`,
+			next: failed.next,
+		});
+	if (json) return Ok({ folder, port });
+	// The next steps are hints beside the answer, as stderr carries them today.
+	if (given.values['no-install']) writeErr(`Run: ${installNext(folder)}`);
+	const apps = join(folder, APPS);
+	const hasApps = (
+		await readdir(apps, { withFileTypes: true }).catch(() => [])
+	).some(
+		(entry) =>
+			entry.isDirectory() &&
+			existsSync(join(apps, entry.name, 'code', 'epicenter.ts')),
+	);
+	writeErr(
+		hasApps
+			? 'Run: epicenter'
+			: 'Run: epicenter new writing --from EpicenterHQ/epicenter/examples/writing',
+	);
+	return Ok(`Made Epicenter at ${folder}.`);
 }
 
 /** Initialize the root and commit only files this invocation wrote. */

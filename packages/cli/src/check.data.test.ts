@@ -74,7 +74,7 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 	});
 	const json = await f.run('check', 'flights', '--json');
 	expect(json.code).toBe(0);
-	const report = JSON.parse(json.stdout);
+	const report = JSON.parse(json.stdout).data;
 	expect(report.apps.flights.watches).toMatchObject({
 		files: 2,
 		withProblems: 0,
@@ -86,7 +86,7 @@ test('fitting folders and absent single files exit 0 without counting ignored en
 	});
 	expect(json.stdout).not.toContain('skipped');
 });
-test('misfit fields and malformed front matter reuse handle diagnostics and exit 1', async () => {
+test('misfit fields and malformed front matter reuse handle diagnostics, and the report still exits 0', async () => {
 	const f = await setup();
 	await f.folder(f.dataPath, {
 		'checks/bad.md': '---\nwatch: 3\nday: "soon"\n---\n',
@@ -95,8 +95,8 @@ test('misfit fields and malformed front matter reuse handle diagnostics and exit
 		'settings.md': '---\nlevel: "high"\n---\n',
 	});
 	const result = await f.run('check', 'flights', '--json');
-	expect(result.code).toBe(1);
-	const report = JSON.parse(result.stdout).apps.flights;
+	expect(result.code).toBe(0);
+	const report = JSON.parse(result.stdout).data.apps.flights;
 	expect(report.checks).toMatchObject({ files: 3, withProblems: 3 });
 	expect(report.checks.records).toEqual([
 		{
@@ -142,8 +142,8 @@ test('invalid reachable-looking names count as problems but their contents are n
 		[`watches/${'a'.repeat(201)}.md`]: '---\nunreadable\n',
 	});
 	const result = await f.run('check', 'flights', '--json');
-	expect(result.code).toBe(1);
-	const watches = JSON.parse(result.stdout).apps.flights.watches;
+	expect(result.code).toBe(0);
+	const watches = JSON.parse(result.stdout).data.apps.flights.watches;
 	expect(watches).toMatchObject({ files: 7, withProblems: 7 });
 	expect(
 		watches.records
@@ -170,8 +170,8 @@ test('case-folded names produce one alias problem naming both files and count bo
 		'watches/Dune.md': '---\nfrom: "SFO"\n---\n',
 	});
 	const result = await f.run('check', 'flights', '--json');
-	expect(result.code).toBe(1);
-	expect(JSON.parse(result.stdout).apps.flights.watches).toMatchObject({
+	expect(result.code).toBe(0);
+	expect(JSON.parse(result.stdout).data.apps.flights.watches).toMatchObject({
 		files: 2,
 		withProblems: 2,
 		kinds: [{ kind: 'are one file on a disk that ignores case', count: 2 }],
@@ -183,7 +183,7 @@ test('case-folded names produce one alias problem naming both files and count bo
 		],
 	});
 	const human = await f.run('check', 'flights');
-	expect(human.code).toBe(1);
+	expect(human.code).toBe(0);
 	expect(human.stdout).toContain(
 		'    watches/DUNE.md and watches/Dune.md\n      are one file on a disk that ignores case',
 	);
@@ -199,8 +199,8 @@ test('refs require byte-exact ids of listed records, including list refs and mis
 			'---\nwatch: "exact"\nday: "2026-11-16"\nmany: ["Exact", "misfit", "absent", "hidden"]\n---\n',
 	});
 	const result = await f.run('check', 'flights', '--json');
-	expect(result.code).toBe(1);
-	expect(JSON.parse(result.stdout).apps.flights.checks.records).toEqual([
+	expect(result.code).toBe(0);
+	expect(JSON.parse(result.stdout).data.apps.flights.checks.records).toEqual([
 		{
 			path: 'checks/one.md',
 			problems: [

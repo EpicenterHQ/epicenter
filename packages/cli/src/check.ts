@@ -6,12 +6,10 @@
  * rather than as many broken files. The read runs in a run of the app's
  * folder, as an action's does, and writes nothing.
  */
-import { checkData, inRun } from '@epicenter/app';
+import { type Answer, checkData, Err, inRun, Ok } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { misuse, parseWords } from './commands.ts';
-import { CliError } from './errors.ts';
+import { parseWords } from './commands.ts';
 import { discoverAll, loadHomeApp, type Runnable } from './home.ts';
-import { fail, writeJson, writeOut } from './output.ts';
 
 /** One data key as the check found it. */
 type Checked = {
@@ -87,13 +85,22 @@ function render(
 		: 'No apps yet. Run: epicenter new <name>';
 }
 
-/** Check one app, or every app when none is named; exit 1 when any record has a problem or any app could not be checked. */
+/**
+ * Check one app, or every app when none is named. The report is the answer,
+ * whatever it finds: the records with problems, and the apps that could not
+ * be checked. A named app that does not load is `NotStarted`.
+ */
 export async function checkCommand(
 	words: string[],
 	json: boolean,
-): Promise<number> {
-	const given = parseWords(words, {}, [0, 1]);
-	if (!given) return fail(misuse('check'), json);
+): Promise<Answer> {
+	const { data: given, error: misused } = parseWords(
+		'check',
+		words,
+		{},
+		[0, 1],
+	);
+	if (misused) return Err(misused);
 	const name = given.positionals[0];
 	let runnable: Runnable[];
 	const unchecked: Unchecked[] = [];
@@ -104,12 +111,7 @@ export async function checkCommand(
 			unchecked.push({ entry, folder, problems });
 	} else {
 		const { data: one, error } = await loadHomeApp(name);
-		if (error) return fail(error, json);
-		if (!one.ok)
-			return fail(
-				CliError.AppProblems({ app: name, problems: one.problems }).error,
-				json,
-			);
+		if (error) return Err(error);
 		runnable = [one];
 	}
 	const apps: Record<string, Record<string, Checked>> = {};
@@ -121,10 +123,5 @@ export async function checkCommand(
 			unchecked.push({ entry, folder, problems: [extractErrorMessage(error)] });
 		}
 	}
-	if (json) writeJson({ apps, problems: unchecked });
-	else writeOut(render(apps, unchecked));
-	const anyProblem = Object.values(apps).some((keys) =>
-		Object.values(keys).some((each) => each.withProblems > 0),
-	);
-	return anyProblem || unchecked.length ? 1 : 0;
+	return Ok(json ? { apps, problems: unchecked } : render(apps, unchecked));
 }

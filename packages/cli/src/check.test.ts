@@ -2,13 +2,16 @@
  * `epicenter check` Tests
  *
  * Runs the real command against a temporary Epicenter to verify which apps a
- * check reads and the exit code a script gates on. What a data key's report
+ * check reads and how it answers. What a data key's report
  * holds is in `check.data.test.ts`.
  *
  * Key behaviors:
  * - With no app named, every app is checked and one that does not load is
  *   listed under its problems without stopping the rest
- * - A named app that does not load or does not exist did not run, exit 2
+ * - The report is the answer, `{ data, error: null }`, exit 0, whatever it
+ *   finds
+ * - A named app that does not load or does not exist did not run: `NotStarted`,
+ *   exit 2
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
@@ -54,8 +57,9 @@ test('with no app named, checks every app and lists one that does not load under
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
 	const result = await f.run('check', '--json');
-	expect(result.code).toBe(1);
-	const report = JSON.parse(result.stdout);
+	expect(result.code).toBe(0);
+	const { data: report, error } = JSON.parse(result.stdout);
+	expect(error).toBeNull();
 	expect(Object.keys(report.apps)).toEqual(['books', 'tasks']);
 	expect(report.apps.books.books.withProblems).toBe(0);
 	expect(report.apps.tasks.items.withProblems).toBe(1);
@@ -67,7 +71,7 @@ test('with no app named, checks every app and lists one that does not load under
 		},
 	]);
 	const human = await f.run('check');
-	expect(human.code).toBe(1);
+	expect(human.code).toBe(0);
 	expect(human.stdout).toStartWith(
 		'books\n  books  1 file, none with problems\n\ntasks\n',
 	);
@@ -81,11 +85,23 @@ test('a named app that does not load or does not exist did not run, exit 2', asy
 	await f.app('broken', `throw new Error('import exploded');`);
 	const broken = await f.run('check', 'broken', '--json');
 	expect(broken.code).toBe(2);
-	expect(JSON.parse(broken.stdout).error).toMatchObject({
-		name: 'AppProblems',
-		problems: ['code/epicenter.ts: import exploded'],
+	expect(JSON.parse(broken.stdout)).toEqual({
+		data: null,
+		error: {
+			name: 'NotStarted',
+			cause: 'app-problems',
+			message: 'broken: code/epicenter.ts: import exploded',
+			app: 'broken',
+			problems: ['code/epicenter.ts: import exploded'],
+			namespace: 'epicenter/action-error',
+		},
 	});
 	const unknown = await f.run('check', 'nope', '--json');
 	expect(unknown.code).toBe(2);
-	expect(JSON.parse(unknown.stdout).error.message).toBe('Unknown app "nope"');
+	expect(JSON.parse(unknown.stdout).error).toMatchObject({
+		name: 'NotStarted',
+		cause: 'usage',
+		message: 'Unknown app "nope"',
+		next: 'epicenter',
+	});
 });

@@ -1,44 +1,15 @@
 /**
  * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850,
- * ADR-0953). With `--json`, stdout is one JSON value: an action's answer,
- * exactly `{ data, error }`, a listing, a sync's report, or an operational
- * error. MCP gets the action's answer. Without it, stdout renders the
- * returned value by its structure. Stderr carries what went wrong, with a
- * `Run: <next step>` line where there is one.
+ * ADR-0953). Every command, an action call or one of the CLI's own, ends in
+ * one answer, exactly `{ data, error }`. With `--json`, stdout is that
+ * answer; MCP gets an action's. Without it, stdout renders `data` by its
+ * structure, and a command's own text prints as it is. Stderr carries what
+ * went wrong, with a `Run: <next step>` line where there is one.
  */
-import { ActionError, type Answer } from '@epicenter/app';
+import type { Answer } from '@epicenter/app';
 import type { LogSink } from 'wellcrafted/logger';
-import type { CliError } from './errors.ts';
 
 export type { Answer } from '@epicenter/app';
-
-const CAUSES = {
-	Usage: 'usage',
-	Refused: 'usage',
-	AppProblems: 'app-problems',
-	GitFailed: 'internal',
-	Internal: 'internal',
-} as const;
-
-/** A check the CLI or serve made before an action began, as the answer that says it never did. */
-export function notStarted(error: CliError): Answer {
-	return ActionError.NotStarted({
-		message: error.message,
-		cause: CAUSES[error.name],
-		next: 'next' in error ? error.next : undefined,
-		problems: 'problems' in error ? error.problems : undefined,
-	});
-}
-
-/** Write the one JSON answer to stdout. */
-export function writeJson(value: unknown) {
-	process.stdout.write(`${JSON.stringify(value)}\n`);
-}
-
-/** Write an answer with a final newline for a person reading the command. */
-export function writeOut(text: string) {
-	process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
-}
 
 /** Write diagnostics separately from the answer or MCP protocol. */
 export function writeErr(text: string) {
@@ -188,21 +159,13 @@ function readable(value: unknown): { stdout: string; stderr: string } {
 /** Present an answer, as one JSON value or for a person, and return its exit code. */
 export function presentAnswer(answer: Answer, json: boolean): number {
 	if (json) {
-		writeJson({ data: answer.data, error: answer.error });
+		process.stdout.write(
+			`${JSON.stringify({ data: answer.data, error: answer.error })}\n`,
+		);
 		return outcome(answer).code;
 	}
 	const { stdout, stderr, code } = renderAnswer(answer);
 	process.stdout.write(stdout);
 	process.stderr.write(stderr);
 	return code;
-}
-
-/**
- * Present a command other than an action call that did not run, exit 2. With
- * `--json` it prints `{ error }`, the `CliError` itself.
- */
-export function fail(error: CliError, json: boolean): number {
-	if (json) writeJson({ error });
-	else process.stderr.write(renderAnswer(notStarted(error)).stderr);
-	return 2;
 }

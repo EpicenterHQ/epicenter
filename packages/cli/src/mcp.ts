@@ -14,6 +14,7 @@
  * an MCP client reads only the answer.
  */
 
+import { ActionError } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
@@ -21,10 +22,9 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { VERSION } from './engines.ts';
-import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
-import { type Answer, notStarted, outcome, writeErr } from './output.ts';
+import { type Answer, outcome, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { resolveAction, runAction } from './run.ts';
 
@@ -32,11 +32,11 @@ import { resolveAction, runAction } from './run.ts';
 async function appTools(entry: string): Promise<Tool[]> {
 	const { data: located, error } = await loadHomeApp(entry);
 	if (error) {
-		writeErr(`${entry}: ${error.message}`);
-		return [];
-	}
-	if (!located.ok) {
-		writeErr(`${entry}: ${located.problems.join('; ')}`);
+		writeErr(
+			error.cause === 'app-problems'
+				? error.message
+				: `${entry}: ${error.message}`,
+		);
 		return [];
 	}
 	return Object.entries(located.actions)
@@ -93,11 +93,10 @@ export async function createMcpServer() {
 		if (call.refusal) return toolResult(call.refusal);
 		if (call.action.mcp === false)
 			return toolResult(
-				notStarted(
-					CliError.Usage({
-						message: `${app} ${key} is not offered over MCP`,
-					}).error,
-				),
+				ActionError.NotStarted({
+					cause: 'usage',
+					message: `${app} ${key} is not offered over MCP`,
+				}),
 			);
 		return toolResult(
 			await runAction(call.located, key, call.action, call.input),

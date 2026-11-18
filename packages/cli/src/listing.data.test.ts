@@ -39,7 +39,7 @@ export default defineApp({ description: 'Flights', data, actions: {} });
 	expect(human.stdout).toContain('"properties":{"from":{"type":"string"}}');
 	const json = await f.run('flights', '--json');
 	expect(json.code).toBe(0);
-	const listed = JSON.parse(json.stdout);
+	const listed = JSON.parse(json.stdout).data;
 	expect(listed.data).toMatchObject({
 		watches: {
 			path: 'data/watches/',
@@ -66,5 +66,5 @@ export default defineApp({ description: 'Flights', data, actions: {} });
 	});
 	const home = await f.run('--json');
 	expect(home.code).toBe(0);
-	expect(JSON.parse(home.stdout).apps[0].data).toEqual(listed.data);
+	expect(JSON.parse(home.stdout).data.apps[0].data).toEqual(listed.data);
 });

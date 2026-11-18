@@ -138,7 +138,7 @@ test('discovery preserves tilde-prefixed properties', async () => {
 			},
 			required: ['value'],
 		});
-		const listed = JSON.parse((await f.run('shapes', '--json')).stdout);
+		const listed = JSON.parse((await f.run('shapes', '--json')).stdout).data;
 		expect(listed.actions[0].inputSchema).toEqual(tool?.inputSchema);
 		expect(
 			(

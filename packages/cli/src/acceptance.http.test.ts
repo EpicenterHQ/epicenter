@@ -440,6 +440,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 			{
 				message: expect.stringMatching(/^broken: /),
 				cause: 'app-problems',
+				app: 'broken',
 				problems: [expect.any(String)],
 			},
 		],
@@ -467,6 +468,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 		notStarted({
 			message: expect.stringMatching(/^broken: /),
 			cause: 'app-problems',
+			app: 'broken',
 			problems: [expect.any(String)],
 		}),
 	);
