@@ -38,15 +38,6 @@
  * tries again. When the folder fails or closes, every write still waiting
  * rejects with `FolderClosed` (ADR-0782).
  *
- * **One replica, read by sync.** `localStoreOf(folder)` is the connected
- * folder as a store (`sync({ local, remote, manifest })`, ADR-0804): its
- * listing answers every visible file from the replica, with the versions
- * it holds, once the paths heard so far are read again, so a sync that
- * finds nothing changed reads no file; a note's read answers its held
- * text, and any other file's is read from the store. Its writes wait their
- * turn in the folder's queue and update the replica as the folder's own
- * do; a hidden path (the manifest) is written, never held or listed.
- *
  * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
  * everything else reads and acts. Nothing here knows a framework:
  * `reactive(folder)` from `@epicenter/svelte/reactive` tracks the reads as
@@ -69,11 +60,8 @@ import {
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
-	type FileRead,
-	type Listed,
 	putLanded,
 	type Store,
-	type StoreError,
 	type Unavailable,
 	type Version,
 	within,
@@ -99,31 +87,6 @@ const log = createLogger('folder');
 
 /** The most writes the drain runs at once over a store that batches them. */
 const BATCH_WRITES = 64;
-
-const encoder = new TextEncoder();
-
-/** Where a folder keeps what sync reads of it; a symbol member, so `reactive`'s copy carries it. */
-const LOCAL = Symbol('epicenter.folderLocalStore');
-
-/** What sync reads of a folder: it as a store. */
-type SyncSide = { store: Store };
-
-function syncSideOf(folder: object): SyncSide {
-	const side = (folder as { [LOCAL]?: SyncSide })[LOCAL];
-	if (side === undefined)
-		throw new Error('expected a folder made by openFolder or createFolder');
-	return side;
-}
-
-/**
- * `folder` (or `reactive`'s copy of it) as a store, for `sync`: its listing
- * and a note's read answer from what the folder holds, and its writes go
- * through the folder's own queue. `close` leaves the folder open; dispose
- * the folder to close it. Throws for anything `createFolder` did not make.
- */
-export function localStoreOf(folder: object): Store {
-	return syncSideOf(folder).store;
-}
 
 /**
  * Where the folder is in its life. Retrying belongs to a failure, so only
@@ -412,8 +375,6 @@ export function createFolder<TContract extends Contract>(
 	/** Paths heard and not yet read again; `'all'` when the store could not say which. */
 	let pending: Set<string> | 'all' = new Set();
 	let catchingUp = false;
-	/** The catch-up running now, or the last one: a sync's listing waits for it. */
-	let caughtUp: Promise<void> = Promise.resolve();
 	let catchUpFailures = 0;
 	let catchUpTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -587,7 +548,7 @@ export function createFolder<TContract extends Contract>(
 	 */
 	function catchUp() {
 		if (catchingUp || store === null) return;
-		caughtUp = catchUpRun(store);
+		void catchUpRun(store);
 	}
 
 	async function catchUpRun(from: Store) {
@@ -889,73 +850,6 @@ export function createFolder<TContract extends Contract>(
 			});
 		},
 	};
-	/** `error` as the store contract's `Unavailable`. */
-	const unavailableFrom = (error: ReadError) =>
-		error.name === 'Unavailable'
-			? error
-			: ClientError.Unavailable({ cause: error }).error;
-
-	const view: Store = {
-		async list(wanted) {
-			const ready = await host.connected();
-			if (ready.error !== null) return Err(unavailableFrom(ready.error));
-			// What was heard before the listing is read again first.
-			await caughtUp;
-			const files: Listed[] = [];
-			for (const [path, { version, size }] of held)
-				if (within(path, wanted)) files.push({ path, version, size });
-			return Ok(files);
-		},
-		async read(paths) {
-			const ready = await host.connected();
-			if (ready.error !== null) return Err(unavailableFrom(ready.error));
-			const answers: FileRead[] = [];
-			for (const path of paths) {
-				const file = held.get(path);
-				if (file?.text != null) {
-					answers.push({
-						path,
-						bytes: encoder.encode(file.text),
-						version: file.version,
-					});
-					continue;
-				}
-				// An attachment's bytes, or a note not held: the store has them.
-				const read = await host.readNow(path);
-				if (read.error !== null) return read;
-				answers.push(...read.data);
-			}
-			return Ok(answers);
-		},
-		async put(path, bytes, expect) {
-			let outcome: Result<Version | null, StoreError> = Ok(null);
-			try {
-				await enqueue(path, async (to) => {
-					const put = await to.put(path, bytes, expect);
-					if (put.error !== null && put.error.name !== 'Moved')
-						return Err(put.error);
-					outcome = put as Result<Version | null, StoreError>;
-					if (visible(path) && put.error === null)
-						host.landed(
-							path,
-							bytes === null || put.data === null
-								? null
-								: host.heldOf(path, bytes, put.data),
-						);
-					return Ok(undefined);
-				});
-			} catch (cause) {
-				return ClientError.Unavailable({ cause });
-			}
-			return outcome;
-		},
-		async watch(changed) {
-			const ready = await host.connected();
-			if (ready.error !== null) return Err(unavailableFrom(ready.error));
-			return ready.data.watch(changed);
-		},
-		close() {},
-	};
 	for (const collection of compiled.collections) {
 		if (RESERVED.has(collection.name))
 			throw new Error(
@@ -991,9 +885,6 @@ export function createFolder<TContract extends Contract>(
 			store = null;
 		},
 	};
-	Object.defineProperty(lifecycle, LOCAL, {
-		value: { store: view } satisfies SyncSide,
-	});
 	return Object.assign(
 		lifecycle,
 		Object.fromEntries(

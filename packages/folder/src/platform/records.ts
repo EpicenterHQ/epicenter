@@ -7,14 +7,14 @@
  * folder id, so one directory at most syncs a server folder here. Only
  * Epicenter's programs (the CLI, `epicenter mcp`, and the Epicenter app)
  * write them, and every write is over the version read, as a sync's
- * manifest save is (`storeManifest`).
+ * manifest save is (`storeManifest`, below).
  *
  * Beside them are the hash caches, `.epicenter/hashes/<identity>.json`,
  * named by the directory's identity rather than a folder id, so a folder
  * never synced is cached too.
  */
 import { ClientError } from '@epicenter/definition/contract';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { StampFile } from '../device/stamp-cache.js';
 import {
 	putLanded,
@@ -24,11 +24,77 @@ import {
 } from '../device/store.js';
 import { type FolderIdentity, identityKey } from '../identity.js';
 import { HASHES, RECORDS } from '../state.js';
-import {
-	type Manifest,
-	type ManifestStore,
-	storeManifest,
-} from '../sync/sync.js';
+
+/**
+ * What a sync agreed (ADR-0804, ADR-0824). A record on a computer carries
+ * more fields (`FolderRecord`), which every save keeps as they are.
+ */
+export type Manifest = {
+	/** The point of the folder's log both sides last agreed at; null before the first sync, or after one that stopped. */
+	cursor: string | null;
+	/** Each synced file's agreed version: the SHA-256 of its bytes, the same on both sides. */
+	files: Record<string, Version>;
+};
+
+/** The version of a saved manifest, which the next save is written over; null before the first. */
+type ManifestVersion = Version | null;
+
+/**
+ * Where a manifest is kept between syncs. Each save is written over the
+ * version its sync read, as any file is (ADR-0805), so two syncs of one
+ * folder running at once never overwrite each other's manifest.
+ */
+export type ManifestStore = {
+	read(): Promise<
+		Result<{ manifest: Manifest; version: ManifestVersion }, Unavailable>
+	>;
+	/**
+	 * Save `manifest` while the saved one is still at `expect`, answering
+	 * the new version, or `'moved'` when another sync saved first, and
+	 * nothing changed.
+	 */
+	write(
+		manifest: Manifest,
+		expect: ManifestVersion,
+	): Promise<Result<Version | 'moved', Unavailable>>;
+};
+
+/** The manifest of a store never synced. */
+const emptyManifest = (): Manifest => ({ cursor: null, files: {} });
+
+/**
+ * The manifest kept at `path` in `store`, read and written as any file
+ * there: a folder's record in the Epicenter folder's `.epicenter`
+ * (`synced/<folder-id>.json`). One that is gone reads as never synced.
+ */
+function storeManifest(store: Store, path: string): ManifestStore {
+	return {
+		async read() {
+			const read = await store.read([path]);
+			if (read.error !== null) return read;
+			const [file] = read.data;
+			if (file === undefined || 'gone' in file)
+				return Ok({ manifest: emptyManifest(), version: null });
+			try {
+				const manifest = JSON.parse(decoder.decode(file.bytes)) as Manifest;
+				return Ok({ manifest, version: file.version });
+			} catch (cause) {
+				return ClientError.Unavailable({ cause });
+			}
+		},
+		async write(manifest, expect) {
+			const bytes = encoder.encode(JSON.stringify(manifest));
+			const written = await putLanded(store, path, bytes, expect);
+			if (written.error?.name === 'Moved') return Ok('moved' as const);
+			if (written.error !== null) return Err(written.error);
+			if (written.data === null)
+				return ClientError.Unavailable({
+					cause: `the write of ${path} landed nothing`,
+				});
+			return Ok(written.data);
+		},
+	};
+}
 
 /** A folder's record on this computer. */
 export type FolderRecord = Manifest & {
