@@ -4,12 +4,9 @@ This is a hypothetical interaction, not a claim about Epicenter's current APIs
 or a transcript of executed tests. The named example files belong to a fictional
 fixture. A real brief includes excerpts and paths from the actual checkout.
 
-This is a standalone Claude consultation, so the proposal appears in the first
-brief. An explicitly blind review withholds the proposal for its initial pass;
-adversarial-review owns that choice. When an adversarial review is requested,
-this exchange is its Claude seat; adversarial-review also staffs two Codex
-reviewers. The coordinator uses their findings to develop the design and chooses
-follow-ups that could improve or test it, omitted here.
+The proposal appears in the first brief because the user asks Claude to
+critique it. For a requested adversarial review, follow
+[adversarial-review](../../adversarial-review/SKILL.md) for briefing and staffing.
 
 ## User to Codex
 
@@ -18,7 +15,7 @@ follow-ups that could improve or test it, omitted here.
 
 ## Codex to Claude
 
-You are the reviewer. Apply the repository's adversarial-review skill yourself.
+Review the proposed storage API and challenge the ownership model.
 Read additional files as needed; ask me for tests or benchmarks. I own execution.
 
 We want tests to use the production App lifecycle with memory storage. Closing
