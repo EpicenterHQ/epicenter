@@ -31,9 +31,9 @@ such as `tailscale serve`.
       README.md
       ui/                       optional browser UI
         dist/                   generated, ignored
-    data/                       records and settings
+    data/                       what the person wants back if this computer is lost
       tasks/<id>.md
-    local/                      this computer only; made by the first write
+    local/                      what this computer can rebuild or sign in again
       google.md
 ```
 
@@ -151,8 +151,13 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   fields and notes sends a `patch` and an `edit`. In code,
   `edit(id, { old, new })` is the same replacement, and `edit(id, fn)`
   computes a change from the record.
-- An app is `code/`, `data/` and `local/`. What is in `local/` stays on the
-  computer that runs the app: the root `.gitignore` leaves it out of every
+- An app is `code/`, `data/` and `local/`. Put a file in `data/` when the
+  person would want it back if this computer were lost. Put it in `local/` when
+  this computer can rebuild it or sign in again, or when it must never leave
+  this computer. A large copy of a source, such as Mail's mailbox database, is
+  `local/` though it is data: the source can send it again. `local/` appears
+  with the first write there. What is in `local/` stays on the computer that
+  runs the app: the root `.gitignore` leaves it out of every
   commit, and `folder` makes a new file there `0600`. Git's ignore rules are
   the only guard, so never `git add -f` a file there. It holds plain files, not
   data keys: a token, a cache, a database. Keep a secret, such as a sign-in

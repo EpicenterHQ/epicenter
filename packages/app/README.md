@@ -2,8 +2,9 @@
 
 What an app's `code/epicenter.ts` imports
 ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)).
-An app container under `apps/` holds code/, data/ and local/ siblings; what
-is in local/ stays on this computer. Its
+An app container under `apps/` holds code/, data/ and local/ siblings. data/
+is what the person would want back if this computer were lost; local/ is what
+this computer can rebuild or sign in again, and it never leaves it. Its
 `code/epicenter.ts` default-exports `defineApp(...)`. The
 `epicenter` command turns each of its actions into a command for the person
 and an MCP tool for their agent, and its UI calls the same actions.
