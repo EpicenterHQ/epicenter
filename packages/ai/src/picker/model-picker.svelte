@@ -298,10 +298,11 @@
 		discoveryError = null;
 		const controller = new AbortController();
 		const handle = setTimeout(async () => {
-			// A saved connection discovers through its own endpoint, which on the
-			// desktop holds the key in the shell; a new one through the typed key.
+			// A saved connection discovers through its own endpoint, which reads
+			// its kept key; a new one through the typed key.
 			const endpoint =
-				(saved && endpointOf(saved.id)) || custom({ baseUrl: url, key });
+				(saved && endpointOf(saved.id)) ||
+				custom({ baseUrl: url, key, fetch: connections?.fetch });
 			const { data, error } = await createClient(endpoint).listModels({
 				signal: controller.signal,
 			});

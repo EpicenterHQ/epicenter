@@ -23,13 +23,12 @@ branch on its presence (`{#if speech}`).
 
 ## A capability that keeps a key
 
-`customEndpoints()` from `@epicenter/ai` keeps the endpoint list in
-`connections.md` in this computer's settings (`@epicenter/local`) on every
-surface. Where the key goes is `connection-keys.ts`'s choice: in a browser
-it is kept in `connection-keys.json` beside the list; in a Tauri window it
-is handed to the shell, which keeps it in the app's `credentials.json` under
-the connection's id and applies it only while the connection still names
-the endpoint it was saved for. The shell keeps the file private (mode `0600` on Unix). The page hands a key to the shell once and asks the shell to send the request that needs it. See [Whispering’s credential storage decision](../../../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md).
+`customEndpoints()` from `@epicenter/ai` takes where the list and the keys
+are kept as values: a `ConnectionStore` (Whispering's is `settings.md`,
+never with a key) and `ConnectionKeys` (Whispering's are the Keychain on
+the desktop and `localStorage` in a browser, `src/lib/this-computer.ts`).
+A key is read as each request leaves and sent only while the connection
+still names the base URL it was entered for. See [ADR-0894](../../../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)..
 
 ## Desktop services and the shared crates
 

@@ -1,4 +1,3 @@
-import { isTauri } from '@tauri-apps/api/core';
 import { createLogger } from 'wellcrafted/logger';
 import { createClient } from './client.js';
 import {
@@ -9,10 +8,6 @@ import {
 } from './endpoint.js';
 
 const log = createLogger('ai/local-servers');
-
-/** The shell's fetch with no key, its code loaded with the first request. */
-const shellFetch = async (input: string, init?: RequestInit) =>
-	(await import('./tauri.js')).shellFetch(input, init);
 
 /** The model servers people run on their own computer, at their default ports. */
 const SERVERS = [
@@ -32,13 +27,13 @@ const SERVERS = [
  * absent. Only this computer is probed; a server elsewhere is a `custom`
  * endpoint.
  *
- * In a browser a probe is the tab's own `fetch`, and finds a server only
- * when it allows this origin. In a Tauri window it is the shell's fetch
- * with no key (`shellFetch`, loaded with the first probe), since neither
- * server answers a `tauri://` page.
+ * A probe, and every request, goes through `fetch`: the tab's own by
+ * default, which finds a server only when it allows this origin. A desktop
+ * app passes one no server's CORS refuses (Tauri's HTTP plugin), since
+ * neither server answers a `tauri://` page.
  */
 export function localServers({
-	fetch = isTauri() ? shellFetch : globalThis.fetch.bind(globalThis),
+	fetch = globalThis.fetch.bind(globalThis),
 	timeout = 2000,
 	interval,
 }: {

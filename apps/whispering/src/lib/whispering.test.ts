@@ -1,42 +1,48 @@
 /**
- * Whispering over its files, as the mounted app reads and writes them in a
- * browser (a place in memory stands in for the person's repository).
+ * Whispering over its files, as the mounted app reads and writes them
+ * (memory stands in for the data folder or the Origin Private File System).
  *
  * Key behaviors:
  * - A recording's audio lands at Stop, and its note, with its length, once
  *   Stop has answered with its audio at its path
- * - A take is on the record screen until Stop answers, not in the library
- * - While the files refuse writes, a recording waits in the folder and
- *   lands when they take it again, its audio before its note
- * - On the desktop, audio no note names (a note the page closed before it
- *   landed, a placement that failed) gets its note from the next launch's
- *   recovery, which runs beside the pages; what it cannot complete is said
+ * - A take is on the record screen until Stop answers, not in the library,
+ *   though on the desktop its audio is at its path from its first second
+ * - Audio that cannot be written fails the recording, saying why; audio
+ *   whose note cannot be written, or whose Stop failed, lists as an
+ *   untitled recording, and says so
  * - A transcription sends the recording's audio to the model chosen for it,
  *   and its transcript names that model and where it went
- * - A request goes only to the endpoint it was prepared for: one whose
- *   connection was edited or removed since is not sent, and says why
- * - A result is kept when its answer arrives, even if the pages have since
- *   closed
- * - Deleting a recording deletes its transcripts, their results, and its
- *   audio; it is refused while work for it runs
- * - An answer whose result cannot land yet waits in the folder, and the
- *   run ends when it lands
+ * - A connection removed since is not sent to, and says why (a connection
+ *   moved while a request is prepared: `inference.test.ts`)
+ * - A transcript is kept when its answer arrives, even if the pages have
+ *   since closed
+ * - A failed transcription shows its error; Try again sends the same audio
+ *   to the same model. An answer whose transcript cannot be written fails
+ *   too, and nothing is kept for it
+ * - The same recording is not transcribed twice at once, and is not
+ *   deleted while it is transcribed
+ * - Deleting a recording deletes its transcripts and its audio
+ * - A recording is kept when a transcript for it was saved after the
+ *   person confirmed deleting it
  * - A note that does not read is listed for repair and repaired as text
+ * - "Change…" waits for nothing: it is refused while a take or a
+ *   transcription is under way, and while it runs nothing new starts
  *
- * Run with `--conditions=browser` (`bun run test`): the lists are Svelte
- * state, and Svelte's server runtime notifies nothing.
+ * Run with `--conditions=browser` (`bun run test`): the library is Svelte
+ * state over the folder query, and Svelte's server runtime notifies nothing.
  */
-import '../../../../packages/svelte/src/svelte-dom.test-support.js';
+import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { openFolder } from '@epicenter/folder';
 import { RecorderError } from '@epicenter/recorder';
+import { MutationObserver } from '@tanstack/query-core';
+import { runMutation } from 'wellcrafted/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice } from './capture.js';
-import { whispering as whisperingContract } from './contract.js';
 import {
 	deferred,
 	eventually,
+	openPage,
 	openTestServices,
 	TEST_BASE_URL,
 	type TestServicesOptions,
@@ -49,13 +55,13 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-/** The app over a fresh place of this browser's files. */
+/** The app over fresh files in memory. */
 async function fixture(options: TestServicesOptions = {}) {
 	const test = await openTestServices(options);
 	cleanups.push(test.close);
 	const opened = await createTestWhispering({
 		services: test.services,
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
 	return { test, ...opened };
@@ -98,7 +104,6 @@ function afterStop(capture: CaptureDevice, after: () => void): CaptureDevice {
 
 test('a recording’s audio lands at Stop, and its note, with its length', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	let whenStopped: string[] = [];
 	const opened = await createTestWhispering({
 		services: {
@@ -107,7 +112,7 @@ test('a recording’s audio lands at Stop, and its note, with its length', async
 				whenStopped = test.outside.paths('recordings');
 			}),
 		},
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
 	const { library } = opened;
@@ -128,39 +133,40 @@ test('a recording’s audio lands at Stop, and its note, with its length', async
 	]);
 });
 
-test('a take is on the record screen, not in the library, until Stop answers with its audio at its path', async () => {
+test('a take is on the record screen, not in the library, until Stop answers, though its audio is at its path', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
-	// The desktop's shape: Stop finishes the audio and places it, then answers.
+	// The desktop's shape: the take is at its path from its first second,
+	// and Stop finishes it there, then answers.
 	const stopping = deferred<void>();
 	const capture: CaptureDevice = {
 		...test.services.capture,
 		async start({ id }) {
+			await test.outside.write(`recordings/${id}.webm`, 'a take as it grows');
 			return Ok({
 				startedAt: 0,
 				onEnded: () => () => {},
 				async stop() {
 					await stopping.promise;
-					await test.outside.write(
-						`recordings/${id}.webm`,
-						'placed by the shell',
-					);
+					await test.outside.write(`recordings/${id}.webm`, 'finished');
 					return Ok({ durationMs: 1500 });
 				},
 			});
 		},
 	};
-	const { whispering, library } = await createTestWhispering({
+	const { whispering, library, query } = await createTestWhispering({
 		services: { ...test.services, capture },
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(() => whispering.dispose());
 
 	await whispering.startRecording();
 	expect(whispering.recorder.phase).toBe('recording');
+	await query.reread();
+	expect(test.outside.paths('recordings')).toHaveLength(1);
 	expect(library.entries).toHaveLength(0);
 	const stopped = whispering.stopRecording();
 	expect(whispering.recorder.phase).toBe('stopping');
+	await query.reread();
 	expect(library.entries).toHaveLength(0);
 
 	stopping.resolve();
@@ -168,6 +174,7 @@ test('a take is on the record screen, not in the library, until Stop answers wit
 	expect(whispering.recorder.phase).toBe('idle');
 	await eventually(() => library.entries.length === 1);
 	expect(library.entries[0]).toMatchObject({ durationMs: 1500 });
+	expect(library.entries[0]!.title).not.toBe('');
 	// The audio is its own listing, which can answer after the recordings'
 	// (`listing` until then), so wait for it rather than race it.
 	const { id } = library.entries[0]!;
@@ -175,231 +182,94 @@ test('a take is on the record screen, not in the library, until Stop answers wit
 	expect(whispering.recorderError).toBeUndefined();
 });
 
-test('a recording made while the files refuse writes lands when they take them again, its audio before its note', async () => {
-	const { test, folder, whispering, library } = await fixture();
-	const undo = test.outside.refuse('The disk is full', { under: 'recordings' });
+test('a recording whose audio cannot be written fails, saying why, and nothing is listed', async () => {
+	const { test, whispering, library } = await fixture();
+	test.outside.refuse('The disk is full', { under: 'recordings' });
 
 	await whispering.startRecording();
-	expect(whispering.recorder.phase).toBe('recording');
-	const stopping = whispering.stopRecording();
-	await eventually(() => test.files.unavailable() !== null);
+	await whispering.stopRecording();
+
+	expect(whispering.recorder.phase).toBe('idle');
+	expect(whispering.recorderError).toContain('The disk is full');
 	expect(library.entries).toHaveLength(0);
 	expect(test.outside.paths('recordings')).toEqual([]);
-
-	undo();
-	await stopping;
-	await eventually(() => library.entries.length === 1);
-	const [recording] = library.entries;
-	expect(test.outside.paths('recordings')).toEqual([
-		`recordings/${recording!.id}.md`,
-		`recordings/${recording!.id}.wav`,
-	]);
-	expect(folder.saving()).toBe(false);
-	expect(whispering.recorderError).toBeUndefined();
 });
 
-/** A capture that answers every audio file no note names as whole, as the desktop's does. */
-const namesUnnamed = async (unnamed: readonly string[]) =>
-	Ok({
-		whole: unnamed.map((path) => ({
-			id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
-			durationMs: null,
-		})),
-		unplaced: [],
-	});
-
-test('on the desktop, a recording whose note has not landed when the window closes gets one from the next launch, its length read from its audio', async () => {
+test('a recording whose note cannot be written lists as an untitled recording, and says so', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
-	// The audio lands at Stop; the files refuse every write after it, so the
-	// note waits in the page's folder.
-	let undo = () => {};
-	let stopped = false;
-	const first = await createTestWhispering({
+	const opened = await createTestWhispering({
 		services: {
 			...test.services,
 			capture: afterStop(test.services.capture, () => {
-				undo = test.outside.refuse('The disk is full', {
-					under: 'recordings',
-				});
-				stopped = true;
+				// The audio is at its path; every write after it is refused.
+				test.outside.refuse('The disk is full', { under: 'recordings' });
 			}),
 		},
-		place: test.place,
+		files: test.files,
 	});
-	await first.whispering.startRecording();
-	void first.whispering.stopRecording();
-	await eventually(() => stopped && first.folder.saving());
-	expect(first.library.entries).toHaveLength(0);
-	expect(first.whispering.recorderError).toBeUndefined();
-	// The page closes with the note still waiting: it is not made.
-	first.close();
+	cleanups.push(opened.close);
+	const { whispering, library } = opened;
 
-	undo();
-	const services = {
-		...test.services,
-		capture: { ...test.services.capture, recover: namesUnnamed },
-	};
-	const next = await createTestWhispering({ services, place: test.place });
-	cleanups.push(next.close);
-	await eventually(() => next.library.entries.length === 1);
-	expect(next.library.entries[0]).toMatchObject({
-		title: 'Recovered recording',
-		durationMs: 1000,
-	});
+	await whispering.startRecording();
+	await whispering.stopRecording();
+
+	await eventually(() => library.entries.length === 1);
+	const [recording] = library.entries;
+	expect(recording).toMatchObject({ title: '' });
+	expect(test.outside.paths('recordings')).toEqual([
+		`recordings/${recording!.id}.wav`,
+	]);
+	expect(whispering.recorderError).toContain(
+		'audio is saved, but its note was not',
+	);
+	expect(whispering.recorderError).toContain('The disk is full');
 });
 
-test('a recording the shell could not place gets its note when the next launch places it', async () => {
+test('a take whose Stop failed stays at its path as it is, and lists as an untitled recording', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
-	let staged: { id: string; bytes: Uint8Array } | undefined;
-	// The desktop's shape: the audio waits outside its path, Stop cannot
-	// place it, and the next start's recover does.
+	// The desktop's shape: the take is at its path from its first second,
+	// and a Stop that cannot finish it leaves it as it is.
 	const capture: CaptureDevice = {
 		...test.services.capture,
 		async start({ id }) {
+			await test.outside.write(`recordings/${id}.wav`, toneWav({ seconds: 1 }));
 			return Ok({
 				startedAt: 0,
 				onEnded: () => () => {},
 				async stop() {
-					staged = { id, bytes: toneWav({ seconds: 1 }) };
 					return RecorderError.Failed({
-						cause: new Error(
-							`recordings/${id}.webm could not be moved into place`,
-						),
+						cause: new Error('the recording could not be written to the end'),
 					});
 				},
-			});
-		},
-		async recover() {
-			if (staged === undefined) return Ok({ whole: [], unplaced: [] });
-			await test.outside.write(`recordings/${staged.id}.wav`, staged.bytes);
-			return Ok({
-				whole: [{ id: staged.id, durationMs: 1000 }],
-				unplaced: [],
-			});
-		},
-	};
-	const services = { ...test.services, capture };
-	const first = await createTestWhispering({ services, place: test.place });
-	await first.whispering.startRecording();
-	await first.whispering.stopRecording();
-	expect(first.whispering.recorderError).toContain(
-		'could not be moved into place',
-	);
-	expect(first.library.entries).toHaveLength(0);
-	first.close();
-
-	const next = await createTestWhispering({ services, place: test.place });
-	cleanups.push(next.close);
-	await eventually(() => next.library.entries.length === 1);
-	expect(next.library.entries[0]).toMatchObject({
-		id: staged!.id,
-		durationMs: 1000,
-	});
-	expect(next.whispering.recorderError).toBeUndefined();
-});
-
-test('on the desktop the pages do not wait for the cut-off recordings, which are listed once complete', async () => {
-	const test = await openTestServices();
-	cleanups.push(test.close);
-	const recovering = deferred<void>();
-	let asked = false;
-	const capture: CaptureDevice = {
-		...test.services.capture,
-		async recover() {
-			asked = true;
-			await recovering.promise;
-			await test.outside.write(
-				'recordings/2026-10-31T09-30-00-000Z-cutoffaa.wav',
-				toneWav({ seconds: 2 }),
-			);
-			return Ok({
-				whole: [{ id: '2026-10-31T09-30-00-000Z-cutoffaa', durationMs: 2000 }],
-				unplaced: [],
 			});
 		},
 	};
 	const opened = await createTestWhispering({
 		services: { ...test.services, capture },
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
-	await eventually(() => asked);
-	// The pages read the library while the shell finishes the cut-off audio.
-	expect(opened.library.entries).toEqual([]);
-
-	recovering.resolve();
+	await opened.whispering.startRecording();
+	await opened.whispering.stopRecording();
+	expect(opened.whispering.recorderError).toContain(
+		'could not be written to the end',
+	);
 	await eventually(() => opened.library.entries.length === 1);
-	expect(opened.library.entries[0]).toMatchObject({ durationMs: 2000 });
+	expect(opened.library.entries[0]).toMatchObject({ title: '' });
 });
 
-test('files that cannot be listed at all keep the folder opening, saying why', async () => {
+test('files that cannot be listed at all say why the folder did not open', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	// A private window: every call is refused, the listing included.
 	const reason =
 		'UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).';
 	test.outside.refuseReads(reason);
-	test.outside.refuse(reason);
-	const folder = openFolder(whisperingContract, test.place);
-	cleanups.push(() => folder[Symbol.dispose]());
+	// A new page over the same files: its first read is what the layout shows.
+	const page = await openPage(test.files);
+	cleanups.push(page.close);
 
-	await eventually(() => folder.unavailable() !== null);
-	expect(folder.state().status).toBe('opening');
-});
-
-test('on the desktop, a cut-off recording that cannot be completed is said, and left for the next launch', async () => {
-	const test = await openTestServices();
-	cleanups.push(test.close);
-	await test.outside.write(
-		'recordings/2026-10-31T09-30-00-000Z-cutoffaa.m4a',
-		'a closed tab left it',
-	);
-	test.services.capture.recover = async () =>
-		Err({
-			name: 'Failed',
-			message: 'The recording could not be captured: the disk is full',
-			cause: null,
-		}) as never;
-	const opened = await createTestWhispering({
-		services: test.services,
-		place: test.place,
-	});
-	cleanups.push(opened.close);
-
-	await eventually(() => opened.whispering.recorderError !== undefined);
-	expect(opened.whispering.recorderError).toBe(
-		'Recordings a quit or a crash cut off could not be completed: The recording could not be captured: the disk is full',
-	);
-	expect(opened.library.entries).toHaveLength(0);
-});
-
-test('on the desktop, a recording kept outside its path, because another file is there, is said with where its audio is, and gets no note', async () => {
-	const test = await openTestServices();
-	cleanups.push(test.close);
-	test.services.capture.recover = async () =>
-		Ok({
-			whole: [],
-			unplaced: [
-				{
-					path: 'recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm',
-					pending:
-						'.epicenter/recordings/recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm',
-				},
-			],
-		});
-	const opened = await createTestWhispering({
-		services: test.services,
-		place: test.place,
-	});
-	cleanups.push(opened.close);
-
-	await eventually(() => opened.whispering.recorderError !== undefined);
-	expect(opened.whispering.recorderError).toBe(
-		'A recording is kept outside the library, because another file is at its path: its audio is at .epicenter/recordings/recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm in this folder, and recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm is another file. Move the other file, and the next start adds it.',
-	);
-	expect(opened.library.entries).toHaveLength(0);
+	expect(page.first.error?.message).toContain(reason);
+	expect(page.firstSettings.error?.message).toContain(reason);
 });
 
 test('a transcription sends the recording’s audio and keeps its transcript beside it', async () => {
@@ -408,15 +278,15 @@ test('a transcription sends the recording’s audio and keeps its transcript bes
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 
-	expect(await library.transcribe(recording.id)).toBeUndefined();
+	expectOk(await library.transcribe(recording.id));
 
 	expect(test.transcribed).toHaveLength(1);
 	expect(test.transcribed[0]).toMatchObject({
 		model: 'verification-model',
 		bytes: toneWav(),
 	});
-	await eventually(() => library.resultsFor(recording.id).length === 1);
-	expect(library.resultsFor(recording.id)[0]).toMatchObject({
+	await eventually(() => library.transcriptsFor(recording.id).length === 1);
+	expect(library.transcriptsFor(recording.id)[0]).toMatchObject({
 		recordingId: recording.id,
 		model: 'verification-model',
 		endpoint: TEST_BASE_URL,
@@ -425,100 +295,64 @@ test('a transcription sends the recording’s audio and keeps its transcript bes
 	expect(
 		test.outside.paths('transcriptions').filter((path) => path.endsWith('.md')),
 	).toHaveLength(1);
-	expect(library.transcriptionRun(recording.id)).toBeUndefined();
+	expect(library.transcribing(recording.id)).toBe(false);
 });
 
-/** A transcription that failed once, so Run again would send the same request. */
+/**
+ * A transcription that failed once, observed as a component observes it:
+ * its error and the variables Try again sends.
+ */
 async function failedOnce(opened: Awaited<ReturnType<typeof fixture>>) {
-	const { library } = opened;
+	const { query, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
-	await library.transcribe(recording.id);
-	const run = library.transcriptionRun(recording.id);
-	expect(run?.state.kind).toBe('failed');
-	return { key: run!.key, id: recording.id };
+	const observer = new MutationObserver(
+		query.queryClient,
+		library.transcription,
+	);
+	cleanups.push(() => observer.reset());
+	await observer.mutate({ recordingId: recording.id }).catch(() => undefined);
+	const failed = observer.getCurrentResult();
+	expect(failed.status).toBe('error');
+	return { observer, failed, id: recording.id };
 }
 
-test('a request whose connection was edited since it was prepared is not sent there, and says where it moved', async () => {
+test('a failed transcription shows its error, and Try again sends the same audio to the same model', async () => {
+	let answers = 0;
 	const opened = await fixture({
-		transcribe: async () => Err({ message: 'busy, try later' }),
+		transcribe: async () =>
+			++answers === 1
+				? Err({ message: 'busy, try later' })
+				: Ok({ text: 'a steady tone' }),
 	});
 	const { test, library } = opened;
-	const failed = await failedOnce(opened);
-	expect(test.transcribed).toHaveLength(1);
+	const { observer, failed, id } = await failedOnce(opened);
+	expect(failed.error?.message).toContain('busy, try later');
+	expect(library.transcriptsFor(id)).toEqual([]);
 
-	await test.connections.update(test.connectionId, {
-		baseUrl: 'http://127.0.0.1:18081/v1',
-	});
-	expect(await library.runAgain(failed.key)).toBeUndefined();
+	await observer.mutate(failed.variables!);
 
-	const state = library.transcriptionRun(failed.id)?.state;
-	expect(state?.kind).toBe('failed');
-	expect(state?.kind === 'failed' && state.message).toContain(
-		`prepared for Test endpoint at ${TEST_BASE_URL}, which now sends to http://127.0.0.1:18081/v1, so nothing was sent`,
-	);
-	expect(test.transcribed).toHaveLength(1);
+	expect(observer.getCurrentResult().status).toBe('success');
+	expect(test.transcribed).toHaveLength(2);
+	expect(test.transcribed[1]).toEqual(test.transcribed[0]!);
+	await eventually(() => library.transcriptsFor(id).length === 1);
+	expect(library.transcriptsFor(id)[0]?.body).toBe('a steady tone\n');
 });
 
-test('a request whose connection was removed since it was prepared is not sent anywhere else, and names it', async () => {
+test('Try again after the connection was removed is not sent anywhere, and says why', async () => {
 	const opened = await fixture({
 		transcribe: async () => Err({ message: 'busy, try later' }),
 	});
-	const { test, library } = opened;
-	const failed = await failedOnce(opened);
+	const { test } = opened;
+	const { observer, failed } = await failedOnce(opened);
 
 	await test.connections.remove(test.connectionId);
-	expect(await library.runAgain(failed.key)).toBeUndefined();
+	await observer.mutate(failed.variables!).catch(() => undefined);
 
-	const state = library.transcriptionRun(failed.id)?.state;
-	expect(state?.kind === 'failed' && state.message).toContain(
-		'Test endpoint is no longer set up, so nothing was sent',
-	);
-	expect(test.transcribed).toHaveLength(1);
-	// Nothing is chosen at an endpoint that is gone, so a new request is refused before it starts.
-	expect(await library.transcribe(failed.id)).toContain(
+	expect(observer.getCurrentResult().error?.message).toContain(
 		'not set up on this computer',
 	);
-});
-
-test('a transformation of a transcript, and of pasted text, keeps its result once answered', async () => {
-	const opened = await fixture();
-	const { test, library } = opened;
-	const recording = await record(opened);
-	await eventually(() => library.audioOf(recording.id).kind === 'here');
-	await library.transcribe(recording.id);
-	await eventually(() => library.resultsFor(recording.id).length === 1);
-	const transcript = library.resultsFor(recording.id)[0]!;
-	expect(
-		await library.createTransformation({
-			title: 'Clean up',
-			prompt: 'Fix it.',
-		}),
-	).toBeUndefined();
-	await eventually(() => library.transformations.length === 1);
-	const recipe = library.transformations[0]!;
-
-	expect(await library.transform(transcript.id, recipe.id)).toBeUndefined();
-	expect(
-		await library.transformText(recipe.id, 'pasted words'),
-	).toBeUndefined();
-
-	await eventually(() => library.outputsFor(transcript.id).length === 1);
-	expect(library.outputsFor(transcript.id)[0]).toMatchObject({
-		recordingId: recording.id,
-		transformationTitle: 'Clean up',
-		prompt: 'Fix it.',
-		input: 'um so a steady tone\n',
-		body: 'Transformed: um so a steady tone\n',
-	});
-	await eventually(() => library.textOutputsOf(recipe.id).length === 1);
-	expect(library.textOutputsOf(recipe.id)[0]!.body).toBe(
-		'Transformed: pasted words\n',
-	);
-	expect(test.transformed.map((request) => request.model)).toEqual([
-		'connection-model',
-		'connection-model',
-	]);
+	expect(test.transcribed).toHaveLength(1);
 });
 
 test('an answer that arrives after the pages closed is still kept', async () => {
@@ -533,34 +367,26 @@ test('an answer that arrives after the pages closed is still kept', async () => 
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	const transcribing = library.transcribe(recording.id);
-	await eventually(
-		() => library.transcriptionRun(recording.id)?.state.kind === 'running',
-	);
+	await eventually(() => library.transcribing(recording.id));
 
 	// The person leaves: the pages close.
 	library.dispose();
 	held.resolve();
 	await transcribing;
 
-	const kept = expectOk(await test.files.transcriptions.list()).items;
-	expect(kept.map(({ body }) => body)).toEqual(['late but kept\n']);
+	const [kept, ...more] = test.outside.paths('transcriptions');
+	expect(more).toEqual([]);
+	expect(await test.outside.read(kept!)).toContain('late but kept\n');
 });
 
-test('deleting a recording deletes its transcripts, their results, and its audio', async () => {
+test('deleting a recording deletes its transcripts and its audio', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	await library.transcribe(recording.id);
-	await eventually(() => library.resultsFor(recording.id).length === 1);
-	await library.createTransformation({
-		title: 'Clean up',
-		prompt: 'Fix it.',
-	});
-	await eventually(() => library.transformations.length === 1);
-	const transcript = library.resultsFor(recording.id)[0]!;
-	await library.transform(transcript.id, library.transformations[0]!.id);
-	await eventually(() => library.outputsFor(transcript.id).length === 1);
+	await library.transcribe(recording.id);
+	await eventually(() => library.transcriptsFor(recording.id).length === 2);
 
 	const deletion = expectOk(
 		library.deletionFor({ collection: 'recordings', id: recording.id }),
@@ -569,20 +395,37 @@ test('deleting a recording deletes its transcripts, their results, and its audio
 		kind: 'recording',
 		audio: `recordings/${recording.id}.wav`,
 	});
-	expect(deletion.kind === 'recording' && deletion.results).toHaveLength(2);
+	expect(deletion.kind === 'recording' && deletion.transcripts).toHaveLength(2);
 	expect(await library.delete(deletion)).toBeUndefined();
 
 	await eventually(() => library.entries.length === 0);
-	const left = test.outside.paths();
-	expect(
-		left.filter((path) => /\.(md|wav)$/.test(path) && !path.startsWith('.')),
-	).toEqual([
-		// The recipe stays; a recording owns none.
-		`transformations/${library.transformations[0]!.id}.md`,
-	]);
+	expect(test.outside.paths()).toEqual(['settings.md']);
 });
 
-test('a recording cannot be deleted while its transcription runs', async () => {
+test('a recording is kept when a transcript for it was saved after the person was asked', async () => {
+	const opened = await fixture();
+	const { test, query, library } = opened;
+	const recording = await record(opened);
+	const deletion = expectOk(
+		library.deletionFor({ collection: 'recordings', id: recording.id }),
+	);
+
+	// Another program saves a transcript of it while the dialog is open.
+	await test.outside.write(
+		'transcriptions/2026-10-31T09-31-00-000Z-latecomer.md',
+		`---\nrecordingId: "${recording.id}"\ncreatedAt: "2026-10-31T09:31:00.000Z"\nmodel: "whisper-1"\nendpoint: "https://api.openai.com/v1"\n---\nlate\n`,
+	);
+	await query.reread();
+	await eventually(() => library.transcriptsFor(recording.id).length === 1);
+
+	expect(await library.delete(deletion)).toContain(
+		'A new transcript was saved for this recording after you were asked.',
+	);
+	expect(library.entries.map(({ id }) => id)).toEqual([recording.id]);
+	expect(test.outside.paths('recordings')).toHaveLength(2);
+});
+
+test('a recording cannot be deleted, or transcribed again, while its transcription runs', async () => {
 	const held = deferred<void>();
 	const opened = await fixture({
 		transcribe: async () => {
@@ -590,26 +433,31 @@ test('a recording cannot be deleted while its transcription runs', async () => {
 			return Ok({ text: 'late' });
 		},
 	});
-	const { library } = opened;
+	const { test, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
-	const transcribing = library.transcribe(recording.id);
-	await eventually(
-		() => library.transcriptionRun(recording.id)?.state.kind === 'running',
+	// Two presses in one moment: the second is refused, whichever page made it.
+	const first = library.transcribe(recording.id);
+	const second = library.transcribe(recording.id);
+	expect(expectErr(await second).message).toBe(
+		'This recording is already being transcribed.',
 	);
+	await eventually(() => library.transcribing(recording.id));
 
 	expect(
 		expectErr(
 			library.deletionFor({ collection: 'recordings', id: recording.id }),
 		),
-	).toContain('still running');
+	).toContain('still being transcribed');
 
 	held.resolve();
-	await transcribing;
+	expectOk(await first);
+	expect(test.transcribed).toHaveLength(1);
+	await eventually(() => !library.transcribing(recording.id));
 	expectOk(library.deletionFor({ collection: 'recordings', id: recording.id }));
 });
 
-test('an answer whose result cannot land yet waits in the folder, and the run ends when it lands', async () => {
+test('an answer whose transcript cannot be written fails, keeps nothing, and Try again sends again', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;
 	const recording = await record(opened);
@@ -618,32 +466,27 @@ test('an answer whose result cannot land yet waits in the folder, and the run en
 		under: 'transcriptions',
 	});
 
-	const transcribing = library.transcribe(recording.id);
-	await eventually(
-		() => library.transcriptionRun(recording.id)?.state.kind === 'saving',
-	);
-	// Its result is on its way, so the recording is not deleted under it.
-	expect(
-		expectErr(
-			library.deletionFor({ collection: 'recordings', id: recording.id }),
-		),
-	).toContain('still running');
+	const failed = expectErr(await library.transcribe(recording.id));
+	expect(failed.name).toBe('NotSaved');
+	expect(failed.message).toContain('The disk is full');
+	// Nothing waits to be saved, so the recording can be deleted.
+	expectOk(library.deletionFor({ collection: 'recordings', id: recording.id }));
 
 	undo();
-	await transcribing;
-	expect(library.transcriptionRun(recording.id)).toBeUndefined();
-	await eventually(() => library.resultsFor(recording.id).length === 1);
-	// Landed without another request.
-	expect(test.transcribed).toHaveLength(1);
+	expectOk(await library.transcribe(recording.id));
+	expect(test.transcribed).toHaveLength(2);
+	await eventually(() => library.transcriptsFor(recording.id).length === 1);
 });
 
 test('a note that does not read is listed for repair, and repaired as text', async () => {
-	const { test, folder, library } = await fixture();
+	const { test, query, library } = await fixture();
+	const { queryClient, folderMutations } = query;
 	const id = '2026-10-31T09-30-00-000Z-brokenaa';
 	await test.outside.write(
 		`recordings/${id}.md`,
 		'---\ntitle: [unclosed\n---\n',
 	);
+	await query.reread();
 	await eventually(() => library.repairs.length === 1);
 	expect(library.repairs[0]).toMatchObject({
 		collection: 'recordings',
@@ -651,21 +494,74 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 	});
 
 	// Text that still does not read is written as typed, and stays listed for repair.
-	const edit = folder.recordings.edit({ id });
-	edit.text = 'not a recording';
-	await edit.landed();
+	expectOk(
+		await runMutation(queryClient, folderMutations.notes.replace, {
+			collection: 'recordings',
+			id,
+			seen: library.repairs[0]!.text,
+			text: 'not a recording',
+		}),
+	);
 	await eventually(
 		() => library.repairs[0]?.text?.includes('not a recording') === true,
 	);
 	expect(library.entries).toHaveLength(0);
 
-	edit.text =
-		'---\ntitle: Fixed\nrecordedAt: 2026-10-31T09:30:00.000Z\n---\nnotes\n';
-	await edit.landed();
+	expectOk(
+		await runMutation(queryClient, folderMutations.notes.replace, {
+			collection: 'recordings',
+			id,
+			seen: 'not a recording',
+			text: '---\ntitle: "Fixed"\nrecordedAt: "2026-10-31T09:30:00.000Z"\n---\nnotes\n',
+		}),
+	);
 	await eventually(() => library.entries.length === 1);
 	expect(library.entries[0]).toMatchObject({
 		title: 'Fixed',
 		body: 'notes\n',
 	});
 	expect(library.repairs).toEqual([]);
+});
+
+test('changing the folder is refused while a transcription runs, and nothing starts while it changes', async () => {
+	const held = deferred<void>();
+	const opened = await fixture({
+		transcribe: async () => {
+			await held.promise;
+			return Ok({ text: 'late' });
+		},
+	});
+	const { whispering, library } = opened;
+	const recording = await record(opened);
+	await eventually(() => library.audioOf(recording.id).kind === 'here');
+
+	const running = library.transcribe(recording.id);
+	await eventually(() => library.transcribing(recording.id));
+	let changed = 0;
+	const change = async () => {
+		changed++;
+		return 'moved' as const;
+	};
+	expect(expectErr(await whispering.changeFolder(change))).toContain(
+		'transcriptions and saves under way',
+	);
+	held.resolve();
+	expectOk(await running);
+	await eventually(() => !library.transcribing(recording.id));
+
+	// While the folder changes, no recording or transcription starts.
+	const moving = deferred<void>();
+	const changing = whispering.changeFolder(async () => {
+		await moving.promise;
+		return change();
+	});
+	await whispering.startRecording();
+	expect(whispering.recorder.phase).toBe('idle');
+	expect(whispering.recorderError).toContain('changing its folder');
+	expect(expectErr(await library.transcribe(recording.id)).message).toContain(
+		'changing its folder',
+	);
+	moving.resolve();
+	expect(expectOk(await changing)).toBe('moved');
+	expect(changed).toBe(1);
 });

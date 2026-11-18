@@ -11,9 +11,6 @@
  * deployment policies (e.g. cloud billing middleware).
  * Sub-apps declare full URLs (including the `/api` prefix where
  * applicable). See `apps/api/worker/index.ts` for the cloud composition.
- *
- * Everything here loads on both runtimes. `@epicenter/server/bun` adds the
- * modules a Worker cannot bundle (`node:fs`).
  */
 
 // The OAuth 2.1 authorization server (ADR-0549): its shared policy, the
@@ -32,25 +29,12 @@ export {
 } from './auth/oauth-registrations.js';
 export {
 	authorizeAccountRequest,
-	authorizeFolderRequest,
 	type ResourceRefusal,
 	readAccessToken,
 } from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 // Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
 export { createDb, type Db } from './db/create-db.js';
-// A folder's log (ADR-0824): where its larger bytes live (R2 on the Worker;
-// the disk store is `@epicenter/server/bun`'s), and the jobs a deployment
-// schedules over its bytes.
-export { type BlobStore, blobKey } from './log/blob-store.js';
-export {
-	KEEP_MERGE_BASES_MS,
-	PENDING_FOR_MS,
-	purgeBlobs,
-	sweepPendingBlobs,
-} from './log/blobs.js';
-export { createMemoryBlobStore } from './log/memory-blob-store.js';
-export { createR2BlobStore, type R2BlobBucket } from './log/r2-blob-store.js';
 // Protected mounts: an access token for a resource, and the session cookie for
 // account management on the authorization server's own pages (ADR-0549).
 export {
@@ -61,12 +45,6 @@ export {
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // Better Auth endpoints are mounted by mountAuthRoutes.
 export { mountAuthRoutes } from './routes/auth.js';
-export {
-	databaseFolderGuard,
-	type FolderGuard,
-	type JoinRefusal,
-	mountFolders,
-} from './routes/folders.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS)

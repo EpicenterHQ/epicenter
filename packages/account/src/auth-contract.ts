@@ -1,5 +1,4 @@
 import type { Result } from 'wellcrafted/result';
-import type { createAccountManagementUrl } from './account-management.js';
 import type { AuthError } from './auth-errors.js';
 import type { Principal } from './auth-types.js';
 import type { AccountIdentity } from './principal.js';
@@ -9,20 +8,14 @@ export type AuthFetch = (
 	init?: RequestInit,
 ) => Promise<Response>;
 
-/** One uninterrupted attachment to one person on one server.
- *
- * Capture this value when opening a data session. Refresh and reauthentication
- * preserve it. Sign-out or account replacement permanently retires its network
- * access, including in-flight requests. A later sign-in creates a
- * new Account even for the same person. Retirement does not erase local data.
+/**
+ * The dashboard's attachment to the person named by its session cookie.
+ * A sign-out or account replacement retires the attachment and aborts
+ * in-flight requests. Signing in again creates a new Account.
  */
 export type Account = AccountIdentity & {
 	readonly baseURL: string;
-	/**
-	 * Aborts when this Account is retired (sign-out or account replacement),
-	 * so work bound to it, such as an upload loop, can stop for good. A
-	 * `reauth-required` pause does not abort it.
-	 */
+	/** Aborts when the dashboard retires this Account. */
 	readonly signal: AbortSignal;
 	fetch: AuthFetch;
 	getProfile(): Promise<Result<Principal, AuthError>>;
@@ -30,48 +23,21 @@ export type Account = AccountIdentity & {
 
 export type AuthState =
 	| { status: 'signed-out'; account?: undefined }
-	| { status: 'signed-in' | 'reauth-required'; account: Account };
+	| { status: 'signed-in'; account: Account };
 
-/** Auth selects accounts; applications hold the Account they opened. */
+/** Cookie session operations the dashboard reads and invokes. */
 export type AuthClient = {
 	state(): AuthState;
-	/** Reconcile this client's state with its credential owner. */
+	/** Refresh the session state from the server. */
 	refresh(): Promise<void>;
 	baseURL: string;
-	accountManagementUrl?: typeof createAccountManagementUrl;
 	/** Call `listener` whenever `state()` may answer differently; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
 	startSignIn(options?: {
 		reauthenticate?: boolean;
 	}): Promise<Result<undefined, AuthError>>;
-	/** Retire locally and clear persistence. Hosted clients await a revocation
-	 * attempt for up to five seconds; success does not confirm remote revocation.
-	 */
+	/** End the browser session and retire its Account. */
 	signOut(): Promise<Result<undefined, AuthError>>;
 	getProfile(): Promise<Result<Principal, AuthError>>;
 	[Symbol.dispose](): void;
 };
-
-/** A client whose sign-in returns to a callback page it must complete. */
-export type CallbackAuthClient = AuthClient & {
-	/**
-	 * Finish the sign-in this page's URL answers. Success carries the path the
-	 * attempt started from, which the callback page replaces itself with; it is
-	 * undefined when that path cannot be used.
-	 */
-	completeSignIn(): Promise<
-		Result<{ returnTo: string | undefined }, AuthError>
-	>;
-};
-
-/** Whether `client` (or the client as `reactive` adapts it) completes its sign-in on a callback page. */
-export function isCallbackAuthClient<
-	TClient extends Pick<AuthClient, 'startSignIn'>,
->(
-	client: TClient,
-): client is TClient & Pick<CallbackAuthClient, 'completeSignIn'> {
-	return (
-		typeof (client as { completeSignIn?: unknown }).completeSignIn ===
-		'function'
-	);
-}

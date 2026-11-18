@@ -18,7 +18,7 @@ v7.11.0 has no sign-in and calls no Epicenter service.
 
 On `main`, unreleased, Whispering writes through `@epicenter/folder`, the
 client of the folder sync product (`apps/whispering/src/lib/app.ts:44`).
-`home()` (`packages/folder/src/home.ts`) opens the data folder through
+`home()` (`folder-package:packages/folder/src/home.ts`) opens the data folder through
 `tauri-plugin-epicenter-folder` on the desktop, and in a browser joins a
 folder on the hosted server at `api.epicenter.so/folders/<id>`, which needs
 the `folders` OAuth audience. The browser build is not deployed. Its
@@ -31,7 +31,7 @@ through `@epicenter/local`, which `@epicenter/account` and `@epicenter/ai`
 also import. `@epicenter/definition` holds Whispering's contract and ids and
 the site constants (`APPS`, `localUrl`, `resolveOAuthAudiences`) that
 `apps/api` and `@epicenter/account` read. Local models live in the shared
-Hugging Face cache (`packages/transcription/src/lib.rs:5-8`).
+Hugging Face cache (`apps/whispering/packages/transcription/src/lib.rs:5-8`).
 
 ADR-0887 gave a program a Git clone of its app's data. A clone needs Git on
 every device, and a phone or a browser tab has none.
@@ -299,7 +299,7 @@ none.
   `@epicenter/transcription`, `@epicenter/vite-config`,
   `tauri-epicenter-standalone`, `tauri-plugin-epicenter-recorder`, and
   `epicenter-transcription-build`) move into `apps/whispering`, with
-  `scripts/first-load.test.ts`, which reads vite-config's module graph. The
+  `apps/whispering/scripts/first-load.test.ts`, which reads vite-config's module graph. The
   hosted API loses its `/folders` routes, the `folders` audience and scopes,
   and the R2 binding; dropping their production tables is a later,
   separate step.
@@ -376,7 +376,7 @@ none.
 - **Sync API keys with the folder.** A copied folder or a Git backup would
   carry every key.
 - **Provider keys in `credentials.json`,** as built
-  (`packages/tauri-epicenter-account/src/credentials.rs`). A plain file on a
+  (`folder-package:packages/tauri-epicenter-account/src/credentials.rs`). A plain file on a
   laptop.
 - **A settings file per capability** (`models.md`, `connections.md`,
   `shortcuts.md`). Three files because three modules kept one each; with

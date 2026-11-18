@@ -11,7 +11,7 @@ Keep a component’s own props and state types in the component. Several files c
 
 ## Shared contracts
 
-The recorder package defines [`Recorder`](../../../../packages/recorder/src/recording.ts) in `recording.ts`. The [browser](../../../../packages/recorder/src/browser.ts) and [desktop](../../../../packages/recorder/src/tauri.ts) implementations both check their objects against it with `satisfies Recorder`. The [package entry point](../../../../packages/recorder/src/index.ts) exposes the same contract whichever recorder it selects:
+The recorder package defines [`Recorder`](../../../../apps/whispering/packages/recorder/src/recording.ts) in `recording.ts`. The [browser](../../../../apps/whispering/packages/recorder/src/browser.ts) and [desktop](../../../../apps/whispering/packages/recorder/src/tauri.ts) implementations both check their objects against it with `satisfies Recorder`. The [package entry point](../../../../apps/whispering/packages/recorder/src/index.ts) exposes the same contract whichever recorder it selects:
 
 ```typescript
 export const recorder: Recorder = isTauri() ? shellRecorder : pageRecorder;
@@ -97,7 +97,7 @@ export const SAMPLE_RATE_OPTIONS = SAMPLE_RATES.map((rate) => ({
 
 ### Pattern 3: Shared lookup table → local list
 
-Derive related lists from the same source when they describe the same set of choices. Whispering’s [recording collection](../../../../apps/whispering/src/lib/recording-collection.ts) defines the labels for each status:
+Derive related lists from the same source when they describe the same set of choices. For example, one table defines the label for each status:
 
 ```typescript
 export const STATUS_LABELS: Record<RecordingStatus, string> = {
@@ -108,7 +108,7 @@ export const STATUS_LABELS: Record<RecordingStatus, string> = {
 };
 ```
 
-The [recording list](../../../../apps/whispering/src/routes/components/RecordingList.svelte) imports the table and derives the list it needs for sorting:
+A list view imports the table and derives the list it needs for sorting:
 
 ```typescript
 const statusLabels = Object.values(STATUS_LABELS);

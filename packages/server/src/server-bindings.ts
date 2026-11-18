@@ -13,7 +13,7 @@
  * secret fails fast with a descriptive error instead of a downstream surprise.
  *
  * What is deliberately ABSENT, and why:
- * - Object bindings (`HYPERDRIVE`, `ARTIFACTS`) are not strings and cannot be
+ * - Object bindings (`HYPERDRIVE`, `ASSETS`) are not strings and cannot be
  *   validated from `process.env`. They live on the deployment's own
  *   `Cloudflare.Env` and are read by deployment resolvers at the `apps/*`
  *   edge, never by library code reaching for a binding shape. The library names

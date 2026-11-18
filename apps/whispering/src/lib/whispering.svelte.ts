@@ -1,70 +1,58 @@
 /**
  * Whispering for one mounted page: the models it can reach, the microphone,
  * and the recorder, over the capabilities `src/lib/app.ts` opened. What the
- * files show is the library's (`library.svelte.ts`); both write through the
- * same folder, so the folder's `saving()` counts every note either writes.
+ * folder shows is the library's (`library.svelte.ts`); both write through
+ * the same folder.
  *
  * Where a take is kept while it records depends on where the page runs
- * (ADR-0779, ADR-0780): the desktop shell encodes it into the data folder
- * from the first sample, and on the next launch finishes, in the
- * background, what a quit or a crash cut off (`capture.recover`); a browser
- * keeps it in the page's memory and writes it once at Stop, so a crash or a
- * closed tab loses it. Stop answers once its audio is at its path, and its
- * note is written then (`folder-recordings.ts`). Recording never waits on
- * the network; in a browser, the write at Stop does, since the folder is
- * the person's repository (ADR-0786).
+ * (ADR-0779, ADR-0780): the desktop shell encodes it at its path in the
+ * folder from its first second (ADR-0962); a browser keeps it in the page's
+ * memory and writes it once at Stop, so a crash or a closed tab loses it.
+ * Stop answers once its audio is at its path, and its note is written
+ * then. The library leaves the take out until its note is written
+ * (`takeInProgress`). Audio whose note was not written, or that a crash cut
+ * off, lists as an untitled recording (ADR-0894).
  *
- * The models are the page's one merge of endpoints (`ai`, ADR-0757):
- * Epicenter's hosted models through the account signed in now, the
- * connections the person saved with their keys, then what runs on this
- * computer, each followed as it changes. The person chooses one model for
- * transcription and one for text; a request captures that choice when it is
- * prepared and goes there alone (`inference.ts`).
+ * The models are the page's one merge of endpoints (`ai`, ADR-0757): the
+ * connections the person saved, then what runs on this computer, each
+ * followed as it changes. The person chooses one model for transcription,
+ * in `settings.md`; a request captures that choice when it is prepared and
+ * goes there alone (`inference.ts`).
  *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
-import type { Ai, ModelChoice, ModelChoices } from '@epicenter/ai';
-import { timeId } from '@epicenter/definition/ids';
-import type { Folder } from '@epicenter/folder/core';
-import { reactive } from '@epicenter/svelte/reactive';
+
+import type { Ai, ModelChoice } from '@epicenter/ai';
+import { createQuery } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
-import type { Result } from 'wellcrafted/result';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { runMutation } from 'wellcrafted/query';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Capture, CaptureDevice } from './capture.js';
-import type { Whispering as WhisperingContract } from './contract.js';
-import { finishCutOffRecordings, keepRecording } from './folder-recordings.js';
+import type { FolderQuery } from './folder-query.js';
+import { timeId } from './format/ids.js';
 import {
 	type Audio,
 	addressOf,
 	type Target,
 	transcribeAt,
-	transformAt,
 } from './inference.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { MicrophonePreferences } from './microphone-preference.js';
-import {
-	type Chosen,
-	type RecipeRow,
-	type ResolvedRecipe,
-	resolveRecipe,
-} from './recipe.js';
+import { reactive } from './reactive.js';
+import { sentences } from './sentences.js';
+import { chosenIn, NO_SETTINGS } from './settings.js';
 
-/** What a model is chosen for: transcribing a recording, or running a transformation on text. */
-export type Operation = 'transcription' | 'text';
-
-/** What a model must be able to do to be chosen for each operation. */
-export const CAN = { transcription: 'transcribe', text: 'chat' } as const;
-
-export type RecorderState =
+type RecorderState =
 	| { readonly phase: 'idle' }
 	| { readonly phase: 'starting' }
 	| { readonly phase: 'recording'; readonly startedAt: number }
 	| { readonly phase: 'stopping' };
 
 const CLOSING = 'Whispering is closing, so nothing was changed.';
-
-const describe = (cause: unknown) =>
-	cause instanceof Error ? cause.message : String(cause);
+const CHANGING_FOLDER =
+	'Whispering is changing its folder, so nothing was changed.';
 
 function defaultTitle(at: Date): string {
 	return `Recording ${at.toLocaleString(undefined, {
@@ -75,13 +63,14 @@ function defaultTitle(at: Date): string {
 
 /** What Whispering is made over: the capabilities `src/lib/app.ts` opened, or a test's. */
 export type WhisperingCapabilities = {
-	/** Whispering's folder, which every recording and its note is written into. */
-	readonly folder: Folder<WhisperingContract>;
+	/** Whispering's folder as the page's client reads and writes it: every recording's note, and `settings.md`, go through it. */
+	readonly query: Pick<
+		FolderQuery,
+		'queryClient' | 'folderMutations' | 'reread' | 'settingsQueries'
+	>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
-	/** This computer's model for each job. */
-	readonly choices: ModelChoices<'transcribe' | 'chat'>;
-	/** What records each recording into `folder`. */
+	/** What records each recording into the folder. */
 	readonly capture: CaptureDevice;
 	/**
 	 * What this device remembers that is neither a file nor a secret: the
@@ -91,87 +80,76 @@ export type WhisperingCapabilities = {
 };
 
 export function createWhispering(capabilities: WhisperingCapabilities) {
-	const { folder: files, capture, preferences } = capabilities;
+	const { query, capture, preferences } = capabilities;
 	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
 	let sidebarOpen = $state(false);
 
 	/** Cleanup also fences new work and late replies. */
 	let disposed = false;
+	/** "Change…" is moving the folder, or has and the page is about to load the new one. */
+	let changingFolder = false;
 	/** Why nothing new starts now, if it does not. */
-	const refused = () => (disposed ? CLOSING : undefined);
+	const refused = () =>
+		disposed ? CLOSING : changingFolder ? CHANGING_FOLDER : undefined;
 
 	// --- models, microphone -------------------------------------------------
 
 	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
 	const ai = reactive(capabilities.ai);
-	/** This computer's model for each job, read at once: the settings connected before the app rendered. */
-	const choices = reactive(capabilities.choices);
+	/** `settings.md` as its query last read it: the model chosen for each job. */
+	const settingsRead = createQuery(
+		() => query.settingsQueries.get(),
+		() => query.queryClient,
+	);
+	const settings = () => settingsRead.data ?? NO_SETTINGS;
 	/** Why the saved connections do not read, naming the file, if they do not; tracks in Svelte. */
 	const connectionsProblem = () => ai.custom()?.problem()?.message;
 
-	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
-	function chosen(operation: Operation): Chosen {
-		const decided = choices.require(CAN[operation]);
-		if (decided.error?.name === 'Invalid')
-			return { kind: 'unset', reason: decided.error.message };
-		const choice = decided.data;
+	/** The transcription model chosen now, as where a request would go, or why there is none. */
+	function chosen(): Result<Target, string> {
+		const { data: choice, error } = chosenIn(settings(), 'transcribe');
+		if (error !== null) return Err(error.message);
 		if (choice === null)
-			return {
-				kind: 'unset',
-				reason:
-					operation === 'transcription'
-						? 'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.'
-						: 'Choose a text model in Settings to run this.',
-			};
+			return Err(
+				'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.',
+			);
 		const endpoint = ai
 			.endpoints()
 			.find((candidate) => candidate.id === choice.endpoint);
 		if (endpoint === undefined)
-			return {
-				kind: 'unset',
-				reason: `The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this computer${
+			return Err(
+				`The transcription model chosen, ${choice.model}, is at an endpoint that is not set up on this computer${
 					connectionsProblem() === undefined ? '' : ` (${connectionsProblem()})`
 				}. Choose a model in Settings.`,
-			};
-		const target: Target = {
+			);
+		return Ok({
 			endpoint: endpoint.id,
 			model: choice.model,
 			name: endpoint.name,
 			address: addressOf(endpoint),
-		};
-		return { kind: 'ready', target };
+		});
 	}
 
-	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
-		return resolveRecipe(recipe, chosen('text'));
-	}
-
-	/** Choose the model `operation` uses from now on. Nothing is sent. */
-	async function choose(
-		operation: Operation,
-		choice: ModelChoice,
-	): Promise<string | undefined> {
+	/** Choose the transcription model from now on. Nothing is sent. */
+	async function choose(choice: ModelChoice): Promise<string | undefined> {
 		const why = refused();
 		if (why !== undefined) return why;
-		try {
-			await capabilities.choices.set(CAN[operation], choice);
-			return undefined;
-		} catch (cause) {
-			return describe(cause);
-		}
+		const saved = await runMutation(
+			query.queryClient,
+			query.folderMutations.settings.set,
+			{
+				models: {
+					...settings().fields.models,
+					transcribe: { endpoint: choice.endpoint, model: choice.model },
+				},
+			},
+		);
+		return saved.error?.message;
 	}
 
-	/** Send audio to `target`, through the endpoints merged when it is sent. */
-	const transcribe = (
-		target: Target,
-		audio: () => Promise<Result<Audio, string>>,
-	) => transcribeAt(() => ai, target, audio);
-
-	/** Send a transformation to `target`, through the endpoints merged when it is sent. */
-	const transform = (
-		target: Target,
-		request: { prompt: string; input: string },
-	) => transformAt(() => ai, target, request);
+	/** Send `audio` to `target`, through the endpoints merged when it is sent. */
+	const transcribe = (target: Target, audio: Audio) =>
+		transcribeAt(() => ai, target, audio);
 
 	/** A capture under way, writing recording `id`'s audio. */
 	type Take = { id: string; capture: Capture };
@@ -183,6 +161,12 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
 	/** The last Stop until it has finished, its note written included. */
 	let finishing: Promise<void> | undefined;
+	/**
+	 * The recording whose take is under way, from Start until its note is
+	 * written or its Stop failed. On the desktop its audio is at its path
+	 * all that time, and the library leaves it out.
+	 */
+	let takeInProgress = $state<string | undefined>();
 	let recorderError = $state<string | undefined>();
 
 	const input = createMicrophoneInput({
@@ -198,7 +182,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	/**
 	 * Stop: release the microphone and finish the audio at its path, then
 	 * write its note. Once closed, nothing more is done here: what was
-	 * written stays, and the next start gives it its note.
+	 * written stays, and lists as an untitled recording.
 	 */
 	function finishRecording(): Promise<void> {
 		const current = captureState;
@@ -222,61 +206,39 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			.stop()
 			.catch((cause) => ({
 				data: null,
-				error: { message: describe(cause) },
+				error: { message: extractErrorMessage(cause) },
 			}));
 		captureState = { phase: 'idle' };
 		if (disposed) return;
 		// Nothing is in the library yet, so a failure leaves nothing to undo:
-		// whatever audio was written, the next start gives it its note, or
-		// says where it is kept when another file took its path.
+		// whatever audio was written lists as an untitled recording.
 		if (error !== null) {
+			takeInProgress = undefined;
 			recorderError = error.message;
+			void query.reread();
 			return;
 		}
-		// The audio is at its path, so its note goes after it, and lands in
-		// order: the folder keeps it until it does (ADR-0775).
-		await keepRecording(files, {
-			id: take.id,
-			title: defaultTitle(at),
-			recordedAt: at.toISOString(),
-			durationMs: stopped.durationMs,
-		});
-	}
-
-	/**
-	 * On the desktop, finish the audio a quit or a crash cut off, then give
-	 * each such recording its note. It runs once, beside the pages: a
-	 * cut-off recording is at no data path until it is finished, so nothing
-	 * lists it first. What cannot be completed is said and left for the next
-	 * launch. A recording kept outside its path because another file is
-	 * there is said with where its audio is, on every launch until a person
-	 * moves one of the two. A browser keeps nothing through a crash, so it
-	 * has none to finish (ADR-0780).
-	 */
-	async function completeCutOffRecordings(
-		recover: NonNullable<CaptureDevice['recover']>,
-	) {
-		const finished = await finishCutOffRecordings(files, { recover }).catch(
-			(cause: unknown) => {
-				// The page left while it ran: its folder takes no more writes.
-				if (disposed) return undefined;
-				throw cause;
+		// The audio is at its path, so its note goes after it; writing the
+		// note reads the folder again, the audio with it.
+		const kept = await runMutation(
+			query.queryClient,
+			query.folderMutations.notes.set,
+			{
+				collection: 'recordings',
+				id: take.id,
+				fields: {
+					title: defaultTitle(at),
+					recordedAt: at.toISOString(),
+					durationMs: Math.max(0, Math.round(stopped.durationMs)),
+				},
 			},
 		);
-		if (finished === undefined || disposed) return;
-		const { data, error } = finished;
-		if (error !== null) {
-			if (error.name !== 'Unavailable')
-				recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
-			return;
-		}
-		if (data.unplaced.length > 0)
-			recorderError = `A recording is kept outside the library, because another file is at its path: ${data.unplaced
-				.map(
-					({ path, pending }) =>
-						`its audio is at ${pending} in this folder, and ${path} is another file`,
-				)
-				.join('; ')}. Move the other file, and the next start adds it.`;
+		takeInProgress = undefined;
+		if (kept.error !== null && !disposed)
+			recorderError = sentences(
+				`The recording's audio is saved, but its note was not: ${kept.error.message}`,
+				'It is listed as an untitled recording.',
+			);
 	}
 
 	function dispose(): void {
@@ -289,8 +251,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		}
 	}
 
-	if (capture.recover) void completeCutOffRecordings(capture.recover);
-
 	return {
 		/** Whether the sidebar is open on a wide window. */
 		get sidebarOpen() {
@@ -301,26 +261,43 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		},
 		/** Every model this page can reach now, with the person's connections, for the picker; tracks in Svelte. */
 		ai,
-		/** Why the saved connections do not read, naming the file, if they do not. */
-		get connectionsProblem() {
-			return connectionsProblem();
-		},
-		/** The model chosen for `operation`, or null when none is. */
-		choice(operation: Operation): ModelChoice | null {
-			return choices.get(CAN[operation]);
+		/** The transcription model chosen, or null when none is. */
+		choice(): ModelChoice | null {
+			return chosenIn(settings(), 'transcribe').data ?? null;
 		},
 		choose,
 		chosen,
-		/**
-		 * Whether a recipe can run now, and with what: the one decision the Run
-		 * button, the post-processing choice, a transcript's menu, and the run
-		 * itself all use. Undefined is a recipe whose note does not read.
-		 */
-		resolve,
 		transcribe,
-		transform,
-		/** Why nothing new starts now, if it does not: Whispering is closing. */
+		/** Why nothing new starts now, if it does not: Whispering is closing, or changing its folder. */
 		refused,
+		/**
+		 * Run `change`, "Change…", while nothing else touches the folder. It
+		 * is refused while a take is under way (from Start until its note is
+		 * written) or while any write or transcription is pending, and while
+		 * it runs no recording or transcription starts and no transcript is
+		 * kept (`refused`). The shell refuses its file commands on the folder
+		 * meanwhile too. After it succeeds the page loads the other folder,
+		 * so nothing starts here again.
+		 */
+		async changeFolder<T>(
+			change: () => Promise<T>,
+		): Promise<Result<T, string>> {
+			const why = refused();
+			if (why !== undefined) return Err(why);
+			if (takeInProgress !== undefined || captureState.phase !== 'idle')
+				return Err('Stop the recording, then change the folder.');
+			if (query.queryClient.isMutating() > 0)
+				return Err(
+					'Wait for the transcriptions and saves under way to finish, then change the folder.',
+				);
+			changingFolder = true;
+			try {
+				return Ok(await change());
+			} catch (cause) {
+				changingFolder = false;
+				return Err(extractErrorMessage(cause));
+			}
+		},
 		/** The microphone the next recording uses, and the test of it. */
 		input,
 
@@ -350,17 +327,24 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		get recorderError() {
 			return recorderError;
 		},
+		/** The recording whose take is under way, which the library leaves out until its note is written; tracks in Svelte. */
+		get takeInProgress() {
+			return takeInProgress;
+		},
 		/**
 		 * Start a recording from the chosen microphone. Its audio is written
 		 * into the files as it records; its note waits for Stop.
 		 */
 		async startRecording() {
-			if (captureState.phase !== 'idle' || refused() !== undefined) return;
-			recorderError = undefined;
+			if (captureState.phase !== 'idle' || disposed) return;
+			// A shortcut can press Start while the folder changes: say why nothing started.
+			recorderError = refused();
+			if (recorderError !== undefined) return;
 			const attempt = new AbortController();
 			const at = new Date();
 			const id = timeId(at);
 			captureState = { phase: 'starting', attempt };
+			takeInProgress = id;
 			input.release();
 			const { data: started, error } = await capture.start({
 				id,
@@ -370,10 +354,12 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			// Closed while the microphone was opening: an aborted opener releases it.
 			if (attempt.signal.aborted || disposed) {
 				captureState = { phase: 'idle' };
+				takeInProgress = undefined;
 				return;
 			}
 			if (error !== null) {
 				captureState = { phase: 'idle' };
+				takeInProgress = undefined;
 				recorderError = error.message;
 				input.noteRecordingError(error);
 				return;

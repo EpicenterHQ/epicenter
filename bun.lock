@@ -24,7 +24,6 @@
         "@better-auth/drizzle-adapter": "catalog:",
         "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/definition": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
@@ -56,8 +55,6 @@
         "@better-auth/passkey": "catalog:",
         "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/svelte": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
         "@tanstack/svelte-query-devtools": "catalog:",
         "better-auth": "catalog:",
@@ -106,16 +103,19 @@
       "name": "@epicenter/whispering",
       "version": "7.11.1",
       "dependencies": {
-        "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "@epicenter/local": "workspace:*",
+        "@epicenter/app": "workspace:*",
         "@epicenter/recorder": "workspace:*",
-        "@epicenter/svelte": "workspace:*",
         "@epicenter/transcription": "workspace:*",
+        "@tanstack/query-core": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
         "@tauri-apps/api": "catalog:",
+        "@tauri-apps/plugin-dialog": "catalog:",
+        "@tauri-apps/plugin-http": "catalog:",
+        "@tauri-apps/plugin-opener": "catalog:",
+        "nanoid": "catalog:",
         "runed": "catalog:",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -128,6 +128,7 @@
         "@tailwindcss/vite": "catalog:",
         "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
+        "jsdom": "26.1.0",
         "mode-watcher": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
@@ -136,6 +137,47 @@
         "typescript": "catalog:",
         "vite": "catalog:",
         "vite-plugin-devtools-json": "^1.0.0",
+      },
+    },
+    "apps/whispering/packages/recorder": {
+      "name": "@epicenter/recorder",
+      "version": "0.0.1",
+      "dependencies": {
+        "@ricky0123/vad-web": "catalog:",
+        "@tauri-apps/api": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/whispering/packages/transcription": {
+      "name": "@epicenter/transcription",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/ui": "workspace:*",
+        "@tauri-apps/api": "catalog:",
+        "svelte": "catalog:",
+      },
+      "devDependencies": {
+        "@epicenter/ai": "workspace:*",
+        "@types/bun": "catalog:",
+        "svelte-check": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/whispering/packages/vite-config": {
+      "name": "@epicenter/vite-config",
+      "version": "0.1.1",
+      "dependencies": {
+        "@sveltejs/kit": "catalog:",
+        "@tailwindcss/vite": "catalog:",
+        "vite": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
       },
     },
     "ops": {
@@ -149,9 +191,6 @@
       "name": "@epicenter/account",
       "version": "0.1.1",
       "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/local": "workspace:*",
-        "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -165,14 +204,9 @@
       "name": "@epicenter/ai",
       "version": "0.0.0",
       "dependencies": {
-        "@epicenter/account": "workspace:*",
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "@epicenter/local": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",
-        "@tauri-apps/api": "catalog:",
         "nanoid": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
@@ -201,66 +235,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/definition": {
-      "name": "@epicenter/definition",
-      "version": "0.0.1",
-      "dependencies": {
-        "nanoid": "catalog:",
-        "typebox": "catalog:",
-        "wellcrafted": "catalog:",
-        "yaml": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/folder": {
-      "name": "@epicenter/folder",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@tauri-apps/api": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@epicenter/account": "workspace:*",
-        "@epicenter/server": "workspace:*",
-        "@types/bun": "catalog:",
-        "@types/pg": "^8.18.0",
-        "drizzle-orm": "catalog:",
-        "hono": "catalog:",
-        "pg": "^8.20.0",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/local": {
-      "name": "@epicenter/local",
-      "version": "0.0.1",
-      "dependencies": {
-        "@tauri-apps/api": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/recorder": {
-      "name": "@epicenter/recorder",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "@ricky0123/vad-web": "catalog:",
-        "@tauri-apps/api": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/server": {
       "name": "@epicenter/server",
       "version": "0.1.1",
@@ -271,7 +245,6 @@
         "@better-auth/passkey": "catalog:",
         "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/definition": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
         "better-auth": "catalog:",
@@ -287,41 +260,6 @@
         "@cloudflare/workers-types": "^4.20260405.1",
         "@types/bun": "catalog:",
         "@types/pg": "^8.18.0",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/svelte": {
-      "name": "@epicenter/svelte",
-      "version": "0.3.0",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "@epicenter/local": "workspace:*",
-        "@epicenter/ui": "workspace:*",
-        "@lucide/svelte": "catalog:",
-        "@tauri-apps/api": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "jsdom": "26.1.0",
-        "svelte": "catalog:",
-        "svelte-check": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/transcription": {
-      "name": "@epicenter/transcription",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/ui": "workspace:*",
-        "@tauri-apps/api": "catalog:",
-        "svelte": "catalog:",
-      },
-      "devDependencies": {
-        "@epicenter/ai": "workspace:*",
-        "@types/bun": "catalog:",
-        "svelte-check": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -354,20 +292,6 @@
         "mode-watcher": "^1.1.0",
         "svelte": "^5.33.0",
         "tailwindcss": "^4.1.0",
-      },
-    },
-    "packages/vite-config": {
-      "name": "@epicenter/vite-config",
-      "version": "0.1.1",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@sveltejs/kit": "catalog:",
-        "@tailwindcss/vite": "catalog:",
-        "vite": "catalog:",
-      },
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "typescript": "catalog:",
       },
     },
   },
@@ -420,6 +344,8 @@
     "@tauri-apps/cli": "^2.12.0",
     "@tauri-apps/plugin-deep-link": "^2.4.9",
     "@tauri-apps/plugin-dialog": "^2.8.3",
+    "@tauri-apps/plugin-fs": "^2.4.0",
+    "@tauri-apps/plugin-http": "^2.5.0",
     "@tauri-apps/plugin-opener": "^2.4.0",
     "@types/bun": "^1.3.14",
     "@types/ms": "^2.1.0",
@@ -602,27 +528,19 @@
 
     "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
 
-    "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
-
-    "@epicenter/folder": ["@epicenter/folder@workspace:packages/folder"],
-
     "@epicenter/landing": ["@epicenter/landing@workspace:apps/landing"],
-
-    "@epicenter/local": ["@epicenter/local@workspace:packages/local"],
 
     "@epicenter/ops": ["@epicenter/ops@workspace:ops"],
 
-    "@epicenter/recorder": ["@epicenter/recorder@workspace:packages/recorder"],
+    "@epicenter/recorder": ["@epicenter/recorder@workspace:apps/whispering/packages/recorder"],
 
     "@epicenter/server": ["@epicenter/server@workspace:packages/server"],
 
-    "@epicenter/svelte": ["@epicenter/svelte@workspace:packages/svelte"],
-
-    "@epicenter/transcription": ["@epicenter/transcription@workspace:packages/transcription"],
+    "@epicenter/transcription": ["@epicenter/transcription@workspace:apps/whispering/packages/transcription"],
 
     "@epicenter/ui": ["@epicenter/ui@workspace:packages/ui"],
 
-    "@epicenter/vite-config": ["@epicenter/vite-config@workspace:packages/vite-config"],
+    "@epicenter/vite-config": ["@epicenter/vite-config@workspace:apps/whispering/packages/vite-config"],
 
     "@epicenter/whispering": ["@epicenter/whispering@workspace:apps/whispering"],
 
@@ -1149,6 +1067,12 @@
     "@tauri-apps/cli-win32-ia32-msvc": ["@tauri-apps/cli-win32-ia32-msvc@2.12.3", "", { "os": "win32", "cpu": "ia32" }, "sha512-kE+KUg6Dbbkgvcw0m99wJVIToFQzJqpMBAXah74WqxaLzssNwSTUccrHp6+QVzMhjQP330tvekFmnQF+0NbE6Q=="],
 
     "@tauri-apps/cli-win32-x64-msvc": ["@tauri-apps/cli-win32-x64-msvc@2.12.3", "", { "os": "win32", "cpu": "x64" }, "sha512-L7wndWAgX2mLW7alswpL3d1R0P9FN2WYBgHaQkAYEBxHHGkY4vFX9CjcRQ1LAxDAMIJxrY7/aDziFJeChS84NQ=="],
+
+    "@tauri-apps/plugin-dialog": ["@tauri-apps/plugin-dialog@2.8.4", "", { "dependencies": { "@tauri-apps/api": "^2.12.0" } }, "sha512-+6ZOiXenOaxXwb8qCbBPdT2jX2cFPaVVHGIskrpmJLpmWj+qKRTD6X/z9x7hTdSQn7NedcoXCkWGej4a7dC4lw=="],
+
+    "@tauri-apps/plugin-http": ["@tauri-apps/plugin-http@2.9.0", "", { "dependencies": { "@tauri-apps/api": "^2.12.0" } }, "sha512-q3HTsbyFk3E9H4slJr+egd6KdRF2Fn4BoZFGI3ZHb7PBT9snlsOOlZC5L4Q1+AlDDd6OHdf/KTM6DNUJ0RNMEQ=="],
+
+    "@tauri-apps/plugin-opener": ["@tauri-apps/plugin-opener@2.7.3", "", { "dependencies": { "@tauri-apps/api": "^2.12.0" } }, "sha512-Nm+v7vLBCDzYZxrmCJhpMgtPsPsKt5myMs7SMU/aBjPOmAFI1RrHfhMz7t5KlxjMOzRcelyNq1/j0pmC9SmBVA=="],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.10.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg=="],
 

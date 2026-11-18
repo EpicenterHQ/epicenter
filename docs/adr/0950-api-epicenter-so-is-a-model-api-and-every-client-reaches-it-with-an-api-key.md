@@ -24,9 +24,9 @@ Whispering reaches the gateway with OAuth 2.1 (ADR-0549):
 `@better-auth/oauth-provider` (`packages/server/src/auth/plugins.ts`,
 `oauth-policy.ts`, `resource-access.ts`, `offline-detach.ts`), client rows
 in `apps/api/worker/oauth-registrations.ts`, a browser client
-(`packages/account/src/browser-oauth.ts`, 746 lines), a desktop client
-(`packages/tauri-epicenter-account/src/account.rs`, 1,494 lines), and an
-account relay (`packages/account/src/relay.ts`). Part of that size serves
+(`folder-package:packages/account/src/browser-oauth.ts`, 746 lines), a desktop client
+(`folder-package:packages/tauri-epicenter-account/src/account.rs`, 1,494 lines), and an
+account relay (`folder-package:packages/account/src/relay.ts`). Part of that size serves
 retired needs, several audiences and folder scopes. What remains in any
 OAuth client is rotation: a single refresh in flight, renewal timers, and
 a reuse window. ADR-0549 records a duplicate refresh that signed a person
@@ -126,7 +126,7 @@ with a Connect button; anything else gets one from the dashboard.**
   `packages/server/src/auth/plugins.ts`; `oauth-policy.ts`,
   `offline-detach.ts`, `resource-access.ts`, and both
   `oauth-registrations.ts`; the consent and device pages;
-  `packages/account/src/browser-oauth.ts`, `tauri.ts`, and `relay.ts`; and
+  `folder-package:packages/account/src/browser-oauth.ts`, `tauri.ts`, and `relay.ts`; and
   `packages/tauri-epicenter-account`. `@epicenter/account` keeps the
   dashboard's cookie session alone. `hosted()` in `@epicenter/ai` becomes
   a preset connection.
