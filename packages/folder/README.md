@@ -26,9 +26,10 @@ A Svelte app reads it through `reactive` from
 The folder opens and writes a folder through a store. What remains of the
 retired folder sync product
 ([ADR-0899](../../docs/adr/0899-the-folder-sync-product-is-retired.md)) is
-`@epicenter/folder/sync` and `src/remote/`, which a browser's `home()` still
-reaches; its platform operations, serving, sharing, and Git import and
-export are at the git tag `folder-sync-product`.
+`src/remote/`, which a browser's `home()` still reaches, and the
+`Repository` types it answers in `src/sync/repository.ts`; `sync` itself,
+its platform operations, serving, sharing, and Git import and export are at
+the git tag `folder-sync-product`.
 The code says note and `{id}` where the records decided item and `{name}`
 ([ADR-0802](../../docs/adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md),
 [ADR-0818](../../docs/adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md));
@@ -45,7 +46,6 @@ is not built; today an app opens a place.
 | `@epicenter/folder/core` | The folder's types (`Folder`, `FolderNotes`, `FolderFiles`, `FolderLifecycle`, `FolderState`, `NoteEdit`, `Unavailable`, `Place`, ...), `OpenFolderError`, and the `FolderNotOpen` and `FolderClosed` errors, the same on every build, for a library that takes a folder or a collection. |
 | `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node); `checkFiles` and `formatNotes`, which check a directory's notes against a contract and rewrite them in its canonical form. |
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
-| `@epicenter/folder/sync` | `sync({ local, remote, manifest })` (ADR-0803, ADR-0804): a store synced with a folder's ledger on the server through a manifest, `{ cursor, files }`, the point of the ledger both sides last agreed at and each file's version (ADR-0824), kept wherever `storeManifest(store, path)` says (on a computer, the folder's record), merging notes with `@epicenter/definition/front-matter`. A sync that would delete 20 or more files on the server, or 5 or more that are half the folder, stops before it writes anything (`outcome: 'deletions'`) until `deletions: 'push'` or `'restore'` answers it. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `folderRepository(account, folder)` is the folder's ledger as a sync sees it (`Repository`, the code's word) and the store a web app opens; `makeFolder(account, { app?, importing? })` makes a folder on the server and never joins one; `joinApp(account, app)` joins the one folder attached to an app (ADR-0822). |
 | `@epicenter/folder/platform` | The `FolderRecord` type: the record Epicenter keeps of a folder it syncs. |
 | `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager. A desktop app never syncs (ADR-0822). What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
 
@@ -225,9 +225,9 @@ them; and `POST changes`. It also reads history (`log`, `filesAt`, `marks`,
 asks for `changes` every three seconds (`POLL_MS`), where ADR-0830 decides
 thirty; saves made within 50 ms of each other (300 ms at most) land as one
 change, where it decides saves when typing pauses. The same object is the
-`Repository` sync takes. A manifest names its folder only by `{ folder }`
-(`RepositoryAddress`), and `folderUrl` in `@epicenter/definition/site` is
-the one place that becomes an address.
+`Repository` the retired sync took, and `folderUrl` in
+`@epicenter/definition/site` is the one place a folder id becomes an
+address.
 
 The folder hears every write it makes before the write resolves, and
 outside writes as they come: other tabs through the
@@ -338,7 +338,7 @@ ADR-0825).
 | `src/remote/` | A folder on the server: the `Repository` sync takes, and the store a web folder opens. |
 | `src/platform/` | The records at the Epicenter folder's root (`records.ts`), which the data folder's hash cache reads. |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
-| `src/sync/` | `sync`, its `Repository` contract (a folder's ledger as a sync sees it) and memory twin, the manifest, the deletion guard, and the scenarios every world runs. |
+| `src/sync/` | The `Repository` types `src/remote/` answers: a folder's ledger as the retired sync read it. |
 
 ## Commands
 
