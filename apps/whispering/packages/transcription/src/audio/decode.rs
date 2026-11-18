@@ -227,6 +227,7 @@ fn decode_via_libopus(
     let mut scratch = vec![0f32; max_frame];
 
     let mut interleaved: Vec<f32> = Vec::new();
+    let open = webm_segment_open(bytes);
 
     loop {
         let packet = match format.next_packet() {
@@ -237,8 +238,12 @@ fn decode_via_libopus(
             Err(SymphoniaError::ResetRequired) => break,
             // A take a crash cut off mid-write ends in a torn block, which
             // Matroska reads as an element running past its Cluster: the
-            // audio ends at the last whole block.
-            Err(SymphoniaError::DecodeError(reason)) if reason.contains("past master element") => {
+            // audio ends at the last whole block. Only a Segment whose size
+            // is still unknown was cut off; in a finished file the same
+            // error is damage, and stays an error.
+            Err(SymphoniaError::DecodeError(reason))
+                if open && reason.contains("past master element") =>
+            {
                 break;
             }
             Err(e) => return Err(AudioError::decode(format!("next_packet failed: {e}"))),
@@ -367,6 +372,23 @@ fn webm_last_discard_padding(bytes: &[u8]) -> Option<u64> {
         at = element.end;
     }
     padding
+}
+
+/// Whether `bytes` is a WebM file whose Segment's size is unknown (`01 FF
+/// FF FF FF FF FF FF` or a shorter spelling): a take still being written, or
+/// one a crash cut off. Finishing a take writes its Segment's size.
+fn webm_segment_open(bytes: &[u8]) -> bool {
+    const SEGMENT: u64 = 0x1853_8067;
+    let Some(header) = ebml_element(bytes, 0) else {
+        return false;
+    };
+    let Some((id, id_length)) = ebml_vint(bytes, header.end, true) else {
+        return false;
+    };
+    let Some((size, size_length)) = ebml_vint(bytes, header.end + id_length, false) else {
+        return false;
+    };
+    id == SEGMENT && size == (1u64 << (7 * size_length)) - 1
 }
 
 /// An EBML element: its ID (marker bits kept), where its body starts, and
