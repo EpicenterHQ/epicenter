@@ -1,13 +1,29 @@
 /**
- * The failures an app's producers and clients share. A name describes why
- * work failed, not which writes persisted. The wire envelope records whether
- * an action ran; a caller reconciles its records to learn what was saved.
+ * The failures an app's producers and clients share. Three names belong to
+ * the platform's handling of a call and say whether the action ran
+ * (ADR-0953): `NotStarted` (it never began), `Threw` (it began and threw) and
+ * `Unreachable` (the outcome is unknown). Any other name is the action's own
+ * answer, so the action ran. A name does not say which writes persisted; a
+ * caller rereads its records to learn what was saved.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 const NAMESPACE = 'epicenter/action-error' as const;
 
 export type Problem = { line: string; kind: string };
+
+/**
+ * Why a call never began: its words or input do not fit, its app cannot
+ * load, Epicenter failed before it ran, or no serve for this home answers.
+ */
+export type NotStartedCause =
+	| 'usage'
+	| 'app-problems'
+	| 'internal'
+	| 'unavailable';
+
+/** The names only Epicenter answers. An action that returns one answers `Threw` instead. */
+export const RESERVED_NAMES: readonly string[] = ['NotStarted', 'Unreachable'];
 
 const WHY = {
 	quote:
@@ -55,15 +71,42 @@ export const ActionError = defineErrors({
 	/** There is no file at this path. It may be a dependency of the requested action. */
 	Missing: ({ path }: { path: string }) =>
 		marked({ message: `There is no ${path}`, path }),
-	/** An unrecognized throw, with its JSON-safe tagged payload when available. */
+	/** The action began and threw, with its JSON-safe tagged payload when available. */
 	Threw: (body: {
 		message: string;
 		thrown?: { name: string; message: string } & Record<string, unknown>;
 	}) => marked(body),
 	/** An operation declined the request. This does not imply the outer action wrote nothing. */
 	Refused: (body: { message: string; next?: string }) => marked(body),
-	/** A required operation returned no usable answer. The message identifies what failed. */
+	/**
+	 * The call's outcome is unknown: the connection dropped after it was
+	 * sent, a line was not a valid frame, or the answer never came. Only a
+	 * caller answers it; serve turns an action's own into `Threw`.
+	 */
 	Unreachable: (body: { message: string }) => marked(body),
+	/**
+	 * The action never began, so it is safe to call again once `cause` is
+	 * fixed. `next` is the command that helps; `problems` are why the app
+	 * cannot load. Only serve and the CLI answer it; serve turns an action's
+	 * own into `Threw`.
+	 */
+	NotStarted: ({
+		message,
+		cause,
+		next,
+		problems,
+	}: {
+		message: string;
+		cause: NotStartedCause;
+		next?: string;
+		problems?: string[];
+	}) =>
+		marked({
+			message,
+			cause,
+			...(next === undefined ? {} : { next }),
+			...(problems === undefined ? {} : { problems }),
+		}),
 });
 export type ActionError = InferErrors<typeof ActionError>;
 

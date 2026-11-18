@@ -12,9 +12,9 @@
  * `serve` runs every call itself, from the app's code as it is on disk when
  * the call arrives (`home.ts`, `run.ts`), and keeps nothing about it. A call's
  * body is its input as JSON. Its answer is JSON lines: `{"update": value}`
- * for each update the action sends, then `{"answer": ...}`. A call that is
- * refused before it runs answers that one answer as the body of an HTTP
- * error. An action runs to its end whether or not its caller stays: a caller
+ * for each update the action sends, then `{"answer": {data, error}}`
+ * (ADR-0953). A call refused before it begins answers that one answer, a
+ * `NotStarted`, as the body of a 400. An action runs to its end whether or not its caller stays: a caller
  * that leaves stops reading, and nothing stops the action from outside.
  *
  * A home has one `serve`, and its port is how it is found. Every answer names
@@ -48,7 +48,7 @@ import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { fail, refused, writeErr } from './output.ts';
+import { fail, notStarted, writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
@@ -262,7 +262,7 @@ async function callAnswer(request: Request): Promise<Response> {
 		return notFound();
 	const key = words.join(' ');
 	const refuse = (status: number, message: string) =>
-		Response.json(refused(CliError.Usage({ message }).error), { status });
+		Response.json(notStarted(CliError.Usage({ message }).error), { status });
 	const bytes = await request.arrayBuffer();
 	let input: unknown;
 	try {

@@ -19,14 +19,14 @@ import {
 import { newCommand } from './new.ts';
 import {
 	fail,
+	notStarted,
 	presentAnswer,
-	refused,
 	writeErr,
 	writeJson,
 	writeOut,
 } from './output.ts';
 import { repositoryStatus } from './repository.ts';
-import { epicenterDir, epicenterRoot, MARKER, RootUsageError } from './root.ts';
+import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { sendToServe } from './serve-call.ts';
 
@@ -43,7 +43,7 @@ then ~/Epicenter. An Epicenter has EPICENTER.md.
 An action's input is one JSON object, such as '{"title":"Call the bank"}',
 or - to read it from stdin; null removes a field that takes it.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
-Exit codes: 0 done, 1 ran with a failure or an unfinished export, 2 did not run.`;
+Exit codes: 0 done, 1 failed or may have run, or an unfinished export, 2 did not run.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
@@ -88,7 +88,7 @@ export async function runCli(argv: string[]): Promise<number> {
 	const actionRequest =
 		tokens.length > 1 && !help && !Object.hasOwn(HANDLERS, tokens[0]!);
 	const reject = (error: CliError) =>
-		actionRequest ? presentAnswer(refused(error), json) : fail(error, json);
+		actionRequest ? presentAnswer(notStarted(error), json) : fail(error, json);
 	const print = (value: unknown) => {
 		if (json) writeJson(value);
 		else writeOut(String(value));
@@ -165,15 +165,6 @@ export async function runCli(argv: string[]): Promise<number> {
 		// Serve runs every action; this process only sends the call.
 		invoked = true;
 		const sent = await sendToServe(name, matched.key, given.input, onUpdate);
-		if (!sent.answer)
-			return reject(
-				CliError.Refused({
-					message:
-						sent.holder === 'nothing'
-							? 'Epicenter is not running for this home. Start it with `epicenter serve`.'
-							: `Port ${sent.port} answers for another ${sent.holder === 'epicenter' ? 'Epicenter' : 'program'}. Set a different \`port\` in ${MARKER}.`,
-				}).error,
-			);
 		if (sent.version !== undefined && sent.version !== VERSION)
 			writeErr(
 				`Epicenter is running ${sent.version === null ? 'an older version' : `version ${sent.version}`} and this command is version ${VERSION}. Stop \`epicenter serve\` and start it again.`,
@@ -181,6 +172,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		return presentAnswer(sent.answer, json);
 	} catch (error) {
 		if (invoked) {
+			// Stdout may be what failed, so nothing more goes there.
 			writeErr(
 				`Epicenter invoked the action but could not report its outcome: ${extractErrorMessage(error)}`,
 			);

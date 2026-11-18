@@ -297,7 +297,7 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 	] as const) {
 		const refused = await f.run('reading', ...args, '--json');
 		expect(refused.code).toBe(2);
-		expect(JSON.parse(refused.stdout).error.reason.message).toContain(message);
+		expect(JSON.parse(refused.stdout).error.message).toContain(message);
 	}
 
 	const help = await f.run('reading', 'between', '--help');
@@ -559,10 +559,10 @@ test("D8 an app of one data key's verbs creates, reads, changes, and deletes its
 	});
 	const misfit = await json('get', '{"id":"broken"}');
 	expect(misfit.code).toBe(1);
-	expect(misfit.answer.error.reason.name).toBe('Misfit');
+	expect(misfit.answer.error.name).toBe('Misfit');
 	const missing = await json('get', '{"id":"nope"}');
 	expect(missing.code).toBe(1);
-	expect(missing.answer.error.reason.name).toBe('Missing');
+	expect(missing.answer.error.name).toBe('Missing');
 	await rm(join(folder, 'data/items/broken.md'));
 	expect((await f.run('capture', 'get', '{"id":"dune"}')).stdout).toBe(
 		'path: data/items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',

@@ -135,16 +135,17 @@ async function setup() {
 	};
 	return { ...f, dir: folder, data: join(folder, 'data'), json };
 }
-test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits the process ends serve, and the command answers a fault', async () => {
+test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits the process ends serve, and the command answers Unreachable', async () => {
 	const f = await setup();
 	const tagged = await f.json('notes', 'tagged');
 	expect(tagged.code).toBe(1);
 	expect(tagged.answer).toEqual({
 		data: null,
 		error: {
-			kind: 'fault',
+			name: 'Threw',
 			message: 'no such page',
 			thrown: { name: 'NotFound', message: 'no such page', page: 'x' },
+			namespace: 'epicenter/action-error',
 		},
 	});
 
@@ -152,10 +153,7 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	expect(noRoute.code).toBe(1);
 	expect(noRoute.answer).toEqual({
 		data: null,
-		error: {
-			kind: 'returned',
-			reason: { name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' },
-		},
+		error: { name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' },
 	});
 	expect(await f.run('notes', 'no-route')).toEqual({
 		code: 1,
@@ -169,7 +167,7 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	});
 	const declined = await f.json('notes', 'declined');
 	expect(declined.code).toBe(1);
-	expect(declined.answer.error.reason).toMatchObject({
+	expect(declined.answer.error).toMatchObject({
 		name: 'Refused',
 		namespace: 'epicenter/action-error',
 	});
@@ -181,7 +179,11 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	expect(plain.code).toBe(1);
 	expect(plain.answer).toEqual({
 		data: null,
-		error: { kind: 'fault', message: expect.any(String) },
+		error: {
+			name: 'Threw',
+			message: expect.any(String),
+			namespace: 'epicenter/action-error',
+		},
 	});
 	// Serve runs the action, so an action that exits ends serve, and the
 	// command is told the answer never came.
@@ -190,16 +192,17 @@ test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits t
 	expect(exited.answer).toEqual({
 		data: null,
 		error: {
-			kind: 'fault',
+			name: 'Unreachable',
 			message:
 				'The connection to Epicenter ended before the answer; the action may still be running, or may have finished',
+			namespace: 'epicenter/action-error',
 		},
 	});
 	const unknown = await f.json('notes', 'nope');
 	expect(unknown.code).toBe(2);
 	expect(unknown.answer).toMatchObject({
 		data: null,
-		error: { kind: 'refused', reason: { name: 'Usage' } },
+		error: { name: 'NotStarted', cause: 'usage', next: 'epicenter notes' },
 	});
 	const human = await f.run('notes', 'write', '{"page":"monday"}');
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
@@ -283,18 +286,23 @@ export default defineApp({ description: 'Where', actions: {
 	}
 	await f.stopServe();
 	expect(await ran()).toBe('xx');
-	const message =
-		'Epicenter is not running for this home. Start it with `epicenter serve`.';
+	const message = 'Epicenter is not running for this home.';
 	expect(await f.run('where', 'am')).toEqual({
 		code: 2,
 		stdout: '',
-		stderr: `${message}\n`,
+		stderr: `${message}\nRun: epicenter serve\n`,
 	});
 	const refused = await f.json('where', 'am');
 	expect(refused).toMatchObject({ code: 2, stderr: '' });
 	expect(refused.answer).toEqual({
 		data: null,
-		error: { kind: 'refused', reason: { name: 'Refused', message } },
+		error: {
+			name: 'NotStarted',
+			message,
+			cause: 'unavailable',
+			next: 'epicenter serve',
+			namespace: 'epicenter/action-error',
+		},
 	});
 	expect(await ran()).toBe('xx');
 });

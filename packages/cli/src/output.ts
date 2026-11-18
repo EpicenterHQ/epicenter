@@ -1,25 +1,32 @@
 /**
- * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850).
- * With `--json`, stdout is one JSON value: a run's answer, a listing, a
- * sync's report, or an operational error. MCP gets the action's JSON answer.
- * Without it, stdout renders the returned value by its structure. Stderr
- * carries what went wrong, with a `Run: <next step>` line where there is one.
+ * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850,
+ * ADR-0953). With `--json`, stdout is one JSON value: an action's answer,
+ * exactly `{ data, error }`, a listing, a sync's report, or an operational
+ * error. MCP gets the action's answer. Without it, stdout renders the
+ * returned value by its structure. Stderr carries what went wrong, with a
+ * `Run: <next step>` line where there is one.
  */
-import type { PublicError } from '@epicenter/app';
-import { Err, type Result } from 'wellcrafted/result';
+import { ActionError, type Answer } from '@epicenter/app';
 import type { CliError } from './errors.ts';
 
-/** The action returned an app error or threw after it started. */
-type RunFailure =
-	| { kind: 'returned'; reason: PublicError & Record<string, unknown> }
-	| { kind: 'fault'; message: string; thrown?: Record<string, unknown> };
-export type RunAnswer = Result<unknown, RunFailure>;
+export type { Answer } from '@epicenter/app';
 
-/** The action answer shared by CLI, MCP, and HTTP, including an invocation refused before it started. */
-export type Answer = RunAnswer | ReturnType<typeof refused>;
+const CAUSES = {
+	Usage: 'usage',
+	Refused: 'usage',
+	AppProblems: 'app-problems',
+	GitFailed: 'internal',
+	Internal: 'internal',
+} as const;
 
-export function refused(reason: CliError) {
-	return Err({ kind: 'refused' as const, reason });
+/** A check the CLI or serve made before an action began, as the answer that says it never did. */
+export function notStarted(error: CliError): Answer {
+	return ActionError.NotStarted({
+		message: error.message,
+		cause: CAUSES[error.name],
+		next: 'next' in error ? error.next : undefined,
+		problems: 'problems' in error ? error.problems : undefined,
+	});
 }
 
 /** Write the one JSON answer to stdout. */
@@ -37,20 +44,22 @@ export function writeErr(text: string) {
 	process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
-/** Classify the answer once for CLI exit codes and MCP tool errors. */
+/**
+ * Classify the answer once for CLI exit codes and MCP tool errors: 0 for
+ * success, 2 for exactly `NotStarted`, and 1 for every other error.
+ */
 export function outcome(
 	answer: Answer,
 ): { code: 0; data: unknown } | { code: 1 | 2; stderr: string } {
-	const diagnostic = (error: { message: string; next?: unknown }) =>
-		typeof error.next === 'string' && error.next
-			? `${error.message}\nRun: ${error.next}\n`
-			: `${error.message}\n`;
 	const { data, error } = answer;
 	if (error === null) return { code: 0, data };
-	if (error.kind === 'fault') return { code: 1, stderr: diagnostic(error) };
+	const { next } = error as { next?: unknown };
 	return {
-		code: error.kind === 'refused' ? 2 : 1,
-		stderr: diagnostic(error.reason),
+		code: error.name === 'NotStarted' ? 2 : 1,
+		stderr:
+			typeof next === 'string' && next
+				? `${error.message}\nRun: ${next}\n`
+				: `${error.message}\n`,
 	};
 }
 
@@ -169,9 +178,12 @@ export function presentAnswer(answer: Answer, json: boolean): number {
 	return code;
 }
 
-/** Present a command that did not run, exit 2. */
+/**
+ * Present a command other than an action call that did not run, exit 2. With
+ * `--json` it prints `{ error }`, the `CliError` itself.
+ */
 export function fail(error: CliError, json: boolean): number {
-	if (!json) return presentAnswer(refused(error), false);
-	writeJson({ error });
+	if (json) writeJson({ error });
+	else process.stderr.write(renderAnswer(notStarted(error)).stderr);
 	return 2;
 }

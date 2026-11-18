@@ -382,36 +382,94 @@ test("a UI's call hears each update in order, then its answer; a raw call reads 
 	expect(body.result.structuredContent).toEqual({ data: 'x y', error: null });
 });
 
-test('a call refused before it runs answers its refusal alone, as the body of an HTTP error', async () => {
-	const f = await setup((f) => f.app('talk', talk));
+test('a call serve never started answers NotStarted alone, as the body of a 400', async () => {
+	const f = await setup(async (f) => {
+		await f.app('talk', talk);
+		await f.folder(join(f.apps, 'broken'), {
+			'code/.gitignore': gitignore,
+			'code/epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
+		});
+	});
 	const post = (path: string, body: string) =>
 		fetch(`${f.base}/${path}`, { method: 'POST', body });
-	for (const [path, body, status, message] of [
-		['talk/sing', '{}', 400, 'talk has no action "sing"'],
-		['absent/say', '{}', 400, undefined],
-		['talk/say', '{"words":1}', 400, 'words must be text'],
-		['talk/say', '[]', 400, 'The input is not a JSON object'],
-		['talk/say', 'words', 400, 'The input is not valid JSON'],
+	const notStarted = (fields: object) => ({
+		data: null,
+		error: {
+			name: 'NotStarted',
+			...fields,
+			namespace: 'epicenter/action-error',
+		},
+	});
+	for (const [path, body, fields] of [
+		[
+			'talk/sing',
+			'{}',
+			{
+				message: 'talk has no action "sing"',
+				cause: 'usage',
+				next: 'epicenter talk',
+			},
+		],
+		[
+			'absent/say',
+			'{}',
+			{ message: 'Unknown app "absent"', cause: 'usage', next: 'epicenter' },
+		],
+		[
+			'talk/say',
+			'{"words":1}',
+			{
+				message: 'words must be text',
+				cause: 'usage',
+				next: 'epicenter talk say --help',
+			},
+		],
+		[
+			'talk/say',
+			'[]',
+			{ message: 'The input is not a JSON object', cause: 'usage' },
+		],
+		[
+			'talk/say',
+			'words',
+			{ message: 'The input is not valid JSON', cause: 'usage' },
+		],
+		[
+			'broken/x',
+			'{}',
+			{
+				message: expect.stringMatching(/^broken: /),
+				cause: 'app-problems',
+				problems: [expect.any(String)],
+			},
+		],
 	] as const) {
 		const response = await post(path, body);
-		expect(response.status).toBe(status);
-		const answer = (await response.json()) as {
-			data: null;
-			error: { kind: string; reason: { message: string } };
-		};
-		expect(answer.data).toBeNull();
-		expect(answer.error.kind).toBe('refused');
-		if (message) expect(answer.error.reason.message).toBe(message);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual(notStarted(fields));
 	}
 	expect((await post('talk/say/extra', '{}')).status).toBe(404);
 	const client = connect<{ actions: { sing: TalkSay } }>({
 		app: 'talk',
 		url: `${f.base}/`,
 	});
-	expect(expectErr(await client.sing({ words: 'la' }))).toMatchObject({
-		name: 'Refused',
-		message: 'talk has no action "sing"',
-	});
+	expect(expectErr(await client.sing({ words: 'la' })) as unknown).toEqual(
+		notStarted({
+			message: 'talk has no action "sing"',
+			cause: 'usage',
+			next: 'epicenter talk',
+		}).error,
+	);
+	// The CLI reads the same refusal from serve and exits 2.
+	const broken = await f.run('broken', 'x', '--json');
+	expect(broken.code).toBe(2);
+	expect(JSON.parse(broken.stdout)).toEqual(
+		notStarted({
+			message: expect.stringMatching(/^broken: /),
+			cause: 'app-problems',
+			problems: [expect.any(String)],
+		}),
+	);
 });
 
 test('a caller that leaves stops reading; the action runs to its end and releases the lock', async () => {
@@ -553,6 +611,9 @@ export default defineApp({ description: 'Shared failures', actions: {
 				Threw: ActionError.Threw({ message: custom.message, thrown: custom }).error,
 				Refused: ActionError.Refused({ message: 'Dependency declined', next: 'Inspect dependency' }).error,
 				Unreachable: ActionError.Unreachable({ message: 'The model did not answer' }).error,
+				NotStarted: ActionError.NotStarted({ message: 'Never began', cause: 'usage' }).error,
+				PlainNotStarted: { name: 'NotStarted', message: 'Never began', cause: 'usage' },
+				PlainUnreachable: { name: 'Unreachable', message: 'Lost' },
 				Custom: custom,
 			};
 			if(how==='return') return Err(cases[kind]);
@@ -580,14 +641,29 @@ export default defineApp({ description: 'Shared failures', actions: {
 			'Threw',
 			'Refused',
 			'Unreachable',
+			'NotStarted',
+			'PlainNotStarted',
+			'PlainUnreachable',
 			'Custom',
 		]) {
 			const error = expectErr(await client.fail({ kind, how }));
+			const reserved = /^(Plain)?(NotStarted|Unreachable)$/.exec(kind);
 			if (how === 'throw') {
 				expect(error).toMatchObject({
 					name: 'Threw',
 					namespace: 'epicenter/action-error',
-					thrown: { name: kind === 'Custom' ? 'ProposalChanged' : kind },
+					thrown: {
+						name:
+							kind === 'Custom' ? 'ProposalChanged' : (reserved?.[2] ?? kind),
+					},
+				});
+			} else if (reserved) {
+				// Only Epicenter says a call never began or was lost, so an
+				// action's own, with the namespace or without, answers Threw.
+				expect(error).toEqual({
+					name: 'Threw',
+					message: `The action "fail" returned ${reserved[2]}, a name only Epicenter answers`,
+					namespace: 'epicenter/action-error',
 				});
 			} else {
 				expect(error?.name).toBe(kind === 'Custom' ? 'ProposalChanged' : kind);
@@ -614,19 +690,16 @@ export default defineApp({ description: 'Shared failures', actions: {
 					? {
 							data: null,
 							error: {
-								kind: 'returned',
-								reason: {
-									namespace: 'epicenter/action-error',
-									name: 'Missing',
-									message: 'There is no data/a.md',
-									path: 'data/a.md',
-								},
+								namespace: 'epicenter/action-error',
+								name: 'Missing',
+								message: 'There is no data/a.md',
+								path: 'data/a.md',
 							},
 						}
 					: {
 							data: null,
 							error: {
-								kind: 'fault',
+								name: 'Threw',
 								message: 'There is no data/a.md',
 								thrown: {
 									namespace: 'epicenter/action-error',
@@ -781,10 +854,7 @@ test('an update precedes a returned app refusal for UI and raw HTTP callers', as
 		{
 			answer: {
 				data: null,
-				error: {
-					kind: 'returned',
-					reason: { name: 'NoRoute', airport: 'LAX' },
-				},
+				error: { name: 'NoRoute', airport: 'LAX' },
 			},
 		},
 	]);

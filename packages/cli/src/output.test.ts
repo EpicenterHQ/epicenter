@@ -1,10 +1,13 @@
 /**
- * Human output renders Ok data, Err diagnostics, faults, and pre-run refusals by structure, without assigning meaning
- * to keys such as path, body, problems, or added. JSON mode keeps the answer.
+ * Human output renders Ok data by structure, without assigning meaning to keys
+ * such as path, body, problems, or added, and an error as its message and next
+ * step. JSON mode keeps the answer.
  */
 import { expect, test } from 'bun:test';
-import { Ok } from 'wellcrafted/result';
-import { renderAnswer } from './output.ts';
+import { ActionError } from '@epicenter/app';
+import { Err, Ok } from 'wellcrafted/result';
+import { CliError } from './errors.ts';
+import { notStarted, renderAnswer } from './output.ts';
 
 const ok = (value: unknown) => renderAnswer(Ok(value));
 
@@ -146,50 +149,58 @@ test('strings print as is, empty arrays print nothing, and other values use JSON
 	expect(ok(null)).toEqual({ stdout: 'null\n', stderr: '', code: 0 });
 });
 
-test('Err, fault, and pre-run errors render diagnostics with their exit codes', () => {
+test('an error renders its message and next step, and exits 2 only for NotStarted', () => {
 	expect(
-		renderAnswer({
-			data: null,
-			error: {
-				kind: 'returned',
-				reason: {
-					name: 'NoRoute',
-					message: 'No route from LAX',
-					airport: 'LAX',
-				},
-			},
-		}),
+		renderAnswer(
+			Err({ name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' }),
+		),
 	).toEqual({ stdout: '', stderr: 'No route from LAX\n', code: 1 });
 	expect(
-		renderAnswer({
-			data: null,
-			error: {
-				kind: 'returned',
-				reason: {
-					name: 'Refused',
-					message: 'Declined',
-					next: 'epicenter flights add',
-				},
-			},
-		}),
+		renderAnswer(
+			ActionError.Refused({
+				message: 'Declined',
+				next: 'epicenter flights add',
+			}),
+		),
 	).toEqual({
 		stdout: '',
 		stderr: 'Declined\nRun: epicenter flights add\n',
 		code: 1,
 	});
 	expect(
-		renderAnswer({
-			data: null,
-			error: { kind: 'fault', message: 'Unexpected end of input' },
-		}),
+		renderAnswer(ActionError.Threw({ message: 'Unexpected end of input' })),
 	).toEqual({ stdout: '', stderr: 'Unexpected end of input\n', code: 1 });
 	expect(
-		renderAnswer({
-			data: null,
-			error: {
-				kind: 'refused',
-				reason: { name: 'Usage', message: 'm', next: 'n' },
-			},
+		renderAnswer(ActionError.Unreachable({ message: 'The connection ended' })),
+	).toEqual({ stdout: '', stderr: 'The connection ended\n', code: 1 });
+	for (const cause of [
+		'usage',
+		'app-problems',
+		'internal',
+		'unavailable',
+	] as const)
+		expect(
+			renderAnswer(ActionError.NotStarted({ message: 'm', cause, next: 'n' })),
+		).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
+	// The name is what counts: an app's own `NotStarted` never reaches here,
+	// because serve answers it as `Threw`.
+	expect(renderAnswer(Err({ name: 'Refused', message: 'm' })).code).toBe(1);
+});
+
+test('a CliError before an action begins is NotStarted with its cause', () => {
+	expect(notStarted(CliError.Usage({ message: 'm', next: 'n' }).error)).toEqual(
+		ActionError.NotStarted({ message: 'm', cause: 'usage', next: 'n' }),
+	);
+	expect(
+		notStarted(CliError.AppProblems({ app: 'a', problems: ['p'] }).error),
+	).toEqual(
+		ActionError.NotStarted({
+			message: 'a: p',
+			cause: 'app-problems',
+			problems: ['p'],
 		}),
-	).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
+	);
+	expect(
+		notStarted(CliError.Internal({ cause: new Error('boom') }).error),
+	).toEqual(ActionError.NotStarted({ message: 'boom', cause: 'internal' }));
 });
