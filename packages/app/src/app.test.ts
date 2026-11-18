@@ -425,14 +425,12 @@ describe('defineAction', () => {
 			'The action "Research" has a default in "limit"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
 			'The action "Research" has a default in "filter"; no field has one, so write the default in run, where the value is read, such as `limit ?? 50`',
 		]);
-		expect(() =>
-			// @ts-expect-error no field helper takes a default
-			field.integer({ default: 50, min: 1 }),
-		).toThrow(
+		// The types let an unknown option through beside a known one; the helper refuses it.
+		expect(() => field.integer({ default: 50, min: 1 })).toThrow(
 			'field.integer takes no default: no field has one, so write the default in code where the value is read',
 		);
 		expect(() =>
-			// @ts-expect-error a switch takes no min
+			// @ts-expect-error an option object sharing no key with the helper's is a type error
 			field.boolean({ min: 1 }),
 		).toThrow(
 			'field.boolean takes no option "min"; it takes description, optional',

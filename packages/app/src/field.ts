@@ -26,9 +26,6 @@ type Options = {
 
 type MaybeOptional = Options & { optional?: boolean };
 
-/** `O`, with each option `Allowed` does not declare typed `never`, so `field.integer({ default: 50 })` is a type error. */
-type Only<O, Allowed> = O & { [K in Exclude<keyof O, keyof Allowed>]: never };
-
 /**
  * Throw when `options` names one `helper` does not declare, so it is never
  * dropped without a word. A `default` gets its own sentence: no field has one.
@@ -135,7 +132,7 @@ type ListOptions = MaybeOptional & {
 /** A list of `item`, with at least `min` items when it is given. */
 function list<const T extends TSchema, const O extends ListOptions>(
 	item: T,
-	options?: Only<O, ListOptions>,
+	options?: O,
 ) {
 	only('list', options, [...MAYBE_OPTIONAL, 'min']);
 	const min = options?.min ?? 0;
@@ -185,9 +182,7 @@ export const field = {
 	 * a `description` that reads after "must be", since that is how a refusal
 	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
 	 */
-	text: <const O extends MaybeOptional & { pattern?: string }>(
-		options?: Only<O, MaybeOptional & { pattern?: string }>,
-	) => {
+	text: <const O extends MaybeOptional & { pattern?: string }>(options?: O) => {
 		only('text', options, [...MAYBE_OPTIONAL, 'pattern']);
 		return maybeOptional(
 			Type.String({
@@ -199,9 +194,7 @@ export const field = {
 	},
 
 	/** A number, at least `min` and at most `max` when they are given. */
-	number: <const O extends MaybeOptional & Bounds>(
-		options?: Only<O, MaybeOptional & Bounds>,
-	) => {
+	number: <const O extends MaybeOptional & Bounds>(options?: O) => {
 		only('number', options, BOUNDED);
 		return maybeOptional(
 			Type.Number({ ...schemaOptions(options), ...bounds(options) }),
@@ -210,9 +203,7 @@ export const field = {
 	},
 
 	/** A whole number, at least `min` and at most `max` when they are given. */
-	integer: <const O extends MaybeOptional & Bounds>(
-		options?: Only<O, MaybeOptional & Bounds>,
-	) => {
+	integer: <const O extends MaybeOptional & Bounds>(options?: O) => {
 		only('integer', options, BOUNDED);
 		return maybeOptional(
 			Type.Integer({ ...schemaOptions(options), ...bounds(options) }),
@@ -221,9 +212,7 @@ export const field = {
 	},
 
 	/** A moment, written RFC 3339 with an offset (`2026-11-10T22:41:05+08:00`): JSON Schema's `format: 'date-time'`. */
-	datetime: <const O extends MaybeOptional>(
-		options?: Only<O, MaybeOptional>,
-	) => {
+	datetime: <const O extends MaybeOptional>(options?: O) => {
 		only('datetime', options, MAYBE_OPTIONAL);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date-time' }),
@@ -232,7 +221,7 @@ export const field = {
 	},
 
 	/** A day, written `2026-11-08`: JSON Schema's `format: 'date'`, which TypeBox checks, so `2026-13-45` is refused. */
-	date: <const O extends MaybeOptional>(options?: Only<O, MaybeOptional>) => {
+	date: <const O extends MaybeOptional>(options?: O) => {
 		only('date', options, MAYBE_OPTIONAL);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date' }),
@@ -246,7 +235,7 @@ export const field = {
 		const O extends MaybeOptional,
 	>(
 		values: V,
-		options?: Only<O, MaybeOptional>,
+		options?: O,
 	) => {
 		only('select', options, MAYBE_OPTIONAL);
 		return maybeOptional(
@@ -259,9 +248,7 @@ export const field = {
 	},
 
 	/** True or false. */
-	boolean: <const O extends MaybeOptional>(
-		options?: Only<O, MaybeOptional>,
-	) => {
+	boolean: <const O extends MaybeOptional>(options?: O) => {
 		only('boolean', options, MAYBE_OPTIONAL);
 		return maybeOptional(Type.Boolean(schemaOptions(options)), options);
 	},
@@ -277,10 +264,7 @@ export const field = {
 	 * confirms names a file there. Reads open no other file. `defineData`
 	 * refuses a target that is not one of its keys.
 	 */
-	ref: <const O extends MaybeOptional>(
-		target: string,
-		options?: Only<O, MaybeOptional>,
-	) => {
+	ref: <const O extends MaybeOptional>(target: string, options?: O) => {
 		only('ref', options, MAYBE_OPTIONAL);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), [REF]: { key: target } }),
