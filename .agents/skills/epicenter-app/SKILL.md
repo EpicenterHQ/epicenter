@@ -89,9 +89,10 @@ matters most. Declare them with `defineData` in `code/epicenter.ts` (or a
 `fields`, the front matter of each file, and may give a `description` of one
 record. `data.tasks.actions('list', 'get', 'create', 'patch', 'edit', 'delete')`
 gives the verbs it names and only those; a one-file key offers `get`, `patch`,
-`edit`, and `delete`. An app with one key spreads its verbs at the top, so they are its
-own (`epicenter tasks patch`, MCP `tasks_patch`); an app with several nests each
-under its name (`epicenter mail proposals list`). A record's address is its
+`edit`, and `delete`. Spread a key's verbs into `actions`, so they are the app's
+own (`epicenter tasks patch`, MCP `tasks_patch`). Every action has one name and
+actions do not nest; an app with several keys names the others' verbs apart,
+such as `'list-proposals': proposals.list` (`epicenter mail list-proposals`). A record's address is its
 path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`. `defineData`
 refuses a key that is not a name, a field named `path`, `body`, or `id`
 (a verb's input folds the fields beside them), and a `readOnly` field. No field has a `default`: a definition with
@@ -448,8 +449,14 @@ pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts
 const app = connect<typeof tasksApp>();
-export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
-export const writes = resultMutations(['tasks'], { add: app.add, patch: app.patch });
+export const reads = resultQueries(['tasks'], {
+  list: app.action('list'),
+  get: app.action('get'),
+});
+export const writes = resultMutations(['tasks'], {
+  add: app.action('add'),
+  patch: app.action('patch'),
+});
 ```
 
 A page that reopens cannot rejoin a call. It shows what the app's records
@@ -491,7 +498,7 @@ example, with `type Actions = ReturnType<typeof tasksApp>['actions']`,
 `ActionInput<Actions['patch']>` and `ActionOutput<Actions['get']>`.
 
 An action that sends updates takes `onUpdate` after its input, to show its
-work as it comes: `app.chat.say({ message }, { onUpdate: (token) => (draft += token) })`
+work as it comes: `app.call('say', { message }, { onUpdate: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
 still refreshes once it returns. Closing the view stops it listening; the

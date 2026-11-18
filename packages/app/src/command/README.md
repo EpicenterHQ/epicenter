@@ -222,7 +222,7 @@ epicenter
 epicenter reading
 epicenter reading log '{"minutes":30,"book":"Dune"}'
 epicenter reading log '{"minutes":30}' --json
-epicenter reading books patch '{"id":"dune","finished":null}'
+epicenter reading patch '{"id":"dune","finished":null}'
 epicenter check
 epicenter serve
 epicenter --version
@@ -267,15 +267,13 @@ from that container. A separate real `codePath` is used for module imports
 and invalidation, and for UI builds and serving. Replacing `code/` leaves
 record paths intact.
 
-An action's input is one argument after its words, `epicenter <app> <action>
+An action's input is one argument after its name, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
 stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
-closed and an agent whose shell holds it open both run. The action's words
-are names and an input never is, so the command takes the leading names as
-the action and the word after them as the input; more than one word after
-the action is refused with exit 2. A name typed where the input goes is part
-of the action: `epicenter tasks add hello` answers that tasks has no action
-"add hello", listing its actions. The command sends the input's text, or
+closed and an agent whose shell holds it open both run. An action has one
+name, so the command takes the word after the app as the action and the
+word after that as the input; more than one word after the action is refused
+with exit 2. The command sends the input's text, or
 stdin's for `-`, and serve reads it: text that is not one JSON object is
 refused with an example object to copy, and what is wrong with an object is
 said the same way to the command line, a page and MCP
@@ -392,7 +390,7 @@ perform no Git work.
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` offers the actions of serve's listing, which loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
 A page calls actions through `@epicenter/app/client`, at
-`POST /actions/<app>/<word>/<word>`. See [A call over HTTP](#a-call-over-http).
+`POST /actions/<app>/<action>`. See [A call over HTTP](#a-call-over-http).
 
 Serve commits nothing. Git stores the Epicenter, and its owner commits and pushes
 it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
@@ -587,7 +585,7 @@ stdout is their `{ data, error }`, and the exit code follows the same rule.
 `serve` prints no answer while it serves; a serve that cannot start answers
 `NotStarted`, and `serve --json` is refused.
 
-A one-file data key's `patch` makes its file when it is absent, so `epicenter vocab settings patch '{"goal":20}'` works on a fresh install. A folder key's `patch` answers `Missing` for an absent record and never makes one. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
+A one-file data key's `patch` makes its file when it is absent, so `epicenter vocab patch-settings '{"goal":20}'` works on a fresh install. A folder key's `patch` answers `Missing` for an absent record and never makes one. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
 
 ```txt
 $ epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at what the command does before it sends a call, and at how a call names its Epicenter. The command no longer loads the app or checks the input; it names the action by its words and sends the input as typed, and serve reads it. Serve no longer stamps its root's path on every answer; the command sends its path on the request. That an action runs only in serve, and that serve refuses a call meant for another Epicenter, are unchanged.
 - **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
-- **Unbuilt:** All of it. `packages/app/src/command/cli.ts` loads the app, matches the words, reads the input and prints help before it calls serve. Serve has no HTTP request that takes the words as typed or answers an action's help; its only listing is the MCP tool list. Serve still sets `x-epicenter-home` to its root's path on every answer (`HOME_HEADER` in `packages/app/src/command/send.ts`, set in `packages/app/src/command/serve.ts`). The first thing to exist is `GET /` answering the listing as JSON.
+- **Unbuilt:** All of it. `packages/app/src/command/cli.ts` loads the app, matches the words, reads the input and prints help before it calls serve. Serve has no HTTP request that takes the words as typed or answers an action's help; its only listing is the MCP tool list. Serve still sets `x-epicenter-home` to its root's path on every answer (`HOME_HEADER` in `packages/app/src/command/send.ts`, set in `packages/app/src/command/serve.ts`). The first thing to exist is serve answering the listing as JSON.
 
 ## Context
 
@@ -37,13 +37,12 @@ ADR-0957 renamed the header and left "a name or a hash" open.
 the action by its words and sends the input as typed, and serve alone reads
 the input.**
 
-- **A call.** The command splits its words without loading anything. An
-  action's words are names and an input never is, so the leading words that
-  are names are the action, and after them comes at most one word, the
-  input: `{...}`, or `-` to read it from stdin. More than one word after the
-  action is refused by the command. It calls `POST /<app>/<action>`, the
-  request a page makes, with the action's words joined by `.` and the
-  input's text as the body: the typed text, stdin's text for `-`, or `{}`
+- **A call.** The command reads its words without loading anything. An
+  action has one name (ADR-0967), so the word after the app is the action,
+  and after it comes at most one word, the input: `{...}`, or `-` to read it
+  from stdin. More than one word after the action is refused by the
+  command. It calls `POST /actions/<app>/<action>`, the request a page
+  makes, with the input's text as the body: the typed text, stdin's text for `-`, or `{}`
   when there is none. Serve finds the action, reads and checks the input,
   runs it, and answers. "No such action" and "this input does not fit" are
   answers from serve, the same to a page, an agent and the command, and
@@ -58,7 +57,7 @@ the input.**
   restart. No other command loads an app.
 
 **Serve answers one JSON listing, and every view of the apps prints from
-it.** `GET /` with `accept: application/json` answers each app's
+it.** `GET /actions/` (ADR-0967) answers each app's
 description, its data keys, its problems and each action as the MCP tool
 `serve` offers (`actionTool` in `packages/app/src/command/listing.ts`), with the
 changed-code fields of ADR-0959.
@@ -66,7 +65,7 @@ changed-code fields of ADR-0959.
 | Reader | What it prints from the listing |
 | --- | --- |
 | MCP `tools/list` | each action not marked `mcp: false` |
-| the launcher page, `GET /` as HTML | each app with a UI |
+| the launcher page, `GET /` | each app with a UI or a `fetch` |
 | bare `epicenter` and `epicenter --json` | every app, its problems, and the routines |
 | `epicenter <app>` and `--help` on an action | one app, or one action and its input |
 
@@ -119,14 +118,12 @@ none.**
   the status, not a path; `rootHeaderValue` builds the request header.
 - Deleted from `cli.ts`: the load, the input read and the help built from a
   loaded app. Serve has two ways in for an action, a call at
-  `POST /<app>/<action>` and MCP at `POST /`, and no request that takes a
-  command's words.
+  `POST /actions/<app>/<action>` and MCP at `POST /`, and no request that
+  takes a command's words.
 - Stdin is the input and never a word, so text read for `-` cannot name an
   action.
-- A name typed where the input goes is read as part of the action:
-  `epicenter tasks add hello` answers that `tasks` has no action
-  `add hello`, with its actions listed, rather than that the input is not
-  JSON.
+- A word typed where the input goes is the input: `epicenter tasks add
+  hello` answers that the input is not JSON.
 - ADR-0956 is `Proposed` and says bare `epicenter` reads the apps itself. It
   is edited to match when this decision lands, not amended.
 

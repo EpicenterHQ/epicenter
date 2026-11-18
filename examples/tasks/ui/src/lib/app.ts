@@ -15,14 +15,14 @@ type Actions = ReturnType<typeof tasksApp>['actions'];
 
 const app = connect<typeof tasksApp>();
 
-export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
+export const reads = resultQueries(['tasks'], { list: app.action('list'), get: app.action('get') });
 
 const mutations = resultMutations(['tasks'], {
-	add: app.add,
-	patch: app.patch,
+	add: app.action('add'),
+	patch: app.action('patch'),
 	// Notes quote what was there through the generated edit verb; empty notes have nothing to quote, so they patch the body.
-	edit: ({ id, old, new: replacement }: { id: string; old: string; new: string }) => old === '' ? app.patch({ id, body: replacement }) : app.edit({ id, old, new: replacement }),
-	delete: app.delete,
+	edit: ({ id, old, new: replacement }: { id: string; old: string; new: string }) => old === '' ? app.call('patch', { id, body: replacement }) : app.call('edit', { id, old, new: replacement }),
+	delete: app.action('delete'),
 });
 
 /** A row of `tasks list`: one Result per file, with fitting fields or a Misfit to repair, including notes. */

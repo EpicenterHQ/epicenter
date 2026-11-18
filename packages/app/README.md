@@ -36,7 +36,7 @@ export default defineApp(({ folder }) => {
   return {
     description: 'How much I read each week',
     data,
-    actions: { books: data.books.actions('list', 'get', 'create', 'patch'), log },
+    actions: { ...data.books.actions('list', 'get', 'create', 'patch'), log },
   };
 });
 ```
@@ -49,7 +49,7 @@ A helper outside the function that touches files takes the folder as a
 parameter.
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
-`epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
+`epicenter reading patch '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
 the app, and the package that holds that command too. An Epicenter is one Bun
 workspace whose `package.json` depends on `@epicenter/app`, so `bun install`
@@ -89,18 +89,17 @@ run it.
 - `defineApp` takes a function of `{ folder }` and returns a function that
   calls it and checks what it returned. That object needs
   `description` and `actions`, with `{}` for none, and takes `data` when the
-  app keeps records. Each action's words are its keys in `actions`, so
-  `{ books: data.books.actions('list', 'get', 'create', 'patch'), log }` gives
-  `books list` through `books patch` and `log`. `app.actions.books.create(...)`
-  in code, `epicenter reading books create` on the command line, and
-  `reading_books_create` over MCP are one action. No key at any depth may be
-  `then`, which a UI's client cannot call. It may also return `fetch`; see
-  [Web requests](#web-requests).
+  app keeps records. Each action has one name, its key in `actions`, so
+  `{ ...data.books.actions('list', 'get', 'create', 'patch'), log }` gives
+  `list` through `patch` and `log`. `app.actions.create(...)` in code,
+  `epicenter reading create` on the command line, `reading_create` over MCP
+  and `app.call('create', ...)` in a page are one action. A name is lowercase
+  letters, digits and dashes; actions do not nest. It may also return
+  `fetch`; see [Web requests](#web-requests).
 
-An app with one data key usually spreads its verbs at the top, so they are
-the app's own: `actions: { ...data.tasks.actions('list', 'get', 'patch'), add }`
-reads `epicenter tasks add`, not `epicenter tasks tasks add`. An app with
-several keys nests each under its name, as the example above does.
+Two data keys give verbs with the same names, so an app with several keys
+names the second key's apart: `const notes = data.notes.actions('list');`
+then `actions: { ...data.books.actions('list'), 'list-notes': notes.list }`.
 
 A later key replaces an earlier one, as in any object:
 `{ ...data.words.actions('list', 'get', 'create'), create: learn }` gives
@@ -513,7 +512,7 @@ in its input and uses it as the record's key. See the
 
 ## A UI
 
-An app's UI calls its actions through `epicenter serve`, under the same words,
+An app's UI calls its actions through `epicenter serve` by their names,
 typed by the app. It imports the app as a type, so its bundle carries no app
 code:
 
@@ -522,9 +521,9 @@ import { type ActionOutput, connect } from '@epicenter/app/client';
 import type reading from '../../epicenter.ts';
 
 const app = connect<typeof reading>();
-type Book = ActionOutput<ReturnType<typeof reading>['actions']['books']['get']>;
+type Book = ActionOutput<ReturnType<typeof reading>['actions']['get']>;
 
-const { data: books, error } = await app.books.list();
+const { data: books, error } = await app.call('list');
 ```
 
 The client exposes the action's Result in JSON form, exactly as serve
@@ -590,8 +589,8 @@ package does not depend on TanStack Query.
 ```ts
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 
-export const reads = resultQueries(['reading'], { list: app.books.list });
-export const writes = resultMutations(['reading'], { patch: app.books.patch });
+export const reads = resultQueries(['reading'], { list: app.action('list') });
+export const writes = resultMutations(['reading'], { patch: app.action('patch') });
 // In a component: createQuery(() => reads.list()), createMutation(() => writes.patch)
 ```
 

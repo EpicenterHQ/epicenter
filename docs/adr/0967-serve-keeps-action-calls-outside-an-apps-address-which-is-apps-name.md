@@ -2,17 +2,17 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-18
-- **Amends:** [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "One route per action": the route is `POST /actions/<app>/<word>/<word>`, and the UI is at `/apps/<app>/`; its considered alternative "Move the UI and calls under `/apps/<app>/`" is taken. [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at the route the command posts to. [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) at the HTTP row of its answer table. ADR-0860, ADR-0864, ADR-0880 and ADR-0945 are Proposed and were edited in place.
+- **Amends:** [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "One route per action": the route is `POST /actions/<app>/<action>`, and the UI is at `/apps/<app>/`; its considered alternative "Move the UI and calls under `/apps/<app>/`" is taken. [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at the route the command posts to. [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) at the HTTP row of its answer table: a refusal is a 200 with one answer line. [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md) at the listing's address, now `GET /actions/`. ADR-0860, ADR-0864, ADR-0880 and ADR-0945 are Proposed and were edited in place.
 - **Relates:** [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (an app's `fetch` answers under its address), [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) (serve serves `code/ui/dist/` as built), [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) (an app is the folder `apps/<app>/`).
 
 ## Context
 
-`epicenter serve` answered five kinds of request
-(`packages/app/src/command/http.ts`):
+`epicenter serve` answered six kinds of request
+(`packages/app/src/command/serve.ts`):
 
 ```txt
 POST /                MCP
-GET  /                the launcher
+GET  /                the launcher, or the listing as JSON
 GET  /<app>/<path>    the app's built UI, code/ui/dist/
 GET  /<app>           308 to /<app>/
 POST /<app>/<action>  an action call; the action's words joined by "."
@@ -34,33 +34,46 @@ The app's own `fetch` is the collision it did not have.
 `/apps/<app>/` belongs to the app.**
 
 ```txt
-GET  /                               the launcher
-POST /                               MCP
-POST /actions/<app>/<word>/<word>    an action call
-ANY  /apps/<app>/<path>              the app: a file in code/ui/dist/, else its fetch, else 404
-GET  /apps/<app>                     308 to /apps/<app>/
+GET  /                          the launcher
+POST /                          MCP
+GET  /actions/                  the listing as JSON
+POST /actions/<app>/<action>    an action call
+ANY  /apps/<app>/<path>         the app: a file in code/ui/dist/, else its fetch, else 404
+GET  /apps/<app>                308 to /apps/<app>/
 ```
 
-- **An action's words are path segments.** `epicenter vocab words create`
-  is `POST /actions/vocab/words/create`. A word is a name (`isName` in
-  `packages/app/src/app.ts`), so it never holds `/` or `.`, and a segment is
-  one word. A group's words come before its action's word, as on the command
-  line.
-- **Every refusal under `/actions/` is a `NotStarted` in the body of a 400.**
-  An unknown app, an unknown action, a group named in place of an action, and
-  a segment that is not a name each answer `NotStarted` with `cause: 'usage'`,
-  as an unknown action did before. A method other than `POST` answers 405.
+- **An action has one name, and the address has one segment for it.**
+  Groups are gone: `actions` is `{ [name]: Action }`, and `defineApp` refuses
+  a nested object. `epicenter vocab create-word` is
+  `POST /actions/vocab/create-word`, and its MCP tool is `vocab_create-word`.
+  A name (`isName` in `packages/app/src/app.ts`) never holds `/` or `.`.
+- **Every 200 ends in one answer line, and any other status means serve did
+  not take the call.** A call refused before it runs (an unknown app or
+  action, an address that is not `/actions/<app>/<action>`, an app that does
+  not load, an input that does not fit) answers 200 with one line,
+  `{"answer": {"data": null, "error": {"name": "NotStarted", ...}}}`. A
+  reader no longer parses an error body: `readAnswer` reads any status but
+  200 as `Unreachable`. A method other than `POST` under `/actions/<app>/`
+  answers 405, and so does one other than `GET` at `/actions/`.
+- **The listing is `GET /actions/`.** `GET /` is only the launcher and MCP's
+  stream refusal, so no `Accept` header decides what `/` answers.
 - **`/apps/<app>/` matches the folder `apps/<app>/`.** The address has no
   period and no name the app cannot use. ADR-0945 says what serve does with
   a path under it that is not a file.
-- **The page client and the command build the new address.**
-  `connect` in `packages/app/src/client.ts` reads its app from the second
-  segment of a page at `/apps/<app>/` and calls
-  `<url>actions/<app>/<words>`. `sendToServe` in
-  `packages/app/src/command/serve-call.ts` posts to the same route.
+- **A page calls an action by its name.** `connect` in
+  `packages/app/src/client.ts` reads its app from the second segment of a page
+  at `/apps/<app>/` and returns `{ call, action }`: `app.call('add', input)`
+  posts to `<url>actions/<app>/add`, and `app.action('add')` is that call as a
+  function, for a query or a mutation. The name is typed as one of the app's
+  action names. The client has no Proxy, so an action may be named `then`.
+  `callAction` in `packages/app/src/command/send.ts` posts to the same route.
 - **The launcher links to `/apps/<app>/`.**
 - **No old address is answered.** `/<app>/` and `POST /<app>/<action>`
   answer 404. Nothing redirects.
+- **An app folder with no `code/epicenter.ts` answers 404 under
+  `/apps/<app>/`,** as a missing folder does. An app that throws while
+  loading answers 500 with its problems only when a request reaches its
+  `fetch`.
 
 ## Consequences
 
@@ -76,6 +89,16 @@ GET  /apps/<app>                     308 to /apps/<app>/
 - A redirect from `/<app>/` to `/apps/<app>/` would keep bookmarks, and would
   also keep every app name reserved at the top level. The owner accepted the
   clean break.
+- Every grouped action is renamed. An app that grouped `publish record`
+  names it `publish-record`, and the scripts, routines and playbooks that
+  name it change. TypeScript flags a group in `actions`, and `defineApp`
+  refuses one at load.
+- A data key's generated verbs share names across keys:
+  `data.words.actions('list')` and `data.notes.actions('list')` both give
+  `list`. An app with two keys names one key's verbs apart, such as
+  `'list-notes': notes.list`.
+- A script that read a refusal from a 400 body reads it from the answer line
+  of a 200.
 
 ## Considered alternatives
 
@@ -88,6 +111,18 @@ GET  /apps/<app>                     308 to /apps/<app>/
   its address.
 - **Words joined by `.` in one segment.** The old form. A period in a URL,
   and two spellings of one nesting: `.` here and `/` on disk.
+- **Groups as path segments, `POST /actions/<app>/<word>/<word>`.** This
+  record's first draft. It kept nesting, at the cost of a recursive path type
+  in the client (`'words.create'`), a word-splitting step on the command line,
+  and tool names that join words. The owner chose one flat name everywhere.
+- **MCP as the only way in.** One protocol for pages, the command and agents.
+  Serve's MCP is stateless JSON, so it cannot stream an action's updates; a
+  page would carry an MCP client; and an action marked `mcp: false` would
+  have no way in. MCP stays a second view over the same `runAction`.
+- **A refusal as a 400 with `NotStarted` in its body.** The first build. A
+  reader had to parse error bodies and tell a refusal from a proxy's error
+  page; with every 200 ending in one answer line, the status alone says
+  whether serve took the call.
 - **Redirect the old addresses for one release.** Bookmarks keep working. It
   keeps the old routing alive with nothing to say when it ends, and the pages
   that would use it must be rebuilt anyway.

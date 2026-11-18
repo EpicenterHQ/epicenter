@@ -41,7 +41,7 @@ function paragraph(className: string, text: string) {
 
 async function load() {
 	const current = ++request;
-	const { data, error } = await app.search({ query: search.value });
+	const { data, error } = await app.call('search', { query: search.value });
 	if (current !== request) return;
 	if (error) {
 		message(listStatus, error.message, true);
@@ -90,7 +90,7 @@ async function load() {
 }
 
 async function openNote(id: string) {
-	const { data, error } = await app.get({ id });
+	const { data, error } = await app.call('get', { id });
 	if (error) {
 		message(listStatus, error.message, true);
 		return;
@@ -135,7 +135,7 @@ capture.addEventListener('submit', async (event) => {
 	const values = new FormData(capture);
 	// Keep the submitted text on screen until the action answers; don't clear new typing.
 	const submitted = body.value;
-	const { error } = await app.add({
+	const { error } = await app.call('add', {
 		body: submitted,
 		kind: String(values.get('kind')) as 'thought' | 'quote' | 'link',
 		source: String(values.get('source') ?? '').trim() || undefined,
@@ -163,7 +163,7 @@ element('#edit-form').addEventListener('submit', async (event) => {
 	editSave.disabled = true;
 	close.disabled = true;
 	editBody.readOnly = true;
-	const { data, error } = await app.edit({
+	const { data, error } = await app.call('edit', {
 		id: selected.id,
 		old: selected.body,
 		new: editBody.value,
