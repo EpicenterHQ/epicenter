@@ -3,7 +3,7 @@
  * Exercise the real CLI and Git boundary: the last commit becomes a flat,
  * owned directory without records or private history, and export commits
  * nothing itself. Refreshes replace generated
- * contents, keep Git outside, and materialize shareable theme links.
+ * contents, keep Git outside, and refuse links that leave the app.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import {
@@ -112,7 +112,7 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 	expect(JSON.parse(run.stdout)).toEqual({
 		commit: await gitIn(f.home, 'rev-parse', 'HEAD'),
 		directory: f.output,
-		apps: [{ app: 'tasks', materialized: [], uncommitted: false }],
+		apps: ['tasks'],
 		omitted: [],
 	});
 	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(source);
@@ -134,6 +134,13 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 	expect(await readFile(join(f.output, 'fresh.txt'), 'utf8')).toBe(
 		'untracked code',
 	);
+});
+
+test('untracked code is refused even when Git is set to hide untracked files', async () => {
+	const f = await setup();
+	await gitIn(f.home, 'config', 'status.showUntrackedFiles', 'no');
+	await writeFile(join(f.tasks, 'new.ts'), 'export {};');
+	expect((await f.run('export', 'tasks', f.output)).code).toBe(2);
 });
 
 test('refresh replaces edited code and deleted files while the outer README and Git survive', async () => {
@@ -262,9 +269,7 @@ test('--all adds future committed apps and removes absent apps without importing
 	await gitIn(f.output, 'init', '-q');
 	const first = await f.run('export', '--all', output, '--json');
 	expect(first.code).toBe(0);
-	expect(
-		JSON.parse(first.stdout).apps.map((app: { app: string }) => app.app),
-	).toEqual(['broken', 'tasks']);
+	expect(JSON.parse(first.stdout).apps).toEqual(['broken', 'tasks']);
 	await f.app(
 		'reading',
 		'export default defineApp({ description: "Reading", actions: {} });',
@@ -358,52 +363,26 @@ test('unowned directories, another app export, and symlinked targets are refused
 	expect((await f.run('export', '--all', f.output)).code).toBe(2);
 });
 
-test('theme links copy committed shared bytes and internal links retain their targets', async () => {
+test('internal links keep their targets, and a link out of the app is refused with the fix', async () => {
 	const f = await setup({
 		'apps/tasks/code/ui/theme-copy.css': 'body { color: blue; }',
 	});
-	await writeFile(join(f.home, 'theme.css'), 'body { color: red; }');
-	await symlink('../../../../theme.css', join(f.tasks, 'ui/theme.css'));
 	await symlink('theme-copy.css', join(f.tasks, 'ui/internal.css'));
-	await gitIn(f.home, 'add', '--', 'theme.css');
 	await commit(f.home);
-	await writeFile(join(f.home, 'theme.css'), 'uncommitted shared theme');
-	const run = await f.run('export', 'tasks', f.output, '--json');
-	expect(run.code).toBe(0);
-	// The shared file is copied as committed, and its pending change is reported.
-	expect(JSON.parse(run.stdout).apps[0]).toMatchObject({
-		uncommitted: true,
-		materialized: [{ path: 'ui/theme.css', from: 'theme.css' }],
-	});
-	expect((await lstat(join(f.output, 'ui/theme.css'))).isFile()).toBe(true);
-	expect(await readFile(join(f.output, 'ui/theme.css'), 'utf8')).toBe(
-		'body { color: red; }',
-	);
+	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
 	expect(await readlink(join(f.output, 'ui/internal.css'))).toBe(
 		'theme-copy.css',
 	);
-	await f.folder(f.home, {
-		'apps/reading/code/epicenter.ts': bareApp('reading'),
-		'apps/reading/code/ui/base.css': 'body {}',
-	});
-	await symlink(
-		'../../../../theme.css',
-		join(f.apps, 'reading/code/ui/theme.css'),
-	);
-	await symlink('../../../../theme.css', join(f.tasks, 'ui/theme-second.css'));
+	await writeFile(join(f.home, 'theme.css'), 'body { color: red; }');
+	await symlink('../../../../theme.css', join(f.tasks, 'ui/theme.css'));
+	await gitIn(f.home, 'add', '--', 'theme.css');
 	await commit(f.home);
-	const collection = join(f.root, 'collection/apps');
-	expect((await f.run('export', '--all', collection)).code).toBe(0);
-	for (const path of [
-		'reading/ui/theme.css',
-		'tasks/ui/theme.css',
-		'tasks/ui/theme-second.css',
-	]) {
-		expect((await lstat(join(collection, path))).isFile()).toBe(true);
-		expect(await readFile(join(collection, path), 'utf8')).toBe(
-			'body { color: red; }',
-		);
-	}
+	const run = await f.run('export', 'tasks', f.output, '--json');
+	expect(run.code).toBe(2);
+	expect(JSON.parse(run.stdout).error.message).toBe(
+		"ui/theme.css links outside the app's code/: ../../../../theme.css. Copy the file into code/ instead.",
+	);
+	expect(await Bun.file(join(f.output, 'ui/theme.css')).exists()).toBe(false);
 });
 
 test('links that escape and reenter through the checkout directory name are refused in both export forms', async () => {

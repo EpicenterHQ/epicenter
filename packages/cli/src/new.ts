@@ -4,8 +4,6 @@ import {
 	mkdtemp,
 	readdir,
 	readFile,
-	readlink,
-	realpath,
 	rename,
 	rm,
 	writeFile,
@@ -151,17 +149,11 @@ async function taken(name: string) {
 /** The folder is the answer; the next command goes to stderr. */
 async function made(name: string, json: boolean, source?: CopiedSource) {
 	const folder = join(appsDir(), name);
-	const links = await danglingLinks(join(folder, 'code'));
-	for (const { path, target } of links)
-		writeErr(
-			`${name}: code/${path} links to ${target}, which this Epicenter does not have`,
-		);
 	if (json)
 		writeJson({
 			name,
 			folder,
 			...(source ? { source } : {}),
-			...(links.length ? { links } : {}),
 		});
 	else {
 		writeOut(folder);
@@ -473,26 +465,4 @@ async function makeApp(name: string) {
 	await mkdir(join(container, 'data'));
 	for (const [path, text] of Object.entries(blank(name)))
 		await writeFile(join(folder, path), text);
-}
-
-/** Report copied links exactly as stored, without following directory links. */
-async function danglingLinks(
-	folder: string,
-	prefix = '',
-): Promise<{ path: string; target: string }[]> {
-	const links: { path: string; target: string }[] = [];
-	for (const entry of await readdir(join(folder, prefix), {
-		withFileTypes: true,
-	})) {
-		if (entry.name === 'node_modules') continue;
-		const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-		const full = join(folder, path);
-		if (entry.isDirectory()) links.push(...(await danglingLinks(folder, path)));
-		else if (
-			entry.isSymbolicLink() &&
-			!(await realpath(full).catch(() => undefined))
-		)
-			links.push({ path, target: await readlink(full) });
-	}
-	return links;
 }

@@ -8,8 +8,7 @@ description: "Make or change an Epicenter app: its data, actions, UI, code/data 
 An Epicenter is a marked folder with one private Git repository. Its apps
 live in `apps/<app>/`: `code/` is an ordinary Bun project and sibling `data/`
 holds records and settings. The source and live Epicenter use this layout
-(ADR-0910, Accepted). Inspect an existing app before editing it. An older
-Epicenter needs a separately authorized history and directory migration.
+(ADR-0910, Accepted). Inspect an existing app before editing it.
 
 `epicenter` selects the nearest marked ancestor of the current folder, then
 `EPICENTER_ROOT`, then `~/Epicenter`; a temporary Epicenter for testing stays
@@ -24,7 +23,7 @@ such as `tailscale serve`.
   EPICENTER.md  AGENTS.md
   package.json  bun.lock        the workspace and the Epicenter version; committed
   node_modules/                 one install for the command and every app, ignored
-  apps/<app>/                   stable container: folder.path and write lock
+  apps/<app>/                   stable container: folder.path
     code/                       one package of the workspace
       epicenter.ts              data and actions
       epicenter.test.ts         action tests
@@ -206,11 +205,7 @@ instead of parsing front matter again. A one-file key's methods take no id
 write, has no `add`, and its `set` method or verb can create the file. For
 other files, the imported `folder` supplies atomic writes and updates.
 `data.words.pathOf(word)` gives a record's path; never build one by hand.
-Make the first write through `folder` or a data method, so the call takes the
-container's lock. It stays held until the call returns, throws, or stops.
-After that first write, a library or `node:fs` write shares the call's lock
-lifetime. All writes stay pending
-until a commit records them.
+All writes stay pending until a commit records them.
 `folder` refuses a write outside `data/` and `local/`.
 Reads may reach the whole Epicenter, including another app's records by a
 path like `../tasks/data/tasks/<id>.md`, using `node:fs` or a library.
@@ -663,4 +658,4 @@ published app with
 `epicenter new tasks --from OWNER/shared-apps/apps/tasks`,
 replacing `OWNER` with the publication owner's username. See
 [the CLI's export contract](../../../packages/cli/README.md#export-app-code)
-for destination rules, shared files, and symlinks.
+for destination rules and symlinks.

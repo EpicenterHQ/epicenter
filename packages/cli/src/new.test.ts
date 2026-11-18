@@ -278,7 +278,7 @@ test('a local source with uncommitted code is refused and nothing is kept; ignor
 	});
 });
 
-test('a copied link that leads outside code/ stays a link and is reported', async () => {
+test('a copied link stays a link exactly as stored', async () => {
 	const f = await setup();
 	const source = join(f.root, 'source');
 	const prefix = 'apps/x/code';
@@ -305,12 +305,7 @@ test('a copied link that leads outside code/ stays a link and is reported', asyn
 	expect(await readlink(join(f.apps, 'copy/code/ui/src/theme.css'))).toBe(
 		'../../../../../theme.css',
 	);
-	expect(JSON.parse(result.stdout).links).toEqual([
-		{ path: 'ui/src/theme.css', target: '../../../../../theme.css' },
-	]);
-	expect(result.stderr).toContain(
-		'copy: code/ui/src/theme.css links to ../../../../../theme.css, which this Epicenter does not have',
-	);
+	expect(JSON.parse(result.stdout).links).toBeUndefined();
 	await noNestedGit(f.apps);
 });
 

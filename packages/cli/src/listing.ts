@@ -8,6 +8,7 @@
 import { basename } from 'node:path';
 import { type Action, whatTakes } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
+import { VERSION } from './engines.ts';
 import type { Discovery, Runnable } from './home.ts';
 import {
 	exampleCommand,
@@ -15,7 +16,6 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
-import { installNext } from './install.ts';
 import { type RepositoryStatus, repositoryLine } from './repository.ts';
 
 /**
@@ -42,7 +42,6 @@ function appListing(located: Runnable) {
 		name: located.name,
 		description: app.description,
 		folder: located.folder,
-		...(located.link ? { link: located.link } : {}),
 		...(app.data
 			? {
 					data: Object.fromEntries(
@@ -89,29 +88,26 @@ export type RoutineRow =
 	| { name: string; problem: string };
 
 /**
- * The home's report: the version of Epicenter it has installed, its apps,
- * with broken entries kept apart from runnable ones, then its routines, then
- * one line about its repository. `--json` carries the same facts; `version`
- * is `null` when the home has no install, and `repository` when it is not
- * one.
+ * The home's report: the version of Epicenter running it, its apps, with
+ * broken entries kept apart from runnable ones, then its routines, then one
+ * line about its repository. `--json` carries the same facts; `repository`
+ * is `null` when the home is not one.
  */
 export function homeListing(
 	found: Discovery,
 	{
 		routines,
 		repository,
-		version,
 	}: {
 		routines: RoutineRow[];
 		repository: RepositoryStatus | null;
-		version: string | null;
 	},
 	json: boolean,
 ): unknown {
 	if (json)
 		return {
 			epicenter: found.epicenter,
-			version,
+			version: VERSION,
 			apps: found.apps.map((app) => appListing(app)),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
@@ -123,15 +119,13 @@ export function homeListing(
 		};
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map((located) => {
-		return `${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}`;
+		return `${located.name.padEnd(width)}  ${located.app.description}`;
 	});
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
 	lines.unshift(
 		`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`,
-		version === null
-			? `Version: not installed. Run: ${installNext(found.epicenter)}`
-			: `Version: ${version}`,
+		`Version: ${VERSION}`,
 	);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
@@ -167,7 +161,6 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 	return [
 		`${located.name}  ${located.app.description}`,
 		`folder: ${located.folder}`,
-		...(located.link ? [`link: ${located.link}`] : []),
 		'',
 		...(located.app.data
 			? Object.entries(located.app.data).flatMap(([key, handle]) => [
