@@ -58,7 +58,7 @@ const runLog = createLogger('cli/run', stderrJsonLines);
 /**
  * Run a checked action. Nothing locks it: one process runs actions (ADR-0936).
  * When it ends, `log` gets one record: the app, the action, the outcome and
- * how long it took, and for a failure the error's name and message. The
+ * how long it took, and for a failure the error's name. The
  * record has neither the input nor the result, which can hold personal data.
  */
 export async function runAction(
@@ -83,21 +83,18 @@ export async function runAction(
 	return answer;
 }
 
-/** How a run ended, as its record states it: the error's name and message, none of its other fields. */
+/**
+ * How a run ended, as its record states it: for a failure, the error's name
+ * alone. A message can quote what the person typed, so it stays out.
+ */
 function outcomeOf({ error }: RunAnswer) {
 	if (error === null) return { outcome: 'ok' as const };
 	if (error.kind === 'returned')
-		return {
-			outcome: 'returned' as const,
-			error: { name: error.reason.name, message: error.reason.message },
-		};
+		return { outcome: 'returned' as const, error: error.reason.name };
 	const name = error.thrown?.name;
 	return {
 		outcome: 'fault' as const,
-		error: {
-			...(typeof name === 'string' && { name }),
-			message: error.message,
-		},
+		...(typeof name === 'string' && { error: name }),
 	};
 }
 

@@ -191,7 +191,7 @@ The whole surface is pure JS and browser-safe.
 
 ## One record per unit of work, in hosts only
 
-A host whose work has a clear start and end can write one record when each unit ends, instead of several lines along the way. One action run in `epicenter serve` and one HTTP request in the hosted API are units of work. The record carries the outcome, the duration, and the error if there was one. This is the [canonical log line](https://stripe.com/blog/canonical-log-lines) pattern.
+A host whose work has a clear start and end can write one record when each unit ends, instead of several lines along the way. One action run in `epicenter serve` and one HTTP request in the hosted API are units of work. The record carries the outcome, the duration, and the error's name if there was one. This is the [canonical log line](https://stripe.com/blog/canonical-log-lines) pattern.
 
 It needs no new logger API, only one `info` call when the work ends. `epicenter serve` writes one for each action run in [`runAction`](../../../packages/cli/src/run.ts), through a [JSON-line sink on stderr](../../../packages/cli/src/output.ts):
 
@@ -206,7 +206,7 @@ log.info('action run ended', {
 
 The record leaves out the action's input and result, which can hold personal data.
 
-Open question: the record keeps the error's message, and a message can quote what the person typed. Whether a record should keep only the error's name is undecided.
+For a failure the record keeps only the error's name, never its message: a message can quote what the person typed.
 
 The record goes out at `info` even when the work failed, because `warn` and `error` take only the error. Filter on `outcome`, not level. When the failure stops at the host, this record is its one recording; do not also log it at `error`.
 

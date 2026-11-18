@@ -7,7 +7,7 @@
  *
  * Key behaviors:
  * - Each outcome (ok, returned, fault) writes exactly one `info` record
- * - A failure's record carries its name and message, not its other fields
+ * - A failure's record carries only its name: a message can quote the input
  * - Neither the input nor the result reaches the record
  * - A logger that throws does not change the answer
  */
@@ -68,7 +68,7 @@ test('a run that returns Ok writes one ok record without its input or result', a
 	expect(JSON.stringify(events)).not.toContain(SECRET);
 });
 
-test('a run that returns Err writes one returned record with only its name and message', async () => {
+test('a run that returns Err writes one returned record with only its name', async () => {
 	const { log, events } = recorder();
 	const answer = await run(
 		'route',
@@ -81,12 +81,12 @@ test('a run that returns Err writes one returned record with only its name and m
 	expect(events[0]?.data).toMatchObject({
 		action: 'route',
 		outcome: 'returned',
-		error: { name: 'NoRoute', message: 'No route from LAX' },
+		error: 'NoRoute',
 	});
 	expect(JSON.stringify(events)).not.toContain(SECRET);
 });
 
-test('a run that throws writes one fault record with the thrown name and message', async () => {
+test('a run that throws writes one fault record with only the thrown name', async () => {
 	const { log, events } = recorder();
 	const answer = await run(
 		'print',
@@ -100,7 +100,7 @@ test('a run that throws writes one fault record with the thrown name and message
 	expect(events[0]?.data).toMatchObject({
 		action: 'print',
 		outcome: 'fault',
-		error: { name: 'Jammed', message: 'The printer jammed' },
+		error: 'Jammed',
 	});
 	expect(JSON.stringify(events)).not.toContain(SECRET);
 });
