@@ -18,6 +18,7 @@ import {
 	defineAction,
 	Err,
 	field,
+	model,
 	Ok,
 } from '@epicenter/app';
 import { createLogger, type Logger, memorySink } from 'wellcrafted/logger';
@@ -115,4 +116,27 @@ test('a logger that throws leaves the answer unchanged', async () => {
 	};
 	const answer = await run('save', () => Ok('kept'), throwing);
 	expect(expectOk(answer)).toBe('kept');
+});
+
+test("a run reaches the home's .env through model()", async () => {
+	const home = {
+		name: 'notes',
+		context: createMemoryContext(
+			{},
+			{
+				OLLAMA_BASE_URL: 'http://127.0.0.1:11434/v1',
+				OLLAMA_API_KEY: 'ollama',
+				MODEL: 'ollama/qwen3',
+			},
+		),
+	} as Runnable;
+	const action = defineAction({
+		description: 'which model',
+		input: {},
+		run: () => model(),
+	});
+	const { log } = recorder();
+	expect(expectOk(await runAction(home, 'which', action, {}, { log }))).toEqual(
+		{ baseURL: 'http://127.0.0.1:11434/v1', id: 'qwen3', apiKey: 'ollama' },
+	);
 });

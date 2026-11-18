@@ -24,6 +24,7 @@ export {
 	type Context,
 	type Folder,
 	folder,
+	type HomeEnv,
 	inRun,
 	isUnderLocal,
 	normalizePath,
@@ -56,4 +57,9 @@ export {
 export { readMarkdown } from './front-matter.ts';
 export type { Fields } from './markdown-fields.ts';
 export { createMemoryContext } from './memory.ts';
+export {
+	type ModelConnection,
+	ModelError,
+	model,
+} from './model.ts';
 export { localDay, localTime, timeId } from './time.ts';

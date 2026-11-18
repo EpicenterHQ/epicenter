@@ -69,9 +69,16 @@ function createMemoryFolder(
 	};
 }
 
-/** A context whose folder is seeded with `files`. */
+/**
+ * A context whose folder is seeded with `files`, and whose home's `.env` holds
+ * `env`'s lines, empty unless given.
+ */
 export function createMemoryContext(
 	files: Readonly<Record<string, string | Uint8Array>> = {},
+	env: Readonly<Record<string, string>> = {},
 ): Context {
-	return { folder: createMemoryFolder(files) };
+	return {
+		folder: createMemoryFolder(files),
+		env: { path: '.env', values: { ...env } },
+	};
 }

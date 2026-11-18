@@ -1,11 +1,15 @@
 /** Run actions: find one, check its input, and answer what it did. */
 
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parseEnv } from 'node:util';
 import {
 	type Action,
 	ActionError,
 	type Answer,
 	Err,
 	encodeActionResult,
+	type HomeEnv,
 	inRun,
 	isActionResult,
 	RESERVED_NAMES,
@@ -15,6 +19,18 @@ import { createLogger, type Logger } from 'wellcrafted/logger';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { stderrJsonLines } from './output.ts';
+import { epicenterDir } from './root.ts';
+
+/**
+ * The home's `.env` as this run begins, so an edit counts on the next call.
+ * It is never loaded into `process.env`, so nothing serve or an app starts
+ * inherits it (ADR-0948).
+ */
+function homeEnv(): HomeEnv {
+	const path = join(epicenterDir(), '.env');
+	const text = existsSync(path) ? readFileSync(path, 'utf8') : '';
+	return { path, values: parseEnv(text) as Record<string, string> };
+}
 
 type Thrown = { name: string; message: string } & Record<string, unknown>;
 
@@ -41,8 +57,10 @@ export async function runAction(
 	const started = performance.now();
 	let answer: Answer;
 	try {
-		const result = await inRun({ ...located.context }, () =>
-			action(input, { onUpdate }),
+		const result = await inRun(
+			// A test's context brings its own `.env`; a home's is read here.
+			{ ...located.context, env: located.context.env ?? homeEnv() },
+			() => action(input, { onUpdate }),
 		);
 		// An action made without `defineAction` is checked here, where every call passes.
 		if (!isActionResult(result))

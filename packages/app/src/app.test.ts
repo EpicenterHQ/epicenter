@@ -94,8 +94,8 @@ describe('writes in a run', () => {
 });
 
 describe('a run', () => {
-	test('a run reaches its folder and nothing else', () => {
-		expect(Object.keys(createMemoryContext())).toEqual(['folder']);
+	test("a run reaches its folder and the home's .env, and nothing else", () => {
+		expect(Object.keys(createMemoryContext())).toEqual(['folder', 'env']);
 	});
 });
 

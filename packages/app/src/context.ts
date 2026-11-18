@@ -78,9 +78,18 @@ export type Folder = {
 	readonly path?: string;
 };
 
+/**
+ * The home's `.env` as it was when the run began: its lines, and the file's
+ * path for an error to name (ADR-0948). Only `model()` reads it; no app sees
+ * it directly.
+ */
+export type HomeEnv = { path: string; values: Record<string, string> };
+
 /** What whatever runs an action opens its run with. */
 export type Context = {
 	folder: Folder;
+	/** Absent reads as an empty `.env`. */
+	env?: HomeEnv;
 };
 
 const runs = new AsyncLocalStorage<Context>();
@@ -101,6 +110,11 @@ function currentRun(): Context {
 			"An app's data and folder are read only inside an action's run",
 		);
 	return context;
+}
+
+/** The home's `.env` for the run this code is in; throws outside any run. */
+export function runEnv(): HomeEnv {
+	return currentRun().env ?? { path: '.env', values: {} };
 }
 
 /**
