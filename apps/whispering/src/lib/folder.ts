@@ -131,17 +131,33 @@ function audioFileOf({ name, size, modifiedMs }: Entry): AudioFile | null {
 const recordedAtOf = ({ id, modifiedMs }: AudioFile) =>
 	(timeOf(id) ?? new Date(modifiedMs)).toISOString();
 
+/** Where a recording's audio is, from the audio files that have its id. */
+function audioIn(files: readonly AudioFile[]): RecordingAudio {
+	const [file, ...more] = files;
+	if (file === undefined) return { kind: 'absent' };
+	if (more.length === 0) return { kind: 'here', file };
+	return { kind: 'ambiguous', exts: files.map(({ ext }) => ext).sort() };
+}
+
 /** Where recording `id`'s audio is in `snapshot`. */
-export function audioOf(
+export const audioOf = (snapshot: Pick<FolderSnapshot, 'audio'>, id: string) =>
+	audioIn(snapshot.audio.filter((file) => file.id === id));
+
+/**
+ * Where each recording's audio is in `snapshot`, with the audio grouped by
+ * id once: what a list that asks of every row reads, so each answer is a
+ * lookup rather than a pass over every audio file.
+ */
+export function audioById(
 	snapshot: Pick<FolderSnapshot, 'audio'>,
-	id: string,
-): RecordingAudio {
-	const playable = snapshot.audio.filter((file) => file.id === id);
-	const [file, ...more] = playable;
-	if (file !== undefined && more.length === 0) return { kind: 'here', file };
-	if (file !== undefined)
-		return { kind: 'ambiguous', exts: playable.map(({ ext }) => ext).sort() };
-	return { kind: 'absent' };
+): (id: string) => RecordingAudio {
+	const byId = new Map<string, AudioFile[]>();
+	for (const file of snapshot.audio) {
+		const files = byId.get(file.id);
+		if (files === undefined) byId.set(file.id, [file]);
+		else files.push(file);
+	}
+	return (id) => audioIn(byId.get(id) ?? []);
 }
 
 /** Recordings in `snapshot` whose audio has no note, each as an untitled recording dated from its id. */
