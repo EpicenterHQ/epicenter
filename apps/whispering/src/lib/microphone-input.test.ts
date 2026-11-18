@@ -3,7 +3,7 @@
  *
  * Drives the session's microphone choice and test, and Whispering's
  * recorder over them, with a scripted capture device that counts what is
- * open. This browser's files are a place in memory; no microphone is involved.
+ * open. Whispering's files are in memory; no microphone is involved.
  *
  * Key behaviors:
  * - Opening a session reads the saved choice and opens, lists, and asks for
@@ -29,7 +29,7 @@
  */
 import { createTestWhispering } from './whispering.test-support.js';
 
-import '../../../../packages/svelte/src/svelte-dom.test-support.js';
+import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import {
 	type Meter,
@@ -156,11 +156,10 @@ function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 				onEnded: () => () => {},
 				async stop() {
 					release();
-					return Ok({ durationMs: 1000, placed: Promise.resolve(Ok({})) });
+					return Ok({ durationMs: 1000 });
 				},
 			});
 		},
-		recover: async () => Ok({ whole: [], unplaced: [] }),
 	};
 	return {
 		device,
@@ -219,7 +218,7 @@ async function open({
 } = {}) {
 	const test = await openTestServices();
 	const { whispering, library, close } = await createTestWhispering({
-		place: test.place,
+		files: test.files,
 		services: {
 			...test.services,
 			capture: microphone.device,
@@ -228,7 +227,6 @@ async function open({
 	});
 	cleanups.push(async () => {
 		close();
-		test.close();
 	});
 	return {
 		whispering,
@@ -260,11 +258,13 @@ test('a choice is saved on this device, not in its files, and a new session star
 	const device = devicePreferences();
 	const first = await open({ device });
 	await first.input.refresh();
+	const before = first.test.outside.paths();
 
 	await first.input.select(USB);
 
 	expect(device.store.saved).toEqual(USB);
-	expect(first.test.outside.paths()).toEqual([]);
+	expect(first.test.outside.paths()).toEqual(before);
+	expect(before).toEqual(['settings.md']);
 	const second = await open({ device });
 	expect(second.input.choice).toEqual(USB);
 
@@ -633,7 +633,7 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 		const microphone = scriptedMicrophone();
 		const test = await openTestServices();
 		const { whispering, close } = await createTestWhispering({
-			place: test.place,
+			files: test.files,
 			services: {
 				...test.services,
 				capture: microphone.device,
@@ -641,7 +641,6 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 		});
 		cleanups.push(async () => {
 			close();
-			test.close();
 		});
 		if (holding === 'test') await whispering.input.startTest();
 		else await whispering.startRecording();
@@ -737,7 +736,7 @@ test('closing while a choice is being saved releases the microphone at once and 
 	const microphone = scriptedMicrophone();
 	const test = await openTestServices();
 	const { whispering, close } = await createTestWhispering({
-		place: test.place,
+		files: test.files,
 		services: {
 			...test.services,
 			capture: microphone.device,
@@ -746,7 +745,6 @@ test('closing while a choice is being saved releases the microphone at once and 
 	});
 	cleanups.push(async () => {
 		close();
-		test.close();
 	});
 	const input = whispering.input;
 	const first = input.select(USB);

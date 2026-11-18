@@ -1,0 +1,35 @@
+{
+	"name": "@epicenter/recorder",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"sideEffects": false,
+	"description": "Recordings written into Whispering's folder, on the desktop as they record and in the browser at Stop, microphone streams, and voice activity detection.",
+	"keywords": [
+		"audio",
+		"recorder",
+		"microphone",
+		"voice-activity-detection",
+		"VAD",
+		"epicenter"
+	],
+	"exports": {
+		".": "./src/index.ts",
+		"./browser": "./src/browser.ts",
+		"./vad-assets": "./src/vad-assets.ts"
+	},
+	"dependencies": {
+		"@ricky0123/vad-web": "catalog:",
+		"@tauri-apps/api": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"license": "AGPL-3.0-or-later"
+}

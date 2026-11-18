@@ -13,8 +13,7 @@ Success is a better product with a simpler supported design, not more waves.
 
 Codex owns continuity, decisions, acceptance, and integration. Use a Codex
 model with computer-use tools for simulations and Claude Opus 5.5 to own
-delegated implementation waves, with a Codex helper writing substantial changes
-under Claude's direction, following the agent collaboration guidance in
+delegated implementation waves, following the agent collaboration guidance in
 `AGENTS.md`.
 Respect explicit model choices; report unavailable capabilities and any
 substitution. The responsibilities survive changes to model availability. This
@@ -59,8 +58,8 @@ Within the task's authorization, use
 [delegate-claude](../delegate-claude/SKILL.md) for a separable implementation
 with observable acceptance criteria. Give Opus the relevant baseline, raw
 evidence, affected consumers, allowed changes, and a bounded stop condition.
-The delegation skill owns clone preparation, dispatch, correction, and
-integration mechanics. Use [consult-claude](../consult-claude/SKILL.md) for an
+The delegation skill owns checkout choice, dispatch, correction, and
+review mechanics. Use [consult-claude](../consult-claude/SKILL.md) for an
 unsettled question that needs advice rather than implementation. Handle a
 small direct fix locally when delegation would cost more than it contributes.
 

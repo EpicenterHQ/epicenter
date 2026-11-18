@@ -86,7 +86,7 @@ function readRoot(folder: string): Result<EpicenterRoot, NotStarted> {
 	const problems = read.readable
 		? [
 				...read.notJson.map(
-					({ key, line }) => `${key} on line ${line} is not JSON`,
+					({ key, lineNumber }) => `${key} on line ${lineNumber} is not JSON`,
 				),
 				...markerProblems(read.fields),
 			]

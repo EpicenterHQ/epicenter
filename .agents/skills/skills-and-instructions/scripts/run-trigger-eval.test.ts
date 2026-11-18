@@ -2,9 +2,9 @@
  * Trigger eval tests.
  *
  * Nothing here spawns the Claude CLI. `--live` costs quota and needs an
- * authenticated CLI, so the live path is covered the way `consult-claude`
- * covers its runner: pin the arguments and the transcript parser, and leave
- * the call itself to a human who chose to pay for it.
+ * authenticated CLI, so the live path is covered by pinning the arguments
+ * and the transcript parser, and leaving the call itself to a human who chose
+ * to pay for it.
  *
  * The corpus test is the anti-rot guard. A renamed or deleted skill silently
  * turns a case into a measurement of nothing, and only a check against the

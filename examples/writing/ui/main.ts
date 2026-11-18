@@ -1,5 +1,5 @@
 import { type ActionOutput, connect } from '@epicenter/app/client';
-import type definition from '../epicenter.js';
+import type definition from '../epicenter.ts';
 
 function element<TElement extends Element>(selector: string) {
 	const found = document.querySelector<TElement>(selector);

@@ -18,9 +18,16 @@ import { pathToFileURL } from 'node:url';
 import type { Answer } from '../index.ts';
 import type { EpicenterRoot } from './root.ts';
 
-/** `path` as a pattern that matches only a whole path, not the start of a longer name. */
+/**
+ * `path` as a pattern that matches only a whole path, not the start of a
+ * longer name. A `.` ends it unless a name goes on after it, so a path that
+ * ends a sentence is hidden and `Epicenter.old` is not.
+ */
 const wholePath = (path: string) =>
-	new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'g');
+	new RegExp(
+		`${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-]|\\.[\\w-])`,
+		'g',
+	);
 
 export function hidePaths({ folder }: Pick<EpicenterRoot, 'folder'>) {
 	const home = homedir();
@@ -51,7 +58,12 @@ export function hidePaths({ folder }: Pick<EpicenterRoot, 'folder'>) {
 	const value = <T>(given: T): T => {
 		if (typeof given === 'string') return text(given) as T;
 		if (Array.isArray(given)) return given.map(value) as T;
-		if (typeof given === 'object' && given !== null)
+		// Only a plain object is rebuilt; a Date or class instance is kept as it is.
+		if (
+			typeof given === 'object' &&
+			given !== null &&
+			[Object.prototype, null].includes(Object.getPrototypeOf(given))
+		)
 			return Object.fromEntries(
 				Object.entries(given).map(([key, each]) => [key, value(each)]),
 			) as T;

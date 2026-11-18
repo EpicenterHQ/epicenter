@@ -3,7 +3,7 @@ name: platform-seams
 description: Maintain Whispering's shared browser and Tauri build, capability detection, on-demand desktop imports, and desktop-only views. Use when changing a native capability or the desktop shell.
 metadata:
   author: epicenter
-  version: '9.0'
+  version: '10.0'
 ---
 
 # Platform seams
@@ -14,36 +14,33 @@ Each capability chooses its implementation. Whispering’s views use what that c
 
 ## Where the choice lives
 
-**A capability package chooses its implementation when it runs, in two
-steps.**
+**A capability chooses its implementation when it runs, in two steps.**
 
-1. **Presence, synchronously.** When its module loads, the package asks
-   `isTauri()` from `@tauri-apps/api/core` and makes its value: a
-   capability a surface cannot give is `null` there
+1. **Presence, synchronously.** When its module loads, it asks `isTauri()`
+   from `@tauri-apps/api/core` and makes its value: a capability a surface
+   cannot give is `null` there
    ([ADR-0780](../../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
-2. **The desktop implementation, in its asynchronous step.** The desktop
-   code loads with `import()` when the page connects or the capability
-   first acts
-   ([ADR-0778](../../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)),
-   so a browser's first load holds none of it.
+2. **The desktop implementation, when first used.** Desktop code loads with
+   `import()` when the capability first acts, so a browser's first load
+   holds none of it.
 
-| Package | In a browser | In a Tauri window, loaded when |
+| Capability | In a browser | In a Tauri window, loaded when |
 | --- | --- | --- |
-| `@epicenter/local` (`settings`) | `localStorage` | AppData through the shell: its first read, write or watch |
-| `@epicenter/folder` (`home`) | the account's repository | the data folder: the folder opens |
-| `@epicenter/account` (`connectAccount`) | browser OAuth | the shell's sign-in; its relay with the first request |
-| `@epicenter/ai` (`customEndpoints`, `localServers`) | the page's `fetch` and key | the shell's key and fetch: the first request |
-| `@epicenter/recorder` (`recorder`) | the page's microphone | the shell's recorder: the first call |
-| `@epicenter/transcription` (`localSpeech`) | `null` | the generated bindings: the first call |
+| `Files` (`app.ts` picks) | `opfsFiles`: the Origin Private File System | `tauriFiles`: Whispering's `files_*` commands, through `@tauri-apps/api/core` |
+| `secrets` (`this-computer.ts`) | `localStorage` | the Keychain through `secret_get` and `secret_set` |
+| `requestFetch` (`this-computer.ts`) | the page's `fetch` | `@tauri-apps/plugin-http`: the first request |
+| `recorder` (`@epicenter/recorder`) | the page's microphone | the shell's recorder: the first call |
+| `localSpeech` (`@epicenter/transcription`) | `null` | the generated bindings: the first call |
+| `openShortcut` (`shortcut.ts`) | `null` | the shell's event code: the first listener |
+| `holdOneTab` (`one-tab.svelte.ts`) | a Web Lock | nothing to hold: the single-instance plugin keeps one window |
 
-A capability with a synchronous read takes it from the settings store, or
-imports its small desktop part directly. `@epicenter/account`'s `tauri.ts`
-is the one such part: it reads who is signed in from `account.json` at
-once, and asks the shell only when the person acts.
+Whispering's [page-boundary test](../../../apps/whispering/src/lib/page-boundary.test.ts)
+names every file that reaches Tauri. Add a new one there on purpose, never
+to get a test to pass.
 
 ## How Whispering uses a capability
 
-[Whispering’s app module](../../../apps/whispering/src/lib/app.ts) opens its capabilities once. Its app-owned `openShortcut` can check `isTauri()` and load desktop code on demand. The [settings form](../../../apps/whispering/src/routes/components/SettingsForm.svelte) renders the controls each capability supplies.
+[Whispering’s app module](../../../apps/whispering/src/lib/app.ts) opens its capabilities once, and is the one place that picks a `Files`. The [settings form](../../../apps/whispering/src/routes/components/SettingsForm.svelte) renders the controls each capability supplies.
 
 ```svelte
 {#if speech}<SpeechSettings {speech} /><Separator />{/if}
@@ -52,20 +49,18 @@ once, and asks the shell only when the person acts.
 
 Keep imports on the shared page path safe for a browser, including imports in a component that only the desktop renders.
 
-## Tests and the `test` condition
+## Tests
 
-The `test` export condition stays
-([ADR-0787](../../../docs/adr/0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md)):
-under `--conditions=test`, `@epicenter/folder`'s root is a folder in memory
-and `@epicenter/local`'s is settings in memory. A test of desktop behavior
-mocks `isTauri` (`mock.module('@tauri-apps/api/core', ...)`) and the
-desktop module it loads.
+A test of desktop behavior mocks `isTauri` and the Tauri modules it loads
+(`mock.module('@tauri-apps/api/core', ...)`, `@tauri-apps/plugin-http`), as
+`desktop.test.ts` does. Whispering's own tests run over `memoryFiles()`;
+there is no `test` export condition that swaps a store.
 
 These tests and the browser build show the web branch and the mocked contract.
 Accept the desktop branch in the running native app, as the
 [tauri skill](../tauri/SKILL.md#verify-in-the-desktop-app) describes.
 
-[The first-load test](../../../scripts/first-load.test.ts) builds Whispering’s page sources (`firstLoadModules` from
+[The first-load test](../../../apps/whispering/scripts/first-load.test.ts) builds Whispering’s page sources (`firstLoadModules` from
 `@epicenter/vite-config/module-graph`) and fails when what loads before any
 `import()` holds a Tauri plugin, the shell's API beyond `core`, or a
 package's desktop implementation. Add a new desktop module's name to its
@@ -86,7 +81,8 @@ which `tauri dev` starts (`"beforeDevCommand": "bun run dev"`). One
   asynchronous step.
 - A `tauri` export condition, an `imports` seam, or a second build or
   tsconfig per surface.
-- An app asking where it runs to pick a capability or a store; `home` and
-  `connectAccount` pick.
+- Asking where the page runs anywhere but the capability that needs to
+  know; `app.ts` picks the `Files`, and every layer above it is written
+  once.
 - A capability that answers a fake on a surface that lacks it, instead of
   `null`.

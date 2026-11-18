@@ -38,6 +38,7 @@
  * line and MCP never see `fetch`.
  */
 import { type Action, isAction } from './action.ts';
+import { isPlainObject } from './action-result.ts';
 import type { AnyData } from './data.ts';
 import type { Folder } from './folder.ts';
 
@@ -45,12 +46,12 @@ import type { Folder } from './folder.ts';
 export type Actions = { readonly [name: string]: Action };
 
 /** What an app's function returns: its description, data and actions. */
-export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
+export type App = {
 	readonly description: string;
 	/** What `defineData` returned, when the app keeps records. */
-	readonly data?: D;
+	readonly data?: AnyData;
 	/** Each action under its name. */
-	readonly actions: A;
+	readonly actions: Actions;
 	/**
 	 * Answer a web request under `/apps/<app>/` that no built file answers.
 	 * The request arrives as it was sent, whole path included: the app's
@@ -102,12 +103,9 @@ export function isName(value: unknown): value is string {
 const notName =
 	'which is not lowercase letters, digits, and dashes, starting with a letter';
 
-const isObject = (value: unknown): value is object =>
-	typeof value === 'object' && value !== null && !Array.isArray(value);
-
 /** What is wrong with `app` beyond its types, one sentence each. */
 function appProblems(app: unknown): string[] {
-	if (!isObject(app))
+	if (!isPlainObject(app))
 		return [
 			'An app returns an object: defineApp(({ folder }) => ({ description, data, actions }))',
 		];
@@ -119,9 +117,9 @@ function appProblems(app: unknown): string[] {
 		problems.push(
 			"An app's fetch is a function: (request: Request) => Response | Promise<Response>",
 		);
-	if (data !== undefined && !isObject(data))
+	if (data !== undefined && !isPlainObject(data))
 		problems.push('An app needs data: the value returned by defineData(...)');
-	if (isObject(data)) {
+	if (isPlainObject(data)) {
 		for (const [key, handle] of Object.entries(data)) {
 			const name = key.replace(/\.md$/, '');
 			if (!isName(name))
@@ -129,8 +127,8 @@ function appProblems(app: unknown): string[] {
 					`data has the key ${JSON.stringify(key)}, which must be a name, optionally followed by .md`,
 				);
 			if (
-				!isObject(handle) ||
-				!isObject(handle.fields) ||
+				!isPlainObject(handle) ||
+				!isPlainObject(handle.fields) ||
 				typeof handle.get !== 'function' ||
 				typeof handle.path !== 'function' ||
 				(key.endsWith('.md')
@@ -140,11 +138,11 @@ function appProblems(app: unknown): string[] {
 				problems.push(`data.${key} is not a handle from defineData(...)`);
 		}
 	}
-	if (!isObject(actions))
+	if (!isPlainObject(actions))
 		problems.push(
 			'An app needs actions: an object of defineAction(...), {} for none',
 		);
-	if (isObject(actions))
+	if (isPlainObject(actions))
 		for (const [name, entry] of Object.entries(actions)) {
 			const at = `actions.${name}`;
 			if (!isName(name))
@@ -153,7 +151,7 @@ function appProblems(app: unknown): string[] {
 				);
 			else if (isAction(entry)) continue;
 			else if (
-				isObject(entry) &&
+				isPlainObject(entry) &&
 				(typeof (entry as { description?: unknown }).description === 'string' ||
 					(typeof (entry as { run?: unknown }).run === 'function' &&
 						!isAction((entry as { run?: unknown }).run)))

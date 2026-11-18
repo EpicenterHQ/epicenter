@@ -16,8 +16,8 @@
  * closing fence has front matter that cannot be read: its whole text is
  * body, and it is never rewritten.
  *
- * A write replaces only the lines of the keys it names, adds a new key before
- * the closing fence, and removes a deleted key's line. Every other line stays
+ * A write writes the line of each key it names, adds a new key before the
+ * closing fence, and removes a deleted key's line. Every other line stays
  * byte for byte, a line whose text is not JSON included.
  */
 /** A JSON value. */
@@ -29,6 +29,8 @@ export type JsonValue =
 	| JsonValue[]
 	| { [key: string]: JsonValue };
 
+export type FieldValues = Record<string, JsonValue>;
+
 const KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
 /** A front matter line: a key, then `:`, then nothing or a space and its text. */
@@ -37,20 +39,36 @@ const LINE = /^([A-Za-z_][A-Za-z0-9_-]*):(?: (.*))?$/s;
 /** Whether `key` can name a field line. */
 export const isFieldKey = (key: string) => KEY.test(key);
 
-/** One `key: <text>` line as the file holds it, its number in the file, and its value when its text is JSON. */
+/** One `key: <text>` line as the file holds it, and its value when its text is JSON. */
 type Field = {
 	key: string;
 	line: string;
-	number: number;
+	lineNumber: number;
 	text: string;
 	value: JsonValue | undefined;
 };
 
-/** A note split at its fences, each piece verbatim. */
+/**
+ * A file split at its fences, each piece verbatim. A file that does not open
+ * with `---` splits as empty fences before its whole text, so a write gives
+ * it front matter the same way it changes front matter that is there.
+ */
 type Parts = { open: string; fields: Field[]; close: string; body: string };
 
-/** The note's pieces; `'none'` when it does not open with `---`, `'unreadable'` when its front matter cannot be read. */
-function split(text: string): Parts | 'none' | 'unreadable' {
+/** The line ending `line` ends with. */
+const endingOf = (line: string) => (line.endsWith('\r\n') ? '\r\n' : '\n');
+
+/** `text` as JSON, or undefined when it is not JSON. */
+function parseJson(text: string): JsonValue | undefined {
+	try {
+		return JSON.parse(text) as JsonValue;
+	} catch {
+		return undefined;
+	}
+}
+
+/** The file's pieces, or `'unreadable'` when its front matter cannot be read. */
+function split(text: string): Parts | 'unreadable' {
 	const ending = (from: number) => {
 		const lf = text.indexOf('\n', from);
 		return lf < 0 ? text.length : lf + 1;
@@ -58,12 +76,12 @@ function split(text: string): Parts | 'none' | 'unreadable' {
 	const content = (line: string) => line.replace(/\r?\n$/, '');
 	const openEnd = ending(0);
 	const open = text.slice(0, openEnd);
-	if (content(open) !== '---' || !open.endsWith('\n')) return 'none';
+	if (content(open) !== '---' || !open.endsWith('\n'))
+		return { open: '---\n', fields: [], close: '---\n', body: text };
 	const fields: Field[] = [];
-	const seen = new Set<string>();
-	let number = 1;
+	let lineNumber = 1;
 	for (let at = openEnd; at < text.length; ) {
-		number++;
+		lineNumber++;
 		const end = ending(at);
 		const line = text.slice(at, end);
 		const raw = content(line);
@@ -72,15 +90,8 @@ function split(text: string): Parts | 'none' | 'unreadable' {
 		const match = LINE.exec(raw);
 		if (!match || !line.endsWith('\n')) return 'unreadable';
 		const [, key = '', rest = ''] = match;
-		if (seen.has(key)) return 'unreadable';
-		seen.add(key);
-		let value: JsonValue | undefined;
-		try {
-			value = JSON.parse(rest) as JsonValue;
-		} catch {
-			value = undefined;
-		}
-		fields.push({ key, line, number, text: rest, value });
+		if (fields.some((field) => field.key === key)) return 'unreadable';
+		fields.push({ key, line, lineNumber, text: rest, value: parseJson(rest) });
 		at = end;
 	}
 	return 'unreadable';
@@ -99,116 +110,71 @@ function stringifyValue(value: JsonValue): string {
 	return JSON.stringify(value);
 }
 
-/** Whether two JSON values are the same value: numbers by value, objects whatever their key order. */
-function sameValue(a: JsonValue, b: JsonValue): boolean {
-	if (a === b) return true;
-	if (
-		typeof a !== 'object' ||
-		typeof b !== 'object' ||
-		a === null ||
-		b === null
-	)
-		return false;
-	if (Array.isArray(a) || Array.isArray(b)) {
-		if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length)
-			return false;
-		return a.every((item, index) => sameValue(item, b[index] as JsonValue));
-	}
-	const keys = Object.keys(a);
-	if (keys.length !== Object.keys(b).length) return false;
-	return keys.every(
-		(key) =>
-			Object.hasOwn(b, key) &&
-			sameValue(a[key] as JsonValue, b[key] as JsonValue),
-	);
-}
-
-export type FieldValues = Record<string, JsonValue>;
+/** A key whose line is `key: <text>` and whose text is not JSON. */
+export type NotJson = { key: string; lineNumber: number; text: string };
 
 /**
- * A file's fields and body as read, each line whose text is not JSON (its
- * key, its line number in the file, and its text), and whether its front
- * matter could be read, so may be rewritten.
+ * A Markdown file as read: its fields, each line whose text is not JSON, its
+ * body, and whether its front matter could be read, so may be rewritten. A
+ * file whose front matter cannot be read has no fields, and its whole text
+ * is body.
  */
-type Read = {
+export type MarkdownFile = {
 	fields: FieldValues;
-	notJson: { key: string; line: number; text: string }[];
+	notJson: NotJson[];
 	body: string;
 	readable: boolean;
 };
 
 /**
  * A Markdown file's fields: each `key: <text>` line whose text is JSON. A
- * line whose text is not JSON is in `notJson`, and its key is not a field. A
- * file that does not open with `---` has none, and its whole text is body;
- * one whose front matter cannot be read is not `readable`.
+ * line whose text is not JSON is in `notJson`, and its key is not a field.
  */
-export function readMarkdown(text: string): Read {
+export function readMarkdown(text: string): MarkdownFile {
 	const parts = split(text);
-	if (typeof parts === 'string')
-		return { fields: {}, notJson: [], body: text, readable: parts === 'none' };
-	return {
-		fields: Object.fromEntries(
-			parts.fields.flatMap(({ key, value }) =>
-				value === undefined ? [] : [[key, value]],
-			),
-		),
-		notJson: parts.fields.flatMap(({ key, number, text, value }) =>
-			value === undefined ? [{ key, line: number, text }] : [],
-		),
-		body: parts.body,
-		readable: true,
-	};
+	if (parts === 'unreadable')
+		return { fields: {}, notJson: [], body: text, readable: false };
+	const fields: FieldValues = {};
+	const notJson: NotJson[] = [];
+	for (const { key, lineNumber, text, value } of parts.fields)
+		if (value === undefined) notJson.push({ key, lineNumber, text });
+		else fields[key] = value;
+	return { fields, notJson, body: parts.body, readable: true };
 }
 
-/** A Markdown file of `fields` as `key: <JSON>` lines, then `body`. */
-export function markdownOf(fields: FieldValues, body: string): string {
-	const lines = Object.entries(fields).map(
-		([key, value]) => `${key}: ${stringifyValue(value)}\n`,
-	);
-	return `---\n${lines.join('')}---\n${body}`;
-}
+/** What a write changes: the fields it sets, the keys it removes, and the body that replaces the file's. */
+export type MarkdownChange = {
+	set: FieldValues;
+	removed?: readonly string[];
+	body?: string;
+};
 
 /**
- * `text` with `given` set and `removed` gone. It replaces the line of each
- * key it sets (kept as typed when the value is already that), adds each new
- * key before the closing fence in the order given, and removes the line of
- * each key removed; a key in both is set. Every other line stays byte for
- * byte. A file with no front matter gets it before its text. Front matter
- * that cannot be read is never rewritten, so it throws.
+ * `text` with `change` made. Each key set gets its line written, in place
+ * when the file has it and before the closing fence when it does not; each
+ * key removed loses its line, and a key both set and removed is set. Every
+ * other line stays byte for byte, and so does the body unless the change
+ * gives one. Every key must pass `isFieldKey`, as a declared field does.
+ * Front matter that cannot be read is never rewritten, so it throws.
  */
-export function withFields(
+export function changeMarkdown(
 	text: string,
-	given: FieldValues,
-	removed: readonly string[],
+	{ set, removed = [], body }: MarkdownChange,
 ): string {
-	for (const key of [...Object.keys(given), ...removed])
-		if (!KEY.test(key)) throw new TypeError(`'${key}' cannot name a field`);
 	const parts = split(text);
-	if (parts === 'none') return markdownOf(given, text);
 	if (parts === 'unreadable')
 		throw new TypeError('Front matter that cannot be read is not rewritten');
-	const eol = parts.open.endsWith('\r\n') ? '\r\n' : '\n';
-	const gone = new Set(removed.filter((key) => !Object.hasOwn(given, key)));
-	const lines: string[] = [];
-	const present = new Set<string>();
-	for (const field of parts.fields) {
-		present.add(field.key);
-		if (gone.has(field.key)) continue;
-		const next = Object.hasOwn(given, field.key)
-			? (given[field.key] as JsonValue)
-			: undefined;
-		if (
-			next === undefined ||
-			(field.value !== undefined && sameValue(field.value, next))
-		) {
-			lines.push(field.line);
-			continue;
-		}
-		const ending = field.line.endsWith('\r\n') ? '\r\n' : '\n';
-		lines.push(`${field.key}: ${stringifyValue(next)}${ending}`);
-	}
-	for (const [key, value] of Object.entries(given))
-		if (!present.has(key)) lines.push(`${key}: ${stringifyValue(value)}${eol}`);
-	return parts.open + lines.join('') + parts.close + parts.body;
+	const lineOf = (key: string, ending: string) =>
+		`${key}: ${stringifyValue(set[key] as JsonValue)}${ending}`;
+	const present = new Set(parts.fields.map((field) => field.key));
+	const lines = [
+		...parts.fields.flatMap(({ key, line }) => {
+			if (Object.hasOwn(set, key)) return [lineOf(key, endingOf(line))];
+			return removed.includes(key) ? [] : [line];
+		}),
+		...Object.keys(set)
+			.filter((key) => !present.has(key))
+			.map((key) => lineOf(key, endingOf(parts.open))),
+	];
+	return parts.open + lines.join('') + parts.close + (body ?? parts.body);
 }

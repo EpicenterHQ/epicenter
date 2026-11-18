@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-files-read-many"
+description = "Enables the files_read_many command without any pre-configured scope."
+commands.allow = ["files_read_many"]
+
+[[permission]]
+identifier = "deny-files-read-many"
+description = "Denies the files_read_many command without any pre-configured scope."
+commands.deny = ["files_read_many"]

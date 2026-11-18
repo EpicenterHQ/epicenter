@@ -20,8 +20,8 @@ chose by calling differently named things:
 
 | Choice | Made today by calling | Where |
 | --- | --- | --- |
-| the platform | `openDataFolder`, `openAppData`, `openDevice` or `openRemote` | `5b32f49a07:packages/folder/src/desktop-folder.ts`, `5b32f49a07:packages/folder/src/browser.ts`, `packages/folder/src/tauri.ts`, `5b32f49a07:packages/folder/src/remote.ts` |
-| the platform | `createBrowserOAuth` or `createTauriAuth` | `packages/account/src/browser-oauth.ts`, `packages/account/src/tauri.ts` |
+| the platform | `openDataFolder`, `openAppData`, `openDevice` or `openRemote` | `5b32f49a07:packages/folder/src/desktop-folder.ts`, `5b32f49a07:packages/folder/src/browser.ts`, `folder-package:packages/folder/src/tauri.ts`, `5b32f49a07:packages/folder/src/remote.ts` |
+| the platform | `createBrowserOAuth` or `createTauriAuth` | `folder-package:packages/account/src/browser-oauth.ts`, `folder-package:packages/account/src/tauri.ts` |
 | the source | `useAccount`, `useCustom` or `useLocal` | `5b32f49a07:apps/whispering/src/lib/platform/types.ts` |
 | the job | a string scope with a default written beside the read | `choices.get('tutor') ?? (canChat(HOSTED_TUTOR) ? HOSTED_TUTOR : null)` in `5b32f49a07:apps/vocab/src/lib/chat/session.svelte.ts` |
 

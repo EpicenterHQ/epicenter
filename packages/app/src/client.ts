@@ -88,7 +88,7 @@ type JsonOf<T> = unknown extends T
 							}
 						>;
 
-/** What action `A` takes from a caller: `ActionInput<Actions['set']>`, where `Actions` is `ReturnType<typeof app>['actions']`. */
+/** What action `A` takes from a caller: `ActionInput<Actions['patch']>`, where `Actions` is `ReturnType<typeof app>['actions']`. */
 export type ActionInput<A> = A extends (input: infer In) => unknown
 	? In
 	: never;
