@@ -105,8 +105,8 @@ pub struct Entry {
 
 /// The files in the directory `relative` in `folder` (the folder itself for
 /// `""`), sorted by name: regular files only, never a directory or a link,
-/// and only names the path rule accepts, so a hidden name or a
-/// `.ep-*.save` never lists. A missing directory lists as empty; a missing
+/// and only names the path rule accepts, so a hidden name, such as a
+/// write's `.<name>.tmp`, never lists. A missing directory lists as empty; a missing
 /// folder is `NotFound`.
 pub fn list(folder: &Path, relative: &str) -> Result<Vec<Entry>> {
     let directory = resolve_dir(folder, relative)?;
@@ -260,7 +260,7 @@ mod tests {
         fs::write(recordings.join("b.webm"), b"12345").unwrap();
         fs::write(recordings.join("a.md"), b"1").unwrap();
         fs::write(recordings.join(".DS_Store"), b"").unwrap();
-        fs::write(recordings.join(".ep-k3x9.save"), b"").unwrap();
+        fs::write(recordings.join(".a.md.tmp"), b"").unwrap();
         fs::write(recordings.join("a.b.c"), b"").unwrap();
         fs::create_dir(recordings.join("sub")).unwrap();
         #[cfg(unix)]

@@ -190,7 +190,7 @@ mod tests {
             "a/../b",
             "/abs",
             ".hidden",
-            "recordings/.ep-k3x9.save",
+            "recordings/.a.md.tmp",
             "a.b.c",
             "a\\b",
             "a//b",
