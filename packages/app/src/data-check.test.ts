@@ -81,14 +81,14 @@ test('an id over 200 UTF-8 bytes is counted and never read', async () => {
 	});
 });
 
-test('refs in a one-file key and nested lists resolve targets declared later', async () => {
+test('refs in a fixed-id record and nested lists resolve targets declared later', async () => {
 	const { folder } = await tempFolder({
-		'data/settings.md':
+		'data/settings/settings.md':
 			'---\nwatch: "Exact"\nnested: [["Exact", "missing"]]\n---\n',
 		'data/watches/Exact.md': '',
 	});
 	const data = defineData(folder, {
-		'settings.md': {
+		settings: {
 			fields: {
 				watch: field.ref('watches'),
 				nested: field.list(field.list(field.ref('watches'))),
@@ -97,12 +97,12 @@ test('refs in a one-file key and nested lists resolve targets declared later', a
 		watches: { fields: {} },
 	});
 	const report = await checkData(folder.path, data);
-	expect(report['settings.md']).toMatchObject({
+	expect(report.settings).toMatchObject({
 		files: 1,
 		withProblems: 1,
 		records: [
 			{
-				path: 'settings.md',
+				path: 'settings/settings.md',
 				problems: ['nested[0][1] "missing" names no file in watches/'],
 			},
 		],

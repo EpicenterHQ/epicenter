@@ -46,6 +46,7 @@ export type Loose<F extends Fields> = {
 
 export type AnyRecord = Record<string, unknown> & {
 	path: string;
+	id: string;
 	body: string;
 };
 /** A change as data: each field to set, `null` to remove an optional one, and `body`. */
@@ -124,17 +125,18 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 export function createMarkdownRecords({
 	folder,
 	fields,
-	keysOf,
 }: {
 	folder: Folder;
 	fields: Fields;
-	keysOf: (path: string) => Record<string, string>;
 }) {
+	/** A record's id: its file name without `.md`. */
+	const idOf = (path: string) => path.slice(path.lastIndexOf('/') + 1, -3);
+
 	/** A change that does not fit the declared fields, as one problem at `path`. */
 	function unfit(path: string, line: string, kind = line) {
 		return ActionError.Misfit({
 			path,
-			id: keysOf(path).id,
+			id: idOf(path),
 			problems: [{ line, kind }],
 		});
 	}
@@ -143,7 +145,7 @@ export function createMarkdownRecords({
 	 * The record `file` gives at `path`, and the result a read answers: the
 	 * record, or a Misfit with each problem and, when the front matter can be
 	 * read, the record for repair. Each field is its value if it fits, else
-	 * absent; an absent switch or list is `false` or `[]`. `path`, the keys,
+	 * absent; an absent switch or list is `false` or `[]`. `path`, `id`,
 	 * and `body` come from the file, and no field can be named as one of them.
 	 */
 	function project(path: string, file: MarkdownFile) {
@@ -161,12 +163,12 @@ export function createMarkdownRecords({
 			} else if (Value.Check(schema, value)) values[key] = value;
 			else problems.push(misfit(key, schema, value));
 		}
-		const keys = keysOf(path);
-		const record: AnyRecord = { path, ...keys, ...values, body: file.body };
+		const id = idOf(path);
+		const record: AnyRecord = { path, id, ...values, body: file.body };
 		const result: Result<AnyRecord, Misfit> = problems.length
 			? ActionError.Misfit({
 					path,
-					id: keys.id,
+					id,
 					problems,
 					...(file.readable ? { record } : {}),
 				})
@@ -210,7 +212,7 @@ export function createMarkdownRecords({
 				problems.push(problem(`${key} is missing`));
 		}
 		if (problems.length)
-			return ActionError.Misfit({ path, id: keysOf(path).id, problems });
+			return ActionError.Misfit({ path, id: idOf(path), problems });
 		return Ok({ set: inDeclaredOrder(set, fields), removed });
 	}
 
@@ -251,8 +253,8 @@ export function createMarkdownRecords({
 						throw new Error(
 							'The change given to edit must return a record patch inside Ok',
 						);
-					// A spread of the record carries its path and keys, which are not fields.
-					const identity = ['path', ...Object.keys(keysOf(path))];
+					// A spread of the record carries its path and id, which are not fields.
+					const identity = ['path', 'id'];
 					patch = Object.fromEntries(
 						Object.entries(result.data).filter(
 							([key]) => !identity.includes(key),

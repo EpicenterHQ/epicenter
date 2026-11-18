@@ -9,9 +9,12 @@ import type { AnyRecord } from './markdown-records.ts';
 
 /** One data key as `checkData` found it. */
 export type CheckedKey = {
-	/** True for a one-file key. */
-	single: boolean;
-	/** The key's file, or its folder ending in `/`. */
+	/**
+	 * Always false: every key is a folder. `command/check.ts` still reads it;
+	 * Build C deletes it with that read.
+	 */
+	single: false;
+	/** The key's folder, ending in `/`. */
 	path: string;
 	/** How many files it matched. */
 	files: number;
@@ -38,7 +41,7 @@ export async function checkData(
 		string,
 		{
 			path: string;
-			single: boolean;
+			single: false;
 			files: number;
 			withProblems: number;
 			kinds: { kind: string; count: number }[];
@@ -63,11 +66,10 @@ export async function checkData(
 		}
 	}
 	for (const [key, handle] of Object.entries(data)) {
-		const single = !('list' in handle);
 		const base = `data/${key}`;
 		checked[key] = {
-			path: single ? base : `${base}/`,
-			single,
+			path: `${base}/`,
+			single: false,
 			files: 0,
 			withProblems: 0,
 			kinds: [],
@@ -75,47 +77,34 @@ export async function checkData(
 		};
 		affected.set(key, new Map());
 		const each = checked[key];
-		if ('list' in handle) {
-			const names = new Map<string, string[]>();
-			for (const name of await filesIn(root, base)) {
-				if (!name.endsWith('.md') || name.startsWith('.')) continue;
-				const path = `${base}/${name}`;
-				each.files++;
-				const problem = idProblem(name.slice(0, -3));
-				if (problem) report(key, [path], [{ line: problem, kind: problem }]);
-				// Lowercasing NFC is close enough to how a Mac folds names; a pair it misses is rare.
-				const folded = name.normalize('NFC').toLowerCase();
-				const aliases = names.get(folded) ?? [];
-				aliases.push(path);
-				names.set(folded, aliases);
-			}
-			for (const paths of names.values()) {
-				if (paths.length < 2) continue;
-				const problem = 'are one file on a disk that ignores case';
-				report(key, paths, [{ line: problem, kind: problem }]);
-			}
-			const listed = await handle.list();
-			ids.set(key, new Set());
-			for (const result of listed) {
-				const { path, id } = result.error ?? result.data;
-				ids.get(key)?.add(id);
-				if (result.error) {
-					report(key, [path], result.error.problems);
-					if (result.error.record)
-						reads.push({ key, record: result.error.record });
-				} else reads.push({ key, record: result.data });
-			}
-		} else {
-			const result = await handle.get();
+		const names = new Map<string, string[]>();
+		for (const name of await filesIn(root, base)) {
+			if (!name.endsWith('.md') || name.startsWith('.')) continue;
+			const path = `${base}/${name}`;
+			each.files++;
+			const problem = idProblem(name.slice(0, -3));
+			if (problem) report(key, [path], [{ line: problem, kind: problem }]);
+			// Lowercasing NFC is close enough to how a Mac folds names; a pair it misses is rare.
+			const folded = name.normalize('NFC').toLowerCase();
+			const aliases = names.get(folded) ?? [];
+			aliases.push(path);
+			names.set(folded, aliases);
+		}
+		for (const paths of names.values()) {
+			if (paths.length < 2) continue;
+			const problem = 'are one file on a disk that ignores case';
+			report(key, paths, [{ line: problem, kind: problem }]);
+		}
+		const listed = await handle.list();
+		ids.set(key, new Set());
+		for (const result of listed) {
+			const { path, id } = result.error ?? result.data;
+			ids.get(key)?.add(id);
 			if (result.error) {
-				each.files = 1;
-				report(key, [base], result.error.problems);
+				report(key, [path], result.error.problems);
 				if (result.error.record)
 					reads.push({ key, record: result.error.record });
-			} else if (result.data) {
-				each.files = 1;
-				reads.push({ key, record: result.data });
-			}
+			} else reads.push({ key, record: result.data });
 		}
 	}
 	function references(

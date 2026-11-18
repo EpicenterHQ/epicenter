@@ -1,6 +1,6 @@
 /**
  * Data handles read and patch top-level Markdown records in the folder they were defined with.
- * Covers both key shapes, exact and refused ids, create, passage edits, concurrent computed
+ * Covers a fixed-id key, exact and refused ids, create, passage edits, concurrent computed
  * edits, repairs, diagnostics, list membership, refused definitions, and the separation
  * between app writes and reference checks.
  */
@@ -31,7 +31,7 @@ async function setup(seed: Record<string, string> = {}) {
 				tags: field.list(field.text()),
 			},
 		},
-		'settings.md': {
+		settings: {
 			fields: { title: field.text(), count: field.integer({ optional: true }) },
 		},
 	});
@@ -75,34 +75,36 @@ test('folder verbs read, create, patch, compute, list, and delete flat records',
 	expect(expectOk(await notes.get('Dune'))).toBeUndefined();
 });
 
-test('one-file verbs read absent, create through patch, compute, and delete without an id', async () => {
-	const { data } = await setup();
-	const settings = data['settings.md'];
-	expect(settings).not.toHaveProperty('list');
-	expect(settings).not.toHaveProperty('create');
-	expect(settings.path()).toBe('data/settings.md');
-	expect(expectOk(await settings.get())).toBeUndefined();
-	expect(
-		expectOk(await settings.patch({ title: 'Daily', body: 'notes' })),
-	).toEqual({ path: 'data/settings.md', title: 'Daily', body: 'notes' });
-	expect(
-		expectOk(
-			await settings.edit((now) => Ok({ count: (now?.count ?? 0) + 1 })),
-		),
-	).toMatchObject({ title: 'Daily', count: 1 });
-	expect(expectOk(await settings.get())).not.toHaveProperty('id');
-	expect(expectOk(await settings.delete())).toBe(true);
-	expect(expectOk(await settings.delete())).toBe(false);
+test('one settings record is an ordinary key with a fixed id, made by edit', async () => {
+	const {
+		data: { settings },
+	} = await setup();
+	expect(settings.path('settings')).toBe('data/settings/settings.md');
+	expect(expectOk(await settings.get('settings'))).toBeUndefined();
 	let sawAbsent = false;
 	expect(
 		expectOk(
-			await settings.edit((now) => {
+			await settings.edit('settings', (now) => {
 				sawAbsent = now === undefined;
-				return Ok({ title: 'New' });
+				return Ok({ title: 'Daily', body: 'notes' });
 			}),
 		),
-	).toMatchObject({ title: 'New' });
+	).toEqual({
+		path: 'data/settings/settings.md',
+		id: 'settings',
+		title: 'Daily',
+		body: 'notes',
+	});
 	expect(sawAbsent).toBe(true);
+	expect(
+		expectOk(
+			await settings.edit('settings', (now) =>
+				Ok({ count: (now?.count ?? 0) + 1 }),
+			),
+		),
+	).toMatchObject({ title: 'Daily', count: 1 });
+	expect(expectOk(await settings.delete('settings'))).toBe(true);
+	expect(expectOk(await settings.delete('settings'))).toBe(false);
 });
 
 test('create refuses an existing file even when another create supplies identical content', async () => {
@@ -127,18 +129,21 @@ test('create refuses an existing file even when another create supplies identica
 	expect(expectOk(await notes.get('same'))).toMatchObject({ title: 'first' });
 });
 
-test('folder patch returns Missing, one-file patch creates only a fitting record, and a computed edit may create', async () => {
+test('patch returns Missing, a computed edit creates only a fitting record, and may create', async () => {
 	const { read, data } = await setup();
 	expect(expectErr(await data.notes.patch('typo', { title: 'x' })).name).toBe(
 		'Missing',
 	);
 	// A change that does not fit is Misfit, like a file that does not, with
 	// each problem and its kind, and no record.
-	expect(expectErr(await data['settings.md'].patch({ count: 1 }))).toEqual({
+	expect(
+		expectErr(await data.settings.edit('settings', () => Ok({ count: 1 }))),
+	).toEqual({
 		name: 'Misfit',
 		message:
-			'data/settings.md does not fit its fields:\ndata/settings.md: title is missing',
-		path: 'data/settings.md',
+			'data/settings/settings.md does not fit its fields:\ndata/settings/settings.md: title is missing',
+		path: 'data/settings/settings.md',
+		id: 'settings',
 		problems: [{ line: 'title is missing', kind: 'title is missing' }],
 	});
 	expect(
@@ -151,10 +156,7 @@ test('folder patch returns Missing, one-file patch creates only a fitting record
 		id: 'a',
 		problems: [{ line: 'has no field "color"', kind: 'has no such field' }],
 	});
-	expect(await read('data/settings.md')).toBeUndefined();
-	expect(expectOk(await data['settings.md'].patch({ title: 'x' })).title).toBe(
-		'x',
-	);
+	expect(await read('data/settings/settings.md')).toBeUndefined();
 	let absent = false;
 	expect(
 		expectOk(
@@ -167,12 +169,9 @@ test('folder patch returns Missing, one-file patch creates only a fitting record
 	expect(absent).toBe(true);
 });
 
-test('plain patch repairs misfits and preserves undeclared lines and body for both key shapes', async () => {
+test('plain patch repairs misfits and preserves undeclared lines and body', async () => {
 	const text = '---\ntitle: 123\nextra: unquoted\ncount: 2\n---\nkept body';
-	const { read, data } = await setup({
-		'data/notes/a.md': text,
-		'data/settings.md': text,
-	});
+	const { read, data } = await setup({ 'data/notes/a.md': text });
 	expect(expectErr(await data.notes.get('a'))).toMatchObject({
 		name: 'Misfit',
 		record: { id: 'a', count: 2, body: 'kept body' },
@@ -183,11 +182,9 @@ test('plain patch repairs misfits and preserves undeclared lines and body for bo
 		count: 2,
 		body: 'kept body',
 	});
-	expect(
-		expectOk(await data['settings.md'].patch({ title: 'fixed' })).title,
-	).toBe('fixed');
-	for (const path of ['data/notes/a.md', 'data/settings.md'])
-		expect(await read(path)).toBe(text.replace('title: 123', 'title: "fixed"'));
+	expect(await read('data/notes/a.md')).toBe(
+		text.replace('title: 123', 'title: "fixed"'),
+	);
 });
 
 test('edit returns Misfit before calling its function and patch cannot rewrite unreadable front matter', async () => {
@@ -195,27 +192,17 @@ test('edit returns Misfit before calling its function and patch cannot rewrite u
 		'---\ntitle: 123\n---\nbody',
 		'---\nnot a field\n---\nbody',
 	]) {
-		const { read, data } = await setup({
-			'data/notes/a.md': text,
-			'data/settings.md': text,
-		});
+		const { read, data } = await setup({ 'data/notes/a.md': text });
 		const change = () => {
 			throw new Error('must not call on a misfit');
 		};
 		expect(expectErr(await data.notes.edit('a', change)).name).toBe('Misfit');
-		expect(expectErr(await data['settings.md'].edit(change)).name).toBe(
-			'Misfit',
-		);
 		if (text.includes('not a field')) {
 			expect(
 				expectErr(await data.notes.patch('a', { title: 'fixed' })).name,
 			).toBe('Misfit');
-			expect(
-				expectErr(await data['settings.md'].patch({ title: 'fixed' })).name,
-			).toBe('Misfit');
 		}
 		expect(await read('data/notes/a.md')).toBe(text);
-		expect(await read('data/settings.md')).toBe(text);
 	}
 });
 
@@ -242,21 +229,21 @@ test('computed refusals and faults leave a fitting file unchanged', async () => 
 	await data.notes.create('a', { title: 'a' });
 	const refusal = ActionError.Refused({ message: 'stop' });
 	expect(await data.notes.edit('a', () => refusal)).toBe(refusal);
-	expect(await data['settings.md'].edit(() => refusal)).toBe(refusal);
+	expect(await data.notes.edit('b', () => refusal)).toBe(refusal);
 	await expect(
 		data.notes.edit('a', () => {
 			throw new Error('fault');
 		}),
 	).rejects.toThrow('fault');
-	// A thrown refusal on an absent one-file key escapes as the same object.
-	const thrown = await data['settings.md']
-		.edit(() => {
+	// A thrown refusal on an absent record escapes as the same object.
+	const thrown = await data.notes
+		.edit('b', () => {
 			throw refusal.error;
 		})
 		.catch((cause: unknown) => cause);
 	expect(thrown).toBe(refusal.error);
 	expect(expectOk(await data.notes.get('a'))?.title).toBe('a');
-	expect(expectOk(await data['settings.md'].get())).toBeUndefined();
+	expect(expectOk(await data.notes.get('b'))).toBeUndefined();
 });
 
 // Each refusal happens before any folder operation; path checks nothing.
@@ -352,21 +339,15 @@ test.each([
 	},
 );
 
-test('a Misfit carries the id of a folder record and none for a one-file key', async () => {
+test('a Misfit carries the id of its record', async () => {
 	const text = '---\ntitle: 123\n---\nbody';
-	const { data } = await setup({
-		'data/notes/a.md': text,
-		'data/settings.md': text,
-	});
+	const { data } = await setup({ 'data/notes/a.md': text });
 	expect(expectErr(await data.notes.get('a'))).toMatchObject({
 		name: 'Misfit',
 		path: 'data/notes/a.md',
 		id: 'a',
 	});
 	expect(expectErr((await data.notes.list())[0] ?? Ok(null)).id).toBe('a');
-	const single = expectErr(await data['settings.md'].get());
-	expect(single.path).toBe('data/settings.md');
-	expect(single).not.toHaveProperty('id');
 });
 
 test('ids retain internal spaces, case, NFC accents, and the byte limit', async () => {
@@ -427,59 +408,44 @@ test('a field may be named edit, old, or new, since no verb folds a passage besi
 	).not.toThrow();
 });
 
-test.each(['folder', 'one-file'] as const)(
-	'%s passage edit replaces exactly one occurrence and refuses a missing, repeated, or empty passage without writing',
-	async (kind) => {
-		const path = kind === 'folder' ? 'data/notes/a.md' : 'data/settings.md';
-		const text = '---\ntitle: "a"\n---\none two two';
-		const { read, data } = await setup({ [path]: text });
-		const edit = (passage: { old: string; new: string }) =>
-			kind === 'folder'
-				? data.notes.edit('a', passage)
-				: data['settings.md'].edit(passage);
-		expect(expectErr(await edit({ old: 'three', new: 'x' }))).toMatchObject({
-			name: 'Changed',
-			cause: 'quote',
-			path,
-		});
-		expect(expectErr(await edit({ old: 'two', new: 'x' }))).toMatchObject({
-			name: 'Changed',
-			cause: 'twice',
-			path,
-		});
-		expect(expectErr(await edit({ old: '', new: 'x' })).name).toBe('Misfit');
-		expect(await read(path)).toBe(text);
-		expect(expectOk(await edit({ old: 'one', new: 'ONE' })).body).toBe(
-			'ONE two two',
-		);
-	},
-);
+test('a passage edit replaces exactly one occurrence and refuses a missing, repeated, or empty passage without writing', async () => {
+	const path = 'data/notes/a.md';
+	const text = '---\ntitle: "a"\n---\none two two';
+	const { read, data } = await setup({ [path]: text });
+	const edit = (passage: { old: string; new: string }) =>
+		data.notes.edit('a', passage);
+	expect(expectErr(await edit({ old: 'three', new: 'x' }))).toMatchObject({
+		name: 'Changed',
+		cause: 'quote',
+		path,
+	});
+	expect(expectErr(await edit({ old: 'two', new: 'x' }))).toMatchObject({
+		name: 'Changed',
+		cause: 'twice',
+		path,
+	});
+	expect(expectErr(await edit({ old: '', new: 'x' })).name).toBe('Misfit');
+	expect(await read(path)).toBe(text);
+	expect(expectOk(await edit({ old: 'one', new: 'ONE' })).body).toBe(
+		'ONE two two',
+	);
+});
 
-test('a passage edit of an absent file is Missing for folder and one-file keys, and writes nothing', async () => {
+test('a passage edit of an absent file is Missing, and writes nothing', async () => {
 	const { files, data } = await setup();
 	expect(
 		expectErr(await data.notes.edit('a', { old: 'x', new: 'y' })),
 	).toMatchObject({ name: 'Missing', path: 'data/notes/a.md' });
-	expect(
-		expectErr(await data['settings.md'].edit({ old: 'x', new: 'y' })),
-	).toMatchObject({ name: 'Missing', path: 'data/settings.md' });
 	expect(await files('data')).toEqual([]);
 });
 
 test('a passage edit of a misfit returns the Misfit before any change', async () => {
 	const text = '---\ntitle: 123\n---\nold body';
-	const { read, data } = await setup({
-		'data/notes/a.md': text,
-		'data/settings.md': text,
-	});
+	const { read, data } = await setup({ 'data/notes/a.md': text });
 	expect(
 		expectErr(await data.notes.edit('a', { old: 'old', new: 'new' })).name,
 	).toBe('Misfit');
-	expect(
-		expectErr(await data['settings.md'].edit({ old: 'old', new: 'new' })).name,
-	).toBe('Misfit');
 	expect(await read('data/notes/a.md')).toBe(text);
-	expect(await read('data/settings.md')).toBe(text);
 });
 
 test.each([
@@ -501,11 +467,9 @@ test.each([
 	const { data } = await setup({
 		'data/notes/a.md': '---\ntitle: "a"\n---\nx',
 	});
-	for (const result of [
-		await data.notes.edit('a', change as never),
-		await data['settings.md'].edit(change as never),
-	])
-		expect(expectErr(result).name).toBe('Misfit');
+	expect(expectErr(await data.notes.edit('a', change as never)).name).toBe(
+		'Misfit',
+	);
 });
 
 test('list reads only directly contained Markdown files with valid ids, sorted by path', async () => {
@@ -603,7 +567,7 @@ test('data refs validate their target at runtime', () => {
 		expect(() =>
 			defineData(unusedFolder, {
 				notes: { fields: { ref } },
-				'settings.md': { fields: {} },
+				settings: { fields: {} },
 			}),
 		).toThrow(target);
 	}
@@ -638,27 +602,25 @@ test('a write rewrites only the lines it names, in the form the writer gives the
 });
 
 test('a write gives a file without front matter its fences, and an empty change writes nothing', async () => {
-	const { read, data } = await setup({ 'data/settings.md': 'old text' });
-	expectErr(await data['settings.md'].patch({}));
-	expect(await read('data/settings.md')).toBe('old text');
-	expectOk(await data['settings.md'].patch({ title: 'T', body: 'new text' }));
-	expect(await read('data/settings.md')).toBe('---\ntitle: "T"\n---\nnew text');
+	const { read, data } = await setup({
+		'data/settings/settings.md': 'old text',
+	});
+	expectErr(await data.settings.patch('settings', {}));
+	expect(await read('data/settings/settings.md')).toBe('old text');
+	expectOk(
+		await data.settings.patch('settings', { title: 'T', body: 'new text' }),
+	);
+	expect(await read('data/settings/settings.md')).toBe(
+		'---\ntitle: "T"\n---\nnew text',
+	);
 });
 
 test('edit accepts a whole record spread without storing its path or id as fields', async () => {
 	const { read, data } = await setup();
 	await data.notes.create('a', { title: 'first' });
-	await data['settings.md'].patch({ title: 'first' });
 	expect(
 		expectOk(
 			await data.notes.edit('a', (record) =>
-				Ok({ ...record, title: 'second' }),
-			),
-		).title,
-	).toBe('second');
-	expect(
-		expectOk(
-			await data['settings.md'].edit((record) =>
 				Ok({ ...record, title: 'second' }),
 			),
 		).title,

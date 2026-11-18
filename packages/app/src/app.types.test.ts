@@ -29,7 +29,7 @@ import {
 const vocab = defineApp(({ folder }) => {
 	const data = defineData(folder, {
 		words: { fields: { meaning: field.text({ optional: true }) } },
-		'settings.md': { fields: { dailyGoal: field.integer({ optional: true }) } },
+		settings: { fields: { dailyGoal: field.integer({ optional: true }) } },
 	});
 
 	const learn = defineAction({
@@ -38,7 +38,7 @@ const vocab = defineApp(({ folder }) => {
 		run: async ({ word, meaning }) => {
 			assertType<Equal<typeof word, string>>();
 			assertType<Equal<typeof meaning, string | undefined>>();
-			const setting = await data['settings.md'].get();
+			const setting = await data.settings.get('settings');
 			if (setting.error) return setting;
 			const goal = setting.data?.dailyGoal;
 			assertType<Equal<typeof goal, number | undefined>>();
@@ -79,7 +79,7 @@ const vocab = defineApp(({ folder }) => {
 				...data.words.actions('list', 'get', 'patch', 'edit'),
 				create: learn,
 			},
-			settings: data['settings.md'].actions('get', 'patch'),
+			settings: data.settings.actions('get', 'patch'),
 			review,
 		},
 	};
@@ -116,7 +116,7 @@ describe('an app author', () => {
 		// @ts-expect-error an edit names both old and new
 		() => made.actions.words.edit({ id: 'a', old: 'x' });
 		assertType<Equal<In<Actions['words']['get']>, { id: string }>>();
-		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
+		assertType<Equal<In<Actions['settings']['get']>, { id: string }>>();
 		type Item = NonNullable<Out<Actions['words']['list']>['data']>[number];
 		assertType<
 			Equal<
@@ -133,7 +133,7 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				In<Actions['settings']['patch']>,
-				{ dailyGoal?: number | null | undefined; body?: string }
+				{ id: string; dailyGoal?: number | null | undefined; body?: string }
 			>
 		>();
 		assertType<
@@ -280,7 +280,7 @@ describe('an app author', () => {
 		() => vocabUi.words.patch({ id: 'a', due: 'x' });
 		// @ts-expect-error a verb takes the id, not a path
 		() => vocabUi.words.get({ path: 'data/words/a.md' });
-		() => vocabUi.settings.get();
+		() => vocabUi.settings.get({ id: 'settings' });
 		() => vocabUi.words.list();
 		() => vocabUi.review({ word: 'a' });
 		// @ts-expect-error no action is named then
