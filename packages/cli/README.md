@@ -54,7 +54,7 @@ copy of it, and the version a home runs is a line in a file in Git.
   app itself imports. It never lists `@epicenter/app`, which comes from the
   home. Add a package with `bun add <package>` in `code/`.
 - `bun install` at the top of the home installs every app's packages and
-  Epicenter. `init` runs it once; `new` prints it. Epicenter has no install
+  Epicenter. `new` prints it. Epicenter has no install
   command, and calls and listings never install.
 - Restart `serve` after changing packages: stop `epicenter serve` and start
   it again. An edit to an app's own files
@@ -65,12 +65,13 @@ copy of it, and the version a home runs is a line in a file in Git.
   restart `serve`. The build gives every UI the new client; reload open pages.
 - Bun reads one `bunfig.toml`, at the top of the home. It ignores one inside
   an app, so a setting an app needs, such as `peer = false` under
-  `[install]`, goes in the top file. `init` writes none: a new home needs no
-  setting.
+  `[install]`, goes in the top file. It holds `env = false`, so Bun loads
+  no `.env` into the programs it starts
+  ([ADR-0948](../../docs/adr/0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md)).
 - A package nested inside an app, such as `apps/films/code/render/` with its
   own `package.json`, gets its packages only once its path is in the list:
   `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
-  `init` writes only `apps/*/code`, and no command rewrites the list.
+  no command rewrites the list.
 
 The command checks that every app shares its copy of `@epicenter/app` each
 time it loads one, because a call reaches its app's folder through state the
@@ -97,10 +98,9 @@ from the browser, terminal, or an assistant. It needs no AI account or provider
 key. Taking it copies ordinary app files from GitHub into your Epicenter.
 
 You need Bun and Git, with Git's `user.name` and `user.email` configured.
-Create an Epicenter:
+Make `~/Epicenter` as [Make an Epicenter](#make-an-epicenter) says, then:
 
 ```sh
-bun x @epicenter/cli init ~/Epicenter
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
 mkdir -p apps/writing/code
@@ -109,8 +109,7 @@ bun install && bun run build
 epicenter serve
 ```
 
-`init` writes the home's files, runs `bun install` there, and commits them
-with the lock. In another terminal:
+In another terminal:
 
 ```sh
 epicenter writing add '{"body":"An observation I want to return to","source":"My notebook","project":"Essay"}'
@@ -235,7 +234,7 @@ Tailscale is one setup. See [a computer that stays on](../../docs/vision.md#a-co
 
 The command selects the nearest marked ancestor of the current directory,
 then `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without the
-marker needs `epicenter init <folder>`. The marker's optional front matter
+marker is refused with the command that makes one. The marker's optional front matter
 accepts only `port`, an integer from 1 to 65535; the default is 4747. An empty
 marker is valid. Epicenters cannot nest.
 
@@ -245,7 +244,6 @@ epicenter reading
 epicenter reading log '{"minutes":30,"book":"Dune"}'
 epicenter reading log '{"minutes":30}' --json
 epicenter reading books patch '{"id":"dune","finished":null}'
-epicenter init <folder>
 epicenter new notes
 epicenter export tasks ~/Code/my-project/code
 epicenter export --all ~/Code/shared-apps/apps
@@ -254,7 +252,7 @@ epicenter serve
 epicenter --version
 ```
 
-The commands are `init`, `new`, `export`, `check`, and `serve`.
+The commands are `new`, `export`, `check`, and `serve`.
 Their usage and help live in `src/commands.ts`.
 `epicenter` on its own reports the home: the version it has installed, its
 apps, its routines, and one line about its repository. See
@@ -286,11 +284,6 @@ Contracts address `data/...` from that container. A separate real `codePath`
 is used for module imports and invalidation, the check for one shared
 `@epicenter/app`, and UI builds and serving. Replacing `code/` leaves
 record paths intact.
-
-`init` runs `bun install` at the top of the home with the Bun that
-runs the command, the way `bun create` does: the install is what puts the
-`epicenter` command in the new home. A failure prints Bun's message and
-`Run: cd <home> && bun install`.
 
 An action's input is one argument after its words, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
@@ -555,7 +548,7 @@ including one forwarded from another action.
 
 `Ok(undefined)` arrives with null data. Human output puts success data on
 stdout and an error's message, and `Run: <next>` when there is one, on
-stderr. The CLI's own commands (`init`, `new`, `export`, `check`, the
+stderr. The CLI's own commands (`new`, `export`, `check`, the
 listings, `--version` and `--help`) answer the same way: with `--json`,
 stdout is their `{ data, error }`, and the exit code follows the same rule.
 `serve` prints no answer while it serves; a serve that cannot start answers
@@ -655,84 +648,35 @@ git status -sb               # branch, commits ahead of origin, each uncommitted
 git log -1 --format=%cr      # how long ago the last commit was
 ```
 
-A commit that is days old, or files that stay uncommitted, mean the
-checkpoint routine stopped; its error is in serve's output.
+A commit that is days old, or files that stay uncommitted, mean whatever
+commits the home stopped. A routine's error is in serve's output.
 
-## The home commits itself
+## Git stores the home
 
 Epicenter runs actions and serves pages. Git stores the home, and Epicenter
-does not wrap Git: no `epicenter` command commits or pushes. `init` gives a
-new home two files of its own, which the owner may change.
-
-`routines/checkpoint.md` runs the script every five minutes while serve runs:
-
-```yaml
----
-cron: "*/5 * * * *"
-run: ["sh", "scripts/checkpoint.sh"]
----
-Commit everything pending and push to the backup.
-```
-
-<!-- doc-path-check: ignore-next-line -->
-`scripts/checkpoint.sh`, mode `755`:
-
-```sh
-#!/bin/sh
-set -eu
-for s in MERGE_HEAD REVERT_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD; do
-  [ -e ".git/$s" ] && { echo "merge or rebase underway" >&2; exit 0; }
-done
-git add -A
-if git ls-files -s | grep -q '^160000'; then
-  echo "a nested Git repository is staged; remove its .git" >&2; exit 1
-fi
-git diff --cached --quiet || git commit -qm "${1:-checkpoint}"
-git remote get-url origin >/dev/null 2>&1 || exit 0
-GIT_TERMINAL_PROMPT=0 git push -q origin HEAD
-```
-
-The script commits everything pending as one commit named `checkpoint`,
-including what is already staged, and pushes when there is an origin. It
-waits out a merge, rebase, revert or cherry-pick. It refuses while a nested
-Git repository is staged, because the commit would hold only a pointer to it.
-It takes no lock: Git refuses a second commit while one is being made, and a
-push still running when the next run starts costs an error line.
-
-A commit made this way samples files, not intent: it can hold a partial edit
-or part of a running action's writes. The branch and index belong to every
-app, so make a named commit with Git before risky work. Keep origin private:
-it receives every app's records. Git's ignore rules alone decide what is
+does not wrap Git: no `epicenter` command commits or pushes. Commit and push
+with Git, by hand or from a [routine](#routines) that runs a script of your
+own. A commit made while serve runs samples files, not intent: it can hold a
+partial edit or part of a running action's writes. Keep origin private: it
+receives every app's records. Git's ignore rules alone decide what is
 committed.
 
-## Initialize an Epicenter
+## Make an Epicenter
 
-`epicenter init [<folder>] [--port <n>] [--no-install]` writes `EPICENTER.md`, starter
-`AGENTS.md`, a `package.json` that makes the folder a Bun workspace depending
-on this command's version of `@epicenter/cli` and `@epicenter/app`,
-<!-- doc-path-check: ignore-next-line -->
-`routines/checkpoint.md` and an executable `scripts/checkpoint.sh`, creates
-`apps/`, and makes the root a repository if needed. It commits only files it wrote. Existing unrelated files and index
-entries are left for another commit.
+No command makes one. An Epicenter is a folder that holds:
 
-Before that commit, init runs `bun install` in the folder, so the first commit
-holds `bun.lock` and the home is ready to use. `--no-install` leaves the
-install to you, for a computer that is offline or a `package.json` you want to
-change first. When the install fails, the home is still made and committed:
-init answers `Problems`, exit 1: its report is the home it made, as a
-success answers it, its message is Bun's, and its next step is
-`Run: cd <folder> && bun install`. With `--json`, a home made and installed
-answers `{ "data": { folder, port }, "error": null }`, and one whose install
-failed answers the same `{ folder, port }` as `error.report`.
-A `package.json` already in the folder is kept as it is, so check that it
-lists the workspace and the two dependencies. Init writes no `bunfig.toml`
-and no lock inside an app.
+| Path | Holds |
+| --- | --- |
+| `EPICENTER.md` | The marker: empty, or front matter with `port` |
+| `package.json` | The workspace in [A home is a Bun workspace](#a-home-is-a-bun-workspace) |
+| `.gitignore` | At least `/apps/*/local/`, `.env*`, `!.env.example` and `node_modules/` |
+| `bunfig.toml` | `env = false` |
+| `apps/` | One folder per app |
 
-When absent, the root `.gitignore` excludes local files, node_modules,
-`.DS_Store`, `/apps/*/code/ui/dist/` for build output, and
-`/apps/*/.code-build-*/` for copy staging inside app containers.
-When git-lfs is available, init installs its local filter and writes missing root attributes for common binary extensions.
-These configuration files belong to the person after init.
+Then run `git init` and `bun install` at its top, and commit. Write the
+`.gitignore` before the first commit: what `local/` and `.env` hold must
+never reach origin. Ignoring `/apps/*/code/ui/dist/` and
+`/apps/*/.code-build-*/` keeps build output and copy staging out of commits.
 
 To bring a home back on another computer:
 
@@ -866,7 +810,7 @@ under an app's `code/`, export refuses and names it:
 apps/tasks/code has uncommitted changes; commit them, then export.
 ```
 
-Commit with Git, or wait for the home's own checkpoint routine, then export
+Commit with Git, then export
 again. With `--all`, one such app refuses the whole export, and an on-disk app
 with no committed code is reported and left out. Records and other apps'
 pending files do not matter to it.
@@ -935,7 +879,7 @@ files; you review, commit, and push them with Git.
 
 An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404. `serve` never serves a path with a part starting with `.`.
 
-A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: `init` writes `"build": "bun run --filter '*' --if-present build"` into the home's `package.json`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. An app whose UI is a bare `ui/index.html` needs its own `build`.
+A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: the home's `package.json` holds `"build": "bun run --filter '*' --if-present build"`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. An app whose UI is a bare `ui/index.html` needs its own `build`.
 
 Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the blank app's `.gitignore` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 

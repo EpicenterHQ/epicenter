@@ -6,7 +6,6 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ActionError, type Answer, Err, Ok } from '@epicenter/app';
 import { nameProblem, parseWords } from './commands.ts';
-import { installAndBuildNext } from './install.ts';
 import { writeErr } from './output.ts';
 import { appsDir, epicenterDir } from './root.ts';
 
@@ -71,6 +70,6 @@ export async function newCommand(
 		await writeFile(join(code, path), text);
 	if (json) return Ok({ name, folder });
 	// The next step is a hint beside the answer, as stderr carries it today.
-	writeErr(`Run: ${installAndBuildNext(epicenterDir())}`);
+	writeErr(`Run: cd ${epicenterDir()} && bun install && bun run build`);
 	return Ok(folder);
 }

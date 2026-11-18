@@ -285,19 +285,6 @@ not create a second implementation assignment.
 
 ## After 0.7.0
 
-### Ship a new Epicenter's starter files as a template
-
-- Desired result: `epicenter init` copies a `template/` folder that
-  `@epicenter/cli` ships, instead of writing file contents held in TypeScript
-  strings. Doc text in those strings has drifted from the code before.
-- Grounding: [`init.ts`](packages/cli/src/init.ts) holds `STARTER_AGENTS`, the
-  checkpoint routine and script, `.gitignore`, and `package.json` as literals.
-  Keep init's logic: the nested-home refusal, the Git identity check, adopting
-  an existing folder, and version pinning. Stop turning on Git LFS whenever
-  `git-lfs` is installed (`init.ts:297`).
-- Revisit when: After 0.7.0. Decide whether `init` becomes `bun create` together
-  with the postponed one-package question.
-
 ### Revisit the rules for absent switches and lists
 
 - Desired result: Decide whether an absent switch should still read as `false`

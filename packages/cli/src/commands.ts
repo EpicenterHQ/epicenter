@@ -9,15 +9,6 @@ import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import { ActionError, isName, Ok } from '@epicenter/app';
 
 export const COMMANDS = {
-	init: {
-		usage: 'epicenter init [<folder>] [--port <n>] [--no-install]',
-		help: `Makes a folder an Epicenter: one root Git repository with EPICENTER.md, a starter
-AGENTS.md, and a package.json that makes it a Bun workspace depending on this
-version of @epicenter/cli and @epicenter/app. Then runs bun install there, which
-writes bun.lock and node_modules/. With --no-install it writes the files and
-leaves the install to you. A package.json already there is kept as it is.
-Epicenters cannot nest.`,
-	},
 	new: {
 		usage: 'epicenter new <name>',
 		help: `Makes apps/<name>/code/ from blank code and creates empty data/. Its package.json is

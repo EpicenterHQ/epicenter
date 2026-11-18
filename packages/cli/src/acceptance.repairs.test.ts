@@ -157,7 +157,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; optional fields ar
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'export', 'serve', 'init'])
+	for (const word of ['new', 'export', 'serve', 'check'])
 		expect((await f.json('new', word)).code).toBe(2);
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;

@@ -12,7 +12,6 @@ import { VERSION } from './engines.ts';
 import { exportCommand } from './export.js';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
-import { initCommand } from './init.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
 import {
 	actionHelp,
@@ -54,7 +53,6 @@ const HANDLERS: {
 		json: boolean,
 	) => Promise<Answer | undefined>;
 } = {
-	init: initCommand,
 	new: newCommand,
 	export: exportCommand,
 	check: checkCommand,
@@ -112,7 +110,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			const command = name as Command;
 			if (help)
 				return Ok(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
-			if (command !== 'init') epicenterRoot();
+			epicenterRoot();
 			begun = true;
 			return HANDLERS[command](words, json);
 		}
