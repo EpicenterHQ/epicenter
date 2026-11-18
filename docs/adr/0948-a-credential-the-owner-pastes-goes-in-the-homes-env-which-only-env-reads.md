@@ -92,8 +92,10 @@ credentials. Caches, drafts, snapshots, and every token code receives.
 - One place to paste and rotate a shared credential, and no app owns it.
 - A program an action starts sees no credential from `.env` unless the action
   passes it. A variable exported in the shell that started serve still
-  reaches it, so Flights keeps removing `OPENAI_API_KEY` from Codex's
-  environment.
+  reaches it: every routine gets serve's whole environment
+  (`packages/cli/src/routines.ts` passes `...process.env`), and Flights keeps
+  removing `OPENAI_API_KEY` from Codex's environment. The macOS job starts
+  serve with only `PATH`, so this matters when serve is started by hand.
 - `bun test` in the home cannot reach a paid provider by accident.
 - Serve's own environment no longer decides which key is used: a key exported
   in a shell has no effect on `env()`.

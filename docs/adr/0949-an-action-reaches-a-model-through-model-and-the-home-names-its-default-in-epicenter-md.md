@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Relates:** [ADR-0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) (keys through `env()`), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) (the earlier product's endpoints and `openAiCompatible`), [ADR-0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) (requests that arrive at an app), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (`EPICENTER.md`), [ADR-0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) (front matter is `key: <JSON>`).
-- **Unbuilt:** all of it. The first thing to exist is `model` exported from `@epicenter/app`, and `markerProblems` in `packages/cli/src/root.ts` accepting a `model` field; Zhongwen's `tutorSays` is its first caller.
+- **Unbuilt:** all of it. The first thing to exist is `model` exported from `@epicenter/app`, and `markerProblems` in `packages/cli/src/root.ts` accepting `model` and `providers` fields; Zhongwen's `tutorSays` is its first caller.
 
 ## Context
 
@@ -56,7 +56,7 @@ const response = await fetch(`${baseURL}/chat/completions`, {
   takes effect on the next call. With no field and no name, `model()` returns
   an error naming the field to add.
 - An app may name its own model in its own settings and pass it to `model()`.
-- `model()` knows a fixed table of providers:
+- `model()` knows four providers with no setup:
 
   | Provider | Base URL | Key, through `env()` |
   | --- | --- | --- |
@@ -64,6 +64,17 @@ const response = await fetch(`${baseURL}/chat/completions`, {
   | `lmstudio` | `http://127.0.0.1:1234/v1` | none |
   | `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
   | `anthropic` | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` |
+
+- The `providers` field of `EPICENTER.md` adds a provider, or replaces a
+  built-in one of the same name. Each entry names a base URL and, for a
+  provider that needs one, the `.env` name of its key, never the key:
+
+  ```txt
+  providers: {"desk": {"baseURL": "http://10.0.0.5:11434/v1"}, "groq": {"baseURL": "https://api.groq.com/openai/v1", "key": "GROQ_API_KEY"}}
+  ```
+
+  `desk/qwen3` then reaches the Ollama on another computer, with no release
+  of Epicenter. The field is read when `model()` is called, like `model`.
 
 - `model()` returns an error, and sends nothing, for an unknown provider or a
   key `env()` cannot give.
@@ -88,7 +99,7 @@ const response = await fetch(`${baseURL}/chat/completions`, {
   including whether a prompt stays on this computer or goes to a cloud
   provider.
 - An agent that can change an app's settings over MCP can move that app from
-  `ollama/...` to `openai/...`. It can only choose among the table's
+  `ollama/...` to `openai/...`. It can only choose among the home's
   providers, where today a free-form `endpoint` lets it choose any address.
 - The `openai` package fits: `new OpenAI({ baseURL, apiKey: apiKey ?? 'none' })`.
   The action always passes `apiKey`, because the package otherwise reads
@@ -99,10 +110,10 @@ const response = await fetch(`${baseURL}/chat/completions`, {
   can read a key through `env()` anyway, so a guard inside `model()` would
   only catch mistakes, and the action's own code is where those are made
   and read.
-- A new provider, or a second Ollama on another computer, needs a new
-  release of `@epicenter/app`. Nobody needs one yet. A keyless provider at
-  another address exposes no key, so it can be added when someone does.
-- Epicenter's hosted models are not in the table. They join when the hosted
+- A new provider, or a second Ollama on another computer, is one entry in
+  `providers`. Because that file is committed, a change to where a key is
+  sent shows in the home's history like any other change.
+- Epicenter's hosted models are not built in. They join when the hosted
   service issues an API key the owner can create and revoke; it has none
   today, and the CLI signs in by device grant as `so.epicenter.cli`.
 - Outside tools (Cursor, a phone chat app) cannot reach the home's models. If
@@ -128,9 +139,11 @@ const response = await fetch(`${baseURL}/chat/completions`, {
   base URL and key already serve all of them.
 - **`{ connection, model }` pairs instead of a prefix.** Equivalent, and two
   values where one string fits a settings field.
-- **A `providers` field in `EPICENTER.md`** naming a base URL and a key
-  variable. Nobody needs one yet. A committed file pairing a key with any
-  address is also a quiet way to send a key somewhere new.
+- **A fixed table only.** Smallest, and a second Ollama or a new provider
+  waits for a release of Epicenter.
+- **Providers only from `EPICENTER.md`, nothing built in.** Epicenter would
+  know no provider's address, and every home would write the same four
+  entries before its first model call.
 - **`epicenter login` with a device grant for the hosted provider.** The
   hosted side has it, and every home would store and refresh a token and
   handle sign-out races. An API key through `env()` needs none of that.
