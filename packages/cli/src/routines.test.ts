@@ -184,16 +184,18 @@ test('the daily task review writes a draft and excludes completed tasks', async 
 	// The script reads tasks through the command line, which asks serve.
 	await f.serve();
 	await f.routines.check(new Date(Date.now() + DAY));
-	const today = new Date();
-	const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-	const draft = join(f.home, 'drafts', `task-review-${day}.md`);
-	await eventually(async () =>
-		readFile(draft, 'utf8').then(
-			(t) => t.includes('2 open tasks.'),
-			() => false,
-		),
-	);
-	const text = await readFile(draft, 'utf8');
+	// The script dates its draft in the machine's time zone, while `bun test`
+	// runs this process in UTC, so the test reads whichever draft appears.
+	const drafts = join(f.home, 'drafts');
+	const draftText = async () => {
+		const names = await readdir(drafts).catch(() => []);
+		const name = names.find((n) =>
+			/^task-review-\d{4}-\d{2}-\d{2}\.md$/.test(n),
+		);
+		return name ? readFile(join(drafts, name), 'utf8') : '';
+	};
+	await eventually(async () => (await draftText()).includes('2 open tasks.'));
+	const text = await draftText();
 	expect(text).toContain('An overdue task');
 	expect(text).not.toContain('Already completed');
 }, 30_000);
