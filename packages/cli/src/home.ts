@@ -228,32 +228,25 @@ export async function localProblem(
 export async function discoverAll() {
 	const found = await homeEntries();
 	const loaded = await Promise.all(
-		found.map(async (entry) => {
-			const located = await load(entry, entry.entry);
-			const local = await localProblem(entry.entry, entry.realPath);
-			if (!local) return { located };
-			if (!located.ok)
-				return {
-					located: { ...located, problems: [...located.problems, local] },
-				};
-			const { entry: name, folder, realPath, codePath } = located;
-			const listed: Extract<Located, { ok: false }> = {
-				entry: name,
-				folder,
-				realPath,
-				codePath,
-				ok: false,
-				problems: [local],
-			};
-			return { located, listed };
-		}),
+		found.map(async (entry) => ({
+			located: await load(entry, entry.entry),
+			local: await localProblem(entry.entry, entry.realPath),
+		})),
 	);
 	return {
 		epicenter: epicenterRoot().folder,
 		apps: loaded.flatMap(({ located }) => (located.ok ? [located] : [])),
-		problems: loaded.flatMap(({ located, listed }) =>
-			listed ? [listed] : located.ok ? [] : [located],
-		),
+		problems: loaded.flatMap(({ located, local }) => {
+			const problems = [
+				...(located.ok ? [] : located.problems),
+				...(local ? [local] : []),
+			];
+			if (!problems.length) return [];
+			const { entry, folder, realPath, codePath } = located;
+			return [
+				{ entry, folder, realPath, codePath, ok: false as const, problems },
+			];
+		}),
 	};
 }
 
