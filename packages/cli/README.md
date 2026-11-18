@@ -8,7 +8,7 @@ container:
 
 ```txt
 <Epicenter>/
-  .git/  EPICENTER.md  AGENTS.md  theme.css  .gitignore  .gitattributes
+  .git/  EPICENTER.md  AGENTS.md  .gitignore  .gitattributes
   package.json                  the workspace, and the Epicenter version
   bun.lock                      committed
   node_modules/                 ignored; one install for the command and every app
@@ -220,8 +220,7 @@ so the home still installs one copy. Bun caches a tarball by its path, so a
 file changed in place keeps installing its old content: the file's path must
 change when its content does. The `<hash>` folder is named for the
 tarballs' content, so each pack of changed source is a new path. Rehearse on
-a clone of the home, not the home. An app's pages may link to the home's
-root `theme.css`, so the clone must include that file. Remove `overrides`
+a clone of the home, not the home. Remove `overrides`
 and install again to return to the released version.
 
 ## The commands
@@ -284,8 +283,8 @@ is used for module imports and invalidation, the check for one shared
 `@epicenter/app`, and UI builds and serving. Replacing `code/` leaves the
 container lock and record paths intact.
 
-`init` and `new` run `bun install` at the top of the home with the Bun that
-runs the command. A failure prints Bun's message and
+`init` runs `bun install` at the top of the home with the Bun that
+runs the command, so a new home's first commit holds `bun.lock`. A failure prints Bun's message and
 `Run: cd <home> && bun install`. A home with no `package.json` is told what
 one needs. Build reports malformed layout entries without stopping other apps.
 
@@ -683,8 +682,7 @@ committed.
 
 ## Initialize an Epicenter
 
-`epicenter init [<folder>] [--port <n>] [--no-install]` writes `EPICENTER.md`,
-seeds missing `theme.css` (the plain Graphite + blue palette), starter
+`epicenter init [<folder>] [--port <n>] [--no-install]` writes `EPICENTER.md`, starter
 `AGENTS.md`, a `package.json` that makes the folder a Bun workspace depending
 on this command's version of `@epicenter/cli` and `@epicenter/app`,
 <!-- doc-path-check: ignore-next-line -->
@@ -726,12 +724,14 @@ signing in again.
 
 `epicenter new <name>` creates `apps/<name>/code/` with a declaration, a
 `package.json` named for the app that lists no packages, and an ignore file
-for node_modules and ui/dist. It creates empty sibling `data/`, then runs
-`bun install` at the top of the home, which adds the app to `bun.lock`. It
+for node_modules and ui/dist. It creates empty sibling `data/` and
+runs nothing else: no install and no build. It
 writes no lock inside the app. It makes no
 repository or commit. Names are checked without regard to case and cannot
 be CLI command names. JSON reports `{ name, folder }`, with the container as
-folder. Text prints that path and `Run: epicenter <name>`.
+folder. Text prints that path and the one command that installs the app's
+packages and builds its UI:
+`Run: cd <home> && bun install && bun run build`.
 
 Without `--from`, `new` makes a blank app. To start with a usable app, copy a
 shared app with `--from`; the destination name can differ from the source's name.
@@ -791,13 +791,10 @@ is created. Changes from the source are later work for the app's owner.
 `Repository` (the GitHub address, or a local checkout's `origin` with HTTP
 credentials removed, else its absolute path), `Folder`, `Ref` when one was
 named, and `Commit`. No command reads this provenance file. Copied
-links remain links. A link such as
-`code/ui/src/theme.css -> ../../../../../theme.css` needs the destination's
-root theme. A dangling link produces a stderr line naming its stored target
+links remain links. A link that leads outside `code/` resolves only
+if the destination has the same file, so an app keeps what its UI uses, its
+palette too, as files in `code/`. A dangling link produces a stderr line naming its stored target
 and an optional JSON `links: [{ path, target }]`, with paths relative to code/.
-
-When the app has a browser UI, `new` prints how to start `serve` and open the app.
-For an action-only app it prints the command that lists its actions.
 
 A copy joins the home's workspace: its `package.json` is named for the new
 app, since two packages in one workspace cannot share a name; any
@@ -805,12 +802,9 @@ app, since two packages in one workspace cannot share a name; any
 a `bun.lock` it carried is left out, since the home has one lock. Code with no
 `package.json` gets the one blank code has. The rest of the file is kept.
 
-Install failure leaves the created app for repair, with
-`Run: cd <home> && bun install`. Copy or load failure removes
-only the container this command created. After installing, `new` runs the
-copied app's `bun run build` in `code/` when its `package.json` has a `build`
-script, so the UI opens straight away. A failed build keeps the app, with
-`Run: cd <code> && bun run build`, and exits 1.
+Copy failure removes only the container this command created. `new` never
+runs copied code: the printed command installs its packages and runs its
+`build`, and their errors are Bun's.
 
 `new` creates a separate app with empty records; it never updates an existing
 one. To take a later code change, inspect the source commit in `SOURCE.md`,
@@ -881,7 +875,7 @@ The copy excludes `data/`, `node_modules`, `ui/dist`, `.DS_Store`,
 `SOURCE.md`, and export markers, even if tracked. It preserves binary bytes and
 executable modes, and materializes Git LFS files. Internal symbolic links keep
 their targets when the targets are included. A relative link to a committed
-regular shared file outside `apps/`, such as the root `theme.css`, becomes a
+regular shared file outside `apps/`, such as a shared stylesheet, becomes a
 regular file in the exported app. Export refuses links into another app,
 records, local files, missing files, shared directories, or outside the
 Epicenter. It does not rewrite imports or discover arbitrary dependencies
@@ -936,7 +930,7 @@ files; you review, commit, and push them with Git.
 
 ## Build a UI
 
-An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app that has `ui/` but no `ui/dist/index.html` answers 404 with `Run: cd <code> && bun run build`. `serve` never serves a path with a part starting with `.`.
+An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404. `serve` never serves a path with a part starting with `.`.
 
 A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: `init` writes `"build": "bun run --filter '*' --if-present build"` into the home's `package.json`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. A home made before this script existed needs it added by hand, and an app whose UI is a bare `ui/index.html` needs its own `build`.
 

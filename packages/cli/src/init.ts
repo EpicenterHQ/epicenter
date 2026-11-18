@@ -16,7 +16,6 @@ import {
 	isMarked,
 	MARKER,
 } from './root.ts';
-import defaultTheme from './starter/theme.css' with { type: 'text' };
 
 /** The marker for an Epicenter served on `port`: a note for people, its port in the front matter. */
 const marker = (port: number) => `---
@@ -105,8 +104,10 @@ Never put records in code/. An action writes only under data/ and local/, and na
 path from the app's folder, such as data/tasks/<time>.md or local/google.md.
 local/ appears when an action first writes there.
 
-A browser UI is optional. It can use its own styles or import the home
-palette from theme.css. Keep its components and layout in code/.
+A browser UI is optional. Keep everything it uses in code/, its palette too:
+an app owns its own copy of its colors, so copy theme.css from a sibling app
+rather than linking one outside code/. A link leading out of code/ breaks
+when the app is copied or shared.
 
 Change records with \`epicenter <app> <action>\` when an action fits;
 \`epicenter <app>\` lists them. You may also edit code and records directly.
@@ -234,7 +235,6 @@ export async function initCommand(
 	}
 	for (const [path, text, mode] of [
 		['package.json', HOME_PACKAGE, 0o644],
-		['theme.css', defaultTheme, 0o644],
 		['routines/checkpoint.md', CHECKPOINT_ROUTINE, 0o644],
 		['scripts/checkpoint.sh', CHECKPOINT_SCRIPT, 0o755],
 	] as const) {

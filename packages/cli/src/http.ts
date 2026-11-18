@@ -39,7 +39,6 @@
  * that runs its own script.
  */
 
-import { existsSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
@@ -48,7 +47,6 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
-import { buildNext } from './install.ts';
 import { createMcpServer } from './mcp.ts';
 import { fail, refused, writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
@@ -161,16 +159,7 @@ function createSite(): Site {
 				},
 			});
 		} catch {
-			// A UI's page with no build says how to make one; anything else is just missing.
-			const page = decoded === '' || decoded === 'index.html';
-			if (!page || !existsSync(join(entry.codePath, 'ui'))) return notFound();
-			return new Response(
-				`${app} has no built UI. Run: ${buildNext(entry.codePath)}\n`,
-				{
-					status: 404,
-					headers: { 'content-type': 'text/plain; charset=utf-8' },
-				},
-			);
+			return notFound();
 		}
 	};
 	return {

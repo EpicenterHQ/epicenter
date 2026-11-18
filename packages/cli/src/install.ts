@@ -1,11 +1,11 @@
 /**
- * The two Bun commands `init` and `new` run for the person. A home is one Bun
- * workspace whose `package.json` depends on `@epicenter/cli` and
- * `@epicenter/app` and takes each `apps/<app>/code` as a package, so one
- * `bun install` at its top, one `bun.lock` and one `node_modules/` serve the
- * command and every app. An app's UI is what its own `bun run build` writes
- * to `code/ui/dist/`; `serve` only serves it. Epicenter has no install or
- * build command: the person runs Bun's. A call never installs or builds.
+ * Installing a home. A home is one Bun workspace whose
+ * `package.json` depends on `@epicenter/cli` and `@epicenter/app` and takes
+ * each `apps/<app>/code` as a package, so one `bun install` at its top, one
+ * `bun.lock` and one `node_modules/` serve the command and every app, and
+ * `bun run build` there runs every app's own build into its `code/ui/dist/`.
+ * Epicenter installs once, in `init`, so a new home's first commit holds
+ * `bun.lock`. Everywhere else it prints the command and the person runs it.
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,11 +14,15 @@ import { extractErrorMessage } from 'wellcrafted/error';
 /** The command a person runs to install the home at `folder`. */
 export const installNext = (folder: string) => `cd ${folder} && bun install`;
 
-/** The command a person runs to build the UI of the app whose code is `folder`. */
-export const buildNext = (folder: string) => `cd ${folder} && bun run build`;
+/**
+ * The one command that brings the home at `folder` up to date: install every
+ * app's packages and Epicenter, then run every app's own build.
+ */
+export const installAndBuildNext = (folder: string) =>
+	`cd ${folder} && bun install && bun run build`;
 
-/** Why a Bun command failed, and the command that tries it again. */
-export type BunProblem = { message: string; next: string };
+/** Why `bun install` failed, and the command that tries it again. */
+export type InstallProblem = { message: string; next: string };
 
 /**
  * Run `bun install` in `folder`, the top of a home, with the Bun that runs
@@ -26,33 +30,16 @@ export type BunProblem = { message: string; next: string };
  */
 export async function installHome(
 	folder: string,
-): Promise<BunProblem | undefined> {
+): Promise<InstallProblem | undefined> {
 	const next = installNext(folder);
 	if (!existsSync(join(folder, 'package.json')))
 		return {
 			message: `${folder} has no package.json. A home is a Bun workspace: its package.json lists "workspaces": ["apps/*/code"] and depends on @epicenter/cli and @epicenter/app. Write it, then install.`,
 			next,
 		};
-	return runBun(folder, ['install'], next);
-}
-
-/**
- * Run the app's own `bun run build` in its code `folder`, which writes its UI
- * to `ui/dist/`; an app with no `build` script has nothing to build. Answers
- * what went wrong, or undefined.
- */
-export const buildApp = (folder: string) =>
-	runBun(folder, ['run', '--if-present', 'build'], buildNext(folder));
-
-/** Run the Bun that runs this command with `args` in `cwd`, answering its failure. */
-async function runBun(
-	cwd: string,
-	args: string[],
-	next: string,
-): Promise<BunProblem | undefined> {
 	try {
-		const child = Bun.spawn([process.execPath, ...args], {
-			cwd,
+		const child = Bun.spawn([process.execPath, 'install'], {
+			cwd: folder,
 			env: process.env,
 			stdin: 'ignore',
 			stdout: 'pipe',
@@ -68,7 +55,7 @@ async function runBun(
 			message:
 				stderr.trim() ||
 				stdout.trim() ||
-				`bun ${args.join(' ')} exited with code ${code}`,
+				`bun install exited with code ${code}`,
 			next,
 		};
 	} catch (cause) {

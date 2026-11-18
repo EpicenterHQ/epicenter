@@ -4,6 +4,7 @@
 - **Date:** 2026-11-17
 - **Supersedes:** [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app` to every app), once accepted.
 - **Amends:** [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) on package installs and the engines check. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on an app that is a link to code outside the home: it no longer loads.
+- **Amended by:** [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md): only `init` runs `bun install`; `new` prints the command. `init` writes no starter palette, so the command carries none.
 - **Relates:** [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the person keeps serve running; Epicenter writes no job), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) (Epicenter does not wrap tools the owner has), [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve per home).
 
 ## Context

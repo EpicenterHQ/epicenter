@@ -9,6 +9,7 @@
 - **Amended by:** [ADR-0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md): `--from` takes a folder on disk or `owner/repo/folder#ref` on GitHub, and `SOURCE.md` records repository, folder, ref, and commit as fields.
 
 - **Amended by:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): an app's copied code lives in `apps/<app>/code/` inside the home's private root repository. Copies create no per-app repository or commit; `code/SOURCE.md` records provenance, and root checkpoints record pending files. The separate-repository and first-commit rules below are historical; copying without automatic merges remains.
+- **Amended by:** [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md): `new --from` copies and prints `cd <home> && bun install && bun run build`; it installs and loads nothing.
 
 ## Context
 

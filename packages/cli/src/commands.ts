@@ -29,8 +29,8 @@ To copy from another host, clone it first. Copies the source commit, not its wor
 local differences are reported and left out.
 The app's code/package.json is named <name> and lists only its own packages: the copy's
 name is rewritten, and its bun.lock and any @epicenter/app entry are left out, since the
-home has one lock and one @epicenter/app. Then runs bun install at the top of the home,
-and bun run build in code/ when the app has a build script, so its UI is ready to open.`,
+home has one lock and one @epicenter/app. It runs nothing: it prints the command that
+installs the app's packages and builds its UI, cd <home> && bun install && bun run build.`,
 	},
 	export: {
 		usage:

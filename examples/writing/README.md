@@ -5,10 +5,11 @@ The browser, terminal, and your agent use the same actions and Markdown files.
 No AI account or external service is needed.
 
 Use the latest Epicenter CLI for a new home. Writing runs on 0.2.0 or later.
-To add Writing to your home, run
+To add Writing to your home, run these at the top of the home
 
 ```sh
 epicenter new writing --from EpicenterHQ/epicenter/examples/writing
+bun install && bun run build
 epicenter serve
 ```
 

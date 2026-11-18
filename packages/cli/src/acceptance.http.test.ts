@@ -263,7 +263,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('serve serves ui/dist/ as the build left it, never builds, and an unbuilt page says how to build it', async () => {
+test('serve serves ui/dist/ as the build left it and never builds; an unbuilt UI is not found', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'reading'), {
 			...readingApp,
@@ -273,11 +273,7 @@ test('serve serves ui/dist/ as the build left it, never builds, and an unbuilt p
 		}),
 	);
 	const code = join(f.made, 'code');
-	const unbuilt = await fetch(`${f.base}/reading/`);
-	expect(unbuilt.status).toBe(404);
-	expect(await unbuilt.text()).toBe(
-		`reading has no built UI. Run: cd ${code} && bun run build\n`,
-	);
+	expect((await fetch(`${f.base}/reading/`)).status).toBe(404);
 	expect((await fetch(`${f.base}/reading/main.js`)).status).toBe(404);
 	await mkdir(join(code, 'ui', 'dist'), { recursive: true });
 	await writeFile(join(code, 'ui', 'dist', 'index.html'), 'one\n');

@@ -1,5 +1,4 @@
 /** Create an app container from blank code or a committed code copy. */
-import { existsSync } from 'node:fs';
 import {
 	mkdir,
 	mkdtemp,
@@ -22,15 +21,9 @@ import {
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
-import { loadHomeApp } from './home.ts';
-import {
-	type BunProblem,
-	buildApp,
-	buildNext,
-	installHome,
-} from './install.ts';
+import { installAndBuildNext } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { appsDir, epicenterDir, epicenterRoot, folderPath } from './root.ts';
+import { appsDir, epicenterDir, folderPath } from './root.ts';
 
 type CopiedSource = { commit: string; notCopied?: string[] | null };
 
@@ -177,14 +170,7 @@ async function made(name: string, json: boolean, source?: CopiedSource) {
 	else {
 		writeOut(folder);
 		writeSourceWarning(name, source);
-		const code = join(folder, 'code');
-		if (existsSync(join(code, 'ui', 'dist', 'index.html'))) {
-			const { port } = epicenterRoot();
-			writeErr('Run: epicenter serve');
-			writeErr(`Open http://127.0.0.1:${port}/${name}/ in your browser.`);
-		} else if (existsSync(join(code, 'ui')))
-			writeErr(`Run: ${buildNext(code)}`);
-		else writeErr(`Run: epicenter ${name}`);
+		writeErr(`Run: ${installAndBuildNext(epicenterDir())}`);
 	}
 	return 0;
 }
@@ -220,8 +206,6 @@ export async function newCommand(
 		} catch (error) {
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
-		const failed = await installHome(epicenterDir());
-		if (failed) return unfinished(name, failed, json);
 		return made(name, json);
 	}
 	const source = await locateSource(from);
@@ -250,20 +234,6 @@ export async function newCommand(
 			json,
 		);
 	}
-	const failed = await installHome(epicenterDir());
-	if (failed) return unfinished(name, failed, json, copied);
-	const { data: located, error } = await loadHomeApp(name);
-	const loadProblem =
-		error ??
-		(located.ok
-			? undefined
-			: CliError.AppProblems({ app: from, problems: located.problems }).error);
-	if (loadProblem) {
-		await rm(folder, { recursive: true, force: true });
-		return fail(loadProblem, json);
-	}
-	const unbuilt = await buildApp(join(folder, 'code'));
-	if (unbuilt) return unfinished(name, unbuilt, json, copied);
 	return made(name, json, copied);
 }
 
@@ -571,28 +541,6 @@ async function makeApp(name: string) {
 	await mkdir(join(container, 'data'));
 	for (const [path, text] of Object.entries(blank(name)))
 		await writeFile(join(folder, path), text);
-}
-
-/** Keep the app on disk so its install or build can be repaired and run again. */
-function unfinished(
-	name: string,
-	error: BunProblem,
-	json: boolean,
-	source?: CopiedSource,
-) {
-	if (json)
-		writeJson({
-			name,
-			folder: join(appsDir(), name),
-			error,
-			...(source ? { source } : {}),
-		});
-	else {
-		writeSourceWarning(name, source);
-		writeErr(`${name}: ${error.message}`);
-		writeErr(`Run: ${error.next}`);
-	}
-	return 1;
 }
 
 /** Report copied links exactly as stored, without following directory links. */
