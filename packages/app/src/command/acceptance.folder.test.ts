@@ -95,7 +95,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 
 	// Code finds packages from where it really is, so code outside the Epicenter
 	// does not find the Epicenter's @epicenter/app, and the listing gives Bun's
-	// reason.
+	// reason, naming the app's folder as apps/<name> wherever it really is.
 	const outside = await f.folder(join(f.userDir, 'Code', 'outside'), {
 		'code/epicenter.ts': bareApp('outside'),
 	});
@@ -105,7 +105,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 			entry: 'outside',
 			folder: join(f.apps, 'outside'),
 			problems: [
-				`code/epicenter.ts: Cannot find package '@epicenter/app' imported from ${join(outside, 'code', 'epicenter.ts')}`,
+				"code/epicenter.ts: Cannot find package '@epicenter/app' imported from apps/outside/code/epicenter.ts",
 			],
 		},
 	]);

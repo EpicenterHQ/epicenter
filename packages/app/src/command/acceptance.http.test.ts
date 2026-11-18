@@ -6,7 +6,14 @@
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -112,7 +119,18 @@ test('HTTP tools/list offers app actions', async () => {
 });
 
 test('GET / answers the one listing as JSON, naming no path, and tools/list offers its actions', async () => {
-	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
+	const f = await setup(async (f) => {
+		await f.folder(join(f.apps, 'reading'), readingApp);
+		// Bun names the importing file by its path, and a failed read names its file.
+		await f.app(
+			'broken',
+			`import app from './missing.ts';\nexport default app;`,
+		);
+		await mkdir(join(f.epicenter, 'routines'));
+		const locked = join(f.epicenter, 'routines', 'locked.md');
+		await writeFile(locked, '');
+		await chmod(locked, 0);
+	});
 	const response = await fetch(`${f.base}/`, {
 		headers: { accept: 'application/json' },
 	});
@@ -120,6 +138,17 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 	const text = await response.text();
 	expect(text).not.toContain(f.userDir);
 	const listing = JSON.parse(text);
+	expect(listing.problems[0].problems[0]).toContain(
+		'imported from apps/broken/code/epicenter.ts',
+	);
+	expect(listing.routines[0].problem).toContain("'./routines/locked.md'");
+	// A call to the app answers the same problems, also without a path.
+	const refused = await fetch(`${f.base}/broken`, {
+		method: 'POST',
+		body: '{"words":["go"]}',
+	});
+	expect(refused.status).toBe(400);
+	expect(await refused.text()).not.toContain(f.userDir);
 	expect(Object.keys(listing)).toEqual([
 		'version',
 		'apps',

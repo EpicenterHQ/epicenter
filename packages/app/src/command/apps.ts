@@ -144,8 +144,16 @@ function forgetModules(folder: string) {
 		if (path.startsWith(inside)) delete require.cache[path];
 }
 
-/** Import an app folder's code: the app it defines, or the problems that keep it from loading. */
-async function load(found: AppFolder): Promise<Result<LoadedApp, string[]>> {
+/**
+ * Import an app folder's code: the app it defines, or the problems that keep
+ * it from loading. A problem names the app's folder and its Epicenter's from
+ * the Epicenter's folder, as `apps/<name>` and `.`, because serve sends it to
+ * whoever asks.
+ */
+async function load(
+	root: Pick<EpicenterRoot, 'folder'>,
+	found: AppFolder,
+): Promise<Result<LoadedApp, string[]>> {
 	if (found.problem) return Err([found.problem]);
 	const named = nameProblem(found.name);
 	if (named !== undefined)
@@ -153,6 +161,9 @@ async function load(found: AppFolder): Promise<Result<LoadedApp, string[]>> {
 	const thrown = (error: unknown) =>
 		Err(
 			extractErrorMessage(error)
+				.replaceAll(found.codePath, `apps/${found.name}/code`)
+				.replaceAll(found.realPath, `apps/${found.name}`)
+				.replaceAll(root.folder, '.')
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
@@ -221,7 +232,7 @@ export async function discoverAll(root: Pick<EpicenterRoot, 'folder'>) {
 	const loaded = await Promise.all(
 		(await rootEntries(root)).map(async (found) => ({
 			name: found.name,
-			result: await load(found),
+			result: await load(root, found),
 			local: await localProblem(found),
 		})),
 	);
@@ -260,7 +271,7 @@ export async function loadApp(
 ): Promise<Result<LoadedApp, NotStarted>> {
 	const found = await findEntry(root, name);
 	if (!found) return unknownApp(name);
-	const { data: loaded, error: problems } = await load(found);
+	const { data: loaded, error: problems } = await load(root, found);
 	if (loaded) return Ok(loaded);
 	return ActionError.NotStarted({
 		cause: 'app-problems',

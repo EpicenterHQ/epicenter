@@ -166,7 +166,9 @@ export function createRoutines({ folder }: { folder: string }) {
 							command: shellLine(run),
 						};
 					} catch (error) {
-						return { name, problem: extractErrorMessage(error) };
+						// The listing names no path on this computer.
+						const problem = extractErrorMessage(error).replaceAll(folder, '.');
+						return { name, problem };
 					}
 				}),
 			);
