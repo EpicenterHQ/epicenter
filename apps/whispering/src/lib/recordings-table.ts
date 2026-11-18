@@ -475,7 +475,13 @@ export function captureDeletions(
 }
 
 const count = (n: number, one: string, many: string) =>
-	`${n} ${n === 1 ? one : many}`;
+	`${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+/** A few of `names`, then how many more, so a long list still reads. */
+const fewOf = (names: readonly string[], shown = 3) =>
+	names.length > shown
+		? `${names.slice(0, shown).join(', ')} and ${(names.length - shown).toLocaleString()} more`
+		: names.join(', ');
 
 /** What the person is told before several recordings are deleted: what goes, what stays, and what was left out. */
 export function describeDeletions({ deletions, refused }: CapturedDeletions): {
@@ -486,21 +492,19 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 		(sum, item) => sum + item.transcripts.length,
 		0,
 	);
-	const removed = [
-		count(deletions.length, 'recording', 'recordings'),
-		'their audio',
-		...(transcripts > 0
-			? [count(transcripts, 'transcript', 'transcripts')]
-			: []),
-	];
-	const names = deletions.map((item) => `“${item.title}”`).join(', ');
+	const names = fewOf(deletions.map((item) => `“${item.title}”`));
+	const their = deletions.length === 1 ? 'its' : 'their';
 	return {
-		title: `Delete ${count(deletions.length, 'recording', 'recordings')}?`,
-		description: `This deletes ${removed.join(', ')}: ${names}.${
+		title: `Delete ${count(deletions.length, 'recording', 'recordings')}${
+			transcripts > 0
+				? ` and ${their} ${count(transcripts, 'transcript', 'transcripts')}`
+				: ''
+		}?`,
+		description: `This also deletes ${their} audio: ${names}.${
 			refused.length > 0
-				? ` ${count(refused.length, 'selected recording is', 'selected recordings are')} left out and kept: ${refused
-						.map(({ title, reason }) => `“${title}” (${reason})`)
-						.join(' ')}`
+				? ` ${count(refused.length, 'selected recording is', 'selected recordings are')} left out and kept: ${fewOf(
+						refused.map(({ title, reason }) => `“${title}” (${reason})`),
+					)}.`
 				: ''
 		}`,
 	};

@@ -9,11 +9,13 @@
  * - Ticking a page leaves the other pages' ticks alone; selecting every row
  *   the search keeps reaches past the page.
  * - A shift-click ticks a range on one page.
+ * - A delete confirmation names a few recordings and counts the rest.
  */
 import { expect, test } from 'bun:test';
 import type { RecordingNote } from './folder.js';
 import {
 	DEFAULT_SORT,
+	describeDeletions,
 	PAGE_SIZE,
 	pageOf,
 	selectionIn,
@@ -190,4 +192,45 @@ test('a shift-click with no earlier click on the page changes that row alone', (
 	expect(selectRange([], first, undefined, id, true, library)).toEqual(
 		toggleSelected([], id, true, library),
 	);
+});
+
+test('deleting 15,000 recordings names three of them and counts the rest', () => {
+	const deletions = Array.from({ length: 15_000 }, (_, i) => ({
+		kind: 'recording' as const,
+		id: `r${i}`,
+		title: `Note ${i}`,
+		noted: true,
+		audio: `recordings/r${i}.wav`,
+		transcripts:
+			i < 9_200 ? [{ collection: 'transcriptions' as const, id: `t${i}` }] : [],
+	}));
+	const refused = Array.from({ length: 40 }, (_, i) => ({
+		title: `Busy ${i}`,
+		reason: 'It is being transcribed.',
+	}));
+
+	const { title, description } = describeDeletions({ deletions, refused });
+
+	expect(title).toBe('Delete 15,000 recordings and their 9,200 transcripts?');
+	expect(description).toBe(
+		'This also deletes their audio: “Note 0”, “Note 1”, “Note 2” and 14,997 more. 40 selected recordings are left out and kept: “Busy 0” (It is being transcribed.), “Busy 1” (It is being transcribed.), “Busy 2” (It is being transcribed.) and 37 more.',
+	);
+});
+
+test('deleting one recording without transcripts names it alone', () => {
+	const { title, description } = describeDeletions({
+		deletions: [
+			{
+				kind: 'recording',
+				id: 'r0',
+				title: 'Memo',
+				noted: true,
+				audio: undefined,
+				transcripts: [],
+			},
+		],
+		refused: [],
+	});
+	expect(title).toBe('Delete 1 recording?');
+	expect(description).toBe('This also deletes its audio: “Memo”.');
 });
