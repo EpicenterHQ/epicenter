@@ -39,8 +39,8 @@ every device, and a phone or a browser tab has none.
 ## Decision
 
 **Whispering 8 keeps its recordings, and their audio beside them, in `data/`
-in its own local data directory. It writes plain files that satisfy the
-`whispering` app's contract, keeps no Git, and needs no Epicenter, no home,
+in its own local data directory. It writes plain Markdown notes and audio
+files in a layout it declares itself, keeps no Git, and needs no Epicenter, no home,
 and no account. Audio is never deleted unless the person asks.**
 
 ```txt
@@ -96,8 +96,7 @@ Hugging Face cache               local models, shared with other programs
 - **Audio is kept.** Settings shows its size and offers "Delete audio older
   than…". Nothing deletes audio on its own.
 - **A recording is its id, found from its note or its finished audio.**
-  The contract declares the audio beside the note
-  (`recordings/{id}.{ext}`). Audio with no note lists as an untitled
+  The audio sits beside the note (`recordings/{id}.{ext}`). Audio with no note lists as an untitled
   recording dated from the file; a note with no audio stays a recording.
   Before audio is deleted, its note is written if there is none.
 - **A recording keeps several transcripts.** Each is its own file in
@@ -106,7 +105,7 @@ Hugging Face cache               local models, shared with other programs
 - **The person's settings are one Markdown file, `settings.md`, at the top
   of the folder,** in both builds. Its front matter holds the model for
   each job, each provider connection and its endpoint (never its key), and
-  the global shortcut, which the browser ignores. The contract declares it.
+  the global shortcut, which the browser ignores.
   It moves, exports, and reaches a home with the recordings. A chosen model
   that this computer cannot reach shows as unavailable in the picker.
   Whispering alone reads and writes it, and passes `@epicenter/ai` the
@@ -180,8 +179,12 @@ Hugging Face cache               local models, shared with other programs
   none starts with a dot. Both id formats (`k3x9a2f8` and
   `2026-10-30T22-41-05-123Z-k3x9a2f8`) pass; `..`, an absolute path, and a
   hidden file are refused. Recordings, transcriptions, transformations,
-  runs, and `settings.md` are read and written on top of `Files` in the
-  contract's layout. One conformance suite runs the five operations
+  runs, and `settings.md` are read and written on top of `Files`. One
+  TypeScript module declares the layout: each kind of note's directory and
+  its fields as a TypeBox object, and why a note does not read, by field
+  and line. Nothing publishes it; the published `contract.json` and its
+  compiler served the retired folder product's `epicenter check
+  --contract` (ADR-0711, ADR-0717), and they go. One conformance suite runs the five operations
   against all three.
 - **`readMany` is how a list loads.** Opening the folder lists
   `recordings/` and `transcriptions/`, then reads every note in one
@@ -209,7 +212,7 @@ Hugging Face cache               local models, shared with other programs
   `@epicenter/app` exports its front matter reader and writer
   (`readMarkdown`, `markdownOf`, `withFields`, ADR-0924) at a
   browser-safe subpath, `@epicenter/app/markdown`, and Whispering imports
-  it, so a note Whispering writes is one `epicenter check` reads.
+  it, so a note Whispering writes is one a home's apps read the same way.
 - `tauri-plugin-epicenter-folder` goes without a replacement.
 - **The folder only ever receives finished files, each by one rename.**
   Every file on its way into the folder waits outside it, in `local/` in
@@ -294,7 +297,8 @@ none.
   packages/local                        deleted; settings.md is Whispering's, secrets are
                                         the Keychain's, the rest is localStorage
   packages/definition                   deleted:
-    contract, ids                         move into apps/whispering
+    ids                                   move into apps/whispering
+    contract                              deleted; a TypeScript module in apps/whispering declares the layout
     site (APPS, localUrl)                 apps/api and apps/whispering each name their own origins and ports
     resolveOAuthAudiences                 goes; with no folders audience, the API's audience is its origin
     merge, front-matter, folders          deleted
@@ -455,7 +459,7 @@ none.
 - **Read the notes in Rust and answer records.** A second Markdown reader,
   in Rust, beside the one the browser build needs.
 - **Copy the front matter grammar into Whispering.** Two copies of one
-  format, which can drift from what `epicenter check` reads.
+  format, which can drift from what a home reads.
 - **Several tabs, a lock per file, and a `BroadcastChannel`.** Two writers
   made safe instead of one writer made true.
 - **A second tab that steals the lock.** A stolen Web Lock leaves the first
