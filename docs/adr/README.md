@@ -1161,3 +1161,4 @@ When you add an ADR, add its row here.
 | [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |
 | [0955](0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md) | `new` makes a blank app, and taking an app is copying its folder | Proposed (supersedes 0929) |
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
+| [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
