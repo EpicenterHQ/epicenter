@@ -3,10 +3,7 @@
  * the home and `epicenter` does not wrap it: this only reads. It never
  * fetches, so the count against origin is as fresh as the last push or fetch.
  */
-import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { checkedGit, git, isRepositoryTop, originOf } from './git.ts';
-import { APPS } from './root.ts';
 
 export type RepositoryStatus = {
 	/** When the last commit was made, or `null` before the first one. */
@@ -15,37 +12,20 @@ export type RepositoryStatus = {
 	uncommitted: number;
 	/** `null` without an `origin` remote; `ahead` is absent until the branch is on origin. */
 	origin: { branch: string; ahead?: number } | null;
-	/** Folders under `apps/` that hold a `.git` of their own, as paths from the home. */
+	/**
+	 * Repositories inside the home that its history holds only as a pointer,
+	 * as paths from the home: one Git lists as untracked (`dir/`) or one
+	 * already recorded as a gitlink. Ignored folders are not looked at.
+	 */
 	nested: string[];
 };
-
-/** Folders under `prefix` holding a `.git`. Links are not followed, and a found repository is not searched. */
-async function nestedRepositories(
-	root: string,
-	prefix: string,
-): Promise<string[]> {
-	const entries = await readdir(join(root, prefix), {
-		withFileTypes: true,
-	}).catch((error: NodeJS.ErrnoException) => {
-		if (error.code === 'ENOENT') return [];
-		throw error;
-	});
-	if (entries.some((entry) => entry.name === '.git')) return [prefix];
-	const found: string[] = [];
-	for (const entry of entries)
-		if (entry.isDirectory() && entry.name !== 'node_modules')
-			found.push(
-				...(await nestedRepositories(root, `${prefix}/${entry.name}`)),
-			);
-	return found.sort();
-}
 
 /** The home's repository as it is now, or `null` when the home is not the top of one. */
 export async function repositoryStatus(
 	root: string,
 ): Promise<RepositoryStatus | null> {
 	if (!(await isRepositoryTop(root))) return null;
-	const [last, pending, origin, nested] = await Promise.all([
+	const [last, pending, origin, index] = await Promise.all([
 		git(root, ['log', '-1', '--format=%cI']),
 		// -z and --no-renames: every record holds exactly one path.
 		checkedGit(root, [
@@ -56,16 +36,26 @@ export async function repositoryStatus(
 			'--no-renames',
 		]),
 		originOf(root),
-		nestedRepositories(root, APPS),
+		checkedGit(root, ['ls-files', '--stage', '-z']),
 	]);
+	const records = pending.split('\0').filter(Boolean);
+	// With every untracked file listed, an untracked folder is a repository.
+	const untracked = records
+		.filter((record) => record.startsWith('?? ') && record.endsWith('/'))
+		.map((record) => record.slice(3, -1));
+	// `<mode> <object> <stage>\t<path>`; mode 160000 is a gitlink.
+	const linked = index
+		.split('\0')
+		.filter((entry) => entry.startsWith('160000 '))
+		.map((entry) => entry.slice(entry.indexOf('\t') + 1));
 	return {
 		lastCommit:
 			last.code === 0 && last.stdout
 				? new Date(last.stdout).toISOString()
 				: null,
-		uncommitted: pending.split('\0').filter(Boolean).length,
+		uncommitted: records.length,
 		origin,
-		nested,
+		nested: [...new Set([...untracked, ...linked])].sort(),
 	};
 }
 

@@ -7,6 +7,7 @@ import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMANDS } from './commands.ts';
 import { VERSION } from './engines.ts';
+import { repositoryStatus } from './repository.ts';
 import { fixture, gitIn, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
@@ -238,6 +239,28 @@ Git: last commit less than a minute ago; 3 files uncommitted; no origin; ${vendo
 	expect((await f.run()).stdout).toContain(
 		'; 1 file uncommitted; 1 commit not on origin; ',
 	);
+});
+
+test('a nested repository is reported until it is ignored, and still once committed as a pointer', async () => {
+	const f = await setup();
+	await gitIn(f.home, 'init', '-q');
+	const vendor = 'apps/reading/code/vendor';
+	await f.folder(join(f.home, vendor), { 'lib.ts': '' }, { git: true });
+	// An app's ignored local/ may hold a repository; backups never see it.
+	await f.folder(
+		join(f.home, 'apps/reading/local/clone'),
+		{ 'a.txt': '' },
+		{ git: true },
+	);
+	await writeFile(join(f.home, '.gitignore'), 'apps/*/local/\n');
+	expect((await repositoryStatus(f.home))?.nested).toEqual([vendor]);
+	// Committed, Git holds only the pointer and no longer lists it as changed.
+	await gitIn(f.home, 'add', '-A');
+	await gitIn(f.home, 'commit', '-qm', 'start');
+	expect(await repositoryStatus(f.home)).toMatchObject({
+		uncommitted: 0,
+		nested: [vendor],
+	});
 });
 
 test('a misused command answers its usage line, with its help as the next step', async () => {

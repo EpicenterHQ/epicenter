@@ -355,7 +355,7 @@ value, which reaches the command as one word of JSON text:
 `epicenter` on its own shows each routine with its next occurrence and its
 command as a line to copy into a terminal, how long
 ago the last commit was, how many files are uncommitted, how many commits are
-not on origin, and any nested Git repository under `apps/`.
+not on origin, and any nested Git repository outside an ignored folder.
 
 The root origin is optional and private. It receives all apps' records. The
 script never pulls, merges, rebases, or force-pushes, and a failed push leaves

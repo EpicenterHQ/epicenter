@@ -623,8 +623,10 @@ Git: last commit 3 days ago; 212 files uncommitted; 41 commits not on origin
 ```
 
 The line says `no origin` when there is none, and names any Git repository
-nested under `apps/`, because the home's commits hold only a pointer to a
-nested repository and not its files. `--json` adds the same facts as
+nested in the home that Git sees, untracked or already committed, because the
+home's commits hold only a pointer to a nested repository and not its files.
+One inside an ignored folder, such as an app's `local/`, is never backed up and
+is not named. `--json` adds the same facts as
 `routines: [{ name, cron, next } | { name, problem }]` and
 `repository: { lastCommit, uncommitted, origin, nested }`: `origin` is null or
 `{ branch, ahead? }`, and `repository` is null when the home is not a Git
