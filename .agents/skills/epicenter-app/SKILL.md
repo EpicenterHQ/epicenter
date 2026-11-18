@@ -299,8 +299,8 @@ action, and adds none: the action is ordinary code, and its author decides.
 - Answer what is known. A request that times out after it left may have
   worked: say it was not confirmed, not that it failed. A long action that
   stops at its own limit with its progress saved returns `Ok` with a field
-  saying it is unfinished. `ActionError.Unreachable` is what a caller gets
-  when it could not reach `serve`, so do not use it for that.
+  saying it is unfinished. `NotStarted` and `Unreachable` are names only
+  Epicenter answers: serve turns an action's own into `Threw`.
 - Write what a page must show later. A page that reloads, another device and
   a routine see neither the updates nor the answer of a call they did not
   make. Progress worth showing goes in a file with the time it was written.
@@ -439,12 +439,13 @@ makes in its input and uses it as the record's id, so calling again with
 the same id is safe. See the app package README for updates and the call
 route.
 
-On the wire, the host answers with `{ data, error }`. For a failure,
-`error.kind` records what happened to this invocation (ADR-0926).
-The browser client unwraps a `returned` reason with its public fields intact.
-A `fault` becomes `Threw` and can carry a tagged exception in `thrown`.
-A `refused` call becomes `Refused` before the action runs. Actions can use the
-shared `ActionError` factories from `@epicenter/app`.
+On the wire, every surface answers exactly `{ data, error }`, where `error`
+is `null` or the error object itself (ADR-0953). The name says whether the
+action ran: `NotStarted` means serve or the CLI refused it before it began,
+so it is safe to call again once its `cause` is fixed; `Threw` means it began
+and threw, with a tagged exception in `thrown`; `Unreachable` means the
+outcome is unknown; any other name is the action's own error, so it ran.
+Actions use the shared `ActionError` factories from `@epicenter/app`.
 
 Match a browser error by its name and subject. A `Missing` for a dependency
 cannot tell the page whether its displayed record still exists. An action

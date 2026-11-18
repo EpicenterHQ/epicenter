@@ -316,11 +316,13 @@ serve at the port in `EPICENTER.md`, the same `POST /<app>/<action>` a page
 makes, and prints the updates and the answer it reads back. It never runs the
 action itself.
 
-While serve is stopped, an action is refused with exit 2 and nothing runs:
+While serve is stopped, an action is refused with exit 2 and nothing runs. Its
+answer is `NotStarted` with cause `unavailable`:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
-Epicenter is not running for this home. Start it with `epicenter serve`.
+Epicenter is not running for this home.
+Run: epicenter serve
 ```
 
 Listings, `--help`, `check`, and the other commands in
@@ -475,13 +477,14 @@ most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 | Outcome | Response |
 | --- | --- |
 | The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
-| No such app or action, or the input is not JSON, not an object, or does not fit | 400, the refusal `{ data: null, error: { kind: "refused", reason } }` as the body |
+| No such app or action, the app cannot load, or the input is not JSON, not an object, or does not fit | 400, `{ data: null, error: { name: "NotStarted", ... } }` as the body |
 | The body is too large | 413 |
 
 A stream that ends with no `answer` line was cut off, and its outcome is
-unknown: the action may still be running or may have finished. The caller
-rereads its records, or calls again with the same id when the action takes
-one.
+unknown: the action may still be running or may have finished. A page and
+the CLI read it as `Unreachable`, with one reader, `readAnswer` in
+`@epicenter/app`. The caller rereads its records, or calls again with the
+same id when the action takes one.
 
 Serve keeps nothing about a call: no id, no log, no replay. It runs the
 action to its end whether or not the caller stays. A caller that leaves
@@ -522,22 +525,46 @@ and renaming it over the target, so nothing unfinished is ever under `data/`.
 
 ## What a run answers
 
-With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`. MCP sets `isError: true` for an Err, a fault, or a refusal before execution. The CLI uses the following exit codes:
+Every surface gives one answer, exactly `{ data, error }`
+([ADR-0953](../../docs/adr/0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)).
+`error` is `null` or the error object itself. With `--json`, stdout is that
+answer; MCP returns it as `structuredContent` and sets `isError: true` for
+any error; HTTP sends it in the last line, `{"answer": ...}`.
 
 ```txt
-{ "data": <value>, "error": null }                                 exit 0
-{ "data": null, "error": { "kind": "returned", "reason": <error> } }  exit 1
-{ "data": null, "error": { "kind": "fault", "message": <text> } }     exit 1
-{ "data": null, "error": { "kind": "refused", "reason": <error> } }   exit 2
+{ "data": <value>, "error": null }                                  exit 0
+{ "data": null, "error": { "name": "NoRoute", "message": ... } }    exit 1, the action's own error
+{ "data": null, "error": { "name": "Threw", "message": ... } }      exit 1, the action began and threw
+{ "data": null, "error": { "name": "Unreachable", "message": ... } } exit 1, the outcome is unknown
+{ "data": null, "error": { "name": "NotStarted", "message": ..., "cause": "usage" } }  exit 2
 ```
 
-`Ok(undefined)` arrives with null data. An action can decline with its own
-tagged Err, or an unexpected throw can end the call with a fault. A fault may include a tagged exception in `thrown`. The host assigns
-`kind` for this invocation. An action that saved a draft and forwarded a
-child’s refusal has kind `returned`. Invalid input refused before the action
-ran has kind `refused`. Human output puts success data on stdout and failures on stderr. The HTTP event
-stream carries the same answer inside `finished.answer`. A reconnect can
-replay a saved run's earlier answer format without executing it again.
+The error's name says whether the action ran:
+
+| Error | Did the action run? |
+| --- | --- |
+| `NotStarted` | no; it is safe to call again once its cause is fixed |
+| the action's own error, such as `Missing` or `Refused` | yes |
+| `Threw` | yes, partly |
+| `Unreachable` | unknown; reread the records before calling again |
+
+`NotStarted` carries `cause`: `usage` (the words or input do not fit),
+`app-problems` (the app cannot load, with its `problems`), `internal`
+(Epicenter failed before the action began), or `unavailable` (no serve for
+this home answers). It has a `next` step when there is one. `Threw` carries
+the thrown tagged value as `thrown` when it survives JSON. Platform errors
+carry `namespace: "epicenter/action-error"`.
+
+An action cannot answer `NotStarted` or `Unreachable`. One that returns
+either name, with or without the namespace, answers `Threw`, so a caller can
+trust the name. Any other error an action returns passes through whole,
+including one forwarded from another action.
+
+`Ok(undefined)` arrives with null data. Human output puts success data on
+stdout and an error's message, and `Run: <next>` when there is one, on
+stderr. Commands other than an action call (`init`, `new`, `export`,
+`check`, `serve`) print their own error as `{ "error": ... }` with `--json`
+and exit 2 when they did not run.
 
 A one-file data key's `patch` makes its file when it is absent, so `epicenter vocab settings patch '{"goal":20}'` works on a fresh install. A folder key's `patch` answers `Missing` for an absent record and never makes one. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
 

@@ -471,29 +471,47 @@ type Book = ActionOutput<typeof reading.actions.books.get>;
 const { data: books, error } = await app.books.list();
 ```
 
-The client exposes the action's Result in JSON form. Its public error type
-includes the action's declared errors and the shared errors below. Producers
-import the shared `ActionError` factories from `@epicenter/app`:
+The client exposes the action's Result in JSON form, exactly as serve
+answers it: `{ data, error }`, where `error` is `null` or the error object
+itself
+([ADR-0953](../../docs/adr/0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)).
+Its public error type includes the action's declared errors and the shared
+errors below. Producers import the shared `ActionError` factories from
+`@epicenter/app`:
 
 - `Changed` (`{ path, why }`): a quoted passage changed or is there twice, or a new record's file is already there.
 - `Misfit` carries diagnostics about a malformed record.
 - `Missing` (`{ path }`): the file is not there.
-- `Threw` (`{ message, thrown? }`): an unrecognized throw, with a JSON-safe tagged payload kept as `thrown`.
 - `Refused` (`{ message, next? }`): an operation declined the request.
-- `Unreachable` (`{ message }`): a required operation returned no usable answer. The message identifies the dependency.
+
+Three more belong to the platform's handling of a call, and each says whether
+the action ran:
+
+| Error | Did the action run? |
+| --- | --- |
+| `NotStarted` (`{ message, cause, next?, problems? }`) | no: serve or the CLI refused it before it began |
+| any other error, the action's own | yes |
+| `Threw` (`{ message, thrown? }`) | yes, and it threw; a tagged value that survives JSON is kept as `thrown` |
+| `Unreachable` (`{ message }`) | unknown: the connection dropped, a line was not a frame, or no answer came |
+
+`NotStarted`'s `cause` is `usage`, `app-problems` (with the app's `problems`),
+`internal`, or `unavailable`. An action cannot answer `NotStarted` or
+`Unreachable`: serve turns an action's own, with or without the namespace,
+into `Threw`. An action may still return `Threw`.
 
 The shared errors carry a serializable namespace marker. The client validates
-all their fields and returns every recognized shared error whole, preserving
-its message and extra fields. App-defined returned errors keep their names and
-public fields. The client maps a new fault to `Threw`, including when the
-action threw a tagged value.
+their fields and returns every recognized shared error whole, preserving its
+message and extra fields. App-defined errors keep their names and public
+fields. `readAnswer` and `checkAnswer`, exported from `@epicenter/app`, are
+the one reader of serve's answer the client and the CLI share; anything that
+is not an answer is `Unreachable`.
 
-A name gives the failure reason, not proof of what was saved or whether
-repeating an action is safe. When a UI needs to know what persisted, it
-rereads the record. While the outcome is uncertain, it keeps the person's
-draft and reports the uncertainty. `Missing` and `Changed` identify their own
-`path`, which may belong to a dependency; match the requested record before
-interpreting either as its state.
+A page can retry a `NotStarted` once its cause is fixed. Any other name gives
+the failure reason, not proof of what was saved. When a UI needs to know what
+persisted, it rereads the record. While the outcome is uncertain, it keeps
+the person's draft and reports the uncertainty. `Missing` and `Changed`
+identify their own `path`, which may belong to a dependency; match the
+requested record before interpreting either as its state.
 
 A UI hands these calls to TanStack Query through Wellcrafted's
 `resultQueries` and `resultMutations` (ADR-0661), and makes its one
@@ -521,8 +539,8 @@ const said = await vocab.chat.say(
 ```
 
 Closing the page stops the page from listening; the action runs to its end.
-A call that reaches no answer resolves to `Unreachable`, whose message says
-whether the action started.
+A call that reaches no answer resolves to `Unreachable`: the action may have
+run, so the page rereads its records.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionUpdate<A>` name what action
 `A` takes from a caller, returns to a client, and reports while it runs:
@@ -557,6 +575,25 @@ route, so the route never spells the record's path.
 - **Fields and a passage in one call.** The generated `edit` takes only `{ id, old, new }`. A caller that changed fields and a passage in one `set` call now sends a `patch` and then an `edit`, or the app defines an action that does both in one `edit(id, fn)`.
 - **One-file keys.** A passage `edit` on a missing file answers `Missing`. It used to answer `Changed` (`quote`).
 - **Idempotency hints.** `create` and `edit` now declare `idempotentHint: false`. An agent that may retry `create` should send an id.
+
+### The answer is `{ data, error }`
+
+Serve no longer wraps a failure in `{ kind, reason }`. Every surface (a
+page's client, `--json`, MCP's `structuredContent`, the HTTP `answer` line)
+gives the error object itself:
+
+| 0.6 | 0.7 |
+| --- | --- |
+| `{ "error": { "kind": "returned", "reason": { "name": "Missing", ... } } }` | `{ "error": { "name": "Missing", ... } }` |
+| `{ "error": { "kind": "fault", "message": "...", "thrown": ... } }` | `{ "error": { "name": "Threw", "message": "...", "thrown": ... } }` |
+| `{ "error": { "kind": "refused", "reason": { "name": "Usage", ... } } }` | `{ "error": { "name": "NotStarted", "cause": "usage", ... } }` |
+| a page's `Refused` for a call serve never ran | `NotStarted` |
+| a cut connection in the CLI, `kind: "fault"` | `Unreachable` |
+
+- **A page, script or test that read `kind` or `reason`** reads `error.name` and the error's own fields. A test that fakes serve's answer writes the plain error. `epicenter <app> <action> --json | jq .error.reason.message` becomes `jq .error.message`.
+- **A page that matched `Refused` to catch a call that never ran** matches `NotStarted`. `Refused` now comes only from an action.
+- **An action that returned `ActionError.Unreachable`**, or its own error named `NotStarted` or `Unreachable`, now answers `Threw`. Return another name, or `Ok` with a field saying the result was not confirmed.
+- **Exit codes:** 2 is exactly `NotStarted`. A connection that dropped after the call was sent still exits 1, now as `Unreachable`.
 
 ### Steps
 
