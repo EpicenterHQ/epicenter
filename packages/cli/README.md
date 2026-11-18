@@ -545,23 +545,21 @@ The error's name says whether the action ran:
 | Error | Did the action run? |
 | --- | --- |
 | `NotStarted` | no; it is safe to call again once its cause is fixed |
-| the action's own error, such as `Missing` or `Refused` | yes |
+| an error about a record, `Missing`, `Changed` or `Misfit`, or the app's own, such as `Refused` | yes |
 | `Problems` | yes; `report` is what it found, and the job is not clean |
 | `Threw` | yes, partly |
 | `Unreachable` | unknown; reread the records before calling again |
 
-`NotStarted` carries `cause`: `usage` (the words or input do not fit),
-`app-problems` (the app cannot load, with its `app` and `problems`),
-`refused` (the command was understood, and doing it would lose or guess, as
-when `export` meets a folder it does not own or serve's port is taken),
-`internal` (Epicenter failed before it began), or `unavailable` (no serve for
-this home answers). `usage`, `refused` and `unavailable` have a `next` step
-when there is one. `Threw` carries
-the thrown tagged value as `thrown` when it survives JSON. Platform errors
-carry `namespace: "epicenter/action-error"`.
+`NotStarted` carries `cause`: `usage` (the words, input or target do not fit,
+as when `export` meets a folder it does not own), `app-problems` (the app
+cannot load, with its `app` and `problems`), `internal` (Epicenter failed
+before it began), or `unavailable` (no serve for this home answers, or
+another program holds its port). `usage` and `unavailable` have a `next` step
+when there is one. `Threw` carries the thrown tagged value as `thrown` when
+it survives JSON. An error carries no marker of who made it: the name says.
 
 An action cannot answer `NotStarted` or `Unreachable`. One that returns
-either name, with or without the namespace, answers `Threw`, so a caller can
+either name answers `Threw`, so a caller can
 trust the name. Any other error an action returns passes through whole,
 including one forwarded from another action.
 
@@ -731,9 +729,11 @@ Before that commit, init runs `bun install` in the folder, so the first commit
 holds `bun.lock` and the home is ready to use. `--no-install` leaves the
 install to you, for a computer that is offline or a `package.json` you want to
 change first. When the install fails, the home is still made and committed:
-init answers `Refused` with Bun's message and `Run: cd <folder> && bun install`,
-and exits 1. With `--json`, a home made and installed answers
-`{ "data": { folder, port }, "error": null }`.
+init answers `Problems`, exit 1: its report is the home it made, as a
+success answers it, its message is Bun's, and its next step is
+`Run: cd <folder> && bun install`. With `--json`, a home made and installed
+answers `{ "data": { folder, port }, "error": null }`, and one whose install
+failed answers the same `{ folder, port }` as `error.report`.
 A `package.json` already in the folder is kept as it is, so check that it
 lists the workspace and the two dependencies. Init writes no `bunfig.toml`
 and no lock inside an app.
@@ -936,7 +936,8 @@ names the exported commit, and `apps` lists the exported app names. When an
 on-disk app has no code tree in that commit, the export still writes the
 others and answers `Problems`, exit 1, with the report
 `{ commit, directory, apps, omitted }`; its message names each omitted app. An export that never began, such as one whose destination
-it does not own, answers `NotStarted` (`refused` or `usage`) and exits 2.
+it does not own, answers `NotStarted` (`usage`), with `epicenter export --help` as its next
+step, and exits 2.
 
 ## Recover selected paths
 

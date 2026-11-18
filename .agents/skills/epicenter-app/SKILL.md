@@ -98,7 +98,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
   `\`, control characters, a leading dot, or whitespace at either end. An id
   is the file name exactly: no method or generated verb changes it, and one
-  that does not fit is `Refused` with the reason, so trim what a person typed
+  that does not fit is `Misfit` with the reason, so trim what a person typed
   before passing it. A generated `create` names the record with
   `timeId()` when `id` is left out; a caller that may retry sends an id. An action takes an id as `field.text()`;
   the handle refuses a bad one, quoting it, with the name to send instead.

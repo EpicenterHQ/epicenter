@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-17
-- **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) at "Keep the existing `returned` / `threw` / `error` wire envelope": the envelope goes, and an error's name says whether the action ran. [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) at its host answer table: the `kind` and `reason` rows go. [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "with the ADR-0926 answer": the final `{"answer": ...}` frame carries the plain answer, and a refusal before the action runs is `NotStarted`.
+- **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) at "Keep the existing `returned` / `threw` / `error` wire envelope": the envelope goes, and an error's name says whether the action ran. Its amendment "The names, settled" also drops 0914's `namespace` marker. [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) at its host answer table: the `kind` and `reason` rows go. [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "with the ADR-0926 answer": the final `{"answer": ...}` frame carries the plain answer, and a refusal before the action runs is `NotStarted`.
 - **Relates:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action), [ADR-0938](0938-an-action-says-whether-agents-are-offered-it.md) (`mcp: false`).
 
 Two decisions about the same boundary, where an action meets its callers: what comes back (D1) and what goes in (D2). Two removals ship with them in 0.7.0: serve stops stating its version (C5), and a dead schema check goes (C8).
@@ -54,12 +54,12 @@ Rebuilt from that JSON, `meaning` is required. `packages/cli/src/input.ts` wraps
 
 ```json
 {"data":{"id":"dune"},"error":null}
-{"data":null,"error":{"name":"Missing","message":"There is no data/books/No Such Book.md","path":"data/books/No Such Book.md","namespace":"epicenter/action-error"}}
-{"data":null,"error":{"name":"NotStarted","message":"\"idd\" is not a key this action takes; it takes id","cause":"usage","next":"epicenter reading get --help","namespace":"epicenter/action-error"}}
-{"data":null,"error":{"name":"Threw","message":"Unexpected end of input","namespace":"epicenter/action-error"}}
+{"data":null,"error":{"name":"Missing","message":"There is no data/books/No Such Book.md","path":"data/books/No Such Book.md"}}
+{"data":null,"error":{"name":"NotStarted","message":"\"idd\" is not a key this action takes; it takes id","cause":"usage","next":"epicenter reading get --help"}}
+{"data":null,"error":{"name":"Threw","message":"Unexpected end of input"}}
 ```
 
-**Three error names belong to the platform's handling of a call, and each says whether the action ran.** All three are `ActionError` variants in `packages/app/src/errors.ts` and carry `namespace: 'epicenter/action-error'`.
+**Three error names belong to the platform's handling of a call, and each says whether the action ran.** All three are `ActionError` variants in `packages/app/src/errors.ts`. As first decided they carried `namespace: 'epicenter/action-error'`; the amendment [The names, settled](#the-names-settled) drops it.
 
 | Error | Who answers it | Did the action run? |
 | --- | --- | --- |
@@ -68,11 +68,11 @@ Rebuilt from that JSON, `meaning` is required. `packages/cli/src/input.ts` wraps
 | `Threw` | serve | yes, partly |
 | `Unreachable` | the page client or the CLI | unknown |
 
-- `NotStarted` carries `message`, `cause: 'usage' | 'app-problems' | 'internal' | 'unavailable'`, an optional `next` (the command to run), and, for `app-problems`, `problems`, the app's problems as strings. It replaces the `Usage`, `AppProblems` and `Internal` refusals an action call answered. `unavailable` means the CLI found no serve for this home: the connection was refused before anything was sent, or another program holds the port. The amendment below adds the cause `refused`, gives `app-problems` its `app`, and types each cause's fields.
+- `NotStarted` carries `message`, `cause: 'usage' | 'app-problems' | 'internal' | 'unavailable'`, an optional `next` (the command to run), and, for `app-problems`, `problems`, the app's problems as strings. It replaces the `Usage`, `AppProblems` and `Internal` refusals an action call answered. `unavailable` means the CLI found no serve for this home: the connection was refused before anything was sent, or another program holds the port. The amendment below gives `app-problems` its `app` and types each cause's fields.
 - `Threw` carries `message` and, when the action threw a tagged value that survives JSON, `thrown`.
 - `Unreachable` carries `message`. A caller answers it when the outcome is unknown: the connection dropped after the call was sent, a line was not a valid frame, or the stream ended with no answer.
 
-**An action cannot answer `NotStarted` or `Unreachable`.** When an action returns an error named either, serve answers `Threw` with the message `The action "<key>" returned NotStarted, a name only Epicenter answers`. This holds whether or not the error carries the namespace: `marked()` in `errors.ts` adds an enumerable field, and any action can copy it. Every other error an action returns passes through unchanged, `Threw` and `Refused` included.
+**An action cannot answer `NotStarted` or `Unreachable`.** When an action returns an error named either, serve answers `Threw` with the message `The action "<key>" returned NotStarted, a name only Epicenter answers`. This holds whether or not the error carries the namespace, since any action can copy a field; the name alone decides. Every other error an action returns passes through unchanged, `Threw` and `Refused` included.
 
 **One browser-safe module reads an answer, for a page and for the CLI.** `packages/app/src/answer.ts` exports `readAnswer(response, onUpdate)`, which `connect()` in `client.ts` and `sendToServe` in `serve-call.ts` both call, and `checkAnswer(value)`, which validates one answer. It never trusts HTTP status alone: a 200 whose lines are not frames, or whose stream ends with no answer, is `Unreachable`, and a non-2xx response is read only for a `NotStarted` answer in its body.
 
@@ -130,13 +130,13 @@ D1 left the CLI's own commands outside the answer. They printed `{"error": ...}`
 | --- | --- |
 | `Usage` | `NotStarted`, cause `usage` |
 | `AppProblems` | `NotStarted`, cause `app-problems`, with `app` and `problems` |
-| `Refused` | `NotStarted`, cause `refused` (new) |
+| `Refused` | `NotStarted`, cause `usage` for an export its source or target does not allow; cause `unavailable` for a serve port another program holds |
 | `Internal` | `NotStarted`, cause `internal` |
 | `GitFailed` | `NotStarted`, cause `internal`, when `new` failed before it kept anything; `Threw` when it failed partway |
 
-`refused` means the command was understood and doing it would lose or guess: `export` into a folder it does not own, or a port another serve holds. A command that ran in part answers the error that says so with exit 1: an `init` whose install failed answers `Refused`.
+A command that ran in part answers the error that says so with exit 1: an `init` whose install failed answers `Problems`, its report the home it made and its `next` the install.
 
-**`Problems` says a command ran and found something wrong.** A `check` that finds records with problems, or an `export --all` that leaves apps out, did its job, and what it found is the point; but a script gating on the exit code must still see that the result is not clean. `ActionError.Problems({ message, report })` carries both: `report` is the structured value a clean run answers as `data` (`{ apps, problems }` for `check`, `{ commit, directory, apps, omitted }` for `export`), and `message` is a one-line summary. It is not reserved, so an app's action may return it too. With it, D1's table of names reads:
+**`Problems` says a command ran and found something wrong.** A `check` that finds records with problems, or an `export --all` that leaves apps out, did its job, and what it found is the point; but a script gating on the exit code must still see that the result is not clean. `ActionError.Problems({ message, report, next? })` carries both: `report` is the structured value a clean run answers as `data` (`{ apps, problems }` for `check`, `{ commit, directory, apps, omitted }` for `export`), and `message` is a one-line summary. It is not reserved, so an app's action may return it too. With it, D1's table of names reads:
 
 | Error | What it means | Exit |
 | --- | --- | --- |
@@ -148,7 +148,7 @@ D1 left the CLI's own commands outside the answer. They printed `{"error": ...}`
 
 Without `--json`, the presenter applies one rule by field, not by name: an error that carries a `report` renders it on stdout the way `data` renders, and its message goes to stderr. So `epicenter check` prints the same report whether or not it is clean, and exits 1 when it is not. Rendering by name would have made the presenter know one error; an error that carries a report is a shape any action can use.
 
-**`NotStarted` is one name whose fields depend on `cause`.** `ActionError.NotStarted` takes a union body, so narrowing on `cause` types the fields: `app` and `problems` for `app-problems`, an optional `next` for `usage`, `refused` and `unavailable`. `checkAnswer` checks each cause's fields. One name with a cause beats one variant per cause:
+**`NotStarted` is one name whose fields depend on `cause`.** `ActionError.NotStarted` takes a union body, so narrowing on `cause` types the fields: `app` and `problems` for `app-problems`, an optional `next` for `usage` and `unavailable`. `checkAnswer` checks each cause's fields. One name with a cause beats one variant per cause:
 
 - A per-cause name such as `Refused` would collide again with an app's own `Refused`, the collision D1 removed.
 - "Did it run?" stays one comparison, `name === 'NotStarted'`. Per-cause names would make every reader keep a list of the names that mean "never began".
@@ -157,3 +157,22 @@ Without `--json`, the presenter applies one rule by field, not by name: an error
 **A throw is for a broken program, and a Result is for what a caller can act on.** A throw becomes `Threw` in one place, `runAction` for an action and `runCli` for a command. `context.ts` throws when an app reads its data outside an action's run: that is a bug in the app, and no caller can fix it by trying again. `disk.ts` returns `undefined` for a missing file and rethrows any other error: a disk that answers `EACCES` or `EIO` there is a broken machine. Neither becomes a Result. A command never throws a tagged error to steer its own control flow; `export` returns its refusals as Results.
 
 **A page's call error is exact.** `ActionCall` resolves to `Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>`, and `@epicenter/app/client` exports those three types. A `switch` on `error.name` is exhaustive, and a comparison with a name the action cannot return is a compile error.
+
+### The names, settled
+
+Each name now has one speaker, and `Refused` means one thing: an app's own "no".
+
+| About | Names |
+| --- | --- |
+| the run | `NotStarted` (`usage`, `app-problems`, `unavailable`, `internal`), `Threw`, `Unreachable` |
+| a record | `Missing`, `Changed` (`there`, `quote`, `twice`), `Misfit` |
+| a report | `Problems` |
+| the app's own | anything, `Refused` included |
+
+Exit codes are unchanged: 2 for `NotStarted`, 1 for anything else.
+
+- **The library's writes answer `Misfit`, not `Refused`.** An unknown field, removing a required field, a value that does not fit, a body that is not text, an id that cannot name a file, and bad `edit` arguments all say one thing: the change does not fit the declared fields. That is what `Misfit` says of a file, so a write says it too, with one problem per line and its `kind`, and no `record`. An id that names no file sits at the key's folder, such as `data/notes`. Before, a page that matched `Refused` could not tell the library's "that does not fit" from its own app's "no".
+- **`init`'s failed install is `Problems`.** It made the home, so it ran, and the report is the home it made. `Problems` gains an optional `next` for the install.
+- **`NotStarted` loses `refused`.** An export whose source or target does not allow it did not fit what the command takes, so it is `usage`, with the export help as `next`. A port another program holds means no serve can answer here, so it is `unavailable`. Four causes remain, each a different repair.
+- **`Changed` names its sub-reason `cause`, as `NotStarted` does**, so every sub-reason is read by one word.
+- **Errors carry no `namespace`.** It was meant to prove an error came from Epicenter, but any action could copy it, so serve already decided reserved names by name alone. With each name owned by one speaker, the marker said nothing the name did not; `isActionError`, which read it, goes. `checkAnswer` still checks `Threw`'s `thrown` and each `NotStarted` cause's fields, by name.
