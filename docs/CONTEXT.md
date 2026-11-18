@@ -10,8 +10,8 @@ app, a program, a service.
 Where the two disagree, today's words win. Several words this file retired are
 live again in today's product: Git, a repository, a commit, and `origin`.
 Each home uses one private root repository, with `apps/<app>/code/` beside
-`apps/<app>/data/`. Actions make no commits; root checkpoints record included
-pending files and push the home's origin when set
+`apps/<app>/data/`. Actions make no commits; the owner commits the home and
+pushes its origin when set
 ([ADR-0910](adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
 "Folder" in this file means the folder sync product's synced folder, not an
 app's folder in `~/Epicenter/apps`.

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-18
-- **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) on "the home commits itself": no checkpoint routine or script arrives with a home. [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) and [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) on who runs `bun install`: no command does.
+- **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) on "the home commits itself": no checkpoint routine or script arrives with a home. [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) and [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) on who runs `bun install`: no command does. [ADR-0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) at the consequences that a home's checkpoint (`git add -A` every five minutes) commits a growing take or a temporary file a crash left: no home commits on a schedule, so either is committed only when its owner commits at that moment.
 - **Relates:** [ADR-0943](0943-epicenters-core-invariants.md) (rules 1 and 6), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md).
 
 ## Context
@@ -29,11 +29,13 @@ Git, and `apps/`. The owner then runs
   new Epicenter.
 - A command run where no folder is marked refuses with
   `mkdir -p <folder> && touch <folder>/EPICENTER.md`.
-- Committing the home is the owner's: by hand, or from a routine that runs
-  their own script. No script ships.
+- Committing and pushing the home is the owner's, with Git. Epicenter ships
+  no script for it and suggests no schedule.
 
 ## Consequences
 
+- Nothing commits or pushes the home on its own. What its owner has not
+  committed is in neither its history nor its backup.
 - Removed: `init.ts`, `install.ts`, the `init` entry in the command table,
   the starter `AGENTS.md`, the checkpoint routine and script and their tests,
   and the tests of nesting refusal, identity refusal and `.gitignore`

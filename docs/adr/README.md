@@ -8,7 +8,7 @@ outcome we committed to.
 **Start with [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md).** On 2026-11-07 Epicenter became where one person's
 software lives: each app is a container whose `code/epicenter.ts` defines its actions
 ([ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)),
-and root checkpoints record pending code and records
+and one private Git repository holds their code and records
 ([ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Records 0802 to 0839 designed a folder sync product for many people, with
 [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
@@ -1160,11 +1160,11 @@ When you add an ADR, add its row here.
 | [0955](0955-no-command-makes-or-copies-an-app.md) | No command makes or copies an app | Proposed (supersedes 0911 and 0929; amends 0940) |
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
-| [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942 and 0944) |
+| [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942, 0944 and 0962) |
 | [0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) | Serve loads each app once, and an app's code changes when serve restarts | Proposed (amends 0937 and 0942) |
 | [0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) | An app is a function of its folder, and a call has no hidden context | Proposed (amends 0942) |
 | [0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) | The command sends an action's words to serve, and serve alone reads them | Proposed (amends 0936) |
-| [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858) |
+| [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858; amended by 0958) |
 | [0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md) | `local/` ignores itself, and serve refuses a `.env` that Git would commit | Proposed (amends 0939) |
 | [0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md) | A folder is on disk, and it holds a path and the calls that change files | Proposed (amends 0841 and 0844) |
 | [0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md) | The command finds its Epicenter by walking up, and serve starts in its folder | Proposed |
