@@ -62,7 +62,9 @@ export default defineApp(({ folder }) => {
     description: 'Record minutes read today',
     input: { minutes: field.number() },
     run: async ({ minutes }) => {
-      await folder.update('data/2026.csv', (before = 'minutes\n') => `${before}${minutes}\n`);
+      await folder.edit('data/2026.csv', (before = 'minutes\n') =>
+        Ok({ text: `${before}${minutes}\n` }),
+      );
       return Ok({ minutes });
     },
   });
@@ -86,7 +88,7 @@ export default defineApp(({ folder }) => {
   throws. The check moves from the imported `folder` into the folder the
   loader builds.
 - **What the folder holds is ADR-0964's.** `path`, `write` (text or bytes),
-  `update`, `edit` and `delete`. An app and `defineData` read through
+  `edit` and `delete`. An app and `defineData` read through
   `folder.path` with plain file calls.
 - **A test passes a folder.** It calls the app with a folder on a temporary
   directory (ADR-0964) and calls an action on the result. A test can reach

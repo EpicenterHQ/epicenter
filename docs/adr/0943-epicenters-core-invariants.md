@@ -141,14 +141,16 @@ where they are needed" below allows, and routines still run on their clock.
 
 One authority prevents disagreement between editable copies. One process
 prevents separate platform action runners from racing. Within that process,
-a file update reads, decides, and replaces the file without yielding
-(`packages/cli/src/disk.ts`). This is what lets platform updates avoid file
-locks; one process alone would not protect an asynchronous read followed by
-a later write.
+the folder's `edit` reads, decides, and replaces a file without yielding
+(`packages/cli/src/disk.ts`). This is what lets the platform's file changes
+avoid file locks; one process alone would not protect an asynchronous read
+followed by a later write. An app that reads a file and then calls `write`
+has that gap, so a change that depends on a file's text goes through `edit`
+([ADR-0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md)).
 
 Actions can overlap while waiting for a network request or a model. A change
 across several files is not a transaction. An editor, agent, or script that
-writes files directly is outside the platform's update guarantee. Open files
+writes files directly is outside that guarantee. Open files
 permit those writers; the owner coordinates them when they touch the same
 records. A program replacing a complete file still needs to avoid exposing a
 half-written file to readers.
