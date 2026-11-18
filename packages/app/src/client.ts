@@ -1,8 +1,8 @@
 /**
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
  * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
- * and served at `/<app>/`. A call is `POST /<app>/<action>` with the input as
- * JSON; the answer is JSON lines, `{"update": value}` for each update the
+ * and served at `/apps/<app>/`. A call is `POST /actions/<app>/<word>/<word>`
+ * with the input as JSON (ADR-0966); the answer is JSON lines, `{"update": value}` for each update the
  * action sends and then `{"answer": {data, error}}` (ADR-0930, ADR-0953).
  *
  * The client has the app's actions under the same words as the app. Each
@@ -178,11 +178,11 @@ async function call(
 }
 
 /**
- * A client for the app served at this page's first path segment. A page at
- * `/<app>/` uses `app` without repeating its name; pass `{ app }` when the
- * page does not identify it. Without either name, `connect` throws. `url`
- * defaults to this origin's `/`, where `epicenter serve` answers the UIs it
- * serves: an action is `POST <url><app>/<words joined by .>`.
+ * A client for the app whose page this is. A page under `/apps/<app>/` uses
+ * `app` without repeating its name; pass `{ app }` when the page does not
+ * identify it. Without either name, `connect` throws. `url` defaults to this
+ * origin's `/`, where `epicenter serve` answers the pages it serves: an
+ * action is `POST <url>actions/<app>/<word>/<word>`, one segment a word.
  */
 export function connect<App extends (given: never) => { actions: object }>({
 	app,
@@ -203,7 +203,7 @@ export function connect<App extends (given: never) => { actions: object }>({
 				if (words.length === 0)
 					throw new Error(`Call one of ${name}'s actions, not the app`);
 				return call(
-					`${base}${encodeURIComponent(name)}/${words.map(encodeURIComponent).join('.')}`,
+					`${base}actions/${[name, ...words].map(encodeURIComponent).join('/')}`,
 					input,
 					options?.onUpdate,
 				);
@@ -212,17 +212,17 @@ export function connect<App extends (given: never) => { actions: object }>({
 	return at([]) as AppClient<ReturnType<App>['actions']>;
 }
 
-/** The app whose `/<app>/` serves this page. */
+/** The app whose `/apps/<app>/` serves this page. */
 function appOfPage(): string {
 	const page = globalThis as {
 		document?: { baseURI: string };
 		location?: { href: string };
 	};
 	const href = page.document?.baseURI ?? page.location?.href;
-	const segment = href && new URL(href).pathname.split('/')[1];
-	if (!segment)
+	const [, apps, segment] = href ? new URL(href).pathname.split('/') : [];
+	if (apps !== 'apps' || !segment)
 		throw new Error(
-			'connect() needs a UI served at /<app>/ or an explicit { app }',
+			'connect() needs a page served under /apps/<app>/ or an explicit { app }',
 		);
-	return segment;
+	return decodeURIComponent(segment);
 }

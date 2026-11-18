@@ -77,10 +77,10 @@ test('a call posts its input to the action and hears updates in order across chu
 	).toBe('done');
 	expect(heard).toEqual([1, 2]);
 	expect(requests).toEqual([
-		{ url: '/counter/count', method: 'POST', body: '{}' },
+		{ url: '/actions/counter/count', method: 'POST', body: '{}' },
 	]);
 	expectOk(await app.deep.count());
-	expect(requests[1]?.url).toBe('/counter/deep.count');
+	expect(requests[1]?.url).toBe('/actions/counter/deep/count');
 });
 
 test('a listener that throws or rejects is reported and does not end the call', async () => {
@@ -171,11 +171,11 @@ test('connect infers the app from document, location, or explicit options', asyn
 	}) as unknown as typeof fetch;
 	Object.defineProperty(globalThis, 'document', {
 		configurable: true,
-		value: { baseURI: 'https://host/reading/' },
+		value: { baseURI: 'https://host/apps/reading/' },
 	});
 	Object.defineProperty(globalThis, 'location', {
 		configurable: true,
-		value: { href: 'https://host/other/' },
+		value: { href: 'https://host/apps/other/#/list' },
 	});
 	await connect<() => { actions: { count: typeof count } }>().count();
 	Reflect.deleteProperty(globalThis, 'document');
@@ -184,21 +184,25 @@ test('connect infers the app from document, location, or explicit options', asyn
 		app: 'explicit',
 		url: 'https://host/base',
 	}).count();
+	await connect<() => { actions: { words: { create: typeof count } } }>({
+		app: 'vocab',
+	}).words.create();
 	expect(urls).toEqual([
-		'/reading/count',
-		'/other/count',
-		'https://host/base/explicit/count',
+		'/actions/reading/count',
+		'/actions/other/count',
+		'https://host/base/actions/explicit/count',
+		'/actions/vocab/words/create',
 	]);
 });
 
-test('connect requires an app when the page has no first path segment', () => {
+test('connect requires an app when the page is not under /apps/<app>/', () => {
 	Reflect.deleteProperty(globalThis, 'document');
 	Object.defineProperty(globalThis, 'location', {
 		configurable: true,
-		value: { href: 'https://host/#/reading/' },
+		value: { href: 'https://host/reading/' },
 	});
 	expect(() => connect()).toThrow(
-		'UI served at /<app>/ or an explicit { app }',
+		'page served under /apps/<app>/ or an explicit { app }',
 	);
 });
 

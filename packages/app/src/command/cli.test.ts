@@ -296,7 +296,7 @@ test('a misused command answers its usage line, with its help as the next step',
 		error: { name: 'NotStarted', cause: 'usage' },
 	});
 	expect((await f.run('serve', '--help')).stdout).toContain(
-		'POST /<app>/<action>',
+		'POST /actions/<app>/<word>/<word>',
 	);
 	expect((await f.run('check', '--help')).stdout).toBe(
 		`${COMMANDS.check.usage}\n${COMMANDS.check.help}\n`,

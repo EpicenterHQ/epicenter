@@ -21,8 +21,9 @@ and 2 when a named app does not load.`,
 	},
 	serve: {
 		usage: 'epicenter serve',
-		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
-action to its UI at POST /<app>/<action>, on 127.0.0.1 at the port in
+		help: `Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
+built UI, then its fetch), and each action to its UI at
+POST /actions/<app>/<word>/<word>, on 127.0.0.1 at the port in
 EPICENTER.md (default 4747). A home has one serve, and it runs every action:
 epicenter <app> <action> sends its call here and is refused while serve is
 stopped. Each call runs from the app's code as it is on disk then, to its end,

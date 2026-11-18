@@ -2,12 +2,18 @@
  * `epicenter serve` over HTTP (ADR-0864): one address for people and agents.
  *
  * ```txt
- * POST /                MCP, stateless JSON
- * GET  /                the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...       the app's UI: ui/dist/ as static files, as the app's build left it
- * GET  /<app>           308 to /<app>/
- * POST /<app>/<action>  call an action; its words are joined by `.`
+ * POST /                             MCP, stateless JSON
+ * GET  /                             the launcher; 405 when asked for an event stream (MCP)
+ * POST /actions/<app>/<word>/<word>  call an action; each of its words is one segment
+ * ANY  /apps/<app>/...               the app: a file in code/ui/dist/, else its fetch, else 404
+ * GET  /apps/<app>                   308 to /apps/<app>/
  * ```
+ *
+ * Serve's own routes take their own first segment, and everything under
+ * `/apps/<app>/` belongs to the app (ADR-0966). A `GET` or `HEAD` there is a
+ * file from the app's own build when one matches. Any other request goes to
+ * the `fetch` the app returned, if any, with `/apps/<app>` removed from its
+ * URL and `X-Forwarded-Prefix` set to it (ADR-0945).
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
  * the call arrives (`home.ts`, `run.ts`), and stores nothing about it. When a
@@ -31,7 +37,9 @@
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
  * device reaches it only through a proxy the owner runs on this computer,
- * such as `tailscale serve`. It answers only a `Host` that
+ * such as `tailscale serve`. A browser marks where a request came from
+ * (`Sec-Fetch-Site`), and serve refuses one from another site unless it opens
+ * a page: a top-level `GET` navigation, such as an OAuth redirect back. It answers only a `Host` that
  * is a loopback name, an IP literal, or a `*.ts.net` name, which a DNS
  * rebinding name is not, and refuses a request a Tailscale Funnel or
  * Cloudflare Tunnel delivered. Both set their header on every request, and
@@ -87,6 +95,10 @@ const ServeError = defineErrors({
 	RoutinesUnchecked: ({ cause }: { cause: unknown }) => ({
 		message: `Checking routines failed: ${extractErrorMessage(cause)}`,
 	}),
+	FetchFailed: ({ app, cause }: { app: string; cause: unknown }) => ({
+		message: `${app} fetch: ${extractErrorMessage(cause)}`,
+		app,
+	}),
 });
 
 /** Serve's record of what it could not do, beside its run records. */
@@ -101,14 +113,14 @@ const escapeHtml = (text: string) =>
 			] as string,
 	);
 
-/** The page at `/`: each app with a UI, its icon, name, and description, linking to `/<app>/`. */
+/** The page at `/`: each app with a page, its icon, name, and description, linking to `/apps/<app>/`. */
 function launcherPage(
 	name: string,
 	apps: { name: string; description: string; icon: boolean }[],
 ) {
 	const items = apps
 		.map(({ name, description, icon }) => {
-			const href = `/${encodeURIComponent(name)}/`;
+			const href = `/apps/${encodeURIComponent(name)}/`;
 			const image = icon
 				? `<img src="${href}icon.png" alt="" width="56" height="56">`
 				: `<span class="blank">${escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
@@ -135,8 +147,8 @@ type Site = {
 	mcp(request: Request): Promise<Response>;
 	/** The launcher at `GET /`, or 405 when MCP asks for an event stream. */
 	launcher(request: Request): Promise<Response>;
-	/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
-	ui(request: Request): Promise<Response>;
+	/** A request under `/apps/<app>`: a built file, the app's `fetch`, or 404. */
+	app(request: Request, app: string, path: string | undefined): Promise<Response>;
 };
 
 const notFound = () => new Response('Not found', { status: 404 });
@@ -214,8 +226,10 @@ function createSite(): Site {
 				});
 			const apps = await Promise.all(
 				(await homeEntries()).map(async (entry) => {
-					if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
+					const page = (await uiFile(entry.entry, 'index.html')).ok;
 					const { data: located } = await loadHomeApp(entry.entry);
+					// An app with no build step may answer its page from fetch.
+					if (!page && !located?.app.fetch) return undefined;
 					return {
 						name: entry.entry,
 						description: located?.app.description ?? '',
@@ -236,30 +250,65 @@ function createSite(): Site {
 				},
 			);
 		},
-		async ui(request) {
-			if (request.method !== 'GET' && request.method !== 'HEAD')
-				return notFound();
-			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(
-				new URL(request.url).pathname,
-			);
-			if (!match) return notFound();
-			const app = match[1];
-			if (!isName(app)) return notFound();
-			if (match[2] === undefined) {
-				if ((await findEntry(app)).error) return notFound();
+		async app(request, app, path) {
+			if (!isName(app) || (await findEntry(app)).error) return notFound();
+			if (path === undefined)
 				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
 				return new Response(null, {
 					status: 308,
-					headers: { location: `/${encodeURIComponent(app)}/` },
+					headers: { location: `/apps/${encodeURIComponent(app)}/` },
 				});
+			if (request.method === 'GET' || request.method === 'HEAD') {
+				const file = await uiFile(app, path);
+				if (file.ok) return file;
 			}
-			return uiFile(app, match[2]);
+			return appFetch(request, app, path);
 		},
 	};
 }
 
 /**
- * `POST /<app>/<action>`: run the action and answer its updates and then its
+ * Hand a request no file answered to the app's `fetch`, with `/apps/<app>`
+ * removed from its URL and `X-Forwarded-Prefix` naming it. An app without
+ * `fetch` answers 404; one that does not load answers 500 with its problems.
+ */
+async function appFetch(
+	request: Request,
+	app: string,
+	path: string,
+): Promise<Response> {
+	const { data: located, error: notLoaded } = await loadHomeApp(app);
+	if (notLoaded)
+		return new Response(notLoaded.message, {
+			status: notLoaded.cause === 'app-problems' ? 500 : 404,
+		});
+	const { fetch } = located.app;
+	if (!fetch) return notFound();
+	const url = new URL(request.url);
+	url.pathname = `/${path}`;
+	const headers = new Headers(request.headers);
+	headers.set('x-forwarded-prefix', `/apps/${app}`);
+	const given = new Request(url.href, {
+		method: request.method,
+		headers,
+		body: request.body,
+		redirect: 'manual',
+		signal: request.signal,
+	});
+	try {
+		const response = await fetch(given);
+		if (response instanceof Response) return response;
+		throw new Error(
+			`answered ${response === null ? 'null' : typeof response}, not a Response`,
+		);
+	} catch (cause) {
+		serveLog.error(ServeError.FetchFailed({ app, cause }).error);
+		return new Response('Internal server error', { status: 500 });
+	}
+}
+
+/**
+ * `POST /actions/<app>/<word>/<word>`: run the action and answer its updates and then its
  * answer as JSON lines. Updates wait in order for a slow caller, because one
  * can be a piece of text the next extends, and are dropped once it is gone.
  */
@@ -273,17 +322,26 @@ async function call(request: Request): Promise<Response> {
 }
 
 async function callAnswer(request: Request): Promise<Response> {
-	const parts = new URL(request.url).pathname.split('/');
-	let app: string;
-	let words: string[];
+	const { pathname } = new URL(request.url);
+	let segments: string[];
 	try {
-		app = decodeURIComponent(parts[1] ?? '');
-		words = decodeURIComponent(parts[2] ?? '').split('.');
+		segments = pathname
+			.slice(ACTIONS.length)
+			.split('/')
+			.map((segment) => decodeURIComponent(segment));
 	} catch {
-		return notFound();
+		segments = [];
 	}
-	if (parts.length !== 3 || !isName(app) || !words.every(isName))
-		return notFound();
+	const [app = '', ...words] = segments;
+	if (!isName(app) || !words.length || !words.every(isName))
+		return Response.json(
+			ActionError.NotStarted({
+				cause: 'usage',
+				message: `${pathname} is not an action's address: /actions/<app>/<word>/<word>`,
+				next: 'epicenter',
+			}),
+			{ status: 400 },
+		);
 	const key = words.join(' ');
 	const bytes = await request.arrayBuffer();
 	let input: unknown;
@@ -364,6 +422,65 @@ function isPrivateHost(host: string | null) {
 
 const forbidden = () => new Response('Forbidden', { status: 403 });
 
+/** The first segment of an action call's address. */
+const ACTIONS = '/actions/';
+
+/**
+ * Whether a browser marked `request` as coming from another site, other than
+ * to open a page (Fetch Metadata). A top-level `GET` navigation, such as a
+ * link or an OAuth redirect back, is allowed; another site's `<img>`,
+ * script, `fetch()` or frame is not. A request with no `Sec-Fetch-Site`
+ * comes from a program, or a browser that sends none, and is allowed.
+ */
+function fromAnotherSite(request: Request) {
+	const { headers } = request;
+	if (headers.get('sec-fetch-site') !== 'cross-site') return false;
+	const opensPage =
+		request.method === 'GET' &&
+		headers.get('sec-fetch-mode') === 'navigate' &&
+		headers.get('sec-fetch-dest') === 'document';
+	return !opensPage;
+}
+
+/** `response` with `name` set, copied first when its headers are immutable, as `Response.redirect`'s are. */
+function withHeader(response: Response, name: string, value: string) {
+	try {
+		response.headers.set(name, value);
+		return response;
+	} catch {
+		const copy = new Response(response.body, response);
+		copy.headers.set(name, value);
+		return copy;
+	}
+}
+
+/** Send `request` to the route its first segment names. */
+function route(site: Site, request: Request): Promise<Response> {
+	const { pathname } = new URL(request.url);
+	if (pathname === '/')
+		return request.method === 'POST'
+			? site.mcp(request)
+			: site.launcher(request);
+	if (pathname.startsWith(ACTIONS))
+		return request.method === 'POST'
+			? call(request)
+			: Promise.resolve(
+					new Response('Method not allowed', {
+						status: 405,
+						headers: { allow: 'POST' },
+					}),
+				);
+	const app = /^\/apps\/([^/]+)(?:\/(.*))?$/.exec(pathname);
+	if (!app) return Promise.resolve(notFound());
+	let name: string;
+	try {
+		name = decodeURIComponent(app[1] as string);
+	} catch {
+		return Promise.resolve(notFound());
+	}
+	return site.app(request, name, app[2]);
+}
+
 /**
  * Start the listener and the routine clock. The listener answers everything
  * for a request from this computer or the tailnet whose `Origin`, if any, is
@@ -391,24 +508,17 @@ function startHttpServer(port: number) {
 			)
 				return forbidden();
 		}
-		const { pathname } = new URL(request.url);
-		const response = await (request.method === 'POST'
-			? pathname === '/'
-				? site.mcp(request)
-				: call(request)
-			: pathname === '/'
-				? site.launcher(request)
-				: site.ui(request));
+		if (fromAnotherSite(request)) return forbidden();
+		const response = await route(site, request);
 		// Every answer to a request serve accepts names its home, so a command
 		// or a second serve can tell who holds the port.
-		response.headers.set(HOME_HEADER, await homeName());
-		return response;
+		return withHeader(response, HOME_HEADER, await homeName());
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,
 		port,
 		idleTimeout: 0,
-		// Bun refuses a larger body itself, with 413.
+		// Bun refuses a larger body itself, with 413, for an action and an app's fetch alike.
 		maxRequestBodySize: MAX_INPUT_BYTES,
 		fetch: answer,
 	});

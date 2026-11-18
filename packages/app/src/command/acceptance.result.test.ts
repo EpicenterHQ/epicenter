@@ -79,7 +79,7 @@ return {description: 'Route notes', data, actions: {
 			});
 			expect(misfitTool.isError).toBe(true);
 			expect(misfitTool.structuredContent).toEqual(misfitAnswer);
-			const response = await fetch(`${mcp.served.base}/notes/check`, {
+			const response = await fetch(`${mcp.served.base}/actions/notes/check`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: '{}',
@@ -163,7 +163,7 @@ export default defineApp(({ folder }) => ({description: 'Staged drafts', actions
 			);
 
 			const post = (input: object) =>
-				fetch(`${mcp.served.base}/drafts/stage`, {
+				fetch(`${mcp.served.base}/actions/drafts/stage`, {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify(input),
