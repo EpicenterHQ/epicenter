@@ -70,9 +70,18 @@ export function answeredBy(
 }
 
 /**
+ * How long the command waits for serve's answer to begin. Serve answers a
+ * listing once it has loaded every app, and a call once it has loaded the
+ * app and checked the input, so this allows a slow load; a listener that
+ * takes the connection and never answers is given up on.
+ */
+const ANSWER_BEGINS_WITHIN_MS = 30_000;
+
+/**
  * Send one request to this Epicenter's serve and give its response. With no serve
  * of this Epicenter to take it, the answer is `NotStarted` (`unavailable`); a
- * connection that ends after it was taken is `Unreachable`, saying `ended`.
+ * connection that ends after it was taken, or that no answer begins on in
+ * time, is `Unreachable`, saying `ended`.
  */
 async function reach(
 	root: EpicenterRoot,
@@ -80,11 +89,14 @@ async function reach(
 	init: RequestInit & { headers?: Record<string, string> },
 	ended: string,
 ): Promise<Result<Response, PublicError>> {
+	const waiting = new AbortController();
+	const timer = setTimeout(() => waiting.abort(), ANSWER_BEGINS_WITHIN_MS);
 	let response: Response;
 	try {
 		response = await fetch(`http://127.0.0.1:${root.port}${path}`, {
 			...init,
 			headers: { ...init.headers, [ROOT_HEADER]: rootHeaderValue(root) },
+			signal: waiting.signal,
 		});
 	} catch (error) {
 		// Refused means nothing listens. Any other end came after the request
@@ -93,10 +105,17 @@ async function reach(
 		if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
 			return ActionError.NotStarted({
 				cause: 'unavailable',
-				message: 'serve is not running; its output says why it stopped',
+				message: 'serve is not running; if it stopped, its output says why',
 				next: 'epicenter serve',
 			});
+		if (waiting.signal.aborted)
+			return ActionError.Unreachable({
+				message: `Port ${root.port} took the request and sent no answer within ${ANSWER_BEGINS_WITHIN_MS / 1000} seconds${init.method === 'POST' ? '; the action may still be running, or may have finished' : ''}`,
+			});
 		return ActionError.Unreachable({ message: ended });
+	} finally {
+		// Once the answer begins, it may stream for as long as the action runs.
+		clearTimeout(timer);
 	}
 	const holder = answeredBy(response, root);
 	if (holder !== 'its serve') {

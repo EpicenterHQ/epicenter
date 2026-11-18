@@ -309,7 +309,7 @@ answer is `NotStarted` with cause `unavailable`:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
-serve is not running; its output says why it stopped
+serve is not running; if it stopped, its output says why
 Run: epicenter serve
 ```
 

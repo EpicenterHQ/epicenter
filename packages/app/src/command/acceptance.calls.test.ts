@@ -298,7 +298,7 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 	}
 	await f.stopServe();
 	expect(await ran()).toBe('xx');
-	const message = 'serve is not running; its output says why it stopped';
+	const message = 'serve is not running; if it stopped, its output says why';
 	expect(await f.run('where', 'am')).toEqual({
 		code: 2,
 		stdout: '',
