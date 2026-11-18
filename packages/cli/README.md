@@ -34,7 +34,8 @@ nested repositories.
 {
   "private": true,
   "workspaces": ["apps/*/code"],
-  "dependencies": { "@epicenter/cli": "0.5.0", "@epicenter/app": "0.5.0" }
+  "scripts": { "build": "bun run --filter '*' --if-present build" },
+  "dependencies": { "@epicenter/cli": "0.6.0", "@epicenter/app": "0.6.0" }
 }
 ```
 
@@ -53,7 +54,7 @@ copy of it, and the version a home runs is a line in a file in Git.
   app itself imports. It never lists `@epicenter/app`, which comes from the
   home. Add a package with `bun add <package>` in `code/`.
 - `bun install` at the top of the home installs every app's packages and
-  Epicenter. `init` and `new` run it for you. Epicenter has no install
+  Epicenter. `init` runs it once; `new` prints it. Epicenter has no install
   command, and calls and listings never install.
 - Restart `serve` after changing packages: stop `epicenter serve` and start
   it again. An edit to an app's own files
@@ -280,8 +281,8 @@ empty Epicenter says `No apps yet. Run: epicenter new <name>`.
 The container's real path stays in `context.folder` and `folder.path`.
 Contracts address `data/...` from that container. A separate real `codePath`
 is used for module imports and invalidation, the check for one shared
-`@epicenter/app`, and UI builds and serving. Replacing `code/` leaves the
-container lock and record paths intact.
+`@epicenter/app`, and UI builds and serving. Replacing `code/` leaves
+record paths intact.
 
 `init` runs `bun install` at the top of the home with the Bun that
 runs the command, so a new home's first commit holds `bun.lock`. A failure prints Bun's message and
@@ -635,8 +636,7 @@ file has a problem.
 
 Epicenter runs actions and serves pages. Git stores the home, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. `init` gives a
-new home two files of its own, which the owner may change. An older home adds
-them by hand.
+new home two files of its own, which the owner may change.
 
 `routines/checkpoint.md` runs the script every five minutes while serve runs,
 one run at a time:
@@ -701,7 +701,7 @@ and no lock inside an app.
 
 When absent, the root `.gitignore` excludes local files, node_modules,
 `.DS_Store`, `/apps/*/code/ui/dist/` for build output, and
-`/apps/*/.code-build-*/` for UI build and copy staging inside app containers.
+`/apps/*/.code-build-*/` for copy staging inside app containers.
 When git-lfs is available, init installs its local filter and writes missing root attributes for common binary extensions.
 These configuration files belong to the person after init.
 
@@ -932,7 +932,7 @@ files; you review, commit, and push them with Git.
 
 An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404. `serve` never serves a path with a part starting with `.`.
 
-A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: `init` writes `"build": "bun run --filter '*' --if-present build"` into the home's `package.json`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. A home made before this script existed needs it added by hand, and an app whose UI is a bare `ui/index.html` needs its own `build`.
+A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: `init` writes `"build": "bun run --filter '*' --if-present build"` into the home's `package.json`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. An app whose UI is a bare `ui/index.html` needs its own `build`.
 
 Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the blank app's `.gitignore` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
