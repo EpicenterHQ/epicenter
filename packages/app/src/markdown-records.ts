@@ -1,10 +1,9 @@
 import type { Static, TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
-import { isActionResult } from './action-result.ts';
-import { ActionError, type Problem } from './errors.ts';
+import { isActionResult, type PublicError } from './action-result.ts';
+import { ActionError, type Misfit, type Problem } from './errors.ts';
 import { absentValue, type FilledKeys, whatFits } from './field.ts';
-import type { Folder } from './folder.ts';
 import {
 	type FieldValues,
 	type JsonValue,
@@ -107,8 +106,6 @@ export function projectFields(
 	return { fields: values, problems };
 }
 
-type Misfit = Extract<ActionError, { name: 'Misfit' }>;
-export type CallbackError = { name: string; message: string };
 export type AnyRecord = Record<string, unknown> & {
 	path: string;
 	body: string;
@@ -116,6 +113,8 @@ export type AnyRecord = Record<string, unknown> & {
 type Write = { fields: Record<string, unknown>; body?: unknown };
 type Need = 'absent' | 'present' | 'either';
 type Found = ReturnType<typeof readMarkdown>;
+/** Where a record sits: its path, and its name in a folder key (none for a one-file key). */
+type Place = { path: string; id: string | undefined };
 
 /** `values` in the order the data key declares its fields, then the rest. */
 function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
@@ -126,51 +125,38 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 	);
 }
 
-/** Read and patch declared Markdown fields without changing undeclared lines. */
-export function createMarkdownRecords({
-	folder,
-	fields,
-	keysOf,
-}: {
-	folder: Folder;
-	fields: Fields;
-	keysOf: (path: string) => Record<string, string> | undefined;
-}) {
+/**
+ * Turn Markdown text into records of the declared fields, and decide how a
+ * change rewrites it without changing undeclared lines. Nothing here touches
+ * the disk: the caller reads the text and writes what `decide` answers.
+ */
+export function createMarkdownRecords({ fields }: { fields: Fields }) {
 	/** A change that does not fit the declared fields, as one problem at `path`. */
-	function unfit(path: string, line: string, kind = line) {
-		return ActionError.Misfit({
-			path,
-			id: keysOf(path)?.id,
-			problems: [{ line, kind }],
-		});
-	}
-	function unknownField(path: string, key: string) {
-		if (!Object.hasOwn(fields, key))
-			return unfit(path, `has no field "${key}"`, 'has no such field');
+	function unfit({ path, id }: Place, line: string, kind = line) {
+		return ActionError.Misfit({ path, id, problems: [{ line, kind }] });
 	}
 	/**
-	 * The file at `path` as a read gives it, with each problem and its kind,
+	 * The file's text as a read gives it, with each problem and its kind,
 	 * and the partial record for repair. Each field is its value if it
 	 * fits, else absent; an absent switch or list is `false` or `[]`.
 	 * Its diagnostics name each value that did not fit, each line whose text is
 	 * not JSON with what to write, and each required field that is missing.
-	 * `path`, the keys, and `body` come from the file, and no field can be
+	 * `path`, `id`, and `body` come from the file, and no field can be
 	 * named as one of them. A field whose line is not JSON counts among the
 	 * values that did not fit.
 	 */
-	function project(path: string, found: Found) {
+	function project({ path, id }: Place, found: Found) {
 		const { fields: values, problems } = projectFields(fields, found);
-		const keys = keysOf(path);
 		const record: AnyRecord = {
 			path,
-			...keys,
+			...(id === undefined ? {} : { id }),
 			...values,
 			body: found.body,
 		};
 		const result: Result<AnyRecord, Misfit> = problems.length
 			? ActionError.Misfit({
 					path,
-					id: keys?.id,
+					id,
 					problems,
 					...(found.readable ? { record } : {}),
 				})
@@ -180,20 +166,20 @@ export function createMarkdownRecords({
 
 	/** Split a patch into fields to set and remove, and check each supplied value. */
 	function patchOf(
-		path: string,
+		place: Place,
 		given: Record<string, unknown>,
 		creating: boolean,
 	) {
 		const removed: string[] = [];
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
-			const unknown = unknownField(path, key);
-			if (unknown) return unknown;
+			if (!Object.hasOwn(fields, key))
+				return unfit(place, `has no field "${key}"`, 'has no such field');
 			if (value === undefined) continue;
 			if (value === null && isOptional(fields[key] as TSchema))
 				removed.push(key);
 			else if (value === null && !creating) {
-				return unfit(path, `${key} is required, so it cannot be removed`);
+				return unfit(place, `${key} is required, so it cannot be removed`);
 			} else set[key] = value as JsonValue;
 		}
 		const problems: Problem[] = [];
@@ -211,100 +197,107 @@ export function createMarkdownRecords({
 			)
 				problems.push({ line: `${key} is missing`, kind: `${key} is missing` });
 		}
-		if (problems.length)
-			return ActionError.Misfit({ path, id: keysOf(path)?.id, problems });
+		if (problems.length) return ActionError.Misfit({ ...place, problems });
 		return Ok({ set: inDeclaredOrder(set, fields), removed });
 	}
 
-	/**
-	 * Decide a record and its replacement together, once per attempt at the
-	 * current file. `need` refuses an absent file with Missing and a present
-	 * one with Changed (there).
-	 */
-	async function write(
-		path: string,
-		need: Need,
-		computed: boolean,
-		change: (record: AnyRecord | undefined) => Result<Write, CallbackError>,
-	): Promise<Result<AnyRecord, CallbackError>> {
-		const written = await folder.edit<AnyRecord, CallbackError>(
-			path,
-			(before) => {
-				if (before === undefined && need === 'present')
-					return ActionError.Missing({ path });
-				if (before !== undefined && need === 'absent')
-					return ActionError.Changed({ path, cause: 'there' });
+	return {
+		/** The record in `text`, or Misfit with the partial record for repair. */
+		parse(place: Place, text: string) {
+			return project(place, readMarkdown(text)).result;
+		},
 
-				const found = readMarkdown(before ?? '');
-				const current = before !== undefined ? project(path, found) : undefined;
-				if (current?.result.error && (computed || !found.readable))
-					return current.result;
-				const changed = change(current?.record);
-				if (changed.error !== null) return changed;
-				const { fields: given, body } = changed.data;
-				if (body !== undefined && typeof body !== 'string')
-					return unfit(path, 'body must be text');
-				const patch = patchOf(path, given, before === undefined);
-				if (patch.error !== null) return patch;
-				const { set, removed } = patch.data;
-				if (
-					current &&
-					!removed.length &&
-					!Object.keys(set).length &&
-					body === undefined
-				)
-					return current.result.error
-						? current.result
-						: Ok({ value: current.record });
+		/**
+		 * Decide a record and the text that replaces `before`, the file's text or
+		 * undefined when it is absent; `Folder.edit` writes it. `need` refuses an
+		 * absent file with Missing and a present one with Changed (there).
+		 * `refusesMisfit` refuses a current file that does not fit, for a change
+		 * computed from the record; otherwise a fixed patch may repair it.
+		 */
+		decide({
+			place,
+			before,
+			need,
+			refusesMisfit,
+			change,
+		}: {
+			place: Place;
+			before: string | undefined;
+			need: Need;
+			refusesMisfit: boolean;
+			change: (record: AnyRecord | undefined) => Result<Write, PublicError>;
+		}): Result<{ value: AnyRecord; text?: string }, PublicError> {
+			const { path } = place;
+			if (before === undefined && need === 'present')
+				return ActionError.Missing({ path });
+			if (before !== undefined && need === 'absent')
+				return ActionError.Changed({ path, cause: 'there' });
 
-				let after: string;
-				if (before === undefined) after = markdownOf(set, body ?? '');
-				else {
-					const fielded = withFields(before, set, removed);
-					after =
-						body === undefined
-							? fielded
-							: fielded.slice(0, fielded.length - found.body.length) + body;
-				}
-				if (after === before && current)
-					return current.result.error
-						? current.result
-						: Ok({ value: current.record });
-				const next = project(path, readMarkdown(after)).result;
-				if (next.error !== null)
-					return current?.result.error ? current.result : next;
-				return Ok({ value: next.data, text: after });
-			},
-		);
-		// Every Ok above carries the record as its value.
-		return written as Result<AnyRecord, CallbackError>;
-	}
-
-	/** A computed change must explicitly return Ok(change) or Err(error). */
-	const computed =
-		(
-			change: (record: AnyRecord | undefined) => unknown,
-			identity: readonly string[] = [],
-		) =>
-		(now: AnyRecord | undefined): Result<Write, CallbackError> => {
-			const result = change(structuredClone(now));
-			if (!isActionResult(result))
-				throw new Error(
-					'The change given to edit must return a Result: Ok(change) or Err(error)',
-				);
-			if (result.error !== null) return result;
+			const found = readMarkdown(before ?? '');
+			const current = before !== undefined ? project(place, found) : undefined;
+			if (current?.result.error && (refusesMisfit || !found.readable))
+				return current.result;
+			const changed = change(current?.record);
+			if (changed.error !== null) return changed;
+			const { fields: given, body } = changed.data;
+			if (body !== undefined && typeof body !== 'string')
+				return unfit(place, 'body must be text');
+			const patch = patchOf(place, given, before === undefined);
+			if (patch.error !== null) return patch;
+			const { set, removed } = patch.data;
 			if (
-				typeof result.data !== 'object' ||
-				result.data === null ||
-				Array.isArray(result.data)
+				current &&
+				!removed.length &&
+				!Object.keys(set).length &&
+				body === undefined
 			)
-				throw new Error(
-					'The change given to edit must return a record patch inside Ok',
-				);
-			const { body, ...given } = result.data as Record<string, unknown>;
-			for (const key of identity) delete given[key];
-			return Ok({ fields: given, body });
-		};
+				return current.result.error
+					? current.result
+					: Ok({ value: current.record });
 
-	return { project, write, computed, unknownField };
+			let after: string;
+			if (before === undefined) after = markdownOf(set, body ?? '');
+			else {
+				const fielded = withFields(before, set, removed);
+				after =
+					body === undefined
+						? fielded
+						: fielded.slice(0, fielded.length - found.body.length) + body;
+			}
+			if (after === before && current)
+				return current.result.error
+					? current.result
+					: Ok({ value: current.record });
+			const next = project(place, readMarkdown(after)).result;
+			if (next.error !== null)
+				return current?.result.error ? current.result : next;
+			return Ok({ value: next.data, text: after });
+		},
+
+		/** A computed change must explicitly return Ok(change) or Err(error). */
+		computed:
+			(
+				change: (record: AnyRecord | undefined) => unknown,
+				identity: readonly string[] = [],
+			) =>
+			(now: AnyRecord | undefined): Result<Write, PublicError> => {
+				const result = change(structuredClone(now));
+				if (!isActionResult(result))
+					throw new Error(
+						'The change given to edit must return a Result: Ok(change) or Err(error)',
+					);
+				if (result.error !== null) return result;
+				if (
+					typeof result.data !== 'object' ||
+					result.data === null ||
+					Array.isArray(result.data)
+				)
+					throw new Error(
+						'The change given to edit must return a record patch inside Ok',
+					);
+				const { body, ...given } = result.data as Record<string, unknown>;
+				for (const key of identity) delete given[key];
+				return Ok({ fields: given, body });
+			},
+	};
 }
