@@ -1,6 +1,6 @@
-import { reactive } from '@epicenter/svelte/reactive';
 import { createCookieSessionAuth } from '../auth/cookie-session.js';
 import { readDashboardReturnPath } from '../dashboard/navigation.js';
+import { reactive } from '../reactive.js';
 
 const client = createCookieSessionAuth({
 	origin: window.location.origin,
