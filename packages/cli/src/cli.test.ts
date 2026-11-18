@@ -89,7 +89,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toEndWith(
-		`\nNo routines. Add routines/<name>.md with cron and run.\n\nGit: ${f.home} is not a Git repository; run: git init\n`,
+		'\nNo routines. Add routines/<name>.md with cron and run.\n',
 	);
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).not.toContain('epicenter reading');
@@ -205,7 +205,7 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 	});
 });
 
-test('bare epicenter reports routines and the repository after the apps, and changes nothing', async () => {
+test('bare epicenter reports routines after the apps, and changes nothing', async () => {
 	const f = await setup();
 	await gitIn(f.home, 'init', '-q');
 	await gitIn(f.home, 'add', '-A');
@@ -215,15 +215,13 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week", "summary", {"note": "it\'s here"}, "two words"]\n---\n',
 		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
 	});
-	const vendor = 'apps/reading/code/vendor';
-	await f.folder(join(f.home, vendor), { 'lib.ts': '' }, { git: true });
 	const state = async () => [
 		await gitIn(f.home, 'rev-parse', 'HEAD'),
 		await gitIn(f.home, 'status', '--porcelain', '--untracked-files=all'),
 	];
 	const before = await state();
-	// Two routine files and the nested repository, which Git shows as one path.
-	expect(before[1]?.split('\n')).toHaveLength(3);
+	// The two routine files are uncommitted, and stay so.
+	expect(before[1]?.split('\n')).toHaveLength(2);
 
 	const listed = await f.run('--json');
 	expect(listed.code).toBe(0);
@@ -247,12 +245,14 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 	]);
 	// The version the home has installed, read from its node_modules.
 	expect(value.version).toBe(VERSION);
-	expect(value.repository).toEqual({
-		lastCommit: expect.any(String),
-		uncommitted: 3,
-		origin: null,
-		nested: [vendor],
-	});
+	// Git reports on the repository itself; the report carries none of it.
+	expect(Object.keys(value)).toEqual([
+		'epicenter',
+		'version',
+		'apps',
+		'problems',
+		'routines',
+	]);
 	expect(Date.parse(value.routines[1].next)).toBeGreaterThan(Date.now());
 
 	const human = await f.run();
@@ -268,23 +268,9 @@ Routines:
   broken: ${value.routines[0].problem}
   review: cron 0 8 * * *, next ${value.routines[1].next}
     ${value.routines[1].command}
-
-Git: last commit less than a minute ago; 3 files uncommitted; no origin; ${vendor} is a nested Git repository: backups hold only a pointer
 `,
 	);
 	expect(await state()).toEqual(before);
-
-	// With an origin, the count is of commits it does not hold yet.
-	const origin = join(f.root, 'origin.git');
-	await gitIn(f.root, 'init', '-q', '--bare', origin);
-	await gitIn(f.home, 'remote', 'add', 'origin', origin);
-	expect((await f.run()).stdout).toContain('; main is not on origin yet; ');
-	await gitIn(f.home, 'push', '-q', 'origin', 'main');
-	await gitIn(f.home, 'add', 'routines');
-	await gitIn(f.home, 'commit', '-qm', 'routines');
-	expect((await f.run()).stdout).toContain(
-		'; 1 file uncommitted; 1 commit not on origin; ',
-	);
 });
 
 test('a misused command answers its usage line, with its help as the next step', async () => {

@@ -22,12 +22,11 @@ import {
 } from './listing.ts';
 import { newCommand } from './new.ts';
 import { presentAnswer, writeErr } from './output.ts';
-import { repositoryStatus } from './repository.ts';
 import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { sendToServe } from './serve-call.ts';
 
-const HELP = `epicenter                              your apps, routines and repository
+const HELP = `epicenter                              your apps and routines
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<input>]
 ${Object.values(COMMANDS)
@@ -102,12 +101,11 @@ export async function runCli(argv: string[]): Promise<number> {
 			if (help) return Ok(HELP);
 			epicenterRoot();
 			// A report only: it reads the home and starts, fetches and writes nothing.
-			const [found, routines, repository] = await Promise.all([
+			const [found, routines] = await Promise.all([
 				discoverAll(),
 				createRoutines({ folder: epicenterDir() }).list(),
-				repositoryStatus(epicenterDir()),
 			]);
-			return Ok(homeListing(found, { routines, repository }, json));
+			return Ok(homeListing(found, routines, json));
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
 		if (Object.hasOwn(HANDLERS, name)) {

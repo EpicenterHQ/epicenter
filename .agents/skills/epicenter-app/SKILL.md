@@ -372,9 +372,10 @@ value, which reaches the command as one word of JSON text:
 `run: ["epicenter", "flights", "daily", "run", {"recheck": false}]`.
 
 `epicenter` on its own shows each routine with its next occurrence and its
-command as a line to copy into a terminal, how long
-ago the last commit was, how many files are uncommitted, how many commits are
-not on origin, and any nested Git repository under `apps/`.
+command as a line to copy into a terminal. For the repository, run Git at the
+top of the home: `git status -sb` shows the branch, commits not on origin and
+each uncommitted file, and `git log -1 --format=%cr` how long ago the last
+commit was.
 
 The root origin is optional and private. It receives all apps' records. The
 script never pulls, merges, rebases, or force-pushes, and a failed push leaves

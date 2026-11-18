@@ -641,22 +641,22 @@ installed, read from its `node_modules/@epicenter/cli`, or that it has none.
 there is none. Then come the
 apps and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
-refused, then one line about the repository:
+refused. `--json` adds them as
+`routines: [{ name, cron, next } | { name, problem }]`. The report reads only.
+It starts nothing and works while serve is stopped. It exits 0 when it
+could report, even when an app or a routine file has a problem.
 
-```txt
-Git: last commit 3 days ago; 212 files uncommitted; 41 commits not on origin
+The report says nothing about the home's repository; Git does
+([ADR-0956](../../docs/adr/0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md)).
+At the top of the home:
+
+```sh
+git status -sb               # branch, commits ahead of origin, each uncommitted file
+git log -1 --format=%cr      # how long ago the last commit was
 ```
 
-The line says `no origin` when there is none, and names any Git repository
-nested under `apps/`, because the home's commits hold only a pointer to a
-nested repository and not its files. `--json` adds the same facts as
-`routines: [{ name, cron, next } | { name, problem }]` and
-`repository: { lastCommit, uncommitted, origin, nested }`: `origin` is null or
-`{ branch, ahead? }`, and `repository` is null when the home is not a Git
-repository. The report reads only. It starts nothing, fetches nothing, so the
-count against origin is as of the last push or fetch, and it works while serve
-is stopped. It exits 0 when it could report, even when an app or a routine
-file has a problem.
+A commit that is days old, or files that stay uncommitted, mean the
+checkpoint routine stopped; its error is in serve's output.
 
 ## The home commits itself
 
