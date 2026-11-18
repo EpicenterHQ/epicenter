@@ -1,12 +1,15 @@
 /**
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
  * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
- * and served at `/apps/<app>/`. A call is `POST /actions/<app>/<word>/<word>`
- * with the input as JSON (ADR-0967); the answer is JSON lines, `{"update": value}` for each update the
- * action sends and then `{"answer": {data, error}}` (ADR-0930, ADR-0953).
+ * and served at `/apps/<app>/`. A call is `POST /actions/<app>/<action>`
+ * with the input as JSON (ADR-0967); the answer is JSON lines,
+ * `{"update": value}` for each update the action sends and then
+ * `{"answer": {data, error}}` (ADR-0930, ADR-0953).
  *
- * The client has the app's actions under the same words as the app. Each
- * call types its input and what it returns in its JSON form, and resolves to
+ * The client calls an action by its name in the app: `app.call('add', input)`
+ * runs it now, and `app.action('add')` is the same call as a function, for a
+ * query or a mutation to hold. Each call types its input and what it returns
+ * in its JSON form, and resolves to
  * a Result: what the action returned, the action's own error, or one of the
  * platform's: `NotStarted` (it never began), `Threw` (it began and threw), or
  * `Unreachable` (the outcome is unknown). Error names do not say what
@@ -20,12 +23,16 @@
  * import type tasks from '../../../epicenter.ts';
  *
  * const app = connect<typeof tasks>();
- * export const taskReads = resultQueries(['tasks'], { list: app.list, get: app.get });
- * export const taskWrites = resultMutations(['tasks'], { set: app.set });
+ * export const taskReads = resultQueries(['tasks'], {
+ *   list: app.action('list'),
+ *   get: app.action('get'),
+ * });
+ * export const taskWrites = resultMutations(['tasks'], { patch: app.action('patch') });
  *
  * const list = createQuery(() => taskReads.list());
- * const setTask = createMutation(() => taskWrites.set);
- * setTask.mutate({ id, done: true });
+ * const patchTask = createMutation(() => taskWrites.patch);
+ * patchTask.mutate({ id, done: true });
+ * await app.call('add', { title: 'Call the bank' });
  * ```
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
@@ -107,8 +114,8 @@ type CallOptions<A> = [ActionUpdate<A>] extends [never]
 		];
 
 /**
- * The client for actions `A`: each action a function of its input, each
- * group under its word. An action that sends updates also takes
+ * One action of an app, as a page calls it: a function of its input. An
+ * action that sends updates also takes
  * `{ onUpdate }`, which receives each one in order. The call resolves to what
  * the action returned, or exactly the errors it can: the ones the action
  * returns, and `NotStarted`, `Threw` and `Unreachable`, which only Epicenter
@@ -129,10 +136,15 @@ export type ActionCall<A> = (
 	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
 >;
 
+/** The client for actions `A`, an app's `actions`, each called by its name. */
 export type AppClient<A> = {
-	readonly [K in keyof A]: A[K] extends (input: never) => unknown
-		? ActionCall<A[K]>
-		: AppClient<A[K]>;
+	/** Call the action `name` now: `app.call('add', { title })`. */
+	call<K extends keyof A & string>(
+		name: K,
+		...args: Parameters<ActionCall<A[K]>>
+	): ReturnType<ActionCall<A[K]>>;
+	/** The action `name` as a function, the same call each time: `app.action('add')`. */
+	action<K extends keyof A & string>(name: K): ActionCall<A[K]>;
 };
 
 /** Tell the page about a listener's failure without ending the call. */
@@ -147,7 +159,7 @@ function report(cause: unknown) {
  * answer is `Unreachable`: the action may still be running or may have
  * finished, so the page rereads its records.
  */
-async function call(
+async function post(
 	url: string,
 	input: unknown,
 	onUpdate?: (value: unknown) => unknown,
@@ -182,7 +194,7 @@ async function call(
  * `app` without repeating its name; pass `{ app }` when the page does not
  * identify it. Without either name, `connect` throws. `url` defaults to this
  * origin's `/`, where `epicenter serve` answers the pages it serves: an
- * action is `POST <url>actions/<app>/<word>/<word>`, one segment a word.
+ * action is `POST <url>actions/<app>/<action>`.
  */
 export function connect<App extends (given: never) => { actions: object }>({
 	app,
@@ -192,24 +204,19 @@ export function connect<App extends (given: never) => { actions: object }>({
 	url?: string;
 } = {}): AppClient<ReturnType<App>['actions']> {
 	const name = app ?? appOfPage();
-	const base = url.endsWith('/') ? url : `${url}/`;
-	const at = (words: string[]): unknown =>
-		new Proxy(() => {}, {
-			get: (_, key) =>
-				typeof key === 'string' && key !== 'then'
-					? at([...words, key])
-					: undefined,
-			apply: (_, __, [input, options]) => {
-				if (words.length === 0)
-					throw new Error(`Call one of ${name}'s actions, not the app`);
-				return call(
-					`${base}actions/${[name, ...words].map(encodeURIComponent).join('/')}`,
-					input,
-					options?.onUpdate,
-				);
-			},
-		});
-	return at([]) as AppClient<ReturnType<App>['actions']>;
+	const base = `${url.endsWith('/') ? url : `${url}/`}actions/${encodeURIComponent(name)}/`;
+	const call = (
+		action: string,
+		input?: unknown,
+		options?: { onUpdate?: (value: unknown) => unknown },
+	) => post(`${base}${encodeURIComponent(action)}`, input, options?.onUpdate);
+	// Each action's input and answer are typed by the app; on the wire every
+	// call is the same request, so these untyped functions stand in for them.
+	return {
+		call,
+		action: (action: string) => (input?: unknown, options?: object) =>
+			call(action, input, options),
+	} as unknown as AppClient<ReturnType<App>['actions']>;
 }
 
 /** The app whose `/apps/<app>/` serves this page. */

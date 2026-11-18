@@ -35,7 +35,7 @@ const count = defineAction({
 });
 const app = connect<
 	() => {
-		actions: { count: typeof count; deep: { count: typeof count } };
+		actions: { count: typeof count; 'count-again': typeof count };
 	}
 >({
 	app: 'counter',
@@ -73,14 +73,15 @@ test('a call posts its input to the action and hears updates in order across chu
 	}) as unknown as typeof fetch;
 	const heard: number[] = [];
 	expect(
-		expectOk(await app.count({}, { onUpdate: (n) => heard.push(n) })),
+		expectOk(await app.call('count', {}, { onUpdate: (n) => heard.push(n) })),
 	).toBe('done');
 	expect(heard).toEqual([1, 2]);
 	expect(requests).toEqual([
 		{ url: '/actions/counter/count', method: 'POST', body: '{}' },
 	]);
-	expectOk(await app.deep.count());
-	expect(requests[1]?.url).toBe('/actions/counter/deep/count');
+	// action() is the same call, held as a function.
+	expectOk(await app.action('count-again')());
+	expect(requests[1]?.url).toBe('/actions/counter/count-again');
 });
 
 test('a listener that throws or rejects is reported and does not end the call', async () => {
@@ -91,7 +92,8 @@ test('a listener that throws or rejects is reported and does not end the call', 
 	try {
 		respond(line({ update: 1 }) + line({ update: 2 }) + answer('done'));
 		const broke = new Error('callback');
-		const result = await app.count(
+		const result = await app.call(
+			'count',
 			{},
 			{
 				onUpdate: (n) => {
@@ -125,21 +127,27 @@ test('an error in the answer is the error itself, whole', async () => {
 		}).error,
 	]) {
 		respond(failed(error));
-		expect(expectErr(await app.count()) as unknown).toEqual(error);
+		expect(expectErr(await app.call('count')) as unknown).toEqual(error);
 	}
 });
 
-test('a call serve never started arrives as NotStarted in the body of an HTTP error', async () => {
+test('a call serve refused is a 200 with its NotStarted answer, and any other status is Unreachable', async () => {
 	const refusal = ActionError.NotStarted({
 		message: 'tasks: epicenter.ts does not load',
 		cause: 'app-problems',
 		app: 'tasks',
 		problems: ['epicenter.ts does not load'],
 	});
-	respond(JSON.stringify(refusal), { status: 400 });
-	expect(expectErr(await app.count())).toEqual(refusal.error);
+	respond(line({ answer: refusal }));
+	expect(expectErr(await app.call('count'))).toEqual(refusal.error);
+	// A body that would be a refusal does not make another status one.
+	respond(JSON.stringify(refusal), { status: 400, statusText: 'Bad Request' });
+	expect(expectErr(await app.call('count'))).toMatchObject({
+		name: 'Unreachable',
+		message: 'serve answered 400 Bad Request',
+	});
 	respond('', { status: 503, statusText: 'Service Unavailable' });
-	expect(expectErr(await app.count())).toMatchObject({
+	expect(expectErr(await app.call('count'))).toMatchObject({
 		name: 'Unreachable',
 		message: 'serve answered 503 Service Unavailable',
 	});
@@ -155,7 +163,7 @@ test('a failed fetch never claims the action did not start: it may have run', as
 		globalThis.fetch = (async () => {
 			throw new TypeError(failure);
 		}) as unknown as typeof fetch;
-		expect(expectErr(await app.count())).toMatchObject({
+		expect(expectErr(await app.call('count'))).toMatchObject({
 			name: 'Unreachable',
 			message:
 				'Epicenter could not be reached, or the connection dropped; the action may have run',
@@ -177,21 +185,17 @@ test('connect infers the app from document, location, or explicit options', asyn
 		configurable: true,
 		value: { href: 'https://host/apps/other/#/list' },
 	});
-	await connect<() => { actions: { count: typeof count } }>().count();
+	type Counter = () => { actions: { count: typeof count } };
+	await connect<Counter>().call('count');
 	Reflect.deleteProperty(globalThis, 'document');
-	await connect<() => { actions: { count: typeof count } }>().count();
-	await connect<() => { actions: { count: typeof count } }>({
-		app: 'explicit',
-		url: 'https://host/base',
-	}).count();
-	await connect<() => { actions: { words: { create: typeof count } } }>({
-		app: 'vocab',
-	}).words.create();
+	await connect<Counter>().call('count');
+	await connect<Counter>({ app: 'explicit', url: 'https://host/base' }).call(
+		'count',
+	);
 	expect(urls).toEqual([
 		'/actions/reading/count',
 		'/actions/other/count',
 		'https://host/base/actions/explicit/count',
-		'/actions/vocab/words/create',
 	]);
 });
 
@@ -218,5 +222,5 @@ test('the answer does not wait for the stream to end or for its cancellation', a
 				},
 			}),
 		)) as unknown as typeof fetch;
-	expect(expectOk(await app.count())).toBe('done');
+	expect(expectOk(await app.call('count'))).toBe('done');
 });

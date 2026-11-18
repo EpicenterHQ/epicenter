@@ -68,3 +68,32 @@ export function portHeld(
 				: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}. If it is an epicenter serve from before an upgrade, stop it and start it again.`,
 	});
 }
+
+/**
+ * The MCP tool name of the action `key` in `app`: the two names joined by
+ * `_`. Names have no underscores, so `fromToolName` reads it back.
+ */
+export const toolName = (app: string, key: string) => `${app}_${key}`;
+
+/** The app and action key a tool name names; an empty key for no such name. */
+export function fromToolName(name: string) {
+	const [app = '', key = '', ...more] = name.split('_');
+	return { app, key: more.length ? '' : key };
+}
+
+/** A name that finds no app in the Epicenter: serve's answer, and the command's from the listing. */
+export const unknownApp = (name: string) =>
+	ActionError.NotStarted({
+		cause: 'usage',
+		message: `Unknown app "${name}"`,
+		next: 'epicenter',
+	});
+
+/** An app that does not load, refusing a call or a listing's view of it. */
+export const appProblems = (name: string, problems: string[]) =>
+	ActionError.NotStarted({
+		cause: 'app-problems',
+		message: `${name}: ${problems.join('; ')}`,
+		app: name,
+		problems,
+	});

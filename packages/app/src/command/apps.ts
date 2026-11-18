@@ -13,11 +13,7 @@ import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { isAction } from '../action.ts';
 import {
-	type Action,
-	ActionError,
-	type Actions,
 	type App,
 	defineApp,
 	type Folder,
@@ -25,7 +21,8 @@ import {
 	isName,
 	type NotStarted,
 } from '../index.ts';
-import type { EpicenterRoot } from './root.ts';
+import { appProblems, unknownApp } from './protocol.ts';
+import { appDir, appPath, type EpicenterRoot } from './root.ts';
 
 /** The words the `epicenter` command keeps for itself, which no app may be named. */
 export const COMMAND_WORDS = ['check', 'serve'] as const;
@@ -59,8 +56,6 @@ export type AppEntry = {
 export type LoadedApp = AppEntry & {
 	/** What the function `epicenter.ts` default-exports returned for the app's folder. */
 	app: App;
-	/** Every action by its words, one space apart, as the command line names it. */
-	actions: Record<string, Action>;
 };
 
 const CODE = 'code/epicenter.ts';
@@ -84,12 +79,6 @@ async function isFile(path: string) {
 const appsIn = ({ folder }: Pick<EpicenterRoot, 'folder'>) =>
 	join(folder, 'apps');
 
-/** The app `name`'s folder from the Epicenter's, as messages name it. */
-const appDir = (name: string) => `apps/${name}`;
-
-/** Where the app `name` is in the Epicenter, before following a link. */
-export const appPath = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
-	join(root.folder, appDir(name));
 
 /** An entry's problems: it did not load, a read failed, or its `local/` could reach Git. */
 export type AppProblems = { entry: string; problems: string[] };
@@ -183,26 +172,10 @@ async function load(entry: AppEntry): Promise<Result<LoadedApp, string[]>> {
 		const app = defineApp(exported as (given: { folder: Folder }) => App)({
 			folder: folderOnDisk(entry.realPath),
 		});
-		return Ok({
-			...entry,
-			app,
-			actions: Object.fromEntries(byWords(app.actions)),
-		});
+		return Ok({ ...entry, app });
 	} catch (error) {
 		return thrown(error);
 	}
-}
-
-/** Every action nested in `actions`, by its words one space apart, in the order written. */
-function byWords(
-	actions: Actions,
-	words: readonly string[] = [],
-): [string, Action][] {
-	return Object.entries(actions).flatMap(([word, entry]) =>
-		isAction(entry)
-			? [[[...words, word].join(' '), entry] as [string, Action]]
-			: byWords(entry as Actions, [...words, word]),
-	);
 }
 
 /**
@@ -247,14 +220,6 @@ export async function discoverAll(
 	};
 }
 
-/** A name that finds no app in the Epicenter: serve's answer, and the command's from the listing. */
-export const unknownApp = (name: string) =>
-	ActionError.NotStarted({
-		cause: 'usage',
-		message: `Unknown app "${name}"`,
-		next: 'epicenter',
-	});
-
 /** The entry named `name`, loaded or not, for a request that names one. */
 export async function findEntry(
 	root: Pick<EpicenterRoot, 'folder'>,
@@ -273,16 +238,14 @@ export async function loadApp(
 ): Promise<Result<LoadedApp, NotStarted>> {
 	const entry = await findEntry(root, name);
 	if (!entry) return unknownApp(name);
-	const { data: loaded, error: problems } = await load(entry);
-	if (loaded) return Ok(loaded);
-	return appProblems(name, problems);
+	return loadEntry(entry);
 }
 
-/** An app that does not load, refusing a call or a listing's view of it. */
-export const appProblems = (name: string, problems: string[]) =>
-	ActionError.NotStarted({
-		cause: 'app-problems',
-		message: `${name}: ${problems.join('; ')}`,
-		app: name,
-		problems,
-	});
+/** Load an entry already found: the app, or its problems as a refusal. */
+export async function loadEntry(
+	entry: AppEntry,
+): Promise<Result<LoadedApp, NotStarted>> {
+	const { data: loaded, error: problems } = await load(entry);
+	if (loaded) return Ok(loaded);
+	return appProblems(entry.name, problems);
+}

@@ -129,16 +129,12 @@ test('a stream that ends with no answer is Unreachable, after its updates', asyn
 	}
 });
 
-test('an HTTP error carries an answer only as NotStarted', async () => {
+test('any status but 200 is Unreachable, whatever its body says', async () => {
 	const refusal = ActionError.NotStarted({ message: 'no', cause: 'usage' });
-	expect(
-		expectErr(
-			await readAnswer(new Response(JSON.stringify(refusal), { status: 400 })),
-		),
-	).toEqual(refusal.error);
 	for (const body of [
 		'Not found',
 		'',
+		JSON.stringify(refusal),
 		JSON.stringify({ data: 1, error: null }),
 		JSON.stringify(ActionError.Missing({ path: 'x' })),
 	])

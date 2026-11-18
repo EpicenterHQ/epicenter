@@ -133,3 +133,10 @@ export async function rootInstructions({
 		throw error;
 	}
 }
+
+/** The app `name`'s folder from the Epicenter's, as messages name it. */
+export const appDir = (name: string) => `apps/${name}`;
+
+/** Where the app `name` is in the Epicenter, before following a link. */
+export const appPath = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
+	join(root.folder, appDir(name));

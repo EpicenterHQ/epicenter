@@ -17,7 +17,7 @@ import {
 	loadApp,
 	localProblem,
 } from './apps.ts';
-import { problemLines, withFolders } from './listing.ts';
+import { problemLines, withFolders } from './report.ts';
 import type { EpicenterRoot } from './root.ts';
 
 /** Every data key of `loaded`, read from its folder; nothing is written. */

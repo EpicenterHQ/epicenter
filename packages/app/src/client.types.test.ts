@@ -39,13 +39,13 @@ const app = connect<
 		actions: {
 			classify: typeof classify;
 			count: typeof count;
-			daily: { start: typeof empty };
+			'start-day': typeof empty;
 		};
 	}
 >({ app: 'types' });
 // Typecheck these calls without making network requests during bun test.
 function clientUsage() {
-	void app.classify({}).then(({ data, error }) => {
+	void app.call('classify', {}).then(({ data, error }) => {
 		if (error === null) {
 			const count: number = data;
 			return count;
@@ -58,7 +58,7 @@ function clientUsage() {
 	});
 	// A call's error is exactly what its action returns and the three only
 	// Epicenter answers, so a switch on the name is exhaustive.
-	void app.classify({}).then(({ error }) => {
+	void app.call('classify', {}).then(({ error }) => {
 		if (error === null) return 'ok';
 		switch (error.name) {
 			case 'NoRoute':
@@ -72,7 +72,7 @@ function clientUsage() {
 				return error satisfies never;
 		}
 	});
-	void app.classify({}).then(({ error }) => {
+	void app.call('classify', {}).then(({ error }) => {
 		if (error === null) return;
 		assertType<
 			Equal<
@@ -84,13 +84,14 @@ function clientUsage() {
 		if (error.name === 'Missing') return;
 	});
 	// An action with no error of its own still answers the platform's three.
-	void app.daily.start().then(({ error }) => {
+	void app.call('start-day').then(({ error }) => {
 		if (error === null) return;
 		assertType<
 			Equal<(typeof error)['name'], 'NotStarted' | 'Threw' | 'Unreachable'>
 		>();
 	});
-	void app.count(
+	void app.call(
+		'count',
 		{ to: 3 },
 		{
 			onUpdate: (value) => {
@@ -100,15 +101,21 @@ function clientUsage() {
 			},
 		},
 	);
-	void app.count({ to: 3 });
+	void app.call('count', { to: 3 });
 	// @ts-expect-error The input is still checked.
-	void app.count({ to: 'three' });
+	void app.call('count', { to: 'three' });
 	// @ts-expect-error A call takes no signal: nothing stops an action from outside.
-	void app.count({ to: 3 }, { signal: new AbortController().signal });
+	void app.call('count', { to: 3 }, { signal: new AbortController().signal });
 	// @ts-expect-error An action that sends no updates takes no options.
-	void app.daily.start({}, { onUpdate: () => {} });
-	void app.daily.start({});
-	void app.daily.start();
+	void app.call('start-day', {}, { onUpdate: () => {} });
+	void app.call('start-day', {});
+	void app.call('start-day');
+	// action() holds the same call, typed the same.
+	const held = app.action('classify');
+	const called: ReturnType<typeof held> = app.call('classify', {});
+	void called;
+	// @ts-expect-error no action has this name
+	void app.call('daily');
 }
 test('client type assertions compile', () =>
 	expect(clientUsage).toBeFunction());
