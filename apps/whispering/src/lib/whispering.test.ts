@@ -19,22 +19,28 @@
  *   closed
  * - Deleting a recording deletes its transcripts, their results, and its
  *   audio; it is refused while work for it runs or waits to be saved
+ * - Run again after a failure sends the same request to the same model
+ * - A recording is kept when a result for it was saved after the person
+ *   confirmed deleting it
  * - An answer whose result cannot be written stays in the window, and
- *   Save again writes it without sending another request
+ *   Save again writes it without sending another request; dismissing it
+ *   lets its recording go
  * - A note that does not read is listed for repair and repaired as text
  *
- * Run with `--conditions=browser` (`bun run test`): the lists are Svelte
- * state, and Svelte's server runtime notifies nothing.
+ * Run with `--conditions=browser` (`bun run test`): the library is Svelte
+ * state over the folder query, and Svelte's server runtime notifies nothing.
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { RecorderError } from '@epicenter/recorder';
+import { runMutation } from 'wellcrafted/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice } from './capture.js';
 import {
 	deferred,
 	eventually,
+	openPage,
 	openTestServices,
 	TEST_BASE_URL,
 	type TestServicesOptions,
@@ -50,6 +56,7 @@ afterEach(async () => {
 /** The app over fresh files in memory. */
 async function fixture(options: TestServicesOptions = {}) {
 	const test = await openTestServices(options);
+	cleanups.push(test.close);
 	const opened = await createTestWhispering({
 		services: test.services,
 		files: test.files,
@@ -304,13 +311,11 @@ test('files that cannot be listed at all say why the folder did not open', async
 	const reason =
 		'UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).';
 	test.outside.refuseReads(reason);
-	const { openFolder } = await import('./folder.svelte.js');
-	const folder = openFolder(test.files);
+	// A new page over the same files: its first read is what the layout shows.
+	const page = await openPage(test.files);
+	cleanups.push(page.close);
 
-	const loaded = await folder.load();
-	expect(loaded.error?.message).toContain(reason);
-	expect(folder.loadProblem()?.message).toContain(reason);
-	expect(folder.loaded()).toBe(true);
+	expect(page.first.error?.message).toContain(reason);
 });
 
 test('on the desktop, a cut-off recording that cannot be completed is said, and its audio lists', async () => {
@@ -400,6 +405,26 @@ async function failedOnce(opened: Awaited<ReturnType<typeof fixture>>) {
 	expect(run?.state.kind).toBe('failed');
 	return { key: run!.key, id: recording.id };
 }
+
+test('Run again after a failure sends the same audio to the same model, and keeps the transcript', async () => {
+	let answers = 0;
+	const opened = await fixture({
+		transcribe: async () =>
+			++answers === 1
+				? Err({ message: 'busy, try later' })
+				: Ok({ text: 'a steady tone' }),
+	});
+	const { test, library } = opened;
+	const failed = await failedOnce(opened);
+
+	expect(await library.runAgain(failed.key)).toBeUndefined();
+
+	expect(test.transcribed).toHaveLength(2);
+	expect(test.transcribed[1]).toEqual(test.transcribed[0]!);
+	await eventually(() => library.resultsFor(failed.id).length === 1);
+	expect(library.resultsFor(failed.id)[0]?.body).toBe('a steady tone\n');
+	expect(library.transcriptionRun(failed.id)).toBeUndefined();
+});
 
 test('a request whose connection was edited since it was prepared is not sent there, and says where it moved', async () => {
 	const opened = await fixture({
@@ -543,6 +568,29 @@ test('deleting a recording deletes its transcripts, their results, and its audio
 	]);
 });
 
+test('a recording is kept when a result for it was saved after the person was asked', async () => {
+	const opened = await fixture();
+	const { test, query, library } = opened;
+	const recording = await record(opened);
+	const deletion = expectOk(
+		library.deletionFor({ collection: 'recordings', id: recording.id }),
+	);
+
+	// Another program saves a transcript of it while the dialog is open.
+	await test.outside.write(
+		'transcriptions/2026-10-31T09-31-00-000Z-latecomer.md',
+		`---\nrecordingId: "${recording.id}"\ncreatedAt: "2026-10-31T09:31:00.000Z"\nmodel: "whisper-1"\nendpoint: "https://api.openai.com/v1"\n---\nlate\n`,
+	);
+	await query.reread();
+	await eventually(() => library.resultsFor(recording.id).length === 1);
+
+	expect(await library.delete(deletion)).toContain(
+		'A new result was saved for this recording after you were asked.',
+	);
+	expect(library.entries.map(({ id }) => id)).toEqual([recording.id]);
+	expect(test.outside.paths('recordings')).toHaveLength(2);
+});
+
 test('a recording cannot be deleted while its transcription runs', async () => {
 	const held = deferred<void>();
 	const opened = await fixture({
@@ -564,6 +612,10 @@ test('a recording cannot be deleted while its transcription runs', async () => {
 			library.deletionFor({ collection: 'recordings', id: recording.id }),
 		),
 	).toContain('still running');
+	// The same run does not go twice at once.
+	expect(await library.transcribe(recording.id)).toBe(
+		'This recording is already being transcribed.',
+	);
 
 	held.resolve();
 	await transcribing;
@@ -603,14 +655,31 @@ test('an answer whose result cannot be written stays in the window, and Save aga
 	expect(test.transcribed).toHaveLength(1);
 });
 
+test('dismissing an answer whose result was not written lets its recording be deleted', async () => {
+	const opened = await fixture();
+	const { test, library } = opened;
+	const recording = await record(opened);
+	await eventually(() => library.audioOf(recording.id).kind === 'here');
+	test.outside.refuse('The disk is full', { under: 'transcriptions' });
+	await library.transcribe(recording.id);
+	const run = library.transcriptionRun(recording.id);
+	expect(run?.state.kind).toBe('unsaved');
+
+	library.dismissRun(run!.key);
+
+	expect(library.transcriptionRun(recording.id)).toBeUndefined();
+	expectOk(library.deletionFor({ collection: 'recordings', id: recording.id }));
+});
+
 test('a note that does not read is listed for repair, and repaired as text', async () => {
-	const { test, folder, library } = await fixture();
+	const { test, query, library } = await fixture();
+	const { queryClient, noteMutations } = query;
 	const id = '2026-10-31T09-30-00-000Z-brokenaa';
 	await test.outside.write(
 		`recordings/${id}.md`,
 		'---\ntitle: [unclosed\n---\n',
 	);
-	await folder.load();
+	await query.reread();
 	await eventually(() => library.repairs.length === 1);
 	expect(library.repairs[0]).toMatchObject({
 		collection: 'recordings',
@@ -618,17 +687,24 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 	});
 
 	// Text that still does not read is written as typed, and stays listed for repair.
-	expectOk(await folder.recordings.replace({ id }, 'not a recording'));
+	expectOk(
+		await runMutation(queryClient, noteMutations.recordings.replace, {
+			id,
+			seen: library.repairs[0]!.text,
+			text: 'not a recording',
+		}),
+	);
 	await eventually(
 		() => library.repairs[0]?.text?.includes('not a recording') === true,
 	);
 	expect(library.entries).toHaveLength(0);
 
 	expectOk(
-		await folder.recordings.replace(
-			{ id },
-			'---\ntitle: "Fixed"\nrecordedAt: "2026-10-31T09:30:00.000Z"\n---\nnotes\n',
-		),
+		await runMutation(queryClient, noteMutations.recordings.replace, {
+			id,
+			seen: 'not a recording',
+			text: '---\ntitle: "Fixed"\nrecordedAt: "2026-10-31T09:30:00.000Z"\n---\nnotes\n',
+		}),
 	);
 	await eventually(() => library.entries.length === 1);
 	expect(library.entries[0]).toMatchObject({

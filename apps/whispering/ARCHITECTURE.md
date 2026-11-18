@@ -13,9 +13,12 @@ five note collections, the audio beside each recording, and `settings.md`.
 src/lib/format/folder.ts     the folder's paths and each note's fields, and why a note does not read
 src/lib/format/note.ts       a note as text: the home's Markdown grammar
 src/lib/files/               Files: read, write, list, remove; tauri, opfs and memory, one conformance suite
-src/lib/notes.svelte.ts      one note collection over Files: its list, its writes, an editor
-src/lib/settings.svelte.ts   settings.md: the model per job, the connections, the shortcut
-src/lib/folder.svelte.ts     the folder: every note list, settings, the recordings' audio
+src/lib/notes.ts             one note collection over Files: list it, set, replace, delete
+src/lib/settings.ts          settings.md: the model per job, the connections, the shortcut
+src/lib/folder.ts            the folder: one read of every note, settings and the audio
+src/lib/folder-query.ts      the page's QueryClient over the folder: one query, writes as mutations
+src/lib/note-editor.svelte.ts one note as an editor: typing, its save, and a failed save kept
+src/lib/runs.svelte.ts       transcriptions and recipe runs in this window, until their answer is saved
 src/lib/this-computer.ts     what stays on this computer: localStorage, secrets, the request fetch
 src/lib/app.ts               the capabilities, opened once: folder, ai, speech, recorder, shortcut
 src/lib/whispering.svelte.ts models, microphone, recorder: Whispering over the capabilities
@@ -74,34 +77,51 @@ as the person types.
 
 ## Notes, settings and the folder
 
-`noteList` (`notes.svelte.ts`) is one collection: a `$state.raw` map from
-path to what was last read there (its bytes, its size and modified time,
-and the note or why it does not read), filled by `load()`, which reads in
-one `readMany` only the notes whose size or modified time changed. `items()` and `invalid()` read it, so
-Svelte tracks them. Every write first re-reads the file and refuses with
-`NoteError.Changed` when its bytes differ from what was shown; a write
-that succeeds replaces that path's entry.
+The services keep nothing between calls, return `Result`s, and are not
+Svelte.
 
-- `set({ id }, changes)` merges fields and body into the note as read;
-  `replace({ id }, text)` writes text as typed, for repair; `delete({ id })`
-  removes it.
-- `edit({ id })` is an editor: field accessors, a save 300 ms after typing,
-  one save at a time. A failed save keeps the typing and says why
-  (`problem()`), with `retry()` and `discard()`; after `Changed` nothing
-  saves until the person picks one (`SaveProblem.svelte`). `unsaved()`
-  counts editors holding typing, which the root's leave guard reads.
+- `createNotes` (`notes.ts`) is one collection. `list()` lists its
+  directory and reads every note in one `readMany`: the notes that read,
+  those that do not (with why and their text), and each note's text by
+  id. `set({ id, seen, changes })` merges fields and body into the note;
+  `replace({ id, seen, text })` writes text as typed, for repair;
+  `delete({ id, seen })` removes it. `seen` is the note's text as the
+  person saw it: each write reads the file first and refuses with
+  `NoteError.Changed`, writing nothing, when it differs.
+- `createSettings` (`settings.ts`) is `settings.md`, with the same `seen`
+  check before each write: the model for each job, the connections (never
+  a key), and the shortcut. A `settings.md` that does not read is named in
+  Settings and replaced by the next save.
+- `openFolder` (`folder.ts`) reads the whole folder as one snapshot: the
+  five collections, the settings, and the audio in `recordings/`. A
+  recording is its id: `unnotedOf` lists audio no note names as an
+  untitled recording dated from its id, and `audioOf` answers `here`,
+  `ambiguous` (more than one extension), or `absent`.
 
-`openSettings` (`settings.svelte.ts`) is `settings.md`, with the same
-re-read before each write. It holds the model for each job (`choices`),
-the connections (`connections`, the `ConnectionStore` `@epicenter/ai`
-takes; never a key), and the shortcut. A `settings.md` that does not read
-is named in Settings and replaced by the next save.
+`createFolderQuery` (`folder-query.ts`) is the page's one TanStack
+`QueryClient` over the folder:
 
-`openFolder` (`folder.svelte.ts`) gathers the five lists, the settings,
-and the audio in `recordings/`. `load()` reads all of them; loads under
-way are joined. A recording is its id: `unnoted()` lists audio no note
-names as an untitled recording dated from its id, and `audioOf(id)`
-answers `here`, `ambiguous` (more than one extension), or `absent`.
+- The folder is one query. It never goes stale by time: after every write,
+  finished or failed, one `MutationCache` rule marks it stale, and the
+  write stays pending until the folder on screen was read again. A read
+  that a write overtakes is cancelled, so the folder shown is never older
+  than a finished write. It is read again when the window regains focus,
+  since another program may write the folder.
+- Every write is a mutation. A kind's writes share a `scope`, so they run
+  one at a time in the order made. `setNote` and `removeNote` take `seen`
+  from the snapshot shown.
+- `settings` reads `settings.md` from the query's answer for code that is
+  not a component (the connections `ai` merges, the shortcut, the model
+  choices), says when it changes, and writes through the client.
+
+`editNote` (`note-editor.svelte.ts`) is an editor, and Svelte state on
+purpose: what the person typed belongs to the page until it is saved.
+Field accessors save 300 ms after typing, one save at a time. A failed
+save keeps the typing and says why (`problem()`), with `retry()` and
+`discard()`; after `Changed` the newer note shows under the typing and
+nothing saves until the person picks one (`SaveProblem.svelte`).
+`unsaved()` counts editors holding typing, which the root's leave guard
+reads.
 
 ## The capabilities and the root
 
@@ -112,6 +132,9 @@ Code imports what it uses from there, never through context.
 - `folder`: `openFolder(isTauri() ? tauriFiles(desktopFolderPath) :
   opfsFiles('data'))`. The desktop folder is the path in `localStorage`
   (`folderPath`) or `data/` in the app's local data directory.
+- `query`: `createFolderQuery(folder)`, and `settings`, its settings as
+  components read them (`reactive`). TanStack's focus is the window's own
+  focus and blur, since a desktop window stays visible behind another app.
 - `ai` and `speech`: the models (see "Models and connections").
 - `recorder`: the microphone device (see "Recording").
 - `shortcut`: the global shortcut over `settings.md`, null in a browser.
@@ -120,12 +143,12 @@ Code imports what it uses from there, never through context.
 `routes/(app)/+layout.svelte` is the app's root. It holds the Web Lock
 (`holdOneTab`): a second tab says Whispering is open in another tab and
 waits. Then it asks the browser to keep its storage
-(`navigator.storage.persist()`), reads the folder (`folder.load()`), starts
-holding the shortcut, and renders `WhisperingApp`. A folder that cannot be
-read is said with Try again, and on the desktop "Use the default folder"
-when the person picked one. It reads the folder again when the window
-regains focus, and asks before the page is left while an editor holds
-unsaved typing.
+(`navigator.storage.persist()`), reads the folder (`createQuery` over the
+folder query, enabled once the tab holds the lock), starts holding the
+shortcut, and renders `WhisperingApp` inside `QueryClientProvider`. A
+folder that cannot be read is said with Try again, and on the desktop
+"Use the default folder" when the person picked one. It asks before the
+page is left while an editor holds unsaved typing.
 
 `WhisperingApp.svelte` makes `createWhispering` (the models, the
 microphone, the recorder) and `createLibrary` over the folder, puts both in
@@ -175,7 +198,9 @@ one owner of at most one open microphone. The choice is in `localStorage`
 `runs.svelte.ts` owns transcriptions and recipe runs. A run is keyed by what
 it runs on, so the same run does not go twice at once, and gets its
 result's id and its target (the endpoint and model chosen then) when it
-starts. Its state lives in this window: `running`, `saving`, `failed` (Run
+starts. Sending is a plain call; saving the answer is a note write through
+the folder query. Its state lives in this window as Svelte state, like an
+editor's typing, until the answer is saved: `running`, `saving`, `failed` (Run
 again sends the same request to the same target, and refuses when that
 endpoint was removed or moved), or `unsaved` (the answer arrived and its
 note could not be written; Save again writes it and sends nothing).

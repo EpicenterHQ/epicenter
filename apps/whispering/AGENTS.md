@@ -13,9 +13,9 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
 
 - **One `Files`, chosen in one place.** `src/lib/app.ts` picks
   `tauriFiles` or `opfsFiles` and opens Whispering's folder over it
-  (`openFolder`). Everything above `Files` (`notes.svelte.ts`,
-  `settings.svelte.ts`, `folder.svelte.ts`) is written once and never asks
-  where it runs. Tests use `memoryFiles()`. Every `Files` passes the one
+  (`openFolder`). Everything above `Files` (`notes.ts`, `settings.ts`,
+  `folder.ts`, `folder-query.ts`) is written once and never asks where it
+  runs. Tests use `memoryFiles()`. Every `Files` passes the one
   conformance suite (`src/lib/files/conformance.ts`). On the desktop
   `tauriFiles` calls Whispering's own `files_*` commands; the page holds
   none of `@tauri-apps/plugin-fs`'s commands.
@@ -30,13 +30,19 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
 - **Rust moves bytes; TypeScript reads notes.** Notes use the home's
   Markdown grammar from `@epicenter/app/markdown` (`src/lib/format/note.ts`).
   Do not parse a note in Rust or copy the grammar.
-- **Lists are Svelte state that `load()` fills.** The folder is read before
-  the app renders (`src/routes/(app)/+layout.svelte`) and again when the
-  window regains focus. A successful write updates the state. Do not add a
-  watcher, a cache layer, or a store per collection.
-- **Never replace a note that changed since it was shown.** A write re-reads
-  the file first and refuses with `NoteError.Changed` when its bytes differ;
-  the person sees the newer text. `settings.md` follows the same rule.
+- **The folder is one TanStack query; every write is a mutation.** The
+  services (`notes.ts`, `settings.ts`, `folder.ts`) keep nothing between
+  calls; `folder-query.ts` holds the page's one `QueryClient`. The folder
+  is read before the app renders (`src/routes/(app)/+layout.svelte`), after
+  every write (one `MutationCache` rule), and when the window regains
+  focus. A kind's writes share a mutation `scope`. Do not add a watcher, a
+  second cache, or an `invalidateQueries` call after a write. Typing and
+  unsaved answers are Svelte state (`note-editor.svelte.ts`,
+  `runs.svelte.ts`), not cache entries.
+- **Never replace a note that changed since it was shown.** A write carries
+  the text the person saw (`seen`), re-reads the file first, and refuses
+  with `NoteError.Changed` when it differs; the person sees the newer text.
+  `settings.md` follows the same rule.
 - **Every write answers a `Result`; a failure keeps what the person typed.**
   An editor keeps unsaved text and offers Try again or Discard
   (`SaveProblem.svelte`); an answer whose result was not written stays in

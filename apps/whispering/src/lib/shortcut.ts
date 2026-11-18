@@ -18,7 +18,7 @@
  */
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { extractErrorMessage } from 'wellcrafted/error';
-import type { Settings } from './settings.svelte.js';
+import type { Settings } from './folder-query.js';
 
 /**
  * The global shortcut: the key `settings.md` names and the shell's hold on

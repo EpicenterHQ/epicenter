@@ -6,7 +6,7 @@
  * against the lists as `whispering.postProcessing`. Nothing here runs a
  * transformation.
  */
-import type { TransformationNote } from './folder.svelte.js';
+import type { TransformationNote } from './folder.js';
 
 /** A transformation's title, or its id when it has none. */
 export function transformationName(

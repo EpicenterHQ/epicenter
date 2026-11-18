@@ -1,6 +1,6 @@
 <!--
 	One recording: its audio, transcripts, and notes. Its fields are one
-	editor of the note the lists show (`folder.recordings.edit`): what was
+	editor of the note the lists show (`library.edit`): what was
 	typed shows until its save lands, then the note again; a save that fails
 	says why and keeps the typing. A recording whose audio has no note gets
 	one when its title or notes are first typed. A recording whose note does
@@ -16,7 +16,7 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { folder, folderLocation } from '$lib/app.js';
+	import { folderLocation } from '$lib/app.js';
 	import { timeOf } from '$lib/format/ids.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -52,10 +52,9 @@
 	// The parent keys this view by the recording.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const recording = folder.recordings.edit(
-		{ id: own },
-		{ create: () => ({ title: '', recordedAt: (timeOf(own) ?? new Date()).toISOString() }) },
-	);
+	const recording = library.edit('recordings', own, {
+		create: () => ({ title: '', recordedAt: (timeOf(own) ?? new Date()).toISOString() }),
+	});
 	/** The recording as listed: its note, or its audio alone as an untitled one. */
 	const listed = $derived(library.entries.find((note) => note.id === own));
 	const shown = $derived(recording.exists() || listed !== undefined);

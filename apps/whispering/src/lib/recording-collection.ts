@@ -14,12 +14,13 @@
  * each row that needs one and never asked again here; a deletion is captured
  * for each row first, as a single deletion is, and removed only as captured.
  */
-import { type Deletion, titleOf } from './deletion.js';
-import type {
-	RecordingAudio,
-	RecordingNote,
-	TranscriptionNote,
-} from './folder.svelte.js';
+import type { Deletion } from './deletion.js';
+import {
+	type RecordingAudio,
+	type RecordingNote,
+	type TranscriptionNote,
+	titleOf,
+} from './folder.js';
 import type { Library } from './library.svelte.js';
 
 export type RecordingStatus =

@@ -164,7 +164,7 @@ test('WhisperingApp composes Whispering over the capabilities app.ts opened', ()
 	expect(
 		files.find((file) => file.path === 'routes/components/WhisperingApp.svelte')
 			?.text,
-	).toContain("import { ai, folder, recorder } from '$lib/app.js';");
+	).toContain("from '$lib/app.js'");
 });
 
 test('the app group has every page, and every page reads its library from context', () => {
@@ -193,6 +193,5 @@ test('the app group has every page, and every page reads its library from contex
 		(file) => file.path === 'routes/(app)/+layout.svelte',
 	)?.text;
 	expect(layout).toContain('holdOneTab()');
-	expect(layout).toContain('await folder.load()');
 	expect(layout).toContain('<WhisperingApp>');
 });

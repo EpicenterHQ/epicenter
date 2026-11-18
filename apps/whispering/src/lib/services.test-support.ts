@@ -17,11 +17,15 @@
  */
 import { customEndpoints, openAi } from '@epicenter/ai';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
+import { QueryObserver } from '@tanstack/query-core';
+import { runQuery } from 'wellcrafted/query';
 import { Ok, type Result } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
 import type { CaptureDevice } from './capture.js';
 import { encode, type Files, failed } from './files/files.js';
 import { memoryFiles } from './files/memory.js';
+import { openFolder } from './folder.js';
+import { createFolderQuery } from './folder-query.js';
 import type { WhisperingCapabilities } from './whispering.svelte.js';
 
 export type FixtureAudio = {
@@ -178,8 +182,34 @@ function streamed(text: string): Response {
 const refused = (message: string) =>
 	Response.json({ error: { message } }, { status: 500 });
 
-/** The capabilities Whispering is made over, but its folder: the test opens that over its files. */
-export type TestCapabilities = Omit<WhisperingCapabilities, 'folder'>;
+/**
+ * Whispering's folder and the page's query client over `files`, with the
+ * folder query observed and read once, as the app's layout observes it
+ * before the pages render. `close` stops observing and empties the cache.
+ */
+export async function openPage(files: Files) {
+	const folder = openFolder(files);
+	const query = createFolderQuery(folder);
+	const observer = new QueryObserver(
+		query.queryClient,
+		query.folderQueries.read(),
+	);
+	const unobserve = observer.subscribe(() => {});
+	const first = await runQuery(query.queryClient, query.folderQueries.read());
+	return {
+		folder,
+		query,
+		/** What the first read answered. */
+		first,
+		close() {
+			unobserve();
+			query.queryClient.clear();
+		},
+	};
+}
+
+/** The capabilities Whispering is made over, but its folder query: the test opens that over its files. */
+export type TestCapabilities = Omit<WhisperingCapabilities, 'query'>;
 
 /** A refusal a test set: every write, or read, under `under` fails with `reason`. */
 type Refusal = { reason: string; under: string; reads: boolean };
@@ -287,10 +317,9 @@ export async function openTestServices({
 	transform,
 }: TestServicesOptions = {}) {
 	const { files, outside } = testFiles();
-	// Loaded here, after the test loaded the Svelte harness, which compiles runes modules.
-	const { openFolder } = await import('./folder.svelte.js');
 	// The settings as the app reads them: its folder's `settings.md`.
-	const { settings } = openFolder(files);
+	const page = await openPage(files);
+	const { settings } = page.query;
 
 	const transformed: TransformedRequest[] = [];
 	const transcribed: TranscribedRequest[] = [];
@@ -394,6 +423,8 @@ export async function openTestServices({
 		connectionId,
 		/** The model choices, in `settings.md`. */
 		choices,
+		/** Stop following `settings.md`. */
+		close: page.close,
 	};
 }
 

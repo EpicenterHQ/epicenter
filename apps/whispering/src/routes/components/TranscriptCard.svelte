@@ -6,7 +6,6 @@
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
 	import { pathOf } from './nav-items.js';
-	import { folder } from '$lib/app.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
@@ -34,7 +33,7 @@
 	const id = shownId;
 
 	/** The transcript's fields, its text included: as typed until its save lands, else as the note holds them. */
-	const transcript = folder.transcriptions.edit({ id });
+	const transcript = library.edit('transcriptions', id);
 	const text = $derived(transcript.fields.body ?? '');
 
 	const outputs = $derived(library.outputsFor(id));

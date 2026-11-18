@@ -26,7 +26,7 @@ import type { Ai, ModelChoice } from '@epicenter/ai';
 import { createContext } from 'svelte';
 import type { Result } from 'wellcrafted/result';
 import type { Capture, CaptureDevice } from './capture.js';
-import type { WhisperingFolder } from './folder.svelte.js';
+import type { FolderQuery, Settings } from './folder-query.js';
 import { timeId } from './format/ids.js';
 import {
 	type Audio,
@@ -44,7 +44,6 @@ import {
 	type ResolvedRecipe,
 	resolveRecipe,
 } from './recipe.js';
-import type { Settings } from './settings.svelte.js';
 
 /** What a model is chosen for: transcribing a recording, or running a transformation on text. */
 export type Operation = 'transcription' | 'text';
@@ -72,8 +71,8 @@ function defaultTitle(at: Date): string {
 
 /** What Whispering is made over: the capabilities `src/lib/app.ts` opened, or a test's. */
 export type WhisperingCapabilities = {
-	/** Whispering's folder, which every recording and its note is written into. */
-	readonly folder: Pick<WhisperingFolder, 'recordings' | 'listAudio'>;
+	/** Whispering's folder as the page's client writes it: every recording's note goes through it. */
+	readonly query: Pick<FolderQuery, 'setNote' | 'reread'>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
 	/** The model chosen for each job, in `settings.md`. */
@@ -88,7 +87,7 @@ export type WhisperingCapabilities = {
 };
 
 export function createWhispering(capabilities: WhisperingCapabilities) {
-	const { folder: files, capture, preferences } = capabilities;
+	const { query, capture, preferences } = capabilities;
 	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
 	let sidebarOpen = $state(false);
 
@@ -101,7 +100,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
 	const ai = reactive(capabilities.ai);
-	/** The model chosen for each job: Svelte state, read when the folder was. */
+	/** The model chosen for each job, in `settings.md` as the folder query last read it. */
 	const { choices } = capabilities;
 	/** Why the saved connections do not read, naming the file, if they do not; tracks in Svelte. */
 	const connectionsProblem = () => ai.custom()?.problem()?.message;
@@ -223,21 +222,16 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		// whatever audio was written lists as an untitled recording.
 		if (error !== null) {
 			recorderError = error.message;
-			void files.listAudio();
+			void query.reread();
 			return;
 		}
-		// The audio is at its path, so its note goes after it.
-		const [kept] = await Promise.all([
-			files.recordings.set(
-				{ id: take.id },
-				{
-					title: defaultTitle(at),
-					recordedAt: at.toISOString(),
-					durationMs: Math.max(0, Math.round(stopped.durationMs)),
-				},
-			),
-			files.listAudio(),
-		]);
+		// The audio is at its path, so its note goes after it; writing the
+		// note reads the folder again, the audio with it.
+		const kept = await query.setNote('recordings', take.id, {
+			title: defaultTitle(at),
+			recordedAt: at.toISOString(),
+			durationMs: Math.max(0, Math.round(stopped.durationMs)),
+		});
 		if (kept.error !== null && !disposed)
 			recorderError = `The recording's audio is saved, but its note was not: ${kept.error.message} It is listed as an untitled recording.`;
 	}
@@ -260,7 +254,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
 			return;
 		}
-		if (data.recovered.length > 0) void files.listAudio();
+		if (data.recovered.length > 0) void query.reread();
 		if (data.unplaced.length > 0)
 			recorderError = `A recording is kept outside the library, because audio with its id is already there: ${data.unplaced
 				.map(
@@ -292,10 +286,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		},
 		/** Every model this page can reach now, with the person's connections, for the picker; tracks in Svelte. */
 		ai,
-		/** Why the saved connections do not read, naming the file, if they do not. */
-		get connectionsProblem() {
-			return connectionsProblem();
-		},
 		/** The model chosen for `operation`, or null when none is. */
 		choice(operation: Operation): ModelChoice | null {
 			return choices.get(CAN[operation]);

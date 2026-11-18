@@ -12,9 +12,9 @@
  * - A nested value is one JSON value on its line, written and read back whole
  * - Every note and `settings.md` Whispering writes reads back with no issue
  */
-import '../svelte-dom.test-support.js';
 import { describe, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { openFolder } from '../folder.js';
 import { testFiles } from '../services.test-support.js';
 import { checkNote, NOTES, SETTINGS } from './folder.js';
 import { timeId } from './ids.js';
@@ -126,36 +126,42 @@ test('a nested value is one JSON value on its line, and reads back whole', () =>
 
 test('every note and settings.md Whispering writes reads back with no issue', async () => {
 	const { files, outside } = testFiles();
-	const { openFolder } = await import('../folder.svelte.js');
-	const folder = openFolder(files);
+	const { notes, settings } = openFolder(files);
 	const at = new Date('2026-10-31T09:30:00.000Z');
 	const id = timeId(at);
 	await outside.write(`recordings/${id}.m4a`, new Uint8Array([1, 2, 3]));
 	expectOk(
-		await folder.recordings.set(
-			{ id },
-			{ title: 'Standup', recordedAt: at.toISOString(), durationMs: 1500 },
-		),
+		await notes.recordings.set({
+			id,
+			seen: null,
+			changes: {
+				title: 'Standup',
+				recordedAt: at.toISOString(),
+				durationMs: 1500,
+			},
+		}),
 	);
 	const transcription = timeId();
 	expectOk(
-		await folder.transcriptions.set(
-			{ id: transcription },
-			{
+		await notes.transcriptions.set({
+			id: transcription,
+			seen: null,
+			changes: {
 				recordingId: id,
 				createdAt: new Date().toISOString(),
 				model: 'whisper-1',
 				endpoint: 'https://api.openai.com/v1',
 				body: 'um so a steady tone\n',
 			},
-		),
+		}),
 	);
 	const recipe = timeId();
 	expectOk(
-		await folder.transformations.set(
-			{ id: recipe },
-			{ title: 'Clean up', model: null, body: 'Fix punctuation.\n' },
-		),
+		await notes.transformations.set({
+			id: recipe,
+			seen: null,
+			changes: { title: 'Clean up', model: null, body: 'Fix punctuation.\n' },
+		}),
 	);
 	const run = {
 		transformationId: recipe,
@@ -168,28 +174,46 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 		body: 'A steady tone.\n',
 	};
 	expectOk(
-		await folder.transformation_runs.set(
-			{ id: timeId() },
-			{ recordingId: id, transcriptionId: transcription, ...run },
-		),
-	);
-	expectOk(await folder.text_runs.set({ id: timeId() }, run));
-	await folder.settings.connections.save([
-		{
-			id: 'openai',
-			name: 'OpenAI',
-			baseUrl: 'https://api.openai.com/v1',
-			models: ['whisper-1'],
-			key: 'https://api.openai.com/v1',
-		},
-	]);
-	expectOk(
-		await folder.settings.choices.set('transcribe', {
-			endpoint: 'openai',
-			model: 'whisper-1',
+		await notes.transformation_runs.set({
+			id: timeId(),
+			seen: null,
+			changes: { recordingId: id, transcriptionId: transcription, ...run },
 		}),
 	);
-	expectOk(await folder.settings.setShortcut('CommandOrControl+Shift+K'));
+	expectOk(
+		await notes.text_runs.set({ id: timeId(), seen: null, changes: run }),
+	);
+	expectOk(
+		await settings.setConnections({
+			seen: null,
+			connections: [
+				{
+					id: 'openai',
+					name: 'OpenAI',
+					baseUrl: 'https://api.openai.com/v1',
+					models: ['whisper-1'],
+					key: 'https://api.openai.com/v1',
+				},
+			],
+		}),
+	);
+	const shown = async () => {
+		const { text } = expectOk(await settings.read());
+		return text;
+	};
+	expectOk(
+		await settings.setChoice({
+			seen: await shown(),
+			job: 'transcribe',
+			choice: { endpoint: 'openai', model: 'whisper-1' },
+		}),
+	);
+	expectOk(
+		await settings.setShortcut({
+			seen: await shown(),
+			key: 'CommandOrControl+Shift+K',
+		}),
+	);
 
 	const paths = outside.paths();
 	expect(paths).toHaveLength(7);

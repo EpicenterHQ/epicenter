@@ -1,12 +1,12 @@
 /** Construct the real app over test files and test capabilities. */
 import type { Files } from './files/files.js';
-import type { TestCapabilities } from './services.test-support.js';
+import { openPage, type TestCapabilities } from './services.test-support.js';
 
 /**
  * Same construction as the app (`app.ts`, `+layout.svelte`, `WhisperingApp`):
- * Whispering's folder over `files`, read once before the pages render, then
- * Whispering and its library over it. The lists are followed as mounted
- * pages follow them.
+ * Whispering's folder and the page's query client over `files`, read once
+ * before the pages render, then Whispering and its library over it. The
+ * lists are followed as mounted pages follow them.
  */
 export async function createTestWhispering({
 	services,
@@ -17,13 +17,12 @@ export async function createTestWhispering({
 }) {
 	const { createWhispering } = await import('./whispering.svelte.js');
 	const { createLibrary } = await import('./library.svelte.js');
-	const { openFolder } = await import('./folder.svelte.js');
-	const { follow } = await import('./follow.test-support.svelte.js');
-	const folder = openFolder(files);
+	const { follow, rooted } = await import('./follow.test-support.svelte.js');
 	// The app's pages render once the folder was read.
-	await folder.load();
-	const whispering = createWhispering({ folder, ...services });
-	const library = createLibrary({ whispering, files: folder });
+	const page = await openPage(files);
+	const whispering = createWhispering({ query: page.query, ...services });
+	const made = rooted(() => createLibrary({ whispering, query: page.query }));
+	const library = made.value;
 	const followed = follow(() => [
 		library.entries,
 		library.repairs,
@@ -31,19 +30,23 @@ export async function createTestWhispering({
 		library.transformations,
 		library.transformationRepairs,
 		library.textRepairs,
-		folder.transformation_runs.items(),
-		folder.text_runs.items(),
+		library.recipeRuns,
 		library.entries.map((note) => library.audioOf(note.id)),
+		library.entries.map((note) => library.transcriptionRun(note.id)),
 	]);
 	return {
 		/** The folder the app reads and writes, as `app.ts`'s. */
-		folder,
+		folder: page.folder,
+		/** The page's query client over it, as `app.ts`'s. */
+		query: page.query,
 		whispering,
 		library,
 		close() {
 			followed.stop();
 			library.dispose();
+			made.stop();
 			whispering.dispose();
+			page.close();
 		},
 	};
 }

@@ -11,15 +11,18 @@
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 
-const { ai, folder, folderLocation, keysKept, shortcut, speech } = await import(
+const { ai, folderLocation, keysKept, query, shortcut, speech } = await import(
 	'./app.js'
 );
+const { runQuery } = await import('wellcrafted/query');
 
 test('a page without the Origin Private File System reads no folder, and says why', async () => {
 	// jsdom has no `navigator.storage`, as a page that cannot keep files has none.
-	const loaded = await folder.load();
-	expect(loaded.error).not.toBeNull();
-	expect(folder.loadProblem()).not.toBeNull();
+	const read = await runQuery(query.queryClient, query.folderQueries.read());
+	// The reason names what failed and why: the page has no file system.
+	expect(read.error?.message).toMatch(
+		/^Could not list recordings: .*navigator\.storage/,
+	);
 	expect(folderLocation()).toBeNull();
 });
 

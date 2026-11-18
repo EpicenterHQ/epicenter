@@ -1,56 +1,65 @@
 /**
- * Whispering's library over its folder (`folder.svelte.ts`): what the pages
- * list, edit, run and delete. The folder is the one `app.ts` opened over
- * the `Files` the build chose; nothing here knows which.
+ * Whispering's library: what the pages list, edit, run and delete, over the
+ * folder query (`folder-query.ts`). The folder is the one `app.ts` opened
+ * over the `Files` the build chose; nothing here knows which.
  *
- * Every list here is derived from what the folder shows, read reactively.
- * Notes that read are listed to edit; the rest are named, with why and
- * their text, for repair. A recording's audio with no note lists as an
- * untitled recording. Nothing here holds text ahead of the folder: what a
- * person types is an editor's in the component that shows it, and a write
- * that fails says why. A transcription or recipe run lives in this window
- * until its answer arrives, and its result is written then
- * (`runs.svelte.ts`).
+ * Every list here is derived from the folder query's answer. Notes that
+ * read are listed to edit; the rest are named, with why and their text, for
+ * repair. A recording's audio with no note lists as an untitled recording.
+ * Nothing here holds text ahead of the folder: what a person types is an
+ * editor's (`note-editor.svelte.ts`), an answer not yet saved is its run's
+ * (`runs.svelte.ts`), and a write that fails says why.
  *
  * The library is made when the app's pages open and let go when they
  * close. Leaving waits for nothing and refuses nothing: a run under way
  * still keeps its answer in the files, unless Whispering itself is closing.
  */
 
+import { createQuery } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, type Result } from 'wellcrafted/result';
 import {
 	captureDeletion,
 	type Deletion,
-	describeIssues,
-	type NoteRef,
+	deletedNote,
+	recordingDeleted,
 	runDeletion,
 } from './deletion.js';
 import {
+	type AudioBytes,
+	audioOf,
+	audioSizeOf,
 	byTitle,
+	describeIssues,
+	EMPTY_FOLDER,
+	type FolderSnapshot,
 	type InvalidNote,
 	type NoteName,
+	type NoteRef,
 	newest,
-	type WhisperingFolder,
-} from './folder.svelte.js';
+	unnotedOf,
+} from './folder.js';
+import type { FolderQuery } from './folder-query.js';
+import type { NOTES } from './format/folder.js';
 import { timeId } from './format/ids.js';
+import { editNote, type NoteEditor } from './note-editor.svelte.js';
+import type { NotePatch } from './notes.js';
 import type { PostProcessingChoice } from './post-processing.js';
+import type { RecipeRow, ResolvedRecipe } from './recipe.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
-import { createRuns } from './runs.svelte.js';
+import { createRuns, type RunRequest } from './runs.svelte.js';
 import type { Whispering } from './whispering.svelte.js';
 
-export type { Deletion, NoteRef } from './deletion.js';
 export type {
 	AudioFile,
 	RecordingAudio,
-	RecordingNote,
 	TextRunNote,
-	TranscriptionNote,
-	TransformationNote,
 	TransformationRunNote,
-} from './folder.svelte.js';
-export type { Run, RunState } from './runs.svelte.js';
+} from './folder.js';
+export type { Run } from './runs.svelte.js';
+
+type Collections = typeof NOTES;
 
 /** A note that does not read, for the person to repair as text or delete. */
 export type Repair = InvalidNote & {
@@ -58,9 +67,6 @@ export type Repair = InvalidNote & {
 	/** Why it does not read, in a line. */
 	readonly reason: string;
 };
-
-const describe = (cause: unknown) =>
-	cause instanceof Error ? cause.message : String(cause);
 
 const repairsOf = <TName extends NoteName>(
 	collection: TName,
@@ -72,21 +78,34 @@ const repairsOf = <TName extends NoteName>(
 		reason: describeIssues(note.issues),
 	}));
 
-/** Newest first. */
-const byNewest = <T extends { readonly createdAt: string }>(
-	list: readonly T[],
-): T[] => [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+const BEING_DELETED = 'This recording is being deleted.';
+
+/** A transcription's key, by the recording it transcribes. */
+const transcriptionKey = (recordingId: string) =>
+	`transcriptions:${recordingId}`;
+/** A transformation run's key, by the transcript and recipe. */
+const transformKey = (transcriptionId: string, recipeId: string) =>
+	`transformation_runs:${transcriptionId}:${recipeId}`;
+/** A pasted-text run's key, by the recipe. */
+const textKey = (recipeId: string) => `text_runs:${recipeId}`;
+
+/** A recipe run's request before it has its key and note id. */
+type RecipePrepared = Omit<
+	Extract<RunRequest, { collection: 'transformation_runs' | 'text_runs' }>,
+	'key' | 'noteId'
+>;
 
 export function createLibrary({
 	whispering,
-	files,
+	query,
 }: {
 	/** The services, the models, and whether Whispering is closing. */
 	whispering: Whispering;
-	/** The files the pages read and edit. */
-	files: WhisperingFolder;
+	/** The folder as the page's client reads and writes it. */
+	query: FolderQuery;
 }) {
 	const { refused } = whispering;
+	const { queryClient: client, folder, folderQueries } = query;
 	/** What the pages show. Held here so no page owns it. */
 	const ui = $state({
 		/** The recordings search. Notes needing repair are never searched out. */
@@ -137,24 +156,31 @@ export function createLibrary({
 
 	// --- reads -----------------------------------------------------------------
 
+	const read = createQuery(
+		() => folderQueries.read(),
+		() => client,
+	);
+	/** The folder as the query last read it. The pages open once it was read. */
+	const snapshot: FolderSnapshot = $derived(read.data ?? EMPTY_FOLDER);
+
 	const entries = $derived(
-		[...files.recordings.items(), ...files.unnoted()].toSorted(
+		[...snapshot.recordings.items, ...unnotedOf(snapshot)].toSorted(
 			newest((note) => note.recordedAt),
 		),
 	);
 	const transformations = $derived(
-		files.transformations.items().toSorted(byTitle),
+		snapshot.transformations.items.toSorted(byTitle),
 	);
 	const transcriptions = $derived(
-		files.transcriptions.items().toSorted(newest((note) => note.createdAt)),
+		snapshot.transcriptions.items.toSorted(newest((note) => note.createdAt)),
 	);
 	const transformationRuns = $derived(
-		files.transformation_runs
-			.items()
-			.toSorted(newest((note) => note.createdAt)),
+		snapshot.transformation_runs.items.toSorted(
+			newest((note) => note.createdAt),
+		),
 	);
 	const textRuns = $derived(
-		files.text_runs.items().toSorted(newest((note) => note.createdAt)),
+		snapshot.text_runs.items.toSorted(newest((note) => note.createdAt)),
 	);
 	const transcriptsByRecording = $derived.by(() => {
 		const byRecording = new Map<string, (typeof transcriptions)[number][]>();
@@ -166,15 +192,13 @@ export function createLibrary({
 		return byRecording;
 	});
 	const repairs = $derived([
-		...repairsOf('recordings', files.recordings.invalid()),
-		...repairsOf('transcriptions', files.transcriptions.invalid()),
-		...repairsOf('transformation_runs', files.transformation_runs.invalid()),
+		...repairsOf('recordings', snapshot.recordings.invalid),
+		...repairsOf('transcriptions', snapshot.transcriptions.invalid),
+		...repairsOf('transformation_runs', snapshot.transformation_runs.invalid),
 	]);
 
 	let selectedId = $state<string | undefined>();
 	let selectedTransformationId = $state<string | undefined>();
-	/** Recordings whose deletion is under way. No request starts for one. */
-	const deleting = new SvelteSet<string>();
 
 	// Recordings that are gone are no longer selected in the table.
 	const stopPruning = $effect.root(() => {
@@ -187,15 +211,53 @@ export function createLibrary({
 		});
 	});
 
+	// --- runs ------------------------------------------------------------------
+
 	const runs = createRuns({
-		files,
+		folder,
+		query,
 		transcribe: whispering.transcribe,
 		transform: whispering.transform,
 		refused,
-		chosen: whispering.chosen,
-		resolve: whispering.resolve,
-		deleting,
 	});
+	const runList = $derived(runs.list());
+
+	/** Recordings whose deletion is under way, by id, so no request starts for one. */
+	const deleting = new SvelteSet<string>();
+
+	/** The recipe to send: the one shown, or else its note as listed. */
+	function recipeAt(
+		id: string,
+		shown: RecipeRow | undefined,
+	): ResolvedRecipe | string {
+		if (shown !== undefined) return whispering.resolve(shown);
+		const recipe = snapshot.transformations.items.find(
+			(note) => note.id === id,
+		);
+		if (recipe === undefined)
+			return snapshot.transformations.invalid.some((note) => note.id === id)
+				? whispering.resolve(undefined)
+				: 'This transformation is no longer listed.';
+		return whispering.resolve(recipe);
+	}
+
+	/** Start a recipe run whose request `prepare` makes from what is shown now. */
+	async function runRecipe(
+		key: string,
+		prepare: () => RecipePrepared | string,
+	): Promise<string | undefined> {
+		const why = refused();
+		if (why !== undefined) return why;
+		if (runs.underWay(key))
+			return 'This transformation is already running on this. Run it again when it has finished.';
+		const prepared = prepare();
+		if (typeof prepared === 'string') return prepared;
+		// A spread keeps each field but not which collection goes with which fields.
+		await runs.start({ ...prepared, key, noteId: timeId() } as RunRequest);
+		return undefined;
+	}
+
+	// --- pages -----------------------------------------------------------------
 
 	/** Show recording `id` beside the recordings. Opening never waits or asks. */
 	function openRecording(id: string): boolean {
@@ -221,11 +283,8 @@ export function createLibrary({
 			ui.postProcessing = undefined;
 	}
 
-	const deletionContext = () => ({
-		files,
-		busy: (id: string) =>
-			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
-	});
+	const busy = (id: string) =>
+		deleting.has(id) ? BEING_DELETED : runs.busy(id);
 
 	return {
 		ui,
@@ -254,6 +313,10 @@ export function createLibrary({
 		},
 		get transcriptions() {
 			return transcriptions;
+		},
+		/** How many bytes of audio the folder holds, as last read. */
+		get audioSize() {
+			return audioSizeOf(snapshot);
 		},
 
 		// ------------------------------------------------------------------
@@ -285,7 +348,7 @@ export function createLibrary({
 			return {
 				id,
 				note: transformations.find((note) => note.id === id),
-				repair: files.transformations.invalid().find((note) => note.id === id),
+				repair: snapshot.transformations.invalid.find((note) => note.id === id),
 			};
 		},
 		openRecording,
@@ -305,54 +368,213 @@ export function createLibrary({
 		},
 		/** Transformation notes that do not read, with why. */
 		get transformationRepairs(): Repair[] {
-			return repairsOf('transformations', files.transformations.invalid());
+			return repairsOf('transformations', snapshot.transformations.invalid);
 		},
 		/** Results made from one transcript, newest first. */
 		outputsFor(transcriptionId: string) {
-			return byNewest(
-				transformationRuns.filter(
-					(note) => note.transcriptionId === transcriptionId,
-				),
+			return transformationRuns.filter(
+				(note) => note.transcriptionId === transcriptionId,
 			);
 		},
 		/** Results one transformation made from transcripts, newest first. They outlive it. */
 		outputsOf(transformationId: string) {
-			return byNewest(
-				transformationRuns.filter(
-					(note) => note.transformationId === transformationId,
-				),
+			return transformationRuns.filter(
+				(note) => note.transformationId === transformationId,
 			);
 		},
 		/** Results on pasted text one transformation made, newest first. */
 		textOutputsOf(transformationId: string) {
-			return byNewest(
-				textRuns.filter((note) => note.transformationId === transformationId),
+			return textRuns.filter(
+				(note) => note.transformationId === transformationId,
 			);
 		},
 		/** Notes in `text_runs/` that do not read as results. */
 		get textRepairs(): Repair[] {
-			return repairsOf('text_runs', files.text_runs.invalid());
+			return repairsOf('text_runs', snapshot.text_runs.invalid);
 		},
 		/** Where recording `id`'s audio is, read reactively. */
-		audioOf: files.audioOf,
+		audioOf: (id: string) => audioOf(snapshot, id),
 		/** Recording `id`'s audio bytes. */
-		readAudio: files.readAudio,
+		async readAudio(id: string): Promise<Result<AudioBytes, string>> {
+			const audio = audioOf(snapshot, id);
+			if (audio.kind === 'here') return folder.readAudio(audio.file);
+			return Err(
+				audio.kind === 'ambiguous'
+					? `More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one.`
+					: 'This recording has no audio file.',
+			);
+		},
+
+		// ------------------------------------------------------------------
+		// Editing
+		// ------------------------------------------------------------------
+
+		/**
+		 * Note `id` of `kind` as an editor: typing saves a moment later
+		 * through `kind`'s writes; see `note-editor.svelte.ts`.
+		 */
+		edit<K extends NoteName>(
+			kind: K,
+			id: string,
+			{ create }: { create?: () => NotePatch<Collections[K]> } = {},
+		): NoteEditor<Collections[K]> {
+			return editNote<Collections[K]>({
+				fieldNames: folder.notes[kind].fieldNames,
+				get: () =>
+					(snapshot[kind].items as readonly Record<string, unknown>[]).find(
+						(note) => note.id === id,
+					),
+				// Typing is saved over the note as shown under it now.
+				save: (changes) => query.setNote(kind, id, changes),
+				create,
+			});
+		},
 
 		// ------------------------------------------------------------------
 		// Requests and their results
 		// ------------------------------------------------------------------
 
-		transcriptionRun: runs.transcriptionRun,
-		runsOn: runs.runsOn,
-		textRun: runs.textRun,
-		get recipeRuns() {
-			return runs.recipeRuns;
+		/** The transcription of recording `id` under way, or what became of it. */
+		transcriptionRun(id: string) {
+			return runList.find((run) => run.key === transcriptionKey(id));
 		},
-		transcribe: runs.transcribe,
-		transform: runs.transform,
-		transformText: runs.transformText,
-		runAgain: runs.runAgain,
+		/** Transformation runs on transcript `id` in this window. */
+		runsOn(transcriptionId: string) {
+			return runList.filter(
+				(run) =>
+					run.collection === 'transformation_runs' &&
+					run.fields.transcriptionId === transcriptionId,
+			);
+		},
+		/** The run of recipe `id` on pasted text in this window. */
+		textRun(recipeId: string) {
+			return runList.find((run) => run.key === textKey(recipeId));
+		},
+		/** Recipe runs whose request is out. */
+		get recipeRuns() {
+			return runList.filter(
+				(run) =>
+					run.collection !== 'transcriptions' && run.state.kind === 'running',
+			);
+		},
+		/** Run a failed run again, or save an unsaved answer again; why nothing was tried. */
+		runAgain: runs.again,
+		/** Forget a failed run, or an answer that was not saved. */
 		dismissRun: runs.dismiss,
+
+		/**
+		 * Transcribe recording `id`: send its audio to the transcription model
+		 * chosen now, then create its transcript. Answers why nothing was sent.
+		 */
+		async transcribe(id: string): Promise<string | undefined> {
+			const why = refused();
+			if (why !== undefined) return why;
+			const key = transcriptionKey(id);
+			if (runs.underWay(key))
+				return 'This recording is already being transcribed.';
+			if (deleting.has(id)) return BEING_DELETED;
+			const choice = whispering.chosen('transcription');
+			if (choice.kind !== 'ready') return choice.reason;
+			const recording = entries.find((note) => note.id === id);
+			if (recording === undefined)
+				return snapshot.recordings.invalid.some((note) => note.id === id)
+					? 'The recording needs repair before it is transcribed.'
+					: 'The recording is no longer listed.';
+			const audio = audioOf(snapshot, id);
+			if (audio.kind !== 'here')
+				return audio.kind === 'ambiguous'
+					? `More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one before transcribing.`
+					: 'This recording has no audio to transcribe.';
+			const { target } = choice;
+			const at = new Date();
+			await runs.start({
+				collection: 'transcriptions',
+				fields: {
+					recordingId: id,
+					createdAt: at.toISOString(),
+					model: target.model,
+					endpoint: target.address,
+				},
+				audio: audio.file,
+				key,
+				noteId: timeId(at),
+				target,
+			});
+			return undefined;
+		},
+
+		/**
+		 * Apply recipe `recipeId` to transcript `transcriptionId`, each as
+		 * `shown` or else as listed. Its result is a new note; the transcript
+		 * is never changed. Answers why nothing was sent.
+		 */
+		transform(
+			transcriptionId: string,
+			recipeId: string,
+			shown: { readonly recipe?: RecipeRow; readonly input?: string } = {},
+		): Promise<string | undefined> {
+			return runRecipe(transformKey(transcriptionId, recipeId), () => {
+				const resolved = recipeAt(recipeId, shown.recipe);
+				if (typeof resolved === 'string') return resolved;
+				if (resolved.kind !== 'ready') return resolved.reason;
+				const transcript = snapshot.transcriptions.items.find(
+					(note) => note.id === transcriptionId,
+				);
+				if (transcript === undefined)
+					return 'This transcript is no longer listed.';
+				const input = shown.input ?? transcript.body;
+				if (input.trim() === '')
+					return 'This transcript has no text to transform.';
+				if (deleting.has(transcript.recordingId)) return BEING_DELETED;
+				return {
+					collection: 'transformation_runs',
+					target: resolved.target,
+					fields: {
+						recordingId: transcript.recordingId,
+						transcriptionId,
+						transformationId: recipeId,
+						transformationTitle: resolved.title,
+						createdAt: new Date().toISOString(),
+						model: resolved.target.model,
+						endpoint: resolved.target.address,
+						prompt: resolved.prompt,
+						input,
+					},
+				};
+			});
+		},
+
+		/**
+		 * Apply recipe `recipeId`, as `shown` or else as listed, to pasted text
+		 * taken as it is now. Its result is a new note in `text_runs/`. Answers
+		 * why nothing was sent.
+		 */
+		transformText(
+			recipeId: string,
+			input: string,
+			shown: { readonly recipe?: RecipeRow } = {},
+		): Promise<string | undefined> {
+			if (input.trim() === '')
+				return Promise.resolve(refused() ?? 'Paste some text to run this on.');
+			return runRecipe(textKey(recipeId), () => {
+				const resolved = recipeAt(recipeId, shown.recipe);
+				if (typeof resolved === 'string') return resolved;
+				if (resolved.kind !== 'ready') return resolved.reason;
+				return {
+					collection: 'text_runs',
+					target: resolved.target,
+					fields: {
+						transformationId: recipeId,
+						transformationTitle: resolved.title,
+						createdAt: new Date().toISOString(),
+						model: resolved.target.model,
+						endpoint: resolved.target.address,
+						prompt: resolved.prompt,
+						input,
+					},
+				};
+			});
+		},
 
 		// ------------------------------------------------------------------
 		// Actions
@@ -372,10 +594,11 @@ export function createLibrary({
 			const why = refused();
 			if (why !== undefined) return why;
 			const id = timeId();
-			const saved = await files.transformations.set(
-				{ id },
-				{ title, model: null, body: prompt },
-			);
+			const saved = await query.setNote('transformations', id, {
+				title,
+				model: null,
+				body: prompt,
+			});
 			if (saved.error !== null) return saved.error.message;
 			openTransformation(id);
 			return undefined;
@@ -388,7 +611,7 @@ export function createLibrary({
 		deletionFor(ref: NoteRef): Result<Deletion, string> {
 			const why = refused();
 			if (why !== undefined) return Err(why);
-			return captureDeletion(deletionContext(), ref);
+			return captureDeletion({ snapshot, busy }, ref);
 		},
 		/**
 		 * Delete what was confirmed. A recording is kept if new results
@@ -397,24 +620,19 @@ export function createLibrary({
 		async delete(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			const recording =
-				deletion.kind === 'recording'
-					? deletion.id
-					: deletion.kind === 'invalid' &&
-							deletion.note.collection === 'recordings'
-						? deletion.note.id
-						: undefined;
-			const busy = recording && deletionContext().busy(recording);
-			if (busy) return busy;
-			if (recording !== undefined) deleting.add(recording);
+			const recording = recordingDeleted(deletion);
+			const refusal = recording && busy(recording);
+			if (refusal) return refusal;
+			if (recording) deleting.add(recording);
 			try {
-				return await runDeletion(
-					{ files, dropFailed: runs.dropFailed, deleted },
-					deletion,
-				).catch((cause: unknown) => describe(cause));
+				const problem = await runDeletion(query, snapshot, deletion);
+				if (problem !== undefined) return problem;
 			} finally {
-				if (recording !== undefined) deleting.delete(recording);
+				if (recording) deleting.delete(recording);
 			}
+			deleted(deletedNote(deletion));
+			if (recording) runs.forgetRecording(recording);
+			return undefined;
 		},
 		/** Stop following the lists. Runs under way still keep their answers. */
 		dispose: stopPruning,

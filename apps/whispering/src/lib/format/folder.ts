@@ -4,7 +4,7 @@
  * - A recording is a note at `recordings/{id}.md` (its title, when it was
  *   recorded, and how long it is; notes in the body) beside its audio at
  *   `recordings/{id}.{ext}`: `m4a` or `webm` from a browser, `webm` from the
- *   desktop. Audio with no note is still a recording (`folder.svelte.ts`).
+ *   desktop. Audio with no note is still a recording (`folder.ts`).
  * - A transcription is a note at `transcriptions/{id}.md` naming its
  *   recording, the transcript as body.
  * - A transformation is a reusable title and instructions (the body), with

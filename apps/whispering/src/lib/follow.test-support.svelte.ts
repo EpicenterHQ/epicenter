@@ -14,3 +14,15 @@ export function follow<T>(read: () => T) {
 	});
 	return { values, stop };
 }
+
+/**
+ * Make `make`'s value inside an effect root, as a component's script makes
+ * what it observes (`createQuery`, `useMutationState`), until `stop`.
+ */
+export function rooted<T>(make: () => T) {
+	let value!: T;
+	const stop = $effect.root(() => {
+		value = make();
+	});
+	return { value, stop };
+}

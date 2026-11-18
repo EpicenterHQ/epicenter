@@ -13,7 +13,6 @@
  *   and the saved one is held again
  * - A label reads as a Mac menu, or as Windows and Linux spell it
  */
-import './svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { encode } from './files/files.js';
 import { memoryFiles } from './files/memory.js';
@@ -40,7 +39,7 @@ mock.module('@tauri-apps/api/event', () => ({
 }));
 
 const { acceleratorOf, labelOf, openShortcut } = await import('./shortcut.js');
-const { openSettings } = await import('./settings.svelte.js');
+const { openPage } = await import('./services.test-support.js');
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -56,11 +55,13 @@ async function open(shortcut?: string) {
 			? {}
 			: { 'settings.md': encode(`---\nshortcut: "${shortcut}"\n---\n`) },
 	);
-	const settings = openSettings(files);
+	// The page reads `settings.md` with the folder, as the app's layout does.
+	const page = await openPage(files);
+	cleanups.push(page.close);
+	const { settings } = page.query;
 	const opened = openShortcut(settings);
 	if (opened === null) throw new Error('a Tauri window has a shortcut');
 	cleanups.push(() => opened[Symbol.dispose]());
-	await settings.load();
 	opened.holdNow();
 	return { shortcut: opened, settings, files };
 }
@@ -165,10 +166,12 @@ test('a label reads as a Mac menu, or as Windows and Linux spell it', () => {
 	expect(labelOf('Control+k', false)).toBe('Ctrl+K');
 });
 
-test('a browser has no global shortcut, and asks the shell nothing', () => {
+test('a browser has no global shortcut, and asks the shell nothing', async () => {
 	inTauri = false;
 	try {
-		expect(openShortcut(openSettings(memoryFiles()))).toBeNull();
+		const page = await openPage(memoryFiles());
+		cleanups.push(page.close);
+		expect(openShortcut(page.query.settings)).toBeNull();
 		expect(asked).toEqual([]);
 	} finally {
 		inTauri = true;

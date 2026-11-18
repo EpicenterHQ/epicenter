@@ -10,8 +10,9 @@
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { folder } from '$lib/app.js';
-	import { notePath } from '$lib/deletion.js';
+	import { createMutation } from '@tanstack/svelte-query';
+	import { query } from '$lib/app.js';
+	import { notePath } from '$lib/folder.js';
 	import { checkNote, NOTES } from '$lib/format/folder.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { confirmDelete } from './file-actions.js';
@@ -22,8 +23,10 @@
 
 	/** The text as the person changed it; until then the note's. */
 	let typed = $state<string | null>(null);
-	let saving = $state(false);
-	let problem = $state<string | null>(null);
+	/** Writes the text as typed, in the scope of its kind's writes. */
+	const replaceNote = createMutation(
+		() => query.noteMutations[repair.collection].replace,
+	);
 
 	const text = $derived(typed ?? repair.text ?? '');
 	/** What is wrong with the text as it stands, each with its line when it has one. */
@@ -35,13 +38,16 @@
 				),
 	);
 
-	async function save() {
+	function save() {
 		const saved = text;
-		saving = true;
-		const written = await folder[repair.collection].replace({ id: repair.id }, saved);
-		saving = false;
-		problem = written.error?.message ?? null;
-		if (written.error === null && typed === saved) typed = null;
+		replaceNote.mutate(
+			{ id: repair.id, seen: repair.text, text: saved },
+			{
+				onSuccess: () => {
+					if (typed === saved) typed = null;
+				},
+			},
+		);
 	}
 </script>
 
@@ -66,7 +72,7 @@
 				class="flex min-h-0 flex-1 flex-col gap-2"
 				onsubmit={(event) => {
 					event.preventDefault();
-					void save();
+					save();
 				}}
 			>
 				<Textarea
@@ -75,11 +81,11 @@
 					value={text}
 					oninput={(event) => (typed = event.currentTarget.value)}
 				/>
-				{#if problem}
-					<p class="text-xs text-destructive" role="alert" data-testid="repair-problem">{problem}</p>
+				{#if replaceNote.error}
+					<p class="text-xs text-destructive" role="alert" data-testid="repair-problem">{replaceNote.error.message}</p>
 				{/if}
 				<div class="flex gap-2">
-					<Button type="submit" size="sm" disabled={saving}>Save repair</Button>
+					<Button type="submit" size="sm" disabled={replaceNote.isPending}>Save repair</Button>
 					{#if typed !== null}
 						<Button size="sm" variant="ghost" onclick={() => (typed = null)}>Discard</Button>
 					{/if}

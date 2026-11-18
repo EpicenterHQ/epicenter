@@ -16,7 +16,9 @@
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from 'svelte-sonner';
 	import { onMount } from 'svelte';
-	import { exportFolder, folder, folderLocation } from '../app.js';
+	import { createMutation } from '@tanstack/svelte-query';
+	import { exportFolder, folderLocation, query } from '../app.js';
+	import { getLibrary } from '../library.svelte.js';
 	import { getWhispering } from '../whispering.svelte.js';
 	import {
 		changeFolder,
@@ -35,7 +37,8 @@
 	let changing = $state(false);
 	/** How old audio must be to be deleted, in days. */
 	let olderThanDays = $state(365);
-	let deleting = $state(false);
+	const library = getLibrary();
+	const deleteOldAudio = createMutation(() => query.audioMutations.deleteBefore);
 	const isMac = navigator.userAgent.includes('Mac');
 
 	/** The browser's storage for this site: how much is used, and whether it is kept. */
@@ -93,15 +96,18 @@
 		location.reload();
 	}
 
-	async function deleteOldAudio() {
+	function confirmDeleteOldAudio() {
 		const cutoff = new Date(Date.now() - olderThanDays * 86_400_000);
 		if (!confirm(`Delete the audio of every recording made before ${cutoff.toLocaleDateString()}? Their notes and transcripts stay. This cannot be undone.`))
 			return;
-		deleting = true;
-		const deleted = await folder.deleteAudioBefore(cutoff);
-		deleting = false;
-		if (deleted.error !== null) return toast.error('Not all of that audio was deleted', { description: deleted.error.message });
-		toast.success(deleted.data === 0 ? 'No audio was that old' : `Deleted the audio of ${deleted.data} recording${deleted.data === 1 ? '' : 's'}`);
+		deleteOldAudio.mutate(
+			{ cutoff },
+			{
+				onError: (error) => toast.error('Not all of that audio was deleted', { description: error.message }),
+				onSuccess: (count) =>
+					toast.success(count === 0 ? 'No audio was that old' : `Deleted the audio of ${count} recording${count === 1 ? '' : 's'}`),
+			},
+		);
 	}
 
 	async function download() {
@@ -155,7 +161,7 @@
 			<Button size="xs" variant="outline" disabled={exporting} onclick={() => void download()} data-testid="folder-export">Export as zip</Button>
 		</div>
 	{/if}
-	<p class="text-muted-foreground" data-testid="folder-audio-size">Audio: {size(folder.audioSize())}. Whispering keeps it until you delete it.</p>
+	<p class="text-muted-foreground" data-testid="folder-audio-size">Audio: {size(library.audioSize)}. Whispering keeps it until you delete it.</p>
 	<div class="flex flex-wrap items-center gap-1">
 		<label class="text-muted-foreground" for="older-than">Delete audio older than</label>
 		<select id="older-than" class="rounded border bg-transparent px-1 py-0.5" bind:value={olderThanDays}>
@@ -163,6 +169,6 @@
 			<option value={90}>90 days</option>
 			<option value={365}>a year</option>
 		</select>
-		<Button size="xs" variant="outline" disabled={deleting} onclick={() => void deleteOldAudio()} data-testid="folder-delete-old-audio">Delete…</Button>
+		<Button size="xs" variant="outline" disabled={deleteOldAudio.isPending} onclick={confirmDeleteOldAudio} data-testid="folder-delete-old-audio">Delete…</Button>
 	</div>
 </section>

@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import type { NoteWriteError } from '$lib/notes.svelte.js';
+	import type { NoteWriteError } from '$lib/notes.js';
 
 	let {
 		editor,

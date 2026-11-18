@@ -1,7 +1,7 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
 	it. Title, model and instructions are one editor of the note the lists
-	show (`folder.transformations.edit`), saved as they are typed. Run sends the recipe as it is shown.
+	show (`library.edit`), saved as they are typed. Run sends the recipe as it is shown.
 	A transformation whose note does not read shows its text, to repair.
 -->
 <script lang="ts">
@@ -21,7 +21,6 @@
 	import { tick } from 'svelte';
 	import { connectionsNote } from '$lib/connections-note.js';
 	import type { RecipeRow } from '$lib/recipe.js';
-	import { folder } from '$lib/app.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { confirmDelete, formatTime, titleOf } from './file-actions.js';
@@ -48,7 +47,7 @@
 	// The parent keys this view by the transformation.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const recipe = folder.transformations.edit({ id: own });
+	const recipe = library.edit('transformations', own);
 	/** Why its note does not read, when it does not. */
 	const repair = $derived(library.transformationRepairs.find((item) => item.id === own));
 

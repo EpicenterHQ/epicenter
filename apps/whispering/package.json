@@ -42,6 +42,8 @@
 		"@epicenter/app": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/transcription": "workspace:*",
+		"@tanstack/query-core": "catalog:",
+		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"@tauri-apps/plugin-dialog": "catalog:",
 		"@tauri-apps/plugin-http": "catalog:",

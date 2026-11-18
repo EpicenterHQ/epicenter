@@ -6,9 +6,13 @@
  * - `folder` is Whispering's folder over one `Files` (ADR-0894): the data
  *   folder on the desktop (`data/` in the app's local data directory unless
  *   the person moved it, `folderPath`), and the Origin Private File System's
- *   `data/` in a browser. It holds the notes, the audio and `settings.md`,
- *   read by `load()` before the app renders and when the window regains
- *   focus.
+ *   `data/` in a browser. It holds the notes, the audio and `settings.md`.
+ * - `query` is the page's one `QueryClient` over it (`folder-query.ts`):
+ *   the folder as one query, read before the app renders and whenever the
+ *   window regains focus, and every write as a mutation.
+ * - `settings` is `settings.md` as components read it: the query's
+ *   settings, tracked in Svelte (`reactive`). Code that is not a
+ *   component reads `query.settings`.
  * - `ai` is every model this page reaches (ADR-0757), in the order the
  *   model picker lists them: the person's connections (`settings.md`, each
  *   key a secret on this computer), Ollama and LM Studio on this computer,
@@ -23,12 +27,14 @@
 import { customEndpoints, localServers, openAi } from '@epicenter/ai';
 import { type AudioFiles, recorder as microphone } from '@epicenter/recorder';
 import { localSpeech } from '@epicenter/transcription';
+import { focusManager } from '@tanstack/query-core';
 import { isTauri } from '@tauri-apps/api/core';
 import { folderFiles, zipOf } from './export.js';
 import type { Files } from './files/files.js';
 import { opfsFiles } from './files/opfs.js';
 import { tauriFiles } from './files/tauri.js';
-import { openFolder } from './folder.svelte.js';
+import { openFolder } from './folder.js';
+import { createFolderQuery } from './folder-query.js';
 import { createMicrophoneDevice } from './microphone.js';
 import { reactive } from './reactive.js';
 import { openShortcut } from './shortcut.js';
@@ -66,6 +72,22 @@ const audioFiles: AudioFiles = {
 };
 
 export const folder = openFolder(files);
+export const query = createFolderQuery(folder);
+export const settings = reactive(query.settings);
+
+// The folder is read again when the window regains focus. A desktop window
+// keeps its page visible while another app is in front, so the window's own
+// focus decides, not the page's visibility.
+focusManager.setEventListener((setFocused) => {
+	const focused = () => setFocused(true);
+	const blurred = () => setFocused(false);
+	window.addEventListener('focus', focused);
+	window.addEventListener('blur', blurred);
+	return () => {
+		window.removeEventListener('focus', focused);
+		window.removeEventListener('blur', blurred);
+	};
+});
 
 /** Where the folder is: its absolute path on the desktop, null in a browser. */
 export const folderLocation = () => desktopFolder;
@@ -81,7 +103,7 @@ export const speech = localSpeech();
 export const ai = reactive(
 	openAi([
 		customEndpoints({
-			store: folder.settings.connections,
+			store: query.settings.connections,
 			keys: {
 				get: (id) => secrets.get(`connection.${id}`),
 				set: (id, key) => secrets.set(`connection.${id}`, key),
@@ -96,7 +118,7 @@ export const recorder = createMicrophoneDevice({
 	files: audioFiles,
 	recorder: microphone,
 });
-const held = openShortcut(folder.settings);
+const held = openShortcut(query.settings);
 export const shortcut = held && reactive(held);
 /** Start holding the global shortcut, once the folder was first read. */
 export const holdShortcut = () => held?.holdNow();

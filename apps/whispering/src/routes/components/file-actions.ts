@@ -5,10 +5,11 @@
 
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from 'svelte-sonner';
-import { describeDeletion, type NoteRef, notePath } from '$lib/deletion.js';
+import { describeDeletion } from '$lib/deletion.js';
+import { type NoteRef, notePath } from '$lib/folder.js';
 import type { Library } from '$lib/library.svelte.js';
 
-export { titleOf } from '$lib/deletion.js';
+export { titleOf } from '$lib/folder.js';
 
 /** Copy text the person asked for. `what` names it: "the transcript". */
 export async function copyText(text: string, what: string) {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Separator } from '@epicenter/ui/separator';
-	import { folder, shortcut, speech } from '$lib/app.js';
+	import { settings, shortcut, speech } from '$lib/app.js';
 	import FolderSettings from '$lib/components/FolderSettings.svelte';
 	import ShortcutSettings from '$lib/components/ShortcutSettings.svelte';
 	import SpeechSettings from '$lib/components/SpeechSettings.svelte';
@@ -28,9 +28,9 @@
 		{#if speech}<SpeechSettings {speech} /><Separator />{/if}
 		{#if shortcut}<ShortcutSettings {shortcut} /><Separator />{/if}
 	{/if}
-	{#if folder.settings.problem()}
+	{#if settings.problem()}
 		<p class="text-xs text-destructive" role="alert" data-testid="settings-problem">
-			settings.md does not read ({folder.settings.problem()}), so no model or connection in it is used. Choosing a model or saving a connection replaces it.
+			settings.md does not read ({settings.problem()}), so no model or connection in it is used. Choosing a model or saving a connection replaces it.
 		</p>
 	{/if}
 	{#each operations as operation, index (operation)}
