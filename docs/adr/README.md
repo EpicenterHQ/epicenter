@@ -1157,3 +1157,4 @@ When you add an ADR, add its row here.
 | [0946](0946-new-from-a-local-folder-refuses-uncommitted-code.md) | `new --from` a local folder refuses uncommitted code | Proposed (amends 0929) |
 | [0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) | A credential the owner pastes goes in the home's `.env`, which only `env()` reads | Proposed (amends 0870 and 0939) |
 | [0949](0949-an-action-reaches-a-model-through-model-and-the-home-names-its-default-in-epicenter-md.md) | An action reaches a model through `model()`, and the home names its default in `EPICENTER.md` | Proposed |
+| [0950](0950-api-epicenter-so-is-whisperings-account-server.md) | `api.epicenter.so` is Whispering's account server | Proposed |
