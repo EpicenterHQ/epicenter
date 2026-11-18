@@ -38,7 +38,7 @@ const add = defineAction({
 	},
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: ({ body, kind = 'thought', source, project }) =>
-		data.notes.add(timeId(), { body, kind, source, project }),
+		data.notes.create(timeId(), { body, kind, source, project }),
 });
 
 const search = defineAction({
@@ -70,7 +70,7 @@ export default defineApp({
 		'A writing inbox: save thoughts and sources, then find them when you write',
 	data,
 	actions: {
-		...data.notes.actions('list', 'get', 'set'),
+		...data.notes.actions('list', 'get', 'patch', 'edit'),
 		add,
 		search,
 	},

@@ -10,7 +10,7 @@ test('an app accepts data and returns the same object and typed handles', () => 
 	const app = defineApp(given);
 	expect(app).toBe(given);
 	expect(app.data.notes).toBe(data.notes);
-	expect(app.data.notes.pathOf('one')).toBe('data/notes/one.md');
+	expect(app.data.notes.path('one')).toBe('data/notes/one.md');
 });
 
 test('an app may keep no data, and refuses data that is not an object', () => {

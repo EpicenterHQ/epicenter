@@ -25,8 +25,8 @@ Epicenters cannot nest.`,
 		help: `Makes apps/<name>/code/ from blank code or committed source code and creates empty data/.
 With --from, copy one app's code without its Git history or records, from a folder in a Git
 checkout (a path: /, ./, ../, ~/) or a folder on GitHub at a branch, tag, or full commit.
-To copy from another host, clone it first. Copies the source commit, not its working files;
-local differences are reported and left out.
+To copy from another host, clone it first. Copies the source commit, and refuses a local
+folder with uncommitted changes.
 The app's code/package.json is named <name> and lists only its own packages: the copy's
 name is rewritten, and its bun.lock and any @epicenter/app entry are left out, since the
 home has one lock and one @epicenter/app. It runs nothing: it prints the command that

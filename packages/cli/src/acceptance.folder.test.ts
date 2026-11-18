@@ -108,7 +108,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 			entry: 'outside',
 			folder: join(f.apps, 'outside'),
 			problems: [
-				`apps/outside is a link to ${outside}, where no @epicenter/app is found: code finds packages from where it is, not from this home. Keep the app's code inside this home`,
+				`apps/outside finds no @epicenter/app from ${join(outside, 'code')}; run bun install at the top of the home`,
 			],
 		},
 	]);

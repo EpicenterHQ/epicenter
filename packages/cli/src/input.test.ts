@@ -165,17 +165,23 @@ test('every input shape works: lists of objects, and a reference checked as an i
 	});
 });
 
-test("a data key's set takes edit as one object, and refuses half of one", () => {
+test("a data key's edit takes id, old, and new beside each other, and nothing else", () => {
 	const { notes } = defineData({
 		notes: { fields: { title: field.text({ optional: true }) } },
 	});
-	const { set } = notes.actions('set');
-	expect(actionHelp('notes', 'set', set)).toContain(
-		'  edit   optional  an object\n',
-	);
-	expect(checkInput(set, { id: 'a', edit: { old: 'x' } })).toEqual({
-		error: 'edit.new is needed',
+	const { edit } = notes.actions('edit');
+	const help = actionHelp('notes', 'edit', edit);
+	expect(help).toContain('  old  required  text.');
+	expect(help).toContain('  new  required  text.');
+	expect(help).not.toContain('title');
+	expect(checkInput(edit, { id: 'a', old: 'x' })).toEqual({
+		error: 'new is needed',
 	});
+	expect(checkInput(edit, { id: 'a', old: 'x', new: 'y', title: 'z' })).toEqual(
+		{
+			error: '"title" is not a key this action takes; it takes id, old, new',
+		},
+	);
 });
 
 test('help lists the keys and prints one example to copy', () => {

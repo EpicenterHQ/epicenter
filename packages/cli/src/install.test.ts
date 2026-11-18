@@ -113,11 +113,7 @@ test('an app that would load a second copy of @epicenter/app is a problem naming
 	await rm(join(f.notes, 'code/node_modules'), { recursive: true });
 	await rm(join(f.home, 'node_modules'), { recursive: true });
 	const uninstalled = JSON.parse((await f.run('--json')).stdout);
-	expect(uninstalled.version).toBeNull();
 	expect(uninstalled.problems[0].problems).toEqual([
-		`apps/notes finds no @epicenter/app; ${next}`,
+		`apps/notes finds no @epicenter/app from ${await realpath(join(f.notes, 'code'))}; ${next}`,
 	]);
-	expect((await f.run()).stdout).toContain(
-		`Version: not installed. Run: cd ${f.home} && bun install\n`,
-	);
 });

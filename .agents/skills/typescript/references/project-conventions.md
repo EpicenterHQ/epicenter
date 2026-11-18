@@ -75,18 +75,20 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
       wipe(): Promise<void>;
     };
 
-  // Good: the retype happens once; the richer type is additive.
-  type Connected =
-    Omit<Workspace, 'tables'> & { tables: ConnectedTables };
+  // Good: the owned base contains the fields both shapes share.
+  type WorkspaceBase = { id: string };
+  type Workspace = WorkspaceBase & { tables: WorkspaceTables };
+  type Connected = WorkspaceBase & { tables: ConnectedTables };
   type ConnectedWithInfra = Connected & {
     idb: Idb;
     wipe(): Promise<void>;
   };
   ```
 
-  The one surviving `Omit` sits where the field genuinely changes type; every
-  richer shape intersects on top, so Go to Definition chains to a single source
-  and a later change to the retype lands in one place.
+  Both shapes extend the owned base. The richer connected shape extends
+  Connected, so changing its table type happens in one place. When a shape
+  needs a different field, reconsider the base rather than repeating an
+  Omit-and-replace expression.
 
   The same instinct narrows, not just extends. To expose a smaller surface (a
   read-only view of a writable record, a builder you may call only once), return
@@ -161,7 +163,6 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   );
   ```
 
-- When moving components to new locations, always update relative imports to absolute imports (e.g., change `import Component from '../Component.svelte'` to `import Component from '$lib/components/Component.svelte'`)
 - **Give relative imports an explicit extension, and match the package**: For example, `packages/app` re-exports `defineApp` from `./app.ts`, while `packages/account` re-exports `createBrowserOAuth` from `./browser-oauth.js`. TypeScript resolves the latter to the source `.ts` file.
 
   This does not apply to package imports (`import { type } from 'arktype'`) or path aliases (`import Component from '$lib/components/Foo.svelte'`): only bare relative paths.
@@ -181,26 +182,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   export type { TablesHelper, TableDefinitions };
   ```
 - **Question single-method `Pick` dependencies**: `Pick<T, K>` is fine for data projection, but `Pick<Thing, 'method'>` in dependency injection is often a boundary smell. If the caller only needs one operation, prefer a named capability function in the caller's language. Keep the object shape only when the caller participates in that object's life cycle or needs the rest of the capability family. See `docs/articles/single-method-pick-is-a-boundary-leak.md`.
-- When functions are only used in the return statement of a factory/creator function, use object method shorthand syntax instead of defining them separately. For example, instead of:
-  ```typescript
-  function myFunction() {
-	const helper = () => {
-		/* ... */
-	};
-	return { helper };
-  }
-  ```
-  Use:
-  ```typescript
-  function myFunction() {
-	return {
-		helper() {
-			/* ... */
-		},
-	};
-  }
-  ```
-- **Prefer factory functions over classes**: Use `function createX() { return { ... } }` instead of `class X { ... }`. Closures provide structural privacy: everything above the return statement is private by position, everything inside it is the public API. Classes mix `private`/`protected`/public members in arbitrary order, forcing you to scan every member and check its modifier. See `docs/articles/closures-are-better-privacy-than-keywords.md` for rationale.
+- For factory signatures, internal arrow functions, and returned method placement, read [factory function composition](factory-function-composition.md). For public JSDoc and existing receiver-dependent APIs, read [method documentation and sibling calls](method-documentation-and-sibling-calls.md).
 - **Generic type parameters use `T` prefix + descriptive name**: Never use single letters like `S`, `D`, `K`. Always prefix with `T` and use the full name:
 
   ```typescript
@@ -215,103 +197,16 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   function get<K extends string & keyof D>(key: K) { ... }
   ```
 
-- **Destructure options in function signature, not the first line of the body**:
+- Destructure dependency and configuration bags in the signature. See [parameter binding](factory-function-composition.md#bind-inputs-at-construction) for examples and when the whole input should stay named.
+
+- **Keep useful return-type inference**: Let TypeScript infer private and inner return types. Annotate a public or recursive API when the annotation defines a real contract, makes the output clearer, or breaks circular inference. TypeScript documents [return-type inference](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#return-type-annotations); choosing which public shape to expose is a project design decision.
 
   ```typescript
-  // Good: destructure in the signature
-  export function createThing<T>({
-	name,
-	value,
-	onError,
-  }: ThingOptions<T>) {
-	// function body starts here
-  }
-
-  // Bad: intermediate `options` parameter, destructured on first line
-  export function createThing<T>(options: ThingOptions<T>) {
-	const { name, value, onError } = options;
-	// ...
+  // The compiler infers number from both return paths.
+  function parseCount(raw: string | null) {
+	if (raw === null) return 0;
+	return Number(raw);
   }
   ```
 
-  This includes the common half-fix where a function accepts `options`, then
-  immediately does `const { foo } = options` or `const { foo } = options ?? {}`.
-  Move that destructuring into the call signature instead:
-
-  ```typescript
-  // Good
-  export function createThing({
-    name,
-    value = defaultValue,
-  }: ThingOptions = {}) {
-    // ...
-  }
-
-  // Bad
-  export function createThing(options: ThingOptions = {}) {
-    const { name, value = defaultValue } = options;
-    // ...
-  }
-  ```
-
-  Use judgment for real payload objects. Keep a named `options` parameter when
-  the value is the domain object being transformed or forwarded as a whole,
-  when the object is intentionally stateful, or when destructuring would make
-  the signature harder to scan than the body. For configuration bags with
-  defaults or a few plucked fields, destructure in the signature.
-
-- **Don't annotate return types the compiler can infer**: Let TypeScript infer return types on inner/private functions. Only annotate return types on exported public API functions when the inferred type is too complex or when you need to break circular inference.
-
-  ```typescript
-  // Good: inner functions let TS infer
-  function parseValue(raw: string | null) {
-	if (raw === null) return defaultValue;
-	return JSON.parse(raw);
-  }
-
-  // Bad: unnecessary return type annotation
-  function parseValue(raw: string | null): SomeType {
-	if (raw === null) return defaultValue;
-	return JSON.parse(raw);
-  }
-  ```
-
-- **Factory return types derive from the factory**: If a public type is exactly the return object from a `create*`, `attach*`, `open*`, or similar factory, export the type as `ReturnType<typeof createThing>` directly after the factory and let the function return its concrete object. If the public type is a nested slice of a factory result, use a focused inference helper like `InferSignedIn<typeof session>`. Put needed annotations and JSDoc on the returned methods and properties instead of on the factory itself. This keeps one source of truth and makes Go to Definition land on the returned object shape.
-
-  ```typescript
-  // Good: the factory owns the shape
-  export function createBrowserDocCache<
-    TId extends string,
-    TDocument extends BrowserDocInstance,
-  >({ source }: { source: BrowserDocSource<TId, TDocument> }) {
-    return {
-      open(id: TId): TDocument & Disposable {
-        return source.create(id);
-      },
-    };
-  }
-
-  export type BrowserDocCache<
-    TId extends string,
-    TDocument extends BrowserDocInstance,
-  > = ReturnType<typeof createBrowserDocCache<TId, TDocument>>;
-
-  // Bad: the type and return object now describe the same shape twice
-  export type BrowserDocCache<TId extends string, TDocument> = {
-    open(id: TId): TDocument & Disposable;
-  };
-
-  export function createBrowserDocCache<TId extends string, TDocument>(
-    { source }: { source: BrowserDocSource<TId, TDocument> },
-  ): BrowserDocCache<TId, TDocument> {
-    return {
-      open(id) {
-        return source.create(id);
-      },
-    };
-  }
-  ```
-
-  Use `ReturnType<ReturnType<typeof createThing>>` for curried factories. If the concrete object stores writable internals but the public API should be readonly, keep those internals private and expose read methods before deriving the type. Tracked getters belong in Svelte reactive adapters, following the [read API convention](../SKILL.md#core-rules); an existing getter-based public surface stays a contract until it is deliberately redesigned.
-
-  Keep explicit contract types when several implementations share the same surface, when the type is protocol vocabulary, or when you intentionally want to hide the concrete return shape. Use `satisfies` when the implementation should be checked against an external contract but the returned value should keep its own inferred shape.
+- For inferred factory output aliases, including curried, generic, and asynchronous factories, read [public factory types](factory-function-composition.md#derive-public-types-from-the-return-object). For shared contracts and their effect on inference and navigation, read [editor experience](editor-experience.md).

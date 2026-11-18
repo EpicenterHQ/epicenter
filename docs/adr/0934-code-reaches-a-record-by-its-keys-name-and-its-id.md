@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-16
+- **Amended:** 2026-11-17: the handle's `pathOf` is renamed `path`, to match the `path` a record carries: `data.watches.path('sfo-nyc')`, and `path()` for a one-file key. It still only joins strings. Also 2026-11-17: `add`, `set`, and `update` are renamed `create`, `patch`, and `edit`, and `edit` also takes `{ old, new }`; see [the amendment](#amendment-2026-11-17-create-patch-and-edit).
 - **Amends:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on two answers: a file already there when adding is `Changed` (`there`), not `Refused`, and an absent one-file key reads as `Ok(undefined)`, not as an empty record.
 - **Relates:** [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) (the declaration); [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md) (what a caller outside the app gets); [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (no app lock; `folder.update`); [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one writer).
 
@@ -78,6 +79,71 @@ await data['settings.md'].set({ level: 'HSK 3' });       // creates the file whe
   ([ADR-0936](0936-one-serve-per-home-runs-every-action.md)).
 - Failures are the four `ActionError` variants: `Missing`, `Misfit`,
   `Changed`, `Refused`. `Changed` gains `why: 'there'`.
+
+## Amendment (2026-11-17): create, patch, and edit
+
+| Before | After |
+| --- | --- |
+| `add(id, record)` | `create(id, record)` |
+| `set(id, change)` | `patch(id, change)` |
+| `update(id, fn)` | `edit(id, fn)` |
+| the generated `set` given `edit: { old, new }` | `edit(id, { old, new })` |
+
+A one-file key has `patch(change)`, `edit(fn)`, and `edit({ old, new })`, and
+still no `create`. `get`, `list`, `delete`, and `path` are unchanged. The
+decision above holds with the new names.
+
+**Each write verb says what it does with a name that may be wrong.** A name
+goes wrong two ways: it is taken, or it is mistyped. `create` catches the
+first with `Changed` (`there`). A folder key's `patch` catches the second
+with `Missing`, so a typo never makes a stray file. Code that computes a name
+and means to make the record when it is absent uses `edit` with a function.
+`set` read as "make it so", and `update` did not say that it creates.
+
+**`edit` takes two forms.** Both mean "change this based on what is there
+now". `edit(id, fn)` is the old `update`. `edit(id, { old, new })` replaces
+the one passage `old` of the body with `new`, through a fixed function handed
+to the same write. It answers `Changed` (`quote`) when `old` is not there,
+`Changed` (`twice`) when it is there more than once, `Refused` for an empty
+`old`, and a misfit's `Misfit` before any change. An absent file is `Missing`
+for both key shapes, since a quote cannot match a file that is not there; a
+one-file key used to answer `Changed` (`quote`). This bends "each verb takes
+one kind of change" on purpose. That rule kept one verb from following two
+existence rules silently; here the input decides the rule, and the passage
+form's refusal of absence follows from it. The entrance checks
+`typeof change === 'function'`, and a function never arrives from JSON, so a
+wire caller cannot reach the callback form. Separate overloads type the
+passage as exactly `{ old: string; new: string }`, so
+`edit(id, { rating: 5 })` does not compile, and at run time anything other
+than a function or a plain object holding text `old` and `new` is `Refused`.
+
+**A generated action's input is its method's arguments folded into one
+object:** the id as `id`, and the change's keys beside it.
+`patch('Dune', { rating: 5 })` is `{ "id": "Dune", "rating": 5 }`, and
+`edit('Dune', { old: 'chapter 3', new: 'chapter 4' })` is
+`{ "id": "Dune", "old": "chapter 3", "new": "chapter 4" }`.
+`edit(id, fn)` has no wire form. Two verbs adapt the fold, and
+[ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md)
+keeps both: the generated `create` names a record with `timeId()` when `id`
+is left out, while the method requires one; and the generated `get` answers
+`Missing` for an absent folder record, where the method answers
+`Ok(undefined)`.
+
+**`defineData` reserves `path`, `body`, and `id` because a verb's input
+folds the fields beside them.** A read gives `path`, and an action's input
+carries `id` and `body` beside the fields, so a field by one of those names
+would collide. `edit` is no longer reserved: `patch` does not take it, and
+the generated `edit` carries no fields. `old` and `new` need no reservation
+for the same reason.
+
+`create` now writes through the handle's one write path with the file
+required absent, instead of a separate `folder.edit`.
+
+Rejected: a fifth verb, `replace(id, { old, new })`, beside a code-only
+`edit(id, fn)`, which reads as replacing the whole record; and object
+arguments everywhere in code (`patch({ id, rating })`), which copy the wire
+at the cost of wordier common calls and still need an exception for the
+callback.
 
 ## Consequences
 

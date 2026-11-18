@@ -3,7 +3,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { expect, test } from 'bun:test';
 import { createMemoryContext, inRun, Ok } from '@epicenter/app';
 import app from './epicenter.ts';
-const { add, get, list, set } = app.actions;
+const { add, get, list, patch, edit } = app.actions;
 const path = 'data/tasks/a.md';
 const front = '---\ntitle: "Water plants"\ndone: false\n---\n';
 test('add writes a single-line title and due day with exact file layout', async () => {
@@ -32,38 +32,38 @@ test('list preserves malformed rows beside fitting rows, including bodies', asyn
 	expect(rows[1]?.error).toMatchObject({ name: 'Misfit', record: { title: 'Broken' } });
 	expect(rows[1]?.error?.record).toHaveProperty('body', 'Notes\n');
 });
-test('plain set repairs a bad field and returns the fitting record', async () => {
+test('plain patch repairs a bad field and returns the fitting record', async () => {
 	const context = createMemoryContext({ [path]: '---\ntitle: "Repair"\ndone: "maybe"\ndue: "nope"\n---\nNotes\n' });
 	const before = await context.folder.read(path);
-	expect((await inRun(context, () => set({ id: 'a', done: false }))).error?.name).toBe('Misfit');
+	expect((await inRun(context, () => patch({ id: 'a', done: false }))).error?.name).toBe('Misfit');
 	expect(await context.folder.read(path)).toBe(before);
-	const repaired = expectOk(await inRun(context, () => set({ id: 'a', done: false, due: null })));
+	const repaired = expectOk(await inRun(context, () => patch({ id: 'a', done: false, due: null })));
 	expect(repaired).toMatchObject({ title: 'Repair', done: false, body: 'Notes\n' });
 	expect(expectOk(await inRun(context, () => get({ id: 'a' })))).toEqual(repaired);
 });
 test('invalid supplied titles return Refused without writing', async () => {
 	const context = createMemoryContext({ [path]: front });
 	for (const title of [' ', 'two\nlines'])
-		expect((await inRun(context, () => set({ id: 'a', title }))).error?.name).toBe('Refused');
+		expect((await inRun(context, () => patch({ id: 'a', title }))).error?.name).toBe('Refused');
 	expect(await context.folder.read(path)).toBe(front);
 });
 test('fields use the last write and stale quoted notes return Changed', async () => {
 	const context = createMemoryContext({ [path]: front + 'Old notes\n' });
-	expectOk(await inRun(context, () => set({ id: 'a', title: 'Earlier' })));
-	expectOk(await inRun(context, () => set({ id: 'a', title: 'Mine', done: true, due: '2026-11-14' })));
-	expectOk(await inRun(context, () => set({ id: 'a', edit: { old: 'Old notes\n', new: 'New notes\n' } })));
-	expect((await inRun(context, () => set({ id: 'a', edit: { old: 'Old notes\n', new: 'Stale' } }))).error?.name).toBe('Changed');
-	expectOk(await inRun(context, () => set({ id: 'a', done: false, due: null })));
+	expectOk(await inRun(context, () => patch({ id: 'a', title: 'Earlier' })));
+	expectOk(await inRun(context, () => patch({ id: 'a', title: 'Mine', done: true, due: '2026-11-14' })));
+	expectOk(await inRun(context, () => edit({ id: 'a', old: 'Old notes\n', new: 'New notes\n' })));
+	expect((await inRun(context, () => edit({ id: 'a', old: 'Old notes\n', new: 'Stale' }))).error?.name).toBe('Changed');
+	expectOk(await inRun(context, () => patch({ id: 'a', done: false, due: null })));
 	expect(expectOk(await inRun(context, () => get({ id: 'a' })))).toMatchObject({ title: 'Mine', done: false, body: 'New notes\n' });
-	expectOk(await inRun(context, () => set({ id: 'a', edit: { old: 'New notes\n', new: '' } })));
+	expectOk(await inRun(context, () => edit({ id: 'a', old: 'New notes\n', new: '' })));
 	expect(expectOk(await inRun(context, () => get({ id: 'a' })))).toHaveProperty('body', '');
 });
-test('missing set/get return Missing and delete wraps its boolean', async () => {
+test('missing edit/get return Missing and delete wraps its boolean', async () => {
 	const context = createMemoryContext({ [path]: front });
 	expect(expectOk(await inRun(context, () => app.actions.delete({ id: 'a' })))).toBe(true);
 	expect(expectOk(await inRun(context, () => app.actions.delete({ id: 'a' })))).toBe(false);
 	expect((await inRun(context, () => get({ id: 'a' }))).error?.name).toBe('Missing');
-	expect((await inRun(context, () => set({ id: 'a', edit: { old: 'Original', new: 'No' } }))).error?.name).toBe('Missing');
+	expect((await inRun(context, () => edit({ id: 'a', old: 'Original', new: 'No' }))).error?.name).toBe('Missing');
 	expect(await context.folder.read(path)).toBeUndefined();
 });
 
