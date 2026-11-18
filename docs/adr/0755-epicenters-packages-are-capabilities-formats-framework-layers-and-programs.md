@@ -27,7 +27,7 @@ An app picks a package's platform code itself. `@epicenter/folder` exports
 `./browser`, `./tauri`, `./bun`, `./node`, and `./remote`, and no `.`.
 Whispering maps four `#platform/*` seams in its `package.json` "imports",
 each to a `tauri` and a `default` leaf, and `desktopVariant()`
-(`packages/vite-config/src/index.ts`) turns on the `tauri` condition when
+(`apps/whispering/packages/vite-config/src/index.ts`) turns on the `tauri` condition when
 `EPICENTER_DESKTOP=1`.
 
 Three seats (one Codex, two Claude) audited the packages by kind, callers,

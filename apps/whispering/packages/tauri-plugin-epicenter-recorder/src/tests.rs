@@ -65,7 +65,7 @@ fn the_committed_typescript_bindings_match_the_registered_commands() {
     let committed = std::fs::read_to_string(BINDINGS).unwrap_or_default();
     assert!(
         committed == fresh,
-        "packages/recorder/src/native/bindings.gen.ts is stale; run `RECORDER_WRITE_BINDINGS=1 cargo test bindings` in packages/tauri-plugin-epicenter-recorder"
+        "apps/whispering/packages/recorder/src/native/bindings.gen.ts is stale; run `RECORDER_WRITE_BINDINGS=1 cargo test bindings` in apps/whispering/packages/tauri-plugin-epicenter-recorder"
     );
     for command in COMMANDS {
         assert!(

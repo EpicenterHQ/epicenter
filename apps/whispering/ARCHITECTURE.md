@@ -100,7 +100,7 @@ capabilities made only in `app.ts`; `createWhispering`, `filesOf` and
 `createLibrary` only in `WhisperingApp`; `@epicenter/account` imported only
 by `app.ts` and `SignInCallback`; nothing from Node or Bun; and Tauri, and
 `isTauri()`, only in `shortcut.ts`, which loads the shell's event code when
-it listens. `scripts/first-load.test.ts` at the repository root holds that
+it listens. `apps/whispering/scripts/first-load.test.ts` holds that
 the web's first load carries no desktop module.
 
 ## The files

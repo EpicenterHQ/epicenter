@@ -103,7 +103,7 @@ const audioFiles = {} as AudioFiles;
 const started: unknown[] = [];
 // The shell's recorder, which `@epicenter/recorder` loads in a Tauri window.
 mock.module(
-	new URL('../../../../packages/recorder/src/tauri.ts', import.meta.url)
+	new URL('../../packages/recorder/src/tauri.ts', import.meta.url)
 		.pathname,
 	() => ({
 		recorder: {

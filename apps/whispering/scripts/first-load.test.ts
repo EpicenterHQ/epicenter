@@ -5,7 +5,7 @@
  * decides where the page runs with `isTauri()` and loads its desktop
  * implementation when it connects or first acts. A static import of one
  * breaks no build and no test: the web would only carry it. This builds
- * every page source of each app with a desktop window and reads what loads
+ * every page source of Whispering and reads what loads
  * before any `import()`.
  *
  * Key behaviors:
@@ -37,12 +37,11 @@ const desktopModules = (modules: readonly string[]) =>
 		.filter((path) => !SMALL_DESKTOP_PART.some((part) => path.endsWith(part)))
 		.map((path) => path.slice(path.indexOf(root) + root.length + 1));
 
-for (const app of ['whispering'])
-	test(`${app}'s first load holds no desktop module`, async () => {
-		const modules = await firstLoadModules(join(root, 'apps', app));
-		// The page's own code is there, so the build read the app.
-		expect(
-			modules.some((path) => path.endsWith(`apps/${app}/src/lib/app.ts`)),
-		).toBe(true);
-		expect(desktopModules(modules)).toEqual([]);
-	}, 180_000);
+test("Whispering's first load holds no desktop module", async () => {
+	const modules = await firstLoadModules(root);
+	// The page's own code is there, so the build read the app.
+	expect(
+		modules.some((path) => path.endsWith('apps/whispering/src/lib/app.ts')),
+	).toBe(true);
+	expect(desktopModules(modules)).toEqual([]);
+}, 180_000);

@@ -15,8 +15,8 @@ tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
 # The folder a recording is written into: the window's bound root and the shared path rule.
-epicenter-folder-core = { path = "../tauri-plugin-epicenter-folder/core" }
-tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
+epicenter-folder-core = { path = "../../../../packages/tauri-plugin-epicenter-folder/core" }
+tauri-plugin-epicenter-folder = { path = "../../../../packages/tauri-plugin-epicenter-folder" }
 cpal = "0.18.1"
 # Encodes a recording to Opus as it records (`opus.rs`); the same libopus the
 # transcription plugin decodes with, built from source (`.cargo/config.toml`).

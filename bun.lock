@@ -144,6 +144,50 @@
         "vite-plugin-devtools-json": "^1.0.0",
       },
     },
+    "apps/whispering/packages/recorder": {
+      "name": "@epicenter/recorder",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/definition": "workspace:*",
+        "@epicenter/folder": "workspace:*",
+        "@ricky0123/vad-web": "catalog:",
+        "@tauri-apps/api": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/whispering/packages/transcription": {
+      "name": "@epicenter/transcription",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/ui": "workspace:*",
+        "@tauri-apps/api": "catalog:",
+        "svelte": "catalog:",
+      },
+      "devDependencies": {
+        "@epicenter/ai": "workspace:*",
+        "@types/bun": "catalog:",
+        "svelte-check": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/whispering/packages/vite-config": {
+      "name": "@epicenter/vite-config",
+      "version": "0.1.1",
+      "dependencies": {
+        "@epicenter/definition": "workspace:*",
+        "@sveltejs/kit": "catalog:",
+        "@tailwindcss/vite": "catalog:",
+        "vite": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "ops": {
       "name": "@epicenter/ops",
       "devDependencies": {
@@ -267,21 +311,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/recorder": {
-      "name": "@epicenter/recorder",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "@ricky0123/vad-web": "catalog:",
-        "@tauri-apps/api": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/server": {
       "name": "@epicenter/server",
       "version": "0.1.1",
@@ -331,21 +360,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/transcription": {
-      "name": "@epicenter/transcription",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/ui": "workspace:*",
-        "@tauri-apps/api": "catalog:",
-        "svelte": "catalog:",
-      },
-      "devDependencies": {
-        "@epicenter/ai": "workspace:*",
-        "@types/bun": "catalog:",
-        "svelte-check": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/ui": {
       "name": "@epicenter/ui",
       "version": "0.4.0",
@@ -375,20 +389,6 @@
         "mode-watcher": "^1.1.0",
         "svelte": "^5.33.0",
         "tailwindcss": "^4.1.0",
-      },
-    },
-    "packages/vite-config": {
-      "name": "@epicenter/vite-config",
-      "version": "0.1.1",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@sveltejs/kit": "catalog:",
-        "@tailwindcss/vite": "catalog:",
-        "vite": "catalog:",
-      },
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "typescript": "catalog:",
       },
     },
   },
@@ -635,17 +635,17 @@
 
     "@epicenter/ops": ["@epicenter/ops@workspace:ops"],
 
-    "@epicenter/recorder": ["@epicenter/recorder@workspace:packages/recorder"],
+    "@epicenter/recorder": ["@epicenter/recorder@workspace:apps/whispering/packages/recorder"],
 
     "@epicenter/server": ["@epicenter/server@workspace:packages/server"],
 
     "@epicenter/svelte": ["@epicenter/svelte@workspace:packages/svelte"],
 
-    "@epicenter/transcription": ["@epicenter/transcription@workspace:packages/transcription"],
+    "@epicenter/transcription": ["@epicenter/transcription@workspace:apps/whispering/packages/transcription"],
 
     "@epicenter/ui": ["@epicenter/ui@workspace:packages/ui"],
 
-    "@epicenter/vite-config": ["@epicenter/vite-config@workspace:packages/vite-config"],
+    "@epicenter/vite-config": ["@epicenter/vite-config@workspace:apps/whispering/packages/vite-config"],
 
     "@epicenter/whispering": ["@epicenter/whispering@workspace:apps/whispering"],
 

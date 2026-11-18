@@ -26,6 +26,7 @@
 		"packages": [
 			"apps/*",
 			"apps/api/ui",
+			"apps/whispering/packages/*",
 			".agents/skills/consult-claude",
 			"ops",
 			"packages/*"

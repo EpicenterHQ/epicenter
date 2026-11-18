@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test --path-ignore-patterns='**/*.postgres.test.ts' src",
+		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test --path-ignore-patterns='**/*.postgres.test.ts' src && bun test ./scripts",
 		"test:postgres": "bun test --isolate ./src/lib/web-sign-in.postgres.test.ts",
 		"build": "NODE_ENV=production vite build",
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",

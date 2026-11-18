@@ -31,7 +31,7 @@ through `@epicenter/local`, which `@epicenter/account` and `@epicenter/ai`
 also import. `@epicenter/definition` holds Whispering's contract and ids and
 the site constants (`APPS`, `localUrl`, `resolveOAuthAudiences`) that
 `apps/api` and `@epicenter/account` read. Local models live in the shared
-Hugging Face cache (`packages/transcription/src/lib.rs:5-8`).
+Hugging Face cache (`apps/whispering/packages/transcription/src/lib.rs:5-8`).
 
 ADR-0887 gave a program a Git clone of its app's data. A clone needs Git on
 every device, and a phone or a browser tab has none.
@@ -228,7 +228,7 @@ none.
   `@epicenter/transcription`, `@epicenter/vite-config`,
   `tauri-epicenter-standalone`, `tauri-plugin-epicenter-recorder`, and
   `epicenter-transcription-build`) move into `apps/whispering`, with
-  `scripts/first-load.test.ts`, which reads vite-config's module graph. The
+  `apps/whispering/scripts/first-load.test.ts`, which reads vite-config's module graph. The
   hosted API loses its `/folders` routes, the `folders` audience and scopes,
   and the R2 binding; dropping their production tables is a later,
   separate step.

@@ -126,5 +126,5 @@ the page runs (see the `platform-seams` skill), and the routes stay the same.
    `"beforeDevCommand": "bun run dev"`). The app's `dev:desktop` is
    `tauri dev --config src-tauri/tauri.dev.conf.json`, and `build:desktop`
    is `tauri build --bundles app`.
-3. **Guard.** `scripts/first-load.test.ts` holds the app's first load in a
+3. **Guard.** `apps/whispering/scripts/first-load.test.ts` holds the app's first load in a
    browser to no desktop module; add the app to its list.

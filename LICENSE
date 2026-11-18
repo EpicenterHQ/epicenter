@@ -25,11 +25,9 @@ anyone who forks and distributes a modified binary shares the changes back.
   Packages:
     packages/account         @epicenter/account
     packages/ai              @epicenter/ai
-    packages/recorder        @epicenter/recorder
     packages/server          @epicenter/server
     packages/svelte          @epicenter/svelte
     packages/ui              @epicenter/ui
-    packages/vite-config     @epicenter/vite-config
 
   Apps:
     apps/api                    @epicenter/api

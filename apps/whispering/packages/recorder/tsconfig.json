@@ -1,7 +1,7 @@
 {
-	"extends": "../../tsconfig.base.json",
+	"extends": "../../../../tsconfig.dom.json",
 	"compilerOptions": {
-		"types": ["node"],
+		"types": ["bun"],
 		"noUnusedLocals": true,
 		"noUnusedParameters": true
 	}

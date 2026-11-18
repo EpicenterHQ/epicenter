@@ -10,7 +10,7 @@
 
 Epicenter's packages reach each other directly. The browser recorder
 imports `deviceFiles` from `@epicenter/folder/browser`
-(`packages/recorder/src/browser.ts`), so building the recorder builds a
+(`apps/whispering/packages/recorder/src/browser.ts`), so building the recorder builds a
 folder leaf with it. `@epicenter/ai` imports the `Account` type from
 `@epicenter/auth`.
 

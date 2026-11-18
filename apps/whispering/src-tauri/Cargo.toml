@@ -9,12 +9,12 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [build-dependencies]
-epicenter-transcription-build = { path = "../../../packages/epicenter-transcription-build" }
+epicenter-transcription-build = { path = "../packages/epicenter-transcription-build" }
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 epicenter-account = { path = "../../../packages/tauri-epicenter-account" }
-epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
+epicenter-standalone = { path = "../packages/tauri-epicenter-standalone" }
 # `generate_context!` writes the configuration's `plugins` block as
 # `serde_json` values in the app's own crate, and the tests read the
 # configuration with it.
@@ -22,8 +22,8 @@ serde_json = "1"
 tauri = { version = "2.12", features = [] }
 # tauri-build finds plugin permissions only through direct dependencies.
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
-tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
-tauri-plugin-epicenter-transcription = { path = "../../../packages/transcription" }
+tauri-plugin-epicenter-recorder = { path = "../packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-epicenter-transcription = { path = "../packages/transcription" }
 tauri-plugin-global-shortcut = "2.3"
 # A direct dependency gives this final app's build script the
 # DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.

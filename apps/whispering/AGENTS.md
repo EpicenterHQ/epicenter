@@ -34,7 +34,7 @@ optional and adds Epicenter's models. Read `README.md` for behavior and
   `FolderSettings`). Only `src/lib/shortcut.ts` calls `isTauri()` or
   imports Tauri, and it loads the shell's event code when it listens; a
   static import of a desktop module from shared code puts it in the web's
-  first load, which `scripts/first-load.test.ts` refuses.
+  first load, which `apps/whispering/scripts/first-load.test.ts` refuses.
 - **The browser keeps nothing.** No service worker, no browser store of
   notes or audio, no uploader of its own, and no cache of uploaded audio: a
   take goes to the repository through the folder at Stop. Sign-in and
