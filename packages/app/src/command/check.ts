@@ -83,7 +83,10 @@ export async function checkCommand(
 	for (const each of loaded) {
 		try {
 			apps[each.name] = await checkApp(each);
-			const stray = await strayData(each.realPath);
+			const stray = await strayData(
+				each.realPath,
+				Object.keys(each.app.data ?? {}),
+			);
 			const listed = unchecked.find(({ entry }) => entry === each.name);
 			if (listed) listed.problems.push(...stray);
 			else if (stray.length)

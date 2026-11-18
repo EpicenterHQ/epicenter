@@ -86,30 +86,32 @@ test('fitting folders and a key with no records exit 0 without counting ignored 
 	});
 	expect(json.stdout).not.toContain('skipped');
 });
-test('a file directly under data/ is read by nothing, and check says so', async () => {
+test("a declared key's old one-file record is reported with its move, and check exits 1", async () => {
 	const f = await setup();
-	await f.folder(f.dataPath, {
-		'settings.md': '---\nlevel: 3\n---\n',
-		'.DS_Store': '',
-		'cache/other.md': 'an app folder that is not a key',
-	});
+	await f.folder(f.dataPath, { 'settings.md': '---\nlevel: 3\n---\n' });
+	const line =
+		'data/settings.md is the old one-file record of settings; move it to data/settings/settings.md';
 	const human = await f.run('check', 'flights');
 	expect(human.code).toBe(1);
-	expect(human.stdout).toContain(
-		"data/settings.md is in no data key's folder, so nothing reads it; a record belongs at data/<key>/<id>.md",
-	);
-	expect(human.stdout).not.toContain('.DS_Store');
-	expect(human.stdout).not.toContain('cache');
+	expect(human.stdout).toContain(line);
 	const json = JSON.parse((await f.run('check', 'flights', '--json')).stdout);
 	expect(json.error.report.problems).toMatchObject([
-		{
-			entry: 'flights',
-			problems: [
-				"data/settings.md is in no data key's folder, so nothing reads it; a record belongs at data/<key>/<id>.md",
-			],
-		},
+		{ entry: 'flights', problems: [line] },
 	]);
 	expect(json.error.message).toBe('1 app has problems');
+});
+
+test("other files directly under data/ are the app's own, and check exits 0", async () => {
+	const f = await setup();
+	await f.folder(f.dataPath, {
+		'notes.txt': 'kept on purpose',
+		'AGENTS.md': 'notes for agents',
+		'flights.md': 'a .md whose name is not a declared key',
+		'2026.csv': 'a,b',
+	});
+	const human = await f.run('check', 'flights');
+	expect(human.code).toBe(0);
+	expect(human.stdout).not.toContain('one-file');
 });
 
 test('misfit fields and malformed front matter reuse handle diagnostics, and a report with problems exits 1', async () => {

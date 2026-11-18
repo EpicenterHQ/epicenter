@@ -22,18 +22,22 @@ export type CheckedKey = {
 };
 
 /**
- * Each file directly under `data/`, which is in no key's folder, so nothing
- * reads it: one problem line each, by its path under the app's folder. A
- * folder there that is not a key is the app's own and is not reported; a
- * name starting with `.` is skipped.
+ * Each `data/<key>.md` for a declared key: a record from when a key could be
+ * one file, left in place when the key became a folder, so nothing reads it.
+ * One problem line each, saying where to move it. Every other file directly
+ * under `data/` is the app's own and is not reported.
  */
-export async function strayData(root: string): Promise<string[]> {
-	return (await filesIn(root, 'data'))
-		.filter((name) => !name.startsWith('.'))
+export async function strayData(
+	root: string,
+	keys: string[],
+): Promise<string[]> {
+	const names = new Set(await filesIn(root, 'data'));
+	return keys
+		.filter((key) => names.has(`${key}.md`))
 		.sort()
 		.map(
-			(name) =>
-				`data/${name} is in no data key's folder, so nothing reads it; a record belongs at data/<key>/<id>.md`,
+			(key) =>
+				`data/${key}.md is the old one-file record of ${key}; move it to data/${key}/${key}.md`,
 		);
 }
 
