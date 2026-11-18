@@ -1,7 +1,9 @@
 /**
- * A folder on a temporary directory, as a test hands an app (ADR-0964).
- * Every directory made here sits under one root for this test process, and
- * the root is removed when the process exits.
+ * What the library's own tests share: a folder on a temporary directory, as
+ * a test hands an app (ADR-0964), a folder for definitions that never touch
+ * one, and two helpers for type tests. Every directory made here sits under
+ * one root for this test process, and the root is removed when the process
+ * exits.
  */
 import {
 	existsSync,
@@ -14,7 +16,21 @@ import {
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import { folderOnDisk } from './folder.ts';
+import { type Folder, folderOnDisk } from './folder.ts';
+
+/** Whether `X` and `Y` are the same type, for `assertType<Equal<X, Y>>()`. */
+export type Equal<X, Y> =
+	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
+		? true
+		: false;
+/** Compiles only when `T` is `true`; it checks nothing at runtime. */
+export const assertType = <T extends true>(): T | undefined => undefined;
+
+/**
+ * A folder for a definition that never reads or writes, such as one refused
+ * before any handle exists. Any call on it throws.
+ */
+export const unusedFolder = {} as Folder;
 
 let root: string | undefined;
 
@@ -56,7 +72,6 @@ export async function tempFolder(
 		await writeFile(join(dir, path), content);
 	}
 	return {
-		dir,
 		folder: folderOnDisk(dir),
 		async read(path: string) {
 			try {

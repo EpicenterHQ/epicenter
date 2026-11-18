@@ -6,13 +6,8 @@ import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { ActionError, defineData, field, Ok } from './index.ts';
-import { tempFolder } from './temp-folder.test-support.ts';
+import { assertType, type Equal, tempFolder } from './library.test-support.ts';
 
-type Equal<X, Y> =
-	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
-		? true
-		: false;
-const assertType = <T extends true>(): T | undefined => undefined;
 const { folder } = await tempFolder();
 const data = defineData(folder, {
 	notes: {

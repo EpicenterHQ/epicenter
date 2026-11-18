@@ -5,16 +5,15 @@
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import type { ActionUpdate, DataRecord, Result } from './index.ts';
-import { defineData, type Folder, field } from './index.ts';
-
-type Equal<X, Y> =
-	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
-		? true
-		: false;
-const assertType = <T extends true>(): T | undefined => undefined;
+import { defineData, field } from './index.ts';
+import {
+	assertType,
+	type Equal,
+	unusedFolder,
+} from './library.test-support.ts';
 
 // Only types are checked here, so the folder is never used.
-const data = defineData({} as Folder, {
+const data = defineData(unusedFolder, {
 	words: {
 		fields: {
 			meaning: field.text(),

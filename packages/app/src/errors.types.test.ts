@@ -13,12 +13,7 @@ import {
 	type Threw,
 	type Unreachable,
 } from './errors.ts';
-
-type Equal<X, Y> =
-	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
-		? true
-		: false;
-const assertType = <T extends true>(): T | undefined => undefined;
+import { assertType, type Equal } from './library.test-support.ts';
 
 /** Each cause's own fields, read only after narrowing on `cause`. */
 function causeFields(error: NotStarted) {

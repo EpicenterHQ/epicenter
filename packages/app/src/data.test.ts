@@ -1,10 +1,13 @@
 /**
  * Data handles read and patch top-level Markdown records in the folder they were defined with.
- * Covers both key shapes, exact and refused ids, create, passage edits, repairs, diagnostics,
- * list membership, and the separation between app writes and reference checks.
+ * Covers both key shapes, exact and refused ids, create, passage edits, concurrent computed
+ * edits, repairs, diagnostics, list membership, refused definitions, and the separation
+ * between app writes and reference checks.
  */
 import { expect, test } from 'bun:test';
-import { Type } from 'typebox';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { type TSchema, Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { idProblem } from './id.ts';
 import {
@@ -15,10 +18,7 @@ import {
 	Ok,
 	timeId,
 } from './index.ts';
-import { foldsCase, tempFolder } from './temp-folder.test-support.ts';
-
-/** For a definition that is refused before any handle exists, so no folder is used. */
-const nowhere = {} as Folder;
+import { foldsCase, tempFolder, unusedFolder } from './library.test-support.ts';
 
 async function setup(seed: Record<string, string> = {}) {
 	const { folder, read, files } = await tempFolder(seed);
@@ -219,6 +219,24 @@ test('edit returns Misfit before calling its function and patch cannot rewrite u
 	}
 });
 
+test('concurrent edits of one data file each land, each computed from the record it replaces', async () => {
+	const { folder, read } = await tempFolder({
+		'data/counters/a.md': '---\nn: 0\n---\n',
+	});
+	const { counters } = defineData(folder, {
+		counters: { fields: { n: field.integer({ optional: true }) } },
+	});
+	await Promise.all(
+		Array.from({ length: 5 }, () =>
+			counters.edit('a', (record) => Ok({ n: (record?.n ?? 0) + 1 })),
+		),
+	);
+	expect(await read('data/counters/a.md')).toBe('---\nn: 5\n---\n');
+	expect((await readdir(join(folder.path, 'data/counters'))).sort()).toEqual([
+		'a.md',
+	]);
+});
+
 test('computed refusals and faults leave a fitting file unchanged', async () => {
 	const { data } = await setup();
 	await data.notes.create('a', { title: 'a' });
@@ -382,19 +400,19 @@ test.each([
 	'',
 	'1notes',
 ])('definitions refuse the data key %j', (key) => {
-	expect(() => defineData(nowhere, { [key]: { fields: {} } })).toThrow(
+	expect(() => defineData(unusedFolder, { [key]: { fields: {} } })).toThrow(
 		JSON.stringify(key),
 	);
 });
 test.each(['path', 'body', 'id'])('definitions reserve the field %s', (key) => {
 	expect(() =>
-		defineData(nowhere, { notes: { fields: { [key]: field.text() } } }),
+		defineData(unusedFolder, { notes: { fields: { [key]: field.text() } } }),
 	).toThrow(`"${key}"`);
 });
 
 test('a field may be named edit, old, or new, since no verb folds a passage beside fields', () => {
 	expect(() =>
-		defineData(nowhere, {
+		defineData(unusedFolder, {
 			notes: {
 				fields: { edit: field.text(), old: field.text(), new: field.text() },
 			},
@@ -521,9 +539,20 @@ test('list reads only directly contained Markdown files with valid ids, sorted b
 	}
 });
 
+test('definitions refuse cyclic schemas before they can break discovery', () => {
+	const schema: { type: string; properties: Record<string, TSchema> } = {
+		type: 'object',
+		properties: {},
+	};
+	schema.properties.self = schema;
+	expect(() =>
+		defineData(unusedFolder, { records: { fields: { value: schema } } }),
+	).toThrow(TypeError);
+});
+
 test('definitions refuse readOnly fields', () => {
 	expect(() =>
-		defineData(nowhere, {
+		defineData(unusedFolder, {
 			notes: {
 				fields: {
 					created: Type.String({ format: 'date-time', readOnly: true }),
@@ -565,7 +594,7 @@ test('data refs validate their target at runtime', () => {
 		// Dynamic schemas exercise runtime validation without bypassing the public types.
 		const ref = Type.String({ 'x-epicenter-ref': { key: target } });
 		expect(() =>
-			defineData(nowhere, {
+			defineData(unusedFolder, {
 				notes: { fields: { ref } },
 				'settings.md': { fields: {} },
 			}),
@@ -610,7 +639,7 @@ test('edit accepts a whole record spread without storing its path or id as field
 
 test('data definitions refuse defaults', () => {
 	expect(() =>
-		defineData(nowhere, {
+		defineData(unusedFolder, {
 			notes: {
 				fields: {
 					nested: Type.Object({ number: Type.Number({ default: 1 }) }),
