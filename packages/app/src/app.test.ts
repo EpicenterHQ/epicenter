@@ -435,6 +435,12 @@ describe('defineAction', () => {
 		).toThrow(
 			'field.boolean takes no option "min"; it takes description, optional',
 		);
+		expect(() =>
+			// @ts-expect-error options are an object, not a description
+			field.text('A title'),
+		).toThrow(
+			'field.text takes its options as an object, such as { optional: true }, not "A title"',
+		);
 	});
 
 	test('names each problem its types cannot', () => {

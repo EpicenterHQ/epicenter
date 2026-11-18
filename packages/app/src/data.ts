@@ -136,10 +136,18 @@ export function defineData<const TSpec extends Spec>(
 ): Data<TSpec> {
 	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))
-			throw new Error(`The data key ${JSON.stringify(key)} must be a name`);
+			throw new Error(
+				(key as string).endsWith('.md')
+					? `The data key ${JSON.stringify(key)} must be a name: every key is a folder of records now, so write ${JSON.stringify((key as string).slice(0, -3))} and give the one record a fixed id`
+					: `The data key ${JSON.stringify(key)} must be a name`,
+			);
 		if (typeof description !== 'string' || description.trim() === '')
 			throw new Error(
 				`The data key ${key} needs a description: what one record is, such as "task"`,
+			);
+		if (!isPlainObject(fields))
+			throw new Error(
+				`The data key ${key} needs fields: an object of field schemas, {} for none`,
 			);
 		JSON.stringify(fields);
 		for (const [field, schema] of Object.entries(fields)) {

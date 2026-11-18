@@ -35,6 +35,13 @@ function only(
 	options: object | undefined,
 	declared: readonly string[],
 ): void {
+	if (
+		options !== undefined &&
+		(typeof options !== 'object' || options === null || Array.isArray(options))
+	)
+		throw new Error(
+			`field.${helper} takes its options as an object, such as { optional: true }, not ${JSON.stringify(options)}`,
+		);
 	for (const key of Object.keys(options ?? {})) {
 		if (declared.includes(key)) continue;
 		throw new Error(

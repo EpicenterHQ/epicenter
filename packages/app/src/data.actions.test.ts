@@ -69,6 +69,13 @@ test('the create action and handle.create write the same file for the same input
 	const written = await read('data/notes/by-action.md');
 	expect(written).toBe('---\ntitle: "Dune"\nnote: "spice"\n---\nArrakis');
 	expect(await read('data/notes/by-handle.md')).toBe(written);
+	// A boolean and a list are written when given and left out when not, alike.
+	const full = { title: 'Emma', done: false, tags: [], body: '' };
+	expectOk(await notes.create({ id: 'full-action', ...full }));
+	expectOk(await data.notes.create('full-handle', full));
+	const fullWritten = await read('data/notes/full-action.md');
+	expect(fullWritten).toBe('---\ntitle: "Emma"\ndone: false\ntags: []\n---\n');
+	expect(await read('data/notes/full-handle.md')).toBe(fullWritten);
 });
 
 test('folder get and patch answer Missing while a duplicate create answers Changed (there)', async () => {

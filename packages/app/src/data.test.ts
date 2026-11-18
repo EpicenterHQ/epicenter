@@ -628,28 +628,80 @@ test('a write gives a file without front matter its fences, and an empty change 
 	);
 });
 
-test('edit refuses a returned patch that names path or id, and writes nothing', async () => {
+test('patch and edit refuse a change that names path or id in one wording, and write nothing', async () => {
 	const { read, data } = await setup();
 	await data.notes.create('a', { title: 'first' });
 	const before = await read('data/notes/a.md');
+	const refusal = (named: string) => ({
+		name: 'Misfit',
+		problems: [
+			{
+				line: `the change names ${named}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
+			},
+		],
+	});
 	expect(
 		expectErr(
 			await data.notes.edit('a', (record) =>
 				Ok({ ...record, title: 'second' }),
 			),
 		),
-	).toMatchObject({
-		name: 'Misfit',
-		problems: [
-			{
-				line: 'edit returned path and id; return only the fields that change, such as Ok({ done: true })',
-			},
-		],
-	});
+	).toMatchObject(refusal('path and id'));
+	expect(
+		expectErr(await data.notes.patch('a', { id: 'b' } as { title?: string })),
+	).toMatchObject(refusal('id'));
 	expect(await read('data/notes/a.md')).toBe(before);
 	expect(
 		expectOk(await data.notes.edit('a', () => Ok({ title: 'second' }))).title,
 	).toBe('second');
+});
+
+test('edit of an absent record that returns an empty change makes it, as create with no fields does', async () => {
+	const { folder, read } = await tempFolder();
+	const data = defineData(folder, {
+		marks: {
+			description: 'mark',
+			fields: { note: field.text({ optional: true }) },
+		},
+	});
+	expect(expectOk(await data.marks.edit('a', () => Ok({})))).toEqual({
+		path: 'data/marks/a.md',
+		id: 'a',
+		body: '',
+	});
+	expectOk(await data.marks.create('b', {}));
+	expect(await read('data/marks/a.md')).toBe(await read('data/marks/b.md'));
+	// On a record that is there, the same empty change leaves the file alone.
+	const before = await read('data/marks/a.md');
+	expectOk(await data.marks.edit('a', () => Ok({})));
+	expect(await read('data/marks/a.md')).toBe(before);
+});
+
+test('a key named like a file says every key is a folder now, and what to write', () => {
+	expect(() =>
+		defineData(unusedFolder, {
+			'settings.md': { description: 'settings', fields: {} },
+		}),
+	).toThrow(
+		'The data key "settings.md" must be a name: every key is a folder of records now, so write "settings" and give the one record a fixed id',
+	);
+});
+
+test('definitions name a key with no description or no fields', () => {
+	expect(() =>
+		defineData(unusedFolder, {
+			notes: { fields: {} } as unknown as { description: string; fields: {} },
+		}),
+	).toThrow(
+		'The data key notes needs a description: what one record is, such as "task"',
+	);
+	expect(() =>
+		defineData(unusedFolder, {
+			notes: { description: 'note' } as { description: string; fields: {} },
+		}),
+	).toThrow(
+		'The data key notes needs fields: an object of field schemas, {} for none',
+	);
 });
 
 test('data definitions refuse defaults', () => {
