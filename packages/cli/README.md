@@ -794,8 +794,7 @@ credentials removed, else its absolute path), `Folder`, `Ref` when one was
 named, and `Commit`. No command reads this provenance file. Copied
 links remain links. A link that leads outside `code/` resolves only
 if the destination has the same file, so an app keeps what its UI uses, its
-palette too, as files in `code/`. A dangling link produces a stderr line naming its stored target
-and an optional JSON `links: [{ path, target }]`, with paths relative to code/.
+palette too, as files in `code/`.
 
 A copy joins the home's workspace: its `package.json` is named for the new
 app, since two packages in one workspace cannot share a name; any
@@ -875,11 +874,9 @@ lock: two exports into one directory at once can mix their output.
 The copy excludes `data/`, `node_modules`, `ui/dist`, `.DS_Store`,
 `SOURCE.md`, and export markers, even if tracked. It preserves binary bytes and
 executable modes, and materializes Git LFS files. Internal symbolic links keep
-their targets when the targets are included. A relative link to a committed
-regular shared file outside `apps/`, such as a shared stylesheet, becomes a
-regular file in the exported app. Export refuses links into another app,
-records, local files, missing files, shared directories, or outside the
-Epicenter. It does not rewrite imports or discover arbitrary dependencies
+their targets when the targets are included. Export refuses a link that
+leaves the app's `code/`, and one to a missing or excluded file; copy the file
+into `code/` instead. It does not rewrite imports or discover arbitrary dependencies
 outside `code/`.
 
 A destination must be missing, empty apart from Finder metadata, or carry a
@@ -901,9 +898,7 @@ output. Its ownership marker remains, so rerun the same command before
 reviewing or committing. Export keeps no rollback copies of generated files.
 
 `--json` reports `{ commit, directory, apps, omitted }`. `commit` names the
-exported commit. Each app has `app`, `materialized: [{ path, from }]`, and
-`uncommitted`, which is true when a shared file it links to has changes the
-export left out. `omitted` lists on-disk apps without a code tree in that
+exported commit. `apps` lists the exported app names. `omitted` lists on-disk apps without a code tree in that
 commit. Exit 0 means the export
 completed; exit 1 means omitted apps need attention; exit 2 means a failure or
 refusal. Refusals and failures use the CLI's error envelope.

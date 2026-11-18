@@ -658,4 +658,4 @@ published app with
 `epicenter new tasks --from OWNER/shared-apps/apps/tasks`,
 replacing `OWNER` with the publication owner's username. See
 [the CLI's export contract](../../../packages/cli/README.md#export-app-code)
-for destination rules, shared files, and symlinks.
+for destination rules and symlinks.
