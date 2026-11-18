@@ -5,19 +5,19 @@ description: Delegate a bounded implementation, prototype, benchmark, or file ar
 
 # Delegate Claude
 
-Claude owns the reasoning and delivery of a completed assignment in the assigned
-checkout, by default the current checkout. For substantial changes, Claude
-investigates, decides, briefs, inspects, and directs corrections while a Codex
-helper writes the code. A small edit tightly coupled to Claude's reasoning can
-stay with Claude directly. The coordinating Codex owns overall continuity and
-focused acceptance. It pauses its own edits to that checkout until Claude
-returns, and it does not repeat Claude's investigation or copy the result into
-another checkout. Prefer Claude when reasoning, design judgment, or taste can
-improve the delivered result. Codex need not solve the question before assigning
-delivery, and a small change can warrant Claude when the choice matters. Keep
-purely mechanical changes with Codex. Give Claude a coherent outcome and
-observable acceptance criteria, including the investigation needed to deliver
-it.
+Give Claude a piece of work to own, from deciding how to do it to delivering the result.
+
+For substantial changes, Claude investigates, decides, briefs, inspects, and
+directs corrections while a Codex helper writes the code. A small edit tightly
+coupled to Claude's reasoning can stay with Claude directly. The coordinating
+Codex owns overall continuity and focused acceptance. It pauses its own edits
+to that checkout until Claude returns, and it does not repeat Claude's
+investigation or copy the result into another checkout. Prefer Claude when
+reasoning, design judgment, or taste can improve the delivered result. Codex need
+not solve the question before assigning delivery, and a small change can warrant
+Claude when the choice matters. Keep purely mechanical changes with Codex. Give
+Claude a coherent outcome and observable acceptance criteria, including the
+investigation needed to deliver it.
 
 Choose the division of work for the quality of the result. Claude retains the
 judgment and understanding needed to inspect supporting work; Codex helpers
@@ -33,42 +33,42 @@ recommendation, or text draft, including when Codex owns the surrounding
 implementation. Authorization to implement does not by itself select
 delegation. When Claude owns delivery, give it the investigation, design
 judgment, and implementation in one assignment; an uncertain mechanism or
-design does not require a separate consultation first. Let Claude resolve
-those choices within the accepted outcome. Checks Claude cannot run inform
-the division of work but do not prevent it from owning a UI delivery; name
-them for coordinator acceptance.
-Stop with concrete evidence when a missing requirement would change the product
-outcome or assignment scope. Passing tests cannot establish an unstated
-requirement. Reserve independent adversarial review for consequential decisions,
+design does not require a separate consultation first. Name the checks Claude
+cannot run for coordinator acceptance. Claude can still own UI delivery when
+the coordinator handles the live checks.
+Reserve independent adversarial review for consequential decisions,
 rather than every worker result.
 
-## Work backward from acceptance
+## Brief the assignment
 
-Specify the result, affected consumers and requirements, source baseline,
-allowed changes, verification, and stop condition. Let Claude choose the
-implementation within those guarantees rather than prescribing each edit.
-For example:
+Describe what should be true when the work is done, why it matters, and who it
+affects. Name the behavior that must still work, the starting source, and where
+Claude can make changes. Say what checks would establish the result and when
+to stop. For an experiment, name the decision its evidence will inform and ask
+for observations that distinguish the options.
 
-> Own the commit timing benchmark. Build and run a reproducible benchmark for
-> small and large folders, and commit attempts while a Git lock is held. Return
-> runnable files, measured timings, failure behavior, and limits of the evidence.
-> Modify only the benchmark directory. Stop after the measurements establish
-> whether local commit completion belongs on the API's critical path. Do not
-> decide the public API or require a remote service.
+Let Claude investigate and choose the approach within those requirements. If
+you suggest an approach, make clear which parts are suggestions and which parts
+are requirements.
 
-For a fix, define observable behavior and affected callers before dispatch.
-For an experiment, name the decision its evidence will settle. Claude returns
-changed paths or artifacts, commands and actual results, and unresolved issues.
-It should report a blocker with concrete partial work rather than inventing a
-contract or requesting broader access.
+Ask Claude to bring back a decision if a missing requirement or tradeoff would
+change the agreed result, break an agreed guarantee, or expand the assignment.
+Have it pause the affected work and explain what it found, the options and
+their consequences, and what it recommends. It can continue work within scope
+that does not depend on the decision. Use [rethink](../rethink/SKILL.md) when a
+discovery calls for reconsidering the agreed direction.
 
-Keep the destination and the reasons it is worth pursuing in the brief. For
-greenfield experiments, acceptance is evidence that distinguishes designs, not
-proof that the preferred design is right. Claude surfaces discoveries that
-suggest a better destination; the resulting decision returns to the
-coordinator and, where it changes the design, to [rethink](../rethink/SKILL.md).
-A convenient implementation must not silently replace the vision or the
-assignment.
+Ask for the changed paths or artifacts, the checks Claude ran and their actual
+results, and anything still unresolved. If blocked, have it return the concrete
+blocker and any useful partial work.
+
+> Build and run a reproducible local benchmark to help us decide whether a
+> commit should finish before the API responds. Measure commit times for small
+> and large folders and record what happens when a Git lock is held. Change
+> only the benchmark directory. Stop after measuring those cases and return
+> the runnable files, results, and limits of the evidence. Leave the API
+> decision to us. If measuring a case requires changing production behavior,
+> bring back the proposed change and what that measurement would tell us.
 
 ## Choose the checkout
 
