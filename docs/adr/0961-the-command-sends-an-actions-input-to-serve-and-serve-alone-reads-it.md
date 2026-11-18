@@ -123,12 +123,6 @@ none.**
   command's words.
 - Stdin is the input and never a word, so text read for `-` cannot name an
   action.
-- The command waits 30 seconds for serve's answer to begin, which bounds
-  serve loading the app and checking the input, not the action. Serve begins
-  a call's NDJSON answer (ADR-0930) with a blank line as soon as the action
-  starts, because Bun sends the headers only with the first byte;
-  `readAnswer` skips blank lines. An action may then run as long as it needs
-  with no update.
 - A name typed where the input goes is read as part of the action:
   `epicenter tasks add hello` answers that `tasks` has no action
   `add hello`, with its actions listed, rather than that the input is not

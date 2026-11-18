@@ -320,13 +320,6 @@ function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
 					listening = false;
 				}
 			};
-			// Bun sends the headers with the first chunk, so a blank line, which
-			// readAnswer skips, begins the answer before a quiet action ends.
-			try {
-				controller.enqueue(encoder.encode('\n'));
-			} catch {
-				listening = false;
-			}
 			void runAction(call, {
 				// JSON has no undefined, and a line with no update is not one.
 				onUpdate: (update) => send({ update: update ?? null }),
