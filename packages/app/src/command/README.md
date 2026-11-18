@@ -342,8 +342,10 @@ Port 4747 answers for another Epicenter. Set a different `port` in EPICENTER.md.
 ```
 
 It says `another program` when what answers is not an Epicenter's serve. A
-serve started before an upgrade sets `x-epicenter-home` instead; the command
-and a new serve recognize it and say to stop it and start it again. Two
+serve of this Epicenter started before the upgrade sets `x-epicenter-home`
+to its path instead; the command and a new serve recognize it and say to stop
+it and start it again, and one of another Epicenter reads as another
+Epicenter's. This lasts one release. Two
 Epicenters on one computer each need their own `port`, a whole number from 1 to
 65535.
 

@@ -509,7 +509,7 @@ async function whoAnswers(root: EpicenterRoot) {
 			signal: AbortSignal.timeout(2_000),
 		});
 		await response.body?.cancel().catch(() => undefined);
-		return answeredBy(response);
+		return answeredBy(response, root);
 	} catch {
 		return undefined;
 	}

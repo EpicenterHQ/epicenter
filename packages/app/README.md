@@ -618,6 +618,21 @@ A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
 
+## Upgrading from 0.7
+
+- **Restart `epicenter serve`** after `bun install`. Until you do, the
+  command finds the old serve by the `x-epicenter-home` header it still
+  sets, and says to stop it and start it again. The release after this one
+  stops recognizing that header.
+- **A command finds its Epicenter only by walking up** from the folder it
+  runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd`
+  into your Epicenter, or set a script's working directory there.
+- **`epicenter serve` starts only in the Epicenter's own folder.** A
+  launchd or systemd job sets its working directory to it.
+- **Bare `epicenter`, `epicenter <app>` and an action's `--help` ask
+  serve**, and are refused while it is stopped. `epicenter check` still
+  works without it.
+
 ## Upgrading from 0.6
 
 0.7.0 renames a data handle's write verbs and `pathOf`. Behavior is unchanged except where noted. TypeScript flags every call to an old method, so in each app run the type-check and fix what it names.

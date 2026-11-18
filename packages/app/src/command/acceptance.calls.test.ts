@@ -401,6 +401,21 @@ test('a command is refused, and runs nothing, when its port answers for another 
 	} finally {
 		await older.stop(true);
 	}
+	// One that names another root is another Epicenter's serve.
+	const otherOlder = await holdPort(
+		f,
+		() =>
+			new Response('', {
+				headers: { 'x-epicenter-home': encodeURIComponent('/elsewhere') },
+			}),
+	);
+	try {
+		expect((await f.run('notes', 'write', '{"page":"monday"}')).stderr).toBe(
+			`Port ${f.port} answers for another Epicenter. Set a different \`port\` in EPICENTER.md.\n`,
+		);
+	} finally {
+		await otherOlder.stop(true);
+	}
 });
 
 test('every answer of serve says it is an Epicenter and names no path, and a call through it adds no line', async () => {
