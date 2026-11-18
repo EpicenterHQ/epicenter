@@ -120,7 +120,7 @@ it does not, it is a line in the command's README.
 | `init`, making an Epicenter | Neither: a few files, `git init` and `bun install` | Documentation ([ADR-0958](0958-no-command-makes-an-epicenter.md)) |
 | `install` | Neither: `bun install` | Documentation ([ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md)) |
 | `service`, keeping serve running | Neither: launchd or systemd | Documentation ([ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md)) |
-| Checkpoints | Neither: `git commit`, perhaps from a routine | Documentation ([ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md)) |
+| Checkpoints | Neither: `git commit` | Documentation ([ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md)) |
 | Upgrades | Neither: a version line, `bun install`, a restart | Documentation ([ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)) |
 | Keeping `local/` and `.env` out of Git | Neither, but a skipped step leaks a secret for good | The exception ([ADR-0963](0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)) |
 
