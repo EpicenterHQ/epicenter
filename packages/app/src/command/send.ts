@@ -32,12 +32,16 @@ export function rootName({ folder }: Pick<EpicenterRoot, 'folder'>): string {
 	return encodeURIComponent(folder);
 }
 
+/** The header a serve from before ADR-0961 set on every answer, to its root's path. */
+const OLDER_SERVE_HEADER = 'x-epicenter-home';
+
 /**
  * Who answered a request that named this root: its own serve, another
- * Epicenter's serve, which refuses it with 409, or another program, which
- * does not set `x-epicenter`.
+ * Epicenter's serve, which refuses it with 409, a serve started before an
+ * upgrade, or another program, which sets neither header.
  */
 export function answeredBy(response: Response) {
+	if (response.headers.has(OLDER_SERVE_HEADER)) return 'an older serve';
 	if (response.headers.get(SERVE_HEADER) !== '1') return 'another program';
 	return response.status === 409 ? 'another Epicenter' : 'its serve';
 }
@@ -74,6 +78,12 @@ async function reach(
 	const holder = answeredBy(response);
 	if (holder !== 'its serve') {
 		await response.body?.cancel().catch(() => undefined);
+		if (holder === 'an older serve')
+			return ActionError.NotStarted({
+				cause: 'unavailable',
+				message: `Port ${root.port} answers for a serve started before Epicenter was upgraded; stop it and start it again`,
+				next: 'epicenter serve',
+			});
 		return ActionError.NotStarted({
 			cause: 'unavailable',
 			message: `Port ${root.port} answers for ${holder}. Set a different \`port\` in ${MARKER}.`,

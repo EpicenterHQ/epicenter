@@ -381,6 +381,26 @@ test('a command is refused, and runs nothing, when its port answers for another 
 		}
 	}
 	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
+	// A serve from before the upgrade named its root in x-epicenter-home.
+	const older = await holdPort(
+		f,
+		() =>
+			new Response('', {
+				headers: { 'x-epicenter-home': encodeURIComponent(f.epicenter) },
+			}),
+	);
+	try {
+		expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
+			code: 2,
+			stdout: '',
+			stderr: `Port ${f.port} answers for a serve started before Epicenter was upgraded; stop it and start it again\nRun: epicenter serve\n`,
+		});
+		expect((await f.run('serve')).stderr).toBe(
+			`Port ${f.port} is in use by a serve started before Epicenter was upgraded; stop it, then run epicenter serve again.\n`,
+		);
+	} finally {
+		await older.stop(true);
+	}
 });
 
 test('every answer of serve says it is an Epicenter and names no path, and a call through it adds no line', async () => {

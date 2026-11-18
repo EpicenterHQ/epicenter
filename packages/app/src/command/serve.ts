@@ -613,7 +613,9 @@ export async function serveHttp(
 			message:
 				holder === 'its serve'
 					? `serve is already running for this Epicenter on port ${port}.`
-					: `Port ${port} is in use by ${holder === 'another Epicenter' ? "another Epicenter's serve" : 'another program'}. Set a different \`port\` in ${MARKER}.`,
+					: holder === 'an older serve'
+						? `Port ${port} is in use by a serve started before Epicenter was upgraded; stop it, then run epicenter serve again.`
+						: `Port ${port} is in use by ${holder === 'another Epicenter' ? "another Epicenter's serve" : 'another program'}. Set a different \`port\` in ${MARKER}.`,
 		});
 	const holder = await whoAnswers(root);
 	if (holder) return portTaken(holder);

@@ -324,7 +324,9 @@ A command whose port answers for something else runs nothing:
 Port 4747 answers for another Epicenter. Set a different `port` in EPICENTER.md.
 ```
 
-It says `another program` when what answers is not an Epicenter's serve. Two
+It says `another program` when what answers is not an Epicenter's serve. A
+serve started before an upgrade sets `x-epicenter-home` instead; the command
+and a new serve recognize it and say to stop it and start it again. Two
 Epicenters on one computer each need their own `port`, a whole number from 1 to
 65535.
 
