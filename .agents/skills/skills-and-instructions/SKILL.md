@@ -23,7 +23,7 @@ Work backward from what you want the agent to do. Decide what it needs
 to understand and which decisions the guidance should help it make.
 Organize the skill around those needs.
 
-Develop the actual articulations section by section, at the user's pace.
+Work through the draft at the user’s pace.
 Before rewriting an existing section, ask whether it needs to be there at all.
 
 Show the proposed wording and explain what it would help the agent do.
@@ -34,51 +34,45 @@ section or skill and show enough of it for the user to judge the fit.
 Read the draft together. What would it lead an agent to notice, decide, or do?
 If it’s hard to tell from the wording alone, try it on a realistic request.
 
-Before replacing a substantial passage, ask whether there are phrases,
-sentences, or explanations the user wants to keep. Preserve selected wording
-exactly. An articulation can be worth keeping because it says something
-just right, even when another version would convey the same idea.
+When proposing a substantial rewrite, show any existing phrases or
+sentences you think are worth keeping so the user can see them and
+choose. Preserve selected wording exactly.
 
-Carry recognized parts forward and compose the next attempt yourself.
-Agreement on the intent or vision establishes the direction; develop and
-examine the wording within it. The user may recognize the thought while
-wanting a different expression.
+The user may recognize the thought while wanting a different expression.
+Use what they agreed on to write the next draft.
 
-For an exact edit or a change whose wording is already settled, carry it
-through directly and say what you saved. Build on intent, vision, and wording
-already recognized in the conversation.
+When the user requests an exact edit or agrees on the wording,
+apply it and say what you saved.
 
 ## Where the guidance goes
 
 Update an existing skill or instruction file when it already covers the work.
-Use this table to decide where new material belongs.
 
 | Material | Where it goes |
 |---|---|
 | Instructions that apply across tasks | AGENTS.md |
 | Guidance for a recurring kind of work | A skill |
-| Project architecture and decision history | The relevant README or ADR |
+| How the project works today | The relevant README |
+| A durable decision and why it was made | An ADR |
 | Supporting detail needed in particular situations | References |
 | Reusable code for repetitive or fragile steps | Scripts |
 | Advice specific to the current work | The task itself |
+
+Keep durable personal guidance in the tracked dotfiles repository.
 
 Link to guidance already covered elsewhere so the agent can find it.
 
 ## File conventions
 
 Save project skills in `.agents/skills/<name>/SKILL.md`. Use lowercase,
-hyphenated names and YAML frontmatter containing `name` and `description`.
+hyphenated names and include `name` and `description` in the YAML
+frontmatter.
 
-Start the description with what the skill does. Begin the second sentence
-with "Use when" and name the requests or situations that should select it.
-Begin the body with the guidance itself.
+Use the first sentence of the description to say what the skill does.
+Start the second with “Use when” and name the requests or situations
+where it applies.
 
-Put supporting detail in references and explain when to read them.
-
-Keep durable personal guidance in the tracked dotfiles repository.
-
-When importing a skill, inspect its scripts, dependencies, and external
-actions before using it. Identify the tools and credentials it needs.
+When linking to a reference, say when to read it.
 
 ## Keep technical guidance grounded
 
@@ -88,14 +82,13 @@ or behavior. Link factual claims to their sources beside the guidance.
 Distinguish a source's advice from the project's chosen convention.
 
 For examples that claim to detect mistakes, introduce an intentional mistake
-and verify that the documented command fails for the intended reason. Keep
-historical context separate from current instructions. Recheck the affected
-guidance when it changes; ordinary maintenance does not need a standing audit.
+and verify that the documented command fails for the intended reason.
 
-## Optional references
+## References
 
-- Read [evaluation](references/evaluation.md) when investigating how agents use
-  guidance or comparing whether a change helps.
-- Read [composition diagnostics](references/composition-audit.md) when
-  investigating broken links, conflicting instructions, repeated guidance,
-  or overlapping skill descriptions.
+- Read [evaluation](references/evaluation.md) to investigate which
+  skill an agent chooses, how it follows the guidance, or whether
+  a revision improves its work.
+- Read [composition diagnostics](references/composition-audit.md) to
+  check broken links, conflicting or repeated instructions, or
+  overlapping skill descriptions.
