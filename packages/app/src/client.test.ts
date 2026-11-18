@@ -200,14 +200,22 @@ test('an answer that is not one is Unreachable, and so is a stream cut off befor
 	}
 });
 
-test('a call that never reaches Epicenter says the action did not start', async () => {
-	globalThis.fetch = (async () => {
-		throw new Error('offline');
-	}) as unknown as typeof fetch;
-	expect(expectErr(await app.count())).toMatchObject({
-		name: 'Unreachable',
-		message: 'Epicenter could not be reached; the action did not start',
-	});
+test('a failed fetch never claims the action did not start: it may have run', async () => {
+	// A browser's fetch fails the same way for "nothing listens" and for a
+	// connection dropped after serve took the call.
+	for (const failure of [
+		'offline',
+		'connection reset after the request was sent',
+	]) {
+		globalThis.fetch = (async () => {
+			throw new TypeError(failure);
+		}) as unknown as typeof fetch;
+		expect(expectErr(await app.count())).toMatchObject({
+			name: 'Unreachable',
+			message:
+				'Epicenter could not be reached, or the connection dropped; the action may have run',
+		});
+	}
 });
 
 test('connect infers the app from document, location, or explicit options', async () => {
