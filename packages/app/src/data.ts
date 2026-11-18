@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { Static, TObject, TUnsafe } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
+import type { Flat } from './action.ts';
 import { isPlainObject, type PublicError } from './action-result.ts';
 import { isName } from './app.ts';
 import { type DataActions, dataActions, type Verb } from './data-actions.ts';
@@ -14,7 +15,6 @@ import {
 	type Compute,
 	createMarkdownRecords,
 	type Fields,
-	type Fitting,
 	type Loose,
 } from './markdown-records.ts';
 
@@ -25,7 +25,6 @@ import {
  */
 export type DataDef = { description: string; fields: Fields };
 type Spec = Record<string, DataDef>;
-export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
 export type Change<TFields extends Fields> = Flat<
 	{
 		[K in keyof TFields]?:
@@ -33,13 +32,14 @@ export type Change<TFields extends Fields> = Flat<
 			| (K extends OptionalKeys<TFields> ? null : never);
 	} & { body?: string }
 >;
-export type Input<TFields extends Fields> = Flat<
+/** What `create` takes: each declared field, and `body`. */
+export type NewRecord<TFields extends Fields> = Flat<
 	Static<TObject<TFields>> & { body?: string }
 >;
 type Named = { path: string; id: string; body: string };
 /** A flat record with its path, id, declared fields, and body. */
 export type DataRecord<TDef extends DataDef> = Flat<
-	Named & Fitting<TDef['fields']>
+	Named & Static<TObject<TDef['fields']>>
 >;
 export type Misfit<TDef extends DataDef> = Flat<
 	Omit<Extract<ActionError, { name: 'Misfit' }>, 'id' | 'record'> & {
@@ -70,7 +70,7 @@ type Handle<TDef extends DataDef> = {
 	/** Create one file, returning Changed (there) when it exists. */
 	create(
 		id: string,
-		record: Input<TDef['fields']>,
+		record: NewRecord<TDef['fields']>,
 	): Promise<Result<DataRecord<TDef>, Unfit | Changed>>;
 	/** Patch fields and replace the body of an existing record; an absent id returns Missing. */
 	patch(
@@ -189,12 +189,11 @@ export function defineData<const TSpec extends Spec>(
 /** The handle for one data key: its verbs, its definition, and its actions. */
 function createHandle(folder: Folder, key: string, def: DataDef) {
 	const base = `data/${key}`;
-	const records = createMarkdownRecords({ folder, fields: def.fields });
-	const pathFor = (id: string) => `${base}/${id}.md`;
-	/** The path for `id` as given, or Misfit when it breaks ADR-0933's rule. */
-	function place(id: string) {
+	const records = createMarkdownRecords({ folder, base, fields: def.fields });
+	/** Misfit when `id` breaks ADR-0933's rule, else undefined. */
+	function refusal(id: string) {
 		const problem = idProblem(id);
-		if (!problem) return pathFor(id);
+		if (!problem) return undefined;
 		// The id names no file, so the problem sits at the key's folder.
 		const unfit = (line: string) =>
 			ActionError.Misfit({ path: base, problems: [{ line, kind: problem }] });
@@ -209,45 +208,41 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		return unfit(`${JSON.stringify(id)}: ${problem}${instead}`);
 	}
 	const handle = {
-		path: pathFor,
+		path: records.path,
 		async get(id: string) {
-			const path = place(id);
-			if (typeof path !== 'string') return path;
-			return records.read(path);
+			return refusal(id) ?? records.read(id);
 		},
 		async list() {
 			const found = [];
 			for (const name of await filesIn(folder.path, base)) {
-				if (!name.endsWith('.md') || idProblem(name.slice(0, -3))) continue;
-				const read = await records.read(`${base}/${name}`);
+				const id = name.slice(0, -3);
+				if (!name.endsWith('.md') || idProblem(id)) continue;
+				const read = await records.read(id);
 				if (read.error || read.data) found.push(read);
 			}
 			return found;
 		},
 		async create(id: string, input: Record<string, unknown>) {
-			const path = place(id);
-			if (typeof path !== 'string') return path;
-			return records.write(path, 'absent', input);
+			return refusal(id) ?? records.write(id, 'absent', input);
 		},
 		async patch(id: string, change: Record<string, unknown>) {
-			const path = place(id);
-			if (typeof path !== 'string') return path;
-			return records.write(path, 'present', change);
+			return refusal(id) ?? records.write(id, 'present', change);
 		},
 		/** A function computes the change; `{ old, new }` is a fixed function that replaces one passage. */
 		async edit(id: string, change: unknown) {
-			const path = place(id);
-			if (typeof path !== 'string') return path;
+			const refused = refusal(id);
+			if (refused) return refused;
 			const compute =
 				typeof change === 'function'
 					? (change as Compute)
-					: replacing(path, change);
+					: replacing(records.path(id), change);
 			if (typeof compute !== 'function') return compute;
-			return records.write(path, 'either', compute);
+			return records.write(id, 'either', compute);
 		},
 		async delete(id: string) {
-			const path = place(id);
-			if (typeof path !== 'string') return path;
+			const refused = refusal(id);
+			if (refused) return refused;
+			const path = records.path(id);
 			const existed = await Bun.file(join(folder.path, path)).exists();
 			if (existed) await folder.delete(path);
 			return Ok(existed);

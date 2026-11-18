@@ -135,26 +135,6 @@ type ListOptions = Options & {
 	min?: number;
 };
 
-/** A list of `item`, with at least `min` items when it is given. */
-function list<const T extends TSchema, const O extends ListOptions>(
-	item: T,
-	options?: O,
-) {
-	only('list', options, [...OPTIONS, 'min']);
-	const min = options?.min ?? 0;
-	if (!Number.isInteger(min) || min < 0)
-		throw new Error(
-			`field.list's min must be a whole number of at least 0, not ${min}`,
-		);
-	return maybeOptional(
-		Type.Array(item, {
-			...schemaOptions(options),
-			...(min > 0 ? { minItems: min } : {}),
-		}),
-		options,
-	);
-}
-
 function maybeOptional<T extends TSchema, O extends Options>(
 	schema: T,
 	options: O | undefined,
@@ -263,7 +243,24 @@ export const field = {
 	 * A list of any field: `field.list(field.select(['x', 'threads']))`.
 	 * `{ min: 1 }` makes it need at least one item when it is given.
 	 */
-	list,
+	list: <const T extends TSchema, const O extends ListOptions>(
+		item: T,
+		options?: O,
+	) => {
+		only('list', options, [...OPTIONS, 'min']);
+		const min = options?.min ?? 0;
+		if (!Number.isInteger(min) || min < 0)
+			throw new Error(
+				`field.list's min must be a whole number of at least 0, not ${min}`,
+			);
+		return maybeOptional(
+			Type.Array(item, {
+				...schemaOptions(options),
+				...(min > 0 ? { minItems: min } : {}),
+			}),
+			options,
+		);
+	},
 
 	/**
 	 * One id in another key of the same `defineData`: text that `check`

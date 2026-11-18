@@ -1,16 +1,15 @@
 import { type TSchema, Type } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import { type Action, defineAction } from './action.ts';
+import { type Action, defineAction, type Flat } from './action.ts';
 import type {
 	AnyHandle,
 	Change,
 	Changed,
 	DataDef,
 	DataRecord,
-	Flat,
-	Input,
 	Misfit,
 	Missing,
+	NewRecord,
 	Passage,
 	Unfit,
 	WriteError,
@@ -22,7 +21,7 @@ export type Verb = 'list' | 'get' | 'create' | 'patch' | 'edit' | 'delete';
 type ActionInput<TDef extends DataDef, TVerb extends Verb> = {
 	list: Record<string, never>;
 	get: { id: string };
-	create: Flat<{ id: string } & Input<TDef['fields']>>;
+	create: Flat<{ id: string } & NewRecord<TDef['fields']>>;
 	patch: Flat<{ id: string } & Change<TDef['fields']>>;
 	edit: Flat<{ id: string } & Passage>;
 	delete: { id: string };
@@ -64,7 +63,7 @@ export function dataActions(
 
 function dataAction(key: string, def: DataDef, handle: AnyHandle, verb: Verb) {
 	const what = def.description;
-	// Text, not field.id: the handle's Misfit names the problem with the key.
+	// Plain text: the handle refuses an id that cannot name a file, and its Misfit says why.
 	const id = field.text({ description: `The name of the ${what}` });
 	const hints = { openWorldHint: false } as const;
 	const body = Type.Optional(

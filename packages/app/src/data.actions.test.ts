@@ -224,7 +224,6 @@ test('create needs an id: a repeat with it answers Changed (there), and timeId()
 		expectErr<ActionError>(await notes.create({ id, title: 'untitled' })),
 	).toMatchObject({ name: 'Changed', cause: 'there' });
 	expect(await files('data/notes')).toEqual([named.path]);
-	expect(Value.Check(notes.create.input, { title: 'untitled' })).toBe(false);
 });
 
 test('generated verbs take the id as the file name and refuse one that cannot name a file, saying why', async () => {

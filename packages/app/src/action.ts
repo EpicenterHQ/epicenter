@@ -122,11 +122,13 @@ type Returned =
 	| readonly Returned[]
 	| { readonly [key: string]: Returned };
 
-type Answer = Result<Returned, PublicError>;
-type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
+/** What `run` returns: a Result whose data survives JSON. */
+type RunResult = Result<Returned, PublicError>;
+/** `T` written out as one object type, without `readonly`, so an editor shows its keys. */
+export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
 
 /** The value of `input`, as a caller gives it and `run` receives it. */
-type InputOf<I extends Input> = Simplify<Static<TObject<I>>>;
+type InputOf<I extends Input> = Flat<Static<TObject<I>>>;
 
 /**
  * An action as an app writes it: `run` receives its input, typed by its
@@ -134,8 +136,8 @@ type InputOf<I extends Input> = Simplify<Static<TObject<I>>>;
  */
 type ActionDef<
 	I extends Input,
-	Out extends Answer | Promise<Answer> = Answer | Promise<Answer>,
-	U extends Returned = never,
+	Out extends RunResult | Promise<RunResult>,
+	U extends Returned,
 > = Shared & {
 	/** Each key the action takes, as a field: `{ word: field.text() }`. */
 	readonly input: I;
@@ -184,10 +186,12 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
  */
 export function defineAction<
 	const I extends Input,
-	Out extends Answer | Promise<Answer>,
+	Out extends RunResult | Promise<RunResult>,
 	U extends Returned = never,
 >(def: ActionDef<I, Out, U>): Action<InputOf<I>, Out, U>;
-export function defineAction(def: ActionDef<Input, Answer, Returned>): Action {
+export function defineAction(
+	def: ActionDef<Input, RunResult, Returned>,
+): Action {
 	// Fail at declaration, before a non-JSON schema can break tool discovery.
 	JSON.stringify(def.input);
 	const problems = actionProblems(def);

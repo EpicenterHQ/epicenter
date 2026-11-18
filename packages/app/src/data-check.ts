@@ -37,53 +37,51 @@ export async function checkData(
 	root: string,
 	data: AnyData,
 ): Promise<Record<string, CheckedKey>> {
-	const checked: Record<
-		string,
-		{
-			path: string;
-			single: false;
-			files: number;
-			withProblems: number;
-			kinds: { kind: string; count: number }[];
-			records: { path: string; problems: Problem[] }[];
-		}
-	> = {};
+	/** A key's report while it is found, with its problems whole and the kinds each file has. */
+	type Finding = Omit<CheckedKey, 'records'> & {
+		records: { path: string; problems: Problem[] }[];
+		affected: Map<string, Set<string>>;
+	};
+	const checked: Record<string, Finding> = {};
 	const ids = new Map<string, Set<string>>();
-	const reads: { key: string; record: AnyRecord }[] = [];
-	const affected = new Map<string, Map<string, Set<string>>>();
-	function report(key: string, paths: string[], problems: Problem[]) {
+	const reads: {
+		each: Finding;
+		fields: AnyData[string]['fields'];
+		record: AnyRecord;
+	}[] = [];
+	function report(each: Finding, paths: string[], problems: Problem[]) {
 		if (!problems.length) return;
-		const each = checked[key];
-		if (!each) return;
 		const path = paths.map((path) => path.slice('data/'.length)).join(' and ');
 		const existing = each.records.find((record) => record.path === path);
 		if (existing) existing.problems.push(...problems);
 		else each.records.push({ path, problems });
 		for (const path of paths) {
-			const kinds = affected.get(key)?.get(path) ?? new Set<string>();
+			const kinds = each.affected.get(path) ?? new Set<string>();
 			for (const { kind } of problems) kinds.add(kind);
-			affected.get(key)?.set(path, kinds);
+			each.affected.set(path, kinds);
 		}
 	}
 	for (const [key, handle] of Object.entries(data)) {
 		const base = `data/${key}`;
-		checked[key] = {
+		const each: Finding = {
 			path: `${base}/`,
 			single: false,
 			files: 0,
 			withProblems: 0,
 			kinds: [],
 			records: [],
+			affected: new Map(),
 		};
-		affected.set(key, new Map());
-		const each = checked[key];
+		checked[key] = each;
+		const keyIds = new Set<string>();
+		ids.set(key, keyIds);
 		const names = new Map<string, string[]>();
 		for (const name of await filesIn(root, base)) {
 			if (!name.endsWith('.md') || name.startsWith('.')) continue;
 			const path = `${base}/${name}`;
 			each.files++;
 			const problem = idProblem(name.slice(0, -3));
-			if (problem) report(key, [path], [{ line: problem, kind: problem }]);
+			if (problem) report(each, [path], [{ line: problem, kind: problem }]);
 			// Lowercasing NFC is close enough to how a Mac folds names; a pair it misses is rare.
 			const folded = name.normalize('NFC').toLowerCase();
 			const aliases = names.get(folded) ?? [];
@@ -93,18 +91,14 @@ export async function checkData(
 		for (const paths of names.values()) {
 			if (paths.length < 2) continue;
 			const problem = 'are one file on a disk that ignores case';
-			report(key, paths, [{ line: problem, kind: problem }]);
+			report(each, paths, [{ line: problem, kind: problem }]);
 		}
-		const listed = await handle.list();
-		ids.set(key, new Set());
-		for (const result of listed) {
+		for (const result of await handle.list()) {
 			const { path, id } = result.error ?? result.data;
-			ids.get(key)?.add(id);
-			if (result.error) {
-				report(key, [path], result.error.problems);
-				if (result.error.record)
-					reads.push({ key, record: result.error.record });
-			} else reads.push({ key, record: result.data });
+			keyIds.add(id);
+			if (result.error) report(each, [path], result.error.problems);
+			const record = result.error ? result.error.record : result.data;
+			if (record) reads.push({ each, fields: handle.fields, record });
 		}
 	}
 	function references(
@@ -150,14 +144,14 @@ export async function checkData(
 		}
 		return [];
 	}
-	for (const { key, record } of reads) {
-		for (const [field, schema] of Object.entries(data[key]?.fields ?? {}))
-			report(key, [record.path], references(schema, record[field], field));
+	for (const { each, fields, record } of reads) {
+		for (const [field, schema] of Object.entries(fields))
+			report(each, [record.path], references(schema, record[field], field));
 	}
-	for (const [key, each] of Object.entries(checked)) {
-		each.withProblems = affected.get(key)?.size ?? 0;
+	for (const each of Object.values(checked)) {
+		each.withProblems = each.affected.size;
 		const counts = new Map<string, number>();
-		for (const kinds of affected.get(key)?.values() ?? [])
+		for (const kinds of each.affected.values())
 			for (const kind of kinds) counts.set(kind, (counts.get(kind) ?? 0) + 1);
 		each.kinds = [...counts]
 			.map(([kind, count]) => ({ kind, count }))
@@ -170,7 +164,7 @@ export async function checkData(
 		);
 	}
 	return Object.fromEntries(
-		Object.entries(checked).map(([key, each]) => [
+		Object.entries(checked).map(([key, { affected: _, ...each }]) => [
 			key,
 			{
 				...each,

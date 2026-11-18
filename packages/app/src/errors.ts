@@ -42,8 +42,8 @@ const CHANGED = {
 export const ActionError = defineErrors({
 	/**
 	 * A file, or a change to one, does not fit its declared fields. `id` is the
-	 * file's name in a folder key; a one-file key has none, and neither has an
-	 * id that cannot name a file, whose `path` is the key's folder. A read
+	 * file's name; an id that cannot name a file has none, and its `path` is
+	 * the key's folder. A read
 	 * carries the partial `record` for repair, unless the file is unreadable; a
 	 * refused change carries none.
 	 */
