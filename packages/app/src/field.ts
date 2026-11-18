@@ -133,6 +133,15 @@ type Optionally<T extends TSchema, O> = O extends { optional: true }
 	? TOptional<T>
 	: T;
 
+/** Whether a field may be absent from a record. */
+export const isOptional = (schema: TSchema) =>
+	(schema as { '~optional'?: boolean })['~optional'] === true;
+
+/** The keys of `F` whose field may be absent. */
+export type OptionalKeys<F> = {
+	[K in keyof F]: F[K] extends { '~optional': true } ? K : never;
+}[keyof F];
+
 /**
  * The keys of `F` that are a switch or a list that may be empty, which a read
  * and an action's `run` always have. A list with a `min` is required, so it is

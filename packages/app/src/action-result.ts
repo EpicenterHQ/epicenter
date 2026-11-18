@@ -3,7 +3,7 @@ import type { JsonValue } from './front-matter.ts';
 
 export type PublicError = { name: string; message: string };
 
-/** Whether `value` is an object literal or `Object.create(null)`: not an array, class instance or other built-in. */
+/** Whether `value` is an object made by `{}` or `Object.create(null)`. */
 export function isPlainObject(
 	value: unknown,
 ): value is Record<string, unknown> {

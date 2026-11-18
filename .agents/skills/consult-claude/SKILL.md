@@ -1,237 +1,86 @@
 ---
 name: consult-claude
-description: Give Claude responsibility for reasoning, design judgment, read-only investigations, recommendations, or finished text drafts. Use when the result benefits from thoughtful reasoning or taste, when asked to consult Claude, or when supplying the Claude seat of an independent review. Use delegate-claude when Claude should own edits or executable experiments.
+description: Ask Claude Code a read-only question and get its own answer, using plain `claude -p`. Use when a question benefits from Claude's reasoning or taste, when the user asks for Claude's take or critique, or when Claude is a reviewer in an adversarial review.
 ---
 
 # Consult Claude
 
-Claude owns a bounded answer and the strategy for finding it: an investigation,
-recommendation, caller map, API example, migration assessment, or finished text
-draft. The coordinating Codex owns overall continuity, acceptance of the answer,
-and any execution it leads to. Choose the route by what Claude should own,
-not by whether the larger task includes implementation. Codex can own delivery
-while Claude owns a bounded reasoning question; resume the same session with
-consequential implementation evidence, such as the diff or a failed check.
-When Claude should own the delivered changes or experiment, use
-[delegate-claude](../delegate-claude/SKILL.md) and assign investigation and
-implementation together, without a redundant consultation before handing off
-the same work.
+Ask Claude to think through a question and give us its own answer. Claude
+reads the checkout; it cannot run commands or change files. To have Claude
+deliver a change, use [delegate-claude](../delegate-claude/SKILL.md).
 
-Use Claude early when the result depends on reasoning, design judgment, taste,
-or choosing between competing interpretations. Codex need not solve the question
-before briefing Claude or wait until it is stuck. Give Claude the desired
-outcome and raw source evidence, and enough
-ownership to finish the answer. A short but consequential question can warrant
-consultation; routine mechanical work stays in Codex. A standalone
-consultation does not automatically launch an adversarial review.
+Bring Claude in early, while its judgment can still shape the result.
 
-Choose Claude for the quality of its reasoning and judgment, including on a
-small question when the choice matters. Use Codex assistance for supporting
-evidence that Claude can inspect without giving up its understanding of the
-problem. Judge the answer by its reasoning, evidence, and quality of judgment.
-Elapsed time and usage are context, not the objective.
+## Brief the question
 
-## Define the result
+Give Claude the question, why it matters, and the files it should read. Say
+what would settle the question, and separate what you observed from what you
+assume.
 
-Brief Claude with the desired result, intended consumer, source paths, genuine
-constraints, acceptance evidence, and stopping condition. For example:
+If the user wants Claude's own take, let it form a view before you share
+yours. If the user wants a critique, put the proposal and its reasoning in the
+first brief. For an adversarial review, follow
+[adversarial-review](../adversarial-review/SKILL.md) for briefing and staffing.
 
-> Trace every caller affected by this rename API. Return a source-linked caller
-> map, incompatible assumptions, and the smallest migration proposal. Read the
-> current uncommitted source. Stop when every caller class is accounted for;
-> request runtime evidence only where it decides compatibility.
+A brief from this repository:
 
-Distinguish explicit requirements, observed behavior, and hypotheses. If the
-contract is unresolved, assign its discovery rather than assuming a fix.
-Check the deciding claims against sources; do not redo the whole investigation.
+> `@epicenter/cli` and `@epicenter/app` are released at one version, and the
+> command checks for a second copy of the library before loading an app. Read
+> `packages/app/README.md`, `packages/cli/README.md` and the command's loader.
+> Is there still a reason for two packages, or should the command fold into
+> `@epicenter/app`? Name each thing that depends on the split. The answer
+> decides whether we retire `@epicenter/cli`.
 
-## Make the design legible
+## Send it
 
-Supply the desired outcome, genuine constraints, representative callsites, and
-relevant existing implementation excerpts with source paths. Include actual
-and proposed API code up front unless an explicitly blind review is selected
-under adversarial-review. That skill owns the briefing method. Use an
-ASCII diagram when it clarifies ownership, lifecycle, or data flow. Distinguish
-observed facts, proposals, assumptions, and preferences. Give enough concrete
-evidence to judge the decision; Claude can read further to verify your account.
-
-For a requested adversarial design review, have Claude apply
-[adversarial-review](../adversarial-review/SKILL.md) itself without
-commissioning another reviewer. Its coordinator owns staffing, the starting
-questions, and relaying exchanges between reviewers; this consultation supplies
-the review's Claude seat or a standalone opinion. For other design questions,
-answer the bounded question from source evidence; a complete architectural
-review is not implied. Treat the implementer's reasoning as contestable
-evidence. Ask for a concrete smaller alternative when that would decide the
-question; keeping the design is valid when its guarantees earn their cost.
-
-## Send a brief
-
-Requires Bun, Git, and authenticated Claude Code 2.1.280 or later with access to
-the selected model. New and resumed consultations default to `claude-opus-5-5`
-at high effort. Sonnet is an explicit choice for routine bounded work, not the
-default reasoning lead. For adversarial architecture reviews, use the reviewer
-model selected by [adversarial-review](../adversarial-review/SKILL.md) at high
-effort, passing it explicitly on initial launches and follow-ups. Use `xhigh` only for a
-focused unresolved decision, then return to high. Run from the checkout
-containing the evidence; supply the brief directly on stdin:
+Run from the checkout Claude should read:
 
 ```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts \
-  --account personal --account-email claude@example.com \
-  --model claude-opus-5-5 --effort high <<'BRIEF'
-[Concrete question, code blocks, source paths, diagram, reasoning, uncertainties.]
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+  claude -p --setting-sources project --strict-mcp-config \
+  --mcp-config '{"mcpServers":{"deepwiki":{"type":"http","url":"https://mcp.deepwiki.com/mcp"}}}' \
+  --tools Read,Glob,Grep,Skill,WebSearch --allowedTools WebSearch mcp__deepwiki \
+  --model claude-opus-5-5 --effort high --output-format json <<'BRIEF'
+[Question, why it matters, files to read, and what would settle it.]
 BRIEF
 ```
 
-On macOS, the Codex workspace sandbox can hide Claude Code Keychain login.
-Treat a sandboxed `claude auth status` result of `loggedIn: false` as
-inconclusive. Request the same status check outside the sandbox. If it reports
-true, run the launcher and its follow-ups outside the sandbox. Keep the
-launcher read-only Claude restrictions in place; do not log in again, export
-credentials, or switch the whole Codex task to Full access for this case.
+- `env -u` removes API keys and proxies, so the call uses the Claude
+  subscription login instead of billing an API key.
+- `--tools` leaves Claude only reading, the repository's skills, web search,
+  and DeepWiki. It cannot write files or run commands, and reads outside the
+  checkout are refused.
+- `--strict-mcp-config` with `--mcp-config` gives Claude DeepWiki and no other
+  MCP server, so it can check library behavior itself. Leave library questions
+  to Claude rather than researching them first and pasting the answers into the
+  brief: Claude knows which details its reasoning depends on.
+- `--setting-sources project` keeps `AGENTS.md`, the skills and the
+  repository's permission rules, and drops personal settings that would allow
+  more. Do not use `--restricted`: it also hides `AGENTS.md` and every skill,
+  so Claude answers without the repository's conventions.
+- The default login is the personal account. For the work account, prefix the
+  command with `CLAUDE_CONFIG_DIR="$HOME/.claude-work"`. Check which account
+  is active with `claude auth status` once per task.
+- If `claude auth status` reports `loggedIn: false` inside the Codex sandbox,
+  the sandbox is hiding the macOS Keychain. Run the command with a sandbox
+  exception rather than logging in again.
 
-The launcher runs one native print-mode turn in the current checkout with
-Read, Glob, and Grep. Without `--codex`, MCP tools are blocked. With `--codex`,
-only the host's read-only evidence tool is configured and approved; Claude can
-choose bounded evidence requests while retaining the investigation and judgment.
-Read [Codex assistance](references/codex-assistance.md) before enabling it for
-setup, limits, result handling, and the difference from `/codex:rescue`.
-Restricted mode, disabled hooks, and outside-read restrictions retain the
-Claude boundary. The launcher creates no source replica or checkpoint; native
-Claude and Codex sessions own conversation history. Keep the reviewed files
-stable during each turn. For parallel work, use a source snapshot containing the
-relevant committed, uncommitted, and untracked task files. A HEAD-only copy can
-omit the proposal. Copy prototype evidence into the selected checkout or run
-there; naming an outside path in the brief does not grant access.
+Keep the files Claude is reading unchanged until it answers.
 
-Read the native JSON result, including `result`, `session_id`, `is_error`, and
-any permission denials. A process starting or exiting successfully is not proof
-of a successful consultation. Preserve the session ID for follow-ups.
+## Read the answer and follow up
 
-For an assignment that may outlive the current turn or context, record a
-compact locator in existing task notes: native session ID, account and verified
-email, absolute checkout, mode, actual model and chosen effort. For a delivery,
-add the workspace choice, source baseline, allowed or transferred paths,
-completed checks, blocker, and next step. If Codex assistance is enabled, retain
-that launch choice, helper model, limits and write roots, and returned helper
-IDs. The coordinating Codex owns these notes for every Claude assignment. Native
-history owns the full conversation; do not build another session database.
-Update the same record as work proceeds.
+The JSON output has `result` (the answer), `is_error`, `session_id`, and
+`permission_denials`. Check the claims that drive the decision against the
+source yourself.
 
-For an adversarial-review seat follow-up, repeat its selected model and high
-effort. For the default Opus 5.5 seat:
+A run cannot be steered once it starts, so steer between turns. Keep each
+brief to one question, and ask Claude to stop and say so when the answer turns
+on something only the user can decide. To continue the same conversation with
+new evidence or a correction, run the same command from the same checkout with
+`--resume <session_id>`. Say what
+changed and ask the next question. If Claude asks for a test or command
+output, run it and paste the output into the follow-up. Start a fresh session
+when you need an independent review of Claude's own work.
 
-```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts \
-  --account personal --account-email claude@example.com \
-  --model claude-opus-5-5 --effort high --resume <session_id> <<'EVIDENCE'
-[Requested evidence, commands and relevant raw output, changed source, next question.]
-EVIDENCE
-```
-
-Resume the same session for the same assignment in the same checkout and
-account. New evidence or a correction does not need a new conversation; state
-source changes and new evidence in the follow-up. Use a fresh session for an
-independent review of Claude-authored work or a materially different frame.
-The launcher reapplies read-only tools but does not verify the native session's
-assignment or original workspace; verify that identity before resuming.
-For review of a delivered result, first supply the desired behavior, source
-baseline, actual callers, and cumulative diff from the idle assigned checkout or
-a snapshot containing that evidence. For a clone delivery, invoke the launcher
-by its absolute path in the coordinating checkout, with the clone as the working
-directory, so code under review does not set its own access boundary.
-Withhold the worker's explanation until the reviewer has reconstructed the
-system. Resuming retains context and does not restore independence.
-The launcher reapplies the access boundary on every turn. If the shell tool
-yields a running process, keep monitoring it and provide progress updates.
-There is no interactive attach step.
-
-The launcher sends one fixed brief per turn and provides no mid-turn instruction
-channel. Steer at completed-turn boundaries: state what remains accepted, what
-changed, and the question the next turn should answer. For an adversarial review,
-the coordinator may resume Claude with another reviewer's finding or objection
-when it could advance the investigation. Attribute the reasoning to its author;
-Claude answers the question, revises its position, or holds its objection.
-
-The shared launcher owns launch defaults. New consultations, delegations and
-resumes use Opus 5.5 high unless explicit `--model` or `--effort` flags override
-them. Codex helpers use medium reasoning independently. Repeat any deliberate
-nondefault model or effort on each follow-up. A resume retains the same native
-conversation history even when the model changes; an older Sonnet conversation
-can continue with Opus without starting over. Native command-line effort does
-not persist, so the launcher reapplies high on every turn.
-`--dry-run` previews launch arguments without invoking Claude. Consult the native
-result or transcript before attributing findings to a model: access restrictions
-and fallback can change the model used.
-
-### Choose a subscription account
-
-Every launch, including resumes, requires `--account personal|work` and
-`--account-email <verified Claude email>`.
-`personal` uses the existing native default login; `work` uses `~/.claude-work`.
-The email assertion blocks a profile signed into the wrong identity. Codex carries
-the verified email and original account into follow-ups; no alias registry is
-stored. Do not infer a Claude login from a ChatGPT billing email. For example:
-
-```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts \
-  --account personal --account-email claude@example.com \
-  --model claude-opus-5-5 --effort high <<'BRIEF'
-[Bounded consultation.]
-BRIEF
-```
-
-The launcher clears inherited Anthropic credentials, endpoints, provider flags,
-and secure-storage overrides in the child environment. Native `auth status`
-must identify the expected paid claude.ai account and configuration directory
-before the brief is sent. Restricted settings apply to both preflight and prompt;
-managed policy still applies. Claude resolves `--resume` in the selected profile
-and fails if it cannot find the session. The launcher does not inspect transcript
-files. Dry-run previews the selection without checking login and prints removed
-variable names, never credential values.
-
-Claude owns login, Keychain storage, refresh, and history. For a new work login,
-remove conflicting authentication overrides and run the native login with the
-user's work email:
-
-```bash
-CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude auth login --claudeai --email "work@example.com"
-```
-
-The user completes the browser login and verifies its Claude email. Keep profile
-login changes out of active launches: preflight does not lock the login while
-Claude runs. Do not copy credentials between profiles or log out of the default
-account. Explicitly setting `CLAUDE_CONFIG_DIR` to
-`~/.claude` selects a different Keychain entry from leaving it unset, so preserve
-the unset default for personal. This follows the official
-[multiple-account guidance](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts).
-
-## Adjudicate and continue
-
-Evaluate objections yourself. When Claude requests evidence, run useful checks
-within the user's existing authorization and return the commands, relevant raw
-results, and source state. An advice-only request does not authorize edits.
-Ask before materially expanding the task; prior authorization still applies.
-
-This route remains read-only. When the assignment requires Claude to own
-implementation or experimental execution, use delegate-claude within the
-user's authorized scope. Do not turn an advice-only request into execution.
-Return artifacts and evidence, including limitations. A longer report or more
-objections does not establish that a consultation was useful.
-
-For a standalone consultation, return the recommendation, supporting evidence,
-and remaining disagreement. Stop when the bounded decision has enough evidence;
-consensus is not required. In an adversarial review, answer the coordinator's
-focused follow-ups and state what your reasoning supports, what remains open,
-and which proposal you examined. Check revisions against the concerns you raised.
-The coordinator seeks every reviewer's support for the same design and brings
-disagreements the investigation cannot advance back to the person.
-Adversarial-review owns the coordinator's judgment and reporting rules.
-
-Read [the example and evaluation cases](references/example-workflow.md) when
-evaluating this workflow or revising the skills. For launcher changes, verify
-`claude --version`, `claude --help`, the official
-[CLI reference](https://code.claude.com/docs/en/cli-reference), and
-[programmatic usage](https://code.claude.com/docs/en/headless). Native Claude
-sessions own conversation history; the launcher owns only access and transport.
+Return Claude's answer, the evidence behind it, and any disagreement that
+matters to the decision.

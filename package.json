@@ -26,7 +26,6 @@
 		"packages": [
 			"apps/*",
 			"apps/api/ui",
-			".agents/skills/consult-claude",
 			"ops",
 			"packages/*"
 		],
