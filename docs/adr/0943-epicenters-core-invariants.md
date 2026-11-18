@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Relates:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) (one authority per collection), [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) (code and records in one private repository), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (private access), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (ordinary calls), and [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one action-running process).
+- **Relates:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) (one authority per collection), [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) (code and records in one private repository), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (private access), [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) (ordinary calls), and [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one action-running process), [ADR-0952](0952-epicenter-does-nothing-about-upgrades.md) (an application of rules 2 and 7).
 - **Unbuilt:** No runtime change is introduced. This records the design commitments and their costs together.
 
 ## Context
@@ -43,6 +43,33 @@ change the software and compose it with other tools.
 | **What you make belongs in files you can use without Epicenter.** Apps record outcomes that need to survive; Git checkpoints those files. | Mandatory SDK access to records; a second platform execution history with run IDs, replay, and receipts. | Automatic recovery of unsaved progress and a complete audit of every attempt. An app must save any receipt it needs; Git records checkpoints, not every event. |
 | **You can change the software you run.** Each app is ordinary, editable code that you or your agents can inspect and adapt. You choose which code to trust. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | A promise that every behavior can be configured without code; isolation from a faulty app. The owner is responsible for the code and dependencies they run. |
 | **Epicenter composes tools that already do the job.** Git keeps history, Bun manages packages, and the operating system keeps Epicenter running. | Reimplementing version control, package management, and process supervision. | One platform-managed solution to every operational problem. Some work remains ordinary Git, shell, Bun, or operating-system work. |
+
+### Eight rules for checking a proposal
+
+The commitments are long to hold in mind while judging a proposal. These
+eight rules are the short form. For a proposed feature, ask which rule
+already answers it; when the answer is that a tool or the owner does the
+work, the feature is a line of documentation, not code.
+
+| Rule | Restates |
+| --- | --- |
+| 1. Your Epicenter is a folder: a Git repository that is also a Bun project. | [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) |
+| 2. Serve is a program: you start it, stop it, and restart it after changing it. | The first and third commitments; [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md), [ADR-0952](0952-epicenter-does-nothing-about-upgrades.md) |
+| 3. An action is a function: JSON in, JSON out, with optional updates on the way. | [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) |
+| 4. Data is files, and Git is the history. | The fourth commitment |
+| 5. Every description is plain JSON: action inputs, settings, field values. | New. Nothing a person or agent reads about an app needs Epicenter's code to interpret. |
+| 6. The code is yours: copy it and edit it; there is no plugin or settings system. | The fifth commitment |
+| 7. If a tool already does it (Git, Bun, the operating system), Epicenter does not. | The sixth commitment |
+| 8. Serve keeps no outcome between calls: anything an app must remember goes in a file. | The fourth commitment; ADR-0930 |
+
+Rule 8 is about outcomes, not time or state. Serve still holds loaded
+packages, caches and the routine schedule, as "Specialized guarantees belong
+where they are needed" below allows, and routines still run on their clock.
+
+The second and third commitments, one place where edits count and one
+process that runs every action, have no rule of their own and stay in force.
+A proposal that passes the eight rules but adds a writable copy or a second
+action runner still fails.
 
 ### One process does not mean one action at a time
 
@@ -98,9 +125,10 @@ keeps `serve` running under their own operating system job
 
 ## Consequences
 
-The six commitments are a design test, not a requirement to delete every
-wrapper, guard, or piece of state. A proposed simplification must name the
-guarantee it removes and who accepts the loss. A feature that needs a
+The six commitments and the eight rules are a design test, not a
+requirement to delete every wrapper, guard, or piece of state. A proposed
+simplification must name what it removes, what the owner loses, and who
+takes on the work. A feature that needs a
 different authority, trust boundary, or execution model calls for a new
 decision rather than an exception hidden in the implementation.
 

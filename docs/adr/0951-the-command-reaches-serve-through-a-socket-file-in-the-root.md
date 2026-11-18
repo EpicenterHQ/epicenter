@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) on how a command finds its serve and how a second Epicenter's command is kept out.
-- **Relates:** [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches the port), [ADR-0950](0950-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the root), [ADR-0952](0952-serve-exits-when-its-packages-change.md) (the version header).
+- **Relates:** [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches the port), [ADR-0950](0950-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the root), [ADR-0952](0952-epicenter-does-nothing-about-upgrades.md) (the version header).
 - **Unbuilt:** all of it.
 
 ## Context
