@@ -1,8 +1,8 @@
-# 0961. The command sends an action's words to serve, and serve alone reads them
+# 0961. The command sends an action's input to serve, and serve alone reads it
 
 - **Status:** Proposed
 - **Date:** 2026-11-18
-- **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at what the command does before it sends a call, and at how a call names its Epicenter. The command no longer loads the app, finds the action or checks the input; serve does. Serve no longer stamps its root's path on every answer; the command sends its path on the request. That an action runs only in serve, and that serve refuses a call meant for another Epicenter, are unchanged.
+- **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at what the command does before it sends a call, and at how a call names its Epicenter. The command no longer loads the app or checks the input; it names the action by its words and sends the input as typed, and serve reads it. Serve no longer stamps its root's path on every answer; the command sends its path on the request. That an action runs only in serve, and that serve refuses a call meant for another Epicenter, are unchanged.
 - **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
 - **Unbuilt:** All of it. `packages/app/src/command/cli.ts` loads the app, matches the words, reads the input and prints help before it calls serve. Serve has no HTTP request that takes the words as typed or answers an action's help; its only listing is the MCP tool list. Serve still sets `x-epicenter-home` to its root's path on every answer (`HOME_HEADER` in `packages/app/src/command/send.ts`, set in `packages/app/src/command/serve.ts`). The first thing to exist is `GET /` answering the listing as JSON.
 
@@ -33,14 +33,24 @@ ADR-0957 renamed the header and left "a name or a hash" open.
 
 ## Decision
 
-**A command that calls or describes an action loads no app code. It sends
-the words and the input as typed, and serve answers.**
+**A command that calls or describes an action loads no app code. It names
+the action by its words and sends the input as typed, and serve alone reads
+the input.**
 
-- **A call.** The command sends the app's name, the words after it, and the
-  input. Serve finds the action, checks the input, runs it, and answers. "No
-  such action" and "this input does not fit" are answers from serve.
+- **A call.** The command splits its words without loading anything. An
+  action's words are names and an input never is, so the leading words that
+  are names are the action, and after them comes at most one word, the
+  input: `{...}`, or `-` to read it from stdin. More than one word after the
+  action is refused by the command. It calls `POST /<app>/<action>`, the
+  request a page makes, with the action's words joined by `.` and the
+  input's text as the body: the typed text, stdin's text for `-`, or `{}`
+  when there is none. Serve finds the action, reads and checks the input,
+  runs it, and answers. "No such action", listing the app's actions, and
+  "this input does not fit" are answers from serve, the same to a page and
+  to the command.
 - **Help and listings.** `epicenter <app>`, `--help` on an action, and bare
-  `epicenter` ask serve and print its answer.
+  `epicenter` print from serve's listing. `--help` on an action the listing
+  does not have answers as serve does for a call to one.
 - **`check` loads apps itself.** It runs in its own process and imports each
   app as it is on disk. That makes it the way to try changed code before a
   restart. No other command loads an app.
@@ -90,17 +100,31 @@ none.**
 - No device on the private network learns the account name from a header.
   A command or serve from another Epicenter learns only that the port is
   taken by an Epicenter that is not its own.
-- `whoAnswers` and `sendToServe` in `serve-call.ts` read `x-epicenter` and
-  the status, not a path; `homeName` is used only to build the request
-  header.
-- Deleted from `cli.ts`: the load, the match, the input read and the help
-  printing for an app. Those move behind serve's requests; the code that
-  matches words and checks input stays, in serve.
+- `whoAnswers` in `serve.ts` and `reach` in `send.ts` read `x-epicenter` and
+  the status, not a path; `rootHeaderValue` only builds the request header.
+- Deleted from `cli.ts`: the load, the input read and the help built from a
+  loaded app. Serve has two ways in for an action, a call at
+  `POST /<app>/<action>` and MCP at `POST /`, and no request that takes a
+  command's words.
+- Stdin is the input and never a word, so text read for `-` cannot name an
+  action.
+- A name typed where the input goes is read as part of the action:
+  `epicenter tasks add hello` answers that `tasks` has no action
+  `add hello`, with its actions listed, rather than that the input is not
+  JSON.
 - ADR-0956 is `Proposed` and says bare `epicenter` reads the apps itself. It
   is edited to match when this decision lands, not amended.
 
 ## Considered alternatives
 
+- **Send the words as typed, and let serve match them.** The first build
+  had `POST /<app>` take `{"words": [...]}` and match the longest run of
+  them that names an action, with a `help` flag for an action's tool. It
+  was a second request shape beside a page's, help could come from the
+  listing instead, and the command put stdin's text among the words, so
+  `printf all | epicenter notes archive -` ran `archive all`. Splitting
+  needs no app loaded, because an action's words are names and an input
+  never is.
 - **Keep the command's own load.** Help and listings work with serve
   stopped. Two loads can disagree once serve loads at start.
 - **Keep the command's load, and warn when the files are newer than serve.**

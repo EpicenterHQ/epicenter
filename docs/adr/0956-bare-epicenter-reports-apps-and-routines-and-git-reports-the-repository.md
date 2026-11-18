@@ -19,7 +19,7 @@ repository when it meets one.
 
 Bare `epicenter` reports the version, the apps, any problems loading them,
 and the routines. It prints serve's listing
-([ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)),
+([ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)),
 so it reports what serve loaded and needs serve running. It says nothing
 about the repository, and `--json` has no `repository` field.
 

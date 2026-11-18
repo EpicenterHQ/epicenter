@@ -266,13 +266,16 @@ record paths intact.
 An action's input is one argument after its words, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
 stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
-closed and an agent whose shell holds it open both run. Text that is not a
-JSON object, or more than one word, is refused with exit 2 and an example
-object to copy. Serve reads the text and checks the object; what is wrong
-with an object is said the same way to the command line, HTTP and MCP. The
-command sends its words as typed and reads `-` from its own stdin, sending
-the text in its place
-([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)).
+closed and an agent whose shell holds it open both run. The action's words
+are names and an input never is, so the command takes the leading names as
+the action and the word after them as the input; more than one word after
+the action is refused with exit 2. A name typed where the input goes is part
+of the action: `epicenter tasks add hello` answers that tasks has no action
+"add hello", listing its actions. The command sends the input's text, or
+stdin's for `-`, and serve reads it: text that is not one JSON object is
+refused with an example object to copy, and what is wrong with an object is
+said the same way to the command line, a page and MCP
+([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
 A key the action does not take is refused, naming the keys it does.
 `null` removes a field that accepts it. For text a person wrote, `- <<'EOF'`
 avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
@@ -292,12 +295,13 @@ One serve per Epicenter. The port is its name and its lock. You start it and kee
 running; the command line never starts it or stands in for it.
 
 `epicenter serve` is the only process that loads app code and runs an app's
-actions. `epicenter <app> <action>` sends its words as typed to serve at the
-port in `EPICENTER.md`, at `POST /<app>`. Serve finds the action, reads the
-input, runs it, and answers "no such action" and "this input does not fit"
-itself; the command prints the updates and the answer it reads back. Bare
-`epicenter`, `epicenter <app>` and an action's `--help` print serve's one
-listing, `GET /` as JSON, or ask it for one action. The command never loads
+actions. `epicenter <app> <action>` calls serve at the port in
+`EPICENTER.md`, at `POST /<app>/<action>` as a page does, with the input's
+text as the body. Serve finds the action, reads the input, runs it, and
+answers "no such action" and "this input does not fit" itself; the command
+prints the updates and the answer it reads back. Bare `epicenter`,
+`epicenter <app>` and an action's `--help` print serve's one listing,
+`GET /` as JSON. The command never loads
 an app, so it and serve cannot disagree about one.
 
 While serve is stopped, an action is refused with exit 2 and nothing runs. Its
@@ -320,7 +324,7 @@ never leaves the computer. Serve refuses a request naming another root with
 `409` and a body that does not name its own. Every answer to a request it
 accepts, its `500` included, carries `x-epicenter: 1` and no path; a
 tunnelled request's `403` carries nothing
-([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)).
+([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
 A command whose port answers for something else runs nothing:
 
 ```txt
@@ -364,7 +368,7 @@ to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, the listing at `GET /` to a request that accepts `application/json`, the command's words at `POST /<app>`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, the listing at `GET /` to a request that accepts `application/json`, each app's actions to its UI and the command at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` offers the actions of serve's listing, which loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
@@ -452,7 +456,8 @@ See [ADR-0908](../../../../docs/adr/0908-serve-runs-the-homes-daily-routines.md)
 
 ## A call over HTTP
 
-`POST /<app>/<action>` runs one action. Action words are joined with dots
+`POST /<app>/<action>` runs one action, for a page and for the `epicenter`
+command alike. Action words are joined with dots
 (`/flights/watches.search`). The body is the input as one JSON object, at
 most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 
