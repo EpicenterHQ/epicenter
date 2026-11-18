@@ -15,6 +15,11 @@
  * nothing is written: the newer note shows under what was typed, and
  * nothing more is saved until the person keeps theirs (`retry()`, which
  * writes the typing over the newer body) or discards it (`discard()`).
+ *
+ * The view showing an editor disposes it when it closes. Typing no save
+ * has refused is saved then, without waiting out the pause; typing a save
+ * refused is dropped with the view, which showed why. Either way the
+ * editor stops counting as unsaved, so leaving the page no longer asks.
  */
 import type { Result } from 'wellcrafted/result';
 import type {
@@ -53,6 +58,8 @@ export type NoteEditor<C extends IdCollection> = {
 	retry(): void;
 	/** Drop what was typed, and show the note. */
 	discard(): void;
+	/** The view closed: save typing no save refused, and stop counting as unsaved. */
+	dispose(): void;
 };
 
 /** What an editor reads and writes. */
@@ -82,19 +89,21 @@ export function editNote<C extends IdCollection>({
 	/** The body the typed body replaces: as shown when typing began, null when there was no note. */
 	let bodySeen: string | null = null;
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let disposed = false;
 	const editor = {};
 
 	const pending = () => Object.keys(typed).length > 0;
 	/** The body shown under the typing: the note's as listed, null when there is none. */
 	const shownBody = () => (get()?.body as string | undefined) ?? null;
-	const mark = () => markUnsaved(editor, pending() || out);
+	const mark = () => markUnsaved(editor, !disposed && (pending() || out));
 
 	function schedule() {
 		mark();
 		// After a change elsewhere, nothing saves until the person chooses.
 		if (problem?.name === 'Changed') return;
 		clearTimeout(timer);
-		timer = setTimeout(() => void save(), SAVE_AFTER_MS);
+		if (disposed) void save();
+		else timer = setTimeout(() => void save(), SAVE_AFTER_MS);
 	}
 
 	async function save() {
@@ -158,6 +167,13 @@ export function editNote<C extends IdCollection>({
 			typed = {};
 			problem = null;
 			mark();
+		},
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			clearTimeout(timer);
+			mark();
+			if (problem === null) void save();
 		},
 	};
 }

@@ -13,6 +13,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Collapsible from '@epicenter/ui/collapsible';
 	import { createMutation } from '@tanstack/svelte-query';
+	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -53,11 +54,13 @@
 	// The parent keys this view by the recording.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const recording = library.edit('recordings', own, {
-		create: () => ({ title: '', recordedAt: (timeOf(own) ?? new Date()).toISOString() }),
-	});
 	/** The recording as listed: its note, or its audio alone as an untitled one. */
 	const listed = $derived(library.entries.find((note) => note.id === own));
+	// Audio with no note gets one dated as the list shows it.
+	const recording = library.edit('recordings', own, {
+		create: () => ({ title: '', recordedAt: listed?.recordedAt ?? (timeOf(own) ?? new Date()).toISOString() }),
+	});
+	onDestroy(recording.dispose);
 	const shown = $derived(recording.exists() || listed !== undefined);
 
 	const transcripts = $derived(library.transcriptsFor(own));

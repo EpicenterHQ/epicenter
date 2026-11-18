@@ -10,6 +10,8 @@
  *   newer body
  * - A save that fails keeps what was typed and says why; Try again saves it
  * - Discard drops what was typed and shows the note
+ * - Closing the view stops counting the editor as unsaved: typing no save
+ *   refused is saved at once, and typing a save refused is dropped
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
@@ -131,4 +133,29 @@ test('Discard drops what was typed and shows the note', async () => {
 	expect(editor.fields.body).toBe('notes\n');
 	expect(editor.problem()).toBeNull();
 	expect(unsaved()).toBe(0);
+});
+
+test('closing the view saves typing at once, drops typing a save refused, and stops counting as unsaved', async () => {
+	const files = memoryFiles({ [PATH]: encode(note('Standup', 'notes\n')) });
+	const typed = open(files);
+	typed.editor.fields.title = 'Mine';
+	expect(unsaved()).toBe(1);
+	typed.editor.dispose();
+	expect(unsaved()).toBe(0);
+	await until(() => typed.saves() === 1);
+	await Bun.sleep(10);
+	expect(await fileOf(files)).toBe(note('Mine', 'notes\n'));
+
+	const full: Files = {
+		...files,
+		write: async () => failed('The disk is full'),
+	};
+	const refused = open(full);
+	refused.editor.fields.title = 'Again';
+	await until(() => refused.editor.problem() !== null);
+	expect(unsaved()).toBe(1);
+	refused.editor.dispose();
+	expect(unsaved()).toBe(0);
+	await Bun.sleep(400);
+	expect(refused.saves()).toBe(1);
 });

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { onDestroy } from 'svelte';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { confirmDelete, copyText } from './actions.js';
 	import { formatTime } from './format.js';
@@ -24,6 +25,7 @@
 
 	/** The transcript's fields, its text included: as typed until its save lands, else as the note holds them. */
 	const transcript = library.edit('transcriptions', id);
+	onDestroy(transcript.dispose);
 	const text = $derived(transcript.fields.body ?? '');
 </script>
 
