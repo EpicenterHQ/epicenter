@@ -3,7 +3,10 @@ import type { JsonValue } from './front-matter.ts';
 
 export type PublicError = { name: string; message: string };
 
-function plain(value: unknown): value is Record<string, unknown> {
+/** Whether `value` is an object literal or `Object.create(null)`: not an array, class instance or other built-in. */
+export function isPlainObject(
+	value: unknown,
+): value is Record<string, unknown> {
 	if (value === null || typeof value !== 'object') return false;
 	const prototype = Object.getPrototypeOf(value);
 	return prototype === Object.prototype || prototype === null;
@@ -14,7 +17,7 @@ export function isActionResult(
 	value: unknown,
 ): value is Result<unknown, PublicError> {
 	if (
-		!plain(value) ||
+		!isPlainObject(value) ||
 		Reflect.ownKeys(value).length !== 2 ||
 		!Object.hasOwn(value, 'error') ||
 		!Object.hasOwn(value, 'data')
@@ -24,7 +27,7 @@ export function isActionResult(
 	if (error === null) return true;
 	return (
 		value.data === null &&
-		plain(error) &&
+		isPlainObject(error) &&
 		typeof error.name === 'string' &&
 		typeof error.message === 'string'
 	);
@@ -39,7 +42,7 @@ export function encodeActionResult(
 		if (value === null || value === undefined) return null;
 		if (typeof value === 'string' || typeof value === 'boolean') return value;
 		if (typeof value === 'number' && Number.isFinite(value)) return value;
-		if ((!Array.isArray(value) && !plain(value)) || parents.has(value))
+		if ((!Array.isArray(value) && !isPlainObject(value)) || parents.has(value))
 			throw new TypeError('An action answer must contain only JSON values');
 		parents.add(value);
 		try {
@@ -56,7 +59,7 @@ export function encodeActionResult(
 	if (result.error === null) return Ok(encode(result.data));
 	const error = encode(result.error);
 	if (
-		!plain(error) ||
+		!isPlainObject(error) ||
 		typeof error.name !== 'string' ||
 		typeof error.message !== 'string'
 	)

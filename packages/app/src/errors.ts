@@ -120,6 +120,8 @@ export const ActionError = defineErrors({
 export type ActionError = InferErrors<typeof ActionError>;
 /** The action never began. */
 export type NotStarted = InferError<typeof ActionError.NotStarted>;
+/** A file, or a change to one, does not fit its declared fields. */
+export type Misfit = InferError<typeof ActionError.Misfit>;
 /** The action began and threw. */
 export type Threw = InferError<typeof ActionError.Threw>;
 /** The call's outcome is unknown. */
