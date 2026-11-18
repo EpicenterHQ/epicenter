@@ -1089,7 +1089,7 @@ When you add an ADR, add its row here.
 | [0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) | `null` removes a field on every surface, and the exit code says what happened | Proposed (amended by 0925) |
 | [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
-| [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Accepted (amended by 0903 and 0948) |
+| [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Accepted (amended by 0903) |
 | [0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) | A public address signs people in with a passkey and connectors in with OAuth | Superseded by 0883 |
 | [0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) | The command is `@epicenter/cli`, and it supplies `@epicenter/app` to every app | Accepted (amended by 0904) |
 | [0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) | The UI kit is a shadcn-svelte registry an app copies from | Proposed |
@@ -1154,7 +1154,6 @@ When you add an ADR, add its row here.
 | [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
 | [0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) | An app builds its own UI, and serve only serves it | Proposed (amends 0904, 0910, 0911, and 0942) |
 | [0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) | An app may answer HTTP and WebSocket requests under its address | Proposed |
-| [0948](0948-a-secret-the-owner-pastes-goes-in-the-homes-env-and-serve-starts-with-it-in-its-environment.md) | A secret the owner pastes goes in the home's `.env`, and serve starts with it in its environment | Proposed (amends 0870) |
 | [0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) | An action calls a model with plain code, and Epicenter adds no function for it | Proposed |
 | [0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) | `api.epicenter.so` is a model API, and every client reaches it with an API key | Proposed (supersedes 0549 and 0331; amends 0634) |
 | [0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) | AI credits follow what a call uses: held before it and settled after | Proposed |
@@ -1162,4 +1161,4 @@ When you add an ADR, add its row here.
 | [0955](0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md) | `new` makes a blank app, and taking an app is copying its folder | Proposed (supersedes 0929) |
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
-| [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942, 0944 and 0948) |
+| [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942 and 0944) |

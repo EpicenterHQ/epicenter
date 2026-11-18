@@ -577,7 +577,6 @@ printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "$test_home/.gitc
 mkdir -p "$test_home/Epicenter/apps" && cd "$test_home/Epicenter"
 printf -- '---\nport: 4799\n---\n' > EPICENTER.md
 # package.json: the workspace, naming the Epicenter version the real home names
-printf 'env = false\n' > bunfig.toml
 printf '/apps/*/local/\n.env*\n!.env.example\nnode_modules/\n' > .gitignore
 git init -q
 mkdir -p apps/example

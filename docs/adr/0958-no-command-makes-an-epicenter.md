@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-18
-- **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) on "the home commits itself": no checkpoint routine or script arrives with a home. [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) and [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) on who runs `bun install`: no command does. [ADR-0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) on who writes the `.env` ignore lines and `env = false`: the owner.
+- **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) on "the home commits itself": no checkpoint routine or script arrives with a home. [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) and [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) on who runs `bun install`: no command does.
 - **Relates:** [ADR-0943](0943-epicenters-core-invariants.md) (rules 1 and 7), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md).
 
 ## Context
@@ -21,7 +21,7 @@ one its owner already has.
 **No command makes an Epicenter, and Epicenter ships no template. An
 Epicenter is a folder its owner makes: `EPICENTER.md`, the workspace
 `package.json`, a `.gitignore` that keeps `/apps/*/local/` and `.env*` out of
-Git, `bunfig.toml` with `env = false`, and `apps/`. The owner then runs
+Git, and `apps/`. The owner then runs
 `git init` and `bun install`.**
 
 - The command's README states those files. It is the only description of a
