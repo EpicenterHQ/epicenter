@@ -75,10 +75,11 @@ the document can transfer into the home and stop being edited at its former
 source. Editing both and expecting reconciliation breaks the second
 commitment. This does not add a built-in collaboration protocol to Epicenter.
 
-A wrapper can still earn its place. `epicenter checkpoint` expresses a home
-operation using Git, and `epicenter service install` configures an operating
-system job. The sixth commitment rejects rebuilding those tools' capabilities,
-not convenient commands that compose them.
+The sixth commitment rejects rebuilding those tools' capabilities. The two
+commands that only wrapped them are gone: the person runs Git directly
+([ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md)), and
+keeps `serve` running under their own operating system job
+([ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md)).
 
 ## Considered alternatives
 
