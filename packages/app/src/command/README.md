@@ -74,7 +74,9 @@ version an Epicenter runs is one line in a file in Git
 An entry in `apps/` may be a link; Epicenter treats it as the folder it leads
 to. Bun finds packages from where a file really is, so a link to code outside
 the Epicenter finds no `@epicenter/app`, and the listing gives Bun's reason. Keep
-an app's code inside the Epicenter.
+an app's code inside the Epicenter. A command also starts from the folder it
+really runs in, so one run inside a linked app's folder finds no Epicenter;
+run it from the Epicenter's folder.
 
 ## Install and try a writing inbox
 
@@ -266,9 +268,10 @@ An action's input is one argument after its words, `epicenter <app> <action>
 stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
 closed and an agent whose shell holds it open both run. Text that is not a
 JSON object, or more than one word, is refused with exit 2 and an example
-object. Serve reads and checks the object, for the command line as for HTTP
-and MCP, with the same messages: the command sends its words as typed and
-reads `-` from its own stdin, sending the text in its place
+object to copy. Serve reads the text and checks the object; what is wrong
+with an object is said the same way to the command line, HTTP and MCP. The
+command sends its words as typed and reads `-` from its own stdin, sending
+the text in its place
 ([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)).
 A key the action does not take is refused, naming the keys it does.
 `null` removes a field that accepts it. For text a person wrote, `- <<'EOF'`
@@ -370,7 +373,9 @@ A page calls actions through `@epicenter/app/client`, at
 
 Serve commits nothing. Git stores the Epicenter, and its owner commits and pushes
 it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
-serve stops its routine commands and exits.
+serve exits. Its routine commands share its process group, so Ctrl-C in its
+terminal, or a service manager that stops the group, stops them too; a
+signal sent to serve's process alone leaves them running.
 
 ## Keep serve running
 
@@ -426,7 +431,7 @@ routine, remove its file; the Epicenter's history keeps it.
 
 `epicenter` on its own lists each routine's schedule, next occurrence, and
 command as one shell-quoted line to copy into a terminal, or why its file is
-refused, whether or not `serve` is running.
+refused. It asks `serve`, like every command but `check`.
 
 A person or their agent writes the file. Installing or importing an app
 schedules nothing.

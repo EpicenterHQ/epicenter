@@ -695,8 +695,7 @@ compile, so search each app's code and tests for `.input`.
 reached a serve older than itself. 0.7 drops that check: upgrading is the
 owner's step, not Epicenter's. After `bun install`, restart `epicenter serve`
 yourself. Nothing warns you if you forget; the old serve keeps answering with
-the old code. `epicenter` still refuses to load apps while the Epicenter names two
-different versions of `@epicenter/app` and `@epicenter/cli`.
+the old code.
 
 A data field whose schema carried `x-epicenter-file` used to be refused. No
 field helper made that marker, so the check is gone.
