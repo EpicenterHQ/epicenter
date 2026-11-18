@@ -26,7 +26,6 @@ import {
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
-import { libraryProblem } from './library.ts';
 import { appsDir, epicenterRoot } from './root.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
@@ -160,8 +159,6 @@ async function load(
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
-	const apart = libraryProblem(entry, place.codePath);
-	if (apart) return broken([apart]);
 	let module: { default?: unknown };
 	try {
 		forgetModules(place.codePath);

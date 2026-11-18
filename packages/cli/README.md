@@ -71,22 +71,10 @@ copy of it, and the version a home runs is a line in a file in Git.
   `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
   no command rewrites the list.
 
-The command checks that every app shares its copy of `@epicenter/app` each
-time it loads one, because a call reaches its app's folder through state the
-library keeps per call. An app that would load another copy is listed as a
-problem that names both:
-
-```txt
-apps/notes resolves @epicenter/app at <path>, and epicenter runs <other path>; run bun install at the top of the home
-```
-
-This happens when an app's folder has a `node_modules/@epicenter/app` of its
-own, when the home's two dependencies name different versions, or when the
-command that ran is not the home's own. An entry in `apps/` may be a link; Epicenter
-treats it as the folder it leads to. Bun finds packages from where a file
-really is, so a link to code outside the home finds no `@epicenter/app`, and
-the problem names the folder it looked from. Keep an app's code inside the
-home.
+An entry in `apps/` may be a link; Epicenter treats it as the folder it leads
+to. Bun finds packages from where a file really is, so a link to code outside
+the home finds no `@epicenter/app`, and the listing gives Bun's reason. Keep
+an app's code inside the home.
 
 ## Install and try a writing inbox
 
@@ -164,7 +152,7 @@ and `@epicenter/cli`. Each ships its TypeScript source and runs under Bun.
 The command names the library as a peer dependency at its own exact
 version, so a home installs one copy of the library: the one its
 `package.json` names. When a home names another version, `bun install`
-warns and `epicenter` refuses to load its apps until the two match. A home
+warns. A home
 upgrades both at once by editing both versions in its `package.json`, then
 running `bun install && bun run build`.
 

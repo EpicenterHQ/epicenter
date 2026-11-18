@@ -94,7 +94,8 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 	expect((await f.run('loose', '--json')).code).toBe(0);
 
 	// Code finds packages from where it really is, so code outside the home
-	// does not find the home's @epicenter/app, and the listing says so.
+	// does not find the home's @epicenter/app, and the listing gives Bun's
+	// reason.
 	const outside = await f.folder(join(f.root, 'Code', 'outside'), {
 		'code/epicenter.ts': bareApp('outside'),
 	});
@@ -104,7 +105,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 			entry: 'outside',
 			folder: join(f.apps, 'outside'),
 			problems: [
-				`apps/outside finds no @epicenter/app from ${join(outside, 'code')}; run bun install at the top of the home`,
+				`code/epicenter.ts: Cannot find package '@epicenter/app' imported from ${join(outside, 'code', 'epicenter.ts')}`,
 			],
 		},
 	]);

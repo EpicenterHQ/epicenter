@@ -45,8 +45,7 @@ the app. A home is one Bun workspace whose `package.json` depends on
 top of the home installs one copy, and `epicenter.ts`, the editor, `bun test`
 and the UI's build all find it by ordinary resolution, as the command does.
 An app's `code/package.json` names only the app's own dependencies and never
-lists `@epicenter/app`: a second copy would not share the state a call reaches
-its folder through, and the command refuses an app that would load one. After
+lists `@epicenter/app`, so the app runs the version the home names. After
 the home's packages change, restart `serve`. An app's name is its folder's.
 
 The package ships its TypeScript source and runs under Bun. See

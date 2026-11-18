@@ -188,8 +188,7 @@ of it: `code/package.json` is named for the app, and the home has the one
 import anything its `package.json` names, plus Node's built-ins; declare
 every package the app imports. Add one with `bun add <package>` in code/.
 `@epicenter/app` comes from the home's `package.json`, which names the
-version of Epicenter the home runs, and is never listed in the app's: a
-second copy is refused when the app loads. A package nested inside an app,
+version of Epicenter the home runs, and is never listed in the app's. A package nested inside an app,
 such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the home's
 `package.json`. `bun install` at the top of the home installs its packages;
@@ -198,7 +197,7 @@ Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter by editing both versions in the home's `package.json`, then
 running `bun install && bun run build` at the top: the two are released at
-one version, and `epicenter` refuses to load apps while the home names two.
+one version.
 Write each action with `defineAction`, which types its
 `run` from its `input`. The action carries that input as one JSON Schema
 object, `{ type, properties, required, additionalProperties: false }`, which

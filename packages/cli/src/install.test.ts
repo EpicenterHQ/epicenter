@@ -10,12 +10,10 @@
  *   writes the home's one lock, naming each app's package.
  * - A package the owner added to `workspaces`, nested inside an app, is
  *   installed with the rest and is not taken for an app.
- * - An app that would load a second copy of `@epicenter/app` is a problem
- *   that names both copies.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { bareApp, fixture } from './runner.test-support.ts';
 
@@ -75,34 +73,4 @@ test('a package nested inside an app, added to workspaces by hand, installs with
 		'notes',
 	]);
 	expect(listed.problems).toEqual([]);
-});
-
-test('an app that would load a second copy of @epicenter/app is a problem naming both copies; an uninstalled home says to install', async () => {
-	const f = await setup();
-	// A copy of its own in the app's folder, as a per-app install left one.
-	const own = join(f.notes, 'code/node_modules/@epicenter/app');
-	await mkdir(join(own, 'src'), { recursive: true });
-	await writeFile(
-		join(own, 'package.json'),
-		'{ "name": "@epicenter/app", "exports": { ".": "./src/index.ts" } }\n',
-	);
-	await writeFile(join(own, 'src/index.ts'), 'export {};\n');
-	const ours = await realpath(join(import.meta.dir, '../../app'));
-	const next = 'run bun install at the top of the home';
-	expect(JSON.parse((await f.run('--json')).stdout).data.problems).toEqual([
-		{
-			entry: 'notes',
-			folder: f.notes,
-			problems: [
-				`apps/notes resolves @epicenter/app at ${await realpath(own)}, and epicenter runs ${ours}; ${next}`,
-			],
-		},
-	]);
-
-	await rm(join(f.notes, 'code/node_modules'), { recursive: true });
-	await rm(join(f.home, 'node_modules'), { recursive: true });
-	const uninstalled = JSON.parse((await f.run('--json')).stdout).data;
-	expect(uninstalled.problems[0].problems).toEqual([
-		`apps/notes finds no @epicenter/app from ${await realpath(join(f.notes, 'code'))}; ${next}`,
-	]);
 });
