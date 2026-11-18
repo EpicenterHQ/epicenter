@@ -21,15 +21,6 @@ export {
 	isName,
 } from './app.ts';
 export {
-	type Context,
-	type Folder,
-	folder,
-	inRun,
-	isUnderLocal,
-	normalizePath,
-	textUpdate,
-} from './context.ts';
-export {
 	type AnyData,
 	type Data,
 	type DataDef,
@@ -53,7 +44,7 @@ export {
 	whatFits,
 	whatTakes,
 } from './field.ts';
+export { type Folder, folderOnDisk } from './folder.ts';
 export { readMarkdown } from './front-matter.ts';
 export type { Fields } from './markdown-fields.ts';
-export { createMemoryContext } from './memory.ts';
 export { localDay, localTime, timeId } from './time.ts';

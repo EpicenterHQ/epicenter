@@ -37,14 +37,14 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
 	await f.app('serve', reading);
-	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
+	await f.app('invalid', `export default () => ({actions:{bad:{input:{}}}});`);
 	await f.app(
 		'spaced',
-		`export default defineApp({ description: 'The spaced app', actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } });`,
+		`export default defineApp(() => ({ description: 'The spaced app', actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } }));`,
 	);
 	const linked = await f.app(
 		'linked',
-		`export default defineApp({ description: 'The linked app', actions: {} });`,
+		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
 		// Inside the home: linked code finds packages from where it really is.
 		join(f.home, 'shelf'),
 	);
@@ -335,12 +335,12 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 	roots.push(f.root);
 	await f.app(
 		'counts',
-		`export default defineApp({description:'Counts',actions:{
+		`export default defineApp(({ folder }) => ({description:'Counts',actions:{
 		increment:defineAction({description:'Increment',input:{}, async run(){
-			await folder.update('local/count', (value = '0') => String(Number(value) + 1));
+			await folder.edit('local/count', (value = '0') => Ok({ text: String(Number(value) + 1) }));
 			return Ok('done');
 		}}),
-	}});`,
+	}}));`,
 	);
 	const preload = join(f.root, 'fail-first-output.ts');
 	await writeFile(
@@ -401,7 +401,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	).toBe(true);
 	const target = await f.app(
 		'linked',
-		`export default defineApp({ description: 'The linked app', actions: {} });`,
+		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
 		// Inside the home: linked code finds packages from where it really is.
 		join(f.home, 'shelf'),
 	);

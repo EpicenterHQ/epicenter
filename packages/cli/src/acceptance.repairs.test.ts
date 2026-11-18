@@ -25,7 +25,7 @@ afterEach(async () => {
 
 /** An app whose actions each exercise one repair. */
 const repairsCode = `${header}
-export default defineApp({
+export default defineApp(({ folder }) => ({
 	description: 'The notes app',
 	actions: {
 		two: defineAction({
@@ -50,7 +50,7 @@ export default defineApp({
 			run: (input) => Ok(input),
 		}),
 	},
-});
+}));
 `;
 
 const repairsApp = {
@@ -95,7 +95,7 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 	await f.app(
 		'loud',
 		`console.log('noise while importing');
-export default defineApp({ description: 'The loud app', actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } });
+export default defineApp(() => ({ description: 'The loud app', actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => Ok('hello') }) } }));
 `,
 	);
 	const { client, close } = await connectMcp(f, ['--no-install']);
@@ -168,7 +168,7 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 	const f = await setup();
 	await f.app(
 		'other',
-		`export default defineApp({ description: 'Another app', actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } });\n`,
+		`export default defineApp(() => ({ description: 'Another app', actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => Ok('hi') }) } }));\n`,
 	);
 	const listed = await f.json('other');
 	expect(listed.code).toBe(0);

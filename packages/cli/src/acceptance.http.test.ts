@@ -114,7 +114,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'outside',
-			`export default defineApp({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } });`,
+			`export default defineApp(({ folder }) => ({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } }));`,
 			f.root,
 		),
 	);
@@ -131,7 +131,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 test('the browser client calls a tool without initialize and writes its record', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
-	const client = connect<Reading>({
+	const client = connect<() => Reading>({
 		app: 'reading',
 		url: `${f.base}/`,
 	});
@@ -147,7 +147,7 @@ test('the browser client calls a tool without initialize and writes its record',
 
 test('read-only calls return and a write followed by a throw preserves its error', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
-	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
+	const client = connect<() => Reading>({ app: 'reading', url: `${f.base}/` });
 	// Read-only calls and throwing calls preserve their return/error contracts.
 	expect(expectOk(await client.week.show())).toBe(210);
 	expect(expectOk(await client.week.show())).toBe(210);
@@ -162,7 +162,7 @@ test('read-only calls return and a write followed by a throw preserves its error
 test('concurrent updates to one record both land', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
-	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
+	const client = connect<() => Reading>({ app: 'reading', url: `${f.base}/` });
 	for (const result of await Promise.all([
 		client.log({ minutes: 10 }),
 		client.log({ minutes: 20 }),
@@ -177,16 +177,18 @@ test('two calls at once on different files preserve both records', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'notes',
-			`export default defineApp({ description: 'Notes', actions: {
+			`export default defineApp(({ folder }) => ({ description: 'Notes', actions: {
 		write: defineAction({ description: 'Write a page', input: { page: field.text() },
 			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return Ok(page); } }),
-	} });`,
+	} }));`,
 		),
 	);
 	const folder = f.made;
-	const client = connect<{
-		actions: { write: (input: { page: string }) => Ok<string> };
-	}>({ app: 'notes', url: `${f.base}/` });
+	const client = connect<
+		() => {
+			actions: { write: (input: { page: string }) => Ok<string> };
+		}
+	>({ app: 'notes', url: `${f.base}/` });
 	// Changes beside concurrent calls survive their writes.
 	expectOk(await client.write({ page: 'sunday' }));
 	await writeFile(join(folder, 'data/by-hand.md'), 'by hand\n');
@@ -206,7 +208,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		folder: await f.folder(join(f.apps, 'reading'), readingApp),
 		linked: await f.app(
 			'linked',
-			`export default defineApp({ description: 'Linked UI', actions: {} });\n`,
+			`export default defineApp(() => ({ description: 'Linked UI', actions: {} }));\n`,
 		),
 	}));
 	const { folder, linked } = f.made;
@@ -286,7 +288,7 @@ test('serve serves ui/dist/ as the build left it and never builds; an unbuilt UI
  * Talk: `say` sends each word as an update and returns them joined; `drip`
  * writes, sends five updates slowly, and writes again in its `finally`.
  */
-const talk = `export default defineApp({ description: 'Talk', actions: {
+const talk = `export default defineApp(({ folder }) => ({ description: 'Talk', actions: {
  refuse: defineAction({description:'Refuse after checking',input:{},async run(_input, update){update('checked');return Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'});}}),
 	say: defineAction({
 		description: 'Say words one at a time',
@@ -324,7 +326,7 @@ const talk = `export default defineApp({ description: 'Talk', actions: {
 			return Ok('untangled');
 		},
 	}),
-} });
+} }));
 `;
 
 /** A raw call's JSON lines. */
@@ -337,7 +339,7 @@ const linesOf = async (response: Response) =>
 test("a UI's call hears each update in order, then its answer; a raw call reads them as JSON lines; MCP gets only the answer", async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const heard: unknown[] = [];
-	const client = connect<{ actions: { say: TalkSay } }>({
+	const client = connect<() => { actions: { say: TalkSay } }>({
 		app: 'talk',
 		url: `${f.base}/`,
 	});
@@ -445,7 +447,7 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 		expect(await response.json()).toEqual(notStarted(fields));
 	}
 	expect((await post('talk/say/extra', '{}')).status).toBe(404);
-	const client = connect<{ actions: { sing: TalkSay } }>({
+	const client = connect<() => { actions: { sing: TalkSay } }>({
 		app: 'talk',
 		url: `${f.base}/`,
 	});
@@ -490,11 +492,13 @@ test('a caller that leaves stops reading; the action runs to its end', async () 
 
 test('a listener that fails does not stop the action or the call', async () => {
 	const f = await setup((f) => f.app('talk', talk));
-	const client = connect<{
-		actions: {
-			drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
-		};
-	}>({ app: 'talk', url: `${f.base}/` });
+	const client = connect<
+		() => {
+			actions: {
+				drip: Action<Record<string, never>, Promise<Ok<string>>, number>;
+			};
+		}
+	>({ app: 'talk', url: `${f.base}/` });
 	const page = globalThis as { reportError?: (cause: unknown) => void };
 	const original = page.reportError;
 	const reported: unknown[] = [];
@@ -538,7 +542,7 @@ test('unserializable action throws still answer Threw, and preserve writes', asy
 		f.app(
 			'failure',
 			`
-export default defineApp({ description: 'Failure', actions: {
+export default defineApp(({ folder }) => ({ description: 'Failure', actions: {
 	fail: defineAction({ description: 'Write then throw', input: { kind: field.text() },
 		run: async ({ kind }) => {
 			await folder.write('data/' + kind + '.md', kind);
@@ -551,12 +555,14 @@ export default defineApp({ description: 'Failure', actions: {
 			throw thrown;
 		},
 	}),
-} });`,
+} }));`,
 		),
 	);
-	const client = connect<{
-		actions: { fail: (input: { kind: string }) => never };
-	}>({
+	const client = connect<
+		() => {
+			actions: { fail: (input: { kind: string }) => never };
+		}
+	>({
 		app: 'failure',
 		url: `${f.base}/`,
 	});
@@ -597,7 +603,7 @@ test('shared errors cross a real call after writes without claiming rollback or 
 			'failures',
 			`
 import { ActionError } from '@epicenter/app';
-export default defineApp({ description: 'Shared failures', actions: {
+export default defineApp(({ folder }) => ({ description: 'Shared failures', actions: {
 	fail: defineAction({ description: 'Write then fail', input: { kind: field.text(), how: field.text() },
 		run: async ({ kind, how }) => {
 			await folder.write('data/' + how + '-' + kind + '.md', kind);
@@ -617,17 +623,22 @@ export default defineApp({ description: 'Shared failures', actions: {
 			throw cases[kind];
 		},
 	}),
-} });`,
+} }));`,
 		),
 	);
-	const client = connect<{
-		actions: {
-			fail: (input: {
-				kind: string;
-				how: string;
-			}) => Result<never, { name: string; message: string; proposal?: string }>;
-		};
-	}>({ app: 'failures', url: `${f.base}/` });
+	const client = connect<
+		() => {
+			actions: {
+				fail: (input: {
+					kind: string;
+					how: string;
+				}) => Result<
+					never,
+					{ name: string; message: string; proposal?: string }
+				>;
+			};
+		}
+	>({ app: 'failures', url: `${f.base}/` });
 	for (const how of ['return', 'throw']) {
 		for (const kind of [
 			'Changed',
@@ -702,12 +713,12 @@ test('serve keeps nothing about a call: a second call runs the action again', as
 	const f = await setup((f) =>
 		f.app(
 			'counter',
-			`export default defineApp({ description: 'Counter', actions: {
+			`export default defineApp(({ folder }) => ({ description: 'Counter', actions: {
  bump: defineAction({ description: 'Count one more', input: {}, async run() {
-  await folder.update('local/count', (value = '0') => String(Number(value) + 1));
+  await folder.edit('local/count', (value = '0') => Ok({ text: String(Number(value) + 1) }));
   return Ok(null);
  } }),
-} });`,
+} }));`,
 		),
 	);
 	for (const expected of ['1', '2']) {
@@ -730,13 +741,13 @@ test('an edit to epicenter.ts, or to a file it imports, reaches the next call wi
 		f.folder(join(f.apps, 'echo'), {
 			'code/word.ts': "export const word = 'one';\n",
 			'code/epicenter.ts': `${header}import { word } from './word.ts';
-export default defineApp({ description: 'Echo', actions: {
+export default defineApp(() => ({ description: 'Echo', actions: {
 	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok(word) }),
-} });
+} }));
 `,
 		}),
 	);
-	const client = connect<{ actions: { hello: () => Ok<string> } }>({
+	const client = connect<() => { actions: { hello: () => Ok<string> } }>({
 		app: 'echo',
 		url: `${f.base}/`,
 	});
@@ -745,9 +756,9 @@ export default defineApp({ description: 'Echo', actions: {
 	expect(expectOk(await client.hello())).toBe('two');
 	await writeFile(
 		join(f.made, 'code/epicenter.ts'),
-		`${header}export default defineApp({ description: 'Echo', actions: {
+		`${header}export default defineApp(() => ({ description: 'Echo', actions: {
 	hello: defineAction({ description: 'Say the word', input: {}, run: () => Ok('three') }),
-} });
+} }));
 `,
 	);
 	expect(expectOk(await client.hello())).toBe('three');
@@ -804,17 +815,19 @@ test('a cross-origin call is refused before the action runs', async () => {
 
 test('an update precedes a returned app refusal for UI and raw HTTP callers', async () => {
 	const f = await setup((f) => f.app('talk', talk));
-	const client = connect<{
-		actions: {
-			refuse: Action<
-				Record<string, never>,
-				Promise<
-					Result<never, { name: 'NoRoute'; message: string; airport: string }>
-				>,
-				string
-			>;
-		};
-	}>({ app: 'talk', url: `${f.base}/` });
+	const client = connect<
+		() => {
+			actions: {
+				refuse: Action<
+					Record<string, never>,
+					Promise<
+						Result<never, { name: 'NoRoute'; message: string; airport: string }>
+					>,
+					string
+				>;
+			};
+		}
+	>({ app: 'talk', url: `${f.base}/` });
 	const heard: string[] = [];
 	expect(
 		expectErr(

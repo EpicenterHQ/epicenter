@@ -75,12 +75,13 @@ test('a routine runs an app action', async () => {
 	const f = await setup(['epicenter', 'counter', 'add']);
 	const app = await f.app(
 		'counter',
-		`export default defineApp({ description: 'Counter', actions: {
+		`export default defineApp(({ folder }) => ({ description: 'Counter', actions: {
     add: defineAction({ description: 'Count', input: {}, run: async () => {
-      const count = Number(await folder.read('data/count.txt') ?? 0) + 1;
+      const file = Bun.file(folder.path + '/data/count.txt');
+      const count = Number((await file.exists()) ? await file.text() : 0) + 1;
       await folder.write('data/count.txt', String(count)); return Ok(count);
     } })
-  } });`,
+  } }));`,
 	);
 	// The routine's command sends its action to the home's serve.
 	await f.serve();

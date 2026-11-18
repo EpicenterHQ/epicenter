@@ -20,7 +20,7 @@ async function setup() {
 }
 
 const journalCode = `${header}
-export default defineApp({
+export default defineApp(({ folder }) => ({
 	description: 'The journal app',
 	actions: {
 		write: defineAction({
@@ -43,7 +43,7 @@ export default defineApp({
 			},
 		}),
 	},
-});
+}));
 `;
 
 const journal = {

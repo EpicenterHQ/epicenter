@@ -29,6 +29,7 @@
  * ```
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
+ * `connect` reads the actions from what the app's function returns.
  */
 import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
@@ -80,12 +81,12 @@ type JsonOf<T> = unknown extends T
 							}
 						>;
 
-/** What action `A` takes from a caller: `ActionInput<typeof app.actions.set>`. */
+/** What action `A` takes from a caller: `ActionInput<Actions['set']>`, where `Actions` is `ReturnType<typeof app>['actions']`. */
 export type ActionInput<A> = A extends (input: infer In) => unknown
 	? In
 	: never;
 
-/** What action `A` returns to a client, in its JSON form: `ActionOutput<typeof app.actions.get>`. */
+/** What action `A` returns to a client, in its JSON form: `ActionOutput<Actions['get']>`. */
 type ReturnedBy<A> = A extends (input: never) => infer Out
 	? Awaited<Out>
 	: never;
@@ -183,13 +184,13 @@ async function call(
  * defaults to this origin's `/`, where `epicenter serve` answers the UIs it
  * serves: an action is `POST <url><app>/<words joined by .>`.
  */
-export function connect<App extends { actions: object }>({
+export function connect<App extends (given: never) => { actions: object }>({
 	app,
 	url = '/',
 }: {
 	app?: string;
 	url?: string;
-} = {}): AppClient<App['actions']> {
+} = {}): AppClient<ReturnType<App>['actions']> {
 	const name = app ?? appOfPage();
 	const base = url.endsWith('/') ? url : `${url}/`;
 	const at = (words: string[]): unknown =>
@@ -208,7 +209,7 @@ export function connect<App extends { actions: object }>({
 				);
 			},
 		});
-	return at([]) as AppClient<App['actions']>;
+	return at([]) as AppClient<ReturnType<App>['actions']>;
 }
 
 /** The app whose `/<app>/` serves this page. */

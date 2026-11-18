@@ -3,17 +3,10 @@
  * app's, and report the records that do not fit their declaration, so a
  * person or an agent can repair them. `--json` also counts each key's
  * problems by kind, so one declaration that is too narrow reads as one cause
- * rather than as many broken files. The read runs in a run of the app's
- * folder, as an action's does, and writes nothing.
+ * rather than as many broken files. It reads the app's folder and writes
+ * nothing.
  */
-import {
-	ActionError,
-	type Answer,
-	checkData,
-	Err,
-	inRun,
-	Ok,
-} from '@epicenter/app';
+import { ActionError, type Answer, checkData, Err, Ok } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { parseWords } from './commands.ts';
 import { discoverAll, loadHomeApp, type Runnable } from './home.ts';
@@ -37,11 +30,11 @@ type Checked = {
 /** An app that could not be checked: it did not load, or a read failed. */
 type Unchecked = { entry: string; folder: string; problems: string[] };
 
-/** Every data key of `located`, read in a read-only run of its folder. */
+/** Every data key of `located`, read from its folder; nothing is written. */
 async function checkApp(located: Runnable) {
 	const { data } = located.app;
 	if (!data) return {};
-	const found = await inRun(located.context, () => checkData(data));
+	const found = await checkData(located.realPath, data);
 	const checked: Record<string, Checked> = {};
 	for (const [key, each] of Object.entries(found))
 		checked[key] = {

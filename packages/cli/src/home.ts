@@ -16,8 +16,9 @@ import {
 	ActionError,
 	type Actions,
 	type App,
-	type Context,
 	defineApp,
+	type Folder,
+	folderOnDisk,
 	isAction,
 	isName,
 	type NotStarted,
@@ -25,7 +26,6 @@ import {
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
-import { folderOnDisk } from './disk.ts';
 import { libraryProblem } from './library.ts';
 import { appsDir, epicenterRoot } from './root.ts';
 
@@ -49,12 +49,10 @@ type Located =
 	| (Place & {
 			ok: true;
 			name: string;
-			/** What `epicenter.ts` default-exports. */
+			/** What the function `epicenter.ts` default-exports returned for the app's folder. */
 			app: App;
 			/** Every action by its words, one space apart, as the command line and MCP name it. */
 			actions: Record<string, Action>;
-			/** The folder a run of its actions reaches. */
-			context: Context;
 	  })
 	| (Place & { ok: false; problems: string[] });
 
@@ -174,13 +172,15 @@ async function load(
 		return thrown(error);
 	}
 	const exported = module.default;
-	if (typeof exported !== 'object' || exported === null)
+	if (typeof exported !== 'function')
 		return broken([`${CODE} does not export defineApp(...) by default`]);
 	let app: App;
 	let actions: Record<string, Action>;
 	try {
-		// `defineApp` returns what it is given once it has checked it, so this checks the export's whole shape.
-		app = defineApp(exported as App);
+		// Through `defineApp` again, so the call checks what the export returns, however it was made.
+		app = defineApp(exported as (given: { folder: Folder }) => App)({
+			folder: folderOnDisk(place.realPath),
+		});
 		actions = Object.fromEntries(byWords(app.actions));
 	} catch (error) {
 		return thrown(error);
@@ -191,7 +191,6 @@ async function load(
 		name: entry,
 		app,
 		actions,
-		context: { folder: folderOnDisk(place.realPath) },
 	};
 }
 

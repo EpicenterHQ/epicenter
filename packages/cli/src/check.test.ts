@@ -30,13 +30,17 @@ afterEach(async () => {
 });
 
 const tasks = `
-const data = defineData({ items: { fields: { title: field.text(), due: field.date({ optional: true }) } } });
-export default defineApp({ description: 'Tasks', data, actions: {} });
+export default defineApp(({ folder }) => {
+const data = defineData(folder, { items: { fields: { title: field.text(), due: field.date({ optional: true }) } } });
+return { description: 'Tasks', data, actions: {} };
+});
 `;
 
 const books = `
-const data = defineData({ books: { fields: { title: field.text() } } });
-export default defineApp({ description: 'Books', data, actions: {} });
+export default defineApp(({ folder }) => {
+const data = defineData(folder, { books: { fields: { title: field.text() } } });
+return { description: 'Books', data, actions: {} };
+});
 `;
 
 async function setup() {

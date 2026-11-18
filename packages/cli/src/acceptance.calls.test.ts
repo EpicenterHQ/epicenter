@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 const notesCode = `${header}
 import { ActionError } from '@epicenter/app';
-export default defineApp({
+export default defineApp(({ folder }) => ({
 	description: 'The notes app',
 	actions: {
   declined: defineAction({description:'Decline',input:{},run:()=>ActionError.Refused({message:'Nothing to write',next:'epicenter notes write'})}),
@@ -54,7 +54,7 @@ export default defineApp({
 			description: 'Write a binary',
 			input: {},
 			run: async () => {
-				await folder.writeBytes('data/cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
+				await folder.write('data/cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
 			 return Ok(undefined); },
 		}),
 		half: defineAction({
@@ -113,7 +113,7 @@ export default defineApp({
 			},
 		}),
 	},
-});
+}));
 `;
 
 const notesApp = {
@@ -219,8 +219,10 @@ test('C11 concurrent patches of different fields on one file all land', async ()
 	const fields = Array.from({ length: 10 }, (_, i) => `f${i}`);
 	await f.folder(join(f.apps, 'many'), {
 		'code/epicenter.ts': `${header}
-const data = defineData({ items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
-export default defineApp({ description: 'Many fields', data, actions: { items: data.items.actions('patch') } });
+export default defineApp(({ folder }) => {
+const data = defineData(folder, { items: { fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } } });
+return { description: 'Many fields', data, actions: { items: data.items.actions('patch') } };
+});
 `,
 		'data/items/one.md': '---\n---\n',
 	});
@@ -244,13 +246,13 @@ test('a command sends its action to serve, and is refused and runs nothing while
 	const f = await setup();
 	const where = await f.folder(join(f.apps, 'where'), {
 		'code/epicenter.ts': `${header}
-export default defineApp({ description: 'Where', actions: {
+export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 	am: defineAction({ description: 'Say which process ran this', input: {}, run: async (_input, update) => {
-		await folder.update('data/ran.txt', (before = '') => before + 'x');
+		await folder.edit('data/ran.txt', (before = '') => Ok({ text: before + 'x' }));
 		update('here');
 		return Ok(process.pid);
 	} }),
-} });
+} }));
 `,
 	});
 	const ran = () => readFile(join(where, 'data/ran.txt'), 'utf8');

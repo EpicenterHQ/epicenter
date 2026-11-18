@@ -10,10 +10,10 @@
  */
 import { expect, test } from 'bun:test';
 import {
-	createMemoryContext,
 	defineAction,
 	defineApp,
 	defineData,
+	type Folder,
 	field,
 	Ok,
 } from '@epicenter/app';
@@ -21,7 +21,7 @@ import type { Runnable } from './home.ts';
 import { oneAppListing } from './listing.ts';
 
 test("a reference's schema names its target key in the listing", () => {
-	const data = defineData({
+	const data = defineData({} as Folder, {
 		shelves: { fields: {} },
 		books: { fields: { shelf: field.ref('shelves', { optional: true }) } },
 	});
@@ -30,7 +30,11 @@ test("a reference's schema names its target key in the listing", () => {
 		input: { shelves: field.list(field.ref('shelves')) },
 		run: (input) => Ok(input),
 	});
-	const app = defineApp({ description: 'Books', data, actions: { shelve } });
+	const app = defineApp(() => ({
+		description: 'Books',
+		data,
+		actions: { shelve },
+	}))({ folder: {} as Folder });
 	const located: Runnable = {
 		entry: 'books',
 		folder: '/tmp/books',
@@ -40,7 +44,6 @@ test("a reference's schema names its target key in the listing", () => {
 		name: 'books',
 		app,
 		actions: { shelve },
-		context: createMemoryContext(),
 	};
 	const listed = oneAppListing(located, true) as {
 		data: Record<string, { fields: { properties: object } }>;

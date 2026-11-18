@@ -6,7 +6,6 @@ import {
 	type Answer,
 	Err,
 	encodeActionResult,
-	inRun,
 	isActionResult,
 	RESERVED_NAMES,
 } from '@epicenter/app';
@@ -41,9 +40,7 @@ export async function runAction(
 	const started = performance.now();
 	let answer: Answer;
 	try {
-		const result = await inRun({ ...located.context }, () =>
-			action(input, { onUpdate }),
-		);
+		const result = await action(input, { onUpdate });
 		// An action made without `defineAction` is checked here, where every call passes.
 		if (!isActionResult(result))
 			throw new TypeError(

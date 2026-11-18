@@ -12,6 +12,7 @@ test('a nested action returns the same refusal to HTTP, the CLI and MCP', async 
 			'notes',
 			`
 import { defineErrors } from '@epicenter/app';
+export default defineApp(({ folder }) => {
 const NotesError = defineErrors({
 	NoRoute: ({ airport }) => ({ message: 'No route from ' + airport, airport }),
 });
@@ -19,16 +20,17 @@ const lookup = defineAction({
 	description: 'Look for a route', input: {},
 	run: () => NotesError.NoRoute({ airport: 'LAX' }),
 });
-const data = defineData({ notes: { fields: {count: field.integer()} } });
+const data = defineData(folder, { notes: { fields: {count: field.integer()} } });
 const read = defineAction({ description: 'Read a note', input: {}, run: () => data.notes.get('a') });
-export default defineApp({description: 'Route notes', data, actions: {
+return {description: 'Route notes', data, actions: {
 	inspect: defineAction({description: 'Inspect a note', input: {}, run: () => read({})}),
 	empty: defineAction({ description: 'No data', input: {}, run: () => Ok(undefined) }),
 	check: defineAction({
 		description: 'Check a route', input: {},
 		async run(_input, update) { update('looking'); return await lookup({}); },
 	}),
-}});`,
+}};
+});`,
 		);
 		const dir = join(f.apps, 'notes', 'data', 'notes');
 		await mkdir(dir, { recursive: true });
@@ -62,12 +64,14 @@ export default defineApp({description: 'Route notes', data, actions: {
 					record: { body: 'repair me' },
 				},
 			});
-			const app = connect<{
-				actions: {
-					check: () => typeof returned;
-					inspect: () => typeof returned;
-				};
-			}>({ app: 'notes', url: mcp.served.base });
+			const app = connect<
+				() => {
+					actions: {
+						check: () => typeof returned;
+						inspect: () => typeof returned;
+					};
+				}
+			>({ app: 'notes', url: mcp.served.base });
 			expect(await app.inspect()).toEqual(misfitAnswer);
 			const misfitTool = await mcp.client.callTool({
 				name: 'notes_inspect',
@@ -114,7 +118,7 @@ const review = defineAction({
 		name: 'Usage', message: 'title is needed', next: 'epicenter drafts stage --help',
 	}),
 });
-export default defineApp({description: 'Staged drafts', actions: {
+export default defineApp(({ folder }) => ({description: 'Staged drafts', actions: {
 	stage: defineAction({
 		description: 'Keep the draft, then ask for a review',
 		input: { via: field.select(['cli','http','mcp']), title: field.text() },
@@ -123,7 +127,7 @@ export default defineApp({description: 'Staged drafts', actions: {
 			return review({ title });
 		},
 	}),
-}});`,
+}}));`,
 		);
 		const mcp = await connectMcp(f);
 		try {

@@ -10,7 +10,7 @@ afterEach(async () => {
 	for (const root of roots.splice(0))
 		await rm(root, { recursive: true, force: true });
 });
-const code = `export default defineApp({description:'X',actions:{put:defineAction({description:'Write',input:{},run:async()=>{await folder.write('data/record.md','record');return Ok(folder.path);}})}});`;
+const code = `export default defineApp(({ folder }) => ({description:'X',actions:{put:defineAction({description:'Write',input:{},run:async()=>{await folder.write('data/record.md','record');return Ok(folder.path);}})}}));`;
 test('missing and broken code entries list problems without hiding valid apps; a top-level epicenter.ts is not an app', async () => {
 	const f = await fixture();
 	roots.push(f.root);

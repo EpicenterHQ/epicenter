@@ -4,7 +4,9 @@
  * consistent between human reports and JSON.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fixture } from './runner.test-support.ts';
 
@@ -16,35 +18,33 @@ afterEach(async () => {
 	);
 });
 
-async function setup(aliasInventory = false) {
+async function setup() {
 	const f = await fixture();
 	roots.push(f.root);
 	const app = await f.app(
 		'flights',
-		`
-const data = defineData({
-  watches: { fields: { from: field.text() } },
-  checks: { fields: { watch: field.ref('watches'), day: field.date(), many: field.list(field.ref('watches')) } },
-  'settings.md': { fields: { level: field.integer() } },
-});
-${
-	aliasInventory
-		? `
-// Preserve a case-sensitive inventory even when the host disk merges the names.
-const diskList = folder.list;
-folder.list = async (dir) => {
-  const paths = await diskList(dir);
-  return dir === 'data/watches' && paths.includes('data/watches/DUNE.md')
-    ? [...new Set([...paths, 'data/watches/Dune.md'])]
-    : paths;
-};`
-		: ''
-}
-export default defineApp({ description: 'Flights', data, actions: {} });
+		`export default defineApp(({ folder }) => ({
+  description: 'Flights',
+  data: defineData(folder, {
+    watches: { fields: { from: field.text() } },
+    checks: { fields: { watch: field.ref('watches'), day: field.date(), many: field.list(field.ref('watches')) } },
+    'settings.md': { fields: { level: field.integer() } },
+  }),
+  actions: {},
+}));
 `,
 	);
 	return { ...f, dataPath: join(app, 'data') };
 }
+
+/** Whether this computer's temporary disk takes two names that differ only by case as one file. */
+const foldsCase = (() => {
+	const dir = mkdtempSync(join(tmpdir(), 'epicenter-case-'));
+	writeFileSync(join(dir, 'A'), '');
+	const folds = existsSync(join(dir, 'a'));
+	rmSync(dir, { recursive: true });
+	return folds;
+})();
 
 test('fitting folders and absent single files exit 0 without counting ignored entries', async () => {
 	const f = await setup();
@@ -163,33 +163,37 @@ test('invalid reachable-looking names count as problems but their contents are n
 	expect(result.stdout).not.toContain('front matter');
 });
 
-test('case-folded names produce one alias problem naming both files and count both affected files', async () => {
-	const f = await setup(true);
-	await f.folder(f.dataPath, {
-		'watches/DUNE.md': '---\nfrom: "SFO"\n---\n',
-		'watches/Dune.md': '---\nfrom: "SFO"\n---\n',
-	});
-	const result = await f.run('check', 'flights', '--json');
-	expect(result.code).toBe(1);
-	expect(
-		JSON.parse(result.stdout).error.report.apps.flights.watches,
-	).toMatchObject({
-		files: 2,
-		withProblems: 2,
-		kinds: [{ kind: 'are one file on a disk that ignores case', count: 2 }],
-		records: [
-			{
-				path: 'watches/DUNE.md and watches/Dune.md',
-				problems: ['are one file on a disk that ignores case'],
-			},
-		],
-	});
-	const human = await f.run('check', 'flights');
-	expect(human.code).toBe(1);
-	expect(human.stdout).toContain(
-		'    watches/DUNE.md and watches/Dune.md\n      are one file on a disk that ignores case',
-	);
-});
+// Two such names can be made only on a disk that keeps them apart.
+test.skipIf(foldsCase)(
+	'case-folded names produce one alias problem naming both files and count both affected files',
+	async () => {
+		const f = await setup();
+		await f.folder(f.dataPath, {
+			'watches/DUNE.md': '---\nfrom: "SFO"\n---\n',
+			'watches/Dune.md': '---\nfrom: "SFO"\n---\n',
+		});
+		const result = await f.run('check', 'flights', '--json');
+		expect(result.code).toBe(1);
+		expect(
+			JSON.parse(result.stdout).error.report.apps.flights.watches,
+		).toMatchObject({
+			files: 2,
+			withProblems: 2,
+			kinds: [{ kind: 'are one file on a disk that ignores case', count: 2 }],
+			records: [
+				{
+					path: 'watches/DUNE.md and watches/Dune.md',
+					problems: ['are one file on a disk that ignores case'],
+				},
+			],
+		});
+		const human = await f.run('check', 'flights');
+		expect(human.code).toBe(1);
+		expect(human.stdout).toContain(
+			'    watches/DUNE.md and watches/Dune.md\n      are one file on a disk that ignores case',
+		);
+	},
+);
 
 test('refs require byte-exact ids of listed records, including list refs and misfit targets', async () => {
 	const f = await setup();
