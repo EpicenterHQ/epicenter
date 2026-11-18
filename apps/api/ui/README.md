@@ -22,10 +22,10 @@ person that cookie names, and retires both when it names someone else. Sign-in
 ceremonies remain outside that gate. A page owns its dialogs and redirects;
 leaving it must suppress late effects even when the dashboard Account survives.
 
-Apps use `createAccountManagementUrl` from `@epicenter/account` to open a destination
-with an expected principal. The website blocks a different signed-in account
-before mounting dashboard consumers. The URL is navigation context, never a
-credential. Sign-in and checkout preserve the intended destination.
+A dashboard link can include an `expectedPrincipal` query parameter. The
+website checks that value against the signed-in account before loading
+dashboard data. The cookie provides authentication. Sign-in and checkout
+preserve the intended destination.
 
 A visible balance refreshes on foreground return. Apps retry the actual
 operation independently of cached credit counts. There is no app purchase
