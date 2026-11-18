@@ -56,8 +56,6 @@ export type AppListing = {
 		{ path: string; description?: string; fields: ObjectSchema }
 	>;
 	actions: ActionTool[];
-	/** Present when the app returned `fetch`, whose routes no listing shows (ADR-0945). */
-	fetch?: true;
 };
 
 /** Everything serve offers, as `GET /actions/` answers it. */
@@ -93,7 +91,6 @@ export function appListing({ name, app }: LoadedApp): AppListing {
 		actions: Object.entries(app.actions).map(([key, action]) =>
 			actionTool(name, key, action),
 		),
-		...(app.fetch ? { fetch: true as const } : {}),
 	};
 }
 
@@ -112,4 +109,3 @@ export async function listApps(
 		routines,
 	};
 }
-

@@ -211,13 +211,12 @@ able to do is an action, because the command line and MCP never see `fetch`.
 app's `fetch` passes as it is; it reaches files by closing over `folder`.
 
 Serve answers `/apps/<app>/<path>` with a file from `code/ui/dist/` first, for
-`GET` and `HEAD`, then `fetch`. It removes `/apps/<app>` from the URL, so a
-route is `/oauth/callback`, and sets `X-Forwarded-Prefix: /apps/<app>`. A
-cross-site request reaches it only as a top-level `GET` navigation. Serve
+`GET` and `HEAD`, then `fetch`, with the request unchanged: a Hono app sets
+`basePath('/apps/<app>')`, its folder's name. A cross-site request reaches it only as a top-level `GET` navigation. Serve
 loads the app for each request, so keep nothing in memory between requests;
 an app that serves many files per page, such as media, waits for serve to
 load each app once (ADR-0959). Test it by calling
-`app({ folder }).fetch(new Request('http://localhost/oauth/callback?code=x'))`.
+`app({ folder }).fetch(new Request('http://localhost/apps/mail/oauth/callback?code=x'))`.
 
 The Epicenter is one Bun workspace and an app's code/ is one package
 of it: `code/package.json` is named for the app, and the Epicenter has the one

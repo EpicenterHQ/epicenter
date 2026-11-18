@@ -385,14 +385,16 @@ test('serve serves ui/dist/ as the build left it and never builds; an unbuilt UI
 
 /**
  * Mail: a built page and a `fetch` that reports what it was handed, writes an
- * OAuth code into `local/`, redirects, and throws on `/boom`.
+ * OAuth code into `local/`, redirects, and throws on `/boom`. It knows its own
+ * address, as a Hono app with \`basePath('/apps/mail')\` does.
  */
 const mail = `export default defineApp(({ folder }) => ({ description: 'Mail', actions: {}, fetch: async (request) => {
 	const url = new URL(request.url);
-	if (url.pathname === '/boom') throw new Error('mail broke');
-	if (url.pathname === '/odd') return 'not a response';
-	if (url.pathname === '/back') return Response.redirect('https://example.com/', 302);
-	if (url.pathname === '/oauth/callback') {
+	const at = (path) => url.pathname === '/apps/mail' + path;
+	if (at('/boom')) throw new Error('mail broke');
+	if (at('/odd')) return 'not a response';
+	if (at('/back')) return Response.redirect('https://example.com/', 302);
+	if (at('/oauth/callback')) {
 		await folder.write('local/code.txt', url.searchParams.get('code') ?? '');
 		return new Response('signed in');
 	}
@@ -400,7 +402,7 @@ const mail = `export default defineApp(({ folder }) => ({ description: 'Mail', a
 		method: request.method,
 		path: url.pathname,
 		query: url.search,
-		prefix: request.headers.get('x-forwarded-prefix'),
+		header: request.headers.get('x-mail'),
 		body: await request.text(),
 	});
 } }));
@@ -410,6 +412,10 @@ test("a request under /apps/<app>/ is a built file first, then the app's fetch, 
 	const f = await setup(async (f) => {
 		const folder = await f.app('mail', mail);
 		await f.folder(join(f.apps, 'reading'), readingApp);
+		await f.app(
+			'hook',
+			`export default defineApp(() => ({ description: 'Hook', actions: {}, fetch: () => new Response('hooked') }));\n`,
+		);
 		await f.app(
 			'broken',
 			`export default defineApp(() => ({ description: 'Broken', actions: {}, fetch: 'no' }));\n`,
@@ -425,28 +431,28 @@ test("a request under /apps/<app>/ is a built file first, then the app's fetch, 
 	expect(await (await at('mail/index.html', { method: 'HEAD' })).text()).toBe(
 		'',
 	);
-	// The app sees its own path, with its query, and the prefix it was served at.
+	// The app gets the request as it came: its whole path, query and headers.
 	expect(
 		await (
 			await at('mail/inbox/2026?unread=1', {
 				method: 'POST',
 				body: 'hello',
-				headers: { 'x-forwarded-prefix': '/spoofed' },
+				headers: { 'x-mail': 'kept' },
 			})
 		).json(),
 	).toEqual({
 		method: 'POST',
-		path: '/inbox/2026',
+		path: '/apps/mail/inbox/2026',
 		query: '?unread=1',
-		prefix: '/apps/mail',
+		header: 'kept',
 		body: 'hello',
 	});
 	expect(await (await at('mail/', { method: 'POST' })).json()).toMatchObject({
-		path: '/',
+		path: '/apps/mail/',
 	});
 	// A dot path is never a file, so it reaches fetch.
 	expect(await (await at('mail/.well-known/x')).json()).toMatchObject({
-		path: '/.well-known/x',
+		path: '/apps/mail/.well-known/x',
 	});
 	expect(await (await at('mail/oauth/callback?code=abc')).text()).toBe(
 		'signed in',
@@ -465,10 +471,12 @@ test("a request under /apps/<app>/ is a built file first, then the app's fetch, 
 	const broken = await at('broken/x');
 	expect(broken.status).toBe(500);
 	expect(await broken.text()).toContain("An app's fetch is a function");
-	// The launcher lists an app with a page or a fetch, and not one with neither.
+	// The launcher lists an app with a built page, and not one with only fetch.
+	expect(await (await at('hook/')).text()).toBe('hooked');
 	const launcher = await (await fetch(`${f.base}/`)).text();
 	expect(launcher).toContain('href="/apps/mail/"');
 	expect(launcher).not.toContain('href="/apps/reading/"');
+	expect(launcher).not.toContain('href="/apps/hook/"');
 	// The old addresses answer nothing.
 	expect((await fetch(`${f.base}/mail/`)).status).toBe(404);
 });

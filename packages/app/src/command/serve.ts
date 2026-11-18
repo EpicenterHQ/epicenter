@@ -13,8 +13,7 @@
  * Serve's own routes take their own first segment, and everything under
  * `/apps/<app>/` belongs to the app (ADR-0967). A `GET` or `HEAD` there is a
  * file from the app's own build when one matches. Any other request goes to
- * the `fetch` the app returned, if any, with `/apps/<app>` removed from its
- * URL and `X-Forwarded-Prefix` set to it (ADR-0945).
+ * the `fetch` the app returned, if any, unchanged (ADR-0945).
  *
  * Serve alone loads app code and reads an action's input (ADR-0961). A page
  * and the `epicenter` command call an action the same way, and serve answers
@@ -242,7 +241,7 @@ async function listing(root: EpicenterRoot) {
 }
 
 /**
- * `GET /`: the launcher page of each app with a built page or a `fetch`;
+ * `GET /`: the launcher, a link to each app with a built page;
  * 405 when MCP asks for an event stream.
  */
 async function launcher(root: EpicenterRoot, request: Request) {
@@ -254,12 +253,9 @@ async function launcher(root: EpicenterRoot, request: Request) {
 		return methodNotAllowed('GET, HEAD, POST');
 	const listed = await listApps(root);
 	const apps = await Promise.all(
-		listed.apps.map(async ({ name, description, fetch }) => {
+		listed.apps.map(async ({ name, description }) => {
 			const entry = await findEntry(root, name);
-			if (!entry) return undefined;
-			// An app with no build step may answer its page from fetch.
-			const page = (await uiFile(entry, 'index.html')).ok;
-			if (!page && !fetch) return undefined;
+			if (!entry || !(await uiFile(entry, 'index.html')).ok) return undefined;
 			return {
 				name,
 				description,
@@ -305,19 +301,18 @@ async function app(
 		const file = await uiFile(entry, path);
 		if (file.ok) return file;
 	}
-	return appFetch(root, request, entry, path);
+	return appFetch(root, request, entry);
 }
 
 /**
- * Hand a request no file answered to the app's `fetch`, with `/apps/<app>`
- * removed from its URL and `X-Forwarded-Prefix` naming it. An app without
+ * Hand a request no file answered to the app's `fetch`, unchanged: the app
+ * knows its address, `/apps/<app>/`, from its folder's name. An app without
  * `fetch` answers 404; one that does not load answers 500 with its problems.
  */
 async function appFetch(
 	root: EpicenterRoot,
 	request: Request,
 	entry: AppEntry,
-	path: string,
 ): Promise<Response> {
 	const { data: loaded, error: notLoaded } = await loadEntry(entry);
 	if (notLoaded)
@@ -326,19 +321,8 @@ async function appFetch(
 		});
 	const handler = loaded.app.fetch;
 	if (!handler) return notFound();
-	const url = new URL(request.url);
-	url.pathname = `/${path}`;
-	const headers = new Headers(request.headers);
-	headers.set('x-forwarded-prefix', `/apps/${entry.name}`);
-	const given = new Request(url.href, {
-		method: request.method,
-		headers,
-		body: request.body,
-		redirect: 'manual',
-		signal: request.signal,
-	});
 	try {
-		const response = await handler(given);
+		const response = await handler(request);
 		if (response instanceof Response) return response;
 		throw new Error(
 			`answered ${response === null ? 'null' : typeof response}, not a Response`,

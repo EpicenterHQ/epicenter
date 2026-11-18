@@ -631,7 +631,7 @@ import { defineApp } from '@epicenter/app';
 import { Hono } from 'hono';
 
 export default defineApp(({ folder }) => {
-	const web = new Hono();
+	const web = new Hono().basePath('/apps/mail');
 	web.get('/oauth/callback', async (c) => {
 		await folder.write('local/code.txt', c.req.query('code') ?? '');
 		return c.redirect('../');
@@ -642,18 +642,16 @@ export default defineApp(({ folder }) => {
 
 `epicenter serve` gives each app the address `/apps/<app>/`. A `GET` or `HEAD`
 there answers a file from `code/ui/dist/` when one matches; every other
-request goes to `fetch`, and an app without one answers 404. Serve removes
-`/apps/<app>` from the URL, so the route above is `/oauth/callback` and
-survives a rename of the app's folder. It sets
-`X-Forwarded-Prefix: /apps/<app>` for an app that writes absolute links.
-Method, headers and body pass unchanged; a body over 25 MB is refused with
-413. A `fetch` that throws answers 500, and serve logs a line naming the app.
+request goes to `fetch`, and an app without one answers 404. The request
+arrives as the browser sent it, whole path included, so the app names its
+own address: `basePath('/apps/mail')` above, after its folder. A body over
+25 MB is refused with 413. A `fetch` that throws answers 500, and serve logs a line naming the app.
 
 `fetch` is for protocols someone else defined: an OAuth redirect, a file
 download, a feed, a form upload, or an app's own page when it has no build
 step. The command line and MCP never see its routes, so anything a person or
-an agent should be able to do is an action. Bare `epicenter` marks an app
-with `fetch` as `(answers web requests)`.
+an agent should be able to do is an action. The launcher links only to an
+app with a built page.
 
 Serve refuses a request a browser marks as coming from another site
 (`Sec-Fetch-Site: cross-site`) unless it opens a page: a top-level `GET`

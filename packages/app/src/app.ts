@@ -53,9 +53,9 @@ export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
 	readonly actions: A;
 	/**
 	 * Answer a web request under `/apps/<app>/` that no built file answers.
-	 * Serve removes `/apps/<app>` from the URL, so `/apps/mail/oauth/callback`
-	 * arrives as `/oauth/callback`, and sets `X-Forwarded-Prefix: /apps/<app>`.
-	 * A Hono or Elysia app's `fetch` fits as it is.
+	 * The request arrives as it was sent, whole path included: the app's
+	 * address is `/apps/` and its folder's name, so a Hono app is
+	 * `new Hono().basePath('/apps/mail')` and its `fetch` fits as it is.
 	 */
 	readonly fetch?: (request: Request) => Response | Promise<Response>;
 };
@@ -154,8 +154,7 @@ function appProblems(app: unknown): string[] {
 			else if (isAction(entry)) continue;
 			else if (
 				isObject(entry) &&
-				(typeof (entry as { description?: unknown }).description ===
-					'string' ||
+				(typeof (entry as { description?: unknown }).description === 'string' ||
 					(typeof (entry as { run?: unknown }).run === 'function' &&
 						!isAction((entry as { run?: unknown }).run)))
 			)

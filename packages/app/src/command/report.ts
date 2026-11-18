@@ -19,12 +19,7 @@ import {
 import type { AppProblems } from './apps.ts';
 import { exampleCommand, noSuchAction, usageLine } from './input.ts';
 import type { ActionTool, AppListing, Listing } from './listing.ts';
-import {
-	appProblems,
-	fromToolName,
-	toolName,
-	unknownApp,
-} from './protocol.ts';
+import { appProblems, fromToolName, toolName, unknownApp } from './protocol.ts';
 import { appPath, type EpicenterRoot } from './root.ts';
 
 /** Each app's problems as `--json` prints them, with the folder serve does not say. */
@@ -59,11 +54,6 @@ function readOnly(tool: ActionTool) {
 	return tool.annotations?.readOnlyHint ? ' (read-only)' : '';
 }
 
-/** " (answers web requests)" for an app that returned `fetch`, whose routes no listing shows. */
-function answersWeb(app: AppListing) {
-	return app.fetch ? ' (answers web requests)' : '';
-}
-
 /** " (not offered to agents)" for an action serve keeps out of its MCP tools. */
 function notOffered(tool: ActionTool) {
 	return tool.mcp === false ? ' (not offered to agents)' : '';
@@ -90,8 +80,7 @@ export function rootReport(
 		};
 	const width = Math.max(0, ...apps.map(({ name }) => name.length));
 	const lines = apps.map(
-		(app) =>
-			`${app.name.padEnd(width)}  ${app.description}${answersWeb(app)}`,
+		(app) => `${app.name.padEnd(width)}  ${app.description}`,
 	);
 	if (!apps.length)
 		lines.push('No apps yet. An app is apps/<name>/code/epicenter.ts');
@@ -154,7 +143,7 @@ export function appReport(
 	if (json) return Ok(withFolder(app, root));
 	return Ok(
 		[
-			`${app.name}  ${app.description}${answersWeb(app)}`,
+			`${app.name}  ${app.description}`,
 			`folder: ${appPath(root, app.name)}`,
 			'',
 			...Object.entries(app.data ?? {}).flatMap(([key, each]) => [
