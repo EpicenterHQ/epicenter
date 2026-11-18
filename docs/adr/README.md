@@ -1142,7 +1142,7 @@ When you add an ADR, add its row here.
 | [0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) | An action's input on the command line is one JSON object | Proposed (amends 0841 and 0907) |
 | [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | An action returns one Result from its collections to its callers | Accepted (amends 0850 and 0914; amended by 0953) |
 | [0927](0927-serve-listens-only-on-this-computer.md) | `serve` listens only on this computer, and the owner's network brings other devices in | Accepted (amends 0883) |
-| [0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md) | `new` copies an app's code from a folder in Git or a folder on GitHub | Accepted (amends 0904, 0910, 0912) |
+| [0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md) | `new` copies an app's code from a folder in Git or a folder on GitHub | Superseded by 0955 |
 | [0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) | An action call is a function call, and serve keeps nothing about it | Proposed (supersedes 0915 and 0917; amends 0879, 0883, 0914 and 0926; amended by 0953) |
 | [0936](0936-one-serve-per-home-runs-every-action.md) | One serve per home runs every action | Proposed (amends 0910 and 0880) |
 | [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Proposed (amends 0908, 0910) |
@@ -1154,9 +1154,9 @@ When you add an ADR, add its row here.
 | [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
 | [0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) | An app builds its own UI, and serve only serves it | Proposed (amends 0904, 0910, 0911, and 0942) |
 | [0945](0945-an-app-may-answer-http-and-websocket-requests-under-its-address.md) | An app may answer HTTP and WebSocket requests under its address | Proposed |
-| [0946](0946-new-from-a-local-folder-refuses-uncommitted-code.md) | `new --from` a local folder refuses uncommitted code | Proposed (amends 0929) |
 | [0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md) | A credential the owner pastes goes in the home's `.env`, which only `env()` reads | Proposed (amends 0870 and 0939) |
 | [0949](0949-an-action-reaches-a-model-through-model-and-the-home-names-its-default-in-epicenter-md.md) | An action reaches a model through `model()`, and the home names its default in `EPICENTER.md` | Proposed |
 | [0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) | `api.epicenter.so` is a model API, and every client reaches it with an API key | Proposed (supersedes 0549 and 0331; amends 0634) |
 | [0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) | AI credits follow what a call uses: held before it and settled after | Proposed |
 | [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |
+| [0955](0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md) | `new` makes a blank app, and taking an app is copying its folder | Proposed (supersedes 0929) |

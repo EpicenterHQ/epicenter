@@ -17,14 +17,14 @@ import { COMMANDS, parseWords } from './commands.ts';
 test('words that fit parse to their flags and positionals', () => {
 	const parsed = expectOk(
 		parseWords(
-			'new',
-			['garden', '--from', './x'],
-			{ from: { type: 'string' } },
+			'export',
+			['--all', './x'],
+			{ all: { type: 'boolean' } },
 			[1, 1],
 		),
 	);
-	expect(parsed.positionals).toEqual(['garden']);
-	expect(parsed.values.from).toBe('./x');
+	expect(parsed.positionals).toEqual(['./x']);
+	expect(parsed.values.all).toBe(true);
 });
 
 test('any misuse is NotStarted with the usage line and the help as the next step', () => {
@@ -32,11 +32,9 @@ test('any misuse is NotStarted with the usage line and the help as the next step
 		[],
 		['garden', 'roses'],
 		['garden', '--nope'],
-		['garden', '--from'],
+		['garden', '--from', './x'],
 	])
-		expect(
-			expectErr(parseWords('new', words, { from: { type: 'string' } }, [1, 1])),
-		).toEqual({
+		expect(expectErr(parseWords('new', words, {}, [1, 1]))).toEqual({
 			name: 'NotStarted',
 			cause: 'usage',
 			message: `Usage: ${COMMANDS.new.usage}`,

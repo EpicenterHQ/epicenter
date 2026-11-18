@@ -291,7 +291,7 @@ test('a misused command answers its usage line, with its help as the next step',
 	const f = await setup();
 	const misused = [
 		['new'],
-		['new', 'garden', '--from'],
+		['new', 'garden', '--from', './x'],
 		['check', 'reading', 'vault'],
 		['init', '--port'],
 	] as const;

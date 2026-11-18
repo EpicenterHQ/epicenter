@@ -19,17 +19,12 @@ leaves the install to you. A package.json already there is kept as it is.
 Epicenters cannot nest.`,
 	},
 	new: {
-		usage:
-			'epicenter new <name> [--from <folder> | --from <owner/repo/folder>[#<ref>]]',
-		help: `Makes apps/<name>/code/ from blank code or committed source code and creates empty data/.
-With --from, copy one app's code without its Git history or records, from a folder in a Git
-checkout (a path: /, ./, ../, ~/) or a folder on GitHub at a branch, tag, or full commit.
-To copy from another host, clone it first. Copies the source commit, and refuses a local
-folder with uncommitted changes.
-The app's code/package.json is named <name> and lists only its own packages: the copy's
-name is rewritten, and its bun.lock and any @epicenter/app entry are left out, since the
-home has one lock and one @epicenter/app. It runs nothing: it prints the command that
-installs the app's packages and builds its UI, cd <home> && bun install && bun run build.`,
+		usage: 'epicenter new <name>',
+		help: `Makes apps/<name>/code/ from blank code and creates empty data/. Its package.json is
+named <name> and lists no packages: @epicenter/app comes from the home. It runs nothing: it
+prints the command that installs and builds, cd <home> && bun install && bun run build.
+To take an existing app, copy its code/ folder into apps/<name>/code/ (cp -R, or a GitHub
+archive through tar) and set "name" in its package.json to <name>.`,
 	},
 	export: {
 		usage:
