@@ -17,16 +17,16 @@
 	import { toast } from 'svelte-sonner';
 	import { onMount } from 'svelte';
 	import { createMutation } from '@tanstack/svelte-query';
-	import { exportFolder, folderLocation, query } from '../app.js';
-	import { getLibrary } from '../library.svelte.js';
-	import { getWhispering } from '../whispering.svelte.js';
+	import { exportFolder, folderLocation, query } from '$lib/app.js';
+	import { getLibrary } from '$lib/library.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import {
 		changeFolder,
 		type FolderGit,
 		folderGit,
 		folderPath,
 		previousFolderPath,
-	} from '../this-computer.js';
+	} from '$lib/this-computer.js';
 
 	const whispering = getWhispering();
 	const path = folderLocation();

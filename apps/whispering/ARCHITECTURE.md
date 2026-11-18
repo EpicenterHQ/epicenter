@@ -6,11 +6,11 @@ It keeps its recordings on the device it runs on
 ([ADR-0894](../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)):
 in a Tauri window in `data/` in the app's local data directory, unless the
 person picked another folder, and in a browser in `data/` in the Origin
-Private File System. Both hold the same tree (`src/lib/format/folder.ts`):
+Private File System. Both hold the same tree (`src/lib/format/layout.ts`):
 recordings and transcripts, the audio beside each recording, and `settings.md`.
 
 ```text
-src/lib/format/folder.ts     the folder's paths and each note's fields, and why a note does not read
+src/lib/format/layout.ts     the folder's paths and each note's fields, and why a note does not read
 src/lib/format/note.ts       a note as text: the home's Markdown grammar
 src/lib/files/               Files: read, write, list, remove; tauri, opfs and memory, one conformance suite
 src/lib/notes.ts             one note collection over Files: list it, set, replace, delete
@@ -69,7 +69,7 @@ between `---` fences, then the body. A change rewrites only the lines of
 the keys it names.
 
 Each kind of note declares its fields as a TypeBox object in
-`src/lib/format/folder.ts` (`NOTES`, `SETTINGS`). A field is required
+`src/lib/format/layout.ts` (`NOTES`, `SETTINGS`). A field is required
 unless it is optional, and a key no kind declares is kept and never
 checked. `checkNote(fields, text)` answers a note's fields and body, or
 every reason it does not read: front matter that does not parse, or each
@@ -219,7 +219,7 @@ The microphone choice and its test belong to `microphone-input.svelte.ts`,
 one owner of at most one open microphone. The choice is in `localStorage`
 (`microphone-preference.ts`).
 
-## Requests and results
+## Transcription
 
 `runs.ts`'s `transcribe({ recordingId })` is one service function that
 answers one `Result`: it chooses the target (the endpoint and model chosen
@@ -231,10 +231,11 @@ failed run, and a failure does not follow the person to another page. An
 answer whose transcript cannot be written fails the same way. Which
 recordings are being transcribed is read from the mutation cache
 (`useMutationState`), so a run started anywhere shows everywhere. The
-service refuses a second run of the same recording while one is out, and
-deleting a recording while it is transcribed; it decides that
-synchronously, because a mutation's pending status is set only after it
-starts.
+library transcribes or deletes a recording one at a time: it refuses a
+second run while one is out, a run while the recording is being deleted,
+and deleting a recording while it is transcribed. It decides that
+synchronously (`busy`), because a mutation's pending status is set only
+after it starts.
 
 Transcription reads the audio only once the target's endpoint is known to
 be where it was, and checks again before it sends (`inference.ts`).

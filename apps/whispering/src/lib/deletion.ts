@@ -29,11 +29,11 @@ export type Deletion =
 			/** Its audio file, when one is listed. */
 			readonly audio: string | undefined;
 			/** Its transcripts. */
-			readonly results: readonly NoteRef[];
+			readonly transcripts: readonly NoteRef[];
 	  }
 	| {
 			/** One transcript. */
-			readonly kind: 'result';
+			readonly kind: 'transcript';
 			readonly note: NoteRef;
 	  }
 	| {
@@ -70,7 +70,7 @@ function audioPath(id: string, audio: RecordingAudio) {
  * Every transcript naming recording `id`. Refused while any transcript
  * does not read, since it might be this recording's.
  */
-function resultsOf(
+function transcriptsOf(
 	snapshot: FolderSnapshot,
 	id: string,
 ): Result<NoteRef[], string> {
@@ -127,7 +127,7 @@ export function captureDeletion(
 				noted ?? unnotedOf(snapshot).find((item) => item.id === note.id);
 			if (recording === undefined)
 				return Err('This recording is no longer listed.');
-			const { data: results, error } = resultsOf(snapshot, note.id);
+			const { data: transcripts, error } = transcriptsOf(snapshot, note.id);
 			if (error !== null) return Err(error);
 			return Ok({
 				kind: 'recording',
@@ -135,24 +135,24 @@ export function captureDeletion(
 				title: titleOf(recording),
 				noted: noted !== undefined,
 				audio: audioPath(note.id, audioOf(snapshot, note.id)),
-				results,
+				transcripts,
 			});
 		}
 		default: {
 			const items: readonly { id: string }[] = snapshot[note.collection].items;
 			if (!items.some((item) => item.id === note.id))
 				return Err(`${notePath(note)} is no longer listed.`);
-			return Ok({ kind: 'result', note });
+			return Ok({ kind: 'transcript', note });
 		}
 	}
 }
 
 /**
- * Delete what was confirmed, checking a recording's results against
+ * Delete what was confirmed, checking a recording's transcripts against
  * `snapshot`, the folder as the lists show it now: one saved since the
- * person was asked keeps it. The files go in order (results, the note, then
+ * person was asked keeps it. The files go in order (transcripts, the note, then
  * the audio), and the first that cannot be deleted stops the rest, so no
- * result ever names a recording that is gone. Answers why it stopped, or
+ * transcript ever names a recording that is gone. Answers why it stopped, or
  * undefined.
  */
 export async function runDeletion(
@@ -169,14 +169,14 @@ export async function runDeletion(
 		(await writes.deleteNote(note)).error?.message;
 	if (deletion.kind !== 'recording') return remove(deletedNote(deletion));
 	const { id } = deletion;
-	const { data: now, error } = resultsOf(snapshot, id);
+	const { data: now, error } = transcriptsOf(snapshot, id);
 	if (error !== null) return error;
-	const confirmed = new Set(deletion.results.map(notePath));
-	if (now.some((result) => !confirmed.has(notePath(result))))
-		return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
-	// Results first, so none is ever left naming a recording that is gone.
-	for (const result of deletion.results) {
-		const problem = await remove(result);
+	const confirmed = new Set(deletion.transcripts.map(notePath));
+	if (now.some((transcript) => !confirmed.has(notePath(transcript))))
+		return 'A new transcript was saved for this recording after you were asked. Check it, then delete the recording again.';
+	// Transcripts first, so none is ever left naming a recording that is gone.
+	for (const transcript of deletion.transcripts) {
+		const problem = await remove(transcript);
 		if (problem !== undefined) return problem;
 	}
 	const problem = await remove({ collection: 'recordings', id });
@@ -197,8 +197,8 @@ export function describeDeletion(deletion: Deletion): {
 			const removed = [
 				...(deletion.noted ? ['its note'] : []),
 				...(deletion.audio ? [`its audio (${deletion.audio})`] : []),
-				...(deletion.results.length > 0
-					? [count(deletion.results.length, 'transcript', 'transcripts')]
+				...(deletion.transcripts.length > 0
+					? [count(deletion.transcripts.length, 'transcript', 'transcripts')]
 					: []),
 			];
 			return {
@@ -206,7 +206,7 @@ export function describeDeletion(deletion: Deletion): {
 				description: `This deletes ${removed.join(', ')}.`,
 			};
 		}
-		case 'result':
+		case 'transcript':
 			return {
 				title: 'Delete this transcript?',
 				description: `This deletes ${notePath(deletion.note)}.`,

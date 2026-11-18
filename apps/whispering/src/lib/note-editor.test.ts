@@ -16,7 +16,7 @@ import { expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import { decode, encode, type Files, failed } from './files/files.js';
 import { memoryFiles } from './files/memory.js';
-import type { NOTES } from './format/folder.js';
+import type { NOTES } from './format/layout.js';
 import { createNotes } from './notes.js';
 
 const { editNote, unsaved } = await import('./note-editor.svelte.js');

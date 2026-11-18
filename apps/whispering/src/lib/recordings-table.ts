@@ -59,12 +59,14 @@ export const DEFAULT_SORT: RecordingSort = {
 
 type Source = Pick<
 	Library,
-	'entries' | 'resultsFor' | 'transcribing' | 'audioOf'
+	'entries' | 'transcriptsFor' | 'transcribing' | 'audioOf'
 >;
 
 function statusOf(whispering: Source, id: string): RecordingStatus {
 	if (whispering.transcribing(id)) return 'transcribing';
-	return whispering.resultsFor(id).length > 0 ? 'transcribed' : 'untranscribed';
+	return whispering.transcriptsFor(id).length > 0
+		? 'transcribed'
+		: 'untranscribed';
 }
 
 /** One row for every recording listed, in the list's own order. */
@@ -73,7 +75,7 @@ function recordingRows(whispering: Source): RecordingRow[] {
 		id: note.id,
 		note,
 		title: titleOf(note),
-		transcripts: whispering.resultsFor(note.id),
+		transcripts: whispering.transcriptsFor(note.id),
 		status: statusOf(whispering, note.id),
 		audio: whispering.audioOf(note.id),
 	}));
@@ -334,7 +336,7 @@ type CapturedDeletions = {
 /**
  * Capture a deletion for each recording, in the order given, before anyone
  * is asked. Each is Whispering's own capture, so a recording with work
- * under way, or with results that cannot be
+ * under way, or with transcripts that cannot be
  * told apart from its own, is refused with that reason and left out.
  */
 export async function captureDeletions(
@@ -364,11 +366,16 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 	title: string;
 	description: string;
 } {
-	const results = deletions.reduce((sum, item) => sum + item.results.length, 0);
+	const transcripts = deletions.reduce(
+		(sum, item) => sum + item.transcripts.length,
+		0,
+	);
 	const removed = [
 		count(deletions.length, 'recording', 'recordings'),
 		'their audio',
-		...(results > 0 ? [count(results, 'transcript', 'transcripts')] : []),
+		...(transcripts > 0
+			? [count(transcripts, 'transcript', 'transcripts')]
+			: []),
 	];
 	const names = deletions.map((item) => `“${item.title}”`).join(', ');
 	return {
@@ -386,7 +393,7 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 /**
  * Delete exactly what was captured and confirmed, one recording at a time.
  * Each is Whispering's own deletion, so a recording with work under way, or
- * a result saved since it was captured, is refused there and reported here;
+ * a transcript saved since it was captured, is refused there and reported here;
  * the rest still go.
  */
 export async function deleteCaptured(

@@ -8,7 +8,7 @@
  *
  * Notes are read and written in the home's Markdown grammar
  * (`format/note.ts`, from `@epicenter/app/markdown`); each kind's fields
- * are declared in `format/folder.ts`.
+ * are declared in `format/layout.ts`.
  *
  * Another program may write the folder (a file syncer, a Git command in a
  * home). A change to a note's fields rewrites only those lines of the file
@@ -32,7 +32,7 @@ import {
 	fieldNamesOf,
 	NOTES,
 	type NoteIssue,
-} from './format/folder.js';
+} from './format/layout.js';
 import { changeNote, newNote, parseNote } from './format/note.js';
 
 export const NoteError = defineErrors({

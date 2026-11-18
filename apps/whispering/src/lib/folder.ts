@@ -19,7 +19,7 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import type { Entry, Files, FilesError } from './files/files.js';
-import type { NOTES } from './format/folder.js';
+import type { NOTES } from './format/layout.js';
 import { timeOf } from './format/ids.js';
 import {
 	createNotes,

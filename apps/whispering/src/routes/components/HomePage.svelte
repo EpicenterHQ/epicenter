@@ -10,7 +10,9 @@
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
-	import { copyText, formatTime, titleOf } from './file-actions.js';
+	import { titleOf } from '$lib/folder.js';
+	import { copyText } from './actions.js';
+	import { formatTime } from './format.js';
 	import RecorderCard from './RecorderCard.svelte';
 	import RunFailure from './RunFailure.svelte';
 
@@ -22,7 +24,7 @@
 	const latest = $derived(library.entries[0]);
 	/** Where its audio is. */
 	const audio = $derived(latest ? library.audioOf(latest.id) : undefined);
-	const transcript = $derived(latest ? library.resultsFor(latest.id)[0] : undefined);
+	const transcript = $derived(latest ? library.transcriptsFor(latest.id)[0] : undefined);
 	/** A transcription started here; its error shows while it is of the latest recording. */
 	const transcription = createMutation(() => ({
 		...library.transcription,
@@ -32,7 +34,7 @@
 		latest !== undefined && transcription.error !== null && transcription.variables?.recordingId === latest.id,
 	);
 	const transcribing = $derived(latest !== undefined && library.transcribing(latest.id));
-	const model = $derived(whispering.choice('transcription')?.model);
+	const model = $derived(whispering.choice()?.model);
 
 	/** Show the recording on the Recordings page. */
 	async function openRecording(id: string) {

@@ -13,7 +13,8 @@
 //!
 //! A rename stays in one directory, so it never crosses a disk. Only
 //! "Change…" (`change.rs`) moves files between folders, and across disks it
-//! copies each file beside its target first ([`copy_beside`]).
+//! copies each file beside its target first, through the same temporary
+//! file ([`through_temporary`]).
 
 use std::collections::hash_map::RandomState;
 use std::fs::{self, File};
@@ -103,7 +104,7 @@ pub(crate) fn is_temporary_name(name: &str) -> bool {
 /// Write `bytes` to a temporary file of its own beside `target`, flush it,
 /// and run `place` on it. The temporary file is removed when any step
 /// fails.
-fn through_temporary(
+pub(crate) fn through_temporary(
     target: &Path,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
     place: impl FnOnce(&Path) -> io::Result<()>,
@@ -138,17 +139,6 @@ pub(crate) fn replace(target: &Path, bytes: &[u8]) -> io::Result<()> {
         target,
         |file| file.write_all(bytes),
         |temporary| fs::rename(temporary, target),
-    )
-}
-
-/// Copy `source` to a temporary file beside `target`, flush it, and rename
-/// it into place, never over a file already there. `source` is left as it
-/// is.
-pub(crate) fn copy_beside(source: &Path, target: &Path) -> io::Result<()> {
-    through_temporary(
-        target,
-        |file| io::copy(&mut File::open(source)?, file).map(|_| ()),
-        |temporary| rename(temporary, target),
     )
 }
 
@@ -194,147 +184,6 @@ pub fn remove_leftovers(folder: &Path) -> io::Result<usize> {
         }
     }
     Ok(removed)
-}
-
-/// Rename `from` to `to`, never over an entry already there: an existing
-/// target answers `AlreadyExists`. A folder move renames this way.
-pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
-    match rename_exclusive(from, to) {
-        Err(error) if unsupported(&error) => rename_by_link(from, to),
-        renamed => renamed,
-    }
-}
-
-/// Whether `error` is a rename's refusal to cross volumes.
-pub(crate) fn crosses_devices(error: &io::Error) -> bool {
-    #[cfg(unix)]
-    if error.raw_os_error() == Some(libc_exdev()) {
-        return true;
-    }
-    error.kind() == ErrorKind::CrossesDevices
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn libc_exdev() -> i32 {
-    libc::EXDEV
-}
-
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
-fn libc_exdev() -> i32 {
-    18
-}
-
-/// The exclusive rename where the disk has none: a hard link, then the old
-/// name removed. A file at `to` is never replaced.
-fn rename_by_link(from: &Path, to: &Path) -> io::Result<()> {
-    match fs::hard_link(from, to) {
-        Ok(()) => {}
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-            if !same_file(from, to)? {
-                return Err(error);
-            }
-        }
-        Err(error) if matches!(error.kind(), ErrorKind::NotFound) || crosses_devices(&error) => {
-            return Err(error)
-        }
-        Err(_) => {
-            if fs::symlink_metadata(to).is_ok() {
-                return Err(io::Error::new(
-                    ErrorKind::AlreadyExists,
-                    "a file is already there",
-                ));
-            }
-            return fs::rename(from, to);
-        }
-    }
-    fs::remove_file(from)
-}
-
-/// Rename `from` to `to` unless an entry has that name: `renamex_np` with
-/// `RENAME_EXCL` on macOS, `renameat2` with `RENAME_NOREPLACE` on Linux.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-    let terminated =
-        |path: &Path| CString::new(path.as_os_str().as_bytes()).map_err(io::Error::from);
-    let (from, to) = (terminated(from)?, terminated(to)?);
-    // SAFETY: both are NUL-terminated paths that outlive the call.
-    #[cfg(target_os = "macos")]
-    let status = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
-    // SAFETY: as above; `AT_FDCWD` resolves the absolute paths as they are.
-    #[cfg(target_os = "linux")]
-    let status = unsafe {
-        libc::renameat2(
-            libc::AT_FDCWD,
-            from.as_ptr(),
-            libc::AT_FDCWD,
-            to.as_ptr(),
-            libc::RENAME_NOREPLACE,
-        )
-    };
-    if status == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-/// `rename_exclusive` on Windows: `MoveFileExW` without
-/// `MOVEFILE_REPLACE_EXISTING` or `MOVEFILE_COPY_ALLOWED`, which never
-/// replaces an entry and never copies across volumes.
-#[cfg(windows)]
-fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
-    }
-    let wide = |path: &Path| {
-        path.as_os_str()
-            .encode_wide()
-            .chain([0])
-            .collect::<Vec<u16>>()
-    };
-    let (from, to) = (wide(from), wide(to));
-    // SAFETY: both are NUL-terminated paths that outlive the call.
-    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } != 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-fn rename_exclusive(_: &Path, _: &Path) -> io::Result<()> {
-    Err(ErrorKind::Unsupported.into())
-}
-
-/// Whether `rename_exclusive` failed because this disk or platform has no
-/// exclusive rename, not because of the paths.
-fn unsupported(error: &io::Error) -> bool {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    let refused = [libc::EINVAL, libc::ENOSYS, libc::ENOTSUP, libc::EOPNOTSUPP]
-        .map(Some)
-        .contains(&error.raw_os_error());
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    let refused = false;
-    refused || error.kind() == ErrorKind::Unsupported
-}
-
-/// Whether `a` and `b` are one file, neither followed when it is a link.
-fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let (a, b) = (fs::symlink_metadata(a)?, fs::symlink_metadata(b)?);
-        Ok((a.dev(), a.ino()) == (b.dev(), b.ino()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (a, b);
-        Ok(false)
-    }
 }
 
 /// Flush the directory holding `path`, so a name just made in it survives a
@@ -417,62 +266,6 @@ mod tests {
         assert_eq!(fs::read(&theirs).unwrap(), b"theirs");
         assert_eq!(fs::read(folder.path().join("a.md")).unwrap(), b"mine");
         assert_eq!(names_in(folder.path()), [".a.md.k3x9q0w1.tmp", "a.md"]);
-    }
-
-    #[test]
-    fn rename_never_replaces_and_keeps_the_source() {
-        let temp = tempfile::tempdir().unwrap();
-        let (a, b, target) = (
-            temp.path().join("a"),
-            temp.path().join("b"),
-            temp.path().join("t"),
-        );
-        fs::write(&a, b"a").unwrap();
-        fs::write(&b, b"b").unwrap();
-        rename(&a, &target).unwrap();
-        assert!(!a.exists(), "moved, not copied");
-        assert_eq!(
-            rename(&b, &target).unwrap_err().kind(),
-            ErrorKind::AlreadyExists
-        );
-        assert_eq!(fs::read(&target).unwrap(), b"a");
-        assert_eq!(fs::read(&b).unwrap(), b"b", "the source stays");
-    }
-
-    /// The copy "Change…" makes across disks, taken directly: it lands
-    /// whole, leaves its source, and leaves nothing beside it.
-    #[test]
-    fn copy_beside_places_a_copy_and_leaves_nothing_beside_it() {
-        let from = tempfile::tempdir().unwrap();
-        let folder = tempfile::tempdir().unwrap();
-        let source = from.path().join("a.webm");
-        fs::write(&source, b"take").unwrap();
-        let target = folder.path().join("a.webm");
-        copy_beside(&source, &target).unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"take");
-        assert_eq!(fs::read(&source).unwrap(), b"take");
-
-        // A taken target refuses, and the folder is as it was.
-        fs::write(&source, b"again").unwrap();
-        assert_eq!(
-            copy_beside(&source, &target).unwrap_err().kind(),
-            ErrorKind::AlreadyExists
-        );
-        assert_eq!(fs::read(&target).unwrap(), b"take");
-        assert_eq!(names_in(folder.path()), ["a.webm"]);
-
-        // A source that is gone fails before anything reaches the folder.
-        let missing = from.path().join("missing");
-        assert!(copy_beside(&missing, &folder.path().join("b.webm")).is_err());
-        assert_eq!(names_in(folder.path()), ["a.webm"]);
-    }
-
-    #[test]
-    fn a_cross_device_error_is_recognized() {
-        assert!(crosses_devices(&io::Error::from(ErrorKind::CrossesDevices)));
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
-        assert!(crosses_devices(&io::Error::from_raw_os_error(libc::EXDEV)));
-        assert!(!crosses_devices(&io::Error::from(ErrorKind::NotFound)));
     }
 
     #[test]

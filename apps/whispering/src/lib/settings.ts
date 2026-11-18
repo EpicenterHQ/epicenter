@@ -16,7 +16,7 @@ import type { Static } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Files, FilesError } from './files/files.js';
-import { SETTINGS } from './format/folder.js';
+import { SETTINGS } from './format/layout.js';
 import { noteAt } from './notes.js';
 
 /** The jobs a model is chosen for. */

@@ -16,12 +16,12 @@
 	let content = $state<HTMLElement | null>(null);
 
 	const whispering = getWhispering();
-	const chosen = $derived(whispering.chosen('transcription'));
+	const chosen = $derived(whispering.chosen());
 	/** What Transcribe would send to, or why it would send nothing: none is chosen, or the one chosen is not set up here. */
 	const summary = $derived(
 		chosen.error === null
 			? `Transcription model: ${chosen.data.model}, at ${chosen.data.name}`
-			: whispering.choice('transcription') === null
+			: whispering.choice() === null
 				? 'No transcription model is chosen. Choose one to transcribe.'
 				: chosen.error,
 	);
@@ -49,6 +49,6 @@
 		class="max-h-(--bits-popover-content-available-height) w-80 max-w-[calc(100vw-1rem)] overflow-y-auto"
 		data-testid="transcription-popover"
 	>
-		<SettingsForm only="transcription" />
+		<SettingsForm modelOnly />
 	</Popover.Content>
 </Popover.Root>

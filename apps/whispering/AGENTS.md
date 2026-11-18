@@ -5,7 +5,7 @@ Whispering keeps its recordings on the device it runs on
 One build serves two places: in the desktop app (`src-tauri/`) the folder
 is `data/` in the app's local data directory unless the person moved it,
 and in a browser it is `data/` in the Origin Private File System. Both hold
-the same tree of plain files, laid out as `src/lib/format/folder.ts`
+the same tree of plain files, laid out as `src/lib/format/layout.ts`
 declares, and neither needs an account, a server, or Git.
 Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
 
@@ -63,7 +63,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   `recordings/<id>.<ext>` beside its note. Audio with no note lists as an
   untitled recording dated from its id; a note with no audio stays a
   recording. Store no audio path in a note, refuse ambiguous matches, and
-  never rename a recording's files (results point at it by id).
+  never rename a recording's files (transcripts point at it by id).
 - **A recording's note is written once, after Stop, when its audio is at
   its path.** The note holds facts only: never a status, pending, or
   interrupted field. The library leaves the take under way out until its

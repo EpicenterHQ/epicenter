@@ -23,7 +23,7 @@
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
-	import { confirmDelete } from './file-actions.js';
+	import { confirmDelete } from './actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import NoteRepair from './NoteRepair.svelte';
 	import RunFailure from './RunFailure.svelte';
@@ -47,7 +47,7 @@
 	} = $props();
 	const whispering = getWhispering();
 	/** The transcription model chosen now, where Transcribe would send. */
-	const transcriber = $derived(whispering.chosen('transcription'));
+	const transcriber = $derived(whispering.chosen());
 	const library = getLibrary();
 
 	// The parent keys this view by the recording.
@@ -60,7 +60,7 @@
 	const listed = $derived(library.entries.find((note) => note.id === own));
 	const shown = $derived(recording.exists() || listed !== undefined);
 
-	const results = $derived(library.resultsFor(own));
+	const transcripts = $derived(library.transcriptsFor(own));
 	/** This recording's transcription as started here: its error stays until it is tried again or dismissed. */
 	const transcription = createMutation(() => ({
 		...library.transcription,
@@ -125,7 +125,7 @@
 						data-testid="transcribe"
 					>
 						{#if transcribing}<Spinner class="size-3.5" />{/if}
-						{results.length > 0 ? 'Transcribe again' : 'Transcribe'}
+						{transcripts.length > 0 ? 'Transcribe again' : 'Transcribe'}
 					</Button>
 				</div>
 				{#if transcription.error && transcription.variables}
@@ -136,8 +136,8 @@
 						onDismiss={() => transcription.reset()}
 					/>
 				{/if}
-				{#each results as result (result.id)}
-					<TranscriptCard id={result.id} />
+				{#each transcripts as transcript (transcript.id)}
+					<TranscriptCard id={transcript.id} />
 				{:else}
 					{#if !transcription.error}
 						<p class="text-sm text-muted-foreground">No transcription yet.</p>
@@ -178,7 +178,7 @@
 						<dd class="min-w-0 break-words">
 							{#if transcriber.error === null}
 								{transcriber.data.model} at {transcriber.data.name}
-							{:else if whispering.choice('transcription') === null}
+							{:else if whispering.choice() === null}
 								No model chosen
 							{:else}
 								{transcriber.error}
@@ -188,7 +188,7 @@
 						<dd class="min-w-0 font-mono text-xs break-all">{own}</dd>
 						<dt class="text-muted-foreground">Files</dt>
 						<dd class="min-w-0 font-mono text-xs break-all">
-							{#if recording.exists()}recordings/{own}.md<br />{/if}{#if audio.kind === 'here'}recordings/{own}.{audio.file.ext}{/if}{#each results as result (result.id)}<br />transcriptions/{result.id}.md{/each}
+							{#if recording.exists()}recordings/{own}.md<br />{/if}{#if audio.kind === 'here'}recordings/{own}.{audio.file.ext}{/if}{#each transcripts as transcript (transcript.id)}<br />transcriptions/{transcript.id}.md{/each}
 						</dd>
 					</dl>
 				</Collapsible.Content>

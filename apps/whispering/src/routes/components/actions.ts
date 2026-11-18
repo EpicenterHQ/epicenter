@@ -1,5 +1,5 @@
 /**
- * Actions the screens share: copy some text, show a time, delete with a
+ * Actions the screens share: copy some text, and delete with a
  * confirmation that names what will be removed.
  */
 
@@ -9,8 +9,6 @@ import { describeDeletion } from '$lib/deletion.js';
 import { type NoteRef, notePath } from '$lib/folder.js';
 import type { Library } from '$lib/library.svelte.js';
 
-export { titleOf } from '$lib/folder.js';
-
 /** Copy text the person asked for. `what` names it: "the transcript". */
 export async function copyText(text: string, what: string) {
 	try {
@@ -19,19 +17,6 @@ export async function copyText(text: string, what: string) {
 	} catch {
 		toast.error(`Could not copy ${what}`);
 	}
-}
-
-/** A saved time for display, or the raw value when it is not a time. */
-export function formatTime(value: unknown, style: 'short' | 'full' = 'full') {
-	if (typeof value !== 'string') return '';
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return value;
-	return style === 'short'
-		? date.toLocaleString(undefined, {
-				dateStyle: 'medium',
-				timeStyle: 'short',
-			})
-		: date.toLocaleString();
 }
 
 /**

@@ -7,7 +7,7 @@
 <script lang="ts">
 	import type { LocalSpeech } from '@epicenter/transcription';
 	import LocalModelAdministration from '@epicenter/transcription/local-model-administration';
-	import { getWhispering } from '../whispering.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 
 	let { speech }: { speech: LocalSpeech } = $props();
 	const whispering = getWhispering();
@@ -15,10 +15,10 @@
 	/** The local model in use is Whispering's transcription choice, when it names one here. */
 	const choice = {
 		chosen() {
-			const chosen = whispering.choice('transcription');
+			const chosen = whispering.choice();
 			return chosen?.endpoint === speech.id ? chosen.model : null;
 		},
-		choose: (model: string) => whispering.choose('transcription', { endpoint: speech.id, model }),
+		choose: (model: string) => whispering.choose({ endpoint: speech.id, model }),
 	};
 </script>
 

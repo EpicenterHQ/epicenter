@@ -42,12 +42,6 @@ import { reactive } from './reactive.js';
 import { sentences } from './sentences.js';
 import { chosenIn, NO_SETTINGS } from './settings.js';
 
-/** What a model is chosen for: transcribing a recording. */
-export type Operation = 'transcription';
-
-/** What a model must be able to do to be chosen for each operation. */
-export const CAN = { transcription: 'transcribe' } as const;
-
 type RecorderState =
 	| { readonly phase: 'idle' }
 	| { readonly phase: 'starting' }
@@ -107,9 +101,9 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	/** Why the saved connections do not read, naming the file, if they do not; tracks in Svelte. */
 	const connectionsProblem = () => ai.custom()?.problem()?.message;
 
-	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
-	function chosen(operation: Operation): Result<Target, string> {
-		const { data: choice, error } = chosenIn(settings(), CAN[operation]);
+	/** The transcription model chosen now, as where a request would go, or why there is none. */
+	function chosen(): Result<Target, string> {
+		const { data: choice, error } = chosenIn(settings(), 'transcribe');
 		if (error?.name === 'Invalid') return Err(error.message);
 		if (choice === null)
 			return Err(
@@ -120,7 +114,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			.find((candidate) => candidate.id === choice.endpoint);
 		if (endpoint === undefined)
 			return Err(
-				`The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this computer${
+				`The transcription model chosen, ${choice.model}, is at an endpoint that is not set up on this computer${
 					connectionsProblem() === undefined ? '' : ` (${connectionsProblem()})`
 				}. Choose a model in Settings.`,
 			);
@@ -132,21 +126,17 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		});
 	}
 
-	/** Choose the model `operation` uses from now on. Nothing is sent. */
-	async function choose(
-		operation: Operation,
-		choice: ModelChoice,
-	): Promise<string | undefined> {
+	/** Choose the transcription model from now on. Nothing is sent. */
+	async function choose(choice: ModelChoice): Promise<string | undefined> {
 		const why = refused();
 		if (why !== undefined) return why;
-		const job = CAN[operation];
 		const saved = await runMutation(
 			query.queryClient,
 			query.folderMutations.settings.set,
 			{
 				models: {
 					...settings().fields.models,
-					[job]: { endpoint: choice.endpoint, model: choice.model },
+					transcribe: { endpoint: choice.endpoint, model: choice.model },
 				},
 			},
 		);
@@ -267,9 +257,9 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		},
 		/** Every model this page can reach now, with the person's connections, for the picker; tracks in Svelte. */
 		ai,
-		/** The model chosen for `operation`, or null when none is. */
-		choice(operation: Operation): ModelChoice | null {
-			return chosenIn(settings(), CAN[operation]).data ?? null;
+		/** The transcription model chosen, or null when none is. */
+		choice(): ModelChoice | null {
+			return chosenIn(settings(), 'transcribe').data ?? null;
 		},
 		choose,
 		chosen,

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { getLibrary } from '$lib/library.svelte.js';
-	import { confirmDelete, copyText, formatTime } from './file-actions.js';
+	import { confirmDelete, copyText } from './actions.js';
+	import { formatTime } from './format.js';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import SaveProblem from './SaveProblem.svelte';
 
@@ -26,7 +27,7 @@
 	const text = $derived(transcript.fields.body ?? '');
 </script>
 
-<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
+<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcript">
 	<Textarea
 		class="min-h-32 resize-y font-sans"
 		bind:value={() => text, (value) => (transcript.fields.body = value)}

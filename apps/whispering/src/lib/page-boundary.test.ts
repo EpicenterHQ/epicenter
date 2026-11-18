@@ -57,11 +57,11 @@ function importers(matches: (specifier: string) => boolean) {
 /** Where the page reaches Tauri: the composition, this computer's secrets and requests, the shortcut, the one-tab lock, the desktop's files, and the folder's settings. */
 const TAURI = [
 	'lib/app.ts',
-	'lib/components/FolderSettings.svelte',
 	'lib/files/tauri.ts',
 	'lib/one-tab.svelte.ts',
 	'lib/shortcut.ts',
 	'lib/this-computer.ts',
+	'routes/components/settings/FolderSettings.svelte',
 ];
 
 test('the page imports no Node or Bun module, and reaches Tauri only in its named places', () => {

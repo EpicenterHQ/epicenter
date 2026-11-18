@@ -33,10 +33,11 @@
 		transcribeRows,
 		transcriptExcerpt,
 		transcriptsToCopy,
-	} from '$lib/recording-collection.js';
+	} from '$lib/recordings-table.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import { copyText, formatTime } from './file-actions.js';
+	import { copyText } from './actions.js';
+	import { formatLength, formatTime } from './format.js';
 	import NoteRepair from './NoteRepair.svelte';
 
 	/**
@@ -104,13 +105,6 @@
 		untranscribed: 'text-muted-foreground',
 		transcribed: 'text-muted-foreground',
 	};
-
-	/** A length as minutes and seconds, or nothing when the file does not say. */
-	function length(ms: number | undefined) {
-		if (ms === undefined) return '';
-		const seconds = Math.round(ms / 1000);
-		return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-	}
 
 	function openRow(id: string) {
 		if (library.openRecording(id)) onOpen();
@@ -319,7 +313,7 @@
 						{@const open = ui.showingDetail && library.selectedId === row.id}
 						{@const excerpt = transcriptExcerpt(row, ui.recordingQuery)}
 						{@const recorded = formatTime(row.note.recordedAt, 'short')}
-						{@const duration = length(row.note.durationMs)}
+						{@const duration = formatLength(row.note.durationMs)}
 						<!--
 							The title is the row's button, so the keyboard reaches and opens a row the usual way.
 							A click anywhere else on the row opens it too, except in the tick's own cell.

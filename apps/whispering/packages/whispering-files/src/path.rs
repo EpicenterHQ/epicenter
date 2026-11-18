@@ -9,7 +9,7 @@
 //! without an extension, and the empty directory path is the folder itself.
 //!
 //! The rule leaves out every hidden name, so the temporary file a write
-//! keeps beside its target (`.<name>.tmp`, `beside.rs`) is never a path.
+//! keeps beside its target (`.<name>.<random>.tmp`, `beside.rs`) is never a path.
 
 use std::fs;
 use std::io::ErrorKind;

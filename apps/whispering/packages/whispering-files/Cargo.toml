@@ -15,7 +15,7 @@ name = "whispering_files"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 
-# An exclusive rename, so a folder move never replaces a file (`beside.rs`).
+# An exclusive rename, so a folder move never replaces a file (`change.rs`).
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2"
 

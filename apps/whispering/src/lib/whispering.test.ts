@@ -283,8 +283,8 @@ test('a transcription sends the recording’s audio and keeps its transcript bes
 		model: 'verification-model',
 		bytes: toneWav(),
 	});
-	await eventually(() => library.resultsFor(recording.id).length === 1);
-	expect(library.resultsFor(recording.id)[0]).toMatchObject({
+	await eventually(() => library.transcriptsFor(recording.id).length === 1);
+	expect(library.transcriptsFor(recording.id)[0]).toMatchObject({
 		recordingId: recording.id,
 		model: 'verification-model',
 		endpoint: TEST_BASE_URL,
@@ -326,15 +326,15 @@ test('a failed transcription shows its error, and Try again sends the same audio
 	const { test, library } = opened;
 	const { observer, failed, id } = await failedOnce(opened);
 	expect(failed.error?.message).toContain('busy, try later');
-	expect(library.resultsFor(id)).toEqual([]);
+	expect(library.transcriptsFor(id)).toEqual([]);
 
 	await observer.mutate(failed.variables!);
 
 	expect(observer.getCurrentResult().status).toBe('success');
 	expect(test.transcribed).toHaveLength(2);
 	expect(test.transcribed[1]).toEqual(test.transcribed[0]!);
-	await eventually(() => library.resultsFor(id).length === 1);
-	expect(library.resultsFor(id)[0]?.body).toBe('a steady tone\n');
+	await eventually(() => library.transcriptsFor(id).length === 1);
+	expect(library.transcriptsFor(id)[0]?.body).toBe('a steady tone\n');
 });
 
 test('Try again after the connection was removed is not sent anywhere, and says why', async () => {
@@ -384,7 +384,7 @@ test('deleting a recording deletes its transcripts and its audio', async () => {
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	await library.transcribe(recording.id);
 	await library.transcribe(recording.id);
-	await eventually(() => library.resultsFor(recording.id).length === 2);
+	await eventually(() => library.transcriptsFor(recording.id).length === 2);
 
 	const deletion = expectOk(
 		library.deletionFor({ collection: 'recordings', id: recording.id }),
@@ -393,14 +393,14 @@ test('deleting a recording deletes its transcripts and its audio', async () => {
 		kind: 'recording',
 		audio: `recordings/${recording.id}.wav`,
 	});
-	expect(deletion.kind === 'recording' && deletion.results).toHaveLength(2);
+	expect(deletion.kind === 'recording' && deletion.transcripts).toHaveLength(2);
 	expect(await library.delete(deletion)).toBeUndefined();
 
 	await eventually(() => library.entries.length === 0);
 	expect(test.outside.paths()).toEqual(['settings.md']);
 });
 
-test('a recording is kept when a result for it was saved after the person was asked', async () => {
+test('a recording is kept when a transcript for it was saved after the person was asked', async () => {
 	const opened = await fixture();
 	const { test, query, library } = opened;
 	const recording = await record(opened);
@@ -414,10 +414,10 @@ test('a recording is kept when a result for it was saved after the person was as
 		`---\nrecordingId: "${recording.id}"\ncreatedAt: "2026-10-31T09:31:00.000Z"\nmodel: "whisper-1"\nendpoint: "https://api.openai.com/v1"\n---\nlate\n`,
 	);
 	await query.reread();
-	await eventually(() => library.resultsFor(recording.id).length === 1);
+	await eventually(() => library.transcriptsFor(recording.id).length === 1);
 
 	expect(await library.delete(deletion)).toContain(
-		'A new result was saved for this recording after you were asked.',
+		'A new transcript was saved for this recording after you were asked.',
 	);
 	expect(library.entries.map(({ id }) => id)).toEqual([recording.id]);
 	expect(test.outside.paths('recordings')).toHaveLength(2);
@@ -473,7 +473,7 @@ test('an answer whose transcript cannot be written fails, keeps nothing, and Try
 	undo();
 	expectOk(await library.transcribe(recording.id));
 	expect(test.transcribed).toHaveLength(2);
-	await eventually(() => library.resultsFor(recording.id).length === 1);
+	await eventually(() => library.transcriptsFor(recording.id).length === 1);
 });
 
 test('a note that does not read is listed for repair, and repaired as text', async () => {

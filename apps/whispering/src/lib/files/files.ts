@@ -2,7 +2,7 @@
  * Whispering's storage: five operations on the files of one folder, passed
  * in at startup (ADR-0894). Everything above it (recordings, transcriptions
  * and `settings.md`) is written once, in the layout
- * `format/folder.ts` declares, over whichever `Files` the page was given:
+ * `format/layout.ts` declares, over whichever `Files` the page was given:
  *
  * - `tauriFiles(dir)` on the desktop, through Whispering's own commands in
  *   its shell (`files_read`, `files_read_many`, `files_write`,

@@ -2,45 +2,36 @@
 	import type { ModelChoice } from '@epicenter/ai';
 	import { ModelPicker } from '@epicenter/ai/picker';
 	import { toast } from 'svelte-sonner';
-	import { CAN, getWhispering, type Operation } from '$lib/whispering.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 
 	/**
-	 * The model one operation uses: any model the merged endpoints offer that
-	 * can do it (`ModelPicker` from `@epicenter/ai/picker`), where a person also
+	 * The transcription model: any model the merged endpoints offer that
+	 * can transcribe (`ModelPicker` from `@epicenter/ai/picker`), where a person also
 	 * adds, edits or removes a connection and its key. Choosing sends nothing;
 	 * a request goes only when the person presses Transcribe.
 	 */
-	let { operation }: { operation: Operation } = $props();
-
 	const whispering = getWhispering();
-	const chosen = $derived(whispering.chosen(operation));
-	const choice = $derived(whispering.choice(operation));
-
-	const copy = {
-		transcription: {
-			title: 'Transcription',
-			sends: 'Audio is sent there only when you press Transcribe.',
-		},
-	} as const;
+	const chosen = $derived(whispering.chosen());
+	const choice = $derived(whispering.choice());
 
 	async function select(next: ModelChoice) {
-		const problem = await whispering.choose(operation, next);
-		if (problem) toast.error(`Could not choose the ${operation} model`, { description: problem });
+		const problem = await whispering.choose(next);
+		if (problem) toast.error('Could not choose the transcription model', { description: problem });
 	}
 </script>
 
-<div class="flex flex-col gap-2 text-sm" data-testid="model-{operation}">
+<div class="flex flex-col gap-2 text-sm" data-testid="model-transcription">
 	<div class="flex items-center justify-between gap-2">
-		<p class="font-medium">{copy[operation].title}</p>
+		<p class="font-medium">Transcription</p>
 		<ModelPicker
 			ai={whispering.ai}
-			can={CAN[operation]}
+			can="transcribe"
 			value={choice}
 			onSelect={select}
 			placeholder="Choose a model"
 		/>
 	</div>
-	<p class="text-xs text-muted-foreground" data-testid="model-{operation}-status">
+	<p class="text-xs text-muted-foreground" data-testid="model-transcription-status">
 		{#if chosen.error === null}
 			{chosen.data.model} at {chosen.data.name}.
 		{:else if choice === null}
@@ -48,6 +39,6 @@
 		{:else}
 			{chosen.error}
 		{/if}
-		{copy[operation].sends}
+		Audio is sent there only when you press Transcribe.
 	</p>
 </div>

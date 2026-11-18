@@ -16,7 +16,7 @@ import { describe, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder } from '../folder.js';
 import { testFiles } from '../services.test-support.js';
-import { checkNote, NOTES, SETTINGS } from './folder.js';
+import { checkNote, NOTES, SETTINGS } from './layout.js';
 import { timeId } from './ids.js';
 import { newNote, parseNote } from './note.js';
 

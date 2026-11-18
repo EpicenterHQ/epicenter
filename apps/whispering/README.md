@@ -7,7 +7,7 @@ transcript as an ordinary file on your own device. It needs no account and
 no server.
 
 Each note is Markdown with its fields in front matter, one `key: <JSON>`
-line each. `src/lib/format/folder.ts` declares the paths and each note's
+line each. `src/lib/format/layout.ts` declares the paths and each note's
 fields. Any program that writes this layout is a valid writer.
 
 | Path | What it is |

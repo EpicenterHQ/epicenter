@@ -7,7 +7,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { Label } from '@epicenter/ui/label';
-	import { acceleratorOf, type GlobalShortcut, labelOf } from '../shortcut.js';
+	import { acceleratorOf, type GlobalShortcut, labelOf } from '$lib/shortcut.js';
 
 	let { shortcut }: { shortcut: GlobalShortcut } = $props();
 

@@ -9,7 +9,8 @@
 //! - `ops.rs`: `read`, `read_many`, `write`, `list`, and `remove`, the
 //!   operations the page's `Files` makes.
 //! - `change.rs`: "Change…", which moves the recordings into an empty
-//!   folder or opens a Whispering folder, and never merges.
+//!   folder, by renames that never replace or by checked copies across
+//!   disks, or opens a Whispering folder, and never merges.
 //! - `git.rs`: whether the folder is in a Git repository that keeps audio
 //!   through Git LFS.
 //!

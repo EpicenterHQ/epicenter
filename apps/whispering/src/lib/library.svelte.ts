@@ -13,6 +13,7 @@
  * recordings are being transcribed is read from the mutation cache, so a
  * run started anywhere shows everywhere. A failed run is its mutation's
  * error, shown where it was started.
+ * A recording is transcribed or deleted one at a time (`busy`).
  *
  * The library is made when the app's pages open and let go when they
  * close. Leaving waits for nothing and refuses nothing: a run under way
@@ -21,7 +22,6 @@
 
 import { createQuery, useMutationState } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
-import { SvelteSet } from 'svelte/reactivity';
 import { resultMutations, runMutation } from 'wellcrafted/query';
 import { Err, type Result } from 'wellcrafted/result';
 import {
@@ -44,11 +44,11 @@ import {
 	unnotedOf,
 } from './folder.js';
 import type { FolderQuery } from './folder-query.js';
-import type { NOTES } from './format/folder.js';
+import type { NOTES } from './format/layout.js';
 import { editNote, type NoteEditor } from './note-editor.svelte.js';
 import { fieldNamesFor, type NotePatch } from './notes.js';
-import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
-import { createRuns } from './runs.js';
+import { DEFAULT_SORT, type RecordingSort } from './recordings-table.js';
+import { createRuns, RunError } from './runs.js';
 import type { Whispering } from './whispering.svelte.js';
 
 export type { AudioFile, RecordingAudio } from './folder.js';
@@ -72,7 +72,8 @@ const repairsOf = <TName extends NoteName>(
 		reason: describeIssues(note.issues),
 	}));
 
-const BEING_DELETED = 'This recording is being deleted.';
+/** What a recording can be busy with: one at a time, never both. */
+type Work = 'transcribing' | 'deleting';
 
 export function createLibrary({
 	whispering,
@@ -166,22 +167,45 @@ export function createLibrary({
 
 	// --- runs ------------------------------------------------------------------
 
-	/** Recordings whose deletion is under way, by id, so no request starts for one. */
-	const deleting = new SvelteSet<string>();
+	/**
+	 * What each recording is busy with now, by id. A recording is either
+	 * transcribed or deleted, one at a time: neither starts while the other,
+	 * or another of the same, is under way. Work claims its recording here
+	 * synchronously, so two presses in one moment cannot both pass.
+	 */
+	const busy = new Map<string, Work>();
+	/** Why `work` cannot start for recording `id` now, or nothing when it can. */
+	function busyWith(id: string, work: Work): string | undefined {
+		const under = busy.get(id);
+		if (under === undefined) return undefined;
+		if (under === 'deleting') return 'This recording is being deleted.';
+		return work === 'transcribing'
+			? 'This recording is already being transcribed.'
+			: 'This recording is still being transcribed. Wait for it to finish, then delete it.';
+	}
 
 	const runs = createRuns({
 		folder,
-		chosen: () => whispering.chosen('transcription'),
+		chosen: whispering.chosen,
 		transcribe: whispering.transcribe,
-		refused: (recordingId) =>
-			refused() ??
-			(recordingId !== undefined && deleting.has(recordingId)
-				? BEING_DELETED
-				: undefined),
+		refused,
 	});
-	const runMutations = resultMutations(['runs'], {
-		transcribe: runs.transcribe,
-	});
+	/** Transcribe recording `recordingId` while nothing else is under way for it. */
+	async function transcribe({
+		recordingId,
+	}: {
+		recordingId: string;
+	}): Promise<Result<undefined, RunError>> {
+		const why = busyWith(recordingId, 'transcribing');
+		if (why !== undefined) return RunError.NotSent({ reason: why });
+		busy.set(recordingId, 'transcribing');
+		try {
+			return await runs.transcribe({ recordingId });
+		} finally {
+			busy.delete(recordingId);
+		}
+	}
+	const runMutations = resultMutations(['runs'], { transcribe });
 
 	/** The recordings being transcribed now, by id, from the mutation cache. */
 	let transcribingIds: readonly string[] = [];
@@ -213,9 +237,6 @@ export function createLibrary({
 		if (collection === 'recordings' && selectedId === id)
 			selectedId = undefined;
 	}
-
-	const busy = (id: string) =>
-		deleting.has(id) ? BEING_DELETED : runs.busy(id);
 
 	return {
 		ui,
@@ -265,7 +286,7 @@ export function createLibrary({
 		// ------------------------------------------------------------------
 
 		/** Transcripts of one recording, newest first. */
-		resultsFor(id: string) {
+		transcriptsFor(id: string) {
 			return transcriptsByRecording.get(id) ?? [];
 		},
 		/** Where recording `id`'s audio is, read reactively. */
@@ -304,7 +325,7 @@ export function createLibrary({
 		},
 
 		// ------------------------------------------------------------------
-		// Requests and their results
+		// Transcription
 		// ------------------------------------------------------------------
 
 		/** Transcribe a recording, as a mutation a component observes. */
@@ -326,19 +347,22 @@ export function createLibrary({
 		deletionFor(ref: NoteRef): Result<Deletion, string> {
 			const why = refused();
 			if (why !== undefined) return Err(why);
-			return captureDeletion({ snapshot, busy }, ref);
+			return captureDeletion(
+				{ snapshot, busy: (id) => busyWith(id, 'deleting') },
+				ref,
+			);
 		},
 		/**
-		 * Delete what was confirmed. A recording is kept if new results
+		 * Delete what was confirmed. A recording is kept if new transcripts
 		 * appeared after confirmation.
 		 */
 		async delete(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
 			const recording = recordingDeleted(deletion);
-			const refusal = recording && busy(recording);
+			const refusal = recording && busyWith(recording, 'deleting');
 			if (refusal) return refusal;
-			if (recording) deleting.add(recording);
+			if (recording) busy.set(recording, 'deleting');
 			try {
 				const problem = await runDeletion(
 					{
@@ -352,7 +376,7 @@ export function createLibrary({
 				);
 				if (problem !== undefined) return problem;
 			} finally {
-				if (recording) deleting.delete(recording);
+				if (recording) busy.delete(recording);
 			}
 			deleted(deletedNote(deletion));
 			return undefined;
