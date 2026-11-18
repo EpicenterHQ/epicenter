@@ -21,10 +21,8 @@ else
 const actionOf = (url: Parameters<typeof fetch>[0]) => /\/actions\/tasks\/([^/]+)$/.exec(String(url))?.[1];
 /** A call that answered with what the action returned. */
 const response = (returned: unknown) => new Response(`${JSON.stringify({ answer: { data: returned, error: null } })}\n`);
-/** Serve refusing a call before it runs. */
-const unavailable = () => new Response(JSON.stringify({ data: null, error: { name: 'NotStarted', message: 'unavailable', cause: 'internal' } }), {
-	status: 503,
-});
+/** Serve not answering: any status but 200 reads as `Unreachable`. */
+const unavailable = () => new Response('Service Unavailable', { status: 503 });
 function stub(answer: (action: string | undefined) => Response) {
 	return spyOn(globalThis, 'fetch').mockImplementation(Object.assign(async (url: Parameters<typeof fetch>[0]) => answer(actionOf(url)), {
 		preconnect: fetch.preconnect,
