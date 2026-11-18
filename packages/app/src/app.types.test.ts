@@ -253,7 +253,7 @@ describe('an app author', () => {
 				},
 			);
 		const vocabUi = {} as AppClient<Actions>;
-		// A page's call takes options too; an action that only returns never calls onUpdate.
+		// @ts-expect-error a page's call of an action that only returns takes its input alone
 		() => vocabUi.call('review', { word: 'a' }, { onUpdate: () => {} });
 		// The same two arguments call it in the Epicenter.
 		() => say({ message: 'hi' }, { onUpdate: (value) => void value });

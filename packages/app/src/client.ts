@@ -104,15 +104,18 @@ type ReturnedError<A> = JsonOf<
 	Exclude<Extract<ReturnedBy<A>, Err<unknown>>['error'], null>
 >;
 
-/** A call may listen with `onUpdate`; an action that sends no updates never calls it. */
+/** How a page listens to an action that sends updates. */
 type CallOptions<A> = {
 	onUpdate?: (value: JsonOf<ActionUpdate<A>>) => unknown;
 };
 
 /**
- * One action of an app, as a page calls it: a function of its input, and
- * `{ onUpdate }`, which receives each update in order; an action that sends
- * none never calls it. The call resolves to what
+ * One action of an app, as a page calls it: a function of its input. An
+ * action that sends updates also takes `{ onUpdate }`, which receives each one
+ * in order. One that sends none takes its input alone, unlike the library's
+ * `Action`, which takes options on every action: a page hands a call to
+ * helpers such as wellcrafted's `resultMutations`, which take a function of
+ * one argument. The call resolves to what
  * the action returned, or exactly the errors it can: the ones the action
  * returns, and `NotStarted`, `Threw` and `Unreachable`, which only Epicenter
  * answers. A name the action cannot return is not in the union, so a page
@@ -126,7 +129,7 @@ export type ActionCall<A> = (
 		...(Record<string, never> extends ActionInput<A>
 			? [input?: ActionInput<A>]
 			: [input: ActionInput<A>]),
-		options?: CallOptions<A>,
+		...([ActionUpdate<A>] extends [never] ? [] : [options?: CallOptions<A>]),
 	]
 ) => Promise<
 	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>

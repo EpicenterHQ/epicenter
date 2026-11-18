@@ -499,9 +499,10 @@ await sync({ account }, { onUpdate: ({ copied, of }) => show(copied, of) });
 - An update reports and is never the answer. A caller that passes no
   `onUpdate` loses nothing, and a page must show the right thing after the
   call ends even if every update was lost.
-- An action that leaves the argument out sends no updates. Every action, in
-  the library and on a page, still takes `options?: { onUpdate? }`, which it
-  never calls.
+- An action that leaves the argument out sends no updates. In the library
+  every action still takes `options?: { onUpdate? }`, which it never calls. A
+  page's call of such an action takes its input alone, so it stays a function
+  of one argument that helpers such as wellcrafted's `resultMutations` accept.
   `run` is never an `async function*`; `defineAction`
   refuses one.
 - The CLI sends its call to serve and writes each update to stderr as one
@@ -598,8 +599,7 @@ export const writes = resultMutations(['reading'], { patch: app.action('patch') 
 // In a component: createQuery(() => reads.list()), createMutation(() => writes.patch)
 ```
 
-Every call accepts `{ onUpdate }` after its input; an action that sends no
-updates never calls it. Each update
+An action that sends updates accepts `onUpdate` after its input. Each update
 arrives in order. What the callback returns is not awaited; what it throws is
 reported to the page and does not end the call:
 

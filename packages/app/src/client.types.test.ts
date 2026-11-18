@@ -1,5 +1,6 @@
 /** Type checks for a page's calls: inputs, answers, returned errors, and updates. */
 import { expect, test } from 'bun:test';
+import { resultMutations } from 'wellcrafted/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
 import { connect } from './client.ts';
@@ -101,7 +102,7 @@ function clientUsage() {
 	void app.call('count', { to: 'three' });
 	// @ts-expect-error A call takes no signal: nothing stops an action from outside.
 	void app.call('count', { to: 3 }, { signal: new AbortController().signal });
-	// Every call takes options, as every action does; one that sends no updates never calls onUpdate.
+	// @ts-expect-error An action that sends no updates takes its input alone, so a page can hand it to resultMutations.
 	void app.call('start-day', {}, { onUpdate: () => {} });
 	void app.call('start-day', {});
 	void app.call('start-day');
@@ -111,6 +112,11 @@ function clientUsage() {
 	void called;
 	// @ts-expect-error no action has this name
 	void app.call('daily');
+	// A held action with no updates is a function of one argument, which resultMutations takes.
+	void resultMutations(['types'], {
+		classify: app.action('classify'),
+		'start-day': app.action('start-day'),
+	});
 }
 test('client type assertions compile', () =>
 	expect(clientUsage).toBeFunction());
