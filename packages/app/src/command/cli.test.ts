@@ -12,8 +12,8 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import packageJson from '../../package.json' with { type: 'json' };
 import { COMMANDS } from './commands.ts';
-import { VERSION } from './engines.ts';
 import { fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
@@ -244,7 +244,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 		},
 	]);
 	// The version the home has installed, read from its node_modules.
-	expect(value.version).toBe(VERSION);
+	expect(value.version).toBe(packageJson.version);
 	expect(Object.keys(value)).toEqual([
 		'epicenter',
 		'version',
@@ -257,7 +257,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 	const human = await f.run();
 	expect(human.code).toBe(0);
 	expect(human.stdout).toStartWith(
-		`Epicenter: Epicenter (${f.home})\nVersion: ${VERSION}\nreading`,
+		`Epicenter: Epicenter (${f.home})\nVersion: ${packageJson.version}\nreading`,
 	);
 	expect(human.stdout).toEndWith(
 		`
@@ -434,12 +434,12 @@ test('app and action views include locations, schemas, field help and version', 
 	});
 	expect(await f.run('--version', '--json')).toEqual({
 		code: 0,
-		stdout: `{"data":{"version":"${VERSION}"},"error":null}\n`,
+		stdout: `{"data":{"version":"${packageJson.version}"},"error":null}\n`,
 		stderr: '',
 	});
 	expect(await f.run('--version')).toEqual({
 		code: 0,
-		stdout: `epicenter ${VERSION}\n`,
+		stdout: `epicenter ${packageJson.version}\n`,
 		stderr: '',
 	});
 	const help = JSON.parse((await f.run('--help', '--json')).stdout);

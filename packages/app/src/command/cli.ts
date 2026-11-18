@@ -4,11 +4,12 @@
  * `runCli` presents in one place (ADR-0953). Serve prints no answer while it
  * runs.
  */
-import { ActionError, type Answer, Err, isName, Ok } from '@epicenter/app';
+
 import { extractErrorMessage } from 'wellcrafted/error';
+import packageJson from '../../package.json' with { type: 'json' };
+import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
 import { checkCommand } from './check.ts';
 import { COMMANDS, type Command, parseWords } from './commands.ts';
-import { VERSION } from './engines.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
@@ -91,7 +92,11 @@ export async function runCli(argv: string[]): Promise<number> {
 	async function answer(): Promise<Answer | undefined> {
 		if (!tokens.length) {
 			if (version)
-				return Ok(json ? { version: VERSION } : `epicenter ${VERSION}`);
+				return Ok(
+					json
+						? { version: packageJson.version }
+						: `epicenter ${packageJson.version}`,
+				);
 			if (help) return Ok(HELP);
 			epicenterRoot();
 			// A report only: it reads the home and starts, fetches and writes nothing.

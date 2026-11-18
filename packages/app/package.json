@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/app",
 	"version": "0.7.0",
-	"description": "What an app's epicenter.ts imports to define its collections, actions, and the app itself, and the client its UI calls them through.",
+	"description": "Epicenter: what an app's epicenter.ts imports to define its data and actions, the client its UI calls them through, and the epicenter command that runs them as commands and MCP tools. A home depends on it and runs it with Bun.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/EpicenterHQ/epicenter.git",
@@ -9,19 +9,25 @@
 	},
 	"homepage": "https://epicenter.so",
 	"type": "module",
+	"bin": {
+		"epicenter": "./src/command/bin.ts"
+	},
 	"exports": {
 		".": "./src/index.ts",
 		"./client": "./src/client.ts"
 	},
 	"files": [
 		"src",
-		"!src/**/*.test.ts"
+		"!src/**/*.test.ts",
+		"!src/**/*.test-support.ts"
 	],
 	"scripts": {
+		"pack": "bun scripts/pack.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "catalog:",
 		"nanoid": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"

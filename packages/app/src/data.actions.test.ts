@@ -6,13 +6,9 @@
 import { expect, test } from 'bun:test';
 import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import {
-	type ActionError,
-	defineData,
-	encodeActionResult,
-	field,
-	isAction,
-} from './index.ts';
+import { isAction } from './action.ts';
+import { encodeActionResult } from './action-result.ts';
+import { type ActionError, defineData, field } from './index.ts';
 import { tempFolder } from './temp-folder.test-support.ts';
 
 async function setup(seed: Record<string, string> = {}) {

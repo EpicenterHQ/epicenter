@@ -7,7 +7,7 @@
  * action in its place.
  */
 import { realpath } from 'node:fs/promises';
-import { ActionError, type Answer, readAnswer } from '@epicenter/app';
+import { ActionError, type Answer, readAnswer } from '../index.ts';
 import { epicenterDir, epicenterRoot, MARKER } from './root.ts';
 
 /** The header that names the home a call is for, so another home's serve refuses it. */

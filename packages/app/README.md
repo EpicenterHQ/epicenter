@@ -51,16 +51,17 @@ parameter.
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
-the app. A home is one Bun workspace whose `package.json` depends on
-`@epicenter/cli` and `@epicenter/app` at one version, so `bun install` at the
-top of the home installs one copy, and `epicenter.ts`, the editor, `bun test`
-and the UI's build all find it by ordinary resolution, as the command does.
+the app, and the package that holds that command too. A home is one Bun
+workspace whose `package.json` depends on `@epicenter/app`, so `bun install`
+at the top of the home installs one copy, puts `epicenter` in
+`node_modules/.bin/`, and `epicenter.ts`, the editor, `bun test` and the UI's
+build all find it by ordinary resolution.
 An app's `code/package.json` names only the app's own dependencies and never
 lists `@epicenter/app`, so the app runs the version the home names. After
 the home's packages change, restart `serve`. An app's name is its folder's.
 
 The package ships its TypeScript source and runs under Bun. See
-[the command's README](../cli/README.md#a-home-is-a-bun-workspace) for the
+[the command's README](src/command/README.md#a-home-is-a-bun-workspace) for the
 home's `package.json`, upgrading, and trying an unreleased change.
 
 ## Three values, composed
@@ -506,7 +507,7 @@ not its caller stays, and nothing stops it from outside. A page that reloads
 loses the updates of a call it was watching, so what must survive a reload
 belongs in the app's records. An action that must not run twice takes an id
 in its input and uses it as the record's key. See the
-[CLI's call route](../cli/README.md#a-call-over-http).
+[CLI's call route](src/command/README.md#a-call-over-http).
 
 ## A UI
 

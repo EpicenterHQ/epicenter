@@ -16,7 +16,7 @@ import {
 	type Folder,
 	field,
 	Ok,
-} from '@epicenter/app';
+} from '../index.ts';
 import type { Runnable } from './home.ts';
 import { oneAppListing } from './listing.ts';
 

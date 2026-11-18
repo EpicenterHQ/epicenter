@@ -4,7 +4,7 @@
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at what the command does before it sends a call, and at how a call names its Epicenter. The command no longer loads the app, finds the action or checks the input; serve does. Serve no longer stamps its root's path on every answer; the command sends its path on the request. That an action runs only in serve, and that serve refuses a call meant for another Epicenter, are unchanged.
 - **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
-- **Unbuilt:** All of it. `packages/cli/src/cli.ts` loads the app, matches the words, reads the input and prints help before it calls serve. Serve has no HTTP request that takes the words as typed or answers an action's help; its only listing is the MCP tool list. Serve still sets `x-epicenter-home` to its root's path on every answer (`HOME_HEADER` in `packages/cli/src/serve-call.ts`, set in `packages/cli/src/http.ts`). The first thing to exist is `GET /` answering the listing as JSON.
+- **Unbuilt:** All of it. `packages/app/src/command/cli.ts` loads the app, matches the words, reads the input and prints help before it calls serve. Serve has no HTTP request that takes the words as typed or answers an action's help; its only listing is the MCP tool list. Serve still sets `x-epicenter-home` to its root's path on every answer (`HOME_HEADER` in `packages/app/src/command/serve-call.ts`, set in `packages/app/src/command/http.ts`). The first thing to exist is `GET /` answering the listing as JSON.
 
 ## Context
 
@@ -24,7 +24,7 @@ input.
 
 The command finds out whether the serve on its port belongs to its own
 Epicenter from a header. Serve sets `x-epicenter-home` (`HOME_HEADER` in
-`packages/cli/src/serve-call.ts`) to its root's real path on every answer
+`packages/app/src/command/serve-call.ts`) to its root's real path on every answer
 (`http.ts`), and the command and a second `serve` compare it with their own.
 Serve listens only on this computer (ADR-0927), but a phone or laptop reaches
 it through the owner's private network, so every device that loads a page or
@@ -48,7 +48,7 @@ the words and the input as typed, and serve answers.**
 **Serve answers one JSON listing, and every view of the apps prints from
 it.** `GET /` with `accept: application/json` answers each app's
 description, its data keys, its problems and each action as the MCP tool
-`serve` offers (`actionTool` in `packages/cli/src/listing.ts`), with the
+`serve` offers (`actionTool` in `packages/app/src/command/listing.ts`), with the
 changed-code fields of ADR-0959.
 
 | Reader | What it prints from the listing |

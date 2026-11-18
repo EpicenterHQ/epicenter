@@ -6,9 +6,10 @@
  */
 
 import { basename } from 'node:path';
-import { type Action, objectSchema, whatTakes } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
-import { VERSION } from './engines.ts';
+import packageJson from '../../package.json' with { type: 'json' };
+import { whatTakes } from '../field.ts';
+import { type Action, objectSchema } from '../index.ts';
 import type { Discovery, Runnable } from './home.ts';
 import { exampleCommand, usageLine } from './input.ts';
 
@@ -94,7 +95,7 @@ export function homeListing(
 	if (json)
 		return {
 			epicenter: found.epicenter,
-			version: VERSION,
+			version: packageJson.version,
 			apps: found.apps.map((app) => appListing(app)),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
@@ -112,7 +113,7 @@ export function homeListing(
 	else lines.push('', 'Run: epicenter <app>');
 	lines.unshift(
 		`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`,
-		`Version: ${VERSION}`,
+		`Version: ${packageJson.version}`,
 	);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');

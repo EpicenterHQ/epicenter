@@ -6,7 +6,7 @@ This directory contains knowledge articles, guides, and reference materials for 
 
 - [Vision](vision.md): what Epicenter is and the rules it keeps: your apps and files on a computer you control and keep on.
 - [Decisions (ADRs)](adr/README.md): the record of durable decisions and why, each with its status and what is not built yet. Trust this over any spec.
-- [The `epicenter` command](../packages/cli/README.md) and [what an app imports](../packages/app/README.md): how the current product works in code.
+- [The `epicenter` command](../packages/app/src/command/README.md) and [what an app imports](../packages/app/README.md): how the current product works in code.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
 - [Trust model](trust-model.md): who can read your files, decided by who can read the home.
 - [Context](CONTEXT.md): the retired folder sync product's vocabulary, for the code of it still here.

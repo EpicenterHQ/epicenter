@@ -22,7 +22,7 @@ container:
     local/                      what this computer can rebuild or sign in again: sign-ins, caches
 ```
 
-[ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
+[ADR-0910](../../../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
 describes the current layout and history. Each personal or shared home has
 its own private root repository, separate from this runtime source monorepo
 and from code-only app publications. No command imports or retires nested
@@ -35,16 +35,16 @@ repositories.
   "private": true,
   "workspaces": ["apps/*/code"],
   "scripts": { "build": "bun run --filter '*' --if-present build" },
-  "dependencies": { "@epicenter/cli": "0.7.0", "@epicenter/app": "0.7.0" }
+  "dependencies": { "@epicenter/app": "0.7.0" }
 }
 ```
 
-`bun install` at the top of the home installs everything: the command, as
-`node_modules/.bin/epicenter`; `@epicenter/app`, the library every
-`epicenter.ts` imports; and each app's own packages. There is one `bun.lock`,
-which is committed, and one `node_modules/`, which is not. The command and
-every app find `@epicenter/app` by ordinary resolution, so the home runs one
-copy of it, and the version a home runs is a line in a file in Git.
+`bun install` at the top of the home installs everything: `@epicenter/app`,
+which is both the library every `epicenter.ts` imports and the command, as
+`node_modules/.bin/epicenter`; and each app's own packages. There is one
+`bun.lock`, which is committed, and one `node_modules/`, which is not. The
+version a home runs is one line in a file in Git
+([ADR-0960](../../../../docs/adr/0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)).
 
 - Bun must be installed. The command is TypeScript that Bun runs; there is no
   separate program to download.
@@ -60,7 +60,7 @@ copy of it, and the version a home runs is a line in a file in Git.
   it again. An edit to an app's own files
   shows on the next call. A package lives in the home's top `node_modules/`,
   outside the app's folder, and `serve` keeps the packages it has loaded.
-- To upgrade, edit both versions in the home's `package.json`, then run
+- To upgrade, edit the version in the home's `package.json`, then run
   `bun install && bun run build`, commit `package.json` and `bun.lock`, and
   restart `serve`. The build gives every UI the new client; reload open pages.
 - Bun reads one `bunfig.toml`, at the top of the home. It ignores one inside
@@ -109,7 +109,7 @@ stops the server; the files remain. Keep unsubmitted text open until saved.
 To connect an assistant on this computer, add a Streamable HTTP MCP server at
 `http://127.0.0.1:4747/`. Ask it to find saved notes with their sources. You can
 also run a coding agent from this Epicenter and ask it to adapt
-`apps/writing/code/`. The [writing app README](../../examples/writing/README.md)
+`apps/writing/code/`. The [writing app README](../../../../examples/writing/README.md)
 explains one first change. Copied code belongs to you; later shared code
 does not replace it.
 
@@ -127,9 +127,8 @@ a capability already installed.
 Test routine app changes on the current Epicenter release. For a shared app,
 copy its published folder into a temporary home to check the copy people install.
 
-`@epicenter/cli` and `@epicenter/app` ship together under one version, and
-`@epicenter/cli` names that exact `@epicenter/app` as a peer. Commits can
-accumulate before a release. Ship separately when an installed consumer needs
+`@epicenter/app` is one package: the library, the client and the command
+ship together at one version. Commits can accumulate before a release. Ship separately when an installed consumer needs
 the fix now or when the next change depends on readers having upgraded first.
 Changes that can reach the same consumers together can share a release.
 
@@ -142,81 +141,64 @@ Changes that can reach the same consumers together can share a release.
 During `0.x`, use a patch for a compatible runtime fix and bump the middle
 number when an existing caller must change to keep working. Choose the
 number for the whole batch when it ships. Once distributed, a version
-identifies that build. The [Result cutover](../../docs/adr/0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md#cutover)
+identifies that build. The [Result cutover](../../../../docs/adr/0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md#cutover)
 records the wire behavior behind these examples.
 
 ### Release
 
-Two packages are published, always at the same version: `@epicenter/app`
-and `@epicenter/cli`. Each ships its TypeScript source and runs under Bun.
-The command names the library as a peer dependency at its own exact
-version, so a home installs one copy of the library: the one its
-`package.json` names. When a home names another version, `bun install`
-warns. A home
-upgrades both at once by editing both versions in its `package.json`, then
-running `bun install && bun run build`.
+One package is published: `@epicenter/app`, which ships its TypeScript
+source and runs under Bun. It holds the library, the client a UI imports
+from `@epicenter/app/client`, and the `epicenter` command. `@epicenter/cli`
+is retired at its last published version; a home that names it drops that
+line. A home upgrades by editing the one version in its `package.json`,
+then running `bun install && bun run build`.
 
 Nothing in this repository publishes by itself: no script or workflow runs
-`bun publish`. The owner releases by hand, from the repository root:
+`bun publish`. The owner releases by hand, from the repository root. Set
+`version` in `packages/app/package.json`, then pack:
 
 ```sh
-bun run --cwd packages/cli set-version 0.7.0
-bun run --cwd packages/cli pack
+bun run --cwd packages/app pack
 ```
 
-`set-version` writes the version into `packages/app/package.json` and
-`packages/cli/package.json`, changes nothing else, and prints what it
-changed. It accepts three numbers and nothing else. `pack` refuses while the
-two versions differ, and so does `bun run check:versions`, which
-`check:structure` runs.
+`pack` writes the tarball, as a registry would receive it, into
+`packages/app/dist/pack/<hash>/`, and prints its path. It publishes nothing.
+`bun pm pack` rewrites `catalog:` to real versions, and the script refuses a
+tarball where one is left. `--outdir` selects another folder.
 
-`pack` writes the two tarballs, as a registry would receive them, into
-`packages/cli/dist/pack/<hash>/`, and prints their paths. It publishes
-nothing. `bun pm pack` rewrites `catalog:` and `workspace:*` to real
-versions, and the script refuses a tarball where one is left. `--outdir`
-selects another folder.
-
-Publish from that folder, the library first, so the registry never holds a
-command whose library it lacks. Run each with `--dry-run` before the real
-publish:
+Publish from that folder, with `--dry-run` before the real publish:
 
 ```sh
-cd packages/cli/dist/pack/<hash>
+cd packages/app/dist/pack/<hash>
 bun publish epicenter-app-0.7.0.tgz --dry-run
 bun publish epicenter-app-0.7.0.tgz
-bun publish epicenter-cli-0.7.0.tgz --dry-run
-bun publish epicenter-cli-0.7.0.tgz
 ```
 
 ### Try an unreleased change
 
-Pack, then point the home's two dependencies at the tarballs with
-`overrides` in its `package.json`. `pack` prints these lines with their
-paths:
+Pack, then point the home's dependency at the tarball with `overrides` in
+its `package.json`. `pack` prints these lines with their path:
 
 ```json
 {
   "overrides": {
-    "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.7.0.tgz",
-    "@epicenter/cli": "file:/path/to/pack/<hash>/epicenter-cli-0.7.0.tgz"
+    "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.7.0.tgz"
   }
 }
 ```
 
-Run `bun install` at the top of the home and restart `serve`. `overrides` replaces a
-package wherever it is named, including the command's peer on the library,
-so the home still installs one copy. Bun caches a tarball by its path, so a
-file changed in place keeps installing its old content: the file's path must
-change when its content does. The `<hash>` folder is named for the
-tarballs' content, so each pack of changed source is a new path. Rehearse on
-a clone of the home, not the home. Remove `overrides`
-and install again to return to the released version.
+Run `bun install` at the top of the home and restart `serve`. Bun caches a
+tarball by its path, so a file changed in place keeps installing its old
+content: the file's path must change when its content does. The `<hash>`
+folder is named for the tarball's content, so each pack of changed source is
+a new path. Rehearse on a clone of the home, not the home. Remove
+`overrides` and install again to return to the released version.
 
 ## The commands
 
 Your Epicenter lives on a computer you control and keep on. `epicenter serve`
 offers its apps to devices on a private connection. An older laptop with
-Tailscale is one setup. See [a computer that stays on](../../docs/vision.md#a-computer-that-stays-on).
+Tailscale is one setup. See [a computer that stays on](../../../../docs/vision.md#a-computer-that-stays-on).
 
 The command selects the nearest marked ancestor of the current directory,
 then `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without the
@@ -240,8 +222,8 @@ The commands are `check` and `serve`. Their usage and help live in
 `src/commands.ts`. No command makes an Epicenter, makes an app, or copies
 one: [Make an Epicenter](#make-an-epicenter) and
 [What an app holds](#what-an-app-holds) list the files
-([ADR-0958](../../docs/adr/0958-no-command-makes-an-epicenter.md),
-[ADR-0955](../../docs/adr/0955-no-command-makes-or-copies-an-app.md)).
+([ADR-0958](../../../../docs/adr/0958-no-command-makes-an-epicenter.md),
+[ADR-0955](../../../../docs/adr/0955-no-command-makes-or-copies-an-app.md)).
 `epicenter` on its own reports the home: the version of the command running,
 its apps, and its routines. See
 [The home's report](#the-homes-report).
@@ -357,7 +339,7 @@ to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
@@ -376,7 +358,7 @@ any program, started from the home's folder: a terminal, tmux, a systemd user
 unit, or a LaunchAgent. What such a tool runs is Bun and the home's own
 command, `bun <home>/node_modules/.bin/epicenter serve`, so after an upgrade a
 restart runs the new version. Actions and routines run with that tool's environment,
-including its `PATH` ([ADR-0941](../../docs/adr/0941-epicenter-serve-is-a-program-you-keep-running.md)).
+including its `PATH` ([ADR-0941](../../../../docs/adr/0941-epicenter-serve-is-a-program-you-keep-running.md)).
 
 ## Routines
 
@@ -435,8 +417,8 @@ stopping that group (Ctrl-C in a terminal, or the job that runs serve) stops
 them. Commands must tolerate repetition;
 there is no exactly-once guarantee.
 
-See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md) and
-[ADR-0937](../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md).
+See [ADR-0908](../../../../docs/adr/0908-serve-runs-the-homes-daily-routines.md) and
+[ADR-0937](../../../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md).
 
 ## A call over HTTP
 
@@ -505,7 +487,7 @@ and renaming it over the target, so nothing unfinished is ever under `data/`.
 ## What a run answers
 
 Every surface gives one answer, exactly `{ data, error }`
-([ADR-0953](../../docs/adr/0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)).
+([ADR-0953](../../../../docs/adr/0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)).
 `error` is `null` or the error object itself. With `--json`, stdout is that
 answer; MCP returns it as `structuredContent` and sets `isError: true` for
 any error; HTTP sends it in the last line, `{"answer": ...}`.
@@ -625,7 +607,7 @@ report as `error.report` and a one-line summary as its message. Without
 ## The home's report
 
 `epicenter` on its own prints the version of the command that is running,
-the one `packages/cli/package.json` states. `--json` answers the report as
+the one `packages/app/package.json` states. `--json` answers the report as
 `data`, with that version as `version`. Then come the
 apps and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
@@ -635,7 +617,7 @@ It starts nothing and works while serve is stopped. It exits 0 when it
 could report, even when an app or a routine file has a problem.
 
 The report says nothing about the home's repository; Git does
-([ADR-0956](../../docs/adr/0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md)).
+([ADR-0956](../../../../docs/adr/0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md)).
 At the top of the home:
 
 ```sh
@@ -732,12 +714,12 @@ all running apps' code and records. Keep experiments outside the live Epicenter.
 
 ## Build a UI
 
-An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404. `serve` never serves a path with a part starting with `.`.
+An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404. `serve` never serves a path with a part starting with `.`.
 
 A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: the home's `package.json` holds `"build": "bun run --filter '*' --if-present build"`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. An app whose UI is a bare `ui/index.html` needs its own `build`.
 
-Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the app's own `.gitignore` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
+Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the app's own `.gitignore` ([ADR-0854](../../../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
 ## Tests
 
-Run `bun test <file>` in `packages/cli` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID.
+Run `bun test <file>` in `packages/app` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID.

@@ -1,16 +1,10 @@
 /** Run actions: find one, check its input, and answer what it did. */
 
-import {
-	type Action,
-	ActionError,
-	type Answer,
-	Err,
-	encodeActionResult,
-	isActionResult,
-	RESERVED_NAMES,
-} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
+import { encodeActionResult, isActionResult } from '../action-result.ts';
+import { RESERVED_NAMES } from '../errors.ts';
+import { type Action, ActionError, type Answer, Err } from '../index.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { stderrJsonLines } from './output.ts';

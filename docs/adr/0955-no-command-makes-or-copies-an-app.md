@@ -16,7 +16,7 @@ forced on, renamed the copy's package and wrote `SOURCE.md`. That was about
 removed first.
 
 Two commands that set an app up were left in `COMMANDS`
-(`d413cc7a78:packages/cli/src/commands.ts`):
+(`d413cc7a78:packages/app/src/command/commands.ts`):
 
 - `epicenter new <name>` (`d413cc7a78:packages/cli/src/new.ts`, 75 lines)
   wrote `apps/<name>/code/` with `.gitignore`, a `package.json` named
@@ -45,9 +45,9 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 `epicenter.ts`, a `package.json` named `<name>` and a `.gitignore`, beside
 `data/`.**
 
-- `COMMANDS` in `packages/cli/src/commands.ts` holds `check` and `serve`.
+- `COMMANDS` in `packages/app/src/command/commands.ts` holds `check` and `serve`.
   `new` and `export` are not in it.
-- "What an app holds" in `packages/cli/README.md` lists those files. It is
+- "What an app holds" in `packages/app/src/command/README.md` lists those files. It is
   the only description of a new app. The README's quick start has one line
   that fetches the Writing example; it gives no general procedure for
   copying or publishing an app.
@@ -57,7 +57,7 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 - An Epicenter with no apps says
   `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 - The `epicenter` command starts neither Git nor Bun. The one program it
-  starts is a routine's own `run`, in `packages/cli/src/routines.ts`.
+  starts is a routine's own `run`, in `packages/app/src/command/routines.ts`.
 - Taking an app's code stays a copy that nothing merges (ADR-0904). The
   owner makes it with their own tools.
 

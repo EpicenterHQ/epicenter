@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { fixture } from './runner.test-support.ts';
 
 export async function writingSource(f: Awaited<ReturnType<typeof fixture>>) {
-	const code = join(import.meta.dir, '../../../examples/writing');
+	const code = join(import.meta.dir, '../../../../examples/writing');
 	const files: Record<string, string> = {};
 	for (const entry of await readdir(code, {
 		recursive: true,

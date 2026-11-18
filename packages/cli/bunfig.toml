@@ -1,2 +1,0 @@
-[test]
-preload = ["./src/fixture-serve.test-support.ts"]

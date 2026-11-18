@@ -13,9 +13,9 @@
  */
 
 import { expect, test } from 'bun:test';
-import { defineAction, Err, field, Ok } from '@epicenter/app';
 import { createLogger, type Logger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { defineAction, Err, field, Ok } from '../index.ts';
 import type { Runnable } from './home.ts';
 import { runAction } from './run.ts';
 

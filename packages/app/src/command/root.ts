@@ -13,7 +13,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { readMarkdown } from '@epicenter/app';
+import { readMarkdown } from '../front-matter.ts';
 
 export const MARKER = 'EPICENTER.md';
 const DEFAULT_PORT = 4747;

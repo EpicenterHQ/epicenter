@@ -53,7 +53,7 @@ EpicenterHQ/epicenter
   script, or record already names.
 - **`apps/` for outside apps here and a new name for the folder in an
   Epicenter.** That renames `~/Epicenter/apps` on every home, and the constant
-  `APPS` in `packages/cli/src/root.ts`, to avoid a collision the two
+  `APPS` in `packages/app/src/command/root.ts`, to avoid a collision the two
   locations already resolve.
 
 ## Consequences

@@ -153,7 +153,7 @@ key, because a record holds both.
   key selection, and all three type-check. Every
   `get({ path: pathOf(...) })` went away. The six writes that used `update`
   and threw `Missing` by hand become `set` with a function.
-- `packages/cli/src/bin.ts` supplies its own `@epicenter/app` to every
+- `packages/app/src/command/bin.ts` supplies its own `@epicenter/app` to every
   `epicenter.ts` it loads, so the apps under `~/Epicenter/apps` change in the
   same step as installing the command that carries this.
 - A method and its verb no longer take the same object. The rule that they

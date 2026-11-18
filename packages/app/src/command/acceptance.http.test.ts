@@ -8,10 +8,10 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Action } from '@epicenter/app';
-import { connect } from '@epicenter/app/client';
 import type { Ok, Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { connect } from '../client.ts';
+import type { Action } from '../index.ts';
 import {
 	fixture,
 	header,

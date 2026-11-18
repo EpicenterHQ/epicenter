@@ -6,8 +6,9 @@
  * rather than as many broken files. It reads the app's folder and writes
  * nothing.
  */
-import { ActionError, type Answer, checkData, Err, Ok } from '@epicenter/app';
+
 import { extractErrorMessage } from 'wellcrafted/error';
+import { ActionError, type Answer, checkData, Err, Ok } from '../index.ts';
 import { parseWords } from './commands.ts';
 import {
 	discoverAll,

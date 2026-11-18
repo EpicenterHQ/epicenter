@@ -19,8 +19,8 @@ needed the context passed on, and data defined at the top of the file could
 not use it.
 
 The value in that store never changes between calls. `load` in
-`packages/cli/src/home.ts` builds one context for an app, and `settle` in
-`packages/cli/src/run.ts` copies it for each call. A store made for values
+`packages/app/src/command/home.ts` builds one context for an app, and `settle` in
+`packages/app/src/command/run.ts` copies it for each call. A store made for values
 that differ by request carries a value that is fixed for each app.
 
 Keeping it has a price:
@@ -36,8 +36,10 @@ Keeping it has a price:
 The shared store is also why the command and the library are two packages
 tied at one version (ADR-0942, PR #2660). `@epicenter/cli` names
 `@epicenter/app` as a peer at its own exact version
+<!-- doc-path-check: ignore-next-line (the command folded into packages/app and packages/cli was deleted, ADR-0960) -->
 (`packages/cli/package.json`). `packages/cli/scripts/version.ts` writes one
 version into both manifests, and `bun run check:versions` and
+<!-- doc-path-check: ignore-next-line (the command folded into packages/app and packages/cli was deleted, ADR-0960) -->
 `packages/cli/scripts/pack.ts` refuse while they differ. `libraryProblem` in
 <!-- doc-path-check: ignore-next-line (deleted with the copy check, ADR-0960) -->
 `packages/cli/src/library.ts` refuses to load an app on another copy or
@@ -98,7 +100,7 @@ export default defineApp(({ folder }) => {
   live records only by passing the live folder.
 - **No copy check.** Nothing is shared in memory between the loader and the
   app, and the loader recognizes an action by its shape. `library.ts` and its
-  call in `packages/cli/src/home.ts` are deleted.
+  call in `packages/app/src/command/home.ts` are deleted.
 
 **The command and the library are one package, `@epicenter/app`, and
 `@epicenter/cli` is retired.** The command's source moves from
@@ -118,6 +120,7 @@ gains the bin:
   `epicenter.ts` already imports `@epicenter/app`, and `bun install` still
   puts `epicenter` in `node_modules/.bin/`.
 - **What goes.** The peer dependency on `@epicenter/app` in
+<!-- doc-path-check: ignore-next-line (the command folded into packages/app and packages/cli was deleted, ADR-0960) -->
   `packages/cli/package.json`; `packages/cli/scripts/version.ts`, with its
   `set-version` script and `sharedVersion`; `check:versions` in the root
   `package.json` and its place in `check:structure`; the version comparison

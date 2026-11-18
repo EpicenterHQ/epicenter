@@ -6,9 +6,11 @@
  * stdin. A page, an agent, and the command line give the same object, and
  * `checkInput` checks it for all three.
  */
-import { type Action, isName, whatFits } from '@epicenter/app';
+
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
+import { whatFits } from '../field.ts';
+import { type Action, isName } from '../index.ts';
 
 /**
  * Match the longest action prefix so spaced action keys keep their spelling.

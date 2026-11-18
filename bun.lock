@@ -193,7 +193,11 @@
     "packages/app": {
       "name": "@epicenter/app",
       "version": "0.7.0",
+      "bin": {
+        "epicenter": "./src/command/bin.ts",
+      },
       "dependencies": {
+        "@modelcontextprotocol/sdk": "catalog:",
         "nanoid": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
@@ -201,25 +205,6 @@
       "devDependencies": {
         "@types/bun": "catalog:",
         "typescript": "catalog:",
-      },
-    },
-    "packages/cli": {
-      "name": "@epicenter/cli",
-      "version": "0.7.0",
-      "bin": {
-        "epicenter": "./src/bin.ts",
-      },
-      "dependencies": {
-        "@modelcontextprotocol/sdk": "catalog:",
-        "typebox": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-      "peerDependencies": {
-        "@epicenter/app": "workspace:*",
       },
     },
     "packages/definition": {
@@ -622,8 +607,6 @@
     "@epicenter/api-ui": ["@epicenter/api-ui@workspace:apps/api/ui"],
 
     "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
-
-    "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
 
     "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
 

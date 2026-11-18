@@ -8,31 +8,28 @@ import { COMMANDS } from './commands.ts';
 const bin = resolve(import.meta.dir, 'bin.ts');
 
 /**
- * A test home's `package.json`: the workspace an Epicenter is, without the
- * two dependencies, which `bun install` would ask the registry for.
- * `installPackages` puts them in place instead.
+ * A test home's `package.json`: the workspace an Epicenter is, without its
+ * dependency, which `bun install` would ask the registry for.
+ * `installPackages` puts it in place instead.
  */
 export const homePackage = `${JSON.stringify({ private: true, workspaces: ['apps/*/code'] }, null, 2)}\n`;
 
 /**
  * Give the home at `folder` the install a real one gets from `bun install`,
- * without the network: `node_modules/@epicenter/app` and
- * `node_modules/@epicenter/cli` link to this repository's packages, and
- * `node_modules/.bin/epicenter` to the command. So an app there resolves the
- * same `@epicenter/app` as the `bin.ts` a test runs. The empty
- * `node_modules/.bun` is what Bun's own install leaves; with it there, a
- * `bun install` a test runs in the home keeps these links.
+ * without the network: `node_modules/@epicenter/app` links to this
+ * repository's package, and `node_modules/.bin/epicenter` to its command.
+ * The empty `node_modules/.bun` is what Bun's own install leaves; with it
+ * there, a `bun install` a test runs in the home keeps these links.
  */
 export async function installPackages(folder: string) {
 	const modules = join(folder, 'node_modules');
 	await mkdir(join(modules, '.bun'), { recursive: true });
 	await mkdir(join(modules, '.bin'));
 	await mkdir(join(modules, '@epicenter'));
-	const packages = resolve(import.meta.dir, '..', '..');
-	await symlink(join(packages, 'app'), join(modules, '@epicenter', 'app'));
-	await symlink(join(packages, 'cli'), join(modules, '@epicenter', 'cli'));
+	const app = resolve(import.meta.dir, '..', '..');
+	await symlink(app, join(modules, '@epicenter', 'app'));
 	await symlink(
-		join('..', '@epicenter', 'cli', 'src', 'bin.ts'),
+		join('..', '@epicenter', 'app', 'src', 'command', 'bin.ts'),
 		join(modules, '.bin', 'epicenter'),
 	);
 }

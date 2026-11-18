@@ -6,7 +6,7 @@
  * usage line.
  */
 import { parseArgs } from 'node:util';
-import { ActionError, isName, Ok } from '@epicenter/app';
+import { ActionError, isName, Ok } from '../index.ts';
 
 export const COMMANDS = {
 	check: {

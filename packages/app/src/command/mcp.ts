@@ -14,14 +14,14 @@
  * an MCP client reads only the answer.
  */
 
-import { ActionError, type Answer } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { VERSION } from './engines.ts';
+import packageJson from '../../package.json' with { type: 'json' };
+import { ActionError, type Answer } from '../index.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
 import { outcome, writeErr } from './output.ts';
@@ -72,7 +72,7 @@ function toolResult(answer: Answer) {
 export async function createMcpServer() {
 	const instructions = await rootInstructions();
 	const server = new Server(
-		{ name: 'epicenter', version: VERSION },
+		{ name: 'epicenter', version: packageJson.version },
 		{
 			capabilities: { tools: {} },
 			...(instructions === undefined ? {} : { instructions }),

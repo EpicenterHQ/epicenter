@@ -15,21 +15,16 @@
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-	type Action,
-	type App,
-	type Folder,
-	folderOnDisk,
-	isAction,
-} from '@epicenter/app';
 import { Value } from 'typebox/value';
+import { isAction } from '../action.ts';
+import { type Action, type App, type Folder, folderOnDisk } from '../index.ts';
 import { exampleCommand } from './input.ts';
 import { connectMcp, fixture } from './runner.test-support.ts';
 
 // The public-surface test runs the real serve and command.
 setDefaultTimeout(30_000);
 
-const examples = join(import.meta.dir, '../../../examples');
+const examples = join(import.meta.dir, '../../../../examples');
 
 /** Generated data actions for a folder key and a one-file key, with a field of each kind. */
 const generated = `export default defineApp(({ folder }) => {

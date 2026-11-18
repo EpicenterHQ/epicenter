@@ -2,7 +2,7 @@
 import { expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { connect } from '@epicenter/app/client';
+import { connect } from '../client.ts';
 import { connectMcp, fixture } from './runner.test-support.ts';
 
 test('a nested action returns the same refusal to HTTP, the CLI and MCP', async () => {

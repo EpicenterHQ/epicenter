@@ -11,6 +11,9 @@
 import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
+import { isAction } from '../action.ts';
 import {
 	type Action,
 	ActionError,
@@ -19,12 +22,9 @@ import {
 	defineApp,
 	type Folder,
 	folderOnDisk,
-	isAction,
 	isName,
 	type NotStarted,
-} from '@epicenter/app';
-import { extractErrorMessage } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
+} from '../index.ts';
 import { nameProblem } from './commands.ts';
 import { appsDir, epicenterRoot } from './root.ts';
 

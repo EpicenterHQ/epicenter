@@ -4,8 +4,8 @@
  * step. JSON mode keeps the answer.
  */
 import { expect, spyOn, test } from 'bun:test';
-import { ActionError, type Answer } from '@epicenter/app';
 import { Err, Ok } from 'wellcrafted/result';
+import { ActionError, type Answer } from '../index.ts';
 import { presentAnswer } from './output.ts';
 
 /** What `presentAnswer` writes for a person, and the exit code it returns. */

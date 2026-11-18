@@ -9,9 +9,10 @@
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { delimiter, dirname, join } from 'node:path';
-import { isName, readMarkdown } from '@epicenter/app';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
+import { isName } from '../app.ts';
+import { readMarkdown } from '../front-matter.ts';
 import { stderrJsonLines } from './output.ts';
 
 /** `run` is the command's words: the program, then each argument as text. */

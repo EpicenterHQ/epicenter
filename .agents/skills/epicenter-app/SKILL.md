@@ -211,9 +211,9 @@ packages only once its path is added by hand to `workspaces` in the home's
 no command runs it, and a call never installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
-the restart. Upgrade Epicenter by editing both versions in the home's `package.json`, then
-running `bun install && bun run build` at the top: the two are released at
-one version.
+the restart. Upgrade Epicenter by editing the `@epicenter/app` version in the
+home's `package.json`, then running `bun install && bun run build` at the top.
+That one package is the library and the `epicenter` command.
 Write each action with `defineAction`, which types its
 `run` from its `input`. The action carries that input as one JSON Schema
 object, `{ type, properties, required, additionalProperties: false }`, which
@@ -597,7 +597,7 @@ Only serve runs an action, so keep that `serve` running, in the background or
 another terminal, while you call `epicenter example <action>` in the temporary
 home. Give the temporary home a port the real one does not use.
 
-In the monorepo, the source CLI is `bun <repo>/packages/cli/src/bin.ts`.
+In the monorepo, the source CLI is `bun <repo>/packages/app/src/command/bin.ts`.
 The temporary Git configuration isolates identity and signing settings.
 Run `bun run typecheck` and action tests from code/, where package.json lives.
 An action test calls the app with a folder on a temporary directory and calls

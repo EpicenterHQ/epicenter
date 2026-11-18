@@ -6,8 +6,9 @@
  * structure, and a command's own text prints as it is. Stderr carries what
  * went wrong, with a `Run: <next step>` line where there is one.
  */
-import type { Answer } from '@epicenter/app';
+
 import type { LogSink } from 'wellcrafted/logger';
+import type { Answer } from '../index.ts';
 
 /** Write diagnostics separately from the answer or MCP protocol. */
 export function writeErr(text: string) {

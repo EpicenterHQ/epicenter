@@ -1,14 +1,8 @@
 /** An action's command-line input is one JSON object, checked as a page's or an agent's is (ADR-0925). */
 
 import { expect, test } from 'bun:test';
-import {
-	defineAction,
-	defineData,
-	type Folder,
-	field,
-	Ok,
-} from '@epicenter/app';
 import { Type } from 'typebox';
+import { defineAction, defineData, type Folder, field, Ok } from '../index.ts';
 import { checkInput, matchAction, readInput, usageLine } from './input.ts';
 import { actionHelp } from './listing.ts';
 
