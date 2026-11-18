@@ -156,7 +156,6 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 				message: expect.stringContaining(message),
 				cause: 'usage',
 				next: expect.any(String),
-				namespace: 'epicenter/action-error',
 			},
 		});
 	}
@@ -306,7 +305,6 @@ test('a misused command answers its usage line, with its help as the next step',
 				cause: 'usage',
 				message: `Usage: ${COMMANDS[command].usage}`,
 				next: `epicenter ${command} --help`,
-				namespace: 'epicenter/action-error',
 			},
 		});
 	}
@@ -358,7 +356,6 @@ test('a throwing action returns exit 1 with its message', async () => {
 		error: {
 			name: 'Threw',
 			message: 'action exploded',
-			namespace: 'epicenter/action-error',
 		},
 	});
 });

@@ -6,7 +6,6 @@
 import { expect, test } from 'bun:test';
 import { Value } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { isActionError } from './errors.ts';
 import {
 	type ActionError,
 	createMemoryContext,
@@ -345,7 +344,6 @@ test('an encoded Misfit answer keeps the id of a folder record and has none for 
 			JSON.parse(JSON.stringify(expectErr(encodeActionResult(result))));
 		const folderMisfit = sent(await notes.get({ id: 'a' }));
 		expect(folderMisfit).toMatchObject({ name: 'Misfit', id: 'a' });
-		expect(isActionError(folderMisfit)).toBe(true);
 		const single = sent(await settings.get({}));
 		expect(single).toMatchObject({ name: 'Misfit', path: 'data/settings.md' });
 		expect(single).not.toHaveProperty('id');

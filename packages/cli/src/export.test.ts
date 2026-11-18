@@ -106,7 +106,6 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 				message:
 					'apps/tasks/code has uncommitted changes; commit them, then export.',
 				next: 'epicenter export --help',
-				namespace: 'epicenter/action-error',
 			},
 		});
 	}
@@ -305,7 +304,6 @@ test('--all adds future committed apps and removes absent apps without importing
 				apps: ['broken', 'tasks'],
 				omitted: ['reading'],
 			},
-			namespace: 'epicenter/action-error',
 		},
 	});
 	expect(await f.run('export', '--all', output)).toEqual({

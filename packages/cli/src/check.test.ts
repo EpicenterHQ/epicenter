@@ -64,14 +64,8 @@ test('with no app named, checks every app and lists one that does not load under
 	expect(error).toMatchObject({
 		name: 'Problems',
 		message: '1 file has problems; 1 app could not be checked',
-		namespace: 'epicenter/action-error',
 	});
-	expect(Object.keys(error).sort()).toEqual([
-		'message',
-		'name',
-		'namespace',
-		'report',
-	]);
+	expect(Object.keys(error).sort()).toEqual(['message', 'name', 'report']);
 	const { report } = error;
 	expect(Object.keys(report.apps)).toEqual(['books', 'tasks']);
 	expect(report.apps.books.books.withProblems).toBe(0);
@@ -127,7 +121,6 @@ test('a named app that does not load or does not exist did not run, exit 2', asy
 			message: 'broken: code/epicenter.ts: import exploded',
 			app: 'broken',
 			problems: ['code/epicenter.ts: import exploded'],
-			namespace: 'epicenter/action-error',
 		},
 	});
 	const unknown = await f.run('check', 'nope', '--json');

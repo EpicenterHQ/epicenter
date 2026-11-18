@@ -144,7 +144,6 @@ test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits
 			name: 'Threw',
 			message: 'no such page',
 			thrown: { name: 'NotFound', message: 'no such page', page: 'x' },
-			namespace: 'epicenter/action-error',
 		},
 	});
 
@@ -168,7 +167,6 @@ test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits
 	expect(declined.code).toBe(1);
 	expect(declined.answer.error).toMatchObject({
 		name: 'Refused',
-		namespace: 'epicenter/action-error',
 	});
 	const thrown = await f.json('notes', 'thrown-refusal');
 	expect(thrown.code).toBe(1);
@@ -181,7 +179,6 @@ test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits
 		error: {
 			name: 'Threw',
 			message: expect.any(String),
-			namespace: 'epicenter/action-error',
 		},
 	});
 	// Serve runs the action, so an action that exits ends serve, and the
@@ -194,7 +191,6 @@ test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits
 			name: 'Unreachable',
 			message:
 				'The connection to Epicenter ended before the answer; the action may still be running, or may have finished',
-			namespace: 'epicenter/action-error',
 		},
 	});
 	const unknown = await f.json('notes', 'nope');
@@ -300,7 +296,6 @@ export default defineApp({ description: 'Where', actions: {
 			message,
 			cause: 'unavailable',
 			next: 'epicenter serve',
-			namespace: 'epicenter/action-error',
 		},
 	});
 	expect(await ran()).toBe('xx');

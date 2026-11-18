@@ -147,7 +147,6 @@ test('folder patch returns Missing, one-file patch creates only a fitting record
 				'data/settings.md does not fit its fields:\ndata/settings.md: title is missing',
 			path: 'data/settings.md',
 			problems: [{ line: 'title is missing', kind: 'title is missing' }],
-			namespace: 'epicenter/action-error',
 		});
 		expect(
 			expectErr(

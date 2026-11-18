@@ -12,7 +12,6 @@ const line = (fields: unknown) => `${JSON.stringify(fields)}\n`;
 const invalid = {
 	name: 'Unreachable',
 	message: 'Epicenter sent an invalid answer',
-	namespace: 'epicenter/action-error',
 };
 
 test('an answer is data, the error itself, or a platform error with its fields', () => {
@@ -44,7 +43,7 @@ test('an answer is data, the error itself, or a platform error with its fields',
 });
 
 test('a value of the wrong shape is Unreachable', () => {
-	const platform = { namespace: 'epicenter/action-error', message: 'm' };
+	const platform = { message: 'm' };
 	for (const value of [
 		undefined,
 		null,
@@ -62,7 +61,6 @@ test('a value of the wrong shape is Unreachable', () => {
 			data: null,
 			error: { kind: 'returned', reason: { name: 'E', message: 'm' } },
 		},
-		{ data: null, error: { ...platform, name: 'Unknown' } },
 		{ data: null, error: { ...platform, name: 'Threw', thrown: {} } },
 		{ data: null, error: { ...platform, name: 'NotStarted' } },
 		{ data: null, error: { ...platform, name: 'NotStarted', cause: 'other' } },
@@ -98,9 +96,6 @@ test('a value of the wrong shape is Unreachable', () => {
 				problems: ['a'],
 			},
 		},
-		// Only Epicenter answers these, and always with its namespace.
-		{ data: null, error: { name: 'NotStarted', message: 'm', cause: 'usage' } },
-		{ data: null, error: { name: 'Unreachable', message: 'm' } },
 	])
 		expect(expectErr(checkAnswer(value))).toEqual(invalid);
 });

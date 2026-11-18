@@ -80,7 +80,6 @@ test('new creates code and empty data without repositories and refuses taken and
 			name: 'NotStarted',
 			cause: 'usage',
 			message: `reading already exists in ${f.apps}`,
-			namespace: 'epicenter/action-error',
 		},
 	});
 	const made = await f.run('new', 'garden', '--json');

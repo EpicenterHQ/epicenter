@@ -12,12 +12,10 @@
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import { isActionResult, type PublicError } from './action-result.ts';
-import { ActionError, RESERVED_NAMES } from './errors.ts';
+import { ActionError } from './errors.ts';
 
 /** An action's answer on every surface: what it returned, or the error itself. */
 export type Answer = Result<unknown, PublicError>;
-
-const NAMESPACE = 'epicenter/action-error';
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -28,17 +26,15 @@ const invalid = () =>
 
 /**
  * One answer as a caller reads it: exactly `data` and `error`, where `error`
- * is `null` or a tagged object. A platform error must carry the fields its
- * name does, and `NotStarted` the fields its `cause` does. `NotStarted` or
- * `Unreachable` must carry the platform's namespace. Anything else is
- * `Unreachable`.
+ * is `null` or a tagged object. `Threw` must carry a tagged `thrown` when it
+ * has one, and `NotStarted` the fields its `cause` does; the name alone says
+ * which, since serve answers an action's own `NotStarted` or `Unreachable` as
+ * `Threw`. Anything else is `Unreachable`.
  */
 export function checkAnswer(value: unknown): Answer {
 	if (!isActionResult(value)) return invalid();
 	if (value.error === null) return Ok(value.data);
 	const error = value.error as unknown as Record<string, unknown>;
-	if (error.namespace !== NAMESPACE)
-		return RESERVED_NAMES.includes(error.name as string) ? invalid() : value;
 	if (error.name === 'Threw') {
 		const { thrown } = error;
 		const fits =

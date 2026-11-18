@@ -23,10 +23,10 @@ const runLog = createLogger('cli/run', stderrJsonLines);
 
 /**
  * Run a checked action and answer what it did: its own Result, or `Threw`.
- * An error it returns named `NotStarted` or `Unreachable`, with or without
- * the platform's namespace, answers `Threw`: only Epicenter says a call never
- * began or that its outcome is unknown, and an action can copy the namespace
- * (ADR-0953). Nothing locks it: one process runs actions (ADR-0936).
+ * An error it returns named `NotStarted` or `Unreachable` answers `Threw`:
+ * only Epicenter says a call never began or that its outcome is unknown, and
+ * the name alone says so (ADR-0953). Nothing locks it: one process runs
+ * actions (ADR-0936).
  * When it ends, `log` gets one record: the app, the action, the outcome and
  * how long it took, and for a failure the error's name. The
  * record has neither the input nor the result, which can hold personal data.

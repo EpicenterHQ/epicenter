@@ -12,8 +12,6 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 
-const NAMESPACE = 'epicenter/action-error' as const;
-
 export type Problem = { line: string; kind: string };
 
 /**
@@ -41,11 +39,6 @@ const CHANGED = {
 	there: ' is already there',
 };
 
-/** The enumerable marker survives the runner's JSON serialization. It is not proof of origin. */
-function marked<T extends { message: string }>(body: T) {
-	return { ...body, namespace: NAMESPACE };
-}
-
 export const ActionError = defineErrors({
 	/**
 	 * A file, or a change to one, does not fit its declared fields. `id` is the
@@ -64,34 +57,44 @@ export const ActionError = defineErrors({
 		id?: string;
 		problems: Problem[];
 		record?: Record<string, unknown>;
-	}) =>
-		marked({
-			message: [
-				`${path} does not fit its fields:`,
-				...problems.map((problem) => `${path}: ${problem.line}`),
-			].join('\n'),
-			path,
-			...(id === undefined ? {} : { id }),
-			problems,
-			...(record === undefined ? {} : { record }),
-		}),
+	}) => ({
+		message: [
+			`${path} does not fit its fields:`,
+			...problems.map((problem) => `${path}: ${problem.line}`),
+		].join('\n'),
+		path,
+		...(id === undefined ? {} : { id }),
+		problems,
+		...(record === undefined ? {} : { record }),
+	}),
 	/** The quoted passage changed or is not in one place, or a new file is already there. */
-	Changed: ({ path, cause }: { path: string; cause: keyof typeof CHANGED }) =>
-		marked({ message: `${path}${CHANGED[cause]}`, path, cause }),
+	Changed: ({
+		path,
+		cause,
+	}: {
+		path: string;
+		cause: keyof typeof CHANGED;
+	}) => ({
+		message: `${path}${CHANGED[cause]}`,
+		path,
+		cause,
+	}),
 	/** There is no file at this path. It may be a dependency of the requested action. */
-	Missing: ({ path }: { path: string }) =>
-		marked({ message: `There is no ${path}`, path }),
+	Missing: ({ path }: { path: string }) => ({
+		message: `There is no ${path}`,
+		path,
+	}),
 	/** The action began and threw, with its JSON-safe tagged payload when available. */
 	Threw: (body: {
 		message: string;
 		thrown?: { name: string; message: string } & Record<string, unknown>;
-	}) => marked(body),
+	}) => body,
 	/**
 	 * The app said no: a ready-made name for an action's own refusal. Epicenter
 	 * never answers it; a write that does not fit the declared fields is `Misfit`.
 	 * It does not imply the action wrote nothing.
 	 */
-	Refused: (body: { message: string; next?: string }) => marked(body),
+	Refused: (body: { message: string; next?: string }) => body,
 	/**
 	 * It ran, and `report` is what it found, but the job is not clean: a check
 	 * that found records with problems, or an export that left apps out.
@@ -99,21 +102,20 @@ export const ActionError = defineErrors({
 	 * be, and `message` says what is wrong, with `next` when a command repairs
 	 * it.
 	 */
-	Problems: (body: { message: string; report: unknown; next?: string }) =>
-		marked(body),
+	Problems: (body: { message: string; report: unknown; next?: string }) => body,
 	/**
 	 * The call's outcome is unknown: the connection dropped after it was
 	 * sent, a line was not a valid frame, or the answer never came. Only a
 	 * caller answers it; serve turns an action's own into `Threw`.
 	 */
-	Unreachable: (body: { message: string }) => marked(body),
+	Unreachable: (body: { message: string }) => body,
 	/**
 	 * The action never began, so it is safe to call again once `cause` is
 	 * fixed. Each cause carries its own fields, so narrowing on `cause` types
 	 * them. Only serve and the CLI answer it; serve turns an action's own into
 	 * `Threw`.
 	 */
-	NotStarted: (body: NotStartedBody) => marked(body),
+	NotStarted: (body: NotStartedBody) => body,
 });
 export type ActionError = InferErrors<typeof ActionError>;
 /** The action never began. */
@@ -122,20 +124,3 @@ export type NotStarted = InferError<typeof ActionError.NotStarted>;
 export type Threw = InferError<typeof ActionError.Threw>;
 /** The call's outcome is unknown. */
 export type Unreachable = InferError<typeof ActionError.Unreachable>;
-
-/**
- * Whether a value received through JSON is a platform error: the platform's
- * marker, a known name, and a text message. The page and serve are one
- * version, so the other fields are not checked.
- */
-export function isActionError(value: unknown): value is ActionError {
-	if (typeof value !== 'object' || value === null || Array.isArray(value))
-		return false;
-	const body = value as Record<string, unknown>;
-	return (
-		body.namespace === NAMESPACE &&
-		typeof body.name === 'string' &&
-		Object.hasOwn(ActionError, body.name) &&
-		typeof body.message === 'string'
-	);
-}

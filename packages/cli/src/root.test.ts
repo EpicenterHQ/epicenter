@@ -139,7 +139,6 @@ test('init installs the packages its package.json names, keeps a package.json al
 		message: expect.any(String),
 		report: { folder: broken, port: expect.any(Number) },
 		next: `cd ${broken} && bun install`,
-		namespace: 'epicenter/action-error',
 	});
 	expect(error.message).toStartWith('Its packages did not install: ');
 	// The home is made and committed, so the repair is the install alone.

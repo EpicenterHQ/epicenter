@@ -154,7 +154,6 @@ test('read-only calls return and a write followed by a throw preserves its error
 	expect(expectOk(await client.week.show())).toBe(210);
 
 	expect(expectErr(await client.explode())).toEqual({
-		namespace: 'epicenter/action-error',
 		name: 'Threw',
 		message: 'line 4 is not a number',
 		thrown: undefined,
@@ -397,7 +396,6 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 		error: {
 			name: 'NotStarted',
 			...fields,
-			namespace: 'epicenter/action-error',
 		},
 	});
 	for (const [path, body, fields] of [
@@ -630,10 +628,7 @@ export default defineApp({ description: 'Shared failures', actions: {
 			fail: (input: {
 				kind: string;
 				how: string;
-			}) => Result<
-				never,
-				{ name: string; message: string; namespace?: string; proposal?: string }
-			>;
+			}) => Result<never, { name: string; message: string; proposal?: string }>;
 		};
 	}>({ app: 'failures', url: `${f.base}/` });
 	for (const how of ['return', 'throw']) {
@@ -653,7 +648,6 @@ export default defineApp({ description: 'Shared failures', actions: {
 			if (how === 'throw') {
 				expect(error).toMatchObject({
 					name: 'Threw',
-					namespace: 'epicenter/action-error',
 					thrown: {
 						name:
 							kind === 'Custom' ? 'ProposalChanged' : (reserved?.[2] ?? kind),
@@ -661,19 +655,14 @@ export default defineApp({ description: 'Shared failures', actions: {
 				});
 			} else if (reserved) {
 				// Only Epicenter says a call never began or was lost, so an
-				// action's own, with the namespace or without, answers Threw.
+				// action's own answers Threw, by its name alone.
 				expect(error).toEqual({
 					name: 'Threw',
 					message: `The action "fail" returned ${reserved[2]}, a name only Epicenter answers`,
-					namespace: 'epicenter/action-error',
 				});
 			} else {
 				expect(error?.name).toBe(kind === 'Custom' ? 'ProposalChanged' : kind);
-				if (kind === 'Custom') {
-					expect(error).toHaveProperty('proposal', 'p');
-					expect(error).not.toHaveProperty('namespace');
-				} else
-					expect(error).toHaveProperty('namespace', 'epicenter/action-error');
+				if (kind === 'Custom') expect(error).toHaveProperty('proposal', 'p');
 			}
 			expect(
 				await readFile(
@@ -692,7 +681,6 @@ export default defineApp({ description: 'Shared failures', actions: {
 					? {
 							data: null,
 							error: {
-								namespace: 'epicenter/action-error',
 								name: 'Missing',
 								message: 'There is no data/a.md',
 								path: 'data/a.md',
@@ -704,7 +692,6 @@ export default defineApp({ description: 'Shared failures', actions: {
 								name: 'Threw',
 								message: 'There is no data/a.md',
 								thrown: {
-									namespace: 'epicenter/action-error',
 									name: 'Missing',
 									path: 'data/a.md',
 								},

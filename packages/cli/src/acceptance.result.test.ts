@@ -139,7 +139,6 @@ export default defineApp({description: 'Staged drafts', actions: {
 					name: 'NotStarted',
 					...said,
 					cause: 'usage',
-					namespace: 'epicenter/action-error',
 				},
 			};
 			const returned = { data: null, error: { name: 'Usage', ...said } };

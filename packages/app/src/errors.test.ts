@@ -1,12 +1,12 @@
 /**
- * The shared action error wire contract. Every factory survives JSON and is
- * recognized; a foreign namespace, an unknown name, or a message that is
- * not text is not. The other fields are not checked.
+ * The shared action error wire contract. Every factory's error is its name,
+ * its message and its own fields, and survives JSON as it is; the name alone
+ * says which error it is.
  */
 import { expect, test } from 'bun:test';
-import { ActionError, isActionError } from './errors.ts';
+import { ActionError } from './errors.ts';
 
-test('every shared factory carries its namespace and fields through JSON', () => {
+test('every shared factory is its name, message and fields, unchanged through JSON', () => {
 	for (const { error } of [
 		ActionError.Changed({ path: 'data/a.md', cause: 'quote' }),
 		ActionError.Missing({ path: 'data/a.md' }),
@@ -25,6 +25,7 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 			thrown: { name: 'Custom', message: 'custom', id: 7 },
 		}),
 		ActionError.Refused({ message: 'declined', next: 'Try another input' }),
+		ActionError.Problems({ message: 'one problem', report: { checked: 1 } }),
 		ActionError.Unreachable({ message: 'The connection dropped' }),
 		ActionError.NotStarted({
 			message: 'notes: epicenter.ts does not load',
@@ -33,27 +34,16 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 			problems: ['epicenter.ts does not load'],
 		}),
 	]) {
-		const received: unknown = JSON.parse(
-			JSON.stringify({ ...error, extra: 7 }),
-		);
-		expect(error.namespace).toBe('epicenter/action-error');
-		expect(isActionError(received)).toBe(true);
-		expect(received).toMatchObject(error);
+		expect(error).not.toHaveProperty('namespace');
+		expect(JSON.parse(JSON.stringify(error))).toEqual(error);
 	}
-});
-
-test('a foreign namespace, an unknown name, or a message that is not text is not an ActionError', () => {
-	const base = { namespace: 'epicenter/action-error', message: 'failed' };
-	for (const value of [
-		null,
-		[],
-		'failed',
-		{},
-		{ name: 'Missing', message: 'missing', path: 'data/a.md' },
-		{ ...base, namespace: 'another/error', name: 'Missing', path: 'data/a.md' },
-		{ ...base, name: 'constructor' },
-		{ ...base, name: 'Unknown' },
-		{ ...base, name: 'Unreachable', message: 7 },
-	])
-		expect(isActionError(value)).toBe(false);
+	expect(ActionError.Changed({ path: 'data/a.md', cause: 'there' })).toEqual({
+		data: null,
+		error: {
+			name: 'Changed',
+			message: 'data/a.md is already there',
+			path: 'data/a.md',
+			cause: 'there',
+		},
+	});
 });

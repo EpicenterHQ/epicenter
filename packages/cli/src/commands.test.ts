@@ -41,6 +41,5 @@ test('any misuse is NotStarted with the usage line and the help as the next step
 			cause: 'usage',
 			message: `Usage: ${COMMANDS.new.usage}`,
 			next: 'epicenter new --help',
-			namespace: 'epicenter/action-error',
 		});
 });
