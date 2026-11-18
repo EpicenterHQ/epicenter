@@ -127,7 +127,7 @@ you apply.
 
 The CLI developer preview is two packages, `@epicenter/cli` and
 `@epicenter/app`, which a home depends on: a home is one Bun workspace, and
-its `package.json` names the version it runs. Writing is an exported app
+its `package.json` names the version it runs. Writing is an example app
 copied separately from GitHub. Each app is ordinary editable source.
 `serve` is one process; keep it running as you would any program.
 
@@ -201,7 +201,7 @@ Whispering's own packages, and the folder sync product's code it still imports
     code/ui/                   the UI's source, built into code/ui/dist/
     data/                      the app's records in the private root history
 
-packages/cli                   epicenter: runs actions, serve, snapshots, backup
+packages/cli                   epicenter: runs actions, serve, check
 packages/app                   what epicenter.ts imports
 apps/api                       Epicenter's hosted services, an outside app from a home
 ```

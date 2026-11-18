@@ -60,15 +60,15 @@ Roadmap language stays out of heroes.
   [ADR-0885](adr/0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md)).
   The home is a computer its person controls, owned or rented
   ([ADR-0903](adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)).
-- An app is one `epicenter.ts` declaring its collections and actions, an
-  optional UI, and a `data/` folder of Markdown files; its code and its data
-  are two Git repositories
+- An app is one `epicenter.ts` declaring its data and actions, an optional
+  UI, and a `data/` folder of Markdown files; one private Git repository holds
+  every app's code and data
   ([ADR-0857](adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md),
-  [ADR-0877](adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)).
-- A command, `epicenter`, that runs an app's actions and commits what each
-  writes, and `epicenter serve`, which offers every app's actions over MCP and
-  each app's UI in a browser to the person's devices and agents
-  ([ADR-0850](adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md),
+  [ADR-0910](adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
+- A command, `epicenter`, that runs an app's actions and commits nothing, and
+  `epicenter serve`, which offers every app's actions over MCP and each app's
+  UI in a browser to the person's devices and agents
+  ([ADR-0940](adr/0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md),
   [ADR-0860](adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)).
 
 ## What Epicenter is not

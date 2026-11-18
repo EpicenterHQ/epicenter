@@ -25,8 +25,8 @@ container:
 [ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
 describes the current layout and history. Each personal or shared home has
 its own private root repository, separate from this runtime source monorepo
-and from code-only app publications. Ordinary commands do not import or retire
-nested repositories.
+and from code-only app publications. No command imports or retires nested
+repositories.
 
 ## A home is a Bun workspace
 
@@ -35,7 +35,7 @@ nested repositories.
   "private": true,
   "workspaces": ["apps/*/code"],
   "scripts": { "build": "bun run --filter '*' --if-present build" },
-  "dependencies": { "@epicenter/cli": "0.6.0", "@epicenter/app": "0.6.0" }
+  "dependencies": { "@epicenter/cli": "0.7.0", "@epicenter/app": "0.7.0" }
 }
 ```
 
@@ -133,8 +133,8 @@ To keep the server running after you close the terminal, see
 
 Can the installed `epicenter` run the changed app, and does its UI build? If so,
 ship the app commit and run its `bun run build` when the UI changed. For example, Tasks can
-reread a task after an uncertain save, and Flights can follow a search by
-its existing run ID. Both use capabilities already installed.
+reread a task after an uncertain save with the `get` it already has. That uses
+a capability already installed.
 
 Test routine app changes on the current Epicenter release. For a shared app,
 copy its published folder into a temporary home to check the copy people install.
@@ -148,7 +148,7 @@ Changes that can reach the same consumers together can share a release.
 | Example | What to ship | Why |
 | --- | --- | --- |
 | `0.2.1` reads both host answer formats and still writes the old one | Ship the reader patch separately. Rebuild browser clients and update consumers that parse CLI or MCP output directly. | This provides a working combination while consumers upgrade. A tab that was already open needs to reload to get the new reader. |
-| `0.3.0` starts writing the flat `{ data, error }` answer | Ship the writer after the readers. Keep reading saved runs in their original format. | A `0.2.0` reader could treat a successful flat answer as invalid. Changing both ends in one installation would still leave older readers in use. |
+| `0.3.0` starts writing the flat `{ data, error }` answer | Ship the writer after the readers. | A `0.2.0` reader could treat a successful flat answer as invalid. Changing both ends in one installation would still leave older readers in use. |
 | `0.4.0` removes `after` from the public `run.events()` API | This shipped separately. Given the same choice again, batch it with the next planned runtime release. | None of the twelve home apps passed that option. The client already managed reconnect offsets, so removing it gave the home no reason to upgrade immediately. |
 
 During `0.x`, use a patch for a compatible runtime fix and bump the middle
@@ -172,7 +172,7 @@ Nothing in this repository publishes by itself: no script or workflow runs
 `bun publish`. The owner releases by hand, from the repository root:
 
 ```sh
-bun run --cwd packages/cli set-version 0.6.0
+bun run --cwd packages/cli set-version 0.7.0
 bun run --cwd packages/cli pack
 ```
 
@@ -194,10 +194,10 @@ publish:
 
 ```sh
 cd packages/cli/dist/pack/<hash>
-bun publish epicenter-app-0.6.0.tgz --dry-run
-bun publish epicenter-app-0.6.0.tgz
-bun publish epicenter-cli-0.6.0.tgz --dry-run
-bun publish epicenter-cli-0.6.0.tgz
+bun publish epicenter-app-0.7.0.tgz --dry-run
+bun publish epicenter-app-0.7.0.tgz
+bun publish epicenter-cli-0.7.0.tgz --dry-run
+bun publish epicenter-cli-0.7.0.tgz
 ```
 
 ### Try an unreleased change
@@ -209,8 +209,8 @@ paths:
 ```json
 {
   "overrides": {
-    "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.5.0.tgz",
-    "@epicenter/cli": "file:/path/to/pack/<hash>/epicenter-cli-0.5.0.tgz"
+    "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.7.0.tgz",
+    "@epicenter/cli": "file:/path/to/pack/<hash>/epicenter-cli-0.7.0.tgz"
   }
 }
 ```
@@ -234,7 +234,8 @@ The command selects the nearest marked ancestor of the current directory,
 then `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without the
 marker is refused with the command that makes one. The marker's optional front matter
 accepts only `port`, an integer from 1 to 65535; the default is 4747. An empty
-marker is valid. Epicenters cannot nest.
+marker is valid. Nothing refuses an Epicenter inside another: a command uses
+the nearest marked folder at or above where it runs.
 
 ```sh
 epicenter
@@ -253,8 +254,8 @@ one: [Make an Epicenter](#make-an-epicenter) and
 [What an app holds](#what-an-app-holds) list the files
 ([ADR-0958](../../docs/adr/0958-no-command-makes-an-epicenter.md),
 [ADR-0955](../../docs/adr/0955-no-command-makes-or-copies-an-app.md)).
-`epicenter` on its own reports the home: the version it has installed, its
-apps, its routines, and one line about its repository. See
+`epicenter` on its own reports the home: the version of the command running,
+its apps, and its routines. See
 [The home's report](#the-homes-report).
 Any other first word names an app. `--json` and `--help` (`-h`) go anywhere
 before `--`; `--version` is read only on its own. A command refuses any other
@@ -323,8 +324,7 @@ Epicenter is not running for this home.
 Run: epicenter serve
 ```
 
-Listings, `--help`, `check`, and the other commands in
-`src/commands.ts` do not need serve.
+Listings, `--help`, and `check` do not need serve.
 
 The port is the home's name. Serve puts the home in an `x-epicenter-home`
 header on every answer, and a call says which home it is for, so serve
@@ -368,7 +368,7 @@ to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI as serve-owned runs, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
@@ -625,10 +625,9 @@ report as `error.report` and a one-line summary as its message. Without
 
 ## The home's report
 
-`epicenter` on its own prints the version of Epicenter the home has
-installed, read from its `node_modules/@epicenter/cli`, or that it has none.
-`--json` answers the report as `data`, the version as `version`, `null` when
-there is none. Then come the
+`epicenter` on its own prints the version of the command that is running,
+the one `packages/cli/package.json` states. `--json` answers the report as
+`data`, with that version as `version`. Then come the
 apps and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
 refused. `--json` adds them as
@@ -738,4 +737,4 @@ Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the a
 
 ## Tests
 
-Run `bun test <file>` in `packages/cli` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID, with bare repositories in temporary folders standing in for remotes.
+Run `bun test <file>` in `packages/cli` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID.

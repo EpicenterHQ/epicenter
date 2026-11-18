@@ -40,18 +40,17 @@ With a separate `fields` variable:
 
 ```typescript
 const fields = { title: field.text() };
-const books = defineCollection({ path: 'data/books/{book}.md', fields });
+const data = defineData({ books: { fields } });
 ```
 
 With the field definition inline:
 
 ```typescript
-const books = defineCollection({
-	path: 'data/books/{book}.md',
-	fields: { title: field.text() },
+const data = defineData({
+	books: { fields: { title: field.text() } },
 });
 ```
 
-The `fields` key already names the object. Keep `books` named so the test can call `books.get(...)`.
+The `fields` key already names the object. Keep `data` named so the test can call `data.books.get(...)`.
 
 Introduce a variable when its name explains something useful, the value is reused, or the test needs to inspect an intermediate result. Extract when doing so makes the test easier to read.

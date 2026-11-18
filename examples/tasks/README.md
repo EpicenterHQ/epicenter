@@ -5,7 +5,7 @@ the software; sibling `data/` holds the tasks. The home’s private Git
 repository holds both, and actions make no commits. `epicenter serve`
 serves its UI at `/tasks/`.
 
-Use the latest Epicenter CLI for a new home. Tasks runs on 0.2.0 or later.
+Use the latest Epicenter CLI.
 To add Tasks to your home, run these at the top of the home
 
 ```sh

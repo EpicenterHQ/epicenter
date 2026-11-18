@@ -1,7 +1,8 @@
 /**
- * Acceptance, stage 2c: the final review's repairs that outlived ADR-0850's
- * rewrite. Black-box runs of the real `epicenter` against a temporary HOME.
- * A run's answer is `{ result }`, `{ fault }`, or `{ error }`.
+ * Acceptance tests for repairs a review made: a broken root, a broken app
+ * over MCP, the command's vocabulary, typing, and date fields. Black-box runs
+ * of the real `epicenter` against a temporary HOME. Every answer is
+ * `{ data, error }`.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';

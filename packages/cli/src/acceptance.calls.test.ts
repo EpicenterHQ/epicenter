@@ -8,7 +8,6 @@
  * - Concurrent calls in one serve lose no write and leave no temporary file.
  * - With serve stopped, or another holder on the port, a command is refused and nothing runs.
  * - A second serve says whether this home or something else has the port.
- * - A command says when serve is another version.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
@@ -410,7 +409,7 @@ test('a second serve says this home is already served, and a port something else
 	}
 });
 
-test('C12 runs leave no temporary file and no lock file', async () => {
+test('C12 runs leave no temporary file', async () => {
 	const f = await setup();
 	const temp = join(f.root, 'tmp');
 	await mkdir(temp);

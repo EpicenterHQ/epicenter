@@ -21,7 +21,7 @@ export const homePackage = `${JSON.stringify({ private: true, workspaces: ['apps
  * `node_modules/.bin/epicenter` to the command. So an app there resolves the
  * same `@epicenter/app` as the `bin.ts` a test runs. The empty
  * `node_modules/.bun` is what Bun's own install leaves; with it there, a
- * `bun install` the command runs keeps these links.
+ * `bun install` a test runs in the home keeps these links.
  */
 export async function installPackages(folder: string) {
 	const modules = join(folder, 'node_modules');

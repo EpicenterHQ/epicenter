@@ -337,10 +337,8 @@ top of the home: `git status -sb` shows the branch, commits not on origin and
 each uncommitted file, and `git log -1 --format=%cr` how long ago the last
 commit was.
 
-The root origin is optional and private. It receives all apps' records. The
-script never pulls, merges, rebases, or force-pushes, and a failed push leaves
-commits local for the next run. Git's ignore rules alone keep local
-credentials out, so never force-add them.
+The root origin is optional and private. It receives all apps' records.
+Git's ignore rules alone keep local credentials out, so never force-add them.
 Never run `git clean -x` in the Epicenter: it deletes local credentials.
 
 To recover, inspect Git history, then restore selected paths from the root:
@@ -352,12 +350,10 @@ git restore --source=<commit> -- apps/<app>/data/    # records only
 ```
 
 A whole `apps/<app>/` restore reverts both and deletes tracked files added
-later. Inspect the root `MIGRATION.md` and the commit tree first. Commits from
-before a move into `apps/<app>/` use the old paths. An imported per-app commit
-can hold only code or only records: restore its code or data prefix, not the
-whole app. History retained only in archive refs is outside `main`; fetch it
-explicitly into a separate recovery checkout. Keep the live home on its
-current branch.
+later. Inspect the commit tree first. Commits from before a move into
+`apps/<app>/` use the old paths. An imported per-app commit can hold only code
+or only records: restore its code or data prefix, not the whole app. Keep the
+live home on its current branch.
 
 When recovering a bad write, inspect history and restore the relevant known
 version rather than retype its previous content, then record the repair in a
