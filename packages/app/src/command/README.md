@@ -640,11 +640,11 @@ flights
     checks/bad.md
       watch: 3 is not text
       day: "soon" is not a day like 2026-11-12
-  settings.md  fits
+  settings  0 files, none with problems
 ```
 
 With `--json` its `data` is
-`{ "apps": { <app>: { <key>: { path, single, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
+`{ "apps": { <app>: { <key>: { path, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
 A kind is a problem line without the value it quotes, so `due: "next week"`
 and `due: "soon"` are one kind; when most files share one kind, the
 declaration is often too narrow, and one change to `epicenter.ts` repairs

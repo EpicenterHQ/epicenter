@@ -9,11 +9,6 @@ import type { AnyRecord } from './markdown-records.ts';
 
 /** One data key as `checkData` found it. */
 export type CheckedKey = {
-	/**
-	 * Always false: every key is a folder. `command/check.ts` still reads it;
-	 * Build C deletes it with that read.
-	 */
-	single: false;
 	/** The key's folder, ending in `/`. */
 	path: string;
 	/** How many files it matched. */
@@ -65,7 +60,6 @@ export async function checkData(
 		const base = `data/${key}`;
 		const each: Finding = {
 			path: `${base}/`,
-			single: false,
 			files: 0,
 			withProblems: 0,
 			kinds: [],

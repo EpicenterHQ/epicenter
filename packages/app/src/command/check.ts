@@ -37,10 +37,7 @@ function render(
 		lines.push(app);
 		if (!Object.keys(keys).length) lines.push('  no data keys');
 		for (const [name, each] of Object.entries(keys)) {
-			const status =
-				each.single && each.withProblems === 0
-					? 'fits'
-					: `${each.files} ${each.files === 1 ? 'file' : 'files'}, ${each.withProblems || 'none'} with problems`;
+			const status = `${each.files} ${each.files === 1 ? 'file' : 'files'}, ${each.withProblems || 'none'} with problems`;
 			lines.push(`  ${name}  ${status}`);
 			for (const record of each.records)
 				lines.push(
