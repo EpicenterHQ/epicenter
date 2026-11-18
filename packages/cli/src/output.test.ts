@@ -192,7 +192,7 @@ test('an error renders its message and next step, and exits 2 only for NotStarte
 	expect(
 		present(ActionError.Unreachable({ message: 'The connection ended' })),
 	).toEqual({ stdout: '', stderr: 'The connection ended\n', code: 1 });
-	for (const cause of ['usage', 'refused', 'unavailable'] as const)
+	for (const cause of ['usage', 'unavailable'] as const)
 		expect(
 			present(ActionError.NotStarted({ message: 'm', cause, next: 'n' })),
 		).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });

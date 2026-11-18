@@ -51,7 +51,6 @@ export function checkAnswer(value: unknown): Answer {
 	if (error.name !== 'NotStarted') return value;
 	switch (error.cause) {
 		case 'usage':
-		case 'refused':
 		case 'unavailable':
 			return error.next === undefined || typeof error.next === 'string'
 				? value

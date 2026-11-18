@@ -24,7 +24,6 @@ const assertType = <T extends true>(): T | undefined => undefined;
 function causeFields(error: NotStarted) {
 	switch (error.cause) {
 		case 'usage':
-		case 'refused':
 		case 'unavailable':
 			assertType<Equal<typeof error.next, string | undefined>>();
 			// @ts-expect-error Only `app-problems` carries the app's problems.
@@ -50,7 +49,7 @@ function factoryChecks() {
 	assertType<
 		Equal<
 			NotStartedCause,
-			'usage' | 'app-problems' | 'refused' | 'internal' | 'unavailable'
+			'usage' | 'app-problems' | 'internal' | 'unavailable'
 		>
 	>();
 	// `InferErrors` keeps the union: `ActionError` holds each cause apart.

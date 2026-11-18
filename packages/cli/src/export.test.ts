@@ -102,9 +102,10 @@ test('export refuses staged and untracked code, then copies committed bytes and 
 			data: null,
 			error: {
 				name: 'NotStarted',
-				cause: 'refused',
+				cause: 'usage',
 				message:
 					'apps/tasks/code has uncommitted changes; commit them, then export.',
+				next: 'epicenter export --help',
 				namespace: 'epicenter/action-error',
 			},
 		});
@@ -611,8 +612,9 @@ test('export refuses a private Epicenter nested inside another repository withou
 	expect(result.code).toBe(2);
 	expect(JSON.parse(result.stdout).error).toMatchObject({
 		name: 'NotStarted',
-		cause: 'refused',
+		cause: 'usage',
 		message: `${f.home} is not a Git repository`,
+		next: 'epicenter export --help',
 	});
 	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(previous);
 	expect(await Bun.file(join(f.output, 'fresh.txt')).exists()).toBe(false);

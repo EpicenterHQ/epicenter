@@ -425,7 +425,7 @@ export function startHttpServer(port: number) {
 export async function serveHttp(port: number): Promise<Answer | undefined> {
 	const portTaken = (holder: { home: boolean }) =>
 		ActionError.NotStarted({
-			cause: 'refused',
+			cause: 'unavailable',
 			message: holder.home
 				? `Epicenter is already serving this home on port ${port}.`
 				: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,

@@ -25,12 +25,12 @@ test('an answer is data, the error itself, or a platform error with its fields',
 			message: 'bad',
 			thrown: { name: 'Custom', message: 'bad', id: 7 },
 		}).error,
-		...(['usage', 'refused', 'unavailable'] as const).map(
+		...(['usage', 'unavailable'] as const).map(
 			(cause) =>
 				ActionError.NotStarted({ message: 'no', cause, next: 'epicenter' })
 					.error,
 		),
-		ActionError.NotStarted({ message: 'no', cause: 'refused' }).error,
+		ActionError.NotStarted({ message: 'no', cause: 'usage' }).error,
 		ActionError.NotStarted({ message: 'no', cause: 'internal' }).error,
 		ActionError.NotStarted({
 			message: 'no',
@@ -72,7 +72,11 @@ test('a value of the wrong shape is Unreachable', () => {
 		},
 		{
 			data: null,
-			error: { ...platform, name: 'NotStarted', cause: 'refused', next: 1 },
+			error: { ...platform, name: 'NotStarted', cause: 'unavailable', next: 1 },
+		},
+		{
+			data: null,
+			error: { ...platform, name: 'NotStarted', cause: 'refused' },
 		},
 		// Each cause carries its own fields.
 		{

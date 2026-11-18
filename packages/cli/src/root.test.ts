@@ -128,20 +128,20 @@ test('init installs the packages its package.json names, keeps a package.json al
 	const broken = join(f.root, 'broken');
 	await mkdir(broken);
 	await writeFile(join(broken, 'package.json'), '{ "dependencies": ');
-	// It ran, so it is not NotStarted: Refused, exit 1, with the install as the next step.
+	// It ran, so it is not NotStarted: Problems, exit 1, its report the home it
+	// made, with the install as the next step.
 	const failed = await f.run('init', broken, '--json');
 	expect(failed.code).toBe(1);
 	const { data, error } = JSON.parse(failed.stdout);
 	expect(data).toBeNull();
 	expect(error).toEqual({
-		name: 'Refused',
+		name: 'Problems',
 		message: expect.any(String),
+		report: { folder: broken, port: expect.any(Number) },
 		next: `cd ${broken} && bun install`,
 		namespace: 'epicenter/action-error',
 	});
-	expect(error.message).toStartWith(
-		`Made Epicenter at ${broken}.\nIts packages did not install: `,
-	);
+	expect(error.message).toStartWith('Its packages did not install: ');
 	// The home is made and committed, so the repair is the install alone.
 	expect((await f.runIn(broken, '--json')).code).toBe(0);
 	expect(await gitIn(broken, 'log', '--format=%s')).toBe('start the Epicenter');

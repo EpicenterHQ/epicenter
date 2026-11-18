@@ -17,16 +17,14 @@ const NAMESPACE = 'epicenter/action-error' as const;
 export type Problem = { line: string; kind: string };
 
 /**
- * Why a call never began, with the fields each reason carries: its words or
- * input do not fit (`usage`), its app cannot load (`app-problems`), it was
- * understood and doing it would lose or guess (`refused`), Epicenter failed
- * before it ran (`internal`), or no serve for this home answers
- * (`unavailable`). `next` is the command that helps.
+ * Why a call never began, with the fields each reason carries: its words,
+ * input or target do not fit (`usage`), its app cannot load
+ * (`app-problems`), Epicenter failed before it ran (`internal`), or no serve
+ * for this home answers (`unavailable`). `next` is the command that helps.
  */
 type NotStartedBody =
 	| { cause: 'usage'; message: string; next?: string }
 	| { cause: 'app-problems'; message: string; app: string; problems: string[] }
-	| { cause: 'refused'; message: string; next?: string }
 	| { cause: 'internal'; message: string }
 	| { cause: 'unavailable'; message: string; next?: string };
 
@@ -98,9 +96,11 @@ export const ActionError = defineErrors({
 	 * It ran, and `report` is what it found, but the job is not clean: a check
 	 * that found records with problems, or an export that left apps out.
 	 * `report` is any JSON value; a person reads it where success data would
-	 * be, and `message` says what is wrong.
+	 * be, and `message` says what is wrong, with `next` when a command repairs
+	 * it.
 	 */
-	Problems: (body: { message: string; report: unknown }) => marked(body),
+	Problems: (body: { message: string; report: unknown; next?: string }) =>
+		marked(body),
 	/**
 	 * The call's outcome is unknown: the connection dropped after it was
 	 * sent, a line was not a valid frame, or the answer never came. Only a

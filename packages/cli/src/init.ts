@@ -170,8 +170,8 @@ function actualFolder(path: string): string {
 
 /**
  * Make a new Epicenter without nesting it inside another. A home made whose
- * packages did not install answers `Refused`, with the install as the next
- * step: it ran, and installing again is the repair.
+ * packages did not install answers `Problems`, its report the home it made
+ * and the install as the next step: it ran, and installing again is the repair.
  */
 export async function initCommand(
 	words: string[],
@@ -260,8 +260,9 @@ export async function initCommand(
 	await startEpicenterRepository(folder, wrote);
 	if (failed)
 		// The home is made; only its packages are missing, and installing again is the repair.
-		return ActionError.Refused({
-			message: `Made Epicenter at ${folder}.\nIts packages did not install: ${failed.message}`,
+		return ActionError.Problems({
+			message: `Its packages did not install: ${failed.message}`,
+			report: json ? { folder, port } : `Made Epicenter at ${folder}.`,
 			next: failed.next,
 		});
 	if (json) return Ok({ folder, port });

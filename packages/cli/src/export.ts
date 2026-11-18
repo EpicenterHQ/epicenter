@@ -45,9 +45,16 @@ import { epicenterDir, folderPath } from './root.js';
 
 type ExportMarker = { export: 'all' } | { export: 'app'; app: string };
 
-/** The export was understood, and doing it would lose or guess, so it changed nothing. */
+/**
+ * The source or the target does not allow this export, so it changed nothing.
+ * The help says what each must be.
+ */
 const refuse = (message: string) =>
-	ActionError.NotStarted({ cause: 'refused', message });
+	ActionError.NotStarted({
+		cause: 'usage',
+		message,
+		next: 'epicenter export --help',
+	});
 
 /** Resolve existing ancestors too, so aliases such as /tmp cannot bypass the boundary. */
 async function canonical(path: string): Promise<string> {
