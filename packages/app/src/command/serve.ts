@@ -62,6 +62,7 @@ import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
 import { appEntries, findEntry, localProblem } from './apps.ts';
+import { hidePaths } from './hide-paths.ts';
 import { listApps } from './listing.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
@@ -222,8 +223,17 @@ async function listing(root: EpicenterRoot, request: Request) {
 			headers: { allow: 'GET, HEAD, POST' },
 		});
 	const listed = await listApps(root);
-	if (accept.includes('application/json'))
-		return Response.json(listed, { headers: { 'cache-control': 'no-store' } });
+	if (accept.includes('application/json')) {
+		const hide = hidePaths(root);
+		return Response.json(
+			{
+				...listed,
+				problems: hide.value(listed.problems),
+				routines: hide.value(listed.routines),
+			},
+			{ headers: { 'cache-control': 'no-store' } },
+		);
+	}
 	const apps = await Promise.all(
 		listed.apps.map(async ({ name, description }) =>
 			(await uiFile(root, name, 'index.html')).ok
@@ -281,7 +291,7 @@ const refused = (error: NotStarted) =>
  * Updates wait in order for a slow caller, because one can be a piece of
  * text the next extends, and are dropped once it is gone.
  */
-function stream(call: Call): Response {
+function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
 	const { app, key } = call;
 	const encoder = new TextEncoder();
 	let listening = true;
@@ -311,7 +321,7 @@ function stream(call: Call): Response {
 				// JSON has no undefined, and a line with no update is not one.
 				onUpdate: (update) => send({ update: update ?? null }),
 			}).then((answer) => {
-				send({ answer });
+				send({ answer: hide.answer(answer) });
 				if (listening) controller.close();
 			});
 		},
@@ -337,11 +347,12 @@ async function call(root: EpicenterRoot, request: Request) {
 	}
 	if (more.length || !isName(app) || !words.every(isName)) return notFound();
 	const text = new TextDecoder().decode(await request.arrayBuffer());
+	const hide = hidePaths(root);
 	const { data: found, error } = await findAction(root, app, words.join(' '));
-	if (error) return refused(error);
+	if (error) return refused(hide.value(error));
 	const { data: checked, error: misfit } = checkCall(found, { text });
-	if (misfit) return refused(misfit);
-	return stream(checked);
+	if (misfit) return refused(hide.value(misfit));
+	return stream(checked, hide);
 }
 
 /**

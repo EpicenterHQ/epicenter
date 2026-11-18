@@ -11,8 +11,9 @@
  * | `epicenter <app>`, an action's `--help` | one app, or one action and its input |
  *
  * Each action is the MCP tool serve offers, in plain JSON, so the command
- * renders help from it without loading the app. The listing names no path
- * on this computer; the command adds the folders it knows.
+ * renders help from it without loading the app. Serve hides this
+ * computer's folders in the listing's problems (`hide-paths.ts`); the
+ * command adds the folders it knows.
  */
 
 import { basename } from 'node:path';

@@ -325,6 +325,16 @@ never leaves the computer. Serve refuses a request naming another root with
 accepts, its `500` included, carries `x-epicenter: 1` and no path; a
 tunnelled request's `403` and Bun's own `413` carry nothing
 ([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
+
+What serve sends hides this computer's folders in its messages: the error
+of every HTTP and MCP answer, a refusal before a call, and the problems and
+routines in the listing. The Epicenter's real path reads `.` and the home
+folder reads `~`, whether written as a path or a `file://` URL, so
+`EACCES: permission denied, stat '/Users/ada/Epicenter/apps/notes'` reads
+`stat './apps/notes'`. A path outside both is left as it is, and so is what
+an action returns as data or sends as an update. Serve's own log on stderr
+keeps the full paths.
+
 A command whose port answers for something else runs nothing:
 
 ```txt

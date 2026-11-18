@@ -139,7 +139,7 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 	expect(text).not.toContain(f.userDir);
 	const listing = JSON.parse(text);
 	expect(listing.problems[0].problems[0]).toContain(
-		'imported from apps/broken/code/epicenter.ts',
+		'imported from ./apps/broken/code/epicenter.ts',
 	);
 	expect(listing.routines[0].problem).toContain("'./routines/locked.md'");
 	// A call to the app answers the same problems, also without a path.
@@ -159,6 +159,44 @@ test('GET / answers the one listing as JSON, naming no path, and tools/list offe
 		result: { tools: unknown[] };
 	};
 	expect(tools.result.tools).toEqual(listing.apps[0].actions);
+});
+
+test("an error serve sends names the Epicenter's folder as . and the home folder as ~", async () => {
+	const f = await setup((f) =>
+		f.app(
+			'leak',
+			`import { homedir } from 'node:os';
+export default defineApp(() => ({ description: 'Leak', actions: { tell: defineAction({ description: 'Tell', input: {}, run: () => { throw new Error(\`at \${import.meta.url} in \${homedir()}/notes\`); } }) } }));`,
+		),
+	);
+	const shown = 'at ./apps/leak/code/epicenter.ts in ~/notes';
+	const call = await fetch(`${f.base}/leak/tell`, {
+		method: 'POST',
+		body: '{}',
+	});
+	const lines = (await call.text()).trim().split('\n');
+	expect(JSON.parse(lines.at(-1) ?? '').answer.error.message).toBe(shown);
+	const tool = (await (
+		await mcp(f.base, 'tools/call', { name: 'leak_tell', arguments: {} })
+	).json()) as {
+		result: { structuredContent: { error: { message: string } } };
+	};
+	expect(tool.result.structuredContent.error.message).toBe(shown);
+	// A refusal before the call is hidden the same way: an app folder serve
+	// cannot read fails with Bun's message, which names its path.
+	await chmod(join(f.apps, 'leak'), 0);
+	try {
+		const refused = await fetch(`${f.base}/leak/tell`, {
+			method: 'POST',
+			body: '{}',
+		});
+		expect(refused.status).toBe(400);
+		const text = await refused.text();
+		expect(text).toContain("'./apps/leak");
+		expect(text).not.toContain(f.userDir);
+	} finally {
+		await chmod(join(f.apps, 'leak'), 0o755);
+	}
 });
 
 test('a crafted tool name cannot run an app outside the Epicenter', async () => {

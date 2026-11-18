@@ -20,10 +20,12 @@ import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { Err } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer } from '../index.ts';
-import { fromToolName, listApps } from './listing.ts';
+import { hidePaths } from './hide-paths.ts';
+import { fromToolName, type Listing, listApps } from './listing.ts';
 import { outcome, writeErr } from './output.ts';
 import { type EpicenterRoot, rootInstructions } from './root.ts';
 import { checkCall, findAction, runAction } from './run.ts';
@@ -62,8 +64,16 @@ export async function createMcpServer(root: Pick<EpicenterRoot, 'folder'>) {
 			...(instructions === undefined ? {} : { instructions }),
 		},
 	);
+	const hide = hidePaths(root);
+	const answered = (answer: Answer) => toolResult(hide.answer(answer));
 	server.setRequestHandler(ListToolsRequestSchema, async () => {
-		const listing = await listApps(root);
+		let listing: Listing;
+		try {
+			listing = await listApps(root);
+		} catch (cause) {
+			// The SDK sends what a handler throws to the client as its message.
+			throw new Error(hide.text(extractErrorMessage(cause)));
+		}
 		const loaded = new Set(listing.apps.map(({ name }) => name));
 		for (const { entry, problems } of listing.problems)
 			if (!loaded.has(entry)) writeErr(`${entry}: ${problems.join('; ')}`);
@@ -77,9 +87,9 @@ export async function createMcpServer(root: Pick<EpicenterRoot, 'folder'>) {
 		const { name, arguments: args } = request.params;
 		const { app, key } = fromToolName(name);
 		const { data: found, error } = await findAction(root, app, key);
-		if (error) return toolResult(Err(error));
+		if (error) return answered(Err(error));
 		if (found.action.mcp === false)
-			return toolResult(
+			return answered(
 				ActionError.NotStarted({
 					cause: 'usage',
 					message: `${app} ${key} is not offered over MCP`,
@@ -88,8 +98,8 @@ export async function createMcpServer(root: Pick<EpicenterRoot, 'folder'>) {
 		const { data: call, error: misfit } = checkCall(found, {
 			value: args ?? {},
 		});
-		if (misfit) return toolResult(Err(misfit));
-		return toolResult(await runAction(call));
+		if (misfit) return answered(Err(misfit));
+		return answered(await runAction(call));
 	});
 	return server;
 }
