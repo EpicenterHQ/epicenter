@@ -32,8 +32,10 @@ import {
 import {
 	type AppProblems,
 	appPath,
+	appProblems,
 	discoverAll,
 	type LoadedApp,
+	unknownApp,
 } from './apps.ts';
 import { exampleCommand, noSuchAction, usageLine } from './input.ts';
 import type { EpicenterRoot } from './root.ts';
@@ -65,11 +67,7 @@ export type ActionTool = {
 	mcp?: false;
 };
 
-export function actionTool(
-	app: string,
-	key: string,
-	action: Action,
-): ActionTool {
+function actionTool(app: string, key: string, action: Action): ActionTool {
 	return {
 		name: toolName(app, key),
 		description: action.description,
@@ -248,18 +246,7 @@ function listedApp(
 	const app = listing.apps.find((each) => each.name === name);
 	if (app) return Ok(app);
 	const broken = listing.problems.find(({ entry }) => entry === name);
-	if (broken)
-		return ActionError.NotStarted({
-			cause: 'app-problems',
-			message: `${name}: ${broken.problems.join('; ')}`,
-			app: name,
-			problems: broken.problems,
-		});
-	return ActionError.NotStarted({
-		cause: 'usage',
-		message: `Unknown app "${name}"`,
-		next: 'epicenter',
-	});
+	return broken ? appProblems(name, broken.problems) : unknownApp(name);
 }
 
 /** What `epicenter <app>` prints: the app's data keys and actions and its folder. */

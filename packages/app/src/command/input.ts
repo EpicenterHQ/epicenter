@@ -19,7 +19,7 @@ import { type ObjectSchema, whatFits } from '../field.ts';
  * verb writes only what it was given. A key the action does not
  * take is refused, naming the keys it does.
  */
-export function checkInput(
+function checkInput(
 	schema: ObjectSchema,
 	value: unknown,
 ): { input: Record<string, unknown> } | { error: string } {

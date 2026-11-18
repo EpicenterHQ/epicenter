@@ -10,12 +10,24 @@ import {
 	field,
 	Ok,
 } from '../index.ts';
-import { checkInput, readInput, usageLine } from './input.ts';
-import { actionHelp, actionTool } from './listing.ts';
+import type { LoadedApp } from './apps.ts';
+import { readInput, usageLine } from './input.ts';
+import { actionHelp, appListing } from './listing.ts';
 
 /** Help as the command prints it: from the action's tool, after the trip through JSON serve sends it on. */
-const helpOf = (app: string, key: string, action: Action) =>
-	actionHelp(JSON.parse(JSON.stringify(actionTool(app, key, action))));
+const helpOf = (app: string, key: string, action: Action) => {
+	const loaded = {
+		name: app,
+		app: { description: '' },
+		actions: { [key]: action },
+	};
+	const [tool] = appListing(loaded as unknown as LoadedApp).actions;
+	return actionHelp(JSON.parse(JSON.stringify(tool)));
+};
+
+/** An object input as serve reads it: the JSON text a page or the command sends. */
+const checked = (schema: Action['input'], value: unknown) =>
+	readInput(schema, JSON.stringify(value));
 
 const add = defineAction({
 	description: 'Add a task to do',
@@ -61,7 +73,7 @@ test('text that is not JSON, or JSON that is not an object, is refused with an e
 });
 
 test('a key the action does not take is refused, naming the keys it takes', () => {
-	expect(checkInput(add.input, { title: 'x', titel: 'y' })).toEqual({
+	expect(checked(add.input, { title: 'x', titel: 'y' })).toEqual({
 		error: '"titel" is not a key this action takes; it takes title, due',
 	});
 	const sync = defineAction({
@@ -69,7 +81,7 @@ test('a key the action does not take is refused, naming the keys it takes', () =
 		input: {},
 		run: () => Ok(1),
 	});
-	expect(checkInput(sync.input, { all: true })).toEqual({
+	expect(checked(sync.input, { all: true })).toEqual({
 		error: '"all" is not a key this action takes; it takes none',
 	});
 });
@@ -100,10 +112,10 @@ test("a pattern's refusal reads as its field's description, after must be", () =
 		},
 		run: ({ title }) => Ok(title),
 	});
-	expect(checkInput(line.input, { title: 'a\nb' })).toEqual({
+	expect(checked(line.input, { title: 'a\nb' })).toEqual({
 		error: 'title must be one line, not blank',
 	});
-	expect(checkInput(line.input, { title: 'one line' })).toEqual({
+	expect(checked(line.input, { title: 'one line' })).toEqual({
 		input: { title: 'one line' },
 	});
 });
@@ -117,10 +129,10 @@ test("a number's refusal names its bounds", () => {
 		},
 		run: ({ stars }) => Ok(stars),
 	});
-	expect(checkInput(rate.input, { stars: 9, pages: 1 })).toEqual({
+	expect(checked(rate.input, { stars: 9, pages: 1 })).toEqual({
 		error: 'stars must be a whole number from 1 to 5',
 	});
-	expect(checkInput(rate.input, { stars: 2, pages: -1 })).toEqual({
+	expect(checked(rate.input, { stars: 2, pages: -1 })).toEqual({
 		error: 'pages must be a number of at least 0',
 	});
 });
@@ -162,11 +174,11 @@ test("a data key's edit takes id, old, and new beside each other, and nothing el
 	expect(help).toContain('  old  required  text.');
 	expect(help).toContain('  new  required  text.');
 	expect(help).not.toContain('title');
-	expect(checkInput(edit.input, { id: 'a', old: 'x' })).toEqual({
+	expect(checked(edit.input, { id: 'a', old: 'x' })).toEqual({
 		error: 'new is needed',
 	});
 	expect(
-		checkInput(edit.input, { id: 'a', old: 'x', new: 'y', title: 'z' }),
+		checked(edit.input, { id: 'a', old: 'x', new: 'y', title: 'z' }),
 	).toEqual({
 		error: '"title" is not a key this action takes; it takes id, old, new',
 	});
@@ -201,8 +213,8 @@ Input, one JSON object, or - to read it from stdin:
 
 Example:
   epicenter flights save '{"airports":["text"]}'`);
-	expect(checkInput(save.input, {})).toEqual({ error: 'airports is needed' });
-	expect(checkInput(save.input, { airports: [] })).toEqual({
+	expect(checked(save.input, {})).toEqual({ error: 'airports is needed' });
+	expect(checked(save.input, { airports: [] })).toEqual({
 		error: 'airports must be a list of text with at least 1 item',
 	});
 });

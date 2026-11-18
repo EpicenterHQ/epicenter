@@ -84,9 +84,12 @@ async function isFile(path: string) {
 const appsIn = ({ folder }: Pick<EpicenterRoot, 'folder'>) =>
 	join(folder, 'apps');
 
+/** The app `name`'s folder from the Epicenter's, as messages name it. */
+const appDir = (name: string) => `apps/${name}`;
+
 /** Where the app `name` is in the Epicenter, before following a link. */
 export const appPath = (root: Pick<EpicenterRoot, 'folder'>, name: string) =>
-	join(appsIn(root), name);
+	join(root.folder, appDir(name));
 
 /** An entry's problems: it did not load, a read failed, or its `local/` could reach Git. */
 export type AppProblems = { entry: string; problems: string[] };
@@ -216,7 +219,8 @@ export async function localProblem({
 		return undefined;
 	if (await lstat(join(local, '.gitignore')).catch(() => undefined))
 		return undefined;
-	return `apps/${name}/local has no .gitignore; run: echo '*' > apps/${name}/local/.gitignore`;
+	const named = `${appDir(name)}/local`;
+	return `${named} has no .gitignore; run: echo '*' > ${named}/.gitignore`;
 }
 
 /**
@@ -243,8 +247,8 @@ export async function discoverAll(
 	};
 }
 
-/** A name that finds no app in the Epicenter. */
-const unknownApp = (name: string) =>
+/** A name that finds no app in the Epicenter: serve's answer, and the command's from the listing. */
+export const unknownApp = (name: string) =>
 	ActionError.NotStarted({
 		cause: 'usage',
 		message: `Unknown app "${name}"`,
@@ -271,10 +275,14 @@ export async function loadApp(
 	if (!entry) return unknownApp(name);
 	const { data: loaded, error: problems } = await load(entry);
 	if (loaded) return Ok(loaded);
-	return ActionError.NotStarted({
+	return appProblems(name, problems);
+}
+
+/** An app that does not load, refusing a call or a listing's view of it. */
+export const appProblems = (name: string, problems: string[]) =>
+	ActionError.NotStarted({
 		cause: 'app-problems',
 		message: `${name}: ${problems.join('; ')}`,
 		app: name,
 		problems,
 	});
-}
