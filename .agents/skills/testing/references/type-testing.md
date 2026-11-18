@@ -21,7 +21,7 @@ In the [app type tests](../../../../packages/app/src/app.types.test.ts), `vocab`
 ```typescript
 test('an edit needs both the old and new text', () => {
 	// @ts-expect-error an edit names both old and new
-	() => vocab.actions.words.set({ word: 'a', edit: { old: 'x' } });
+	() => vocab.actions.words.edit({ id: 'a', old: 'x' });
 });
 ```
 

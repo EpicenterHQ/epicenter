@@ -2,7 +2,7 @@
  * What Tasks' pages watch and what they change, as TanStack options over the
  * actions `epicenter serve` runs (ADR-0661). A page reads with
  * `createQuery(() => reads.list())` and writes with
- * `createMutation(() => writes.set)`; App.svelte's QueryClient refreshes
+ * `createMutation(() => writes.patch)`; App.svelte's QueryClient refreshes
  * every read after each write.
  */
 import { type ActionOutput, connect } from '@epicenter/app/client';
@@ -19,9 +19,9 @@ export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 
 const mutations = resultMutations(['tasks'], {
 	add: app.add,
-	set: app.set,
-	// Body edits use the generated set verb and its atomic quote guard.
-	edit: ({ id, old, new: replacement }: { id: string; old: string; new: string }) => app.set(old === '' ? { id, body: replacement } : { id, edit: { old, new: replacement } }),
+	patch: app.patch,
+	// Notes quote what was there through the generated edit verb; empty notes have nothing to quote, so they patch the body.
+	edit: ({ id, old, new: replacement }: { id: string; old: string; new: string }) => old === '' ? app.patch({ id, body: replacement }) : app.edit({ id, old, new: replacement }),
 	delete: app.delete,
 });
 
@@ -70,7 +70,7 @@ export const writes = {
 		},
 	} satisfies typeof mutations.delete,
 	add: { ...mutations.add, ...saved },
-	set: { ...mutations.set, ...saved },
+	patch: { ...mutations.patch, ...saved },
 	edit: { ...mutations.edit, ...saved },
 };
 

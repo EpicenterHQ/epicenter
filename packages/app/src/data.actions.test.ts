@@ -1,7 +1,7 @@
 /**
  * Generated data actions expose only named handle verbs with their input schemas.
- * Verifies both key shapes, Result answers, atomic passage edits, patch omission,
- * exact and refused ids, time-named adds, verb refusals, and MCP annotations.
+ * Verifies both key shapes, Result answers, passage edits, patch omission,
+ * exact and refused ids, time-named creates, verb refusals, and MCP annotations.
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -33,17 +33,24 @@ function setup(files: Record<string, string> = {}) {
 	return {
 		context: createMemoryContext(files),
 		data,
-		notes: data.notes.actions('list', 'get', 'add', 'set', 'delete'),
-		settings: data['settings.md'].actions('get', 'set', 'delete'),
+		notes: data.notes.actions(
+			'list',
+			'get',
+			'create',
+			'patch',
+			'edit',
+			'delete',
+		),
+		settings: data['settings.md'].actions('get', 'patch', 'edit', 'delete'),
 	};
 }
 
-test('folder actions add, list, read, patch, and delete the handle records', async () => {
+test('folder actions create, list, read, patch, and delete the handle records', async () => {
 	const { context, notes } = setup();
 	await inRun(context, async () => {
 		expect(expectOk(await notes.list({}))).toEqual([]);
 		const added = expectOk(
-			await notes.add({ id: 'Dune', title: 'Dune', body: 'spice' }),
+			await notes.create({ id: 'Dune', title: 'Dune', body: 'spice' }),
 		);
 		expect(added).toEqual({
 			path: 'data/notes/Dune.md',
@@ -59,19 +66,21 @@ test('folder actions add, list, read, patch, and delete the handle records', asy
 		expect(expectOk(await notes.get({ id: 'Dune' }))).toEqual(added);
 		expect(expectOk(await notes.list({})).map(expectOk)).toEqual([added]);
 		expect(
-			expectOk(await notes.set({ id: 'Dune', note: 'read', body: 'Arrakis' })),
+			expectOk(
+				await notes.patch({ id: 'Dune', note: 'read', body: 'Arrakis' }),
+			),
 		).toEqual({ ...added, note: 'read', body: 'Arrakis' });
 		expect(expectOk(await notes.delete({ id: 'Dune' }))).toBe(true);
 		expect(expectOk(await notes.delete({ id: 'Dune' }))).toBe(false);
 	});
 });
 
-test('one-file actions read absence, create with set, patch, and delete without an id', async () => {
+test('one-file actions read absence, create with patch, patch, and delete without an id', async () => {
 	const { context, settings } = setup();
 	await inRun(context, async () => {
 		expect(expectOk(await settings.get({}))).toBeUndefined();
 		const made = expectOk(
-			await settings.set({ title: 'Daily', body: 'notes' }),
+			await settings.patch({ title: 'Daily', body: 'notes' }),
 		);
 		expect(made).toEqual({
 			path: 'data/settings.md',
@@ -81,7 +90,7 @@ test('one-file actions read absence, create with set, patch, and delete without 
 			tags: [],
 		});
 		expect(expectOk(await settings.get({}))).toEqual(made);
-		expect(expectOk(await settings.set({ note: 'today' }))).toEqual({
+		expect(expectOk(await settings.patch({ note: 'today' }))).toEqual({
 			...made,
 			note: 'today',
 		});
@@ -91,7 +100,7 @@ test('one-file actions read absence, create with set, patch, and delete without 
 	});
 });
 
-test('folder get and set answer Missing while a duplicate add answers Changed (there)', async () => {
+test('folder get and patch answer Missing while a duplicate create answers Changed (there)', async () => {
 	const { context, notes } = setup();
 	await inRun(context, async () => {
 		expect(
@@ -101,11 +110,14 @@ test('folder get and set answer Missing while a duplicate add answers Changed (t
 			path: 'data/notes/gone.md',
 		});
 		expect(
-			expectErr<ActionError>(await notes.set({ id: 'gone', title: 'x' })).name,
+			expectErr<ActionError>(await notes.patch({ id: 'gone', title: 'x' }))
+				.name,
 		).toBe('Missing');
-		expectOk(await notes.add({ id: 'same', title: 'first' }));
+		expectOk(await notes.create({ id: 'same', title: 'first' }));
 		expect(
-			expectErr<ActionError>(await notes.add({ id: 'same', title: 'second' })),
+			expectErr<ActionError>(
+				await notes.create({ id: 'same', title: 'second' }),
+			),
 		).toMatchObject({
 			name: 'Changed',
 			why: 'there',
@@ -118,20 +130,23 @@ test('folder get and set answer Missing while a duplicate add answers Changed (t
 	});
 });
 
-// Passage edits and field patches must share the handle's single update.
 test.each(['folder', 'one-file'] as const)(
-	'%s set edits one passage, changes fields, and preserves omitted switches and lists',
+	'%s patch changes fields, edit replaces one passage, and both keep omitted switches and lists',
 	async (kind) => {
 		const { context, notes, settings } = setup();
-		const set = (input: Parameters<typeof settings.set>[0]) =>
+		const patch = (input: Parameters<typeof settings.patch>[0]) =>
 			kind === 'folder'
-				? notes.set({ id: 'a', ...input })
-				: settings.set(input);
+				? notes.patch({ id: 'a', ...input })
+				: settings.patch(input);
+		const edit = (input: Parameters<typeof settings.edit>[0]) =>
+			kind === 'folder'
+				? notes.edit({ id: 'a', ...input })
+				: settings.edit(input);
 		await inRun(context, async () => {
 			if (kind === 'folder')
-				expectOk(await notes.add({ id: 'a', title: 'old' }));
+				expectOk(await notes.create({ id: 'a', title: 'old' }));
 			expectOk(
-				await set({
+				await patch({
 					title: 'old',
 					body: 'one two three',
 					done: true,
@@ -139,13 +154,8 @@ test.each(['folder', 'one-file'] as const)(
 					note: 'remove',
 				}),
 			);
-			const edited = expectOk(
-				await set({
-					title: 'new',
-					edit: { old: 'two', new: 'TWO' },
-					note: null,
-				}),
-			);
+			expectOk(await patch({ title: 'new', note: null }));
+			const edited = expectOk(await edit({ old: 'two', new: 'TWO' }));
 			expect(edited).toMatchObject({
 				title: 'new',
 				body: 'one TWO three',
@@ -153,7 +163,7 @@ test.each(['folder', 'one-file'] as const)(
 				tags: ['keep'],
 			});
 			expect(edited).not.toHaveProperty('note');
-			expect(expectOk(await set({ title: 'last' }))).toMatchObject({
+			expect(expectOk(await patch({ title: 'last' }))).toMatchObject({
 				title: 'last',
 				body: 'one TWO three',
 				done: true,
@@ -164,39 +174,31 @@ test.each(['folder', 'one-file'] as const)(
 );
 
 test.each(['folder', 'one-file'] as const)(
-	'%s edit refuses an absent or repeated quote and body plus edit without writing fields',
+	'%s edit refuses an absent or repeated quote and an empty one without writing',
 	async (kind) => {
 		const { context, notes, settings } = setup();
-		const set = (input: Parameters<typeof settings.set>[0]) =>
+		const edit = (input: Parameters<typeof settings.edit>[0]) =>
 			kind === 'folder'
-				? notes.set({ id: 'a', ...input })
-				: settings.set(input);
+				? notes.edit({ id: 'a', ...input })
+				: settings.edit(input);
 		await inRun(context, async () => {
 			if (kind === 'folder')
-				expectOk(await notes.add({ id: 'a', title: 'old' }));
-			expectOk(await set({ title: 'old', body: 'again again' }));
+				expectOk(await notes.create({ id: 'a', title: 'old' }));
+			expectOk(
+				await (kind === 'folder'
+					? notes.patch({ id: 'a', body: 'again again' })
+					: settings.patch({ title: 'old', body: 'again again' })),
+			);
 			for (const [old, why] of [
 				['missing', 'quote'],
 				['again', 'twice'],
 			] as const) {
 				expect(
-					expectErr<ActionError>(
-						await set({ title: 'unwritten', edit: { old, new: 'new' } }),
-					),
+					expectErr<ActionError>(await edit({ old, new: 'new' })),
 				).toMatchObject({ name: 'Changed', why });
 			}
 			expect(
-				expectErr<ActionError>(
-					await set({
-						title: 'unwritten',
-						body: 'other',
-						edit: { old: 'again again', new: 'new' },
-					}),
-				).name,
-			).toBe('Refused');
-			expect(
-				expectErr<ActionError>(await set({ edit: { old: '', new: 'new' } }))
-					.name,
+				expectErr<ActionError>(await edit({ old: '', new: 'new' })).name,
 			).toBe('Refused');
 			const record = expectOk(
 				await (kind === 'folder' ? notes.get({ id: 'a' }) : settings.get({})),
@@ -206,48 +208,43 @@ test.each(['folder', 'one-file'] as const)(
 	},
 );
 
-test('edit of an absent folder id is Missing and an absent one-file passage is Changed (quote)', async () => {
+test('edit of an absent record is Missing for both key shapes', async () => {
 	const { context, notes, settings } = setup();
 	await inRun(context, async () => {
 		expect(
 			expectErr<ActionError>(
-				await notes.set({ id: 'absent', edit: { old: 'old', new: 'new' } }),
+				await notes.edit({ id: 'absent', old: 'old', new: 'new' }),
 			),
 		).toMatchObject({ name: 'Missing', path: 'data/notes/absent.md' });
 		expect(
-			expectErr<ActionError>(
-				await settings.set({ edit: { old: 'old', new: 'new' } }),
-			),
-		).toMatchObject({
-			name: 'Changed',
-			why: 'quote',
-			path: 'data/settings.md',
-		});
+			expectErr<ActionError>(await settings.edit({ old: 'old', new: 'new' })),
+		).toMatchObject({ name: 'Missing', path: 'data/settings.md' });
 		expect(await folder.list('data')).toEqual([]);
 	});
 });
 
 test.each(['folder', 'one-file'] as const)(
-	'%s set repairs a readable misfit while edit returns its Misfit before patching',
+	'%s patch repairs a readable misfit while edit returns its Misfit before changing it',
 	async (kind) => {
 		const text = '---\ntitle: 123\nextra: "keep"\n---\nold body';
 		const path = kind === 'folder' ? 'data/notes/a.md' : 'data/settings.md';
 		const { context, notes, settings } = setup({ [path]: text });
-		const set = (input: Parameters<typeof settings.set>[0]) =>
-			kind === 'folder'
-				? notes.set({ id: 'a', ...input })
-				: settings.set(input);
 		await inRun(context, async () => {
 			expect(
 				expectErr<ActionError>(
-					await set({ title: 'fixed', edit: { old: 'old', new: 'new' } }),
+					await (kind === 'folder'
+						? notes.edit({ id: 'a', old: 'old', new: 'new' })
+						: settings.edit({ old: 'old', new: 'new' })),
 				).name,
 			).toBe('Misfit');
 			expect(await folder.read(path)).toBe(text);
-			expect(expectOk(await set({ title: 'fixed' }))).toMatchObject({
-				title: 'fixed',
-				body: 'old body',
-			});
+			expect(
+				expectOk(
+					await (kind === 'folder'
+						? notes.patch({ id: 'a', title: 'fixed' })
+						: settings.patch({ title: 'fixed' })),
+				),
+			).toMatchObject({ title: 'fixed', body: 'old body' });
 			expect(await folder.read(path)).toBe(
 				text.replace('title: 123', 'title: "fixed"'),
 			);
@@ -276,25 +273,25 @@ test('generated writes accept refs as given and expose a declared was field as o
 		targets: { fields: {} },
 		notes: { fields: { target: field.ref('targets'), was: field.text() } },
 	});
-	const { add, set } = data.notes.actions('add', 'set');
+	const { create, patch } = data.notes.actions('create', 'patch');
 	await inRun(createMemoryContext(), async () => {
 		expect(
-			expectOk(await add({ id: 'a', target: 'absent', was: 'first' })),
+			expectOk(await create({ id: 'a', target: 'absent', was: 'first' })),
 		).toMatchObject({ target: 'absent', was: 'first' });
 		expect(
-			expectOk(await set({ id: 'a', target: 'also-absent', was: 'last' })),
+			expectOk(await patch({ id: 'a', target: 'also-absent', was: 'last' })),
 		).toMatchObject({ target: 'also-absent', was: 'last' });
 	});
 });
 
-test('add without an id names the record by the moment and returns that id; with one it uses it', async () => {
+test('create without an id names the record by the moment and returns that id; with one it uses it', async () => {
 	const { context, notes } = setup();
 	await inRun(context, async () => {
-		const named = expectOk(await notes.add({ title: 'untitled' }));
+		const named = expectOk(await notes.create({ title: 'untitled' }));
 		expect(named.id).toMatch(/^\d{4}-\d\d-\d\dT[\d-]+Z-[0-9a-z]{8}$/);
 		expect(named.path).toBe(`data/notes/${named.id}.md`);
 		expect(expectOk(await notes.get({ id: named.id })).title).toBe('untitled');
-		expect(expectOk(await notes.add({ id: 'Dune', title: 'Dune' })).id).toBe(
+		expect(expectOk(await notes.create({ id: 'Dune', title: 'Dune' })).id).toBe(
 			'Dune',
 		);
 		expect((await folder.list('data/notes')).sort()).toEqual(
@@ -321,18 +318,15 @@ test('generated verbs take the id as the file name and refuse one that cannot na
 		] as const)
 			for (const result of [
 				await notes.get({ id }),
-				await notes.add({ id, title: 'x' }),
-				await notes.set({ id, title: 'x' }),
+				await notes.create({ id, title: 'x' }),
+				await notes.patch({ id, title: 'x' }),
+				await notes.edit({ id, old: 'one', new: 'x' }),
 				await notes.delete({ id }),
 			])
 				expect(expectErr(result)).toMatchObject({ name: 'Refused', message });
 		expect(
-			expectOk(
-				await notes.set({
-					id: 'Caf\u00e9',
-					edit: { old: 'one', new: 'three' },
-				}),
-			).body,
+			expectOk(await notes.edit({ id: 'Caf\u00e9', old: 'one', new: 'three' }))
+				.body,
 		).toBe('three two');
 		expect(expectOk(await notes.delete({ id: 'Caf\u00e9' }))).toBe(true);
 	});
@@ -357,30 +351,44 @@ test('an encoded Misfit answer keeps the id of a folder record and has none for 
 });
 
 // Discovery metadata and schemas are the boundary used by CLI, HTTP, and MCP.
-test('schemas require add fields but not an id, reject empty edit.old, and permit only optional-field removal', () => {
+test('schemas require create fields but not an id, permit only optional-field removal, and give edit only id, old, and new', () => {
 	const { notes, settings } = setup();
-	const add = Type.Object(notes.add.input, { additionalProperties: false });
-	const set = Type.Object(notes.set.input, { additionalProperties: false });
-	expect(Value.Check(add, { id: 'a', title: 'yes' })).toBe(true);
-	expect(Value.Check(add, { title: 'yes' })).toBe(true);
+	const create = Type.Object(notes.create.input, {
+		additionalProperties: false,
+	});
+	const patch = Type.Object(notes.patch.input, { additionalProperties: false });
+	expect(Value.Check(create, { id: 'a', title: 'yes' })).toBe(true);
+	expect(Value.Check(create, { title: 'yes' })).toBe(true);
 	for (const input of [{ id: 'a' }, { id: 7, title: 'yes' }])
-		expect(Value.Check(add, input)).toBe(false);
-	for (const action of [notes.set, settings.set]) {
+		expect(Value.Check(create, input)).toBe(false);
+	for (const action of [notes.patch, settings.patch]) {
 		const schema = Type.Object(action.input, { additionalProperties: false });
-		const id = action === notes.set ? { id: 'a' } : {};
-		expect(Value.Check(schema, { ...id, edit: { old: '', new: 'x' } })).toBe(
-			false,
-		);
-		expect(Value.Check(schema, { ...id, edit: { old: 'x', new: '' } })).toBe(
-			true,
-		);
-		expect(Value.Check(schema, { ...id, edit: { old: 'x' } })).toBe(false);
+		const id = action === notes.patch ? { id: 'a' } : {};
 		expect(Value.Check(schema, { ...id, note: null })).toBe(true);
 		expect(Value.Check(schema, { ...id, title: null })).toBe(false);
+		expect(Value.Check(schema, { ...id, edit: { old: 'x', new: 'y' } })).toBe(
+			false,
+		);
 	}
-	expect(Value.Check(set, { title: 'missing id' })).toBe(false);
-	expect(Value.Check(set, { id: 'a', was: {} })).toBe(false);
-	expect(notes.add.input.id).toMatchObject({
+	expect(Value.Check(patch, { title: 'missing id' })).toBe(false);
+	expect(Value.Check(patch, { id: 'a', was: {} })).toBe(false);
+	for (const action of [notes.edit, settings.edit]) {
+		const schema = Type.Object(action.input, { additionalProperties: false });
+		const id = action === notes.edit ? { id: 'a' } : {};
+		expect(Value.Check(schema, { ...id, old: 'x', new: '' })).toBe(true);
+		expect(Value.Check(schema, { ...id, old: '', new: 'x' })).toBe(false);
+		expect(Value.Check(schema, { ...id, old: 'x' })).toBe(false);
+		// A passage edit changes no field and does not replace the body.
+		expect(Value.Check(schema, { ...id, old: 'x', new: 'y', title: 'z' })).toBe(
+			false,
+		);
+		expect(Value.Check(schema, { ...id, old: 'x', new: 'y', body: 'z' })).toBe(
+			false,
+		);
+	}
+	expect(Object.keys(notes.edit.input)).toEqual(['id', 'old', 'new']);
+	expect(Object.keys(settings.edit.input)).toEqual(['old', 'new']);
+	expect(notes.create.input.id).toMatchObject({
 		description:
 			'The name of the new note; left out, it is named by the moment it is made',
 	});
@@ -388,30 +396,46 @@ test('schemas require add fields but not an id, reject empty edit.old, and permi
 	expect(Object.keys(settings.delete.input)).toEqual([]);
 });
 
-test('only named verbs are returned, every action is callable, and annotations match the record', () => {
+test('only named verbs are returned, every action is callable, and annotations say which writes are safe to repeat', () => {
 	const { notes, settings, data } = setup();
-	expect(Object.keys(data.notes.actions('get', 'set'))).toEqual(['get', 'set']);
+	expect(Object.keys(data.notes.actions('get', 'patch'))).toEqual([
+		'get',
+		'patch',
+	]);
+	const written = { readOnlyHint: false, openWorldHint: false };
+	const expected: Record<string, object> = {
+		list: { readOnlyHint: true, openWorldHint: false },
+		get: { readOnlyHint: true, openWorldHint: false },
+		// Without an id, each call makes another record.
+		create: { ...written, destructiveHint: false, idempotentHint: false },
+		patch: { ...written, destructiveHint: true, idempotentHint: true },
+		// Replacing a with ab twice gives abb.
+		edit: { ...written, destructiveHint: true, idempotentHint: false },
+		delete: { ...written, destructiveHint: true, idempotentHint: true },
+	};
 	for (const actions of [notes, settings]) {
 		for (const [verb, action] of Object.entries(actions)) {
 			expect(isAction(action)).toBe(true);
 			expect(action.description).toContain(
 				actions === notes ? 'note' : 'settings',
 			);
-			expect(action.annotations).toEqual(
-				verb === 'list' || verb === 'get'
-					? { readOnlyHint: true, openWorldHint: false }
-					: {
-							readOnlyHint: false,
-							destructiveHint: verb !== 'add',
-							idempotentHint: true,
-							openWorldHint: false,
-						},
-			);
+			expect(action.annotations).toEqual(expected[verb]);
 		}
 	}
 	expect(notes.get.description).toBe(
 		'Read one note: its fields and body; a file that does not fit its fields is an error',
 	);
+	expect(notes.patch.description).toContain(
+		'A missing note answers Missing and is never made',
+	);
+	expect(notes.patch.description).toContain('replaces the whole body');
+	expect(settings.patch.description).toContain('made when it is absent');
+	expect(notes.create.description).toContain(
+		'A caller that may retry should send an id',
+	);
+	expect(notes.edit.description).toContain('exactly one occurrence of old');
+	expect(notes.edit.description).toContain('Missing');
+	expect(notes.edit.description).toContain('Not safe to repeat');
 });
 
 test('unnamed verbs and unavailable verbs throw at declaration naming the key', () => {
@@ -422,8 +446,10 @@ test('unnamed verbs and unavailable verbs throw at declaration naming the key', 
 	expect(() => data['settings.md'].actions()).toThrow('settings.md');
 	// @ts-expect-error one-file keys do not offer list
 	expect(() => data['settings.md'].actions('list')).toThrow('settings.md');
-	// @ts-expect-error one-file keys do not offer add
-	expect(() => data['settings.md'].actions('add')).toThrow('settings.md');
+	// @ts-expect-error one-file keys do not offer create
+	expect(() => data['settings.md'].actions('create')).toThrow('settings.md');
+	// @ts-expect-error the old verbs are gone
+	expect(() => data.notes.actions('set')).toThrow('notes');
 	// @ts-expect-error unknown verbs are bugs
 	expect(() => data.notes.actions('dance')).toThrow('notes');
 });

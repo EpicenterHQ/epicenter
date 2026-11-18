@@ -32,12 +32,12 @@ const log = defineAction({
 export default defineApp({
   description: 'How much I read each week',
   data,
-  actions: { books: data.books.actions('list', 'get', 'add', 'set'), log },
+  actions: { books: data.books.actions('list', 'get', 'create', 'patch'), log },
 });
 ```
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
-`epicenter reading books set '{"id":"dune","finished":"2026-11-10"}'`
+`epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
 the app. A home is one Bun workspace whose `package.json` depends on
 `@epicenter/cli` and `@epicenter/app` at one version, so `bun install` at the
@@ -77,20 +77,20 @@ run it.
 - `defineApp` checks what it was given and returns that same object. It needs
   `description` and `actions`, with `{}` for none, and takes `data` when the
   app keeps records. Each action's words are its keys in `actions`, so
-  `{ books: data.books.actions('list', 'get', 'add', 'set'), log }` gives
-  `books list` through `books set` and `log`. `app.actions.books.add(...)`
-  in code, `epicenter reading books add` on the command line, and
-  `reading_books_add` over MCP are one action. No key at any depth may be
+  `{ books: data.books.actions('list', 'get', 'create', 'patch'), log }` gives
+  `books list` through `books patch` and `log`. `app.actions.books.create(...)`
+  in code, `epicenter reading books create` on the command line, and
+  `reading_books_create` over MCP are one action. No key at any depth may be
   `then`, which a UI's client cannot call.
 
 An app with one data key usually spreads its verbs at the top, so they are
-the app's own: `actions: { ...data.tasks.actions('list', 'get', 'set'), add }`
+the app's own: `actions: { ...data.tasks.actions('list', 'get', 'patch'), add }`
 reads `epicenter tasks add`, not `epicenter tasks tasks add`. An app with
 several keys nests each under its name, as the example above does.
 
 A later key replaces an earlier one, as in any object:
-`{ ...data.words.actions('list', 'get', 'add'), add: learn }` gives `add`
-from `learn`. An action is a function, so `{ ...learn, description: 'x' }`
+`{ ...data.words.actions('list', 'get', 'create'), create: learn }` gives
+`create` from `learn`. An action is a function, so `{ ...learn, description: 'x' }`
 drops its call; `defineApp` refuses it and says to use `defineAction`.
 
 ## Data
@@ -116,8 +116,8 @@ An app trims or normalises what a person typed before it passes it on.
 `list` skips a file whose name is not an id. An action that takes an id
 takes it as `field.text()`; the handle refuses one that cannot name a file
 when the action reads or writes it. A new record's id comes from the caller
-or the app. A generated `add` takes `id` optionally and names the record
-with `timeId()` when it is left out; the `add(id, record)` method always
+or the app. A generated `create` takes `id` optionally and names the record
+with `timeId()` when it is left out; the `create(id, record)` method always
 takes one.
 
 Each file's fields are its front matter, as `key: <JSON>` lines, and its body
@@ -151,46 +151,59 @@ the change second. A one-file key's methods take no id.
 | --- | --- |
 | `get(id)` | `Ok(record)`, `Ok(undefined)` when the file is absent, or an Err with the reason |
 | `list()` | one Result per file, sorted by path; folder keys only |
-| `add(id, record)` | creates the file, or returns `Changed` (`there`) when it exists; folder keys only |
-| `set(id, change)` | patches an existing record; an absent id returns `Missing`. A one-file `set(change)` creates its file |
-| `update(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it |
+| `create(id, record)` | creates the file, or returns `Changed` (`there`) when it exists; folder keys only |
+| `patch(id, change)` | merges a change into an existing record; an absent id returns `Missing`. A one-file `patch(change)` creates its file |
+| `edit(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it |
+| `edit(id, { old, new })` | replaces the one passage `old` of the body with `new`; `Changed` (`quote` or `twice`) unless `old` is there exactly once, and `Missing` when the file is absent |
 | `delete(id)` | returns whether a file existed |
-| `pathOf(id)` | the record's path for the id as given, without checking it or the disk |
+| `path(id)` | the record's path for the id as given, without checking it or the disk |
 
 Writes return the fitting record in Ok. Check a write's Result before
 continuing work that depends on it. A malformed record produces `Misfit`.
 A plain patch can repair it when the front matter is readable and the
 resulting record fits. A computed write refuses before invoking its callback.
 A change merges as JSON Merge Patch: `null` removes an optional field, and
-`body` replaces the text after the front matter.
+`body` replaces the whole text after the front matter.
+
+A name can go wrong two ways. `create` refuses a name that is taken, and a
+folder key's `patch` refuses one that is not there, so a mistyped id never
+makes a stray file. Code that computes a name and makes the record when it is
+absent uses `edit` with a function.
 
 `actions(...verbs)` gives the verbs it names, and only those: a folder key
-offers `list`, `get`, `add`, `set`, and `delete`, and a one-file key `get`,
-`set`, and `delete`. The verb `get` returns `Missing` for an absent folder
-id; `list` returns `Ok(rows)`, one Result per file, bodies included; `delete`
-returns the boolean in Ok. A verb's input is flat: `id` sits beside the
-fields, so `epicenter vocab set '{"id":"serendipity","meaning":"a lucky find"}'`
-sets one word.
+offers `list`, `get`, `create`, `patch`, `edit`, and `delete`, and a one-file
+key `get`, `patch`, `edit`, and `delete`. A verb's input is its method's
+arguments folded into one object: the id as `id`, and the change's keys
+beside it, so `epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'`
+calls `patch('serendipity', { meaning: 'a lucky find' })`. The function form
+of `edit` stays in code, since a caller cannot send a function. Two verbs
+differ from their method: `create` names the record with `timeId()` when
+`id` is left out, and `get` returns `Missing` for an absent folder id where
+the method returns `Ok(undefined)`. `list` returns `Ok(rows)`, one Result per
+file, bodies included; `delete` returns the boolean in Ok.
 
-The `set` verb is the `set` method for a caller that cannot send a function,
-so one call is one write. It takes the fields to change, `null` to remove an
-optional one, and `body` or `edit`, not both. `edit` is `{ old, new }`, both
-required: `old` is a non-empty passage of the body the caller last saw, and
-`new` replaces it. When `old` is not in the body now, or is there twice, the
-answer is `Changed` with `why` `quote` or `twice`, and neither the fields nor
-the body are written. A page saves a record's fields and its notes in one
-call:
+The `edit` verb takes `id`, `old`, and `new`, and no fields. `old` is a
+non-empty passage of the body the caller last saw, and `new` replaces it.
+When `old` is not in the body now, or is there twice, the answer is `Changed`
+with `why` `quote` or `twice`, and nothing is written. A caller that changes
+fields and a passage makes two calls:
 
 ```sh
-epicenter vocab set '{"id":"serendipity","meaning":"a lucky find","edit":{"old":"First seen.\n","new":"First seen in a novel.\n"}}'
+epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'
+epicenter vocab edit '{"id":"serendipity","old":"First seen.\n","new":"First seen in a novel.\n"}'
 ```
 
-Two callers setting the same field from stale screens: the last write wins.
-Two callers setting different fields both land, since a write changes only
+`patch` and `delete` are safe to repeat, and their annotations say so.
+`create` without an id makes another record on each call, and a repeated
+`edit` replaces again in the text it already changed, so neither is marked
+idempotent. A caller that may retry `create` sends an id.
+
+Two callers patching the same field from stale screens: the last write wins.
+Two callers patching different fields both land, since a write changes only
 the lines it names.
 
-A value computed from `get` and written later with `set` can overwrite a
-concurrent change. Compute it inside the write with `update`. Its callback
+A value computed from `get` and written later with `patch` can overwrite a
+concurrent change. Compute it inside the write with `edit` and a function. Its callback
 must return a Result: `Ok(patch)` to apply fields or body, or a tagged Err to
 decline. The caller receives that Err and the file stays as it was. The
 callback runs once, and no other write to the file runs between its read and
@@ -198,12 +211,10 @@ its write. `Ok({})` leaves an existing record alone. Vocab's review can
 therefore count two concurrent reviews:
 
 ```ts
-return data.words.update(word, (found) =>
-  found ? Ok(schedule(found, grade, now)) : ActionError.Missing({ path: data.words.pathOf(word) }),
+return data.words.edit(word, (found) =>
+  found ? Ok(schedule(found, grade, now)) : ActionError.Missing({ path: data.words.path(word) }),
 );
 ```
-
-`update` is not a verb, since a caller cannot send a function.
 
 A handle reads and writes the folder of the run it is called in, so an action
 reaches it however deep its code goes. Outside a run it throws, so loading an
@@ -217,7 +228,7 @@ A record is its `path`, its `id` for a folder key, its fields, and its
 ```ts
 const read = await data.watches.get(id);
 if (read.error !== null) return read;
-if (!read.data) return ActionError.Missing({ path: data.watches.pathOf(id) });
+if (!read.data) return ActionError.Missing({ path: data.watches.path(id) });
 return Ok(read.data.from);
 ```
 
@@ -237,8 +248,8 @@ file on a disk that ignores case, and each reference that names no file.
 `defineData` refuses:
 
 - a key that is not a name, optionally followed by `.md`;
-- a field named `path`, `body`, `id`, or `edit`, which a record or the `set`
-  verb supplies;
+- a field named `path`, `body`, or `id`: a read gives `path`, and a verb's
+  input folds the fields beside `id` and `body`;
 - a field marked `readOnly`: an app offers only the verbs a caller may use;
 - a field name that a front matter line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
@@ -250,7 +261,7 @@ file on a disk that ignores case, and each reference that names no file.
 The generated verbs take a record's id: `epicenter vocab get '{"id":"你好"}'`.
 An action you write chooses its own input, and one people or agents call
 should take what they know. Vocab's `review` takes `{ word, grade }` and calls
-`data.words.update(word, ...)`, so a caller gives
+`data.words.edit(word, ...)`, so a caller gives
 `epicenter vocab review '{"word":"你好","grade":"good"}'`.
 
 ## Fields
@@ -373,9 +384,9 @@ the file, calls `change` with its text (`undefined` when there is none), and
 writes what `change` returns, nothing when that is what is there. `change`
 runs once. One process runs actions, so no other update runs between the read
 and the write; a writer outside epicenter, such as an editor, is not guarded
-against. A `change` that throws writes nothing. It returns the text written. Every data write (`add`, `set`, `update`, and the verbs built on them)
-goes through it, so two `set`s of different fields of one file both land, and
-two `update`s of one field each see the other's.
+against. A `change` that throws writes nothing. It returns the text written. Every data write (`create`, `patch`, `edit`, and the verbs built on them)
+goes through it, so two `patch`es of different fields of one file both land, and
+two `edit`s of one field each see the other's.
 
 ```ts
 await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
@@ -494,8 +505,8 @@ package does not depend on TanStack Query.
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 
 export const reads = resultQueries(['reading'], { list: app.books.list });
-export const writes = resultMutations(['reading'], { set: app.books.set });
-// In a component: createQuery(() => reads.list()), createMutation(() => writes.set)
+export const writes = resultMutations(['reading'], { patch: app.books.patch });
+// In a component: createQuery(() => reads.list()), createMutation(() => writes.patch)
 ```
 
 An action that sends updates accepts `onUpdate` after its input. Each update
@@ -515,9 +526,43 @@ whether the action started.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionUpdate<A>` name what action
 `A` takes from a caller, returns to a client, and reports while it runs:
-`ActionInput<typeof app.actions.set>`. A switch and a list without `min` are
+`ActionInput<typeof app.actions.patch>`. A switch and a list without `min` are
 optional in `ActionInput`; an action that only returns reports `never`.
 
 A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
+
+## Upgrading from 0.6
+
+0.7.0 renames a data handle's write verbs and `pathOf`. Behavior is unchanged except where noted. TypeScript flags every call to an old method, so in each app run the type-check and fix what it names.
+
+| 0.6 | 0.7 |
+| --- | --- |
+| `data.books.add(id, record)` | `data.books.create(id, record)` |
+| `data.books.set(id, change)`, one-file `set(change)` | `data.books.patch(id, change)`, one-file `patch(change)` |
+| `data.books.update(id, fn)`, one-file `update(fn)` | `data.books.edit(id, fn)`, one-file `edit(fn)` |
+| `data.books.pathOf(id)`, one-file `pathOf()` | `data.books.path(id)`, one-file `path()` |
+| the generated `set` given `{ id, edit: { old, new } }` | the generated `edit` given `{ id, old, new }`, or `data.books.edit(id, { old, new })` in code |
+
+### What the compiler does not catch
+
+- **Action lists are strings.** In `data.<key>.actions(...)`, replace `'add'` with `'create'`, and `'set'` with `'patch', 'edit'`. Listing `edit` keeps passage edits available to agents.
+- **Pages call actions by name.** `app.set(...)` becomes `app.patch(...)`, and `app.add(...)` becomes `app.create(...)`. A page that sent `edit: { old, new }` to `set` now calls `app.edit({ id, old, new })`.
+- **Scripts, routines and docs** that run `epicenter <app> set` or `add` with a generated verb need the new name.
+- **An app's own action that happens to be named `add`** is not a generated verb. It keeps its name.
+
+### Behavior that changed
+
+- **Fields and a passage in one call.** The generated `edit` takes only `{ id, old, new }`. A caller that changed fields and a passage in one `set` call now sends a `patch` and then an `edit`, or the app defines an action that does both in one `edit(id, fn)`.
+- **One-file keys.** A passage `edit` on a missing file answers `Missing`. It used to answer `Changed` (`quote`).
+- **Idempotency hints.** `create` and `edit` now declare `idempotentHint: false`. An agent that may retry `create` should send an id.
+
+### Steps
+
+1. Change both `@epicenter/app` and `@epicenter/cli` to `0.7.0` in the home's `package.json`.
+2. Run `bun install`.
+3. Fix each app until `bun run typecheck` and `bun test` pass.
+4. Run `bun run build` in each app that has a UI.
+5. Restart `epicenter serve`.
+6. Commit the result as one commit, so reverting it returns the home to 0.6.

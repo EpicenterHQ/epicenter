@@ -186,7 +186,7 @@ changes in place ([ADR-0910]).
 | --- | --- |
 | Epicenter | your folder of apps, `~/Epicenter` on the home, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
 | an inside app | a folder in `~/Epicenter/apps` that runs on the home, whose `code/epicenter.ts` default-exports `defineApp`: its description, data, and actions; its name is the folder's; bare "app" on this page, in records, and in code means this |
-| a data key | a kind of record in the app, declared with `defineData`: a folder (`words` holds `data/words/<id>.md`) or one file (`settings.md`), and its fields; it gives the actions it names: `list`, `get`, `add`, `set`, and `delete` |
+| a data key | a kind of record in the app, declared with `defineData`: a folder (`words` holds `data/words/<id>.md`) or one file (`settings.md`), and its fields; it gives the actions it names: `list`, `get`, `create`, `patch`, `edit`, and `delete` |
 | a record | one file of a data key, addressed by its path; it is yours |
 | an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
@@ -253,19 +253,19 @@ const add = defineAction({
   description: 'Add a task to do',
   input: { title: field.text({ description: 'What to do' }) },
   annotations: { destructiveHint: false },
-  run: ({ title }) => data.tasks.add(timeId(), { title }),
+  run: ({ title }) => data.tasks.create(timeId(), { title }),
 });
 
 export default defineApp({
   description: 'Things I mean to do',
   data,
-  actions: { ...data.tasks.actions('list', 'get', 'set'), add },
+  actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
 });
 ```
 
-Tasks' actions are `tasks list`, `get`, and `set` from its data key, and the
+Tasks' actions are `tasks list`, `get`, and `patch` from its data key, and the
 `add` written here. A verb names a record by its id, the file's name:
-`epicenter tasks set '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
+`epicenter tasks patch '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
 On the command line an action's input is one JSON object, as an agent gives
 it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action reads and writes through its
 data handles, or through the `folder` it imports; whatever runs it supplies the
