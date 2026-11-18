@@ -90,11 +90,6 @@ type ActionMeta = Shared & { readonly input: ObjectSchema };
  */
 export type Update<U> = (value: U) => void;
 
-/** A caller's second argument, which only an action that sends updates takes. */
-type Listening<U> = [U] extends [never]
-	? []
-	: [options?: { onUpdate?: (value: U) => unknown }];
-
 /**
  * An action: a function of its input, with what callers read to call it.
  * `U` is what it reports through `update` while it runs, `never` for one
@@ -104,21 +99,13 @@ type Listening<U> = [U] extends [never]
 // biome-ignore lint/suspicious/noExplicitAny: a bare Action is any action, whatever it reports.
 export type Action<In = any, Out = unknown, U = any> = ((
 	input: In,
-	...options: Listening<U>
+	options?: { onUpdate?: (value: U) => unknown },
 ) => Out) &
 	ActionMeta;
 
 /** What the action `A` reports while it runs, `never` when it only returns. */
-export type ActionUpdate<A> = A extends (
-	input: never,
-	...options: infer Rest
-) => unknown
-	? Rest extends [options?: { onUpdate?: (value: infer U) => unknown }]
-		? [] extends Required<Rest>
-			? never
-			: U
-		: never
-	: never;
+export type ActionUpdate<A> =
+	A extends Action<never, unknown, infer U> ? U : never;
 
 /**
  * What an action may return: a value that survives JSON, which is how the CLI,

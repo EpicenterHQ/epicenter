@@ -254,8 +254,8 @@ describe('an app author', () => {
 		() => vocabUi.review({ word: 'a' }, { onUpdate: () => {} });
 		// The same two arguments call it in the home.
 		() => say({ message: 'hi' }, { onUpdate: (value) => void value });
-		// @ts-expect-error in the home too
-		() => tag({ word: 'a' }, { onUpdate: () => {} });
+		// In the library every action takes options; one that only returns never calls onUpdate.
+		() => tag({}, { onUpdate: () => {} });
 	});
 
 	test('raw TypeBox sits beside fields', () => {
