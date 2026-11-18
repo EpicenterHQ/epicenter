@@ -62,22 +62,22 @@ type Source = Pick<
 	'entries' | 'transcriptsFor' | 'transcribing' | 'audioOf'
 >;
 
-function statusOf(whispering: Source, id: string): RecordingStatus {
-	if (whispering.transcribing(id)) return 'transcribing';
-	return whispering.transcriptsFor(id).length > 0
+function statusOf(library: Source, id: string): RecordingStatus {
+	if (library.transcribing(id)) return 'transcribing';
+	return library.transcriptsFor(id).length > 0
 		? 'transcribed'
 		: 'untranscribed';
 }
 
 /** One row for every recording listed, in the list's own order. */
-function recordingRows(whispering: Source): RecordingRow[] {
-	return whispering.entries.map((note) => ({
+function recordingRows(library: Source): RecordingRow[] {
+	return library.entries.map((note) => ({
 		id: note.id,
 		note,
 		title: titleOf(note),
-		transcripts: whispering.transcriptsFor(note.id),
-		status: statusOf(whispering, note.id),
-		audio: whispering.audioOf(note.id),
+		transcripts: library.transcriptsFor(note.id),
+		status: statusOf(library, note.id),
+		audio: library.audioOf(note.id),
 	}));
 }
 
@@ -183,11 +183,11 @@ export function nextSort(
 
 /** The table as it is shown: searched, then sorted. */
 export function shownRows(
-	whispering: Source,
+	library: Source,
 	query: string,
 	sort: RecordingSort,
 ): RecordingRow[] {
-	return sortRows(searchRows(recordingRows(whispering), query), sort);
+	return sortRows(searchRows(recordingRows(library), query), sort);
 }
 
 // --- selection ------------------------------------------------------------
@@ -203,12 +203,12 @@ export function shownRows(
 export function selectionIn(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
-	whispering: Pick<Library, 'entries'>,
+	library: Pick<Library, 'entries'>,
 ): { rows: RecordingRow[]; hidden: number } {
 	const chosen = new Set(selected);
 	const rows = shown.filter((row) => chosen.has(row.id));
 	let present = 0;
-	for (const note of whispering.entries) if (chosen.has(note.id)) present++;
+	for (const note of library.entries) if (chosen.has(note.id)) present++;
 	return { rows, hidden: present - rows.length };
 }
 
@@ -217,9 +217,9 @@ export function toggleSelected(
 	selected: readonly string[],
 	id: string,
 	on: boolean,
-	whispering: Pick<Library, 'entries'>,
+	library: Pick<Library, 'entries'>,
 ): string[] {
-	const present = new Set(whispering.entries.map((note) => note.id));
+	const present = new Set(library.entries.map((note) => note.id));
 	const next = selected.filter((item) => item !== id && present.has(item));
 	return on && present.has(id) ? [...next, id] : next;
 }
@@ -232,9 +232,9 @@ export function toggleAllShown(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
 	on: boolean,
-	whispering: Pick<Library, 'entries'>,
+	library: Pick<Library, 'entries'>,
 ): string[] {
-	const present = new Set(whispering.entries.map((note) => note.id));
+	const present = new Set(library.entries.map((note) => note.id));
 	const visible = new Set(shown.map((row) => row.id));
 	const kept = selected.filter(
 		(item) => present.has(item) && !visible.has(item),
@@ -287,7 +287,7 @@ type BulkTranscription = {
  * the rows still waiting are not sent.
  */
 export async function transcribeRows(
-	whispering: Source & Pick<Library, 'transcribe' | 'closing'>,
+	library: Source & Pick<Library, 'transcribe' | 'closing'>,
 	ids: readonly string[],
 	onProgress?: (done: number) => void,
 ): Promise<BulkTranscription> {
@@ -299,16 +299,16 @@ export async function transcribeRows(
 	let done = 0;
 	// What each row is called when the run starts, for a row no longer listed by its turn.
 	const titles = new Map(
-		whispering.entries.map((note) => [note.id, titleOf(note)]),
+		library.entries.map((note) => [note.id, titleOf(note)]),
 	);
 	for (const id of ids) {
 		// Read again for each row: the lists may have changed while the last one ran.
-		const note = whispering.entries.find((item) => item.id === id);
+		const note = library.entries.find((item) => item.id === id);
 		const title = note ? titleOf(note) : (titles.get(id) ?? id);
 		const skip = (reason: string) => outcome.skipped.push({ title, reason });
-		const status = note && statusOf(whispering, id);
-		const audio = note && whispering.audioOf(id);
-		if (whispering.closing) skip('The app was closing, so it was not sent.');
+		const status = note && statusOf(library, id);
+		const audio = note && library.audioOf(id);
+		if (library.closing) skip('The app was closing, so it was not sent.');
 		else if (note === undefined) skip('It is no longer listed.');
 		else if (status === 'transcribing')
 			skip('It is already being transcribed.');
@@ -317,7 +317,7 @@ export async function transcribeRows(
 			skip('More than one audio file has its id. Keep one.');
 		else if (audio?.kind !== 'here') skip('Its audio cannot be read here.');
 		else {
-			const { error } = await whispering.transcribe(id);
+			const { error } = await library.transcribe(id);
 			if (error === null) outcome.transcribed.push(title);
 			else outcome.failed.push({ title, reason: error.message });
 		}
@@ -339,15 +339,15 @@ type CapturedDeletions = {
  * under way, or with transcripts that cannot be
  * told apart from its own, is refused with that reason and left out.
  */
-export async function captureDeletions(
-	whispering: Pick<Library, 'deletionFor' | 'entries'>,
+export function captureDeletions(
+	library: Pick<Library, 'deletionFor' | 'entries'>,
 	ids: readonly string[],
-): Promise<CapturedDeletions> {
+): CapturedDeletions {
 	const captured: CapturedDeletions = { deletions: [], refused: [] };
 	for (const id of ids) {
-		const note = whispering.entries.find((item) => item.id === id);
+		const note = library.entries.find((item) => item.id === id);
 		const title = note ? titleOf(note) : id;
-		const { data: deletion, error: refusal } = whispering.deletionFor({
+		const { data: deletion, error: refusal } = library.deletionFor({
 			collection: 'recordings',
 			id,
 		});
@@ -397,13 +397,13 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
  * the rest still go.
  */
 export async function deleteCaptured(
-	whispering: Pick<Library, 'delete'>,
+	library: Pick<Library, 'delete'>,
 	deletions: CapturedDeletions['deletions'],
 ): Promise<{ deleted: number; problems: { title: string; reason: string }[] }> {
 	let deleted = 0;
 	const problems: { title: string; reason: string }[] = [];
 	for (const deletion of deletions) {
-		const problem = await whispering.delete(deletion);
+		const problem = await library.delete(deletion);
 		if (problem === undefined) deleted += 1;
 		else problems.push({ title: deletion.title, reason: problem });
 	}

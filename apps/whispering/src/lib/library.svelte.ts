@@ -16,8 +16,8 @@
  * A recording is transcribed or deleted one at a time (`busy`).
  *
  * The library is made when the app's pages open and let go when they
- * close. Leaving waits for nothing and refuses nothing: a run under way
- * still keeps its answer in the files, unless Whispering itself is closing.
+ * close, which is when Whispering closes too: leaving waits for nothing,
+ * and an answer that arrives after is not kept.
  */
 
 import { createQuery, useMutationState } from '@tanstack/svelte-query';

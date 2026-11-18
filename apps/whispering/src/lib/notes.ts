@@ -146,20 +146,6 @@ const idOf = (name: string) =>
 const pathOf = (collection: NoteName, id: string) =>
 	`${NOTES[collection].dir}/${id}.md`;
 
-/** Write `text` at `path`, or remove the file when `text` is null. */
-async function writeText(
-	files: Files,
-	path: string,
-	text: string | null,
-): Promise<Result<undefined, FilesError>> {
-	const done =
-		text === null
-			? await files.remove(path)
-			: await files.write(path, encode(text));
-	if (done.error !== null) return Err(done.error);
-	return Ok(undefined);
-}
-
 /** What one note's file holds now: nothing, a note that reads, or one that does not. */
 type NoteFile<F> =
 	| { readonly kind: 'none' }
@@ -216,7 +202,7 @@ export function noteAt<T extends TObject>(
 			if (read.error !== null) return Err(read.error);
 			const named = patch as Record<string, unknown>;
 			const fresh = () =>
-				writeText(files, path, newNote(named, body?.text ?? '', order));
+				files.write(path, encode(newNote(named, body?.text ?? '', order)));
 			if (read.data === null) {
 				if (body !== undefined && body.seen !== null)
 					return NoteError.Changed({ path });
@@ -238,7 +224,7 @@ export function noteAt<T extends TObject>(
 				return NoteError.Unreadable({ path, reason: parsed.error.reason });
 			if (body !== undefined && parsed.data.body !== body.seen)
 				return NoteError.Changed({ path });
-			return writeText(files, path, changeNote(text, named, body?.text));
+			return files.write(path, encode(changeNote(text, named, body?.text)));
 		},
 	};
 }
@@ -329,7 +315,7 @@ export function createNotes(files: Files) {
 			if (read.error !== null) return Err(read.error);
 			if (read.data === null || textOf(read.data) !== seen)
 				return NoteError.Changed({ path });
-			return writeText(files, path, text);
+			return files.write(path, encode(text));
 		},
 		/** Remove note `id` of `collection`. One already gone is gone. */
 		async delete({
@@ -339,7 +325,7 @@ export function createNotes(files: Files) {
 			collection: NoteName;
 			id: string;
 		}): Promise<Result<undefined, FilesError>> {
-			return writeText(files, pathOf(collection, id), null);
+			return files.remove(pathOf(collection, id));
 		},
 	};
 }

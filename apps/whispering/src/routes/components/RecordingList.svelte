@@ -35,7 +35,6 @@
 		transcriptsToCopy,
 	} from '$lib/recordings-table.js';
 	import { getLibrary } from '$lib/library.svelte.js';
-	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { copyText } from './actions.js';
 	import { formatLength, formatTime } from './format.js';
 	import NoteRepair from './NoteRepair.svelte';
@@ -51,7 +50,6 @@
 		onOpen: () => void;
 	} = $props();
 
-	const whispering = getWhispering();
 	const library = getLibrary();
 	const { ui } = library;
 
@@ -157,7 +155,7 @@
 	/** Each deletion is captured first, as a single deletion is; the person confirms exactly those. */
 	async function deleteSelected() {
 		if (busy) return;
-		const captured = await captureDeletions(
+		const captured = captureDeletions(
 			library,
 			selection.rows.map((row) => row.id),
 		);

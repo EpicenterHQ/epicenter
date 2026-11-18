@@ -15,8 +15,8 @@ src/lib/format/note.ts       a note as text: the home's Markdown grammar
 src/lib/files/               Files: read, write, list, remove; tauri, opfs and memory, one conformance suite
 src/lib/notes.ts             one note collection over Files: list it, set, replace, delete
 src/lib/settings.ts          settings.md: the transcription model, the connections, the shortcut
-src/lib/folder.ts            the folder: one read of every note, settings and the audio
-src/lib/folder-query.ts      the page's QueryClient over the folder: one query, writes as mutations
+src/lib/folder.ts            the folder: one read of every note and the audio; settings.md beside
+src/lib/folder-query.ts      the page's QueryClient over the folder: two queries, writes as mutations
 src/lib/note-editor.svelte.ts one note as an editor: typing, its save, and a failed save kept
 src/lib/runs.ts              a transcription: find the audio, send it, write the transcript
 src/lib/this-computer.ts     what stays on this computer: localStorage, secrets, the request fetch

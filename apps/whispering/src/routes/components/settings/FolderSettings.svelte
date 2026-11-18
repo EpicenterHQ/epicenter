@@ -17,6 +17,7 @@
 	import { toast } from 'svelte-sonner';
 	import { onMount } from 'svelte';
 	import { createMutation } from '@tanstack/svelte-query';
+	import { extractErrorMessage } from 'wellcrafted/error';
 	import { exportFolder, folderLocation, query } from '$lib/app.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -66,7 +67,7 @@
 		if (path === null) return;
 		const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
 		await revealItemInDir(path).catch((cause: unknown) =>
-			toast.error('The folder could not be shown', { description: String(cause) }),
+			toast.error('The folder could not be shown', { description: extractErrorMessage(cause) }),
 		);
 	}
 
@@ -74,7 +75,7 @@
 		if (path === null) return;
 		await navigator.clipboard.writeText(path).then(
 			() => toast.success('Copied the folder’s path'),
-			(cause: unknown) => toast.error('The path was not copied', { description: String(cause) }),
+			(cause: unknown) => toast.error('The path was not copied', { description: extractErrorMessage(cause) }),
 		);
 	}
 
@@ -110,7 +111,6 @@
 		exporting = true;
 		const zip = await exportFolder();
 		exporting = false;
-		if (typeof zip === 'string') return toast.error('Nothing was exported', { description: zip });
 		if (zip.error !== null) return toast.error('Nothing was exported', { description: zip.error });
 		const url = URL.createObjectURL(zip.data);
 		const link = document.createElement('a');

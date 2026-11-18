@@ -29,11 +29,6 @@ export type SettingsFields = Static<typeof SETTINGS.fields>;
 const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+;';
 
 export const ChoiceError = defineErrors({
-	/** No model is chosen for the job. */
-	NoChoice: ({ job }: { job: Job }) => ({
-		message: `Choose a model for ${job} first.`,
-		job,
-	}),
 	/** `settings.md` does not read, so no choice in it is used. */
 	Invalid: ({ reason }: { reason: string }) => ({
 		message: `settings.md does not read (${reason}); choosing a model replaces it.`,
@@ -53,15 +48,15 @@ export type SettingsSnapshot = {
 /** The settings when there is no `settings.md`. */
 export const NO_SETTINGS: SettingsSnapshot = { fields: {}, problem: null };
 
-/** The choice for `job` in `settings`, or why there is none. */
+/** The choice for `job` in `settings`, null when none is chosen, or why none in it is used. */
 export function chosenIn(
 	settings: SettingsSnapshot,
 	job: Job,
-): Result<ModelChoice, ChoiceError> {
+): Result<ModelChoice | null, ChoiceError> {
 	if (settings.problem !== null)
 		return ChoiceError.Invalid({ reason: settings.problem });
 	const choice = settings.fields.models?.[job];
-	if (choice === undefined) return ChoiceError.NoChoice({ job });
+	if (choice === undefined) return Ok(null);
 	return Ok({ endpoint: choice.endpoint, model: choice.model });
 }
 

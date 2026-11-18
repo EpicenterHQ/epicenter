@@ -19,8 +19,8 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import type { Entry, Files, FilesError } from './files/files.js';
-import type { NOTES } from './format/layout.js';
 import { timeOf } from './format/ids.js';
+import type { NOTES } from './format/layout.js';
 import {
 	createNotes,
 	type NoteListing,
@@ -180,6 +180,17 @@ export function openFolder(files: Files) {
 		return Ok(listed.data.flatMap((entry) => audioFileOf(entry) ?? []));
 	}
 
+	/** Remove the audio files `audio` from a listing; the first that fails stops the rest. */
+	async function removeAudio(
+		audio: readonly AudioFile[],
+	): Promise<Result<undefined, FilesError>> {
+		for (const { id, ext } of audio) {
+			const removed = await files.remove(`${RECORDINGS}/${id}.${ext}`);
+			if (removed.error !== null) return Err(removed.error);
+		}
+		return Ok(undefined);
+	}
+
 	/** Delete recording `id`'s audio files, as listed now. */
 	async function deleteAudio({
 		id,
@@ -188,11 +199,7 @@ export function openFolder(files: Files) {
 	}): Promise<Result<undefined, FilesError>> {
 		const audio = await listAudio();
 		if (audio.error !== null) return audio;
-		for (const { ext } of audio.data.filter((file) => file.id === id)) {
-			const removed = await files.remove(`${RECORDINGS}/${id}.${ext}`);
-			if (removed.error !== null) return Err(removed.error);
-		}
-		return Ok(undefined);
+		return removeAudio(audio.data.filter((file) => file.id === id));
 	}
 
 	return {
@@ -278,7 +285,9 @@ export function openFolder(files: Files) {
 					});
 					if (made.error !== null) return Err(made.error);
 				}
-				const deleted = await deleteAudio({ id });
+				const deleted = await removeAudio(
+					audio.filter((other) => other.id === id),
+				);
 				if (deleted.error !== null) return Err(deleted.error);
 			}
 			return Ok(old.size);

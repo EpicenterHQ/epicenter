@@ -12,14 +12,13 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createMutation } from '@tanstack/svelte-query';
 	import { query } from '$lib/app.js';
-	import { notePath } from '$lib/folder.js';
 	import { checkNote, NOTES } from '$lib/format/layout.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { confirmDelete } from './actions.js';
 
 	let { repair }: { repair: Repair } = $props();
 	const library = getLibrary();
-	const path = $derived(notePath(repair));
+	const path = $derived(repair.path);
 
 	/** The text as the person changed it; until then the note's. */
 	let typed = $state<string | null>(null);

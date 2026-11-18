@@ -16,7 +16,11 @@
  * reach a message: an endpoint removes its key from any refusal it reads.
  */
 import type { Ai, AiError } from '@epicenter/ai';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import {
+	defineErrors,
+	extractErrorMessage,
+	type InferErrors,
+} from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { refusedBeforeSend } from './request-refusal.js';
 import { sentences } from './sentences.js';
@@ -185,7 +189,7 @@ export async function transcribeAt(
 		catch: (cause) =>
 			InferenceError.OutcomeUnknown({
 				name: target.name,
-				reason: cause instanceof Error ? cause.message : String(cause),
+				reason: extractErrorMessage(cause),
 			}),
 	});
 	if (sent.error !== null) return sent;

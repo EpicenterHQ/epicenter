@@ -21,6 +21,7 @@
  * release is released when it arrives. A test reads a level and nothing
  * else: no audio is recorded, sent, or saved.
  */
+
 import {
 	type InputListing,
 	type Meter,
@@ -28,6 +29,7 @@ import {
 	type RecordingEndedReason,
 	type RecordingInput,
 } from '@epicenter/recorder';
+import { extractErrorMessage } from 'wellcrafted/error';
 import type { CaptureDevice } from './capture.js';
 import type { MicrophonePreferences } from './microphone-preference.js';
 
@@ -129,9 +131,7 @@ export function createMicrophoneInput({
 		saves = saves.then(async () => {
 			const outcome = await preferences
 				.setMicrophone(next)
-				.catch((cause) =>
-					cause instanceof Error ? cause.message : String(cause),
-				);
+				.catch((cause) => extractErrorMessage(cause));
 			if (sequence === saveSequence) preferenceProblem = outcome;
 		});
 		return saves;
@@ -245,7 +245,7 @@ export function createMicrophoneInput({
 			try {
 				choice = preferences.microphone();
 			} catch (cause) {
-				preferenceProblem = `The saved microphone could not be read: ${cause instanceof Error ? cause.message : String(cause)}`;
+				preferenceProblem = `The saved microphone could not be read: ${extractErrorMessage(cause)}`;
 			}
 		},
 		refresh,

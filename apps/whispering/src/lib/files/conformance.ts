@@ -12,6 +12,7 @@
  *
  * Each check is given a fresh, empty `Files`.
  */
+import { extractErrorMessage } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import { decode, encode, type Files } from './files.js';
 
@@ -276,7 +277,7 @@ export async function runFilesChecks(
 		} catch (cause) {
 			results.push({
 				name: check.name,
-				failure: cause instanceof Error ? cause.message : String(cause),
+				failure: extractErrorMessage(cause),
 			});
 		}
 	}

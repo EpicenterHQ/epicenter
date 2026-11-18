@@ -13,14 +13,14 @@
  * body; the shell writes them to a hidden temporary file beside the target
  * and renames it over the target (ADR-0962).
  */
-import { Ok, type Result } from 'wellcrafted/result';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	checkPath,
 	type Entry,
 	type Files,
 	type FilesError,
 	failed,
-	messageOf,
 } from './files.js';
 
 /** How the page calls its shell: `invoke` from `@tauri-apps/api/core`, or a stand-in in a test. */
@@ -45,7 +45,7 @@ function fromShell(cause: unknown): FilesError {
 		if (name === 'NotFound' || name === 'Refused' || name === 'Io')
 			return { name, message: String(message) };
 	}
-	return { name: 'Io', message: messageOf(cause) };
+	return { name: 'Io', message: extractErrorMessage(cause) };
 }
 
 /** The bytes an answer holds: an `ArrayBuffer`, a typed array, or a list of numbers. */
@@ -100,7 +100,7 @@ export function tauriFiles(
 		try {
 			return Ok((await invoke(command, args, options)) as T);
 		} catch (cause) {
-			return { data: null, error: fromShell(cause) };
+			return Err(fromShell(cause));
 		}
 	}
 
@@ -130,7 +130,9 @@ export function tauriFiles(
 			try {
 				return Ok(readManyAnswer(paths, bytesOf(answer.data)));
 			} catch (cause) {
-				return failed(`Could not read the notes: ${messageOf(cause)}`);
+				return failed(
+					`Could not read the notes: ${extractErrorMessage(cause)}`,
+				);
 			}
 		},
 		async write(path, bytes) {

@@ -17,7 +17,8 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
 /**
- * Why an operation did not happen. `NotFound`: the folder is not there.
+ * Why an operation did not happen. `NotFound`: the file read is not there
+ * (`Files.read` answers null for it), or the folder listed is not there.
  * `Refused`: the path is not a plain name in the folder, or the folder is
  * not one this app may use. `Io`: the storage failed.
  */
@@ -106,11 +107,3 @@ export function checkPath(
 export const encode = (text: string) => new TextEncoder().encode(text);
 export const decode = (bytes: Uint8Array) =>
 	new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-
-/** A message for whatever was thrown. */
-export const messageOf = (cause: unknown) =>
-	cause instanceof Error
-		? cause.message
-		: typeof cause === 'object' && cause !== null && 'message' in cause
-			? String((cause as { message: unknown }).message)
-			: String(cause);

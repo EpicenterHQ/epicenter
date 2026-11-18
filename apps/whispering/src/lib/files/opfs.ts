@@ -8,6 +8,7 @@
  * `readMany` reads a few files at a time. The build runs where a page has
  * `createWritable()`: Chrome, Firefox, and Safari 26 or later (ADR-0894).
  */
+import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
 	checkPath,
@@ -16,7 +17,6 @@ import {
 	type FilesError,
 	failed,
 	isPlainName,
-	messageOf,
 } from './files.js';
 
 /** At most this many reads are out at once in `readMany`. */
@@ -74,7 +74,7 @@ export function opfsFiles(dir: string): Files {
 		try {
 			return Ok(await work());
 		} catch (cause) {
-			return failed(`Could not ${what}: ${messageOf(cause)}`);
+			return failed(`Could not ${what}: ${extractErrorMessage(cause)}`);
 		}
 	}
 

@@ -28,6 +28,7 @@ import { type AudioFiles, recorder as microphone } from '@epicenter/recorder';
 import { localSpeech } from '@epicenter/transcription';
 import { focusManager } from '@tanstack/query-core';
 import { isTauri } from '@tauri-apps/api/core';
+import { Err, type Result } from 'wellcrafted/result';
 import { folderFiles, zipOf } from './export.js';
 import type { Files } from './files/files.js';
 import { opfsFiles } from './files/opfs.js';
@@ -90,9 +91,9 @@ focusManager.setEventListener((setFocused) => {
 export const folderLocation = () => desktopFolder;
 
 /** The folder as one zip file, for a browser's export; why not, as text. */
-export async function exportFolder() {
+export async function exportFolder(): Promise<Result<Blob, string>> {
 	const read = await folderFiles(files);
-	if (read.error !== null) return read.error.message;
+	if (read.error !== null) return Err(read.error.message);
 	return zipOf('whispering', read.data);
 }
 

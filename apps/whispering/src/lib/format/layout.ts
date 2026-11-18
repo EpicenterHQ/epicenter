@@ -78,7 +78,6 @@ export const SETTINGS = {
 	}),
 } as const;
 
-/** A kind of note with an id. */
 /** One reason a note does not read: the field it is about (`''` for the note as a whole), and its line when it has one. */
 export type NoteIssue = {
 	readonly field: string;

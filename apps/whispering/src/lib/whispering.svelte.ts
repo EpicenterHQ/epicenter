@@ -22,9 +22,11 @@
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
+
 import type { Ai, ModelChoice } from '@epicenter/ai';
 import { createQuery } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { runMutation } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Capture, CaptureDevice } from './capture.js';
@@ -52,9 +54,6 @@ const CLOSING = 'Whispering is closing, so nothing was changed.';
 const CHANGING_FOLDER =
 	'Whispering is changing its folder, so nothing was changed.';
 
-const describe = (cause: unknown) =>
-	cause instanceof Error ? cause.message : String(cause);
-
 function defaultTitle(at: Date): string {
 	return `Recording ${at.toLocaleString(undefined, {
 		dateStyle: 'medium',
@@ -71,7 +70,7 @@ export type WhisperingCapabilities = {
 	>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
-	/** What records each recording into `folder`. */
+	/** What records each recording into the folder. */
 	readonly capture: CaptureDevice;
 	/**
 	 * What this device remembers that is neither a file nor a secret: the
@@ -109,7 +108,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	/** The transcription model chosen now, as where a request would go, or why there is none. */
 	function chosen(): Result<Target, string> {
 		const { data: choice, error } = chosenIn(settings(), 'transcribe');
-		if (error?.name === 'Invalid') return Err(error.message);
+		if (error !== null) return Err(error.message);
 		if (choice === null)
 			return Err(
 				'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.',
@@ -207,7 +206,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			.stop()
 			.catch((cause) => ({
 				data: null,
-				error: { message: describe(cause) },
+				error: { message: extractErrorMessage(cause) },
 			}));
 		captureState = { phase: 'idle' };
 		if (disposed) return;
@@ -296,7 +295,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 				return Ok(await change());
 			} catch (cause) {
 				changingFolder = false;
-				return Err(describe(cause));
+				return Err(extractErrorMessage(cause));
 			}
 		},
 		/** The microphone the next recording uses, and the test of it. */

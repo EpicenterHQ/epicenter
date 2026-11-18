@@ -14,7 +14,9 @@
  * HTTP plugin, which no endpoint's CORS refuses, and in a browser with its
  * own `fetch`.
  */
+
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { extractErrorMessage } from 'wellcrafted/error';
 
 const PREFIX = 'whispering.';
 
@@ -52,7 +54,7 @@ type Secrets = {
 
 /** The shell's failure, a string, as an error. */
 const failure = (cause: unknown) =>
-	cause instanceof Error ? cause : new Error(String(cause));
+	cause instanceof Error ? cause : new Error(extractErrorMessage(cause));
 
 const keychain: Secrets = {
 	where: 'keychain',
@@ -115,11 +117,7 @@ export async function changeFolder(
 ): Promise<FolderChange> {
 	return invoke<FolderChange>('files_change_folder', { from, to }).catch(
 		(cause: unknown) => {
-			throw failure(
-				typeof cause === 'object' && cause !== null && 'message' in cause
-					? (cause as { message: unknown }).message
-					: cause,
-			);
+			throw failure(cause);
 		},
 	);
 }

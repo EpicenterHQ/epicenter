@@ -4,7 +4,9 @@
  * neither Whispering's data nor a secret, and it is never written to
  * Whispering's folder.
  */
+
 import type { RecordingInput } from '@epicenter/recorder';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { localValue } from './this-computer.js';
 
 /** This computer's saved microphone choice, independent of files and capture state. */
@@ -62,7 +64,7 @@ export const localPreferences: MicrophonePreferences = {
 			);
 			return undefined;
 		} catch (cause) {
-			return cause instanceof Error ? cause.message : String(cause);
+			return extractErrorMessage(cause);
 		}
 	},
 };
