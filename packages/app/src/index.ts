@@ -39,9 +39,12 @@ export {
 export { checkData } from './data-check.ts';
 export {
 	ActionError,
+	type NotStarted,
 	type NotStartedCause,
 	type Problem,
 	RESERVED_NAMES,
+	type Threw,
+	type Unreachable,
 } from './errors.ts';
 export {
 	field,

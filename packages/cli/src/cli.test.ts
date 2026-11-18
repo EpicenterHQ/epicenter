@@ -46,7 +46,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
-	const value = JSON.parse(result.stdout);
+	const value = JSON.parse(result.stdout).data;
 	expect(value.epicenter).toBe(f.home);
 	expect(value.apps.map((app: { name: string }) => app.name)).toEqual([
 		'linked',
@@ -148,31 +148,61 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		expect(result.code).toBe(2);
 		expect(result.stderr).toBe('');
 		expect(result.stdout.trim().split('\n')).toHaveLength(1);
-		const said = expect.stringContaining(message);
-		// An action call answers `NotStarted`; a bare word is not one, and
-		// answers the CLI's own `Usage`.
-		expect(JSON.parse(result.stdout)).toEqual(
-			args.length > 1
-				? {
-						data: null,
-						error: {
-							name: 'NotStarted',
-							message: said,
-							cause: 'usage',
-							next: expect.any(String),
-							namespace: 'epicenter/action-error',
-						},
-					}
-				: {
-						error: {
-							name: 'Usage',
-							message: said,
-							next: expect.any(String),
-						},
-					},
-		);
+		// An action call and a bare word answer the same way.
+		expect(JSON.parse(result.stdout)).toEqual({
+			data: null,
+			error: {
+				name: 'NotStarted',
+				message: expect.stringContaining(message),
+				cause: 'usage',
+				next: expect.any(String),
+			},
+		});
 	}
 	expect((await f.run('mcp', 'nope')).code).toBe(2);
+});
+
+test("every command's --json is one { data, error } answer, and its exit code follows the error's name", async () => {
+	const f = await setup();
+	const answered: [string[], 0 | 2][] = [
+		[[], 0],
+		[['reading'], 0],
+		[['reading', 'log', '--help'], 0],
+		[['--version'], 0],
+		[['--help'], 0],
+		[['check', '--help'], 0],
+		[['check'], 0],
+		[['new', 'garden'], 0],
+		[['init', join(f.root, 'other'), '--no-install'], 0],
+		[['nope'], 2],
+		[['check', 'nope'], 2],
+		[['new'], 2],
+		[['init', f.home], 2],
+		[['export', 'reading'], 2],
+		[['serve'], 2],
+	];
+	for (const [words, code] of answered) {
+		const result = await f.run(...words, '--json');
+		const answer = JSON.parse(result.stdout);
+		expect({ words, code: result.code, keys: Object.keys(answer) }).toEqual({
+			words,
+			code,
+			keys: ['data', 'error'],
+		});
+		if (code === 0) expect(answer.error).toBeNull();
+		else
+			expect({ words, data: answer.data, name: answer.error.name }).toEqual({
+				words,
+				data: null,
+				name: 'NotStarted',
+			});
+	}
+	// Text prints a command's own text as it is.
+	expect(await f.run('new', 'notes')).toEqual({
+		code: 0,
+		stdout: `${join(f.apps, 'notes')}\n`,
+		stderr: `Run: cd ${f.home} && bun install && bun run build\n`,
+	});
 });
 
 test('bare epicenter reports routines and the repository after the apps, and changes nothing', async () => {
@@ -197,7 +227,7 @@ test('bare epicenter reports routines and the repository after the apps, and cha
 
 	const listed = await f.run('--json');
 	expect(listed.code).toBe(0);
-	const value = JSON.parse(listed.stdout);
+	const value = JSON.parse(listed.stdout).data;
 	expect(value.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
 		'vault',
@@ -268,12 +298,27 @@ test('a misused command answers its usage line, with its help as the next step',
 	for (const [command, ...words] of misused) {
 		const result = await f.run(command, ...words, '--json');
 		expect(result.code).toBe(2);
-		expect(JSON.parse(result.stdout).error).toEqual({
-			name: 'Usage',
-			message: `Usage: ${COMMANDS[command].usage}`,
-			next: `epicenter ${command} --help`,
+		expect(JSON.parse(result.stdout)).toEqual({
+			data: null,
+			error: {
+				name: 'NotStarted',
+				cause: 'usage',
+				message: `Usage: ${COMMANDS[command].usage}`,
+				next: `epicenter ${command} --help`,
+			},
 		});
 	}
+	// A reason the usage line does not show is its own sentence.
+	expect(await f.run('init', '--port', '0')).toEqual({
+		code: 2,
+		stdout: '',
+		stderr:
+			'--port must be a whole number from 1 to 65535\nRun: epicenter init --help\n',
+	});
+	expect(JSON.parse((await f.run('serve', '--json')).stdout)).toMatchObject({
+		data: null,
+		error: { name: 'NotStarted', cause: 'usage' },
+	});
 	for (const flag of ['--port', '--host'])
 		expect(await f.run('serve', flag, '0')).toEqual({
 			code: 2,
@@ -311,7 +356,6 @@ test('a throwing action returns exit 1 with its message', async () => {
 		error: {
 			name: 'Threw',
 			message: 'action exploded',
-			namespace: 'epicenter/action-error',
 		},
 	});
 });
@@ -405,7 +449,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 
 test('app and action views include locations, schemas, field help and version', async () => {
 	const f = await setup();
-	const view = JSON.parse((await f.run('reading', '--json')).stdout);
+	const view = JSON.parse((await f.run('reading', '--json')).stdout).data;
 	expect(view.name).toBe('reading');
 	expect(view).not.toHaveProperty('keychain');
 	expect((await f.run('reading')).stdout).toContain('folder:');
@@ -414,10 +458,23 @@ test('app and action views include locations, schemas, field help and version', 
 	);
 	expect(
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
-	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });
-	expect(JSON.parse((await f.run('--version', '--json')).stdout)).toEqual({
-		version: VERSION,
+	).toMatchObject({
+		data: { name: 'reading_log', inputSchema: { type: 'object' } },
+		error: null,
 	});
+	expect(await f.run('--version', '--json')).toEqual({
+		code: 0,
+		stdout: `{"data":{"version":"${VERSION}"},"error":null}\n`,
+		stderr: '',
+	});
+	expect(await f.run('--version')).toEqual({
+		code: 0,
+		stdout: `epicenter ${VERSION}\n`,
+		stderr: '',
+	});
+	const help = JSON.parse((await f.run('--help', '--json')).stdout);
+	expect(help.error).toBeNull();
+	expect(help.data).toContain('Exit codes:');
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
 	expect((await f.run('--help')).stdout).not.toContain('epicenter install');
 });
@@ -442,7 +499,7 @@ test('an empty Epicenter lists its next step and a missing marker suggests init'
 test('an app is named by its folder in the home, whatever its description says', async () => {
 	const f = await setup();
 	await f.app('other-name', reading);
-	const listed = JSON.parse((await f.run('--json')).stdout);
+	const listed = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listed.apps.map((app: { name: string }) => app.name)).toContain(
 		'other-name',
 	);

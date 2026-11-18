@@ -66,7 +66,6 @@ test('tools list plain schemas and annotations and return structured answers or 
 				message: 'day is needed',
 				cause: 'usage',
 				next: 'epicenter vault calendar show --help',
-				namespace: 'epicenter/action-error',
 			},
 		});
 		expect(
@@ -88,7 +87,6 @@ test('tools list plain schemas and annotations and return structured answers or 
 			error: {
 				name: 'Threw',
 				message: 'action exploded',
-				namespace: 'epicenter/action-error',
 			},
 		});
 		expect((await client.callTool({ name: 'unknown' })).isError).toBe(true);
@@ -138,7 +136,7 @@ test('discovery preserves tilde-prefixed properties', async () => {
 			},
 			required: ['value'],
 		});
-		const listed = JSON.parse((await f.run('shapes', '--json')).stdout);
+		const listed = JSON.parse((await f.run('shapes', '--json')).stdout).data;
 		expect(listed.actions[0].inputSchema).toEqual(tool?.inputSchema);
 		expect(
 			(

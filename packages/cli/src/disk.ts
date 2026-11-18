@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import {
 	chmodSync,
 	type Dirent,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	renameSync,
@@ -22,7 +23,7 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs';
-import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { readdir, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
 	type Folder,
@@ -32,16 +33,12 @@ import {
 	textUpdate,
 } from '@epicenter/app';
 
-function missing(error: unknown) {
-	return (error as NodeJS.ErrnoException).code === 'ENOENT';
-}
-
 /** The bytes at `target` now, or `undefined` when there is no file. */
 function readNow(target: string) {
 	try {
 		return readFileSync(target);
 	} catch (error) {
-		if (missing(error)) return undefined;
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
 		throw error;
 	}
 }
@@ -63,7 +60,7 @@ export function folderOnDisk(dir: string): Folder {
 		try {
 			return await readFile(pathOf(path));
 		} catch (error) {
-			if (missing(error)) return undefined;
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
 			throw error;
 		}
 	}
@@ -89,12 +86,8 @@ export function folderOnDisk(dir: string): Folder {
 		);
 		mkdirSync(join(dir, TEMP), owner);
 		const temp = join(dir, TEMP, randomUUID());
-		let kept: number | undefined;
-		try {
-			kept = statSync(target).mode & 0o7777;
-		} catch (error) {
-			if (!missing(error)) throw error;
-		}
+		const found = statSync(target, { throwIfNoEntry: false });
+		const kept = found === undefined ? undefined : found.mode & 0o7777;
 		try {
 			writeFileSync(temp, bytes, {
 				mode: kept ?? (isUnderLocal(normal) ? 0o600 : 0o666),
@@ -133,10 +126,11 @@ export function folderOnDisk(dir: string): Folder {
 		edit,
 		update: textUpdate(edit),
 		async delete(path) {
+			// Not rm with force: under Bun it answers a directory with another error.
 			try {
 				await unlink(pathOf(path));
 			} catch (error) {
-				if (missing(error)) return;
+				if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
 				throw error;
 			}
 		},
@@ -147,7 +141,7 @@ export function folderOnDisk(dir: string): Folder {
 				try {
 					entries = await readdir(join(dir, relative), { withFileTypes: true });
 				} catch (error) {
-					if (missing(error)) return;
+					if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
 					throw error;
 				}
 				for (const entry of entries) {
@@ -156,11 +150,9 @@ export function folderOnDisk(dir: string): Folder {
 					if (entry.isDirectory()) await walk(path);
 					else if (entry.isFile()) found.push(path);
 					else if (entry.isSymbolicLink()) {
-						try {
-							if ((await stat(join(dir, path))).isFile()) found.push(path);
-						} catch (error) {
-							if (!missing(error)) throw error;
-						}
+						// A broken link has no target, so it is no file.
+						if (statSync(join(dir, path), { throwIfNoEntry: false })?.isFile())
+							found.push(path);
 					}
 				}
 			}
@@ -175,12 +167,8 @@ export function folderOnDisk(dir: string): Folder {
 				let current = dir;
 				for (const part of relative.split('/')) {
 					current = join(current, part);
-					try {
-						if ((await lstat(current)).isSymbolicLink()) return [];
-					} catch (error) {
-						if (missing(error)) return [];
-						throw error;
-					}
+					const entry = lstatSync(current, { throwIfNoEntry: false });
+					if (!entry || entry.isSymbolicLink()) return [];
 				}
 			}
 			await walk(relative);

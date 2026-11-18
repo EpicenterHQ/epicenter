@@ -168,7 +168,7 @@ test('MCP inputSchema and list --json carry the same complete schema as the acti
 	try {
 		const { tools } = await client.listTools();
 		for (const [name, actions] of Object.entries(apps)) {
-			const listed = JSON.parse((await f.run(name, '--json')).stdout) as {
+			const listed = JSON.parse((await f.run(name, '--json')).stdout).data as {
 				actions: { name: string; inputSchema: object }[];
 			};
 			for (const [key, action] of actions) {

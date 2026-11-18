@@ -48,12 +48,11 @@
 import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
-import { isName } from '@epicenter/app';
+import { ActionError, type Answer, isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { fail, notStarted, writeErr } from './output.ts';
+import { writeErr } from './output.ts';
 import { epicenterDir, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { resolveAction, runAction } from './run.ts';
@@ -194,7 +193,7 @@ function createSite(): Site {
 					const { data: located } = await loadHomeApp(entry.entry);
 					return {
 						name: entry.entry,
-						description: located?.ok ? located.app.description : '',
+						description: located?.app.description ?? '',
 						icon: (await uiFile(entry.entry, 'icon.png')).ok,
 					};
 				}),
@@ -261,14 +260,18 @@ async function callAnswer(request: Request): Promise<Response> {
 	if (parts.length !== 3 || !isName(app) || !words.every(isName))
 		return notFound();
 	const key = words.join(' ');
-	const refuse = (status: number, message: string) =>
-		Response.json(notStarted(CliError.Usage({ message }).error), { status });
 	const bytes = await request.arrayBuffer();
 	let input: unknown;
 	try {
 		input = JSON.parse(new TextDecoder().decode(bytes));
 	} catch {
-		return refuse(400, 'The input is not valid JSON');
+		return Response.json(
+			ActionError.NotStarted({
+				cause: 'usage',
+				message: 'The input is not valid JSON',
+			}),
+			{ status: 400 },
+		);
 	}
 	const resolved = await resolveAction(app, key, input);
 	if (resolved.refusal) return Response.json(resolved.refusal, { status: 400 });
@@ -414,18 +417,19 @@ export function startHttpServer(port: number) {
 	};
 }
 
-/** Serve until the process receives SIGINT or SIGTERM, then exit. */
-export async function serveHttp(port: number): Promise<number> {
-	/** Say who holds the port, as the refusal that ends this command. */
+/**
+ * Serve until the process receives SIGINT or SIGTERM, then answer nothing:
+ * serve prints no answer. When the port is taken it never starts, and
+ * answers who holds it.
+ */
+export async function serveHttp(port: number): Promise<Answer | undefined> {
 	const portTaken = (holder: { home: boolean }) =>
-		fail(
-			CliError.Refused({
-				message: holder.home
-					? `Epicenter is already serving this home on port ${port}.`
-					: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
-			}).error,
-			false,
-		);
+		ActionError.NotStarted({
+			cause: 'unavailable',
+			message: holder.home
+				? `Epicenter is already serving this home on port ${port}.`
+				: `Port ${port} is in use by another program or another Epicenter. Set a different \`port\` in ${MARKER}.`,
+		});
 	const holder = await whoAnswers(port);
 	if (holder) return portTaken(holder);
 	let server: ReturnType<typeof startHttpServer>;
@@ -442,5 +446,5 @@ export async function serveHttp(port: number): Promise<number> {
 		process.once('SIGTERM', resolve);
 	});
 	server.stop();
-	return 0;
+	return undefined;
 }

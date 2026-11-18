@@ -98,7 +98,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
   `\`, control characters, a leading dot, or whitespace at either end. An id
   is the file name exactly: no method or generated verb changes it, and one
-  that does not fit is `Refused` with the reason, so trim what a person typed
+  that does not fit is `Misfit` with the reason, so trim what a person typed
   before passing it. A generated `create` names the record with
   `timeId()` when `id` is left out; a caller that may retry sends an id. An action takes an id as `field.text()`;
   the handle refuses a bad one, quoting it, with the name to send instead.
@@ -142,7 +142,7 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   `id`, the change's keys beside it. The `edit` verb takes `{ id, old, new }`
   and no fields, and replaces the passage `old` of the body the caller last
   saw. `old` must be non-empty and occur exactly once: when the passage is
-  gone or appears twice, it is refused with `Changed` (`why` is `quote` or
+  gone or appears twice, it is refused with `Changed` (`cause` is `quote` or
   `twice`) and nothing is written. It answers `Missing` for an absent record,
   for a one-file key too. `edit` is not safe to repeat, so a page that changes
   fields and notes sends a `patch` and an `edit`. In code,
@@ -450,7 +450,16 @@ action ran: `NotStarted` means serve or the CLI refused it before it began,
 so it is safe to call again once its `cause` is fixed; `Threw` means it began
 and threw, with a tagged exception in `thrown`; `Unreachable` means the
 outcome is unknown; any other name is the action's own error, so it ran.
-Actions use the shared `ActionError` factories from `@epicenter/app`.
+Actions use the shared `ActionError` factories from `@epicenter/app`. The
+CLI's own commands answer the same way: `epicenter --json`, `check`, `new`,
+`init` and `export` with `--json` print `{ data, error }`, and every command
+exits 0 for no error, 2 for `NotStarted` and 1 for any other error. A
+`check` that finds problems, or an `export --all` that leaves apps out,
+answers `Problems`, exit 1, with what it found under `error.report`.
+
+A page's call error is exactly the action's own errors and `NotStarted`,
+`Threw` and `Unreachable`, so a `switch` on `error.name` is exhaustive and a
+comparison with a name the action cannot return does not compile.
 
 Match a browser error by its name and subject. A `Missing` for a dependency
 cannot tell the page whether its displayed record still exists. An action

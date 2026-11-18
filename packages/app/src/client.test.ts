@@ -108,7 +108,7 @@ test('a listener that throws or rejects is reported and does not end the call', 
 
 test('an error in the answer is the error itself, whole', async () => {
 	for (const error of [
-		{ ...ActionError.Changed({ path: 'x', why: 'quote' }).error, extra: 7 },
+		{ ...ActionError.Changed({ path: 'x', cause: 'quote' }).error, extra: 7 },
 		ActionError.Missing({ path: 'x' }).error,
 		ActionError.Refused({ message: 'no title', next: 'retry' }).error,
 		{ name: 'NoRoute', message: 'no', airport: 'LAX' },
@@ -131,6 +131,7 @@ test('a call serve never started arrives as NotStarted in the body of an HTTP er
 	const refusal = ActionError.NotStarted({
 		message: 'tasks: epicenter.ts does not load',
 		cause: 'app-problems',
+		app: 'tasks',
 		problems: ['epicenter.ts does not load'],
 	});
 	respond(JSON.stringify(refusal), { status: 400 });

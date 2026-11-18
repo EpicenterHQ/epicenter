@@ -94,7 +94,7 @@ test('computed changes retain field types and callback errors', async () => {
 	});
 });
 
-test('a passage edit answers exactly Missing, Changed, Misfit, or Refused', () => {
+test('a passage edit answers exactly Missing, Changed, or Misfit', () => {
 	type Names<T> = T extends () => Promise<infer R>
 		? R extends { error: infer E }
 			? E extends { name: infer N }
@@ -105,21 +105,13 @@ test('a passage edit answers exactly Missing, Changed, Misfit, or Refused', () =
 	const folderEdit = () => data.notes.edit('a', { old: 'x', new: 'y' });
 	const fileEdit = () => data['settings.md'].edit({ old: 'x', new: 'y' });
 	assertType<
-		Equal<
-			Names<typeof folderEdit>,
-			'Missing' | 'Changed' | 'Misfit' | 'Refused'
-		>
+		Equal<Names<typeof folderEdit>, 'Missing' | 'Changed' | 'Misfit'>
 	>();
-	assertType<
-		Equal<Names<typeof fileEdit>, 'Missing' | 'Changed' | 'Misfit' | 'Refused'>
-	>();
+	assertType<Equal<Names<typeof fileEdit>, 'Missing' | 'Changed' | 'Misfit'>>();
 	const computed = () =>
 		data.notes.edit('a', () => ActionError.Unreachable({ message: 'x' }));
 	assertType<
-		Equal<
-			Names<typeof computed>,
-			'Changed' | 'Misfit' | 'Refused' | 'Unreachable'
-		>
+		Equal<Names<typeof computed>, 'Changed' | 'Misfit' | 'Unreachable'>
 	>();
 });
 

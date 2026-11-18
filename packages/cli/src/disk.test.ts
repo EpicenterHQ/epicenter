@@ -224,7 +224,7 @@ test('a data update forwards returned Changed and lets a thrown Changed escape, 
 	const counter = data['counter.md'];
 	for (const folder of [disk.folder, createMemoryContext().folder]) {
 		const path = 'data/counter.md';
-		const refusal = ActionError.Changed({ path, why: 'quote' });
+		const refusal = ActionError.Changed({ path, cause: 'quote' });
 		expect(await inRun({ folder }, () => counter.edit(() => refusal))).toBe(
 			refusal,
 		);

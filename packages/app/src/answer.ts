@@ -12,56 +12,56 @@
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import { isActionResult, type PublicError } from './action-result.ts';
-import { ActionError, RESERVED_NAMES } from './errors.ts';
+import { ActionError } from './errors.ts';
 
 /** An action's answer on every surface: what it returned, or the error itself. */
 export type Answer = Result<unknown, PublicError>;
-
-const NAMESPACE = 'epicenter/action-error';
-const CAUSES = ['usage', 'app-problems', 'internal', 'unavailable'];
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-const isText = (value: unknown) => typeof value === 'string';
-
 const invalid = () =>
 	ActionError.Unreachable({ message: 'Epicenter sent an invalid answer' });
 
-/** Whether a platform error's own fields are the ones its name carries. */
-function fieldsFit(error: Record<string, unknown>): boolean {
-	if (error.namespace !== NAMESPACE)
-		return !RESERVED_NAMES.includes(error.name as string);
-	if (error.name === 'Threw')
-		return (
-			error.thrown === undefined ||
-			(isObject(error.thrown) &&
-				isText(error.thrown.name) &&
-				isText(error.thrown.message))
-		);
-	if (error.name === 'NotStarted')
-		return (
-			CAUSES.includes(error.cause as string) &&
-			(error.next === undefined || isText(error.next)) &&
-			(error.problems === undefined ||
-				(Array.isArray(error.problems) && error.problems.every(isText)))
-		);
-	return true;
-}
-
 /**
  * One answer as a caller reads it: exactly `data` and `error`, where `error`
- * is `null` or a tagged object. A platform error must carry the fields its
- * name does, and `NotStarted` or `Unreachable` must carry the platform's
- * namespace. Anything else is `Unreachable`.
+ * is `null` or a tagged object. `Threw` must carry a tagged `thrown` when it
+ * has one, and `NotStarted` the fields its `cause` does; the name alone says
+ * which, since serve answers an action's own `NotStarted` or `Unreachable` as
+ * `Threw`. Anything else is `Unreachable`.
  */
 export function checkAnswer(value: unknown): Answer {
 	if (!isActionResult(value)) return invalid();
 	if (value.error === null) return Ok(value.data);
-	return fieldsFit(value.error as unknown as Record<string, unknown>)
-		? value
-		: invalid();
+	const error = value.error as unknown as Record<string, unknown>;
+	if (error.name === 'Threw') {
+		const { thrown } = error;
+		const fits =
+			thrown === undefined ||
+			(isObject(thrown) &&
+				typeof thrown.name === 'string' &&
+				typeof thrown.message === 'string');
+		return fits ? value : invalid();
+	}
+	if (error.name !== 'NotStarted') return value;
+	switch (error.cause) {
+		case 'usage':
+		case 'unavailable':
+			return error.next === undefined || typeof error.next === 'string'
+				? value
+				: invalid();
+		case 'app-problems':
+			return typeof error.app === 'string' &&
+				Array.isArray(error.problems) &&
+				error.problems.every((problem) => typeof problem === 'string')
+				? value
+				: invalid();
+		case 'internal':
+			return value;
+		default:
+			return invalid();
+	}
 }
 
 /**

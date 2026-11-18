@@ -9,8 +9,8 @@ export function edited(
 	replacement: string,
 ) {
 	const at = body.indexOf(old);
-	if (at < 0) return ActionError.Changed({ path, why: 'quote' });
+	if (at < 0) return ActionError.Changed({ path, cause: 'quote' });
 	if (body.indexOf(old, at + 1) >= 0)
-		return ActionError.Changed({ path, why: 'twice' });
+		return ActionError.Changed({ path, cause: 'twice' });
 	return Ok(body.slice(0, at) + replacement + body.slice(at + old.length));
 }

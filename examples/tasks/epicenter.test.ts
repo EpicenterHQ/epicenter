@@ -41,10 +41,10 @@ test('plain patch repairs a bad field and returns the fitting record', async () 
 	expect(repaired).toMatchObject({ title: 'Repair', done: false, body: 'Notes\n' });
 	expect(expectOk(await inRun(context, () => get({ id: 'a' })))).toEqual(repaired);
 });
-test('invalid supplied titles return Refused without writing', async () => {
+test('invalid supplied titles return Misfit without writing', async () => {
 	const context = createMemoryContext({ [path]: front });
 	for (const title of [' ', 'two\nlines'])
-		expect((await inRun(context, () => patch({ id: 'a', title }))).error?.name).toBe('Refused');
+		expect((await inRun(context, () => patch({ id: 'a', title }))).error?.name).toBe('Misfit');
 	expect(await context.folder.read(path)).toBe(front);
 });
 test('fields use the last write and stale quoted notes return Changed', async () => {

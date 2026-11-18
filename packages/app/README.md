@@ -110,8 +110,8 @@ letter), optionally followed by `.md`. Each key gives `fields`, and may give a
 An id is the file's name exactly as it is on disk: non-empty NFC text of at
 most 200 UTF-8 bytes, without `/`, `\`, control characters, a leading dot,
 or whitespace at either end (ADR-0933). No method or generated verb changes
-an id: one that does not fit returns `Refused`, quoting the id with the
-reason and, when trimming or NFC would fix it, the name to send instead.
+an id: one that does not fit returns `Misfit` at the key's folder, quoting
+the id with the reason and, when trimming or NFC would fix it, the name to send instead.
 An app trims or normalises what a person typed before it passes it on.
 `list` skips a file whose name is not an id. An action that takes an id
 takes it as `field.text()`; the handle refuses one that cannot name a file
@@ -185,7 +185,7 @@ file, bodies included; `delete` returns the boolean in Ok.
 The `edit` verb takes `id`, `old`, and `new`, and no fields. `old` is a
 non-empty passage of the body the caller last saw, and `new` replaces it.
 When `old` is not in the body now, or is there twice, the answer is `Changed`
-with `why` `quote` or `twice`, and nothing is written. A caller that changes
+with `cause` `quote` or `twice`, and nothing is written. A caller that changes
 fields and a passage makes two calls:
 
 ```sh
@@ -498,33 +498,45 @@ The client exposes the action's Result in JSON form, exactly as serve
 answers it: `{ data, error }`, where `error` is `null` or the error object
 itself
 ([ADR-0953](../../docs/adr/0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md)).
-Its public error type includes the action's declared errors and the shared
-errors below. Producers import the shared `ActionError` factories from
-`@epicenter/app`:
+Its error type is exactly the errors the action returns and the three only
+Epicenter answers, `NotStarted`, `Threw` and `Unreachable`, which
+`@epicenter/app/client` exports as types. A `switch` on `error.name` is
+exhaustive, and comparing a name the action cannot return is a compile error.
+Producers import the shared `ActionError` factories from `@epicenter/app`:
 
-- `Changed` (`{ path, why }`): a quoted passage changed or is there twice, or a new record's file is already there.
-- `Misfit` carries diagnostics about a malformed record.
+- `Changed` (`{ path, cause }`): a quoted passage changed or is there twice, or a new record's file is already there.
+- `Misfit` (`{ path, id?, problems, record? }`): a file, or a change to one, does not fit the declared fields. Each problem has its `line` and its `kind`; a read carries the partial `record`. The library answers it for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments.
 - `Missing` (`{ path }`): the file is not there.
-- `Refused` (`{ message, next? }`): an operation declined the request.
+- `Refused` (`{ message, next? }`): the app said no. The library never answers it; it is a ready-made name for an app's own refusal.
+- `Problems` (`{ message, report, next? }`): it ran, `report` is what it found, and the job is not clean. The command line prints `report` on stdout, where data would be, and `message` on stderr.
 
 Three more belong to the platform's handling of a call, and each says whether
 the action ran:
 
 | Error | Did the action run? |
 | --- | --- |
-| `NotStarted` (`{ message, cause, next?, problems? }`) | no: serve or the CLI refused it before it began |
+| `NotStarted` (`{ message, cause, ... }`, fields by `cause`) | no: serve or the CLI refused it before it began |
 | any other error, the action's own | yes |
 | `Threw` (`{ message, thrown? }`) | yes, and it threw; a tagged value that survives JSON is kept as `thrown` |
 | `Unreachable` (`{ message }`) | unknown: the connection dropped, a line was not a frame, or no answer came |
 
-`NotStarted`'s `cause` is `usage`, `app-problems` (with the app's `problems`),
-`internal`, or `unavailable`. An action cannot answer `NotStarted` or
-`Unreachable`: serve turns an action's own, with or without the namespace,
-into `Threw`. An action may still return `Threw`.
+`NotStarted` is one name whose fields depend on its `cause`, so narrowing on
+`cause` types them:
 
-The shared errors carry a serializable namespace marker. The client validates
-their fields and returns every recognized shared error whole, preserving its
-message and extra fields. App-defined errors keep their names and public
+| `cause` | Why it never began | Its fields |
+| --- | --- | --- |
+| `usage` | the words, input or target do not fit | `next?` |
+| `app-problems` | the app cannot load | `app`, `problems` |
+| `internal` | Epicenter failed before it ran | none |
+| `unavailable` | no serve for this home answers | `next?` |
+
+An action cannot answer `NotStarted` or
+`Unreachable`: serve turns an action's own into `Threw`, by its name alone. An action may still return `Threw`.
+
+An error is its name, its message and its own fields, with no marker of who
+made it: the name says. The client checks the fields of `Threw` and of each
+`NotStarted` cause, and returns every error whole, preserving its message
+and extra fields. App-defined errors keep their names and public
 fields. `readAnswer` and `checkAnswer`, exported from `@epicenter/app`, are
 the one reader of serve's answer the client and the CLI share; anything that
 is not an answer is `Unreachable`.
@@ -617,6 +629,11 @@ gives the error object itself:
 - **A page that matched `Refused` to catch a call that never ran** matches `NotStarted`. `Refused` now comes only from an action.
 - **An action that returned `ActionError.Unreachable`**, or its own error named `NotStarted` or `Unreachable`, now answers `Threw`. Return another name, or `Ok` with a field saying the result was not confirmed.
 - **Exit codes:** 2 is exactly `NotStarted`. A connection that dropped after the call was sent still exits 1, now as `Unreachable`.
+- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, `epicenter <app> --json`, `check --json`, `new --json`, `init --json` or `export --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word or a refused export, answers `NotStarted` and exits 2. One that failed partway, such as an `init` whose install failed, answers an error and exits 1. A `check` that finds problems and an `export --all` that leaves apps out ran and still exit 1: they answer `Problems`, and the report that was `data` is `.error.report`, so a script that read `jq .apps` reads `jq '.data // .error.report | .apps'`.
+- **A page or test that matched `Refused` from a library write** matches `Misfit`. A data handle or generated verb answers `Misfit` for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments; the problem is in `problems[].line`, and the message now begins `<path> does not fit its fields:`. `Refused` from your own action is unchanged.
+- **`Changed.why` is `Changed.cause`**, with the same values: `there`, `quote` and `twice`.
+- **Errors no longer carry `namespace`.** A test that faked an error with `namespace: "epicenter/action-error"` drops the field; the name says which error it is.
+- **A page that compares an error name its action cannot return** gets a compile error. A call's error is now exactly the action's errors and `NotStarted`, `Threw` and `Unreachable`, so a branch for a name that never arrives is dead: delete it.
 
 ### An action's input is one JSON Schema object
 

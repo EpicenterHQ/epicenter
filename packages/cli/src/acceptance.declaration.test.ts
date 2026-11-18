@@ -86,7 +86,7 @@ export default defineApp({ description: 'The misplaced app', actions: { show } }
 
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
-	const listing = JSON.parse(result.stdout);
+	const listing = JSON.parse(result.stdout).data;
 	expect(listing.epicenter).toBe(f.home);
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'clash',
@@ -144,7 +144,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		'vocab',
 		`${words}export default defineApp({ description: 'The vocab app', data, actions: {} });\n`,
 	);
-	const listing = JSON.parse((await f.run('--json')).stdout);
+	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	const reading = listing.apps.find(
 		(app: { name: string }) => app.name === 'reading',
 	);
@@ -209,7 +209,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		},
 	});
 	expect(vocab.actions).toEqual([]);
-	const one = JSON.parse((await f.run('reading', '--json')).stdout);
+	const one = JSON.parse((await f.run('reading', '--json')).stdout).data;
 	expect(one.name).toBe('reading');
 	expect(one).not.toHaveProperty('keychain');
 	expect(one.actions).toEqual(reading.actions);
@@ -224,7 +224,7 @@ test('a listing marks an action that declares mcp: false', async () => {
   send: defineAction({ description: 'Send a message as me', mcp: false, input: {}, run: () => Ok(null) }),
  } });`,
 	);
-	const listing = JSON.parse((await f.run('messages', '--json')).stdout);
+	const listing = JSON.parse((await f.run('messages', '--json')).stdout).data;
 	expect(listing.actions.map((tool: { mcp?: boolean }) => tool.mcp)).toEqual([
 		undefined,
 		false,
@@ -331,7 +331,7 @@ test("D5 an epicenter.ts importing @epicenter/app loads from the home's install,
 test('D6 serve answers initialize, lists the same tools as --json, and runs a call', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
-	const listing = JSON.parse((await f.run('--json')).stdout);
+	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	const { client, close } = await connectMcp(f);
 	try {
 		expect(client.getServerVersion()?.name).toBe('epicenter');
@@ -364,7 +364,7 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 		decoy,
 	);
 	f.env.EPICENTER_HOME = decoy;
-	const listing = JSON.parse((await f.run('--json')).stdout);
+	const listing = JSON.parse((await f.run('--json')).stdout).data;
 	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',

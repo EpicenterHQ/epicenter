@@ -33,11 +33,21 @@
 import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
 import { type Answer, readAnswer } from './answer.ts';
-import { ActionError } from './errors.ts';
+import {
+	ActionError,
+	type NotStarted,
+	type Threw,
+	type Unreachable,
+} from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
 
 export { partitionResults } from 'wellcrafted/result';
-export type { ActionError } from './errors.ts';
+export type {
+	ActionError,
+	NotStarted,
+	Threw,
+	Unreachable,
+} from './errors.ts';
 export { timeId } from './time.ts';
 
 /** `T` flattened into one object type. */
@@ -99,7 +109,10 @@ type CallOptions<A> = [ActionUpdate<A>] extends [never]
  * The client for actions `A`: each action a function of its input, each
  * group under its word. An action that sends updates also takes
  * `{ onUpdate }`, which receives each one in order. The call resolves to what
- * the action returned or an action error. An update reports and is never the
+ * the action returned, or exactly the errors it can: the ones the action
+ * returns, and `NotStarted`, `Threw` and `Unreachable`, which only Epicenter
+ * answers. A name the action cannot return is not in the union, so a page
+ * that compares it gets a compile error. An update reports and is never the
  * answer; what `onUpdate` returns is not awaited, and what it throws is
  * reported to the page and does not end the call. The action runs to its end
  * on serve whether or not the page stays to hear it.
@@ -111,7 +124,9 @@ export type ActionCall<A> = (
 			: [input: ActionInput<A>]),
 		...CallOptions<A>,
 	]
-) => Promise<Result<ActionOutput<A>, ActionError | ReturnedError<A>>>;
+) => Promise<
+	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
+>;
 
 export type AppClient<A> = {
 	readonly [K in keyof A]: A[K] extends (input: never) => unknown
