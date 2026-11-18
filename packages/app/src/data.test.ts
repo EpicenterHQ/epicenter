@@ -43,7 +43,7 @@ test('folder verbs read, create, patch, compute, list, and delete flat records',
 	} = setup();
 	await inRun(context, async () => {
 		expect(expectOk(await notes.get('Dune'))).toBeUndefined();
-		expect(notes.pathOf('Dune')).toBe('data/notes/Dune.md');
+		expect(notes.path('Dune')).toBe('data/notes/Dune.md');
 		const added = expectOk(
 			await notes.add('Dune', { title: 'Dune', body: 'Arrakis' }),
 		);
@@ -83,7 +83,7 @@ test('one-file verbs read absent, create through set, compute, and delete withou
 	const settings = data['settings.md'];
 	expect(settings).not.toHaveProperty('list');
 	expect(settings).not.toHaveProperty('add');
-	expect(settings.pathOf()).toBe('data/settings.md');
+	expect(settings.path()).toBe('data/settings.md');
 	await inRun(context, async () => {
 		expect(expectOk(await settings.get())).toBeUndefined();
 		expect(
@@ -238,7 +238,7 @@ test('computed refusals and faults leave a fitting file unchanged', async () => 
 	});
 });
 
-// Each refusal happens before any folder operation; pathOf checks nothing.
+// Each refusal happens before any folder operation; path checks nothing.
 const invalidIds = [
 	'',
 	'   ',
@@ -315,7 +315,7 @@ test.each([
 			context,
 			data: { notes },
 		} = setup({ 'data/notes/Dune.md': '', 'data/notes/Caf\u00e9.md': '' });
-		expect(notes.pathOf(id)).toBe(`data/notes/${id}.md`);
+		expect(notes.path(id)).toBe(`data/notes/${id}.md`);
 		await inRun(context, async () => {
 			for (const result of [
 				await notes.get(id),

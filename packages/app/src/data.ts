@@ -92,7 +92,7 @@ type OneFile<TKey extends string, TDef extends DataDef> = {
 	/** Delete the file, returning whether it existed. */
 	delete(): Promise<Result<boolean, never>>;
 	/** This key's file path, without disk access. */
-	pathOf(): string;
+	path(): string;
 };
 type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	/**
@@ -121,15 +121,15 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	/** Delete one id, returning whether its file existed. */
 	delete(id: string): Promise<Result<boolean, Refused>>;
 	/** The file path for this id as given, without checking it or the disk. */
-	pathOf(id: string): string;
+	path(id: string): string;
 };
 /** Data metadata and reads; key names determine paths and file or folder shape. */
 export type AnyData = Record<
 	string,
 	DataDef &
 		(
-			| Pick<OneFile<`${string}.md`, DataDef>, 'get' | 'pathOf'>
-			| Pick<FolderHandle<string, DataDef>, 'get' | 'list' | 'pathOf'>
+			| Pick<OneFile<`${string}.md`, DataDef>, 'get' | 'path'>
+			| Pick<FolderHandle<string, DataDef>, 'get' | 'list' | 'path'>
 		)
 >;
 
@@ -308,12 +308,12 @@ function createRecordHandle(key: string, def: DataDef) {
 		keysOf: (path): Record<string, string> =>
 			single ? {} : { id: path.slice(base.length + 1, -3) },
 	});
-	const pathOf = (id: string) => `${base}/${id}.md`;
+	const pathFor = (id: string) => `${base}/${id}.md`;
 	/** The path for `id` as given, or Refused when it breaks ADR-0933's rule. */
 	function place(id?: string) {
 		if (single) return base;
 		const problem = idProblem(id);
-		if (!problem) return pathOf(id as string);
+		if (!problem) return pathFor(id as string);
 		if (typeof id !== 'string')
 			return ActionError.Refused({ message: `${key}: ${problem}` });
 		// Whitespace is invisible, so quote the id, and name the tidy form the
@@ -367,7 +367,7 @@ function createRecordHandle(key: string, def: DataDef) {
 		return {
 			...def,
 			get: () => get(),
-			pathOf: () => base,
+			path: () => base,
 			set: (change: Record<string, unknown>) => set(undefined, change),
 			update: (change: (record: AnyRecord | undefined) => unknown) =>
 				update(undefined, change),
@@ -376,7 +376,7 @@ function createRecordHandle(key: string, def: DataDef) {
 	return {
 		...def,
 		get,
-		pathOf,
+		path: pathFor,
 		set,
 		update,
 		delete: remove,
@@ -450,7 +450,7 @@ function dataAction(
 				run: async ({ id }) => {
 					const found = await (keyed ? handle.get(id as string) : handle.get());
 					if (keyed && found.error === null && found.data === undefined)
-						return ActionError.Missing({ path: handle.pathOf(id as string) });
+						return ActionError.Missing({ path: handle.path(id as string) });
 					return found;
 				},
 			});
@@ -534,7 +534,7 @@ function dataAction(
 					const replace = (
 						record: AnyRecord | undefined,
 					): Result<Change<JsonDef['fields']>, Changed | Missing> => {
-						const path = keyed ? handle.pathOf(id) : handle.pathOf();
+						const path = keyed ? handle.path(id) : handle.path();
 						if (keyed && record === undefined)
 							return ActionError.Missing({ path });
 						const next = edited(path, record?.body ?? '', edit.old, edit.new);

@@ -96,7 +96,7 @@ function appProblems(app: unknown): string[] {
 				!isObject(handle) ||
 				!isObject(handle.fields) ||
 				typeof handle.get !== 'function' ||
-				typeof handle.pathOf !== 'function' ||
+				typeof handle.path !== 'function' ||
 				(key.endsWith('.md')
 					? 'list' in handle && handle.list !== undefined
 					: !('list' in handle) || typeof handle.list !== 'function')

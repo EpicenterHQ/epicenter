@@ -205,7 +205,7 @@ instead of parsing front matter again. A one-file key's methods take no id
 (`data['settings.md'].get()`); it reads as `Ok(undefined)` before the first
 write, has no `add`, and its `set` method or verb can create the file. For
 other files, the imported `folder` supplies atomic writes and updates.
-`data.words.pathOf(word)` gives a record's path; never build one by hand.
+`data.words.path(word)` gives a record's path; never build one by hand.
 Make the first write through `folder` or a data method, so the call takes the
 container's lock. It stays held until the call returns, throws, or stops.
 After that first write, a library or `node:fs` write shares the call's lock
@@ -245,7 +245,7 @@ never `get` then `add`, which two calls at once would race.
 
 ```ts
 return data.words.update(word, (found) =>
-  found ? Ok({ reps: (found.reps ?? 0) + 1 }) : ActionError.Missing({ path: data.words.pathOf(word) }),
+  found ? Ok({ reps: (found.reps ?? 0) + 1 }) : ActionError.Missing({ path: data.words.path(word) }),
 );
 ```
 

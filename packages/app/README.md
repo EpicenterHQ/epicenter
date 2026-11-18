@@ -155,7 +155,7 @@ the change second. A one-file key's methods take no id.
 | `set(id, change)` | patches an existing record; an absent id returns `Missing`. A one-file `set(change)` creates its file |
 | `update(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it |
 | `delete(id)` | returns whether a file existed |
-| `pathOf(id)` | the record's path for the id as given, without checking it or the disk |
+| `path(id)` | the record's path for the id as given, without checking it or the disk |
 
 Writes return the fitting record in Ok. Check a write's Result before
 continuing work that depends on it. A malformed record produces `Misfit`.
@@ -199,7 +199,7 @@ therefore count two concurrent reviews:
 
 ```ts
 return data.words.update(word, (found) =>
-  found ? Ok(schedule(found, grade, now)) : ActionError.Missing({ path: data.words.pathOf(word) }),
+  found ? Ok(schedule(found, grade, now)) : ActionError.Missing({ path: data.words.path(word) }),
 );
 ```
 
@@ -217,7 +217,7 @@ A record is its `path`, its `id` for a folder key, its fields, and its
 ```ts
 const read = await data.watches.get(id);
 if (read.error !== null) return read;
-if (!read.data) return ActionError.Missing({ path: data.watches.pathOf(id) });
+if (!read.data) return ActionError.Missing({ path: data.watches.path(id) });
 return Ok(read.data.from);
 ```
 
