@@ -95,7 +95,7 @@ Every public claim must be provable by inspecting the repository:
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
 | "Plain files" | An app's records are Markdown files under its `data/`, one folder or file per data key (`packages/app/src/data.ts`), and Git stores them: no `epicenter` command commits, so the owner's own Git commits do (ADR-0940). |
 | "On one computer you control" | A command runs on the computer it is typed on, and `serve` listens on `127.0.0.1` unless told otherwise (`packages/app/src/command/http.ts`). Nothing in this repository runs a person's Epicenter for them (ADR-0903). |
-| "Every device you own, and your agents, reach them" | `serve` answers MCP at `/` and each app's UI at `/<app>/` (`packages/app/src/command/http.ts`, `mcp.ts`); a reverse proxy such as `tailscale serve` puts it on the tailnet. |
+| "Every device you own, and your agents, reach them" | `serve` answers MCP at `/` and each app's UI at `/apps/<app>/` (`packages/app/src/command/http.ts`, `mcp.ts`); a reverse proxy such as `tailscale serve` puts it on the tailnet. |
 | "Any tool can edit them" | Direct edits and action writes are ordinary file changes, which stay pending until the owner commits them with Git (ADR-0940). |
 | "Bring your own model" | AI features accept user-provided API keys. |
 

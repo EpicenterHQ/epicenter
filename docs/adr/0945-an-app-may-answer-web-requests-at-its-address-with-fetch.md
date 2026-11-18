@@ -2,7 +2,6 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Unbuilt:** all of it. The first thing to exist is a request under `/apps/<app>/` that `packages/app/src/command/http.ts` hands to the app's `fetch`.
 - **Relates:** [ADR-0966](0966-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (an app's address is `/apps/<app>/`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is a function of its folder), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when an app is loaded), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a page calls actions).
 
 ## Context

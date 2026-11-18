@@ -13,7 +13,8 @@ holds records and settings. The source and live Epicenter use this layout
 `epicenter` selects the nearest marked ancestor of the current folder, then
 `EPICENTER_ROOT`, then `~/Epicenter`; a temporary Epicenter for testing stays
 apart from the person's own this way. `epicenter serve` listens only on this
-computer and offers MCP at `/` and each UI at `/<app>/`, on the marker's `port`
+computer and offers MCP at `/`, each app at `/apps/<app>/`, and each action at
+`POST /actions/<app>/<word>/<word>`, on the marker's `port`
 or 4747 when absent. Other devices reach it through the owner's private network,
 such as `tailscale serve`.
 
@@ -197,6 +198,24 @@ export default defineApp(({ folder }) => {
   return { description: 'Words I am learning', data, actions: { ...data.words.actions('list', 'get'), learn } };
 });
 ```
+
+### Answer a web request with `fetch`
+
+Return `fetch` beside the actions only for a protocol someone else defined:
+an OAuth redirect back, a file download, a feed, a form upload, or a page for
+an app with no build step (ADR-0945). Anything a person or an agent should be
+able to do is an action, because the command line and MCP never see `fetch`.
+`fetch` is `(request: Request) => Response | Promise<Response>`, so a Hono
+app's `fetch` passes as it is; it reaches files by closing over `folder`.
+
+Serve answers `/apps/<app>/<path>` with a file from `code/ui/dist/` first, for
+`GET` and `HEAD`, then `fetch`. It removes `/apps/<app>` from the URL, so a
+route is `/oauth/callback`, and sets `X-Forwarded-Prefix: /apps/<app>`. A
+cross-site request reaches it only as a top-level `GET` navigation. Serve
+loads the app for each request, so keep nothing in memory between requests;
+an app that serves many files per page, such as media, waits for serve to
+load each app once (ADR-0959). Test it by calling
+`app({ folder }).fetch(new Request('http://localhost/oauth/callback?code=x'))`.
 
 The home is one Bun workspace and an app's code/ is one package
 of it: `code/package.json` is named for the app, and the home has the one
@@ -590,7 +609,7 @@ cp -R "$source_path" apps/example/code
 # set "name" in apps/example/code/package.json to "example"
 bun install && bun run build
 HOME="$test_home" epicenter example --help
-HOME="$test_home" epicenter serve               # drive /example/ on port 4799
+HOME="$test_home" epicenter serve               # drive /apps/example/ on port 4799
 ```
 
 Only serve runs an action, so keep that `serve` running, in the background or

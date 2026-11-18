@@ -94,7 +94,8 @@ run it.
   `books list` through `books patch` and `log`. `app.actions.books.create(...)`
   in code, `epicenter reading books create` on the command line, and
   `reading_books_create` over MCP are one action. No key at any depth may be
-  `then`, which a UI's client cannot call.
+  `then`, which a UI's client cannot call. It may also return `fetch`; see
+  [Web requests](#web-requests).
 
 An app with one data key usually spreads its verbs at the top, so they are
 the app's own: `actions: { ...data.tasks.actions('list', 'get', 'patch'), add }`
@@ -617,6 +618,90 @@ optional in `ActionInput`; an action that only returns reports `never`.
 A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
+
+## Web requests
+
+An app may return `fetch` beside `description`, `data` and `actions`: a
+web-standard `(request: Request) => Response | Promise<Response>`
+([ADR-0945](../../docs/adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md)).
+A Hono or Elysia app's `fetch` fits as it is. It reaches the app's folder by
+closing over `folder`:
+
+```ts
+import { defineApp } from '@epicenter/app';
+import { Hono } from 'hono';
+
+export default defineApp(({ folder }) => {
+	const web = new Hono();
+	web.get('/oauth/callback', async (c) => {
+		await folder.write('local/code.txt', c.req.query('code') ?? '');
+		return c.redirect('../');
+	});
+	return { description: 'Mail', actions: {}, fetch: web.fetch };
+});
+```
+
+`epicenter serve` gives each app the address `/apps/<app>/`. A `GET` or `HEAD`
+there answers a file from `code/ui/dist/` when one matches; every other
+request goes to `fetch`, and an app without one answers 404. Serve removes
+`/apps/<app>` from the URL, so the route above is `/oauth/callback` and
+survives a rename of the app's folder. It sets
+`X-Forwarded-Prefix: /apps/<app>` for an app that writes absolute links.
+Method, headers and body pass unchanged; a body over 25 MB is refused with
+413. A `fetch` that throws answers 500, and serve logs a line naming the app.
+
+`fetch` is for protocols someone else defined: an OAuth redirect, a file
+download, a feed, a form upload, or an app's own page when it has no build
+step. The command line and MCP never see its routes, so anything a person or
+an agent should be able to do is an action. Bare `epicenter` marks an app
+with `fetch` as `(answers web requests)`.
+
+Serve refuses a request a browser marks as coming from another site
+(`Sec-Fetch-Site: cross-site`) unless it opens a page: a top-level `GET`
+navigation, which is how an OAuth provider sends the browser back. Another
+site's `<img>`, script, `fetch()` or frame gets 403. A cross-site form
+`POST`, such as OAuth's `response_mode=form_post`, is refused.
+
+Serve loads the app again for each request that reaches `fetch`, as it does
+for each action call, so nothing an app keeps in memory lasts from one
+request to the next. A load takes well under a millisecond for a small app
+and leaves a little memory behind until serve restarts. A page of many
+images makes one load per image.
+
+A test calls `fetch` with no server:
+
+```ts
+const app = mail({ folder });
+const answer = await app.fetch(new Request('http://localhost/oauth/callback?code=abc'));
+```
+
+## Upgrading from 0.7
+
+Serve's addresses change, and every app's page must be rebuilt
+([ADR-0966](../../docs/adr/0966-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)).
+
+| 0.7 | Now |
+| --- | --- |
+| an app's page at `/<app>/` | `/apps/<app>/` |
+| `POST /<app>/<words joined by .>`, such as `POST /vocab/words.create` | `POST /actions/<app>/<word>/<word>`, such as `POST /actions/vocab/words/create` |
+
+- **Rebuild every page.** A page bundles `@epicenter/app/client`, and an old
+  bundle calls the old address, which now answers 404. Run `bun run build`
+  at the top of the Epicenter.
+- **Bookmarks and home-screen icons** that open `/<app>/` need the new
+  address. Nothing redirects.
+- **A page that calls `connect()` with no `app`** reads its app from
+  `/apps/<app>/` with no change. A page served elsewhere passes `{ app }`.
+- **A script or test that posts to serve directly**, or fakes its URLs,
+  uses `/actions/<app>/<word>/<word>`.
+- **A call at a malformed address** (an empty word, a word that is not a
+  name, no word after the app) answers `NotStarted` with cause `usage` as the
+  body of a 400. It used to answer a plain 404.
+- **Serve refuses a cross-site request that does not open a page.** Another
+  site that loaded an app's icon or framed its page gets 403.
+
+Steps: change `@epicenter/app` in the Epicenter's `package.json`, run
+`bun install && bun run build` at the top, then restart `epicenter serve`.
 
 ## Upgrading from 0.6
 

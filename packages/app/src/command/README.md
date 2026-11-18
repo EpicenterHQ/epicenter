@@ -282,7 +282,7 @@ running; the command line never starts it or stands in for it.
 
 `epicenter serve` is the only process that runs an app's actions.
 `epicenter <app> <action>` checks its words and input, then sends the call to
-serve at the port in `EPICENTER.md`, the same `POST /<app>/<action>` a page
+serve at the port in `EPICENTER.md`, the same `POST /actions/<app>/<word>/<word>` a page
 makes, and prints the updates and the answer it reads back. It never runs the
 action itself.
 
@@ -339,12 +339,12 @@ to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions at `POST /actions/<app>/<word>/<word>`, and each app at `/apps/<app>/`: a file from its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)), then the app's own `fetch` ([ADR-0945](../../../../docs/adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md)), then 404. The launcher links to apps with a built page or a `fetch`; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. A later route of the server's own takes its own first segment, beside `actions` and `apps`, so no app name is reserved ([ADR-0966](../../../../docs/adr/0966-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)). The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A request a browser marks `Sec-Fetch-Site: cross-site` is refused with 403 unless it is a top-level `GET` navigation (`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document`), such as a link or an OAuth redirect back; another site's image, script, `fetch()` or frame is refused. A browser sends these headers only to `localhost`, `127.0.0.1` or `https`, so reach serve from another device at its `https://<machine>.<tailnet>.ts.net` address, not a plain `http` tailnet IP. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
 MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
 A page calls actions through `@epicenter/app/client`, at
-`POST /<app>/<action>`. See [A call over HTTP](#a-call-over-http).
+`POST /actions/<app>/<word>/<word>`. See [A call over HTTP](#a-call-over-http).
 
 Serve commits nothing. Git stores the home, and its owner commits and pushes
 it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
@@ -422,14 +422,17 @@ See [ADR-0908](../../../../docs/adr/0908-serve-runs-the-homes-daily-routines.md)
 
 ## A call over HTTP
 
-`POST /<app>/<action>` runs one action. Action words are joined with dots
-(`/flights/watches.search`). The body is the input as one JSON object, at
-most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
+`POST /actions/<app>/<word>/<word>` runs one action. Each of the action's
+words is one path segment, a group's before its action's, as on the command
+line: `epicenter flights watches search` is `POST /actions/flights/watches/search`.
+The body is the input as one JSON object, at most 25 MiB. The route uses the
+Host, Origin, tunnel and cross-site guards every request passes.
 
 | Outcome | Response |
 | --- | --- |
 | The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
-| No such app or action, the app cannot load, or the input is not JSON, not an object, or does not fit | 400, `{ data: null, error: { name: "NotStarted", ... } }` as the body |
+| No such app or action, a group named in place of an action, a segment that is not a name, the app cannot load, or the input is not JSON, not an object, or does not fit | 400, `{ data: null, error: { name: "NotStarted", ... } }` as the body |
+| A method other than `POST` | 405 |
 | The body is too large | 413 |
 
 A stream that ends with no `answer` line was cut off, and its outcome is
@@ -714,9 +717,9 @@ all running apps' code and records. Keep experiments outside the live Epicenter.
 
 ## Build a UI
 
-An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404. `serve` never serves a path with a part starting with `.`.
+An app's UI is what its own build writes to `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md), [ADR-0880](../../../../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)). `serve` serves that folder as it is at `/apps/<app>/` and never builds. The app's `code/package.json` has a `build` script, and `bun run build` in `code/` runs it. A plain page needs one line: `"build": "bun build ui/index.html --outdir ui/dist"`. A build writes relative URLs, so it works at whatever path `serve` serves it. A page load for an app with no `ui/dist/index.html` answers 404, unless the app's `fetch` answers it. `serve` never serves a file from a path with a part starting with `.`; such a path goes to `fetch`.
 
-A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: the home's `package.json` holds `"build": "bun run --filter '*' --if-present build"`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. An app whose UI is a bare `ui/index.html` needs its own `build`.
+A UI bundles `@epicenter/app/client` from the home's one install. After changing `ui/`, run `bun run build` in `code/`. After upgrading Epicenter, run `bun run build` at the top of the home: the home's `package.json` holds `"build": "bun run --filter '*' --if-present build"`, which runs every app's `build` and skips apps without one, so every UI is built against the client of the new `serve`. A page built against an older client may call an address the new `serve` no longer answers. An app whose UI is a bare `ui/index.html` needs its own `build`.
 
 Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the app's own `.gitignore` ([ADR-0854](../../../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 

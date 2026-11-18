@@ -14,10 +14,10 @@ bun install && bun run build
 epicenter serve
 ```
 
-Open `http://localhost:4747/writing/`. Downloading the app requires network
+Open `http://localhost:4747/apps/writing/`. Downloading the app requires network
 access. Using the copied app needs neither GitHub nor a provider key.
 
-Open the app at `/<app>/` while `epicenter serve` runs. Capture text, an optional
+Open the app at `/apps/<app>/` while `epicenter serve` runs. Capture text, an optional
 source (a person, book, or URL), and an optional project. Search matches the text,
 source, and project. A damaged note shows its file problem alongside matches.
 A note with unreadable front matter appears in every search until repaired. Open a note to edit its text. Saving quotes the original

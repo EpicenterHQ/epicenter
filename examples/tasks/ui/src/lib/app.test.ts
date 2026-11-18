@@ -10,15 +10,15 @@ import { MutationCache, MutationObserver, QueryClient, QueryObserver, } from '@t
 const location = Object.getOwnPropertyDescriptor(globalThis, 'location');
 Object.defineProperty(globalThis, 'location', {
 	configurable: true,
-	value: { href: 'http://localhost/tasks/' },
+	value: { href: 'http://localhost/apps/tasks/' },
 });
 const { reads, writes } = await import('./app.js');
 if (location)
 	Object.defineProperty(globalThis, 'location', location);
 else
 	Reflect.deleteProperty(globalThis, 'location');
-/** The action a call runs: serve takes it at `/tasks/<action>`. */
-const actionOf = (url: Parameters<typeof fetch>[0]) => /\/tasks\/([^/]+)$/.exec(String(url))?.[1];
+/** The action a call runs: serve takes it at `/actions/tasks/<action>`. */
+const actionOf = (url: Parameters<typeof fetch>[0]) => /\/actions\/tasks\/([^/]+)$/.exec(String(url))?.[1];
 /** A call that answered with what the action returned. */
 const response = (returned: unknown) => new Response(`${JSON.stringify({ answer: { data: returned, error: null } })}\n`);
 /** Serve refusing a call before it runs. */
@@ -180,7 +180,7 @@ for (const body of ['', 'Before']) test(`notes save from ${body ? 'a quote' : 'a
 	const client = cacheClient();
 	try {
 		await new MutationObserver(client, writes.edit).mutate({ id: 'book', old: body, new: 'After' });
-		expect(calls).toEqual([body === '' ? '/tasks/patch' : '/tasks/edit']);
+		expect(calls).toEqual([body === '' ? '/actions/tasks/patch' : '/actions/tasks/edit']);
 	} finally { client.clear(); transport.mockRestore(); }
 });
 
