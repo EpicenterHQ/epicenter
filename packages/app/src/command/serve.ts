@@ -450,15 +450,19 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
 const ACTIONS = '/actions/';
 
 /**
- * Whether a browser marked `request` as coming from another site, other than
- * to open a page (Fetch Metadata). A top-level `GET` navigation, such as a
- * link or an OAuth redirect back, is allowed; another site's `<img>`,
- * script, `fetch()` or frame is not. A request with no `Sec-Fetch-Site`
- * comes from a program, or a browser that sends none, and is allowed.
+ * Whether a browser marked `request` as coming from another origin, other
+ * than to open a page (Fetch Metadata). A top-level `GET` navigation, such as
+ * a link or an OAuth redirect back, is allowed; another origin's `<img>`,
+ * script, `fetch()` or frame is not. `same-site` is another origin too: a
+ * site ignores the port, so a page on `127.0.0.1:3000` is same-site with
+ * serve. A request with no `Sec-Fetch-Site` comes from a program, or a
+ * browser that sends none, and is allowed, as is `none`: a typed address or
+ * a bookmark.
  */
-function fromAnotherSite(request: Request) {
+function fromAnotherOrigin(request: Request) {
 	const { headers } = request;
-	if (headers.get('sec-fetch-site') !== 'cross-site') return false;
+	const site = headers.get('sec-fetch-site');
+	if (site === null || site === 'same-origin' || site === 'none') return false;
 	const opensPage =
 		request.method === 'GET' &&
 		headers.get('sec-fetch-mode') === 'navigate' &&
@@ -491,7 +495,7 @@ function startHttpServer(root: EpicenterRoot) {
 			)
 				return forbidden();
 		}
-		if (fromAnotherSite(request)) return forbidden();
+		if (fromAnotherOrigin(request)) return forbidden();
 		return stamped(await route(request));
 	};
 	// Every answer to a request serve accepts says it is an Epicenter's serve,
