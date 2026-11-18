@@ -3,84 +3,31 @@
 ## When to Read This
 Read this when deciding where types/constants live and how to name/derive option data structures.
 
-# Type Co-location Principles
+# Where types belong
 
-## Never Use Generic Type Buckets
+Keep a type beside what defines it. If a factory or schema defines the shape, derive the type there. If the type defines what several implementations promise to callers, give that contract a home named for what it describes.
 
-Don't create generic type files like `$lib/types/models.ts`. This creates unclear dependencies and makes code harder to maintain.
+Keep a component’s own props and state types in the component. Several files can import a type from its existing home. Question a `types.ts` file when it collects unrelated types or repeats shapes already defined by code.
 
-### Bad Pattern
+## Shared contracts
 
-```typescript
-// $lib/types/models.ts - Generic bucket for unrelated types
-export type LocalModelConfig = { ... };
-export type UserModel = { ... };
-export type SessionModel = { ... };
-```
-
-### Good Pattern
+The recorder package defines [`Recorder`](../../../../packages/recorder/src/recording.ts) in `recording.ts`. The [browser](../../../../packages/recorder/src/browser.ts) and [desktop](../../../../packages/recorder/src/tauri.ts) implementations both check their objects against it with `satisfies Recorder`. The [package entry point](../../../../packages/recorder/src/index.ts) exposes the same contract whichever recorder it selects:
 
 ```typescript
-// $lib/services/transcription/local/types.ts - Co-located with service
-export type LocalModelConfig = { ... };
-
-// $lib/services/user/types.ts - Co-located with user service
-export type UserModel = { ... };
+export const recorder: Recorder = isTauri() ? shellRecorder : pageRecorder;
 ```
-
-## Co-location Rules
-
-1. **Service-specific types**: Place in `[service-folder]/types.ts`
-2. **Component-specific types**: Define directly in the component file
-3. **Shared domain types**: Place in the domain folder's `types.ts`
-4. **Cross-domain types**: Only if truly shared across multiple domains, place in `$lib/types/[specific-name].ts`
-
-## `types.ts` Is A Code Smell (Prefer Computed Types Over Manual Declarations)
-
-When a type can be derived from a runtime value, derive it. Don't declare it manually in a separate file.
-
-```typescript
-// Good: type is computed from the runtime definition
-export const BROWSER_TABLES = { devices, tabs, windows };
-export type Tab = InferTableRow<typeof BROWSER_TABLES.tabs>;
-
-// Good: type is derived from schema
-const userSchema = z.object({ id: z.string(), email: z.string() });
-type User = z.infer<typeof userSchema>;
-
-// Bad: manually declaring what already exists as a runtime value
-// types.ts
-export type Tab = { id: string; nodeId: string /* ... */ };
-```
-
-If every type in a `types.ts` can be derived with `typeof`, `z.infer`, `InferTableRow`, `ReturnType`, etc., the file is redundant. Put each type next to the runtime value it's computed from.
 
 ## Factory Return Types Should Follow the Factory
 
 When an exported type is the public handle returned by one `create*` factory, the factory return object is the source of truth.
 
-```typescript
-export function createDisposableCache<
-	TId extends string | number,
-	TValue extends Disposable,
->(build: (id: TId) => TValue) {
-	return {
-		open(id: TId): TValue & Disposable {
-			// ...
-		},
-		has(id: TId): boolean {
-			// ...
-		},
-	};
-}
+Whispering names [`Library`](../../../../apps/whispering/src/lib/library.svelte.ts) immediately after `createLibrary`, in the same file:
 
-export type DisposableCache<
-	TId extends string | number,
-	TValue extends Disposable,
-> = ReturnType<typeof createDisposableCache<TId, TValue>>;
+```typescript
+export type Library = ReturnType<typeof createLibrary>;
 ```
 
-This is different from annotating the factory as `: DisposableCache<TId, TValue>`. The annotation checks the shape, but it also makes editor navigation prefer the named type. The derived alias keeps the public name while letting Go to Definition walk into the actual returned member.
+An explicit return annotation publishes its declared shape and can direct editor navigation to that declaration. The derived alias keeps the public name while letting Go to Definition walk into the actual returned member.
 
 If the public type is a nested slice of a factory result, use a focused inference helper instead of forcing `ReturnType` to name the whole result. For example, an auxiliary signed-in-only session can expose the payload inside `session.current` without naming the whole object returned by `createSession`.
 
@@ -97,39 +44,11 @@ If the concrete implementation has writable state but the public surface should 
 
 Do not use it when the type is a shared contract implemented by multiple factories, a protocol shape, or a deliberate abstraction boundary. In those cases, keep the contract as the source of truth and make implementations `satisfies` it when you want conformance without losing implementation navigation.
 
-## Inline vs Extract: The Hop Test
+## Inline, name, or move to another file
 
-The classic question, "is this used in multiple places?", only answers *whether* you could extract. It doesn't answer *whether you should*. The better question:
+Keep a value inline when seeing it in place makes the code easier to read. Give it a name when the name explains something useful or the value needs to be reused. Give it a separate file when that file is where a reader would look for the concept.
 
 > **If a reader lands on the call site, do they get more out of seeing this inline, or out of jumping to another file?**
-
-Extraction has a cost: every reader pays attention tax to context-switch into the extracted file, then back. For non-trivial things that's worth it: you get a named concept with its own responsibility. For trivial things (a 3-line type alias, a single template function, one const string), the hop costs more than the dupe.
-
-### Decision table
-
-| Situation | Action |
-|---|---|
-| Used in exactly 1 place | **Inline.** No DRY benefit exists. |
-| Used in many places, ≤5 lines, no independent name worth giving it | **Probably inline.** Hop > dupe. |
-| Used in many places, ≥10 lines OR has its own name/contract/tests | **Extract.** |
-| Public API surface, documented contract, or package boundary | **Always extract, even if trivial.** It *is* the contract. |
-| Sits in a multi-purpose bucket file (`types.ts`, `utils.ts`, `helpers.ts`) | **Extract OUT of the bucket.** Co-locate with consumer or promote to its own named file. |
-
-### Concrete examples from this codebase
-
-- `DocumentHandle` / `DocumentFactory`: previously in their own `create-document-factory.types.ts` file that existed only to keep them out of a bucket. Used only by `create-document-factory.ts`. **Inlined** back into `create-document-factory.ts`: zero reader benefit to the separation, and the separate file's own docstring admitted it was a workaround.
-- `ContentHandle` / `ContentStrategy`: declared, exported, zero importers. **Deleted** (dead extraction).
-- `KV_KEY = 'kv'` / `TableKey(name)`: one-line constant plus one-line function, but they're the reserved-prefix contract documented in public READMEs. **Extracted**: the contract is the value, not the size.
-- `BaseRow`, `Table<TRow>`, `TableDefinition<TVersions>`: many definitions describing what `createTable` returns. **Co-located** inside `table.ts` (moving them out of a bucket into their natural home).
-
-### The bucket trap
-
-The worst outcome isn't "inline vs extract": it's "extracted into a generic bucket." A `types.ts` or `utils.ts` with unrelated members gets all the extraction cost (hop overhead, import bloat) with none of the naming benefit. Either:
-
-1. Move each member to its natural home (the file that owns the concept), or
-2. Rename the bucket to the single concern it actually covers (`row-results.ts`, not `types.ts`).
-
-If neither is possible, the members probably don't belong together and some are dead.
 
 # Naming constants and collections
 

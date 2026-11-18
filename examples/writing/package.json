@@ -1,5 +1,5 @@
 {
-	"name": "writing-inbox",
+	"name": "writing",
 	"private": true,
 	"scripts": {
 		"build": "bun build ui/index.html --outdir ui/dist --minify"

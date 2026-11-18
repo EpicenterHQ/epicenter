@@ -9,7 +9,7 @@ import { type ActionOutput, connect } from '@epicenter/app/client';
 import { Ok } from 'wellcrafted/result';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 import type { MutationFunctionContext } from '@tanstack/svelte-query';
-import type tasksApp from '../../../epicenter.js';
+import type tasksApp from '../../../epicenter.ts';
 
 type Actions = ReturnType<typeof tasksApp>['actions'];
 

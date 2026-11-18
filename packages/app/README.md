@@ -43,10 +43,12 @@ export default defineApp(({ folder }) => {
 
 The app is a function of its folder
 ([ADR-0960](../../docs/adr/0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)).
-`epicenter` calls it once with the folder of `apps/reading/`, and everything
+`epicenter` calls it with the folder of `apps/reading/`, and everything
 inside it, data and actions alike, reaches the files through that argument.
 A helper outside the function that touches files takes the folder as a
-parameter.
+parameter. `epicenter` imports the app afresh and calls the function each
+time it loads the app, which today is on every call, so a value kept in the
+function body does not survive from one call to the next: keep it in a file.
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
@@ -360,7 +362,11 @@ and the action keeps it under `local/`, which never enters Git:
 `await folder.write('local/google.md', token)`, read back with
 `readFile(join(folder.path, 'local/google.md'), 'utf8')` from `node:fs/promises`.
 An action writes only under `data/` and `local/`. Epicenter treats that input as any other, so give it from the page or
-piped on stdin, not as a command argument or through an agent.
+piped on stdin, not as a command argument or through an agent. Do not keep
+secrets in a `.env` at the root of the Epicenter that Git could commit:
+`epicenter serve` will not start while that `.env` is tracked by Git or not
+ignored
+([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)).
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer
@@ -394,7 +400,7 @@ routines call the action as any other. The key shapes the tool list and is not
 a wall: an agent with a shell can still call the action through the CLI or
 HTTP.
 
-## Runs
+## The folder
 
 Whatever runs an action calls the app with its folder, then calls the
 action: `app({ folder: folderOnDisk(dir) }).actions.log(input)`. `epicenter`
@@ -599,7 +605,7 @@ arrives in order. What the callback returns is not awaited; what it throws is
 reported to the page and does not end the call:
 
 ```ts
-const said = await vocab.chat.say(
+const said = await app.chat.say(
 	{ message },
 	{ onUpdate: (token) => (draft += token) },
 );
@@ -618,21 +624,68 @@ A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
 
-## Upgrading from 0.7
+## Upgrading to an app that is a function of its folder
 
-- **Restart `epicenter serve`** after `bun install`. Until you do, the
-  command reads the old serve as another program on the port.
-- **A command finds its Epicenter only by walking up** from the folder it
-  runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd`
-  into your Epicenter, or set a script's working directory there.
-- **`epicenter serve` starts only in the Epicenter's own folder.** Started
-  anywhere else it refuses and exits, so a job that restarts it on exit
-  fails again each time. Set the job's working directory to your Epicenter:
-  `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=`
-  in a systemd unit.
-- **Bare `epicenter`, `epicenter <app>` and an action's `--help` ask
-  serve**, and are refused while it is stopped. `epicenter check` still
-  works without it.
+The release after 0.7.0 makes an app a function of the folder it is handed
+([ADR-0960](../../docs/adr/0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md)),
+keeps that folder on disk
+([ADR-0964](../../docs/adr/0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md)),
+and puts the `epicenter` command in this package. TypeScript flags each
+change in the table, so in each app run the type-check and fix what it names.
+
+| 0.7.0 | After |
+| --- | --- |
+| `export default defineApp({ description, data, actions })` | `export default defineApp(({ folder }) => ({ description, data, actions }))` |
+| `defineData({ ... })` beside the app | `defineData(folder, { ... })` inside the function |
+| `import { folder } from '@epicenter/app'` | the `folder` the function is handed; a helper outside it takes the folder as a parameter |
+| `folder.read(path)`, `folder.readBytes(path)` | `readFile(join(folder.path, path), 'utf8')` from `node:fs/promises`, or `Bun.file(join(folder.path, path))` |
+| `folder.list(dir)` | `readdir` or `Bun.Glob` on `join(folder.path, dir)` |
+| `folder.writeBytes(path, bytes)` | `folder.write(path, bytes)`, which takes text or bytes |
+| `folder.update(path, (before) => text)` | `folder.edit(path, (before) => Ok({ text }))` |
+| `inRun({ folder }, () => action(input))` with `createMemoryContext` in a test | `app({ folder: folderOnDisk(dir) }).actions.log(input)`, with `dir` a temporary directory |
+| `(typeof app)['actions']` in a page | `ReturnType<typeof app>['actions']` |
+| `@epicenter/app` and `@epicenter/cli` in the root `package.json` | `@epicenter/app` alone, which carries the `epicenter` command |
+
+A `Folder` is now `path`, `write`, `edit` and `delete`; see
+[The folder](#the-folder). Every read is a plain file call on
+`folder.path`. `inRun`, `createMemoryContext` and the in-memory folder are
+gone, so a test makes a temporary directory and calls the app with
+`folderOnDisk` on it.
+
+Some other names 0.7.0 exported are gone:
+
+| 0.7.0 | After |
+| --- | --- |
+| `expectOk`, `expectErr` from `@epicenter/app/testing` | the same functions from `wellcrafted/testing` |
+| `textUpdate(edit)` | `folder.edit(path, (before) => Ok({ text }))` |
+| `type Context` | the `{ folder }` the app's function is handed |
+| `App<A, D>` | `App`, which takes no type parameters |
+| `isUnderLocal`, `normalizePath`, `readMarkdown`, `isAction`, `isActionResult`, `encodeActionResult`, `whatFits`, `whatTakes`, `RESERVED_NAMES` | nothing; they were the library's own helpers |
+
+### Changes the compiler does not flag
+
+- `epicenter` imports the app and calls its function each time it loads the app, today on every call. A cache or counter kept in the function body starts over each time; keep it in a file.
+- Listing apps calls the function too, so read and write inside actions, not in the function body.
+- A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
+- The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
+- `checkAnswer` refuses a `Threw` whose `thrown` is not a plain object, such as an `Error` instance a test passes in, and answers `Unreachable`. An answer read from serve is parsed JSON, so it is unaffected.
+- `epicenter serve` will not start while a `.env` at the root of the Epicenter is tracked by Git or not ignored ([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)). It says which, and the fix: `git rm --cached .env`, or add `.env*` to `.gitignore`.
+- The folder writes `local/.gitignore` when it makes `local/`. A `local/` made another way runs, and is listed as a problem with the one-line fix.
+
+### Where the command runs, and what needs serve
+
+- A command finds its Epicenter only by walking up from the folder it runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd` into your Epicenter, or set a script's working directory there.
+- `epicenter serve` starts only in the Epicenter's own folder. Started anywhere else it refuses and exits, so a job that restarts it on exit fails again each time. Set the job's working directory to your Epicenter: `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=` in a systemd unit.
+- Bare `epicenter`, `epicenter <app>` and an action's `--help` ask serve, and are refused while it is stopped. `epicenter check` still works without it.
+
+### Upgrade steps
+
+1. In the root `package.json`, remove `@epicenter/cli` and set `@epicenter/app` to the new version.
+2. Run `bun install`.
+3. Fix each app until `bun run typecheck` and `bun test` pass.
+4. Run `bun run build` in each app that has a UI.
+5. Restart `epicenter serve`. Until you do, the command reads the old serve as another program on the port and runs nothing.
+6. Commit the result as one commit, so reverting it returns everything to 0.7.0.
 
 ## Upgrading from 0.6
 

@@ -1,7 +1,7 @@
 /**
  * An action: a function an app exposes, carrying what the CLI, MCP, and a UI
  * need to call it: a description and the JSON Schema of its input. Call it as
- * any function, inside a run:
+ * any function:
  *
  * ```ts
  * const learn = defineAction({
@@ -204,8 +204,8 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
  * the fields. The action carries its input as one JSON Schema object made
  * from the fields (`ActionMeta`). Calling it gives `run` an absent switch as
  * `false` and an absent list with no `min` as `[]`, as a read of a data file
- * does, however it is called. Inside `run`, the app's data and `folder` reach the folder of the run that
- * called it, however deep. The type of `run`'s `update` argument is the type
+ * does, however it is called. `run` reaches the app's data and `folder` as
+ * any closure does, from the app's function. The type of `run`'s `update` argument is the type
  * of every caller's `onUpdate`. Throws when the definition is wrong in a way
  * its types cannot say, such as a field with a `default`.
  */
