@@ -24,16 +24,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::path::is_file_name;
 
-/// Whether a rename may replace a file at its target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    /// Rename over the target: a write replaces a file whole.
-    Replace,
-    /// Never replace: an existing target answers `AlreadyExists`. A folder
-    /// move renames this way.
-    New,
-}
-
 /// The directories of the folder a temporary file is written in: the
 /// folder itself (`settings.md`), `recordings/`, and `transcriptions/`.
 const NOTE_DIRECTORIES: [&str; 3] = ["", "recordings", "transcriptions"];
@@ -95,7 +85,7 @@ fn create_beside(target: &Path) -> io::Result<(PathBuf, File)> {
 /// Whether `name` is a temporary file's name as [`create_beside`] makes it:
 /// a dot, a file name the path rule accepts, a dot, its own
 /// `RANDOM_LENGTH` characters, then `.tmp`.
-pub fn is_temporary_name(name: &str) -> bool {
+pub(crate) fn is_temporary_name(name: &str) -> bool {
     let Some(rest) = name
         .strip_prefix('.')
         .and_then(|rest| rest.strip_suffix(TEMPORARY_SUFFIX))
@@ -143,7 +133,7 @@ fn through_temporary(
 
 /// Replace the file at `target` whole with `bytes`, through the temporary
 /// file beside it. Its directory must exist.
-pub fn replace(target: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn replace(target: &Path, bytes: &[u8]) -> io::Result<()> {
     through_temporary(
         target,
         |file| file.write_all(bytes),
@@ -151,13 +141,14 @@ pub fn replace(target: &Path, bytes: &[u8]) -> io::Result<()> {
     )
 }
 
-/// Copy `source` to the temporary file beside `target`, flush it, and
-/// rename it into place in `mode`. `source` is left as it is.
-pub fn copy_beside(source: &Path, target: &Path, mode: Mode) -> io::Result<()> {
+/// Copy `source` to a temporary file beside `target`, flush it, and rename
+/// it into place, never over a file already there. `source` is left as it
+/// is.
+pub(crate) fn copy_beside(source: &Path, target: &Path) -> io::Result<()> {
     through_temporary(
         target,
         |file| io::copy(&mut File::open(source)?, file).map(|_| ()),
-        |temporary| rename(temporary, target, mode),
+        |temporary| rename(temporary, target),
     )
 }
 
@@ -205,14 +196,12 @@ pub fn remove_leftovers(folder: &Path) -> io::Result<usize> {
     Ok(removed)
 }
 
-/// Rename `from` to `to`, replacing a file there only in [`Mode::Replace`].
-pub(crate) fn rename(from: &Path, to: &Path, mode: Mode) -> io::Result<()> {
-    match mode {
-        Mode::Replace => fs::rename(from, to),
-        Mode::New => match rename_exclusive(from, to) {
-            Err(error) if unsupported(&error) => rename_by_link(from, to),
-            renamed => renamed,
-        },
+/// Rename `from` to `to`, never over an entry already there: an existing
+/// target answers `AlreadyExists`. A folder move renames this way.
+pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
+    match rename_exclusive(from, to) {
+        Err(error) if unsupported(&error) => rename_by_link(from, to),
+        renamed => renamed,
     }
 }
 
@@ -431,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn new_never_replaces_and_keeps_the_source() {
+    fn rename_never_replaces_and_keeps_the_source() {
         let temp = tempfile::tempdir().unwrap();
         let (a, b, target) = (
             temp.path().join("a"),
@@ -440,10 +429,10 @@ mod tests {
         );
         fs::write(&a, b"a").unwrap();
         fs::write(&b, b"b").unwrap();
-        rename(&a, &target, Mode::New).unwrap();
+        rename(&a, &target).unwrap();
         assert!(!a.exists(), "moved, not copied");
         assert_eq!(
-            rename(&b, &target, Mode::New).unwrap_err().kind(),
+            rename(&b, &target).unwrap_err().kind(),
             ErrorKind::AlreadyExists
         );
         assert_eq!(fs::read(&target).unwrap(), b"a");
@@ -459,14 +448,14 @@ mod tests {
         let source = from.path().join("a.webm");
         fs::write(&source, b"take").unwrap();
         let target = folder.path().join("a.webm");
-        copy_beside(&source, &target, Mode::New).unwrap();
+        copy_beside(&source, &target).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"take");
         assert_eq!(fs::read(&source).unwrap(), b"take");
 
-        // A taken target refuses in New mode, and the folder is as it was.
+        // A taken target refuses, and the folder is as it was.
         fs::write(&source, b"again").unwrap();
         assert_eq!(
-            copy_beside(&source, &target, Mode::New).unwrap_err().kind(),
+            copy_beside(&source, &target).unwrap_err().kind(),
             ErrorKind::AlreadyExists
         );
         assert_eq!(fs::read(&target).unwrap(), b"take");
@@ -474,7 +463,7 @@ mod tests {
 
         // A source that is gone fails before anything reaches the folder.
         let missing = from.path().join("missing");
-        assert!(copy_beside(&missing, &folder.path().join("b.webm"), Mode::New).is_err());
+        assert!(copy_beside(&missing, &folder.path().join("b.webm")).is_err());
         assert_eq!(names_in(folder.path()), ["a.webm"]);
     }
 

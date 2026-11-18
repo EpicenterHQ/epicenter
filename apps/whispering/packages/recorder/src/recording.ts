@@ -22,8 +22,8 @@
  * Nothing here says whether a recording is running. That is the live handle
  * a start returns; it ends with the page.
  *
- * Shared code names these types, errors, and `audioDurationMs`; each
- * implementation (`tauri.ts`, `browser.ts`) re-exports them.
+ * Shared code names these types and errors; each implementation
+ * (`tauri.ts`, `browser.ts`) re-exports them.
  */
 import {
 	defineErrors,
@@ -31,8 +31,6 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-
-export { audioDurationMs } from './container.js';
 
 /** A microphone the person chose, asked for by its ID. */
 export type RecordingInput = {
@@ -71,28 +69,25 @@ export type AudioFiles = {
 	): Promise<Result<undefined, { message: string }>>;
 };
 
-/**
- * The folder a recording is written into, so the audio stays where the rest
- * of the app's files are. On the desktop the shell records the take there
- * itself; in a browser Stop writes it once (`files.write`).
- */
-export type RecordingFiles = {
-	readonly files: AudioFiles;
-};
-
 /** The directory a recording's audio is in, folder-relative. */
 export const RECORDINGS = 'recordings';
 
 /** Which recording to make. */
-export type StartRecordingOptions = RecordingStart &
-	RecordingFiles & {
-		/**
-		 * The recording's id: its audio is at `recordings/<id>.<ext>`,
-		 * where the extension is the format's (`webm` on the desktop; `m4a` or
-		 * `webm` in a browser). Refused when audio with this id is there.
-		 */
-		readonly id: string;
-	};
+export type StartRecordingOptions = RecordingStart & {
+	/**
+	 * The folder the recording is written into, so the audio stays where
+	 * the rest of the app's files are. On the desktop the shell records
+	 * the take there itself; in a browser Stop writes it once
+	 * (`files.write`).
+	 */
+	readonly files: AudioFiles;
+	/**
+	 * The recording's id: its audio is at `recordings/<id>.<ext>`,
+	 * where the extension is the format's (`webm` on the desktop; `m4a` or
+	 * `webm` in a browser). Refused when audio with this id is there.
+	 */
+	readonly id: string;
+};
 
 /** Why the host ended a capture nobody asked to end. What was captured is still the recording's. */
 export type RecordingEndedReason =

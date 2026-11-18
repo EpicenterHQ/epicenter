@@ -126,21 +126,14 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>', {
 });
 
 // jsdom evaluates no media queries. Every query reads as not matching, so a
-// view lays out as on a narrow screen, until `setWide(true)` makes the
-// `min-width` queries match.
-let wide = false;
-const mediaListeners = new Set<(event: Event) => void>();
+// view lays out as on a narrow screen.
 window.matchMedia ??= (query: string) =>
 	({
-		get matches() {
-			return wide && query.includes('min-width');
-		},
+		matches: false,
 		media: query,
 		onchange: null,
-		addEventListener: (_type: string, listener: (event: Event) => void) =>
-			mediaListeners.add(listener),
-		removeEventListener: (_type: string, listener: (event: Event) => void) =>
-			mediaListeners.delete(listener),
+		addEventListener() {},
+		removeEventListener() {},
 		addListener() {},
 		removeListener() {},
 		dispatchEvent: () => false,
@@ -213,42 +206,3 @@ if (!Bun.resolveSync('svelte', import.meta.dir).endsWith('index-client.js'))
 	throw new Error(
 		'Mounted Svelte tests need the browser runtime: run them through the package test script, which passes --conditions=browser.',
 	);
-
-/** Cross the width breakpoint: `min-width` media queries match while `next` is true. */
-export function setWide(next: boolean) {
-	wide = next;
-	for (const listener of mediaListeners) listener(new window.Event('change'));
-}
-
-/** Set a field's value and dispatch the `input` event a keystroke would. */
-export function type(element: Element | null | undefined, value: string) {
-	if (
-		!(element instanceof window.HTMLInputElement) &&
-		!(element instanceof window.HTMLTextAreaElement)
-	)
-		throw new Error('Expected an input or a textarea');
-	element.value = value;
-	element.dispatchEvent(new window.Event('input', { bubbles: true }));
-}
-
-/** Move focus out of a field, as the person leaving it does. */
-export function blur(element: Element | null | undefined) {
-	if (!element) throw new Error('Expected an element to leave');
-	element.dispatchEvent(new window.FocusEvent('blur'));
-}
-
-/** The button under `root` whose text is `text`; pass `document` for one a dialog portals out. */
-export function button(root: ParentNode, text: string): HTMLButtonElement {
-	const found = [...root.querySelectorAll('button')].find(
-		(candidate) => candidate.textContent?.trim() === text,
-	);
-	if (found === undefined) throw new Error(`No button reads '${text}'`);
-	return found;
-}
-
-/** Dispatch a click on the button under `root` whose text is `text`. */
-export function click(root: ParentNode, text: string) {
-	button(root, text).dispatchEvent(
-		new window.MouseEvent('click', { bubbles: true }),
-	);
-}

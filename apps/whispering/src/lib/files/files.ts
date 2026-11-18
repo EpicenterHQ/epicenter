@@ -62,7 +62,7 @@ export type Files = {
 	remove(path: string): Promise<Result<undefined, FilesError>>;
 };
 
-export const refused = (message: string) =>
+const refused = (message: string) =>
 	Err<FilesError>({ name: 'Refused', message });
 export const failed = (message: string) =>
 	Err<FilesError>({ name: 'Io', message });

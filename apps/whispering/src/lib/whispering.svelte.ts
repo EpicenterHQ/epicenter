@@ -48,7 +48,7 @@ export type Operation = 'transcription';
 /** What a model must be able to do to be chosen for each operation. */
 export const CAN = { transcription: 'transcribe' } as const;
 
-export type RecorderState =
+type RecorderState =
 	| { readonly phase: 'idle' }
 	| { readonly phase: 'starting' }
 	| { readonly phase: 'recording'; readonly startedAt: number }

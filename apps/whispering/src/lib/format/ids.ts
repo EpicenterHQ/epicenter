@@ -2,13 +2,10 @@
  * Whispering's ids: helpers for naming files.
  *
  * Nothing mints a file's name on its own: every id comes from its caller.
- * These are the two names a caller usually wants. `timeId()` sorts by when
- * it was made, which suits captures and recordings, and `timeOf()` reads
- * that moment back; `nanoid()` is a short random name.
+ * `timeId()` sorts by when it was made, which suits captures and
+ * recordings, and `timeOf()` reads that moment back.
  */
 import { customAlphabet } from 'nanoid';
-
-export { nanoid } from 'nanoid';
 
 /** Lowercase only, so two names never differ by case alone on a case-insensitive disk. */
 const random = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);

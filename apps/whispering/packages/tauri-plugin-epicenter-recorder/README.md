@@ -43,17 +43,6 @@ tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_recorder::init())
 ```
 
-To draw a recording indicator, build it with a listener, which runs on the
-main thread whenever a microphone may have opened or closed:
-
-```rust
-.plugin(
-    tauri_plugin_epicenter_recorder::Builder::new()
-        .on_capturing(|app, capturing| set_tray_icon(app, capturing))
-        .build(),
-)
-```
-
 Give the recording window `epicenter-recorder:default`. It needs no event permission: a meter's levels
 and an ending arrive on the channel the page passes to `open_meter` or
 `start`.
@@ -154,8 +143,7 @@ a stand-in worker.
 Microphone access is the plugin's own (`src/permission.rs`): `open_meter` and
 `start` ask macOS before they resolve a device, for every caller. A person not
 yet asked sees the system prompt; a denial is `PermissionDenied` and nothing
-opens. `inputs` asks for nothing. A meter or a recording counts as an open
-microphone for `on_capturing`.
+opens. `inputs` asks for nothing.
 
 If the page leaves while permission is pending, granting it does not open a
 microphone for that page. Both meter opening and recording start recheck page

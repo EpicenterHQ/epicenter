@@ -15,7 +15,6 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./tauri": "./src/tauri.ts",
 		"./browser": "./src/browser.ts",
 		"./vad-assets": "./src/vad-assets.ts"
 	},

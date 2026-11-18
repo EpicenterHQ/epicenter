@@ -46,7 +46,9 @@ const titleOf = (
 	page: Awaited<ReturnType<typeof open>>,
 	id: string,
 ): string | undefined =>
-	page.query.snapshot()?.recordings.items.find((item) => item.id === id)?.title;
+	page.query.queryClient
+		.getQueryData(page.query.folderQueries.read().queryKey)
+		?.recordings.items.find((item) => item.id === id)?.title;
 
 async function until(check: () => boolean) {
 	for (let turn = 0; turn < 300 && !check(); turn++) await Bun.sleep(2);
@@ -101,8 +103,9 @@ test('a field change over a note changed on disk keeps what the other program wr
 	// The write stayed pending until the folder on screen was read again.
 	expect(titleOf(page, ID)).toBe('Mine');
 	expect(
-		page.query.snapshot()?.recordings.items.find((item) => item.id === ID)
-			?.body,
+		page.query.queryClient
+			.getQueryData(page.query.folderQueries.read().queryKey)
+			?.recordings.items.find((item) => item.id === ID)?.body,
 	).toBe('their notes\n');
 });
 
@@ -124,8 +127,9 @@ test('a body typed over a body changed on disk writes nothing, and the newer tex
 	expect(error?.name).toBe('Changed');
 	expect(await text(files, PATH)).toBe(note('Standup', 'their notes\n'));
 	expect(
-		page.query.snapshot()?.recordings.items.find((item) => item.id === ID)
-			?.body,
+		page.query.queryClient
+			.getQueryData(page.query.folderQueries.read().queryKey)
+			?.recordings.items.find((item) => item.id === ID)?.body,
 	).toBe('their notes\n');
 });
 

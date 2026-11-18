@@ -327,8 +327,8 @@ pub struct StoppedRecording {
 }
 
 /// What the recorder calls when capture ends on its own, with the recording's
-/// id. The plugin supplies it: it marks the recording ended, refreshes the
-/// shell's indicator, and tells the owner. Never called on an audio thread.
+/// id. The plugin supplies it: it marks the recording ended and tells the
+/// owner. Never called on an audio thread.
 pub type OnEnded = Arc<dyn Fn(&str, EndedReason) + Send + Sync>;
 
 /// The one recording the recorder holds: its identity, its owner, and the
@@ -400,8 +400,7 @@ impl Recorder {
     /// The page `owner` showed is gone, by a reload or because the window
     /// closed: finalize what it was recording, which nobody can stop now, and
     /// count the next page.
-    /// Also answers whether it closed any meter, which changes whether a
-    /// microphone is open.
+    /// Also answers whether it closed any meter.
     pub fn page_ended(&mut self, owner: &str) -> (Option<StoppedRecording>, bool) {
         *self.pages.entry(owner.to_string()).or_default() += 1;
         let meters = self.meters.len();
@@ -496,7 +495,7 @@ impl Recorder {
         owner_label: String,
         signals: Channel<RecordingSignal>,
         on_ended: OnEnded,
-    ) -> Result<String> {
+    ) -> Result<()> {
         self.require_free_slot()?;
 
         let host = cpal::default_host();
@@ -613,7 +612,7 @@ impl Recorder {
             "Recording started: id={id}, owner={owner_label}, take={take_id}, device={device_name}, {device_rate} Hz, {device_channels} channels",
         );
         self.active = Some(HeldRecording {
-            id: id.clone(),
+            id,
             owner_label,
             take_id,
             ended_reason: None,
@@ -621,7 +620,7 @@ impl Recorder {
             cmd_tx,
             worker,
         });
-        Ok(id)
+        Ok(())
     }
 
     /// Mark the recording named by `id` as ended because its capture stopped
@@ -712,13 +711,12 @@ impl Recorder {
         Ok(())
     }
 
-    /// Whether a microphone is open right now, by the recording or a meter,
-    /// for the host's tray indicator.
+    /// Whether a microphone is open right now, by the recording or a meter.
     ///
     /// Deliberately not "is the slot occupied". A recording whose capture died
-    /// still holds the slot, but nothing is being captured, and a tray that kept
-    /// claiming otherwise would be lying about the microphone.
-    pub fn is_capturing(&self) -> bool {
+    /// still holds the slot, but nothing is being captured.
+    #[cfg(test)]
+    pub(crate) fn is_capturing(&self) -> bool {
         !self.meters.is_empty() || self.is_recording()
     }
 
@@ -1176,8 +1174,8 @@ impl ChunkSink {
 /// What a live cpal stream error does to the recording it belongs to.
 ///
 /// A stream error used to be logged and nothing else, which left the one
-/// recorder slot occupied, the tray claiming a recording, and the owner window
-/// waiting for audio that would never arrive. Now a terminal error ends the
+/// recorder slot occupied and the owner window waiting for audio that would
+/// never arrive. Now a terminal error ends the
 /// capture, releases the microphone, and tells the owner why, while the
 /// recording itself stays claimable.
 ///

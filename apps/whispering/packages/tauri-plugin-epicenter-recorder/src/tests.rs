@@ -184,11 +184,7 @@ fn start(window: &WebviewWindow<MockRuntime>, id: &str) -> Result<Value, Value> 
 
 /// Whether the fixture's recorder holds a recording that is still capturing.
 fn recording(fixture: &Fixture) -> bool {
-    fixture
-        .app
-        .state::<Recorders<MockRuntime>>()
-        .lock()
-        .is_recording()
+    fixture.app.state::<Recorders>().lock().is_recording()
 }
 
 fn name(refusal: &Value) -> &str {
@@ -235,14 +231,7 @@ fn a_microphone_that_is_not_connected_is_refused_not_replaced() {
         .unwrap_err();
         assert_eq!(name(&refused), "InputUnavailable", "{device}: {refused}");
     }
-    assert_eq!(
-        fixture
-            .app
-            .state::<Recorders<MockRuntime>>()
-            .lock()
-            .open_meters(),
-        0
-    );
+    assert_eq!(fixture.app.state::<Recorders>().lock().open_meters(), 0);
     assert!(takes_in(&fixture.takes).is_empty());
 }
 
@@ -251,7 +240,7 @@ fn a_meter_is_closed_by_its_window_or_with_its_page() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     let other = window(&fixture.app, "other");
-    let recorders = fixture.app.state::<Recorders<MockRuntime>>();
+    let recorders = fixture.app.state::<Recorders>();
     let refused = invoke(&main, "close_meter", json!({ "id": "1" })).unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
 
@@ -313,7 +302,7 @@ fn a_meter_is_closed_by_its_window_or_with_its_page() {
 #[test]
 fn a_meter_that_stopped_on_its_own_is_dropped_and_no_longer_counts_as_open() {
     let fixture = fixture();
-    let recorders = fixture.app.state::<Recorders<MockRuntime>>();
+    let recorders = fixture.app.state::<Recorders>();
     let page = recorders.lock().page("main");
     recorders
         .lock()
@@ -389,11 +378,7 @@ fn permission_granted_after_page_departure_resolves_no_device() {
         // Resolving the deliberately invalid id would answer InputUnavailable.
         // Page ownership must be checked first, without attempting a microphone.
         assert_eq!(name(&refused), "NotRecording", "{command}: {refused}");
-        assert!(!fixture
-            .app
-            .state::<Recorders<MockRuntime>>()
-            .lock()
-            .is_capturing());
+        assert!(!fixture.app.state::<Recorders>().lock().is_capturing());
         assert!(takes_in(&fixture.takes).is_empty());
     }
 }
@@ -401,7 +386,7 @@ fn permission_granted_after_page_departure_resolves_no_device() {
 #[test]
 fn shutdown_closes_meters_and_refuses_a_meter_opened_before_shutdown() {
     let fixture = fixture();
-    let recorders = fixture.app.state::<Recorders<MockRuntime>>();
+    let recorders = fixture.app.state::<Recorders>();
     let mut recorder = recorders.lock();
     let page = recorder.page("main");
     recorder
@@ -447,11 +432,7 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
 
         asked.recv_timeout(Duration::from_secs(5)).unwrap();
         // The exact recorder operation dispatched by the plugin's RunEvent::Exit.
-        fixture
-            .app
-            .state::<Recorders<MockRuntime>>()
-            .lock()
-            .shutdown();
+        fixture.app.state::<Recorders>().lock().shutdown();
         grant.send(()).unwrap();
 
         let refused = calling.join().unwrap().unwrap_err();
@@ -581,7 +562,7 @@ fn takes_in(takes: &std::path::Path) -> Vec<String> {
 }
 
 fn recorders(fixture: &Fixture) -> std::sync::MutexGuard<'_, crate::recorder::Recorder> {
-    fixture.app.state::<Recorders<MockRuntime>>().inner().lock()
+    fixture.app.state::<Recorders>().inner().lock()
 }
 
 /// What the plugin does when a window is destroyed: its page can no longer

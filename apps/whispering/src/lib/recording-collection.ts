@@ -33,7 +33,7 @@ export const STATUS_LABELS: Record<RecordingStatus, string> = {
 };
 const STATUS_ORDER = Object.keys(STATUS_LABELS) as RecordingStatus[];
 
-export type RecordingRow = {
+type RecordingRow = {
 	/** The recording's id: the row's identity in the table and the selection. */
 	readonly id: string;
 	readonly note: RecordingNote;
@@ -68,7 +68,7 @@ function statusOf(whispering: Source, id: string): RecordingStatus {
 }
 
 /** One row for every recording listed, in the list's own order. */
-export function recordingRows(whispering: Source): RecordingRow[] {
+function recordingRows(whispering: Source): RecordingRow[] {
 	return whispering.entries.map((note) => ({
 		id: note.id,
 		note,
@@ -90,7 +90,7 @@ function matches(row: RecordingRow, needle: string): boolean {
 }
 
 /** The rows a search keeps. Notes that need repair are listed apart and never searched out. */
-export function searchRows(
+function searchRows(
 	rows: readonly RecordingRow[],
 	query: string,
 ): RecordingRow[] {
@@ -138,7 +138,7 @@ export function transcriptExcerpt(
  * by id, which no two rows share. A row with no value for the sorted
  * column, such as an unreadable date, comes last either way.
  */
-export function sortRows(
+function sortRows(
 	rows: readonly RecordingRow[],
 	sort: RecordingSort,
 ): RecordingRow[] {
@@ -267,7 +267,7 @@ export function transcriptsToCopy(rows: readonly RecordingRow[]): {
 	};
 }
 
-export type BulkTranscription = {
+type BulkTranscription = {
 	/** Recordings whose transcript was received and saved. */
 	readonly transcribed: string[];
 	/** Recordings that were not sent, with why. */
@@ -324,7 +324,7 @@ export async function transcribeRows(
 	return outcome;
 }
 
-export type CapturedDeletions = {
+type CapturedDeletions = {
 	/** What each deletion would remove, captured as a single deletion is. */
 	readonly deletions: Extract<Deletion, { kind: 'recording' }>[];
 	/** Recordings that cannot be deleted now, with Whispering's own reason. */

@@ -19,7 +19,7 @@
  * Each note's fields are a TypeBox object. A field is required unless it is
  * `Type.Optional`, and a key not declared is kept and never checked.
  */
-import { type Static, type TObject, Type } from 'typebox';
+import { type TObject, Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { lineOf, parseNote } from './note.js';
@@ -79,11 +79,6 @@ export const SETTINGS = {
 } as const;
 
 /** A kind of note with an id. */
-export type NoteKind = keyof typeof NOTES;
-
-/** A note's fields, as `fields` declares them. */
-export type FieldsOf<F extends TObject> = Static<F>;
-
 /** One reason a note does not read: the field it is about (`''` for the note as a whole), and its line when it has one. */
 export type NoteIssue = {
 	readonly field: string;
@@ -96,7 +91,7 @@ export type NoteIssue = {
  * value of the wrong shape, each by field. A nested failure names where in
  * the value it is (`connections/0/name`).
  */
-export function checkFields(
+function checkFields(
 	fields: TObject,
 	values: Readonly<Record<string, unknown>>,
 ): NoteIssue[] {

@@ -3,8 +3,8 @@
 //! The capture stream can die under a live recording: the microphone is
 //! unplugged, macOS revokes microphone access mid-dictation, the audio route
 //! collapses. Before this existed, cpal's error callback only logged, so the
-//! recorder kept its one slot occupied, the tray kept claiming a recording, and
-//! the owning window waited forever for audio that would never arrive.
+//! recorder kept its one slot occupied and the owning window waited forever
+//! for audio that would never arrive.
 //!
 //! What ends is the capture, not the recording. The reason below travels to the
 //! owner so it can say something true about what happened; the audio captured up

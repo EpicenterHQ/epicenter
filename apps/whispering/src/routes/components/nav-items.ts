@@ -24,7 +24,7 @@ export function pageAt(pathname: string): Page {
 	return under(PATHS.recordings, pathname) ? 'recordings' : 'home';
 }
 
-export type NavItem = {
+type NavItem = {
 	label: string;
 	href: string;
 	icon: Component;

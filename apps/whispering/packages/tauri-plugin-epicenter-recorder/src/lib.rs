@@ -31,9 +31,8 @@
 //! There is one recorder per host and at most one recording at a time; a
 //! second `start` from any window is refused `Busy`.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 
-use log::warn;
 use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WindowEvent};
@@ -55,20 +54,15 @@ pub use error::RecorderError;
 
 const PLUGIN_NAME: &str = "epicenter-recorder";
 
-/// Told whether a microphone is open, by a recording or a meter, whenever that
-/// may have changed, on the main thread. A shell draws its indicator from it.
-pub type OnCapturing<R> = Arc<dyn Fn(&AppHandle<R>, bool) + Send + Sync>;
-
-/// The host's one recorder, and how the shell hears that capture changed.
-pub(crate) struct Recorders<R: Runtime> {
+/// The host's one recorder.
+pub(crate) struct Recorders {
     recorder: Mutex<recorder::Recorder>,
-    on_capturing: Option<OnCapturing<R>>,
     /// Asked before any microphone opens: [`permission::ensure_access`],
     /// which tests replace.
     pub(crate) access: fn() -> recorder::Result<()>,
 }
 
-impl<R: Runtime> Recorders<R> {
+impl Recorders {
     pub(crate) fn lock(&self) -> MutexGuard<'_, recorder::Recorder> {
         self.recorder
             .lock()
@@ -77,34 +71,21 @@ impl<R: Runtime> Recorders<R> {
 }
 
 /// Configures the plugin. `init` is `Builder::new().build()`.
-pub struct Builder<R: Runtime> {
-    on_capturing: Option<OnCapturing<R>>,
+pub struct Builder {
     access: fn() -> recorder::Result<()>,
 }
 
-impl<R: Runtime> Default for Builder<R> {
+impl Default for Builder {
     fn default() -> Self {
         Self {
-            on_capturing: None,
             access: permission::ensure_access,
         }
     }
 }
 
-impl<R: Runtime> Builder<R> {
+impl Builder {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Hear whether a microphone is open after every start, stop,
-    /// finalized departure, capture that ended on its own, and meter that
-    /// opened or closed.
-    pub fn on_capturing(
-        mut self,
-        listener: impl Fn(&AppHandle<R>, bool) + Send + Sync + 'static,
-    ) -> Self {
-        self.on_capturing = Some(Arc::new(listener));
-        self
     }
 
     /// Answer microphone access with `access` instead of asking the system,
@@ -115,16 +96,14 @@ impl<R: Runtime> Builder<R> {
         self
     }
 
-    pub fn build(self) -> TauriPlugin<R> {
+    pub fn build<R: Runtime>(self) -> TauriPlugin<R> {
         let handler = specta_builder::<R>().invoke_handler();
-        let on_capturing = self.on_capturing;
         let access = self.access;
         tauri::plugin::Builder::new(PLUGIN_NAME)
             .invoke_handler(handler)
             .setup(move |app, _api| {
                 app.manage(Recorders {
                     recorder: Mutex::new(recorder::Recorder::new()),
-                    on_capturing,
                     access,
                 });
                 Ok(())
@@ -142,7 +121,7 @@ impl<R: Runtime> Builder<R> {
                 } => page_ended(app, label),
                 // Finished, so the take states its length.
                 RunEvent::Exit => {
-                    if let Some(recorders) = app.try_state::<Recorders<R>>() {
+                    if let Some(recorders) = app.try_state::<Recorders>() {
                         recorders.lock().shutdown();
                     }
                 }
@@ -183,56 +162,8 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
 /// roughly that. And the worker never waits on the main thread: it sends
 /// nothing to the page (an ending is reported from a thread of its own).
 fn page_ended<R: Runtime>(app: &AppHandle<R>, window: &str) {
-    let Some(recorders) = app.try_state::<Recorders<R>>() else {
-        return;
-    };
-    let (finalized, meters_closed) = recorders.lock().page_ended(window);
-    if finalized.is_some() || meters_closed {
-        refresh_capturing(app);
-    }
-}
-
-/// Bring the shell's recording indicator up to date with the recorder.
-///
-/// Posted to the main thread, and it reads the recorder there rather than
-/// carrying a flag from here. Both halves are load-bearing.
-///
-/// Reading at apply time is what keeps the indicator honest. Two commands
-/// finishing at once used to hand the tray two booleans that could land in
-/// either order, so a stop's stale `false` could overwrite a start's `true` and
-/// leave the tray asserting something that had stopped being true. A closure
-/// carrying no value cannot be stale.
-///
-/// Posting is what keeps it from deadlocking. A tray's `set_icon` blocks until
-/// the main thread runs it (`run_item_main_thread!` in tauri 2.11), and the main
-/// thread takes the recorder mutex whenever a page ends, so calling the tray
-/// from a thread holding that mutex hangs the pair. Here the closure takes the
-/// mutex on the main thread instead, where tauri runs both the task and
-/// `set_icon` inline (`send_user_message` short-circuits when it is already on
-/// the main thread), so a page-ended handler refreshing the tray does not wait
-/// on itself.
-///
-/// **The caller must have released the recorder lock.** The closure takes it,
-/// and a caller still holding it would stall the main thread until it let go.
-pub(crate) fn refresh_capturing<R: Runtime>(app: &AppHandle<R>) {
-    let has_listener = app
-        .try_state::<Recorders<R>>()
-        .is_some_and(|recorders| recorders.on_capturing.is_some());
-    if !has_listener {
-        return;
-    }
-    let app = app.clone();
-    let posted = app.clone().run_on_main_thread(move || {
-        let Some(recorders) = app.try_state::<Recorders<R>>() else {
-            return;
-        };
-        let capturing = recorders.lock().is_capturing();
-        if let Some(listener) = &recorders.on_capturing {
-            listener(&app, capturing);
-        }
-    });
-    if let Err(error) = posted {
-        warn!("Could not refresh the recording indicator: {error}");
+    if let Some(recorders) = app.try_state::<Recorders>() {
+        recorders.lock().page_ended(window);
     }
 }
 

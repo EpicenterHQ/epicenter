@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::beside::{copy_beside, crosses_devices, rename, sync_directory_of, Mode};
+use crate::beside::{copy_beside, crosses_devices, rename, sync_directory_of};
 use crate::error::{FilesError, Result};
 use crate::path::check_folder;
 
@@ -127,14 +127,14 @@ fn read_dir(directory: &Path) -> Result<Vec<fs::DirEntry>> {
 fn move_entries(from: &Path, to: &Path, names: &[std::ffi::OsString]) -> Result<()> {
     let mut moved: Vec<&std::ffi::OsString> = Vec::new();
     for name in names {
-        match rename(&from.join(name), &to.join(name), Mode::New) {
+        match rename(&from.join(name), &to.join(name)) {
             Ok(()) => moved.push(name),
             Err(error) if crosses_devices(&error) && moved.is_empty() => {
                 return copy_tree(from, to, names)
             }
             Err(error) => {
                 for back in moved.iter().rev() {
-                    if let Err(undo) = rename(&to.join(back), &from.join(back), Mode::New) {
+                    if let Err(undo) = rename(&to.join(back), &from.join(back)) {
                         log::warn!(
                             "{} could not be moved back to {}: {undo}",
                             to.join(back).display(),
@@ -196,7 +196,7 @@ pub(crate) fn copy_tree(from: &Path, to: &Path, names: &[std::ffi::OsString]) ->
         }
         for file in &files {
             let target = to.join(file);
-            copy_beside(&from.join(file), &target, Mode::New)
+            copy_beside(&from.join(file), &target)
                 .map_err(|error| FilesError::from_io(target.display(), &error))?;
             copied.push(target);
         }

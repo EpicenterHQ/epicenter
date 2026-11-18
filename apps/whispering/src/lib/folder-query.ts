@@ -91,9 +91,6 @@ export function createFolderQuery(folder: WhisperingFolder) {
 	// Every write `folderMutations` makes runs in one scope, one at a time, in order.
 	queryClient.setMutationDefaults(['folder'], { scope: { id: 'folder' } });
 
-	/** The folder as last read, or undefined before the first read answers. */
-	const snapshot = () =>
-		queryClient.getQueryData(folderQueries.read().queryKey);
 	/** `settings.md` as last read; no settings before the first read answers. */
 	const settingsNow = (): SettingsSnapshot =>
 		queryClient.getQueryData(settingsQueries.get().queryKey) ?? NO_SETTINGS;
@@ -155,7 +152,6 @@ export function createFolderQuery(folder: WhisperingFolder) {
 		folderQueries,
 		settingsQueries,
 		folderMutations,
-		snapshot,
 		settings,
 	};
 }

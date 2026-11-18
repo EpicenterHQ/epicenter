@@ -9,7 +9,7 @@
  * - An id holds no `.`, `:`, `/` or uppercase random part, so it splits cleanly in `{id}.{ext}`
  */
 import { expect, test } from 'bun:test';
-import { nanoid, timeId, timeOf } from './ids.js';
+import { timeId, timeOf } from './ids.js';
 
 test('timeId sorts by the moment it was made', () => {
 	const moments = [
@@ -29,7 +29,6 @@ test('timeId holds nothing a path segment or {id}.{ext} would split on', () => {
 		expect(id.slice(-9)).toMatch(/^-[0-9a-z]{8}$/);
 	}
 	expect(timeId()).not.toBe(timeId());
-	expect(nanoid()).toHaveLength(21);
 });
 
 test('timeOf reads back the moment a timeId was made, and nothing from another name', () => {
@@ -38,7 +37,7 @@ test('timeOf reads back the moment a timeId was made, and nothing from another n
 	expect(timeOf('2026-10-30T22-41-05-123Z')).toEqual(at);
 	for (const other of [
 		'standup',
-		nanoid(),
+		'V1StGXR8_Z5jdHi6B-myT',
 		'2026-13-40T99-99-99-999Z-k3x9a2f8',
 	])
 		expect(timeOf(other)).toBeUndefined();

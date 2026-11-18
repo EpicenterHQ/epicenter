@@ -16,7 +16,7 @@
  * request while the request itself is built and read as in the app.
  */
 import { customEndpoints, openAi } from '@epicenter/ai';
-import { audioDurationMs, RecorderError } from '@epicenter/recorder';
+import { RecorderError } from '@epicenter/recorder';
 import { QueryObserver } from '@tanstack/query-core';
 import { runMutation, runQuery } from 'wellcrafted/query';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -28,13 +28,15 @@ import { openFolder } from './folder.js';
 import { createFolderQuery } from './folder-query.js';
 import type { WhisperingCapabilities } from './whispering.svelte.js';
 
-export type FixtureAudio = {
+type FixtureAudio = {
 	readonly name: string;
 	readonly bytes: Uint8Array;
+	/** How long it plays, as a recorder's Stop answers it. */
+	readonly durationMs: number;
 };
 
 /** Inputs with no microphone behind them: nothing is listed, and a test is refused. */
-export const NO_INPUTS: CaptureDevice['inputs'] = {
+const NO_INPUTS: CaptureDevice['inputs'] = {
 	listInputs: async () => Ok({ inputs: [] }),
 	openMeter: async () =>
 		RecorderError.Unavailable({ reason: 'no microphone is behind this test' }),
@@ -84,10 +86,7 @@ export function createFixtureDevice({
 					if (written.error !== null)
 						return RecorderError.Failed({ cause: written.error });
 					return Ok({
-						// The fixture's own length when it can be read, not the wait before Stop.
-						durationMs:
-							audioDurationMs(fixture.bytes, ext) ??
-							Math.round(performance.now() - startedAt),
+						durationMs: fixture.durationMs,
 					});
 				},
 			});
@@ -133,7 +132,7 @@ export function toneWav({
 }
 
 /** What the stub endpoint received for one transcription. */
-export type TranscribedRequest = {
+type TranscribedRequest = {
 	readonly model: string;
 	readonly filename: string;
 	readonly bytes: Uint8Array;
@@ -143,7 +142,7 @@ export type TranscribedRequest = {
 export const TEST_BASE_URL = 'http://127.0.0.1:18080/v1';
 
 /** The models a test device has chosen unless a test says otherwise. */
-export const TEST_MODELS = {
+const TEST_MODELS = {
 	transcription: 'verification-model',
 } as const;
 
@@ -360,7 +359,11 @@ export async function openTestServices({
 		capture: createFixtureDevice({
 			files,
 			name: 'tone.wav',
-			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
+			load: async () => ({
+				name: 'tone.wav',
+				bytes: toneWav(),
+				durationMs: 1000,
+			}),
 		}),
 		ai: openAi([connections]),
 		preferences: {

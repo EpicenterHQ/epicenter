@@ -21,10 +21,10 @@ it. Both satisfy the `Recorder` interface, and every page calls it the
 same way:
 
 ```txt
-@epicenter/recorder           the shared vocabulary (Recorder, the types, RecorderError, audioDurationMs) and recorder, chosen when it loads
+@epicenter/recorder           the shared vocabulary (Recorder, the types, RecorderError) and recorder, chosen when it loads
   src/tauri.ts   → in a Tauri window, over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM at recordings/<id>.webm from its first second, and finishes it there at stop
   src/browser.ts → in a browser, over MediaRecorder: pieces kept in memory, written once at recordings/<id>.m4a (or .webm) at stop
-  /browser    → the page's own recorder and VAD, for code that records from the page in both (Vocab's dictation)
+  /browser    → the page's own recorder and voice activity detection, for code that records from the page in both
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
 
@@ -69,13 +69,6 @@ desktop the shell records the take there, in the folder at
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
 | `signal` aborted after the microphone opened | Stopped: the recording is finished and kept | Released; nothing was written |
 | `durationMs` at `stop` | The samples written over the rate, which the file's Duration states too | The recorder's own clock: the time it spent recording, pauses left out |
-
-`audioDurationMs(bytes, ext)` reads how long a `wav`, `m4a`, or `webm`
-plays, from its own bytes (a desktop `webm`'s stated Duration, exact to the
-sample, or the last block of one a crash cut off), so an app can measure
-audio at its path that no `stop` answered a length for: a recording the
-shell finished after its page left, one a crash cut off, one whose `stop`
-answer nobody heard, or an imported file.
 
 AAC in MP4 is asked for first (`audio/mp4;codecs=mp4a.40.2`, saved as `.m4a`),
 then Opus in WebM (`.webm`). The browser recorder reads the page's own
@@ -189,7 +182,6 @@ If you set a non-default `assetBaseUrl`, serve the files at that path instead.
 ## Tests
 
 ```sh
-bun test         # the browser recorder over fakes, the desktop recorder over a stand-in invoke, VAD release,
-                 # and reading the length of real Chromium, WebKit and desktop recordings (src/fixtures/)
+bun test         # the browser recorder over fakes, the desktop recorder over a stand-in invoke, and VAD release
 bun run typecheck
 ```

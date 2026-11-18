@@ -26,7 +26,7 @@ export type Job = 'transcribe';
 export type SettingsFields = Static<typeof SETTINGS.fields>;
 
 /** The global shortcut when `settings.md` names none. */
-export const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+;';
+const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+;';
 
 export const ChoiceError = defineErrors({
 	/** No model is chosen for the job. */

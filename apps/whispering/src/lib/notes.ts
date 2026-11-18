@@ -115,7 +115,7 @@ function textOf(bytes: Uint8Array): string | null {
 }
 
 /** What a note's bytes read as, with `fields`: its fields and body, or why not. */
-export function readNote(
+function readNote(
 	fields: TObject,
 	bytes: Uint8Array,
 ):
@@ -161,7 +161,7 @@ async function writeText(
 }
 
 /** What one note's file holds now: nothing, a note that reads, or one that does not. */
-export type NoteFile<F> =
+type NoteFile<F> =
 	| { readonly kind: 'none' }
 	| { readonly kind: 'note'; readonly fields: F; readonly body: string }
 	| {
@@ -343,5 +343,3 @@ export function createNotes(files: Files) {
 		},
 	};
 }
-
-export type Notes = ReturnType<typeof createNotes>;

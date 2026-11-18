@@ -138,5 +138,3 @@ export function createRuns({
 				: undefined,
 	};
 }
-
-export type Runs = ReturnType<typeof createRuns>;

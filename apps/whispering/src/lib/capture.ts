@@ -31,7 +31,7 @@ export type Capture = {
 };
 
 /** A recording whose capture has finished, its audio at its path (`recordings/<id>.<ext>`). */
-export type StoppedCapture = {
+type StoppedCapture = {
 	/** How long its audio plays. */
 	readonly durationMs: number;
 };

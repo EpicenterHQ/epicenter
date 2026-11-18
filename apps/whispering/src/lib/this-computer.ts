@@ -41,7 +41,7 @@ export function localValue(name: string) {
 export const folderPath = localValue('folder');
 
 /** This computer's secrets, by name. */
-export type Secrets = {
+type Secrets = {
 	/** Where they are kept, as Settings tells the person. */
 	readonly where: 'keychain' | 'browser';
 	/** The secret kept as `name`, or null. Rejects when it cannot be read. */
@@ -75,7 +75,7 @@ const browserSecrets: Secrets = {
 export const secrets: Secrets = isTauri() ? keychain : browserSecrets;
 
 /** A Fetch API function. */
-export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
+type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 /**
  * Tauri's HTTP plugin, loaded with the first request so a browser never
@@ -100,7 +100,7 @@ export const requestFetch: Fetch = isTauri()
 export const previousFolderPath = localValue('previousFolder');
 
 /** What "Change…" did with the folder the person picked. */
-export type FolderChange = 'moved' | 'opened';
+type FolderChange = 'moved' | 'opened';
 
 /**
  * Change the desktop's folder from `from` to `to`, which the folder dialog

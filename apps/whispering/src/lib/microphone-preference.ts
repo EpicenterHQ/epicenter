@@ -22,7 +22,7 @@ export type MicrophonePreferences = {
 };
 
 /** The saved microphone in `text`; throws when it does not read as one. */
-export function savedIn(text: string | null): RecordingInput | undefined {
+function savedIn(text: string | null): RecordingInput | undefined {
 	if (text === null) return undefined;
 	let saved: unknown;
 	try {
