@@ -81,14 +81,6 @@ describe('checkNote', () => {
 		).toMatchObject({ field: 'recordedAt', line: 3 });
 	});
 
-	test('a transformation may name no model, but must say so', () => {
-		const { fields } = NOTES.transformations;
-		expectOk(checkNote(fields, '---\ntitle: "Clean up"\nmodel: null\n---\n'));
-		expect(
-			expectErr(checkNote(fields, '---\ntitle: "Clean up"\n---\n'))[0]?.message,
-		).toBe('model is missing');
-	});
-
 	test('a nested failure in settings.md names where in the value it is, at its line', () => {
 		const issues = expectErr(
 			checkNote(
@@ -155,34 +147,6 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 			},
 		}),
 	);
-	const recipe = timeId();
-	expectOk(
-		await notes.transformations.set({
-			id: recipe,
-			seen: null,
-			changes: { title: 'Clean up', model: null, body: 'Fix punctuation.\n' },
-		}),
-	);
-	const run = {
-		transformationId: recipe,
-		transformationTitle: 'Clean up',
-		createdAt: new Date().toISOString(),
-		model: 'gpt-4o-mini',
-		endpoint: 'https://api.openai.com/v1',
-		prompt: 'Fix punctuation.\n',
-		input: 'um so a steady tone\n',
-		body: 'A steady tone.\n',
-	};
-	expectOk(
-		await notes.transformation_runs.set({
-			id: timeId(),
-			seen: null,
-			changes: { recordingId: id, transcriptionId: transcription, ...run },
-		}),
-	);
-	expectOk(
-		await notes.text_runs.set({ id: timeId(), seen: null, changes: run }),
-	);
 	expectOk(
 		await settings.setConnections({
 			seen: null,
@@ -216,7 +180,7 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 	);
 
 	const paths = outside.paths();
-	expect(paths).toHaveLength(7);
+	expect(paths).toHaveLength(4);
 	expect(paths).toContain(`recordings/${id}.m4a`);
 	for (const path of paths.filter((path) => path.endsWith('.md'))) {
 		const fields =

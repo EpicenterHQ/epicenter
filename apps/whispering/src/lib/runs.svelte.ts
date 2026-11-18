@@ -1,6 +1,6 @@
 /**
  * Requests to an endpoint and the results they make: transcriptions of a
- * recording, and recipe runs on a transcript or on pasted text.
+ * recording.
  *
  * A run sends its request, then saves the answer as a new result note,
  * every field fixed and the answer as its body, through the folder query's
@@ -22,8 +22,8 @@
  * keeps nothing.
  *
  * What a run sends is prepared before it starts (`RunRequest`): the
- * recording's audio file, or the recipe and text as shown, and the target
- * chosen then. Nothing here reads the folder to decide.
+ * recording's audio file and the target chosen then. Nothing here reads
+ * the folder to decide.
  */
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -40,37 +40,17 @@ const describe = (cause: unknown) =>
  */
 const resultBody = (text: string) => (text.endsWith('\n') ? text : `${text}\n`);
 
-/** The fields a result note is created with, besides its id and body. */
-type TranscriptionFields = {
-	recordingId: string;
-	createdAt: string;
-	model: string;
-	endpoint: string;
-};
-type RecipeFields = {
-	transformationId: string;
-	transformationTitle: string;
-	createdAt: string;
-	model: string;
-	endpoint: string;
-	prompt: string;
-	input: string;
-};
-type Fields =
-	| {
-			collection: 'transcriptions';
-			fields: TranscriptionFields;
-			/** The recording's audio file, found when the run was prepared. */
-			audio: AudioFile;
-	  }
-	| {
-			collection: 'transformation_runs';
-			fields: RecipeFields & { recordingId: string; transcriptionId: string };
-	  }
-	| { collection: 'text_runs'; fields: RecipeFields };
-
 /** A request prepared to be sent, every part fixed when it was prepared. */
-export type RunRequest = Fields & {
+export type RunRequest = {
+	/** The fields its transcript is created with, besides its id and body. */
+	readonly fields: {
+		recordingId: string;
+		createdAt: string;
+		model: string;
+		endpoint: string;
+	};
+	/** The recording's audio file, found when the run was prepared. */
+	readonly audio: AudioFile;
 	/** What it runs on, so the same run does not go twice at once. */
 	readonly key: string;
 	/** The id its result note is created under. */
@@ -99,10 +79,6 @@ export type Run = RunRequest & { readonly state: RunState };
 
 type Answer = Result<{ text: string }, { message: string }>;
 
-/** The recording a run is for, or undefined for a run on pasted text. */
-const recordingOf = (run: RunRequest) =>
-	run.collection === 'text_runs' ? undefined : run.fields.recordingId;
-
 const underWayIn = ({ state }: Run) =>
 	state.kind === 'running' || state.kind === 'saving';
 
@@ -110,7 +86,6 @@ export function createRuns({
 	folder,
 	query,
 	transcribe,
-	transform,
 	refused,
 }: {
 	/** Where a recording's audio is read from. */
@@ -122,11 +97,6 @@ export function createRuns({
 		target: Target,
 		audio: () => Promise<Result<Audio, string>>,
 	) => Promise<Answer>;
-	/** Send instructions and a text to `target`. Nothing is written by this. */
-	transform: (
-		target: Target,
-		request: { prompt: string; input: string },
-	) => Promise<Answer>;
 	/** Why nothing new starts now, if it does not. */
 	refused: () => string | undefined;
 }) {
@@ -137,20 +107,16 @@ export function createRuns({
 	/** Ask the endpoint; the answer's text, or why none came. */
 	async function send(request: RunRequest): Promise<Answer> {
 		try {
-			if (request.collection === 'transcriptions') {
-				const { audio } = request;
-				return await transcribe(request.target, async () => {
-					const read = await folder.readAudio(audio);
-					if (read.error !== null) return Err(read.error);
-					return Ok({
-						bytes: read.data.bytes,
-						filename: read.data.name,
-						mimeType: read.data.mimeType,
-					});
+			const { audio } = request;
+			return await transcribe(request.target, async () => {
+				const read = await folder.readAudio(audio);
+				if (read.error !== null) return Err(read.error);
+				return Ok({
+					bytes: read.data.bytes,
+					filename: read.data.name,
+					mimeType: read.data.mimeType,
 				});
-			}
-			const { prompt, input } = request.fields;
-			return await transform(request.target, { prompt, input });
+			});
 		} catch (cause) {
 			return Err({
 				message: `The request could not be made: ${describe(cause)}`,
@@ -161,7 +127,7 @@ export function createRuns({
 	/** Write `text` as `request`'s result note; the run ends when it lands. */
 	async function save(request: RunRequest, text: string) {
 		put(request, { kind: 'saving' });
-		const saved = await query.setNote(request.collection, request.noteId, {
+		const saved = await query.setNote('transcriptions', request.noteId, {
 			...request.fields,
 			body: resultBody(text),
 		});
@@ -220,20 +186,18 @@ export function createRuns({
 		 */
 		busy(recordingId: string): string | undefined {
 			for (const run of runs.values()) {
-				if (recordingOf(run) !== recordingId) continue;
+				if (run.fields.recordingId !== recordingId) continue;
 				if (run.state.kind === 'unsaved')
 					return 'An answer for this recording was not saved. Save it again or discard it, then delete the recording.';
 				if (run.state.kind === 'failed') continue;
-				return run.collection === 'transcriptions'
-					? 'A transcription of this recording is still running. Wait for it to finish, then delete the recording.'
-					: 'A transformation of this recording’s transcript is still running. Wait for it to finish, then delete the recording.';
+				return 'A transcription of this recording is still running. Wait for it to finish, then delete the recording.';
 			}
 			return undefined;
 		},
 		/** Forget the failed runs of a deleted recording. */
 		forgetRecording(recordingId: string) {
 			for (const run of [...runs.values()])
-				if (recordingOf(run) === recordingId && !underWayIn(run))
+				if (run.fields.recordingId === recordingId && !underWayIn(run))
 					runs.delete(run.key);
 		},
 	};

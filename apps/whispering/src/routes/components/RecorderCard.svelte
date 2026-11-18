@@ -5,7 +5,6 @@
 	import { cn } from '@epicenter/ui/utils';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import MicrophoneControl from './MicrophoneControl.svelte';
-	import PostProcessingControl from './PostProcessingControl.svelte';
 	import RecorderClock from './RecorderClock.svelte';
 	import TranscriptionControl from './TranscriptionControl.svelte';
 
@@ -13,7 +12,7 @@
 	 * The home page's recorder: the microphone is the control that starts and
 	 * stops, with one line under it for what is happening, a stopped take
 	 * still being saved included: it reaches the library once its audio is
-	 * placed (on the desktop the shell encodes it after Stop). Three small
+	 * placed (on the desktop the shell encodes it after Stop). Two small
 	 * controls sit at its lower right on wide windows and below the hint on
 	 * narrow ones. While the files cannot be reached (offline, or a sign-in
 	 * that ended) the root's status line says so, and no hint invites a click.
@@ -27,11 +26,11 @@
 	);
 
 	/**
-	 * Which of the three option popovers is open. One value, so opening one
+	 * Which of the two option popovers is open. One value, so opening one
 	 * closes the one before it: nothing is left open behind another, and the
 	 * microphone popover's test or enabling ends when it stops being the one.
 	 */
-	type Option = 'microphone' | 'transcription' | 'post-processing';
+	type Option = 'microphone' | 'transcription';
 	let openOption = $state<Option>();
 	function setOpen(option: Option, open: boolean) {
 		if (open) openOption = option;
@@ -114,7 +113,6 @@
 	>
 		<MicrophoneControl bind:open={() => openOption === 'microphone', (open) => setOpen('microphone', open)} />
 		<TranscriptionControl bind:open={() => openOption === 'transcription', (open) => setOpen('transcription', open)} />
-		<PostProcessingControl bind:open={() => openOption === 'post-processing', (open) => setOpen('post-processing', open)} />
 	</div>
 </div>
 

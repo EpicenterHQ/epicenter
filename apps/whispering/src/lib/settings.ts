@@ -1,6 +1,6 @@
 /**
  * The person's settings: `settings.md` at the top of Whispering's folder
- * (ADR-0894). Its front matter holds the model for each job, each provider
+ * (ADR-0894). Its front matter holds the transcription model, each provider
  * connection without its key, and the desktop's global shortcut, which a
  * browser ignores. It moves and exports with the recordings; Whispering
  * alone reads and writes it.
@@ -24,7 +24,7 @@ import { NoteError, type NoteWriteError, readNote } from './notes.js';
 const SETTINGS_PATH = SETTINGS.path;
 
 /** The jobs a model is chosen for. */
-export type Job = 'transcribe' | 'chat';
+export type Job = 'transcribe';
 
 /** What `settings.md` holds. */
 export type SettingsFields = Static<typeof SETTINGS.fields>;

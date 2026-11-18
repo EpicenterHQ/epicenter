@@ -12,14 +12,13 @@
 	 * Settings: where the recordings are kept, what this page's capabilities
 	 * offer beyond the models (models that transcribe in this app's process,
 	 * a global shortcut; each only where there is one), and the model used
-	 * for transcription and for text, with the connections it reaches them
-	 * through. The choices, connections and shortcut are `settings.md` in
+	 * for transcription, with the connections it reaches it through. The choices, connections and shortcut are `settings.md` in
 	 * the folder; keys stay on this computer. `only` shows one model, as the
 	 * control beside the recorder does.
 	 */
 	let { only }: { only?: Operation } = $props();
 
-	const operations = $derived<Operation[]>(only ? [only] : ['transcription', 'text']);
+	const operations = $derived<Operation[]>(only ? [only] : ['transcription']);
 </script>
 
 <div class="flex flex-col gap-4 text-sm">

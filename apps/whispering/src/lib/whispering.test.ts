@@ -17,8 +17,8 @@
  *   connection was edited or removed since is not sent, and says why
  * - A result is kept when its answer arrives, even if the pages have since
  *   closed
- * - Deleting a recording deletes its transcripts, their results, and its
- *   audio; it is refused while work for it runs or waits to be saved
+ * - Deleting a recording deletes its transcripts and its audio; it is
+ *   refused while work for it runs or waits to be saved
  * - Run again after a failure sends the same request to the same model
  * - A recording is kept when a result for it was saved after the person
  *   confirmed deleting it
@@ -468,46 +468,6 @@ test('a request whose connection was removed since it was prepared is not sent a
 	);
 });
 
-test('a transformation of a transcript, and of pasted text, keeps its result once answered', async () => {
-	const opened = await fixture();
-	const { test, library } = opened;
-	const recording = await record(opened);
-	await eventually(() => library.audioOf(recording.id).kind === 'here');
-	await library.transcribe(recording.id);
-	await eventually(() => library.resultsFor(recording.id).length === 1);
-	const transcript = library.resultsFor(recording.id)[0]!;
-	expect(
-		await library.createTransformation({
-			title: 'Clean up',
-			prompt: 'Fix it.',
-		}),
-	).toBeUndefined();
-	await eventually(() => library.transformations.length === 1);
-	const recipe = library.transformations[0]!;
-
-	expect(await library.transform(transcript.id, recipe.id)).toBeUndefined();
-	expect(
-		await library.transformText(recipe.id, 'pasted words'),
-	).toBeUndefined();
-
-	await eventually(() => library.outputsFor(transcript.id).length === 1);
-	expect(library.outputsFor(transcript.id)[0]).toMatchObject({
-		recordingId: recording.id,
-		transformationTitle: 'Clean up',
-		prompt: 'Fix it.',
-		input: 'um so a steady tone\n',
-		body: 'Transformed: um so a steady tone\n',
-	});
-	await eventually(() => library.textOutputsOf(recipe.id).length === 1);
-	expect(library.textOutputsOf(recipe.id)[0]!.body).toBe(
-		'Transformed: pasted words\n',
-	);
-	expect(test.transformed.map((request) => request.model)).toEqual([
-		'connection-model',
-		'connection-model',
-	]);
-});
-
 test('an answer that arrives after the pages closed is still kept', async () => {
 	const held = deferred<void>();
 	const opened = await fixture({
@@ -534,21 +494,14 @@ test('an answer that arrives after the pages closed is still kept', async () => 
 	expect(await test.outside.read(kept!)).toContain('late but kept\n');
 });
 
-test('deleting a recording deletes its transcripts, their results, and its audio', async () => {
+test('deleting a recording deletes its transcripts and its audio', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	await library.transcribe(recording.id);
-	await eventually(() => library.resultsFor(recording.id).length === 1);
-	await library.createTransformation({
-		title: 'Clean up',
-		prompt: 'Fix it.',
-	});
-	await eventually(() => library.transformations.length === 1);
-	const transcript = library.resultsFor(recording.id)[0]!;
-	await library.transform(transcript.id, library.transformations[0]!.id);
-	await eventually(() => library.outputsFor(transcript.id).length === 1);
+	await library.transcribe(recording.id);
+	await eventually(() => library.resultsFor(recording.id).length === 2);
 
 	const deletion = expectOk(
 		library.deletionFor({ collection: 'recordings', id: recording.id }),
@@ -561,11 +514,7 @@ test('deleting a recording deletes its transcripts, their results, and its audio
 	expect(await library.delete(deletion)).toBeUndefined();
 
 	await eventually(() => library.entries.length === 0);
-	expect(test.outside.paths()).toEqual([
-		'settings.md',
-		// The recipe stays; a recording owns none.
-		`transformations/${library.transformations[0]!.id}.md`,
-	]);
+	expect(test.outside.paths()).toEqual(['settings.md']);
 });
 
 test('a recording is kept when a result for it was saved after the person was asked', async () => {

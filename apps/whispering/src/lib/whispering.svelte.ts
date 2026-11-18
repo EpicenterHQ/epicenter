@@ -15,9 +15,9 @@
  *
  * The models are the page's one merge of endpoints (`ai`, ADR-0757): the
  * connections the person saved, then what runs on this computer, each
- * followed as it changes. The person chooses one model for transcription
- * and one for text, in `settings.md`; a request captures that choice when
- * it is prepared and goes there alone (`inference.ts`).
+ * followed as it changes. The person chooses one model for transcription,
+ * in `settings.md`; a request captures that choice when it is prepared and
+ * goes there alone (`inference.ts`).
  *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
@@ -33,23 +33,21 @@ import {
 	addressOf,
 	type Target,
 	transcribeAt,
-	transformAt,
 } from './inference.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { MicrophonePreferences } from './microphone-preference.js';
 import { reactive } from './reactive.js';
-import {
-	type Chosen,
-	type RecipeRow,
-	type ResolvedRecipe,
-	resolveRecipe,
-} from './recipe.js';
 
-/** What a model is chosen for: transcribing a recording, or running a transformation on text. */
-export type Operation = 'transcription' | 'text';
+/** What a model is chosen for: transcribing a recording. */
+export type Operation = 'transcription';
 
 /** What a model must be able to do to be chosen for each operation. */
-export const CAN = { transcription: 'transcribe', text: 'chat' } as const;
+export const CAN = { transcription: 'transcribe' } as const;
+
+/** The model chosen for an operation now, as a target, or why there is none. */
+export type Chosen =
+	| { readonly kind: 'ready'; readonly target: Target }
+	| { readonly kind: 'unset'; readonly reason: string };
 
 export type RecorderState =
 	| { readonly phase: 'idle' }
@@ -115,9 +113,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			return {
 				kind: 'unset',
 				reason:
-					operation === 'transcription'
-						? 'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.'
-						: 'Choose a text model in Settings to run this.',
+					'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.',
 			};
 		const endpoint = ai
 			.endpoints()
@@ -138,10 +134,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		return { kind: 'ready', target };
 	}
 
-	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
-		return resolveRecipe(recipe, chosen('text'));
-	}
-
 	/** Choose the model `operation` uses from now on. Nothing is sent. */
 	async function choose(
 		operation: Operation,
@@ -158,12 +150,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		target: Target,
 		audio: () => Promise<Result<Audio, string>>,
 	) => transcribeAt(() => ai, target, audio);
-
-	/** Send a transformation to `target`, through the endpoints merged when it is sent. */
-	const transform = (
-		target: Target,
-		request: { prompt: string; input: string },
-	) => transformAt(() => ai, target, request);
 
 	/** A capture under way, writing recording `id`'s audio. */
 	type Take = { id: string; capture: Capture };
@@ -292,14 +278,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		},
 		choose,
 		chosen,
-		/**
-		 * Whether a recipe can run now, and with what: the one decision the Run
-		 * button, the post-processing choice, a transcript's menu, and the run
-		 * itself all use. Undefined is a recipe whose note does not read.
-		 */
-		resolve,
 		transcribe,
-		transform,
 		/** Why nothing new starts now, if it does not: Whispering is closing. */
 		refused,
 		/** The microphone the next recording uses, and the test of it. */

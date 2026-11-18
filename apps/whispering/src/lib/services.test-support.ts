@@ -139,20 +139,12 @@ export type TranscribedRequest = {
 	readonly bytes: Uint8Array;
 };
 
-/** What the stub endpoint received for one transformation. */
-export type TransformedRequest = {
-	readonly model: string;
-	readonly prompt: string;
-	readonly input: string;
-};
-
 /** The base URL the stub endpoint answers at. */
 export const TEST_BASE_URL = 'http://127.0.0.1:18080/v1';
 
 /** The models a test device has chosen unless a test says otherwise. */
 export const TEST_MODELS = {
 	transcription: 'verification-model',
-	text: 'connection-model',
 } as const;
 
 /** An answer as a stub gives it: the text, or why it failed. */
@@ -161,22 +153,7 @@ type StubAnswer = Result<{ text: string }, { message: string }>;
 export type TestServicesOptions = {
 	/** How the endpoint answers a transcription; by default a fixed transcript. */
 	transcribe?: (request: TranscribedRequest) => Promise<StubAnswer>;
-	/** How the endpoint answers a transformation; by default the input, marked. */
-	transform?: (request: TransformedRequest) => Promise<StubAnswer>;
 };
-
-/** A chat completion streamed as server-sent events, as an OpenAI endpoint sends one. */
-function streamed(text: string): Response {
-	const events = [
-		{ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] },
-		{ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
-	]
-		.map((event) => `data: ${JSON.stringify(event)}\n\n`)
-		.join('');
-	return new Response(`${events}data: [DONE]\n\n`, {
-		headers: { 'content-type': 'text/event-stream' },
-	});
-}
 
 /** A refusal in the OpenAI error shape. */
 const refused = (message: string) =>
@@ -310,18 +287,16 @@ export function testFiles() {
 /**
  * Whispering's files in memory, and capabilities whose one endpoint is a
  * connection saved in `settings.md` and answered by a stub `fetch`, chosen
- * for transcription and for text. Nothing reaches a network.
+ * for transcription. Nothing reaches a network.
  */
 export async function openTestServices({
 	transcribe,
-	transform,
 }: TestServicesOptions = {}) {
 	const { files, outside } = testFiles();
 	// The settings as the app reads them: its folder's `settings.md`.
 	const page = await openPage(files);
 	const { settings } = page.query;
 
-	const transformed: TransformedRequest[] = [];
 	const transcribed: TranscribedRequest[] = [];
 
 	/** The stub endpoint: every request a saved connection sends arrives here. */
@@ -346,28 +321,10 @@ export async function openTestServices({
 				? refused(answer.error.message)
 				: Response.json({ text: answer.data.text });
 		}
-		if (path === 'chat/completions') {
-			const body = (await request.json()) as {
-				model: string;
-				messages: { content: string }[];
-			};
-			const received = {
-				model: body.model,
-				prompt: body.messages[0]!.content,
-				input: body.messages[1]!.content,
-			};
-			transformed.push(received);
-			const answer = transform
-				? await transform(received)
-				: Ok({ text: `Transformed: ${received.input.trim()}` });
-			return answer.error !== null
-				? refused(answer.error.message)
-				: streamed(answer.data.text);
-		}
 		return new Response('Not found', { status: 404 });
 	}
 
-	// One saved connection, answered by the stub, chosen for both jobs.
+	// One saved connection, answered by the stub, chosen for transcription.
 	const keys = new Map<string, string>();
 	const connections = customEndpoints({
 		store: settings.connections,
@@ -383,16 +340,14 @@ export async function openTestServices({
 	const connectionId = await connections.add({
 		name: 'Test endpoint',
 		baseUrl: TEST_BASE_URL,
-		models: [TEST_MODELS.transcription, TEST_MODELS.text],
+		models: [TEST_MODELS.transcription],
 	});
 	const { choices } = settings;
-	for (const [job, model] of [
-		['transcribe', TEST_MODELS.transcription],
-		['chat', TEST_MODELS.text],
-	] as const) {
-		const chosen = await choices.set(job, { endpoint: connectionId, model });
-		if (chosen.error !== null) throw chosen.error;
-	}
+	const chosen = await choices.set('transcribe', {
+		endpoint: connectionId,
+		model: TEST_MODELS.transcription,
+	});
+	if (chosen.error !== null) throw chosen.error;
 
 	const services: TestCapabilities = {
 		capture: createFixtureDevice({
@@ -414,8 +369,6 @@ export async function openTestServices({
 		/** The same files as another program writes, reads, and refuses them. */
 		outside,
 		services,
-		/** Every transformation request the endpoint stub received, in order. */
-		transformed,
 		/** Every transcription request the endpoint stub received, with the audio it carried. */
 		transcribed,
 		/** The saved connections, and the id of the one the stub answers. */

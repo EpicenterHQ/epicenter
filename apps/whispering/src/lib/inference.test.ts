@@ -1,14 +1,12 @@
 /**
  * Inference Request Tests
  *
- * The two requests Whispering makes, through the endpoints merged at the
+ * The request Whispering makes, through the endpoints merged at the
  * moment each is sent: a stub `fetch` stands where the network would be, so
  * no socket, provider, or key leaves the test.
  *
  * Key behaviors:
- * - A transcription uploads the audio with the target's model; a
- *   transformation sends its instructions as the system message and the text,
- *   unchanged, as the user message, and reads the streamed answer whole
+ * - A transcription uploads the audio with the target's model
  * - A request goes only to the endpoint it was prepared for: one removed or
  *   moved since, even while the audio was read, is not sent anywhere
  * - A refusal before sending says nothing was sent; an endpoint that never
@@ -23,7 +21,6 @@ import {
 	type CurrentAi,
 	type Target,
 	transcribeAt,
-	transformAt,
 } from './inference.js';
 
 const KEY = 'sk-local-test-key';
@@ -51,7 +48,7 @@ function provider(
 			});
 			return respond(request);
 		},
-		models: ['whisper-1', 'chat-model'],
+		models: ['whisper-1'],
 	});
 	return { endpoint, seen };
 }
@@ -65,16 +62,6 @@ const targetOf = (
 	model,
 	name: endpoint.name,
 	address: addressOf(endpoint),
-});
-
-const streamed = (...parts: unknown[]) =>
-	new Response(
-		`${parts.map((part) => `data: ${JSON.stringify(part)}\n\n`).join('')}data: [DONE]\n\n`,
-		{ headers: { 'content-type': 'text/event-stream' } },
-	);
-
-const delta = (content: string, finish: string | null = null) => ({
-	choices: [{ index: 0, delta: { content }, finish_reason: finish }],
 });
 
 const audio = async () =>
@@ -104,27 +91,6 @@ test('a transcription uploads the audio with the target’s model and reads the 
 	);
 });
 
-test('a transformation sends its instructions and the text unchanged, and reads the streamed answer whole', async () => {
-	const { endpoint, seen } = provider(() =>
-		streamed(delta('A steady '), delta('tone.', 'stop')),
-	);
-	const ai = openAi([endpoint]);
-	const answer = expectOk(
-		await transformAt(() => ai, targetOf(endpoint, 'chat-model'), {
-			prompt: 'Fix the punctuation.',
-			input: 'um so a steady tone',
-		}),
-	);
-	expect(answer).toEqual({ text: 'A steady tone.' });
-	expect(seen[0]?.url).toBe(`${BASE_URL}/chat/completions`);
-	const body = (await seen[0]!.request.json()) as Record<string, unknown>;
-	expect(body.model).toBe('chat-model');
-	expect(body.messages).toEqual([
-		{ role: 'system', content: 'Fix the punctuation.' },
-		{ role: 'user', content: 'um so a steady tone' },
-	]);
-});
-
 test('an endpoint removed or moved since the request was prepared is not sent anywhere', async () => {
 	const { endpoint, seen } = provider(() => Response.json({ text: 'no' }));
 	const target = targetOf(endpoint, 'whisper-1');
@@ -137,10 +103,7 @@ test('an endpoint removed or moved since the request was prepared is not sent an
 		baseUrl: 'https://elsewhere.test/v1',
 	});
 	const changed = expectErr(
-		await transformAt(() => openAi([moved.endpoint]), target, {
-			prompt: 'p',
-			input: 'i',
-		}),
+		await transcribeAt(() => openAi([moved.endpoint]), target, audio),
 	);
 	expect(changed.name).toBe('EndpointMoved');
 	expect(changed.message).toContain(
@@ -190,10 +153,10 @@ test('a refusal before sending says nothing was sent; no answer leaves the outco
 		throw new TypeError(`connection reset (authorization ${KEY})`);
 	});
 	const unknown = expectErr(
-		await transformAt(
+		await transcribeAt(
 			() => openAi([silent.endpoint]),
-			targetOf(silent.endpoint, 'chat-model'),
-			{ prompt: 'p', input: 'i' },
+			targetOf(silent.endpoint, 'whisper-1'),
+			audio,
 		),
 	);
 	expect(unknown.name).toBe('OutcomeUnknown');
@@ -205,7 +168,7 @@ test('a refusal before sending says nothing was sent; no answer leaves the outco
 	);
 });
 
-test('a refusal, an error mid-answer, and an empty answer each say so, and none carries the key', async () => {
+test('a refusal says so, and does not carry the key', async () => {
 	const refusing = provider(() =>
 		Response.json(
 			{ error: { message: `Incorrect API key provided: ${KEY}` } },
@@ -222,28 +185,4 @@ test('a refusal, an error mid-answer, and an empty answer each say so, and none 
 	expect(rejected.name).toBe('Rejected');
 	expect(rejected.message).toContain('Provider answered 401');
 	expect(JSON.stringify(rejected)).not.toContain(KEY);
-
-	const failing = provider(() =>
-		streamed(delta('half'), { error: { message: 'overloaded' } }),
-	);
-	const failed = expectErr(
-		await transformAt(
-			() => openAi([failing.endpoint]),
-			targetOf(failing.endpoint, 'chat-model'),
-			{ prompt: 'p', input: 'i' },
-		),
-	);
-	expect(failed.name).toBe('Failed');
-	expect(failed.message).toContain('overloaded');
-
-	const empty = provider(() => streamed(delta('  ', 'stop')));
-	expect(
-		expectErr(
-			await transformAt(
-				() => openAi([empty.endpoint]),
-				targetOf(empty.endpoint, 'chat-model'),
-				{ prompt: 'p', input: 'i' },
-			),
-		).name,
-	).toBe('Empty');
 });

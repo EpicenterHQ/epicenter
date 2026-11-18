@@ -385,7 +385,7 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 	const removed = [
 		count(deletions.length, 'recording', 'recordings'),
 		'their audio',
-		...(results > 0 ? [count(results, 'result', 'results')] : []),
+		...(results > 0 ? [count(results, 'transcript', 'transcripts')] : []),
 	];
 	const names = deletions.map((item) => `“${item.title}”`).join(', ');
 	return {

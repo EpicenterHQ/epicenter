@@ -27,10 +27,6 @@ export async function createTestWhispering({
 		library.entries,
 		library.repairs,
 		library.transcriptions,
-		library.transformations,
-		library.transformationRepairs,
-		library.textRepairs,
-		library.recipeRuns,
 		library.entries.map((note) => library.audioOf(note.id)),
 		library.entries.map((note) => library.transcriptionRun(note.id)),
 	]);

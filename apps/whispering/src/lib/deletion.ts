@@ -2,13 +2,10 @@
  * Deleting: capture what a deletion removes from what the lists show, tell
  * the person exactly that, and delete those files.
  *
- * Deleting a recording removes its note, its audio, its transcripts, and the
- * results made from them, in Whispering's files. It is refused while a
- * request for it runs or a result of it is being kept, and while a result
- * does not read, since it might be this recording's. A result on pasted
- * text names no recording and is never part of one. Deleting a
- * transformation keeps the results it made, each of which carries the
- * prompt it used.
+ * Deleting a recording removes its note, its audio, and its transcripts, in
+ * Whispering's files. It is refused while a request for it runs or a
+ * transcript of it is being kept, and while a transcript does not read,
+ * since it might be this recording's.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -33,18 +30,11 @@ export type Deletion =
 			readonly noted: boolean;
 			/** Its audio file, when one is listed. */
 			readonly audio: string | undefined;
-			/** Its transcripts, then the results made from them. */
+			/** Its transcripts. */
 			readonly results: readonly NoteRef[];
 	  }
 	| {
-			readonly kind: 'transformation';
-			readonly id: string;
-			readonly title: string;
-			/** How many saved results name it. They are kept. */
-			readonly results: number;
-	  }
-	| {
-			/** One result: a transcript, or a transformation's result. */
+			/** One transcript. */
 			readonly kind: 'result';
 			readonly note: NoteRef;
 	  }
@@ -63,13 +53,11 @@ export const recordingDeleted = (deletion: Deletion) =>
 			? deletion.note.id
 			: undefined;
 
-/** The note a deletion is of: a recording, a transformation, or one note. */
+/** The note a deletion is of: a recording, or one note. */
 export const deletedNote = (deletion: Deletion): NoteRef =>
 	deletion.kind === 'recording'
 		? { collection: 'recordings', id: deletion.id }
-		: deletion.kind === 'transformation'
-			? { collection: 'transformations', id: deletion.id }
-			: deletion.note;
+		: deletion.note;
 
 /** Where a recording's audio file is, as the person is told it. */
 function audioPath(id: string, audio: RecordingAudio) {
@@ -81,33 +69,23 @@ function audioPath(id: string, audio: RecordingAudio) {
 }
 
 /**
- * Every result naming recording `id`: transcripts, then transformation
- * results. Refused while any result does not read, since it might be this
- * recording's.
+ * Every transcript naming recording `id`. Refused while any transcript
+ * does not read, since it might be this recording's.
  */
 function resultsOf(
 	snapshot: FolderSnapshot,
 	id: string,
 ): Result<NoteRef[], string> {
-	const unknown = [
-		...snapshot.transcriptions.invalid,
-		...snapshot.transformation_runs.invalid,
-	].map((note) => note.path);
+	const unknown = snapshot.transcriptions.invalid.map((note) => note.path);
 	if (unknown.length > 0)
 		return Err(
-			`Some results cannot be told apart from this recording’s, because they do not read: ${unknown.join(', ')}. Repair or delete them first, so none is left naming a recording that is gone.`,
+			`Some transcripts cannot be told apart from this recording’s, because they do not read: ${unknown.join(', ')}. Repair or delete them first, so none is left naming a recording that is gone.`,
 		);
-	return Ok([
-		...snapshot.transcriptions.items
+	return Ok(
+		snapshot.transcriptions.items
 			.filter((note) => note.recordingId === id)
 			.map((note) => ({ collection: 'transcriptions' as const, id: note.id })),
-		...snapshot.transformation_runs.items
-			.filter((note) => note.recordingId === id)
-			.map((note) => ({
-				collection: 'transformation_runs' as const,
-				id: note.id,
-			})),
-	]);
+	);
 }
 
 /**
@@ -159,23 +137,6 @@ export function captureDeletion(
 				title: titleOf(recording),
 				noted: noted !== undefined,
 				audio: audioPath(note.id, audioOf(snapshot, note.id)),
-				results,
-			});
-		}
-		case 'transformations': {
-			const recipe = snapshot.transformations.items.find(
-				(item) => item.id === note.id,
-			);
-			if (recipe === undefined)
-				return Err('This transformation is no longer listed.');
-			const results = [
-				...snapshot.transformation_runs.items,
-				...snapshot.text_runs.items,
-			].filter((run) => run.transformationId === note.id).length;
-			return Ok({
-				kind: 'transformation',
-				id: note.id,
-				title: titleOf(recipe),
 				results,
 			});
 		}
@@ -234,7 +195,7 @@ export function describeDeletion(deletion: Deletion): {
 				...(deletion.noted ? ['its note'] : []),
 				...(deletion.audio ? [`its audio (${deletion.audio})`] : []),
 				...(deletion.results.length > 0
-					? [count(deletion.results.length, 'result', 'results')]
+					? [count(deletion.results.length, 'transcript', 'transcripts')]
 					: []),
 			];
 			return {
@@ -242,28 +203,10 @@ export function describeDeletion(deletion: Deletion): {
 				description: `This deletes ${removed.join(', ')}.`,
 			};
 		}
-		case 'transformation':
-			return {
-				title: `Delete the transformation “${deletion.title}”?`,
-				description: `This deletes transformations/${deletion.id}.md. ${
-					deletion.results > 0
-						? `Its ${count(deletion.results, 'saved result stays', 'saved results stay')}, each with the prompt it used.`
-						: 'It has no saved results.'
-				}`,
-			};
 		case 'result':
 			return {
-				title:
-					deletion.note.collection === 'transcriptions'
-						? 'Delete this transcript?'
-						: 'Delete this result?',
-				description: `This deletes ${notePath(deletion.note)}.${
-					deletion.note.collection === 'transformation_runs'
-						? ' The transcript it was made from is not changed.'
-						: deletion.note.collection === 'transcriptions'
-							? ' Results made from it are kept.'
-							: ''
-				}`,
+				title: 'Delete this transcript?',
+				description: `This deletes ${notePath(deletion.note)}.`,
 			};
 		case 'invalid':
 			return {

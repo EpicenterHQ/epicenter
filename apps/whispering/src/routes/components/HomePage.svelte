@@ -3,10 +3,8 @@
 	import * as SectionHeader from '@epicenter/ui/section-header';
 	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
 	import { pathOf } from './nav-items.js';
-	import { transformationName } from '$lib/post-processing.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
@@ -14,7 +12,6 @@
 	import { copyText, formatTime, titleOf } from './file-actions.js';
 	import RecorderCard from './RecorderCard.svelte';
 	import RunStatus from './RunStatus.svelte';
-	import TransformationOutput from './TransformationOutput.svelte';
 
 	const whispering = getWhispering();
 	const library = getLibrary();
@@ -29,22 +26,6 @@
 	const run = $derived(latest ? library.transcriptionRun(latest.id) : undefined);
 	const transcribing = $derived(run?.state.kind === 'running' || run?.state.kind === 'saving');
 	const model = $derived(whispering.choice('transcription')?.model);
-
-	/** The transformation chosen beside the recorder, as the lists and the text model have it now. */
-	const postProcessing = $derived(library.postProcessing);
-	/** Whether a transformation of the newest transcript is under way. Its result shows below once kept. */
-	const postRunning = $derived(
-		transcript !== undefined && library.runsOn(transcript.id).some((item) => item.state.kind === 'running'),
-	);
-	const postRuns = $derived(transcript ? library.runsOn(transcript.id).filter((item) => item.state.kind !== 'running') : []);
-	const outputs = $derived(transcript ? library.outputsFor(transcript.id) : []);
-
-	/** Run the chosen transformation on the latest transcript. This press is the only thing that sends it. */
-	async function runPostProcessing() {
-		if (transcript === undefined || postProcessing.kind !== 'ready') return;
-		const problem = await library.transform(transcript.id, postProcessing.entry.id);
-		if (problem) toast.error('Post-processing did not run', { description: problem });
-	}
 
 	async function transcribe(id: string) {
 		const problem = await library.transcribe(id);
@@ -93,44 +74,6 @@
 							Copy
 						</Button>
 					</div>
-
-					<!-- Post-processing never starts by itself. The transcript above is not changed by it: a result is its own file. -->
-					{#if postProcessing.kind === 'ready'}
-						{@const chosen = whispering.resolve(postProcessing.entry)}
-						{@const name = transformationName(postProcessing.entry)}
-						<div class="flex flex-wrap items-center gap-2 text-sm">
-							<!-- The visible label stays short: a title can be longer than a narrow window. The name is in the accessible label, and where it goes is in the line beside it. -->
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={!transcript.body.trim() || postRunning}
-								aria-label="Run post-processing: {name}"
-								onclick={() => void runPostProcessing()}
-								data-testid="run-post-processing"
-							>
-								{#if postRunning}<Spinner class="size-3.5" />{:else}<WandSparklesIcon />{/if}
-								Run post-processing
-							</Button>
-							<span class="text-xs text-muted-foreground">{chosen.kind === 'ready' ? `Sends this transcript to ${chosen.target.model} at ${chosen.target.name}, only when you press it.` : 'Nothing is sent until you press it.'}</span>
-						</div>
-					{:else if postProcessing.kind !== 'none'}
-						<p class="text-sm break-words text-warning" role="status" data-testid="post-processing-unavailable">
-							{postProcessing.kind === 'missing'
-								? 'The transformation chosen for post-processing is no longer listed. Choose another beside the recorder.'
-								: `“${transformationName(postProcessing.entry)}” cannot run: ${postProcessing.reason}`}
-						</p>
-					{/if}
-					{#each postRuns as postRun (postRun.key)}
-						<RunStatus run={postRun} />
-					{/each}
-					{#if outputs[0]}
-						<TransformationOutput output={{ source: 'transcript', note: outputs[0] }} naming="transformation" />
-						{#if outputs.length > 1}
-							<p class="text-xs text-muted-foreground">
-								{outputs.length - 1 === 1 ? '1 earlier result is' : `${outputs.length - 1} earlier results are`} on the recording’s page.
-							</p>
-						{/if}
-					{/if}
 				{:else if audio?.kind === 'here' && !(run && run.state.kind !== 'running')}
 					<p class="text-sm text-muted-foreground">
 						{#if transcribing}

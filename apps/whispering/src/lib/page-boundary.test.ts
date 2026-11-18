@@ -172,12 +172,10 @@ test('the app group has every page, and every page reads its library from contex
 	expect(pages.map((file) => file.path).sort()).toEqual([
 		'routes/(app)/+page.svelte',
 		'routes/(app)/recordings/+page.svelte',
-		'routes/(app)/transformations/+page.svelte',
 	]);
 	const bodies = {
 		'+page.svelte': 'HomePage',
 		'recordings/+page.svelte': 'RecordingsPage',
-		'transformations/+page.svelte': 'TransformationsPage',
 	} as const;
 	for (const [page, body] of Object.entries(bodies)) {
 		expect(

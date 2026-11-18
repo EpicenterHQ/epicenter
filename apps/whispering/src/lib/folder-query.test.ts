@@ -128,17 +128,27 @@ test('writes to one kind run one at a time in the order made, and another kind d
 		seen: seen(OTHER),
 		changes: { title: 'Second' },
 	});
-	const recipe = runMutation(queryClient, noteMutations.transformations.set, {
-		id: 'clean-up',
-		seen: null,
-		changes: { title: 'Clean up', model: null, body: 'Fix punctuation.\n' },
-	});
-	expectOk(await recipe);
+	const transcript = runMutation(
+		queryClient,
+		noteMutations.transcriptions.set,
+		{
+			id: 'tx1',
+			seen: null,
+			changes: {
+				recordingId: ID,
+				createdAt: '2026-11-01T09:01:00.000Z',
+				model: 'whisper-1',
+				endpoint: 'stub',
+				body: 'a steady tone\n',
+			},
+		},
+	);
+	expectOk(await transcript);
 
 	// The first write is held; the second has not even read its note.
 	expect(events).toContain(`write ${PATH}`);
 	expect(events).not.toContain(`read recordings/${OTHER}.md`);
-	expect(events).toContain('write transformations/clean-up.md');
+	expect(events).toContain('write transcriptions/tx1.md');
 
 	held.open();
 	expectOk(await first);

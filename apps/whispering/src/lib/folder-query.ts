@@ -89,12 +89,6 @@ export function createFolderQuery(folder: WhisperingFolder) {
 	const noteMutations = {
 		recordings: noteMutationsOf('recordings', notes.recordings),
 		transcriptions: noteMutationsOf('transcriptions', notes.transcriptions),
-		transformations: noteMutationsOf('transformations', notes.transformations),
-		transformation_runs: noteMutationsOf(
-			'transformation_runs',
-			notes.transformation_runs,
-		),
-		text_runs: noteMutationsOf('text_runs', notes.text_runs),
 	};
 
 	const settingsMutations = inScope(

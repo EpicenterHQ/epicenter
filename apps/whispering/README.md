@@ -1,11 +1,10 @@
 <h1 align="center">Whispering</h1>
-<p align="center">Record, transcribe, transform, and keep it all as files.</p>
+<p align="center">Record, transcribe, and keep it all as files.</p>
 
 Whispering is an app for voice notes. It records audio, transcribes it with
-an OpenAI-compatible endpoint you choose, turns a transcript into another
-text with instructions you write, and keeps every recording, transcript,
-instruction, and result as an ordinary file on your own device. It needs no
-account and no server.
+an OpenAI-compatible endpoint you choose, and keeps every recording and
+transcript as an ordinary file on your own device. It needs no account and
+no server.
 
 Each note is Markdown with its fields in front matter, one `key: <JSON>`
 line each. `src/lib/format/folder.ts` declares the paths and each note's
@@ -16,10 +15,7 @@ fields. Any program that writes this layout is a valid writer.
 | `recordings/<id>.md` | A recording: `title`, `recordedAt`, `durationMs` in front matter, your notes in the body. |
 | `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from the desktop app. Audio with no note lists as an untitled recording. |
 | `transcriptions/<id>.md` | A transcript: the `recordingId` it was made from, `createdAt`, `model`, `endpoint`; the transcript is the body. |
-| `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text model chosen in Settings); its instructions are the body. |
-| `transformation_runs/<id>.md` | A transformation applied to a transcript: what it came from, when, the model and endpoint, and the exact `prompt` and `input` sent; the answer is the body. |
-| `text_runs/<id>.md` | The same, applied to pasted text; it names no recording. |
-| `settings.md` | Your settings: the model for each job, your connections (never their keys), and the desktop app's global shortcut (absent: `CommandOrControl+Shift+;`). |
+| `settings.md` | Your settings: the transcription model, your connections (never their keys), and the desktop app's global shortcut (absent: `CommandOrControl+Shift+;`). |
 
 An id is when the file was made plus a random suffix (`timeId()`). A file's
 id is its identity: renaming a recording changes its `title`, never its path,
@@ -78,10 +74,9 @@ already saved.
 | --- | --- | --- |
 | Home | `/` | The recorder, and the newest recording with its transcript. |
 | Recordings | `/recordings` | Search, sort, and select recordings; play, transcribe, and edit beside the table. |
-| Transformations | `/transformations` | The instructions you apply to transcripts or pasted text, and their results. |
 
 The header has a recorder control on every page but Home, and Settings
-(the transcription and text models, their connections, the folder, and on
+(the transcription model, its connections, the folder, and on
 the desktop the shortcut and transcription in the app).
 
 ### Recording
@@ -108,17 +103,16 @@ newest transcripts, or delete them. A search keeps hidden ticks; actions use
 only the ticked rows shown.
 
 A recording's details hold its player, its transcripts (each edited where it
-is read, with Copy, Transform, and Delete), its notes, and File details:
+is read, with Copy and Delete), its notes, and File details:
 where it is kept, which files it has, and when it was made. The title and
 every text save as you type. A save that fails keeps what you typed and says
 why, with Try again and Discard changes; one refused because the note
 changed elsewhere offers Keep mine and Show the newer text. Leaving the page
 with unsaved typing asks first.
 
-Deleting a recording deletes its note, its audio, its transcripts, and the
-results made from them. It is refused while a request for
-it runs or its answer waits to be saved again, and while a transcript or
-result does not read (it might be this recording's). A result on pasted text is never deleted with a recording.
+Deleting a recording deletes its note, its audio, and its transcripts. It
+is refused while a request for it runs or its answer waits to be saved
+again, and while a transcript does not read (it might be this recording's).
 
 ### Transcription
 
@@ -132,28 +126,9 @@ was) and
 be saved, the answer stays on screen with **Save again**, which writes it
 without a second request, and **Discard answer**.
 
-### Transformations
-
-A transformation is a title and instructions you reuse: clean up dictation,
-summarize, draft an email. **New** offers three starters and an empty one;
-nothing is created until you choose. Where a run is sent is the text model's
-endpoint, never the file; a model typed in a transformation is sent to that
-endpoint instead of the text model.
-
-Run one from a transcript's **Transform** menu, or from **Try it** on its
-page, on a chosen transcript or on pasted text (no recording needed; the
-pasted text stays while you move around and is written only into a result).
-Running sends one request, a chat completion at the text model's endpoint, with
-the instructions as shown (typing included) as the system message and the
-text as the user message. The answer becomes a new result note; the
-transcript is never changed. A result records the exact instructions and text
-sent, so it still reads correctly after its transformation changes or goes;
-deleting a transformation keeps its results. When a transformation cannot
-run, Try it says why and offers the fix it can.
-
 ### Under the recorder
 
-Three controls sit beside the microphone on Home:
+Two controls sit beside the microphone on Home:
 
 - **Microphone input.** System default, or one microphone by the id the
   browser lists it under. Listing never asks for access; **Enable
@@ -163,14 +138,11 @@ Three controls sit beside the microphone on Home:
   kept in this computer's `localStorage`, never in Whispering's files.
 - **Transcription model.** The transcription part of Settings, the same
   choice.
-- **Post-processing.** None, or one of your transformations. Choosing sends
-  nothing: **Run post-processing** on the latest transcript does, exactly as
-  Transform would. A choice that was deleted or cannot run says why.
 
 ### Models and connections
 
-Settings chooses two models, **Transcription** and **Text**, from every
-endpoint Whispering can reach (ADR-0757): each connection you saved (a
+Settings chooses the **Transcription** model from every endpoint
+Whispering can reach (ADR-0757): each connection you saved (a
 provider's base URL and an optional key), Ollama and LM Studio when they run
 on this computer, and on the desktop transcription in the app itself. The
 same picker adds, edits and removes a connection. The choices and the
@@ -178,7 +150,7 @@ connections are in `settings.md`; each key stays on this computer (the
 Keychain on the desktop, `localStorage` in a browser), and Settings says
 where.
 
-- Nothing is sent until you press Transcribe or Run. Choosing a model sends
+- Nothing is sent until you press Transcribe. Choosing a model sends
   nothing; adding a connection may ask its endpoint which models it serves.
 - A request goes only to the endpoint and model chosen when it was prepared,
   and is refused, with nothing sent, if that connection was removed or now
@@ -279,11 +251,12 @@ and the commands the build script declares, and how an accelerator parses.
 - System-wide dictation beyond the desktop's one start-and-stop shortcut:
   push-to-talk, voice-activated recording, and delivering text to the
   cursor. Copy buttons are the only way text leaves the app.
-- Automatic transcription or transformation. Each is a button you press, so
-  nothing is sent to a paid endpoint on its own.
+- Automatic transcription. It is a button you press, so nothing is sent to
+  a paid endpoint on its own.
+- Transformations: instructions run on a transcript or on pasted text, and
+  post-processing. They wait for a later release; the last version of their
+  pages is at the tag `whispering-transformations`.
 - Transcription on this computer in the web app, and importing audio files.
-- Transformations beyond one prompt and one request, and a connection or
-  key per transformation.
 - Windows and Linux are untested.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit.

@@ -8,7 +8,7 @@
 	 * The model one operation uses: any model the merged endpoints offer that
 	 * can do it (`ModelPicker` from `@epicenter/ai/picker`), where a person also
 	 * adds, edits or removes a connection and its key. Choosing sends nothing;
-	 * a request goes only when the person presses Transcribe or Run.
+	 * a request goes only when the person presses Transcribe.
 	 */
 	let { operation }: { operation: Operation } = $props();
 
@@ -20,11 +20,6 @@
 		transcription: {
 			title: 'Transcription',
 			sends: 'Audio is sent there only when you press Transcribe.',
-		},
-		text: {
-			title: 'Text',
-			sends:
-				'Transformations send their instructions and text there only when you press Run. A transformation may name its own model at the same endpoint.',
 		},
 	} as const;
 

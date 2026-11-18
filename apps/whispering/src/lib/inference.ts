@@ -101,10 +101,6 @@ export const InferenceError = defineErrors({
 		message: `${name}’s answer did not read: ${reason}`,
 		reason,
 	}),
-	/** A chat answer with no text. */
-	Empty: ({ name }: { name: string }) => ({
-		message: `${name} answered with no text`,
-	}),
 });
 export type InferenceError = InferErrors<typeof InferenceError>;
 
@@ -116,7 +112,7 @@ export type Audio = {
 };
 
 /** The endpoints merged now, read at the moment a request is sent. */
-export type CurrentAi = () => Pick<Ai, 'endpoints' | 'transcribe' | 'chat'>;
+export type CurrentAi = () => Pick<Ai, 'endpoints' | 'transcribe'>;
 
 /** Why `target` cannot be sent through `ai` now, or undefined when it can. */
 function moved(
@@ -198,34 +194,4 @@ export async function transcribeAt(
 	});
 	if (error !== null) return Err(failureOf(target, error));
 	return Ok({ text: data.text.trim() });
-}
-
-/**
- * Run a transformation at `target`: `prompt` as the system message and
- * `input`, unchanged, as the user message. The streamed answer is read
- * whole; one with no text is `Empty`.
- */
-export async function transformAt(
-	current: CurrentAi,
-	target: Target,
-	{ prompt, input }: { prompt: string; input: string },
-): Promise<Result<{ text: string }, InferenceError>> {
-	const ai = current();
-	const refused = moved(ai, target);
-	if (refused) return Err(refused);
-	let text = '';
-	for await (const { data: chunk, error } of ai.chat({
-		endpoint: target.endpoint,
-		model: target.model,
-		messages: [
-			{ role: 'system', content: prompt },
-			{ role: 'user', content: input },
-		],
-	})) {
-		if (error !== null) return Err(failureOf(target, error));
-		const content = chunk.choices[0]?.delta?.content;
-		if (typeof content === 'string') text += content;
-	}
-	if (text.trim() === '') return InferenceError.Empty({ name: target.name });
-	return Ok({ text });
 }

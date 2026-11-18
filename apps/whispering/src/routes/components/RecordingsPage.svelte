@@ -46,7 +46,7 @@
 				<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
 			{:else}
 				<Empty.Title>Select a recording</Empty.Title>
-				<Empty.Description>Its audio, transcripts, transformation results, and notes open here.</Empty.Description>
+				<Empty.Description>Its audio, transcripts, and notes open here.</Empty.Description>
 			{/if}
 			{#if onBack ?? onClose}
 				<Button variant="outline" size="sm" onclick={onBack ?? onClose}><ArrowLeftIcon /> Back to recordings</Button>

@@ -7,18 +7,18 @@ It keeps its recordings on the device it runs on
 in a Tauri window in `data/` in the app's local data directory, unless the
 person picked another folder, and in a browser in `data/` in the Origin
 Private File System. Both hold the same tree (`src/lib/format/folder.ts`):
-five note collections, the audio beside each recording, and `settings.md`.
+recordings and transcripts, the audio beside each recording, and `settings.md`.
 
 ```text
 src/lib/format/folder.ts     the folder's paths and each note's fields, and why a note does not read
 src/lib/format/note.ts       a note as text: the home's Markdown grammar
 src/lib/files/               Files: read, write, list, remove; tauri, opfs and memory, one conformance suite
 src/lib/notes.ts             one note collection over Files: list it, set, replace, delete
-src/lib/settings.ts          settings.md: the model per job, the connections, the shortcut
+src/lib/settings.ts          settings.md: the transcription model, the connections, the shortcut
 src/lib/folder.ts            the folder: one read of every note, settings and the audio
 src/lib/folder-query.ts      the page's QueryClient over the folder: one query, writes as mutations
 src/lib/note-editor.svelte.ts one note as an editor: typing, its save, and a failed save kept
-src/lib/runs.svelte.ts       transcriptions and recipe runs in this window, until their answer is saved
+src/lib/runs.svelte.ts       transcriptions in this window, until their answer is saved
 src/lib/this-computer.ts     what stays on this computer: localStorage, secrets, the request fetch
 src/lib/app.ts               the capabilities, opened once: folder, ai, speech, recorder, shortcut
 src/lib/whispering.svelte.ts models, microphone, recorder: Whispering over the capabilities
@@ -89,11 +89,11 @@ Svelte.
   person saw it: each write reads the file first and refuses with
   `NoteError.Changed`, writing nothing, when it differs.
 - `createSettings` (`settings.ts`) is `settings.md`, with the same `seen`
-  check before each write: the model for each job, the connections (never
+  check before each write: the transcription model, the connections (never
   a key), and the shortcut. A `settings.md` that does not read is named in
   Settings and replaced by the next save.
 - `openFolder` (`folder.ts`) reads the whole folder as one snapshot: the
-  five collections, the settings, and the audio in `recordings/`. A
+  two collections, the settings, and the audio in `recordings/`. A
   recording is its id: `unnotedOf` lists audio no note names as an
   untitled recording dated from its id, and `audioOf` answers `here`,
   `ambiguous` (more than one extension), or `absent`.
@@ -195,8 +195,8 @@ one owner of at most one open microphone. The choice is in `localStorage`
 
 ## Requests and results
 
-`runs.svelte.ts` owns transcriptions and recipe runs. A run is keyed by what
-it runs on, so the same run does not go twice at once, and gets its
+`runs.svelte.ts` owns transcriptions. A run is keyed by the recording it
+transcribes, so the same run does not go twice at once, and gets its
 result's id and its target (the endpoint and model chosen then) when it
 starts. Sending is a plain call; saving the answer is a note write through
 the folder query. Its state lives in this window as Svelte state, like an
@@ -205,12 +205,12 @@ again sends the same request to the same target, and refuses when that
 endpoint was removed or moved), or `unsaved` (the answer arrived and its
 note could not be written; Save again writes it and sends nothing).
 
-- Transcription reads the audio only once the target's endpoint is known to
-  be where it was, and checks again before it sends (`inference.ts`).
-- `recipe.ts`'s `resolveRecipe` is the one decision whether a recipe can
-  run and with what.
-- A transformation never writes its transcript. A result records the exact
-  prompt and input it sent.
+Transcription reads the audio only once the target's endpoint is known to
+be where it was, and checks again before it sends (`inference.ts`).
+
+Transformations (instructions run on a transcript or on pasted text) wait
+for a later release; the last version of their pages is at the tag
+`whispering-transformations`.
 
 ## Models and connections
 
@@ -229,8 +229,7 @@ entered for. The page sends every request itself: on the desktop through
 `@tauri-apps/plugin-http`, which follows no redirect, and in a browser with
 `fetch`.
 
-The person chooses one model for transcription and one for text
-(`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`), kept
+The person chooses one model for transcription (`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`), kept
 in `settings.md`. A refusal before sending says nothing was sent; an
 endpoint that never answered leaves the outcome unknown. Keys never reach
 Whispering's files, logs or errors.
@@ -239,10 +238,9 @@ Whispering's files, logs or errors.
 
 `deletion.ts` captures what a deletion removes from what the lists show, for
 the person to confirm, then deletes exactly that, stopping at the first
-failure. A recording takes its transcripts, the transformation results made
-from them, its note if it has one, then its audio. It is refused while a
-run for it is under way or waits to be saved again, and while any of its
-results does not read.
+failure. A recording takes its transcripts, its note if it has one, then
+its audio. It is refused while a run for it is under way or waits to be
+saved again, and while any transcript does not read.
 
 ## Settings and export
 

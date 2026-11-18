@@ -10,13 +10,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Files, FilesError } from './files/files.js';
 
 /** The directories Whispering writes, and the one file at the top. */
-const DIRECTORIES = [
-	'recordings',
-	'transcriptions',
-	'transformations',
-	'transformation_runs',
-	'text_runs',
-];
+const DIRECTORIES = ['recordings', 'transcriptions'];
 const TOP = ['settings.md'];
 
 /** Every file Whispering wrote, with its bytes. */

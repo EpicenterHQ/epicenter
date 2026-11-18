@@ -7,21 +7,14 @@
  *   desktop. Audio with no note is still a recording (`folder.ts`).
  * - A transcription is a note at `transcriptions/{id}.md` naming its
  *   recording, the transcript as body.
- * - A transformation is a reusable title and instructions (the body), with
- *   an optional model of its own (`null` uses the text model chosen in
- *   Settings).
- * - Applying one writes a result: on a transcript in `transformation_runs/`,
- *   on pasted text in `text_runs/`. Each keeps the prompt and input it sent,
- *   with the answer as its body, so it reads the same after anything it
- *   came from changes or goes.
- * - `settings.md` is the person's settings: the model for each job, each
+ * - `settings.md` is the person's settings: the transcription model, each
  *   provider connection and its endpoint, and the desktop's global shortcut
  *   in the global-shortcut plugin's spelling (`CommandOrControl+Shift+;`),
  *   which a browser ignores. A key and the microphone stay out of the
  *   folder (`this-computer.ts`).
  *
  * A file's id is its identity: renaming a recording changes its title,
- * never its path, so a result's `recordingId` never breaks.
+ * never its path, so a transcript's `recordingId` never breaks.
  *
  * Each note's fields are a TypeBox object. A field is required unless it is
  * `Type.Optional`, and a key not declared is kept and never checked.
@@ -39,17 +32,6 @@ const instant = Type.String({
 
 /** A model chosen for a job: the endpoint that offers it, and its id there. */
 const choice = Type.Object({ endpoint: Type.String(), model: Type.String() });
-
-/** What a run of a transformation keeps, on a transcript or on pasted text. */
-const run = {
-	transformationId: Type.String(),
-	transformationTitle: Type.String(),
-	createdAt: instant,
-	model: Type.String(),
-	endpoint: Type.String(),
-	prompt: Type.String(),
-	input: Type.String(),
-};
 
 /** Each kind of note with an id: the directory its notes are in, as `<dir>/<id>.md`, and their fields. */
 export const NOTES = {
@@ -70,22 +52,6 @@ export const NOTES = {
 			endpoint: Type.String(),
 		}),
 	},
-	transformations: {
-		dir: 'transformations',
-		fields: Type.Object({
-			title: Type.String(),
-			model: Type.Union([Type.String(), Type.Null()]),
-		}),
-	},
-	transformation_runs: {
-		dir: 'transformation_runs',
-		fields: Type.Object({
-			recordingId: Type.String(),
-			transcriptionId: Type.String(),
-			...run,
-		}),
-	},
-	text_runs: { dir: 'text_runs', fields: Type.Object(run) },
 } as const;
 
 /** `settings.md`, at the top of the folder: every field optional. */
@@ -95,7 +61,6 @@ export const SETTINGS = {
 		models: Type.Optional(
 			Type.Object({
 				transcribe: Type.Optional(choice),
-				chat: Type.Optional(choice),
 			}),
 		),
 		connections: Type.Optional(

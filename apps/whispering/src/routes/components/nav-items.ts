@@ -1,17 +1,15 @@
 import HomeIcon from '@lucide/svelte/icons/house';
 import ListIcon from '@lucide/svelte/icons/list';
-import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 import type { Component } from 'svelte';
 import { resolve } from '$app/paths';
 
 /** Whispering's pages. */
-export type Page = 'home' | 'recordings' | 'transformations';
+export type Page = 'home' | 'recordings';
 
 /** Every page's path. */
 const PATHS = {
 	home: resolve('/'),
 	recordings: resolve('/recordings'),
-	transformations: resolve('/transformations'),
 } as const satisfies Record<Page, string>;
 
 /** Page `page`'s path. */
@@ -23,9 +21,7 @@ const under = (href: string, pathname: string) =>
 
 /** Which page `pathname` is. */
 export function pageAt(pathname: string): Page {
-	for (const page of ['recordings', 'transformations'] as const)
-		if (under(PATHS[page], pathname)) return page;
-	return 'home';
+	return under(PATHS.recordings, pathname) ? 'recordings' : 'home';
 }
 
 export type NavItem = {
@@ -43,11 +39,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
 		href: pathOf('recordings'),
 		icon: ListIcon,
 		page: 'recordings',
-	},
-	{
-		label: 'Transformations',
-		href: pathOf('transformations'),
-		icon: WandSparklesIcon,
-		page: 'transformations',
 	},
 ];

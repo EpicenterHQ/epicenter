@@ -40,9 +40,6 @@ export type NoteName = keyof Collections;
 type Listed<TName extends NoteName> = NoteOf<Collections[TName]>;
 export type RecordingNote = Listed<'recordings'>;
 export type TranscriptionNote = Listed<'transcriptions'>;
-export type TransformationNote = Listed<'transformations'>;
-export type TransformationRunNote = Listed<'transformation_runs'>;
-export type TextRunNote = Listed<'text_runs'>;
 
 export type { InvalidNote } from './notes.js';
 
@@ -111,9 +108,6 @@ const NO_NOTES = { items: [], invalid: [], texts: {} } as const;
 export const EMPTY_FOLDER: FolderSnapshot = {
 	recordings: NO_NOTES,
 	transcriptions: NO_NOTES,
-	transformations: NO_NOTES,
-	transformation_runs: NO_NOTES,
-	text_runs: NO_NOTES,
 	audio: [],
 	settings: NO_SETTINGS,
 };
@@ -124,12 +118,6 @@ export const newest =
 	<T extends { id: string }>(at: (item: T) => string) =>
 	(a: T, b: T) =>
 		byText(at(b), at(a)) || byText(b.id, a.id);
-
-/** Transformations by title, as a person reads them, then by id. */
-export const byTitle = (a: TransformationNote, b: TransformationNote) =>
-	(a.title || a.id).localeCompare(b.title || b.id, undefined, {
-		sensitivity: 'base',
-	}) || byText(a.id, b.id);
 
 /** The directory recordings and their audio are in. */
 const RECORDINGS = 'recordings';
@@ -190,9 +178,6 @@ export function openFolder(files: Files) {
 	const notes = {
 		recordings: createNotes(files, NOTES.recordings),
 		transcriptions: createNotes(files, NOTES.transcriptions),
-		transformations: createNotes(files, NOTES.transformations),
-		transformation_runs: createNotes(files, NOTES.transformation_runs),
-		text_runs: createNotes(files, NOTES.text_runs),
 	};
 	const settings = createSettings(files);
 
@@ -226,36 +211,16 @@ export function openFolder(files: Files) {
 		async read(): Promise<Result<FolderSnapshot, FilesError>> {
 			const listed = await files.list(RECORDINGS);
 			if (listed.error !== null) return Err(listed.error);
-			const [
-				recordings,
-				transcriptions,
-				transformations,
-				transformation_runs,
-				text_runs,
-				read,
-			] = await Promise.all([
+			const [recordings, transcriptions, read] = await Promise.all([
 				notes.recordings.list(listed.data),
 				notes.transcriptions.list(),
-				notes.transformations.list(),
-				notes.transformation_runs.list(),
-				notes.text_runs.list(),
 				settings.read(),
 			]);
-			for (const result of [
-				recordings,
-				transcriptions,
-				transformations,
-				transformation_runs,
-				text_runs,
-				read,
-			])
+			for (const result of [recordings, transcriptions, read])
 				if (result.error !== null) return Err(result.error);
 			return Ok({
 				recordings: recordings.data!,
 				transcriptions: transcriptions.data!,
-				transformations: transformations.data!,
-				transformation_runs: transformation_runs.data!,
-				text_runs: text_runs.data!,
 				settings: read.data!,
 				audio: listed.data.flatMap((entry) => audioFileOf(entry) ?? []),
 			});

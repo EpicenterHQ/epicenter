@@ -128,7 +128,7 @@ export const filesChecks: readonly FilesCheck[] = [
 	{
 		name: 'a directory that is not there lists nothing',
 		async run(files) {
-			same(await names(files, 'transformations'), [], 'list');
+			same(await names(files, 'transcriptions'), [], 'list');
 		},
 	},
 	{
@@ -191,7 +191,7 @@ export const filesChecks: readonly FilesCheck[] = [
 			for (const path of [
 				'recordings/k3x9a2f8.md',
 				'recordings/2026-10-30T22-41-05-123Z-k3x9a2f8.webm',
-				'transformation_runs/Run_1.md',
+				'transcriptions/Run_1.md',
 			]) {
 				ok(await files.write(path, encode(path)), `write ${path}`);
 				same(await text(files, path), path, path);
