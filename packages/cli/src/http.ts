@@ -10,12 +10,17 @@
  * ```
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
- * the call arrives (`home.ts`, `run.ts`), and keeps nothing about it. A call's
- * body is its input as JSON. Its answer is JSON lines: `{"update": value}`
- * for each update the action sends, then `{"answer": {data, error}}`
- * (ADR-0953). A call refused before it begins answers that one answer, a
- * `NotStarted`, as the body of a 400. An action runs to its end whether or not its caller stays: a caller
- * that leaves stops reading, and nothing stops the action from outside.
+ * the call arrives (`home.ts`, `run.ts`), and stores nothing about it. When a
+ * run ends, serve writes one JSON line to stderr naming the app, the action,
+ * the outcome and how long it took, never the input or the result.
+ *
+ * A call's body is its input as JSON. Its answer is JSON lines:
+ * `{"update": value}` for each update the action sends, then
+ * `{"answer": {data, error}}` (ADR-0953). A call refused before it begins
+ * answers that one answer, a `NotStarted`, as the body of a 400, and writes
+ * no line. An action runs to its end whether or not its caller stays: a
+ * caller that leaves stops reading, nothing stops the action from outside,
+ * and its line on stderr is what remains of how it ended.
  *
  * A home has one `serve`, and its port is how it is found. Every answer names
  * the home (`x-epicenter-home`), so a command can tell whose serve it reached,

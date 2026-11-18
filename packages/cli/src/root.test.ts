@@ -308,11 +308,10 @@ test('a new home commits itself: the script init writes commits, pushes, waits o
 			name: 'checkpoint',
 			cron: '*/5 * * * *',
 			next: expect.any(String),
-			command:
-				'/usr/bin/lockf -t 0 .git/checkpoint.lock sh scripts/checkpoint.sh',
+			command: 'sh scripts/checkpoint.sh',
 		},
 	]);
-	// As the routine runs it, without the lock: serve starts routines in the home.
+	// As the routine runs it: serve starts routines in the home.
 	const checkpoint = async () => {
 		const child = Bun.spawn(['sh', 'scripts/checkpoint.sh'], {
 			cwd: home,

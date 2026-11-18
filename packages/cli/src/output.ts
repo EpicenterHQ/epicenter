@@ -7,6 +7,7 @@
  * `Run: <next step>` line where there is one.
  */
 import { ActionError, type Answer } from '@epicenter/app';
+import type { LogSink } from 'wellcrafted/logger';
 import type { CliError } from './errors.ts';
 
 export type { Answer } from '@epicenter/app';
@@ -43,6 +44,24 @@ export function writeOut(text: string) {
 export function writeErr(text: string) {
 	process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);
 }
+
+/**
+ * A log sink that writes each event to stderr as one JSON line, its time as
+ * ISO-8601. stdout stays the command's output; whatever runs serve decides
+ * where stderr goes. A native `Error` is written as its name and message,
+ * since JSON would otherwise make it `{}`.
+ */
+export const stderrJsonLines: LogSink = (event) => {
+	process.stderr.write(
+		`${JSON.stringify(
+			{ ...event, ts: new Date(event.ts).toISOString() },
+			(_key, value) =>
+				value instanceof Error
+					? { name: value.name, message: value.message }
+					: value,
+		)}\n`,
+	);
+};
 
 /**
  * Classify the answer once for CLI exit codes and MCP tool errors: 0 for
