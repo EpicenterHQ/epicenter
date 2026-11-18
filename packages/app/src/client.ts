@@ -193,8 +193,11 @@ async function call(
 			body: JSON.stringify(input ?? {}),
 		});
 	} catch {
+		// A failed fetch looks the same whether the request never left or the
+		// connection dropped after serve took it, so the outcome is unknown.
 		return ActionError.Unreachable({
-			message: 'Epicenter could not be reached; the action did not start',
+			message:
+				'Epicenter could not be reached, or the connection dropped; the action may have run',
 		});
 	}
 	if (!response.ok) {

@@ -1,8 +1,8 @@
-# Factory Function Composition
+# Factory function composition
 
-This skill helps you apply factory function patterns for clean dependency injection and function composition in TypeScript.
-
-> **Related Skills**: See [refactoring methods](../../collapse-pass/references/refactoring-methods.md) for caller counting and inlining single-use extractions.
+Read this when implementing a factory, binding its inputs, or exposing its
+methods and public type. Use [services-layer](../../services-layer/SKILL.md)
+when deciding which operations belong together or whether they need an instance.
 
 ## The universal factory signature
 
@@ -36,128 +36,57 @@ createBackoff({ maxRetries: 3 });
 createCounter();
 ```
 
-## The Core Pattern
+## Bind inputs at construction
+
+Destructure dependency and configuration bags in the signature. Keep a domain
+value named when it is being transformed or forwarded as a whole. Body
+destructuring can be useful when setup validates or normalizes the whole
+object, or needs to inspect whether a property was supplied.
+
+Keep resource configuration where the resource is created. The next factory
+receives the working resource and its own configuration. Per-call inputs
+belong on the returned operations.
+
+This complete in-memory example captures one map and one search default:
 
 ```typescript
-// Single dependency
-function createService({ client }, options = {}) {
-	return {
-		method(methodOptions) {
-			// Uses client, options, and methodOptions
-		},
-	};
-}
+type Message = { id: string; body: string };
 
-// Multiple dependencies
-function createService({ db, cache }, options = {}) {
-	return {
-		method(methodOptions) {
-			// Uses db, cache, options, and methodOptions
-		},
-	};
-}
-
-// Usage
-const client = createClient(clientOptions);
-const service = createService({ client }, serviceOptions);
-service.method(methodOptions);
-```
-
-## Key Principles
-
-1. **Client configuration belongs at client creation time**: don't pipe clientOptions through your factory
-2. **Each layer has its own options**: client, service, and method options stay separate
-3. **Name injected dependencies**: pass them through a destructured object, even when there is only one
-4. **Return objects with methods**: not standalone functions that need the resource passed in
-
-## Recognizing the Anti-Patterns
-
-### Anti-Pattern 1: Function takes client as first argument
-
-```typescript
-// Bad
-function doSomething(client, options) { ... }
-doSomething(client, options);
-
-// Good
-const service = createService({ client });
-service.doSomething(options);
-```
-
-### Anti-Pattern 2: Client creation hidden inside
-
-```typescript
-// Bad
-function doSomething(clientOptions, methodOptions) {
-	const client = createClient(clientOptions); // Hidden!
-	// ...
-}
-
-// Good
-const client = createClient(clientOptions);
-const service = createService({ client });
-service.doSomething(methodOptions);
-```
-
-### Anti-Pattern 3: Mixed options blob
-
-```typescript
-// Bad
-doSomething({
-	timeout: 5000, // Client option
-	retries: 3, // Client option
-	endpoint: '/users', // Method option
-	payload: data, // Method option
-});
-
-// Good
-const client = createClient({ timeout: 5000, retries: 3 });
-const service = createService({ client });
-service.doSomething({ endpoint: '/users', payload: data });
-```
-
-### Anti-Pattern 4: Multiple layers hidden
-
-```typescript
-// Bad
-function doSomething(clientOptions, serviceOptions, methodOptions) {
-	const client = createClient(clientOptions);
-	const service = createService({ client }, serviceOptions);
-	return service.method(methodOptions);
-}
-
-// Good: each layer visible and configurable
-const client = createClient(clientOptions);
-const service = createService({ client }, serviceOptions);
-service.method(methodOptions);
-```
-
-## Multiple Dependencies
-
-When your service needs multiple clients:
-
-```typescript
-function createService(
-	{ db, cache, http }, // Dependencies as destructured object
-	options = {}, // Service options
+export function createMailbox(
+	{ messages }: { messages: Map<string, Message> },
+	{ limit = 20 } = {},
 ) {
 	return {
-		method(methodOptions) {
-			// Uses db, cache, http
+		get(id: string) {
+			return messages.get(id);
+		},
+		search({ text }: { text: string }) {
+			return [...messages.values()]
+				.filter((message) => message.body.includes(text))
+				.slice(0, limit);
 		},
 	};
 }
 
-// Usage
-const db = createDbConnection(dbOptions);
-const cache = createCacheClient(cacheOptions);
-const http = createHttpClient(httpOptions);
+export type Mailbox = ReturnType<typeof createMailbox>;
 
-const service = createService({ db, cache, http }, serviceOptions);
-service.method(methodOptions);
+const messages = new Map([
+	['m1', { id: 'm1', body: 'hello' }],
+	['m2', { id: 'm2', body: 'goodbye' }],
+]);
+const mailbox = createMailbox({ messages }, { limit: 10 });
+mailbox.get('m1'); // { id: 'm1', body: 'hello' }
+mailbox.search({ text: 'hello' }); // the first message
 ```
 
-## The Canonical Internal Shape
+The factory already has the map. Its methods use it directly. Avoid moving
+their bodies into helpers that require the same dependencies passed again.
+Extract a function when it names useful shared work or an independently
+useful operation. Pure data transformations can remain standalone functions.
+A useful function-valued dependency can stay a function:
+`createSession({ signOut })` does not require a larger account object.
+
+## The canonical internal shape
 
 A factory initializes an instance, defines any internal functions it needs,
 and returns its public API. Instance setup includes values computed during
@@ -202,23 +131,34 @@ shorthand, as `increment` does here. The return object decides whether
 callers can reach it. The comments label the three parts for illustration;
 ordinary factories do not need section labels.
 
-### Derive public types from the return object
+## Derive public types from the return object
 
-When the exported type is just the handle returned by one factory, derive the type from the factory instead of annotating the factory with the type.
+When an exported type is exactly the handle returned by one factory, derive
+it from the implementation. Put the output alias immediately after the factory,
+as the mailbox example does. Keep input, domain, and shared contract types above
+it. TypeScript's [ReturnType and Awaited utilities](https://www.typescriptlang.org/docs/handbook/utility-types.html)
+supply the derivation; this placement is our navigation convention.
 
-[Whispering’s factory](../../../../apps/whispering/src/lib/whispering.svelte.ts) gives callers a name for the handle it returns.
+| Factory shape | Output type |
+| --- | --- |
+| Ordinary | `ReturnType<typeof createThing>` |
+| Generic | `ReturnType<typeof createThing<TActions>>` |
+| Curried | `ReturnType<ReturnType<typeof createThing>>` |
+| Asynchronous | `Awaited<ReturnType<typeof openThing>>` |
 
-```typescript
-export type Whispering = ReturnType<typeof createWhispering>;
-```
+If the public type is a nested slice of a result, use a focused inference
+helper rather than forcing the whole return shape into that name. Keep writable
+internals private and expose read methods before deriving the public type.
+Svelte reads through `reactive`, which retains those methods; existing getters
+and upstream protocols remain contracts until an authorized redesign.
 
-The return object already defines the public API. Duplicating it in a manual return type creates a second source of truth and changes editor navigation: Go to Definition tends to jump to the alias instead of the returned member. Keep method parameter and return annotations on the returned operations when they make the public surface clearer.
+Keep explicit contract types for protocol vocabulary, several implementations,
+or an intentionally narrower public API. Check with `satisfies` when callers
+should retain the concrete inferred shape; annotate the exported value with the
+shared contract when callers need the same surface across implementations.
+See [editor experience](editor-experience.md) for this tradeoff and navigation.
 
-This is one face of a broader principle: when organizing types and exports, always consider Go-to-Definition. See [TypeScript guidance](../SKILL.md#go-to-definition-awareness) for the broader navigation rule.
-
-Do not use this for shared service contracts that several factories implement. Those contracts are vocabulary. Use `satisfies` at the return object when a factory needs to prove it matches an external contract while preserving the concrete returned shape.
-
-### Compose operations through the closure
+## Compose operations through the closure
 
 Declare internal operations as `const` arrow functions and call them by name.
 Keep public methods inline when they can express their operation directly.
@@ -234,32 +174,7 @@ incrementTwice(); // 4
 value(); // 4
 ```
 
-See [method documentation and sibling calls](method-documentation-and-sibling-calls.md)
-for documentation behavior and receiver requirements in existing APIs.
-
-## The Mental Model
-
-Think of it as a chain where each link:
-
-- Receives a resource from the previous link
-- Adds its own configuration
-- Produces something for the next link
-
-```
-createClient(...)  →  createService({ client }, ...)  →  service.method(...)
-     ↑                            ↑                           ↑
- clientOptions               serviceOptions              methodOptions
-```
-
-## Benefits
-
-- **Testability**: Inject mock clients easily
-- **Reusability**: Share clients across multiple services
-- **Flexibility**: Configure each layer independently
-- **Clarity**: Clear ownership of configuration at each level
-
-## References
-
 Read [method documentation and sibling calls](method-documentation-and-sibling-calls.md)
-when documenting returned operations or working with receiver-dependent
-methods in existing APIs.
+for JSDoc behavior and receiver requirements in existing APIs. Read
+[stateful factory examples](factory-patterns.md) when state management appears
+to be a separate job with useful operations of its own.

@@ -32,7 +32,7 @@ const log = defineAction({
 const reading = defineApp({
 	description: 'How much I read each week',
 	data,
-	actions: { books: data.books.actions('list', 'get', 'add', 'set'), log },
+	actions: { books: data.books.actions('list', 'get', 'create', 'patch'), log },
 });
 
 describe('createMemoryContext', () => {
@@ -138,8 +138,8 @@ describe('defineApp', () => {
 		expect(Object.keys(reading.actions.books)).toEqual([
 			'list',
 			'get',
-			'add',
-			'set',
+			'create',
+			'patch',
 		]);
 	});
 

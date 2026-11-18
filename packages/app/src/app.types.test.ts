@@ -42,7 +42,7 @@ const learn = defineAction({
 		if (setting.error) return setting;
 		const goal = setting.data?.dailyGoal;
 		assertType<Equal<typeof goal, number | undefined>>();
-		return data.words.add(word, { meaning });
+		return data.words.create(word, { meaning });
 	},
 });
 
@@ -56,7 +56,7 @@ const review = defineAction({
 		assertType<
 			Equal<NonNullable<typeof found>['meaning'], string | undefined>
 		>();
-		const changed = await data.words.set(word, { meaning: null });
+		const changed = await data.words.patch(word, { meaning: null });
 		if (changed.error) return changed;
 		// A row names its own record by its id.
 		for (const row of await data.words.list()) {
@@ -66,7 +66,7 @@ const review = defineAction({
 		// @ts-expect-error a folder key names its record by its id
 		await data.words.get();
 		// @ts-expect-error which record, then the change: two arguments
-		await data.words.set({ meaning: 'x' });
+		await data.words.patch({ meaning: 'x' });
 		return Ok(found?.meaning);
 	},
 });
@@ -75,8 +75,11 @@ const vocab = defineApp({
 	description: 'Words I am learning',
 	data,
 	actions: {
-		words: { ...data.words.actions('list', 'get', 'set'), add: learn },
-		settings: data['settings.md'].actions('get', 'set'),
+		words: {
+			...data.words.actions('list', 'get', 'patch', 'edit'),
+			create: learn,
+		},
+		settings: data['settings.md'].actions('get', 'patch'),
 		review,
 	},
 });
@@ -88,21 +91,27 @@ type Out<A> = A extends (input: never) => infer O ? Awaited<O> : never;
 describe('an app author', () => {
 	test('gets every action under its words, with exact inputs and outputs', () => {
 		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
-		assertType<Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set'>>();
-		assertType<Equal<keyof Actions['settings'], 'get' | 'set'>>();
 		assertType<
 			Equal<
-				In<Actions['words']['set']>,
-				{
-					id: string;
-					meaning?: string | null | undefined;
-					body?: string;
-					edit?: { old: string; new: string };
-				}
+				keyof Actions['words'],
+				'list' | 'get' | 'create' | 'patch' | 'edit'
+			>
+		>();
+		assertType<Equal<keyof Actions['settings'], 'get' | 'patch'>>();
+		assertType<
+			Equal<
+				In<Actions['words']['patch']>,
+				{ id: string; meaning?: string | null | undefined; body?: string }
+			>
+		>();
+		assertType<
+			Equal<
+				In<Actions['words']['edit']>,
+				{ id: string; old: string; new: string }
 			>
 		>();
 		// @ts-expect-error an edit names both old and new
-		() => vocab.actions.words.set({ id: 'a', edit: { old: 'x' } });
+		() => vocab.actions.words.edit({ id: 'a', old: 'x' });
 		assertType<Equal<In<Actions['words']['get']>, { id: string }>>();
 		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
 		type Item = NonNullable<Out<Actions['words']['list']>['data']>[number];
@@ -120,16 +129,12 @@ describe('an app author', () => {
 		assertType<Equal<Extract<Item, Err<unknown>>['error']['name'], 'Misfit'>>();
 		assertType<
 			Equal<
-				In<Actions['settings']['set']>,
-				{
-					dailyGoal?: number | null | undefined;
-					body?: string;
-					edit?: { old: string; new: string };
-				}
+				In<Actions['settings']['patch']>,
+				{ dailyGoal?: number | null | undefined; body?: string }
 			>
 		>();
 		assertType<
-			Equal<In<Actions['words']['add']>, { word: string; meaning?: string }>
+			Equal<In<Actions['words']['create']>, { word: string; meaning?: string }>
 		>();
 		assertType<
 			Equal<
@@ -141,7 +146,7 @@ describe('an app author', () => {
 
 	test('an action is called as a function, inside a run', async () => {
 		await inRun(createMemoryContext(), () =>
-			vocab.actions.words.add({ word: '你好' }),
+			vocab.actions.words.create({ word: '你好' }),
 		);
 	});
 
@@ -213,7 +218,7 @@ describe('an app author', () => {
 		assertType<Equal<ActionOutput<typeof say>, { reply: string }>>();
 		assertType<Equal<ActionUpdate<typeof say>, string | { step: number }>>();
 		assertType<Equal<ActionUpdate<typeof tag>, never>>();
-		assertType<Equal<ActionUpdate<Actions['words']['set']>, never>>();
+		assertType<Equal<ActionUpdate<Actions['words']['patch']>, never>>();
 		const chat = defineApp({ description: 'Chat', actions: { say } });
 		assertType<
 			Equal<ActionUpdate<typeof chat.actions.say>, string | { step: number }>
@@ -250,7 +255,7 @@ describe('an app author', () => {
 
 	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
 		const vocabUi = {} as AppClient<Actions>;
-		const call = () => vocabUi.words.set({ id: 'a', meaning: 'x' });
+		const call = () => vocabUi.words.patch({ id: 'a', meaning: 'x' });
 		type Answer = Awaited<ReturnType<typeof call>>;
 		assertType<
 			Equal<
@@ -265,7 +270,7 @@ describe('an app author', () => {
 		>();
 		assertType<Answer extends Result<unknown, ActionError> ? true : false>();
 		// @ts-expect-error a field the data key does not declare
-		() => vocabUi.words.set({ id: 'a', due: 'x' });
+		() => vocabUi.words.patch({ id: 'a', due: 'x' });
 		// @ts-expect-error a verb takes the id, not a path
 		() => vocabUi.words.get({ path: 'data/words/a.md' });
 		() => vocabUi.settings.get();

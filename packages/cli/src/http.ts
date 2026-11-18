@@ -278,9 +278,21 @@ async function callAnswer(request: Request): Promise<Response> {
 		start(controller) {
 			const send = (line: object) => {
 				if (!listening) return;
+				let text: string;
 				try {
-					controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+					text = JSON.stringify(line);
+				} catch (cause) {
+					// A line that is not JSON, such as a cyclic update, is dropped
+					// alone: the call goes on and its answer still arrives.
+					writeErr(
+						`${app} ${key}: dropped a line that is not JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+					);
+					return;
+				}
+				try {
+					controller.enqueue(encoder.encode(`${text}\n`));
 				} catch {
+					// The page went away; nothing more can reach it.
 					listening = false;
 				}
 			};

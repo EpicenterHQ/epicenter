@@ -242,7 +242,7 @@ epicenter
 epicenter reading
 epicenter reading log '{"minutes":30,"book":"Dune"}'
 epicenter reading log '{"minutes":30}' --json
-epicenter reading books set '{"id":"dune","finished":null}'
+epicenter reading books patch '{"id":"dune","finished":null}'
 epicenter init <folder>
 epicenter new notes
 epicenter new writing --from EpicenterHQ/epicenter/examples/writing
@@ -539,11 +539,11 @@ ran has kind `refused`. Human output puts success data on stdout and failures on
 stream carries the same answer inside `finished.answer`. A reconnect can
 replay a saved run's earlier answer format without executing it again.
 
-A one-file data key's `set` makes its file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb takes the fields beside `id`, and `edit: { old, new }` replaces a passage of the body in the same write:
+A one-file data key's `patch` makes its file when it is absent, so `epicenter vocab settings patch '{"goal":20}'` works on a fresh install. A folder key's `patch` answers `Missing` for an absent record and never makes one. The `patch` verb takes the fields beside `id`, and `body` replaces the whole body. The `edit` verb takes `id`, `old`, and `new`, and replaces the one passage `old` of the body; it is not safe to repeat:
 
 ```txt
-$ epicenter vocab set '{"id":"serendipity","meaning":"a lucky find"}'
-$ epicenter vocab set '{"id":"serendipity","edit":{"old":"First seen.","new":"First seen in a novel."}}'
+$ epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'
+$ epicenter vocab edit '{"id":"serendipity","old":"First seen.","new":"First seen in a novel."}'
 ```
 
 MCP text contains the JSON answer on success and the failure message on error.
@@ -564,7 +564,7 @@ body: |
   The deck is in Drive.
 ```
 
-`id` prints as a field: the command reads only the answer. A folder key's `get`, `set`, `add`, and `delete` take `id` flat in the input object, beside the fields. `add` without `id` names the record by the moment it is made and returns that id.
+`id` prints as a field: the command reads only the answer. A folder key's `get`, `create`, `patch`, `edit`, and `delete` take `id` flat in the input object, beside the fields. `create` without `id` names the record by the moment it is made and returns that id.
 
 ## Check records
 
@@ -761,24 +761,18 @@ the code subtree instead of a top-level declaration. A folder that holds
 several apps is refused with their names and the `--from` for one of them.
 Anything else, such as a Git URL or a bare word, is refused with a hint.
 
-The copy uses the source's commit. Files visible in a local source folder may
-differ from that commit. For a folder on disk, `new` reports the copied commit
-and warns about tracked, staged, deleted, or untracked code it left out. It
-applies the same code filter as the copy, excluding records, local files,
-dependencies, builds, and provenance. The source is not changed or committed
-automatically.
+The copy uses the source's commit. The code it copies must match it: when
+`git status` shows any change or untracked file in that code (an app
+container's `code/`, not its `data/`), `new` refuses with
+`<from> has uncommitted changes; commit them, then copy.` and keeps nothing ([ADR-0946](../../docs/adr/0946-new-from-a-local-folder-refuses-uncommitted-code.md)).
+Files the source ignores do not count. The source is never changed.
 
 The private development commit and the public publication commit are separate.
 Export writes your Epicenter's committed code into the publication folder. Commit those exported files
 there before asking someone to copy that version with `new --from`. A refreshed
 export that is not committed is still outside the publication's copied commit.
 
-With `--json`, a copy adds `source: { commit, notCopied? }` to the result.
-`notCopied` lists relative code paths: an empty array means the local source
-was checked and matches; a missing key means no local working tree could be
-compared, as for a GitHub folder, and `null` means comparison failed. A comparison failure is a warning,
-not a failed copy. These differences are measured against the commit actually
-copied, so the report also covers a source commit made during the copy.
+With `--json`, a copy adds `source: { commit }` to the result.
 
 The command uses a temporary clone, then checks out selected committed
 files into the new container's ignored `.code-build-copy-*` directory before

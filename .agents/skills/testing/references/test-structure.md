@@ -6,6 +6,8 @@ Read when test files are becoming deeply nested, when deciding `describe()` boun
 
 ## Test Structure
 
+For scenarios spanning several modules, place the test with the highest-level consumer or in a dedicated scenario file.
+
 ### Flat Over Nested
 
 Prefer flat `test()` calls. Use `describe()` only to group genuinely distinct behavioral categories of the same unit:

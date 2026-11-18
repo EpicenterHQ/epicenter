@@ -50,6 +50,30 @@ arktype `Type` share one PascalCase name.
 
 Inside an Epicenter, a `defineData` folder key names each record by its id, the file's name. For example, the [writing app](../../../../examples/writing/epicenter.ts) declares a `notes` key, so a note lives at `data/notes/<id>.md` and its actions use `id` to identify it. Whispering’s outside-app [file contract](../../../../apps/whispering/src/lib/contract.ts) still uses `defineContract`.
 
+Here is the writing app's collection declaration:
+
+```typescript
+import { defineCollection, field } from '@epicenter/app';
+
+const kinds = ['thought', 'quote', 'link'] as const;
+const notes = defineCollection({
+	path: 'data/notes/{time}.md',
+	fields: {
+		kind: field.select(kinds),
+		source: field.text({
+			optional: true,
+			description: 'Where this came from: a person, book, or URL',
+		}),
+		project: field.text({
+			optional: true,
+			description: 'The piece of writing this might belong to',
+		}),
+	},
+});
+```
+
+There is no `time` field in `fields`. The `{time}` placeholder supplies the record key; `kind`, `source`, and `project` describe the record's data.
+
 ## Arktype-Validated IDs: Type First, Validator Annotated, Optional `as*` Helper
 
 For IDs that flow through an **arktype** schema at a runtime boundary (auth user IDs read off Better Auth sessions, persisted-state schemas, HTTP route inputs), declare the type first and annotate the validator to it. Both share one PascalCase name. Add a small `as*` helper for branding known-string values without scattering raw `as` casts.

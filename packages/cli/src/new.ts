@@ -11,11 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import {
-	checkoutCodeFiles,
-	isCopiedCodePath,
-	readCodeFiles,
-} from './code-copy.ts';
+import { checkoutCodeFiles, readCodeFiles } from './code-copy.ts';
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
@@ -23,7 +19,7 @@ import { installAndBuildNext } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { appsDir, epicenterDir, folderPath } from './root.ts';
 
-type CopiedSource = { commit: string; notCopied?: string[] | null };
+type CopiedSource = { commit: string };
 
 /**
  * Where `--from` takes an app's code. Git moves code between computers; `new`
@@ -161,7 +157,6 @@ async function made(name: string, json: boolean, source?: CopiedSource) {
 		});
 	else {
 		writeOut(folder);
-		writeSourceWarning(name, source);
 		writeErr(`Run: ${installAndBuildNext(epicenterDir())}`);
 	}
 	return 0;
@@ -203,16 +198,10 @@ export async function newCommand(
 	const source = await locateSource(from);
 	if ('error' in source) return fail(source.error, json);
 	const folder = join(appsDir(), name);
-	let created = false;
-	try {
-		await mkdir(folder);
-		created = true;
-	} catch (cause) {
-		return fail(CliError.GitFailed({ cause }).error, json);
-	}
+	await mkdir(folder);
 	const copied = await copySource(from, source, name, join(folder, 'code'));
 	if ('error' in copied) {
-		if (created) await rm(folder, { recursive: true, force: true });
+		await rm(folder, { recursive: true, force: true });
 		return fail(copied.error, json);
 	}
 	try {
@@ -227,73 +216,6 @@ export async function newCommand(
 		);
 	}
 	return made(name, json, copied);
-}
-
-/** Compare a local checkout with the copied commit, including staged and untracked code. */
-async function notCopied(worktree: string, folder: string, commit: string) {
-	const path = folder ? `${folder}/` : '.';
-	const compared = await Promise.all([
-		git(worktree, [
-			'diff',
-			'--no-ext-diff',
-			'--no-renames',
-			'--name-only',
-			'-z',
-			commit,
-			'--',
-			path,
-		]),
-		git(worktree, [
-			'diff',
-			'--cached',
-			'--no-ext-diff',
-			'--no-renames',
-			'--name-only',
-			'-z',
-			commit,
-			'--',
-			path,
-		]),
-		git(worktree, [
-			'ls-files',
-			'--others',
-			'--exclude-standard',
-			'-z',
-			'--',
-			path,
-		]),
-	]);
-	if (compared.some(({ code }) => code !== 0)) return null;
-	const offset = folder ? folder.length + 1 : 0;
-	return [
-		...new Set(
-			compared
-				.flatMap(({ stdout }) =>
-					stdout
-						.split('\0')
-						.filter(Boolean)
-						.map((path) => path.slice(offset)),
-				)
-				.filter(isCopiedCodePath),
-		),
-	].sort();
-}
-
-function writeSourceWarning(name: string, source?: CopiedSource) {
-	if (source?.notCopied === null)
-		writeErr(
-			`${name}: copied source commit ${source.commit}; could not compare local source files with it`,
-		);
-	else if (source?.notCopied?.length) {
-		writeErr(
-			`${name}: copied source commit ${source.commit}; ${source.notCopied.length} source file(s) differ from it and were not copied`,
-		);
-		const shown = source.notCopied
-			.slice(0, 5)
-			.map((path) => JSON.stringify(path))
-			.join(', ');
-		writeErr(`Not copied: ${shown}${source.notCopied.length > 5 ? ', …' : ''}`);
-	}
 }
 
 /**
@@ -390,6 +312,22 @@ async function copySource(
 						: `${from} has no epicenter.ts that Git tracks; name the app's folder`,
 				);
 			}
+			// `new` copies a commit, so the local code it copies must be that
+			// commit: Git's own answer, the same one export asks. Only the code
+			// counts, so a container's uncommitted records do not stop a copy.
+			if (
+				source.kind === 'local' &&
+				(await checkedGit(source.repository, [
+					'status',
+					'--porcelain',
+					'--untracked-files=all',
+					'--',
+					source.folder || '.',
+				]))
+			)
+				return usage(
+					`${from} has uncommitted changes; commit them, then copy.`,
+				);
 			// Keep full paths and ancestor attributes in the index. Select checkout paths
 			// separately, so root-owned LFS attributes still apply to a subfolder copy.
 			await checkedGit(clone, ['read-tree', 'HEAD']);
@@ -427,13 +365,7 @@ async function copySource(
 					'',
 				].join('\n'),
 			);
-			return {
-				commit,
-				notCopied:
-					source.kind === 'local'
-						? await notCopied(source.repository, source.folder, commit)
-						: undefined,
-			};
+			return { commit };
 		} finally {
 			await rm(clone, { recursive: true, force: true });
 		}

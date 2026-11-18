@@ -81,17 +81,46 @@ test('computed changes retain field types and callback errors', async () => {
 	await inRun(createMemoryContext(), async () => {
 		expect(
 			expectOk(
-				await data['settings.md'].update((record) => {
+				await data['settings.md'].edit((record) => {
 					assertType<Equal<typeof record, Settings | undefined>>();
 					return Ok({ level: record?.level ?? 1 });
 				}),
 			).level,
 		).toBe(1);
-		const result = await data.notes.update('a', () =>
+		const result = await data.notes.edit('a', () =>
 			ActionError.Refused({ message: 'stop' }),
 		);
 		expect(expectErr(result).message).toBe('stop');
 	});
+});
+
+test('a passage edit answers exactly Missing, Changed, Misfit, or Refused', () => {
+	type Names<T> = T extends () => Promise<infer R>
+		? R extends { error: infer E }
+			? E extends { name: infer N }
+				? N
+				: never
+			: never
+		: never;
+	const folderEdit = () => data.notes.edit('a', { old: 'x', new: 'y' });
+	const fileEdit = () => data['settings.md'].edit({ old: 'x', new: 'y' });
+	assertType<
+		Equal<
+			Names<typeof folderEdit>,
+			'Missing' | 'Changed' | 'Misfit' | 'Refused'
+		>
+	>();
+	assertType<
+		Equal<Names<typeof fileEdit>, 'Missing' | 'Changed' | 'Misfit' | 'Refused'>
+	>();
+	const computed = () =>
+		data.notes.edit('a', () => ActionError.Unreachable({ message: 'x' }));
+	assertType<
+		Equal<
+			Names<typeof computed>,
+			'Changed' | 'Misfit' | 'Refused' | 'Unreachable'
+		>
+	>();
 });
 
 describe('type errors', () => {
@@ -100,22 +129,32 @@ describe('type errors', () => {
 		() => data.notes.get();
 		// @ts-expect-error one-file keys have no list
 		() => data['settings.md'].list();
-		// @ts-expect-error one-file keys have no add
-		() => data['settings.md'].add('id', {});
+		// @ts-expect-error one-file keys have no create
+		() => data['settings.md'].create('id', {});
 		// @ts-expect-error one-file reads take no id
 		() => data['settings.md'].get('id');
 		// @ts-expect-error numbers stay numbers
-		() => data.notes.set('a', { n: 'bad' });
+		() => data.notes.patch('a', { n: 'bad' });
 		// @ts-expect-error required fields cannot be removed
-		() => data.notes.set('a', { title: null });
-		// @ts-expect-error set accepts an object, not a callback
-		() => data.notes.set('a', () => Ok({ title: 'x' }));
-		// @ts-expect-error update returns a Result
-		() => data.notes.update('a', () => ({ title: 'x' }));
-		// @ts-expect-error add needs the required fields, including read-only fields
-		() => data.notes.add('a', { title: 'only title' });
+		() => data.notes.patch('a', { title: null });
+		// @ts-expect-error patch accepts an object, not a callback
+		() => data.notes.patch('a', () => Ok({ title: 'x' }));
+		// @ts-expect-error a computed edit returns a Result
+		() => data.notes.edit('a', () => ({ title: 'x' }));
+		// @ts-expect-error edit takes a function or a passage, never fields
+		() => data.notes.edit('a', { title: 'x' });
+		// @ts-expect-error a passage names old and new
+		() => data.notes.edit('a', { old: 'x' });
+		// @ts-expect-error a passage carries no fields
+		() => data.notes.edit('a', { old: 'x', new: 'y', title: 'z' });
+		// @ts-expect-error one-file edit takes no id
+		() => data['settings.md'].edit('a', { old: 'x', new: 'y' });
+		// @ts-expect-error one-file keys have no fields in a passage either
+		() => data['settings.md'].edit({ level: 5 });
+		// @ts-expect-error create needs the required fields, including read-only fields
+		() => data.notes.create('a', { title: 'only title' });
 		// @ts-expect-error undeclared fields cannot be written
-		() => data.notes.set('a', { missing: 'x' });
+		() => data.notes.patch('a', { missing: 'x' });
 	});
 	test('refs reject missing and one-file targets on the field', () => {
 		() =>
