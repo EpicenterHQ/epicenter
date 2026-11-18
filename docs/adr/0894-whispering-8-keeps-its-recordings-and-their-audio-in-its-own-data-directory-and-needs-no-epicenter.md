@@ -50,10 +50,7 @@ and no account. Audio is never deleted unless the person asks.**
     recordings/k3x9.webm         audio, kept, sharing its record's id
     transcriptions/r7p2.md       one transcript of a recording
     settings.md                  the person's settings, as Markdown
-  local/                         this computer's own; never moves with the folder
-    recording/k3x9.webm          the take being recorded, until Stop places it
-    .tmp/                        a save on its way into the folder; safe to delete
-    local-transcription.json     the local engine's own state
+  local-transcription.json       the local engine's own state
 Keychain                         secrets: provider API keys, Epicenter's among them
 WebView localStorage             the rest of this computer's state: where the
                                  folder is, the microphone
@@ -92,7 +89,7 @@ Hugging Face cache               local models, shared with other programs
   | Any other folder | Refuses, and asks for an empty folder or a Whispering folder |
 
   Whispering never merges two folders. "Change…" is disabled while a take
-  is recording, so a take is never placed in a folder Whispering has left.
+  is recording, so a take is never moved while it grows.
 - **Audio is kept.** Settings shows its size and offers "Delete audio older
   than…". Nothing deletes audio on its own.
 - **A recording is its id, found from its note or its finished audio.**
@@ -214,48 +211,18 @@ Hugging Face cache               local models, shared with other programs
   browser-safe subpath, `@epicenter/app/markdown`, and Whispering imports
   it, so a note Whispering writes is one a home's apps read the same way.
 - `tauri-plugin-epicenter-folder` goes without a replacement.
-- **The folder only ever receives finished files, each by one rename.**
-  Every file on its way into the folder waits outside it, in `local/` in
-  the app's local data directory, and one place step, shared by
-  `files_write` and the recorder, moves it in. A home's checkpoint
-  (`git add -A`), Git LFS, a file syncer, and Whispering's own listing
-  therefore never see a half-written file. Only when the folder is on
-  another volume, where a rename cannot reach, does the place step copy to
-  a temporary file beside the target (`.ep-<random>.save`), sync it, and
-  rename that. A crash can leave that file behind; Whispering is the
-  folder's one writer, so opening the folder removes any `.ep-*.save` it
-  finds. `local/` has the shape of a home app's `local/`
-  (`apps/<app>/local/.tmp/` is where the home stages its own writes), and
-  stays in the app's local data directory wherever the folder moves.
-  Its two directories each keep one rule: `local/.tmp/` holds saves, which
-  are safe to delete at any time, and opening the folder clears it;
-  `local/recording/` holds takes, which are placed and never deleted while
-  they hold audio. A take a crash left with no audio in it is deleted, as
-  there is nothing in it to keep.
-- **`write` replaces a file whole.** On the desktop it writes and syncs the
-  bytes in `local/.tmp/`, renames them over the target, and syncs the
-  directory. The rename replaces the file in one step on macOS and Linux;
-  on Windows it replaces the file without that promise. In a browser
-  `write` uses `createWritable()`, whose changes reach the file only when
-  the stream closes. A failed write keeps the unsaved text on screen and
-  offers to retry.
-- **A take is recorded in `local/recording/` and placed at Stop.** The
-  recorder plugin keeps its capture and encoding unchanged:
-
-  ```ts
-  recorder.start({ dir, id, device }) // records into <appLocalDataDir>/local/recording/<id>.webm
-  recorder.stop()                     // → { id, durationMs }, placed at <dir>/recordings/<id>.webm
-  recorder.recover({ dir })           // → { recovered, unplaced }: takes a crash cut short
-  ```
-
-  Placing a take replaces nothing: the rename refuses an existing target,
-  and `start` refuses an id whose audio or take already exists. If placing
-  fails, `stop` answers `Unplaced` and the take stays in `local/recording/`, so
-  nothing recorded is lost, and `recover` places it later. `unplaced` lists
-  every take `recover` could not finish or place, so the person sees it. The path check
-  is the one `Files` uses. In a browser the recorder keeps a take in memory
-  and writes it once at Stop through `Files`; a tab that crashes while
-  recording loses that take.
+- **`write` replaces a file whole.** On the desktop it writes a temporary
+  file beside the target and renames it over the target, which replaces it
+  in one step on macOS and Linux; on Windows the rename replaces the file
+  without that promise. In a browser it uses `createWritable()`, whose
+  changes reach the file only when the stream closes. A failed write keeps
+  the unsaved text on screen and offers to retry. ADR-0962 says why
+  the temporary file is hidden and what deletes one a crash left.
+- **A take is recorded at its audio's path.** On the desktop the recorder
+  writes `recordings/{id}.webm` from the first second and finishes it in
+  place at Stop. Nothing stages it, moves it, or repairs one a crash cut
+  short (ADR-0962). The recorder writes the take itself, not through
+  `Files`.
 - **Whispering runs in one place at a time, so the app is one writer.** On
   the desktop, the Tauri single-instance plugin focuses the open window
   instead of starting a second. In a browser, the open tab holds a Web Lock
@@ -269,10 +236,12 @@ Hugging Face cache               local models, shared with other programs
   focus, and re-reads only the notes whose size or modified time changed.
   Before it replaces a note it re-reads the file; if the bytes differ from
   what it showed, it does not write, and shows the newer text.
-- **The interface's state stays small, so it does not regrow
-  `@epicenter/folder`.** Lists load into Svelte state at start and on
-  focus, and a successful write updates that state. There is no cache
-  layer, no watcher, and no store per collection.
+- **Whispering reads its folder through plain services and TanStack
+  Query.** The services read and write over `Files`, keep nothing between
+  calls, and answer `Result`s. TanStack Query holds what they read: the
+  folder is one query, read again when the window regains focus and after
+  every write, and the writes are mutations, one at a time per kind of
+  note. There is no watcher and no store per collection.
 - **No import from v7.** A person who wants their v7 recordings copies the
   Markdown files.
 - **First run asks one question:** where transcription runs, a local model,
@@ -426,33 +395,13 @@ none.
   this record deletes.
 - **One storage interface per collection.** Each platform would implement
   every collection; `Files` keeps the platform part to five operations.
-- **A hidden take beside its audio (`recordings/.ep-<random>-k3x9.recording`),
-  as built.** A home's checkpoint runs `git add -A`, which commits a
-  half-written take, outside Git LFS because its extension is not `webm`;
-  a file syncer uploads it again each time it grows.
-- **`recordings/k3x9.local.webm` while recording.** Git LFS commits the
-  partial take, and the listing reads its id as `k3x9.local`.
-- **`local/` beside whatever folder the person picks.** Inside a synced
-  folder it would be synced, growing take and all, and a person would find
-  it among their recordings.
-- **One staging directory for takes and saves.** Clearing it would need an
-  exception for the takes it must never lose.
 - **"Change…" points at the new folder without moving anything.** The
   recordings would stay behind in the app's data directory unnoticed.
 - **Merge two Whispering folders.** Two settings files and possible clashes
   of ids, for a case a person can handle by exporting from one.
-- **A hidden staging directory inside the folder, with its own
-  `.gitignore`.** A file Whispering plants in the person's folder, and a
-  file syncer still uploads the growing take.
-- **A temporary file beside its target for every save.** A home's
-  checkpoint can commit it mid-write or after a crash; the home's own
-  writes stage in `local/.tmp/` for the same reason.
 - **The inside app writes its own fields into Whispering's notes.** Two
   writers of one file, which a re-read before replacing narrows but does
   not close.
-- **Staging in the home's `local/` directory beside the folder.** It exists
-  only when the folder is a home's, and writes outside what the person
-  picked.
 - **`tauriFiles` as `@tauri-apps/plugin-fs`.** A note per native call, so
   opening a large folder crosses to the shell once per note, and the page
   holds every file command the plugin has.
