@@ -9,7 +9,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { isAction } from './action.ts';
 import { encodeActionResult } from './action-result.ts';
 import { type ActionError, defineData, field } from './index.ts';
-import { tempFolder } from './temp-folder.test-support.ts';
+import { tempFolder } from './library.test-support.ts';
 
 async function setup(seed: Record<string, string> = {}) {
 	const { folder, read, files } = await tempFolder(seed);

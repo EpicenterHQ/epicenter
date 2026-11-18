@@ -32,7 +32,7 @@ import {
 	runDeletion,
 } from './deletion.js';
 import {
-	audioOf,
+	audioById,
 	audioSizeOf,
 	describeIssues,
 	EMPTY_FOLDER,
@@ -153,6 +153,8 @@ export function createLibrary({
 			]);
 		return byRecording;
 	});
+	/** Where each recording's audio is, grouped by id once per read: the table asks of every row. */
+	const audioFor = $derived(audioById(snapshot));
 	const repairs = $derived([
 		...repairsOf('recordings', snapshot.recordings.invalid),
 		...repairsOf('transcriptions', snapshot.transcriptions.invalid),
@@ -296,7 +298,7 @@ export function createLibrary({
 			return transcriptsByRecording.get(id) ?? [];
 		},
 		/** Where recording `id`'s audio is, read reactively. */
-		audioOf: (id: string) => audioOf(snapshot, id),
+		audioOf: (id: string) => audioFor(id),
 		/** Recording `id`'s audio bytes, or why they cannot be read. */
 		readAudio: folder.readAudio,
 

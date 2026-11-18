@@ -3,9 +3,9 @@
 //! Symphonia handles container demux and decode for everything except Opus.
 //! Opus packets (inside WebM, OGG, or MP4) are extracted by Symphonia as a
 //! demuxer and decoded by libopus through the `audiopus` crate, because
-//! Symphonia's own Opus decoder is incomplete as of 0.5.5. Symphonia also
-//! reads neither a WebM track's pre-skip nor its end trim, so those are read
-//! here (`decode_via_libopus`).
+//! Symphonia 0.6 has no Opus decoder. Its WebM reader applies neither a
+//! track's pre-skip nor its end trim, so those are read here
+//! (`decode_via_libopus`).
 
 use std::io::Cursor;
 
@@ -15,13 +15,17 @@ use audiopus::{
 };
 use log::{debug, warn};
 use symphonia::core::{
-    audio::SampleBuffer,
-    codecs::{DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS},
+    codecs::{
+        audio::{
+            well_known::CODEC_ID_OPUS, AudioCodecParameters, AudioDecoderOptions,
+            CODEC_ID_NULL_AUDIO,
+        },
+        CodecParameters,
+    },
     errors::Error as SymphoniaError,
-    formats::FormatOptions,
+    formats::{probe::Hint, FormatOptions, FormatReader},
     io::MediaSourceStream,
     meta::MetadataOptions,
-    probe::Hint,
 };
 
 use super::error::AudioError;
@@ -46,31 +50,29 @@ pub fn decode_to_pcm16k_mono(bytes: &[u8]) -> Result<Vec<f32>, AudioError> {
         return Ok(Vec::new());
     }
 
-    // Symphonia's `MediaSource` trait requires `'static`, so the bytes are
-    // copied into an owned cursor here rather than borrowed.
-    let cursor = Cursor::new(bytes.to_vec());
-    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+    let mss = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
 
-    let probed = symphonia::default::get_probe()
-        .format(
+    let mut format = symphonia::default::get_probe()
+        .probe(
             &Hint::new(),
             mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .map_err(|e| AudioError::decode(format!("container probe failed: {e}")))?;
 
-    let mut format = probed.format;
-
-    let track = format
+    let (track_id, codec_params) = format
         .tracks()
         .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .find_map(|track| match &track.codec_params {
+            Some(CodecParameters::Audio(params)) if params.codec != CODEC_ID_NULL_AUDIO => {
+                Some((track.id, params.clone()))
+            }
+            _ => None,
+        })
         .ok_or_else(|| AudioError::unsupported("no audio track in container".to_string()))?;
-    let track_id = track.id;
-    let codec_params = track.codec_params.clone();
 
-    let (samples, source_rate, channel_count) = if codec_params.codec == CODEC_TYPE_OPUS {
+    let (samples, source_rate, channel_count) = if codec_params.codec == CODEC_ID_OPUS {
         decode_via_libopus(&mut *format, track_id, &codec_params, bytes)?
     } else {
         decode_via_symphonia(&mut *format, track_id, &codec_params)?
@@ -110,23 +112,24 @@ pub fn decode_to_pcm16k_mono(bytes: &[u8]) -> Result<Vec<f32>, AudioError> {
 /// in particular) leave those fields unpopulated until the first frame
 /// is decoded.
 fn decode_via_symphonia(
-    format: &mut dyn symphonia::core::formats::FormatReader,
+    format: &mut dyn FormatReader,
     track_id: u32,
-    codec_params: &symphonia::core::codecs::CodecParameters,
+    codec_params: &AudioCodecParameters,
 ) -> Result<(Vec<f32>, u32, u16), AudioError> {
     let mut decoder = symphonia::default::get_codecs()
-        .make(codec_params, &DecoderOptions::default())
+        .make_audio_decoder(codec_params, &AudioDecoderOptions::default())
         .map_err(|e| AudioError::decode(format!("decoder init failed: {e}")))?;
 
     let mut interleaved: Vec<f32> = Vec::new();
-    let mut sample_buf: Option<SampleBuffer<f32>> = None;
+    let mut packet_samples: Vec<f32> = Vec::new();
     let mut discovered: Option<(u32, u16)> = None;
 
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
-            // EOF is the normal exit condition; Symphonia signals it as an
-            // unexpected EOF on the underlying IO.
+            Ok(Some(p)) => p,
+            Ok(None) => break,
+            // Some readers end a file, whole or cut off, with an unexpected
+            // end of file rather than `None`.
             Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 break;
             }
@@ -134,27 +137,24 @@ fn decode_via_symphonia(
             Err(e) => return Err(AudioError::decode(format!("next_packet failed: {e}"))),
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
         match decoder.decode(&packet) {
             Ok(decoded) => {
-                let spec = *decoded.spec();
                 if discovered.is_none() {
-                    let chans = spec.channels.count() as u16;
+                    let spec = decoded.spec();
+                    let chans = spec.channels().count() as u16;
                     if chans == 0 {
                         return Err(AudioError::unsupported(
                             "decoded packet reports zero channels",
                         ));
                     }
-                    discovered = Some((spec.rate, chans));
-                    let capacity = decoded.capacity() as u64;
-                    sample_buf = Some(SampleBuffer::<f32>::new(capacity, spec));
+                    discovered = Some((spec.rate(), chans));
                 }
-                let buf = sample_buf.as_mut().expect("initialised above");
-                buf.copy_interleaved_ref(decoded);
-                interleaved.extend_from_slice(buf.samples());
+                decoded.copy_to_vec_interleaved(&mut packet_samples);
+                interleaved.extend_from_slice(&packet_samples);
             }
             Err(SymphoniaError::DecodeError(e)) => {
                 warn!("[Audio Decode] skipping corrupt packet: {e}");
@@ -186,17 +186,17 @@ fn decode_via_symphonia(
 /// before yielding them, so a libopus decode failure typically signals
 /// genuine corruption rather than a recoverable boundary glitch.
 fn decode_via_libopus(
-    format: &mut dyn symphonia::core::formats::FormatReader,
+    format: &mut dyn FormatReader,
     track_id: u32,
-    codec_params: &symphonia::core::codecs::CodecParameters,
+    codec_params: &AudioCodecParameters,
     bytes: &[u8],
 ) -> Result<(Vec<f32>, u32, u16), AudioError> {
-    // Some container/codec combinations leave `channels` unpopulated on
-    // `CodecParameters` (notably Opus inside Matroska/WebM). The OpusHead
-    // identification header carries the channel count at byte 9 per
-    // RFC 7845 §5.1; Symphonia surfaces that header via `extra_data`.
+    // The Ogg and WebM readers fill `channels`. When a reader does not, the
+    // OpusHead identification header, which Symphonia surfaces as
+    // `extra_data`, carries the channel count at byte 9 (RFC 7845 §5.1).
     let channel_count = codec_params
         .channels
+        .as_ref()
         .map(|c| c.count() as u16)
         .or_else(|| {
             codec_params
@@ -227,29 +227,24 @@ fn decode_via_libopus(
     let mut scratch = vec![0f32; max_frame];
 
     let mut interleaved: Vec<f32> = Vec::new();
-    let open = webm_segment_open(bytes);
 
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
+            Ok(Some(p)) => p,
+            Ok(None) => break,
+            // A take a crash cut off mid-write ends in a torn block, which the
+            // WebM reader reports as an unexpected end of file: the audio ends
+            // at the last whole block. A finished file that lost its end never
+            // reaches here; the reader refuses a Segment whose stated size runs
+            // past the bytes when it opens the file.
             Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 break;
             }
             Err(SymphoniaError::ResetRequired) => break,
-            // A take a crash cut off mid-write ends in a torn block, which
-            // Matroska reads as an element running past its Cluster: the
-            // audio ends at the last whole block. Only a Segment whose size
-            // is still unknown was cut off; in a finished file the same
-            // error is damage, and stays an error.
-            Err(SymphoniaError::DecodeError(reason))
-                if open && reason.contains("past master element") =>
-            {
-                break;
-            }
             Err(e) => return Err(AudioError::decode(format!("next_packet failed: {e}"))),
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
@@ -270,18 +265,15 @@ fn decode_via_libopus(
 
     let channels = channel_count as usize;
     let decoded = (interleaved.len() / channels) as u64;
-    // Symphonia reads the pre-skip out of an Ogg stream's OpusHead into
-    // `delay`, and not out of a WebM track's, whose CodecPrivate is the same
-    // OpusHead: bytes 10 and 11, little-endian.
+    // The pre-skip is bytes 10 and 11 of the OpusHead, little-endian, which
+    // both the Ogg and the WebM reader hand over as `extra_data`.
     let pre_skip = codec_params
-        .delay
-        .map(u64::from)
-        .or_else(|| {
-            let head = codec_params.extra_data.as_deref()?;
-            let pre_skip = head.get(10..12)?;
-            Some(u64::from(u16::from_le_bytes([pre_skip[0], pre_skip[1]])))
+        .extra_data
+        .as_deref()
+        .and_then(|head| head.get(10..12))
+        .map_or(0, |pre_skip| {
+            u64::from(u16::from_le_bytes([pre_skip[0], pre_skip[1]])) / per_sample
         })
-        .map_or(0, |pre_skip| pre_skip / per_sample)
         .min(decoded);
     let played = if bytes.starts_with(b"OggS") {
         ogg_last_granule(bytes).map(|granule| (granule / per_sample).saturating_sub(pre_skip))
@@ -372,23 +364,6 @@ fn webm_last_discard_padding(bytes: &[u8]) -> Option<u64> {
         at = element.end;
     }
     padding
-}
-
-/// Whether `bytes` is a WebM file whose Segment's size is unknown (`01 FF
-/// FF FF FF FF FF FF` or a shorter spelling): a take still being written, or
-/// one a crash cut off. Finishing a take writes its Segment's size.
-fn webm_segment_open(bytes: &[u8]) -> bool {
-    const SEGMENT: u64 = 0x1853_8067;
-    let Some(header) = ebml_element(bytes, 0) else {
-        return false;
-    };
-    let Some((id, id_length)) = ebml_vint(bytes, header.end, true) else {
-        return false;
-    };
-    let Some((size, size_length)) = ebml_vint(bytes, header.end + id_length, false) else {
-        return false;
-    };
-    id == SEGMENT && size == (1u64 << (7 * size_length)) - 1
 }
 
 /// An EBML element: its ID (marker bits kept), where its body starts, and

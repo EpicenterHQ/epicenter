@@ -7,12 +7,19 @@
  *   a note with no audio stays a recording
  * - "Delete audio older than" removes only audio recorded before the cutoff
  * - a recording whose audio has no note gets its note first, so it stays listed
+ * - Audio grouped by id answers as a scan of every audio file does
  */
 import { expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import { decode, encode } from './files/files.js';
 import { memoryFiles } from './files/memory.js';
-import { audioOf, audioSizeOf, openFolder, unnotedOf } from './folder.js';
+import {
+	audioById,
+	audioOf,
+	audioSizeOf,
+	openFolder,
+	unnotedOf,
+} from './folder.js';
 
 const OLD = '2025-01-01T09-00-00-000Z-oldaudio';
 const NOTED = '2025-02-01T09-00-00-000Z-notedold';
@@ -37,6 +44,28 @@ test('audio with no note lists as an untitled recording dated from its id, and a
 	expect(snapshot.recordings.items.map(({ id }) => id)).toEqual([NOTE_ONLY]);
 	expect(audioOf(snapshot, NOTE_ONLY)).toEqual({ kind: 'absent' });
 	expect(audioOf(snapshot, OLD).kind).toBe('here');
+});
+
+test('audio grouped by id answers here, ambiguous with its extensions sorted, and absent, as a scan does', async () => {
+	const folder = openFolder(
+		memoryFiles({
+			[`recordings/${OLD}.webm`]: new Uint8Array([1]),
+			[`recordings/${NEW}.webm`]: new Uint8Array([1]),
+			[`recordings/${NEW}.m4a`]: new Uint8Array([1]),
+			[`recordings/${NOTE_ONLY}.md`]: standup('2026-11-02T09:00:00.000Z'),
+		}),
+	);
+	const snapshot = expectOk(await folder.read());
+	const grouped = audioById(snapshot);
+
+	expect(grouped(OLD)).toMatchObject({
+		kind: 'here',
+		file: { id: OLD, ext: 'webm' },
+	});
+	expect(grouped(NEW)).toEqual({ kind: 'ambiguous', exts: ['m4a', 'webm'] });
+	expect(grouped(NOTE_ONLY)).toEqual({ kind: 'absent' });
+	for (const id of [OLD, NEW, NOTE_ONLY])
+		expect(grouped(id)).toEqual(audioOf(snapshot, id));
 });
 
 test('audio recorded before the cutoff is deleted, and audio with no note gets its note first', async () => {

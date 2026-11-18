@@ -16,10 +16,10 @@ Web apps (Cloudflare Workers) deploy **together in one workflow** because deploy
 
 ## Workflows
 
-### CLI releases
+### Package releases
 
-No workflow builds or publishes the CLI. `@epicenter/app`, which holds the
-library and the command, is the one package a home depends on; the owner
+No workflow builds or publishes `@epicenter/app`. It holds the library and
+the `epicenter` command, and is the one package a home depends on; the owner
 packs and publishes it by hand. See
 [releasing](../../packages/app/src/command/README.md#release).
 

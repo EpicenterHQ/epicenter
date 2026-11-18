@@ -11,15 +11,15 @@
  * page's bundle can carry it.
  */
 import { Ok, type Result } from 'wellcrafted/result';
-import { isActionResult, type PublicError } from './action-result.ts';
+import {
+	isActionResult,
+	isPlainObject,
+	type PublicError,
+} from './action-result.ts';
 import { ActionError } from './errors.ts';
 
 /** An action's answer on every surface: what it returned, or the error itself. */
 export type Answer = Result<unknown, PublicError>;
-
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 const invalid = () =>
 	ActionError.Unreachable({ message: 'Epicenter sent an invalid answer' });
@@ -39,7 +39,7 @@ export function checkAnswer(value: unknown): Answer {
 		const { thrown } = error;
 		const fits =
 			thrown === undefined ||
-			(isObject(thrown) &&
+			(isPlainObject(thrown) &&
 				typeof thrown.name === 'string' &&
 				typeof thrown.message === 'string');
 		return fits ? value : invalid();
@@ -110,7 +110,7 @@ export async function readAnswer(
 				} catch {
 					return invalid();
 				}
-				if (!isObject(line)) return invalid();
+				if (!isPlainObject(line)) return invalid();
 				if (Object.hasOwn(line, 'answer')) return checkAnswer(line.answer);
 				if (!Object.hasOwn(line, 'update')) return invalid();
 				onUpdate?.(line.update);
