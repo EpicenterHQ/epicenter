@@ -152,3 +152,40 @@ fn a_torn_take_decodes_to_its_whole_blocks_and_a_torn_finished_file_fails() {
     }
     assert!(failures > 0, "a torn finished file never failed");
 }
+
+/// A finished file cut off anywhere, such as a copy that stopped short, is
+/// an error, never a panic. The WebM fixture is ffmpeg's, with a SeekHead
+/// before its Cluster and the Cues it points to at the end: symphonia 0.5's
+/// reader panics on a cut at or before the Cues, so the decoder refuses the
+/// file before the reader opens it.
+#[test]
+fn a_finished_file_cut_off_anywhere_is_an_error() {
+    let fixture = fixture_bytes("sine_440_2s.webm");
+    let seek_head = fixture
+        .windows(4)
+        .position(|id| id == [0x11, 0x4D, 0x9B, 0x74])
+        .expect("the fixture has a SeekHead");
+    let cues = fixture
+        .windows(4)
+        .rposition(|id| id == [0x1C, 0x53, 0xBB, 0x6B])
+        .expect("the fixture has Cues");
+    let first_cluster = fixture
+        .windows(4)
+        .position(|id| id == [0x1F, 0x43, 0xB6, 0x75])
+        .unwrap();
+    assert!(seek_head < first_cluster && first_cluster < cues);
+
+    // No bytes at all is no audio, not an error.
+    for cut in 1..fixture.len() {
+        let error = decode_to_pcm16k_mono(&fixture[..cut])
+            .expect_err(&format!("cut at {cut} of {} decoded", fixture.len()))
+            .to_string();
+        // A cut inside the Cues tears them, which the reader reports itself.
+        if (first_cluster..=cues).contains(&cut) {
+            assert!(
+                error.contains("cut off"),
+                "cut at {cut} failed otherwise: {error}"
+            );
+        }
+    }
+}

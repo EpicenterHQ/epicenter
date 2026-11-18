@@ -8,6 +8,10 @@ Each file is a 2-second 440 Hz mono sine wave at 0.5 amplitude. The audio
 content is identical; only the container/codec differs. They exercise the
 container/codec permutations the in-app decoder is expected to handle.
 
+The WebM file is a finished one as ffmpeg writes it: a SeekHead before its
+Cluster and Cues at its end. The test that cuts it off depends on both, so
+regenerate it with ffmpeg writing to a file, not a pipe.
+
 Total size of all fixtures: ~55 KB. Keep new fixtures small (a few seconds
 of mono audio) so the repo doesn't bloat.
 

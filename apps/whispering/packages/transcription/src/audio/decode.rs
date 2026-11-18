@@ -46,6 +46,20 @@ pub fn decode_to_pcm16k_mono(bytes: &[u8]) -> Result<Vec<f32>, AudioError> {
         return Ok(Vec::new());
     }
 
+    // Symphonia 0.5's WebM reader follows the SeekHead to Info, Tracks,
+    // Tags and Cues, and panics when one of them lies at or past the end of
+    // the bytes; the app aborts on a panic. A finished file whose end was
+    // lost, such as a copy that stopped short, is refused here first.
+    if let Some(target) = webm_seek_targets(bytes)
+        .into_iter()
+        .find(|&target| target >= bytes.len() as u64)
+    {
+        return Err(AudioError::decode(format!(
+            "WebM file is cut off: its SeekHead points to byte {target}, past its end at byte {}",
+            bytes.len()
+        )));
+    }
+
     // Symphonia's `MediaSource` trait requires `'static`, so the bytes are
     // copied into an owned cursor here rather than borrowed.
     let cursor = Cursor::new(bytes.to_vec());
@@ -389,6 +403,67 @@ fn webm_segment_open(bytes: &[u8]) -> bool {
         return false;
     };
     id == SEGMENT && size == (1u64 << (7 * size_length)) - 1
+}
+
+/// Where the elements a WebM file's SeekHead indexes start, as offsets into
+/// `bytes`, which may lie past their end. Reads the Segment's children up to
+/// its first Cluster, as Symphonia does; empty when there is no SeekHead
+/// (a take still being written has none). An offset too large to add
+/// saturates.
+fn webm_seek_targets(bytes: &[u8]) -> Vec<u64> {
+    const SEGMENT: u64 = 0x1853_8067;
+    const CLUSTER: u64 = 0x1F43_B675;
+    const SEEK_HEAD: u64 = 0x114D_9B74;
+    const SEEK: u64 = 0x4DBB;
+    const SEEK_POSITION: u64 = 0x53AC;
+
+    let mut targets = Vec::new();
+    let Some(header) = ebml_element(bytes, 0) else {
+        return targets;
+    };
+    let Some((SEGMENT, id_length)) = ebml_vint(bytes, header.end, true) else {
+        return targets;
+    };
+    let Some((_, size_length)) = ebml_vint(bytes, header.end + id_length, false) else {
+        return targets;
+    };
+    // Offsets in a SeekHead count from the start of the Segment's body.
+    let segment = header.end + id_length + size_length;
+
+    let mut at = segment;
+    // `ebml_element` stops at the first child that runs past the end, where
+    // Symphonia's reader errors before following anything after it.
+    while let Some(child) = ebml_element(bytes, at) {
+        match child.id {
+            CLUSTER => break,
+            SEEK_HEAD => {
+                let mut seek_at = child.body;
+                while let Some(seek) =
+                    ebml_element(bytes, seek_at).filter(|seek| seek.end <= child.end)
+                {
+                    if seek.id == SEEK {
+                        let mut field_at = seek.body;
+                        while let Some(field) =
+                            ebml_element(bytes, field_at).filter(|field| field.end <= seek.end)
+                        {
+                            let value = &bytes[field.body..field.end];
+                            if field.id == SEEK_POSITION && value.len() <= 8 {
+                                let position = value
+                                    .iter()
+                                    .fold(0u64, |value, &byte| (value << 8) | u64::from(byte));
+                                targets.push((segment as u64).saturating_add(position));
+                            }
+                            field_at = field.end;
+                        }
+                    }
+                    seek_at = seek.end;
+                }
+            }
+            _ => {}
+        }
+        at = child.end;
+    }
+    targets
 }
 
 /// An EBML element: its ID (marker bits kept), where its body starts, and
