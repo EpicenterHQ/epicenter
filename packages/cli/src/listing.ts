@@ -107,7 +107,8 @@ export function homeListing(
 	const lines = found.apps.map((located) => {
 		return `${located.name.padEnd(width)}  ${located.app.description}`;
 	});
-	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
+	if (!found.apps.length)
+		lines.push('No apps yet. An app is apps/<name>/code/epicenter.ts');
 	else lines.push('', 'Run: epicenter <app>');
 	lines.unshift(
 		`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`,

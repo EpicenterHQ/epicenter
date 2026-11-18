@@ -2,8 +2,7 @@
  * The workspace a home is.
  *
  * A home is one Bun workspace, so one `bun install` at its top serves every
- * app. Epicenter has no install command, and `new` installs nothing: a person
- * runs `bun install`. Fixture packages name nothing to fetch, so no registry
+ * app. Epicenter has no install command: a person runs `bun install`. Fixture packages name nothing to fetch, so no registry
  * is asked.
  *
  * Key behaviors:
@@ -76,16 +75,6 @@ test('a package nested inside an app, added to workspaces by hand, installs with
 		'notes',
 	]);
 	expect(listed.problems).toEqual([]);
-	// `new` leaves the owner's entry alone.
-	expect((await f.run('new', 'garden')).code).toBe(0);
-	expect(
-		(await Bun.file(join(f.home, 'package.json')).json()).workspaces,
-	).toEqual(['apps/*/code', 'apps/notes/code/render']);
-	expect(
-		JSON.parse((await f.run('--json')).stdout).data.apps.map(
-			(app: { name: string }) => app.name,
-		),
-	).toEqual(['garden', 'notes']);
 });
 
 test('an app that would load a second copy of @epicenter/app is a problem naming both copies; an uninstalled home says to install', async () => {

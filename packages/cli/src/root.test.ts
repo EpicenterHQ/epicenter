@@ -40,12 +40,6 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	expect(fromOutside.apps.map((app: { name: string }) => app.name)).toEqual([
 		'tasks',
 	]);
-	expect((await f.run('new', 'from-env')).code).toBe(0);
-	expect(
-		await Bun.file(
-			join(other, 'apps', 'from-env', 'code/epicenter.ts'),
-		).exists(),
-	).toBe(true);
 	const fromInside = JSON.parse(
 		(await f.runIn(join(f.apps, 'reading'), '--json')).stdout,
 	).data;
@@ -53,10 +47,6 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	expect(fromInside.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
 	]);
-	expect((await f.runIn(f.home, 'new', 'from-cwd')).code).toBe(0);
-	expect(
-		await Bun.file(join(f.apps, 'from-cwd', 'code/epicenter.ts')).exists(),
-	).toBe(true);
 	const unmarked = join(f.root, 'unmarked');
 	f.env.EPICENTER_ROOT = unmarked;
 	const make = `mkdir -p ${unmarked} && touch ${join(unmarked, 'EPICENTER.md')}`;

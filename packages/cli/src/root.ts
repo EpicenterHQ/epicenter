@@ -34,7 +34,7 @@ export class RootUsageError extends Error {
 }
 
 /** Expand a person's `~` and make a folder path absolute. */
-export function folderPath(path: string): string {
+function folderPath(path: string): string {
 	return resolve(
 		path === '~'
 			? homedir()
