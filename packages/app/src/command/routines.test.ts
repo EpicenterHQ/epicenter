@@ -1,5 +1,5 @@
 /**
- * Home routine tests. A check starts each routine whose schedule had an
+ * Routine tests. A check starts each routine whose schedule had an
  * occurrence since the previous check, never waits for it, and records
  * nothing. Commands run as argv with no shell, a JSON value in `run` is one
  * word of JSON text, and files the runner refuses do not stop the others.
@@ -26,22 +26,22 @@ const mark = [
 
 async function setup(run: unknown[] = mark, cron = '0 8 * * *') {
 	const f = await fixture();
-	roots.push(f.root);
-	const directory = join(f.home, 'routines');
+	roots.push(f.userDir);
+	const directory = join(f.epicenter, 'routines');
 	await mkdir(directory);
 	await writeFile(
 		join(directory, 'review.md'),
 		`---\ncron: "${cron}"\nrun: ${JSON.stringify(run)}\n---\nA daily review.\n`,
 	);
 	const runs = () =>
-		readdir(join(f.home, 'ran')).then(
+		readdir(join(f.epicenter, 'ran')).then(
 			(names) => names.length,
 			() => 0,
 		);
 	return {
 		...f,
 		directory,
-		routines: createRoutines({ folder: f.home }),
+		routines: createRoutines({ folder: f.epicenter }),
 		runs,
 	};
 }
@@ -83,7 +83,7 @@ test('a routine runs an app action', async () => {
     } })
   } }));`,
 	);
-	// The routine's command sends its action to the home's serve.
+	// The routine's command sends its action to the Epicenter's serve.
 	await f.serve();
 	await f.routines.check(new Date(Date.now() + DAY));
 	await eventually(async () =>
@@ -132,7 +132,7 @@ test('arguments are passed without a shell', async () => {
 	]);
 	await f.routines.check(new Date(Date.now() + DAY));
 	await eventually(async () =>
-		readFile(join(f.home, 'argument'), 'utf8').then(
+		readFile(join(f.epicenter, 'argument'), 'utf8').then(
 			(t) => t === literal,
 			() => false,
 		),
@@ -150,7 +150,7 @@ test('a JSON value in run reaches the command as one word of JSON text', async (
 	]);
 	await f.routines.check(new Date(Date.now() + DAY));
 	await eventually(async () =>
-		readFile(join(f.home, 'arguments'), 'utf8').then(
+		readFile(join(f.epicenter, 'arguments'), 'utf8').then(
 			(t) =>
 				t === '["{\\"recheck\\":false,\\"tags\\":[\\"a b\\"]}","7","null"]',
 			() => false,
@@ -167,7 +167,7 @@ test('occurrences follow local calendar days and daylight-saving gaps', async ()
 			'-e',
 			`
     import { createRoutines } from ${JSON.stringify(modulePath)};
-    const routines = createRoutines({ folder: ${JSON.stringify(f.home)} });
+    const routines = createRoutines({ folder: ${JSON.stringify(f.epicenter)} });
     console.log((await routines.list(new Date('2026-03-07T10:31:00Z')))[0].next);
   `,
 		],

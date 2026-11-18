@@ -18,7 +18,7 @@ export type Problem = { line: string; kind: string };
  * Why a call never began, with the fields each reason carries: its words,
  * input or target do not fit (`usage`), its app cannot load
  * (`app-problems`), Epicenter failed before it ran (`internal`), or no serve
- * for this home answers (`unavailable`). `next` is the command that helps.
+ * for this Epicenter answers (`unavailable`). `next` is the command that helps.
  */
 type NotStartedBody =
 	| { cause: 'usage'; message: string; next?: string }

@@ -141,7 +141,7 @@ test('a call serve never started arrives as NotStarted in the body of an HTTP er
 	respond('', { status: 503, statusText: 'Service Unavailable' });
 	expect(expectErr(await app.count())).toMatchObject({
 		name: 'Unreachable',
-		message: 'Epicenter answered 503 Service Unavailable',
+		message: 'serve answered 503 Service Unavailable',
 	});
 });
 

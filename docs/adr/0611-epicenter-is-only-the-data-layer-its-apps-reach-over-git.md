@@ -35,6 +35,7 @@ records audio through Rust
 ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
 All desktop Git runs in the CLI
 ([ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)),
+<!-- doc-path-check: ignore-next-line (folded into packages/app/src/command/cli.ts, ADR-0961) -->
 whose `packages/app/src/command/commands.ts` carries `check`, `query`, `generate`,
 `status`, `history`, `save-version`, `sync --to`, `clone`, `repos`, the
 `app` group with `f16c69134b49:packages/cli/src/installed-apps.ts`, the `auth` group,

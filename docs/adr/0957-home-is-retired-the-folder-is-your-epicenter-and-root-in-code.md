@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-17
 - **Amends:** the vocabulary of [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md), [ADR-0936](0936-one-serve-per-home-runs-every-action.md), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) and [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md). Their decisions stand; their titles keep the word they were written with.
-- **Relates:** [ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md) (what the root header carries, and which way it travels).
+- **Relates:** [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md) (what the root header carries, and which way it travels).
 - **Unbuilt:** all of it. Identifiers, docs and the `x-epicenter-home` header still say "home".
 
 ## Context
@@ -23,16 +23,20 @@ only it.**
 
 | Thing | A person reads | Code says |
 | --- | --- | --- |
-| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `rootFolder()` |
+| The folder `~/Epicenter`, one Git repository and Bun workspace | your Epicenter | `root`; `epicenterRoot()` |
 | The computer it runs on | the computer | not named |
 | One app's folder, `apps/<app>/` | the app | the app folder; `folder.path` |
 
-- `epicenterDir()` in `packages/app/src/command/root.ts` becomes `rootFolder()`.
+- `epicenterDir()` in `packages/app/src/command/root.ts` is removed.
   `epicenterRoot()` already exists there and returns `{ folder, port }`, an
-  `EpicenterRoot`; it keeps its name. Each other identifier with "home" in
+  `EpicenterRoot`; it keeps its name, and the command's entry point calls it
+  once and passes the root on, so no function returns the folder alone.
+  (This record first renamed `epicenterDir()` to `rootFolder()`; passing the
+  root left nothing to call it.) Each other identifier with "home" in
   it takes "root" or loses the word: `loadHomeApp` is `loadApp`,
-  `homeEntries` is `rootEntries`, `installHome` is `installRoot`,
-  `homeName` is `rootName`.
+  `homeEntries` is `appEntries`, `installHome` is `installRoot`,
+  `homeName` is `rootHeaderValue`, since it returns the header's encoded
+  path and not a name.
 - In tests, `fixture()` in `packages/app/src/command/runner.test-support.ts` returns
   `root`, the temporary folder `$HOME` points to, and `home`, the Epicenter
   inside it. They become `userDir` and `epicenter`, so `root` names no test
@@ -45,7 +49,7 @@ only it.**
 - Once "Epicenter" names the folder, a message about the program names
   serve as its subject: `serve is not running` and `start it with epicenter
   serve`, not `Epicenter is not running for this home`
-  (`sendToServe` in `packages/app/src/command/serve-call.ts`).
+  (`sendToServe` in `packages/app/src/command/send.ts`).
 - The root `package.json` is named `epicenter`. It is
   private and never published, so the unrelated public `epicenter` package on
   npm does not matter.
