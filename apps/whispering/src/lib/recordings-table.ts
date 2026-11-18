@@ -477,10 +477,10 @@ export function captureDeletions(
 const count = (n: number, one: string, many: string) =>
 	`${n.toLocaleString()} ${n === 1 ? one : many}`;
 
-/** A few of `names`, then how many more, so a long list still reads. */
-const fewOf = (names: readonly string[], shown = 3) =>
-	names.length > shown
-		? `${names.slice(0, shown).join(', ')} and ${(names.length - shown).toLocaleString()} more`
+/** Up to three of `names`, then how many more. */
+const namesWithMore = (names: readonly string[]) =>
+	names.length > 3
+		? `${names.slice(0, 3).join(', ')} and ${(names.length - 3).toLocaleString()} more`
 		: names.join(', ');
 
 /** What the person is told before several recordings are deleted: what goes, what stays, and what was left out. */
@@ -492,22 +492,20 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 		(sum, item) => sum + item.transcripts.length,
 		0,
 	);
-	const names = fewOf(deletions.map((item) => `“${item.title}”`));
-	const their = deletions.length === 1 ? 'its' : 'their';
-	return {
-		title: `Delete ${count(deletions.length, 'recording', 'recordings')}${
-			transcripts > 0
-				? ` and ${their} ${count(transcripts, 'transcript', 'transcripts')}`
-				: ''
-		}?`,
-		description: `This also deletes ${their} audio: ${names}.${
-			refused.length > 0
-				? ` ${count(refused.length, 'selected recording is', 'selected recordings are')} left out and kept: ${fewOf(
-						refused.map(({ title, reason }) => `“${title}” (${reason})`),
-					)}.`
-				: ''
-		}`,
-	};
+	const withAudio = deletions.filter((item) => item.audio !== undefined).length;
+	const names = deletions.map((item) => `“${item.title}”`);
+	const kept = refused.map(({ title, reason }) => `“${title}” (${reason})`);
+
+	let title = `Delete ${count(deletions.length, 'recording', 'recordings')}`;
+	if (transcripts > 0)
+		title += ` and ${count(transcripts, 'transcript', 'transcripts')}`;
+	let description = `This deletes ${namesWithMore(names)}`;
+	if (withAudio > 0)
+		description += `, with ${count(withAudio, 'audio file', 'audio files')}`;
+	description += '.';
+	if (refused.length > 0)
+		description += ` ${count(refused.length, 'selected recording is', 'selected recordings are')} kept: ${namesWithMore(kept)}.`;
+	return { title: `${title}?`, description };
 }
 
 /**
