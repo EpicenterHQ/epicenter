@@ -65,9 +65,7 @@ copy of it, and the version a home runs is a line in a file in Git.
   restart `serve`. The build gives every UI the new client; reload open pages.
 - Bun reads one `bunfig.toml`, at the top of the home. It ignores one inside
   an app, so a setting an app needs, such as `peer = false` under
-  `[install]`, goes in the top file. It holds `env = false`, so Bun loads
-  no `.env` into the programs it starts
-  ([ADR-0948](../../docs/adr/0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md)).
+  `[install]`, goes in the top file.
 - A package nested inside an app, such as `apps/films/code/render/` with its
   own `package.json`, gets its packages only once its path is in the list:
   `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
@@ -670,7 +668,6 @@ No command makes one. An Epicenter is a folder that holds:
 | `EPICENTER.md` | The marker: empty, or front matter with `port` |
 | `package.json` | The workspace in [A home is a Bun workspace](#a-home-is-a-bun-workspace) |
 | `.gitignore` | At least `/apps/*/local/`, `.env*`, `!.env.example` and `node_modules/` |
-| `bunfig.toml` | `env = false` |
 | `apps/` | One folder per app |
 
 Then run `git init` and `bun install` at its top, and commit. Write the
