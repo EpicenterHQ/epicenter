@@ -173,7 +173,7 @@ launcher scripts inside it, so name the allowed files in the brief.
 Every launch requires the shared launcher's `--account personal|work` and
 `--account-email` flags on the first turn and every resume. Account setup,
 identity checks, and profile ownership are described in
-[Choose a subscription account](../consult-claude/SKILL.md#choose-a-subscription-account).
+[Choose a subscription account](../consult-claude/references/launcher.md#choose-a-subscription-account).
 
 Read native `result`, `session_id`, `is_error`, `permission_denials`, and actual
 model usage. A zero process exit alone does not establish completion. Monitor
@@ -209,7 +209,7 @@ the blocked check. An explicit scope boundary still applies.
 Use `--dry-run` to inspect arguments without calling Claude. Do not switch a
 read-only session into a worker to bypass its assignment scope.
 
-Follow [the continuation record](../consult-claude/SKILL.md#send-a-brief) for
+Follow [the continuation record](../consult-claude/references/launcher.md#record-a-session-for-continuation) for
 assignments that may outlive the current context, including the workspace
 choice. Repeat the same `--codex` capability, helper model, limits and write
 roots on parent resumes. Within one launcher run, Claude can resume a helper
