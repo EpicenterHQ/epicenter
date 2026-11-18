@@ -22,6 +22,22 @@ export type CheckedKey = {
 };
 
 /**
+ * Each file directly under `data/`, which is in no key's folder, so nothing
+ * reads it: one problem line each, by its path under the app's folder. A
+ * folder there that is not a key is the app's own and is not reported; a
+ * name starting with `.` is skipped.
+ */
+export async function strayData(root: string): Promise<string[]> {
+	return (await filesIn(root, 'data'))
+		.filter((name) => !name.startsWith('.'))
+		.sort()
+		.map(
+			(name) =>
+				`data/${name} is in no data key's folder, so nothing reads it; a record belongs at data/<key>/<id>.md`,
+		);
+}
+
+/**
  * Check declared data through its handles, including filenames and exact
  * reference ids. `root` is the app's folder on disk, the one `data` was
  * defined with. Each key's report counts its files and the kinds of problem

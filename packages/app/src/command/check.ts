@@ -8,7 +8,7 @@
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
-import { type CheckedKey, checkData } from '../data-check.ts';
+import { type CheckedKey, checkData, strayData } from '../data-check.ts';
 import { ActionError, type Answer, Err, Ok } from '../index.ts';
 import {
 	type AppProblems,
@@ -83,6 +83,11 @@ export async function checkCommand(
 	for (const each of loaded) {
 		try {
 			apps[each.name] = await checkApp(each);
+			const stray = await strayData(each.realPath);
+			const listed = unchecked.find(({ entry }) => entry === each.name);
+			if (listed) listed.problems.push(...stray);
+			else if (stray.length)
+				unchecked.push({ entry: each.name, problems: stray });
 		} catch (error) {
 			unchecked.push({
 				entry: each.name,

@@ -662,7 +662,7 @@ test('a key named like a file says every key is a folder now, and what to write'
 			'settings.md': { description: 'settings record', fields: {} },
 		}),
 	).toThrow(
-		'The data key "settings.md" must be a name: every key is a folder of records now, so write "settings" and give the one record a fixed id',
+		'The data key "settings.md" must be a name: every key is a folder of records now, so write "settings", give the one record a fixed id, and move data/settings.md to data/settings/<id>.md',
 	);
 });
 

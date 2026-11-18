@@ -624,7 +624,10 @@ the records or the declaration.
 It runs `checkData` from `@epicenter/app` in a run of the app's folder and
 writes nothing. Besides files that do not fit, it reports a file in a folder
 key whose name is not a record id, names that are one file on a disk that
-ignores case, and a `field.ref` that names no file in its target key. Front
+ignores case, a `field.ref` that names no file in its target key, and a file
+directly under `data/`, which is in no key's folder and so is read by
+nothing (listed with the app's problems). A folder under `data/` that is not
+a key is the app's own and is not reported. Front
 matter no field declares is not a problem: a read does not give it, every
 write keeps it, and the check does not report it.
 

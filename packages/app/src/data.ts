@@ -138,7 +138,7 @@ export function defineData<const TSpec extends Spec>(
 		if (!isName(key))
 			throw new Error(
 				(key as string).endsWith('.md')
-					? `The data key ${JSON.stringify(key)} must be a name: every key is a folder of records now, so write ${JSON.stringify((key as string).slice(0, -3))} and give the one record a fixed id`
+					? `The data key ${JSON.stringify(key)} must be a name: every key is a folder of records now, so write ${JSON.stringify((key as string).slice(0, -3))}, give the one record a fixed id, and move data/${key} to data/${(key as string).slice(0, -3)}/<id>.md`
 					: `The data key ${JSON.stringify(key)} must be a name`,
 			);
 		if (typeof description !== 'string' || description.trim() === '')
