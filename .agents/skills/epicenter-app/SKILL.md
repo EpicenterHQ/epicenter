@@ -396,8 +396,9 @@ utilities. Fonts, layout, and components
 belong to the app.
 
 For a Svelte UI like Tasks, copy its `ui/build.ts`, `ui/svelte-plugin.ts`, and
-the components the view uses. Copy `bunfig.toml` with the build: `peer = false`
-keeps a peer named `bun` from shadowing Bun. Keep component source editable in
+the components the view uses. Do not add a `bunfig.toml`: an Epicenter installs
+once at its root, which never reads one in `code/`, and `peer = false` there
+would install a second `@epicenter/app`. Keep component source editable in
 `src/lib/components/ui/` alongside `components.json` in `ui/` and `src/lib/utils.ts`.
 The UI calls Epicenter through `@epicenter/app/client`. Declare other imported
 packages in `code/package.json` with versions resolvable from npm.
