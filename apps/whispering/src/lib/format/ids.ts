@@ -13,7 +13,8 @@ const random = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
 /**
  * A name that sorts by the moment it was made (UTC, to the millisecond),
  * then 8 random lowercase letters and digits so two names made in one
- * millisecond differ. It holds no `.`, `:` or `/`, so it is safe in any path
+ * millisecond differ, and a new recording's id names no file already in
+ * the folder. It holds no `.`, `:` or `/`, so it is safe in any path
  * segment and splits cleanly in `{id}.{ext}`.
  *
  * @example

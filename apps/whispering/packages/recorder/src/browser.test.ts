@@ -6,7 +6,6 @@
  * Key behaviors:
  * - A take lands once, whole, at `<path>.<ext>` when it stops: every piece
  *   the recorder handed over, in order, and nothing at the path before Stop
- * - A file already at the path is refused before any microphone opens
  * - The duration is the recorder's own clock, from its start to its stop,
  *   with its pauses left out, not the time between start and Stop
  * - A take that captured nothing writes nothing and is `Empty`; a second
@@ -180,7 +179,6 @@ function audioFolder() {
 	const files = memoryFiles();
 	const audio: AudioFiles = {
 		location: null,
-		read: files.read,
 		write: files.write,
 	};
 	return { audio, files };
@@ -337,24 +335,6 @@ test('the file is named by the type the recorder reports, however it spells it',
 		expectOk(await recording.stop());
 		expect(await paths(files)).toEqual([`recordings/a.${extension}`]);
 	}
-});
-
-test('a file already at the path is refused before the microphone opens, and kept', async () => {
-	const { audio, files } = audioFolder();
-	expectOk(await files.write('recordings/a.webm', new Uint8Array([7])));
-	let opened = 0;
-	browser({
-		async getUserMedia() {
-			opened++;
-			return fakeStream('default').stream;
-		},
-	});
-	const refused = expectErr(
-		await recorder.start({ files: audio, id: 'a' }),
-	);
-	expect(refused.name).toBe('Refused');
-	expect(opened).toBe(0);
-	expect(await bytesAt(files, 'webm')).toEqual(new Uint8Array([7]));
 });
 
 test('a take that captured nothing writes nothing and is Empty', async () => {

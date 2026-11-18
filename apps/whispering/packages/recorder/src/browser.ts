@@ -242,18 +242,11 @@ async function openCapture(
 /**
  * Record from `input` (or the system default), keeping each piece in
  * memory, and at Stop write the take once into `files` at
- * `recordings/<id>.m4a` (or `.webm`). Refused before any microphone opens
- * when audio with the id is already there.
+ * `recordings/<id>.m4a` (or `.webm`, by the type the browser produced).
+ * The id is new (`StartRecordingOptions.id`), so nothing is there.
  */
 const start: Recorder['start'] = async ({ files, id, input, signal }) => {
 	const path = `${RECORDINGS}/${id}`;
-	const expected = `${path}.${extensionOf(requestedType() ?? '')}`;
-	const there = await files.read(expected);
-	if (there.error !== null) return RecorderError.Failed({ cause: there.error });
-	if (there.data !== null)
-		return RecorderError.Refused({
-			reason: `a file is already at ${expected}`,
-		});
 	const pieces: Blob[] = [];
 	const opened = await openCapture({ input, signal }, (piece) =>
 		pieces.push(piece),

@@ -42,9 +42,6 @@ const folder =
 	'/Users/someone/Library/Application Support/so.epicenter.whispering/data';
 const files: Parameters<typeof recorder.start>[0]['files'] = {
 	location: folder,
-	read: async () => {
-		throw new Error('the shell reads the folder itself');
-	},
 	write: async () => {
 		throw new Error('the shell writes the folder itself');
 	},

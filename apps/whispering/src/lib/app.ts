@@ -66,7 +66,6 @@ const audioFiles: AudioFiles = {
 	get location() {
 		return desktopFolder;
 	},
-	read: (path) => files.read(path),
 	write: (path, bytes) => files.write(path, bytes),
 };
 

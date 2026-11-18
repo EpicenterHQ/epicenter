@@ -60,8 +60,6 @@ export type RecordingStart = {
 export type AudioFiles = {
 	/** The folder's absolute path on this computer; null where it has none (a browser's). */
 	readonly location: string | null;
-	/** The file's bytes, or null when nothing is there. */
-	read(path: string): Promise<Result<Uint8Array | null, { message: string }>>;
 	/** Write the file whole. */
 	write(
 		path: string,
@@ -84,7 +82,10 @@ export type StartRecordingOptions = RecordingStart & {
 	/**
 	 * The recording's id: its audio is at `recordings/<id>.<ext>`,
 	 * where the extension is the format's (`webm` on the desktop; `m4a` or
-	 * `webm` in a browser). Refused when audio with this id is there.
+	 * `webm` in a browser). It must be new: the app's ids carry a time and
+	 * random characters, so none names audio already there. The desktop
+	 * shell still refuses one that does; a browser writes at Stop without
+	 * looking.
 	 */
 	readonly id: string;
 };
