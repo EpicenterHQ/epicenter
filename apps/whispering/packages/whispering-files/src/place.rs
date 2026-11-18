@@ -11,13 +11,17 @@
 //! renames that into place in the same mode, and only then removes the
 //! staged file. A failure at any step loses nothing: the staged file stays,
 //! and a temporary file left beside the target is removed where it can be.
+//! One a crash left is removed when the folder next opens
+//! ([`clear_saves`]); the one a copy is still writing is never touched.
 
 use std::collections::hash_map::RandomState;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 use crate::error::{FilesError, Result};
 use crate::path::{make_parents, resolve};
@@ -84,7 +88,8 @@ pub fn copy_beside(source: &Path, target: &Path, mode: Mode) -> io::Result<()> {
     let directory = target
         .parent()
         .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "the target has no directory"))?;
-    let temporary = directory.join(format!(".ep-{}.save", random(16)));
+    let temporary = directory.join(format!("{SAVE_PREFIX}{}{SAVE_SUFFIX}", random(16)));
+    let _writing = Writing::new(&temporary);
     let copied = (|| {
         let mut from = File::open(source)?;
         let mut to = File::options()
@@ -110,6 +115,104 @@ pub fn copy_beside(source: &Path, target: &Path, mode: Mode) -> io::Result<()> {
             Err(error)
         }
     }
+}
+
+const SAVE_PREFIX: &str = ".ep-";
+const SAVE_SUFFIX: &str = ".save";
+
+/// The directories of the folder a copy is placed beside a target in: the
+/// folder itself (`settings.md`), `recordings/`, and `transcriptions/`.
+const SAVE_DIRECTORIES: [&str; 3] = ["", "recordings", "transcriptions"];
+
+/// The temporary files [`copy_beside`] is writing now, in this process.
+/// Whispering is the folder's one writer, so a `.ep-*.save` not named here
+/// is one a crash left.
+static WRITING: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+fn writing() -> MutexGuard<'static, Option<HashSet<PathBuf>>> {
+    WRITING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Names a temporary file in [`WRITING`] while it lives.
+struct Writing(PathBuf);
+
+impl Writing {
+    fn new(path: &Path) -> Self {
+        writing()
+            .get_or_insert_with(HashSet::new)
+            .insert(path.to_path_buf());
+        Self(path.to_path_buf())
+    }
+}
+
+impl Drop for Writing {
+    fn drop(&mut self) {
+        if let Some(paths) = writing().as_mut() {
+            paths.remove(&self.0);
+        }
+    }
+}
+
+/// Whether `name` is a temporary file's name as [`copy_beside`] makes it:
+/// `.ep-`, one or more of `0-9 a-z`, then `.save`.
+pub fn is_save_name(name: &str) -> bool {
+    name.strip_prefix(SAVE_PREFIX)
+        .and_then(|rest| rest.strip_suffix(SAVE_SUFFIX))
+        .is_some_and(|random| {
+            !random.is_empty()
+                && random
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
+        })
+}
+
+/// Remove the temporary files a crash left beside their targets in
+/// `folder`: each regular file named as [`is_save_name`] says, in the folder
+/// itself, `recordings/`, or `transcriptions/`, that no copy in this process
+/// is still writing. A link is never followed or removed, a directory that
+/// is a link is not looked in, and nothing else is touched. Answers how many
+/// were removed. A missing directory holds none.
+pub fn clear_saves(folder: &Path) -> io::Result<usize> {
+    let mut removed = 0;
+    for relative in SAVE_DIRECTORIES {
+        let directory = folder.join(relative);
+        if !relative.is_empty() {
+            match fs::symlink_metadata(&directory) {
+                Ok(metadata) if metadata.is_dir() => {}
+                Ok(_) => continue,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let is_save = entry.file_name().to_str().is_some_and(is_save_name);
+            // `DirEntry::file_type` does not follow a link.
+            if !is_save || !entry.file_type()?.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let held = writing()
+                .as_ref()
+                .is_some_and(|paths| paths.contains(&path));
+            if held {
+                continue;
+            }
+            match fs::remove_file(&path) {
+                Ok(()) => removed += 1,
+                Err(error) if error.kind() == ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    Ok(removed)
 }
 
 /// Write `bytes` to a new file `<local_tmp>/<random>`, sync it, and answer
@@ -453,6 +556,122 @@ mod tests {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         assert!(crosses_devices(&io::Error::from_raw_os_error(libc::EXDEV)));
         assert!(!crosses_devices(&io::Error::from(ErrorKind::NotFound)));
+    }
+
+    #[test]
+    fn a_save_name_is_exactly_what_copy_beside_makes() {
+        for name in [".ep-k3x9a2f8q0w1e2r3.save", ".ep-0.save"] {
+            assert!(is_save_name(name), "{name}");
+        }
+        for name in [
+            ".ep-.save",
+            ".ep-K3X9.save",
+            ".ep-k3x9.save.webm",
+            ".ep-k3x9.saved",
+            "ep-k3x9.save",
+            ".ep-k3/x9.save",
+            ".ep-k3x9",
+            ".DS_Store",
+            "a.save",
+        ] {
+            assert!(!is_save_name(name), "{name}");
+        }
+    }
+
+    /// What the folder opening clears: a `.ep-*.save` a crash left in the
+    /// folder, `recordings/`, or `transcriptions/`, and nothing else: not
+    /// another hidden file, a note, a link, a directory, what a link
+    /// points at, a save in any other directory, or the one a copy is
+    /// still writing.
+    #[test]
+    fn clear_saves_removes_only_leftover_saves() {
+        let folder = tempfile::tempdir().unwrap();
+        let folder = folder.path();
+        let outside = tempfile::tempdir().unwrap();
+        let (recordings, transcriptions, other) = (
+            folder.join("recordings"),
+            folder.join("transcriptions"),
+            folder.join("other"),
+        );
+        for directory in [&recordings, &transcriptions, &other] {
+            fs::create_dir(directory).unwrap();
+        }
+        for leftover in [
+            folder.join(".ep-root1.save"),
+            recordings.join(".ep-k3x9a2f8.save"),
+            transcriptions.join(".ep-q0w1.save"),
+        ] {
+            fs::write(leftover, b"half").unwrap();
+        }
+        let kept = [
+            folder.join("settings.md"),
+            folder.join(".DS_Store"),
+            recordings.join("a.webm"),
+            recordings.join(".ep-K3X9.save"),
+            recordings.join(".ep-k3x9.save.webm"),
+            transcriptions.join("a.md"),
+            other.join(".ep-other1.save"),
+        ];
+        for file in &kept {
+            fs::write(file, b"kept").unwrap();
+        }
+        fs::create_dir(recordings.join(".ep-dir1.save")).unwrap();
+        let target = outside.path().join(".ep-target1.save");
+        fs::write(&target, b"not the folder's").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, recordings.join(".ep-link1.save")).unwrap();
+
+        // The copy still writing is named, and stays.
+        let live = recordings.join(".ep-live1.save");
+        fs::write(&live, b"writing").unwrap();
+        let writing = Writing::new(&live);
+
+        assert_eq!(clear_saves(folder).unwrap(), 3);
+        assert!(live.exists(), "the copy being written stays");
+        for file in &kept {
+            assert_eq!(fs::read(file).unwrap(), b"kept", "{}", file.display());
+        }
+        assert!(recordings.join(".ep-dir1.save").is_dir());
+        assert_eq!(fs::read(&target).unwrap(), b"not the folder's");
+        #[cfg(unix)]
+        assert!(fs::symlink_metadata(recordings.join(".ep-link1.save")).is_ok());
+        assert_eq!(
+            names_in(&recordings),
+            [
+                ".ep-K3X9.save",
+                ".ep-dir1.save",
+                ".ep-k3x9.save.webm",
+                ".ep-link1.save",
+                ".ep-live1.save",
+                "a.webm"
+            ]
+            .into_iter()
+            .filter(|name| cfg!(unix) || *name != ".ep-link1.save")
+            .collect::<Vec<_>>()
+        );
+
+        // Once the copy is done, a save left with that name is a leftover.
+        drop(writing);
+        assert_eq!(clear_saves(folder).unwrap(), 1);
+        assert!(!live.exists());
+
+        // A folder with neither directory, or a missing one, holds none.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(clear_saves(empty.path()).unwrap(), 0);
+        assert_eq!(clear_saves(&empty.path().join("missing")).unwrap(), 0);
+    }
+
+    /// A directory of the folder that is a link is not looked in.
+    #[cfg(unix)]
+    #[test]
+    fn clear_saves_does_not_look_through_a_linked_directory() {
+        let folder = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let theirs = elsewhere.path().join(".ep-theirs1.save");
+        fs::write(&theirs, b"theirs").unwrap();
+        std::os::unix::fs::symlink(elsewhere.path(), folder.path().join("recordings")).unwrap();
+        assert_eq!(clear_saves(folder.path()).unwrap(), 0);
+        assert!(theirs.exists());
     }
 
     #[test]

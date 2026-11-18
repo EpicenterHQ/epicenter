@@ -29,4 +29,4 @@ pub use error::{FilesError, Result};
 pub use git::{folder_git, FolderGit};
 pub use ops::{list, read, read_many, remove, write, Entry, MISSING};
 pub use path::{dir_problem, file_problem, is_bare_name, is_file_name, resolve, resolve_dir};
-pub use place::{clear, place, place_into, stage, Mode};
+pub use place::{clear, clear_saves, is_save_name, place, place_into, stage, Mode};

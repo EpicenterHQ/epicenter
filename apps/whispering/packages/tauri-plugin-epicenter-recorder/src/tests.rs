@@ -492,6 +492,30 @@ fn start_and_recover_refuse_a_folder_the_scope_does_not_allow() {
     );
 }
 
+/// Opening the folder (`recover`) removes the copies a crash left beside
+/// their targets, and only in the folder it was allowed to open.
+#[test]
+fn recover_removes_leftover_saves_from_the_folder_it_opens() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    let outside = fixture.root.with_file_name("elsewhere");
+    for folder in [&fixture.root, &outside] {
+        std::fs::create_dir_all(folder.join("recordings")).unwrap();
+        std::fs::write(folder.join("recordings/.ep-k3x9a2f8.save"), b"half").unwrap();
+    }
+    std::fs::write(fixture.root.join("recordings/.DS_Store"), b"").unwrap();
+    let refused = invoke(&main, "recover", json!({ "dir": outside })).unwrap_err();
+    assert_eq!(name(&refused), "Refused", "{refused}");
+    assert!(outside.join("recordings/.ep-k3x9a2f8.save").exists());
+
+    assert_eq!(
+        invoke(&main, "recover", json!({})).unwrap(),
+        json!({ "recovered": [], "unplaced": [] })
+    );
+    assert!(!fixture.root.join("recordings/.ep-k3x9a2f8.save").exists());
+    assert!(fixture.root.join("recordings/.DS_Store").exists());
+}
+
 #[test]
 fn start_refuses_an_id_that_is_not_one_plain_name_before_opening_anything() {
     let fixture = fixture();

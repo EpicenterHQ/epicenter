@@ -223,6 +223,10 @@ pub async fn stop<R: Runtime>(webview: Webview<R>) -> Result<StoppedRecording> {
 /// runs it when it opens its folder, and says what is unplaced. The take a
 /// live recording is writing is left alone. Running it again places nothing
 /// more.
+///
+/// First it removes the `.ep-*.save` files a crash left in the folder while
+/// a copy to another volume was placing a file
+/// (`whispering_files::clear_saves`); one a copy is still writing stays.
 #[tauri::command]
 #[specta::specta]
 pub async fn recover<R: Runtime>(webview: Webview<R>, dir: String) -> Result<Recovery> {
@@ -230,6 +234,11 @@ pub async fn recover<R: Runtime>(webview: Webview<R>, dir: String) -> Result<Rec
     let app = webview.app_handle().clone();
     let takes = app.state::<Recorders<R>>().takes.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        match whispering_files::clear_saves(&folder) {
+            Ok(0) => {}
+            Ok(removed) => log::info!("Removed {removed} unfinished copies from the folder"),
+            Err(error) => log::warn!("Unfinished copies in the folder were not removed: {error}"),
+        }
         // Asked per take, under the recorder lock: a `start` holds that lock
         // from creating its take until the recording is held, so a take
         // listed here and live is always named.

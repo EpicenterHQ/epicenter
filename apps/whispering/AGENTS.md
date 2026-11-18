@@ -23,8 +23,10 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   write stages in `local/.tmp/` and a take records in `local/recording/`,
   both in the app's local data directory, outside the folder. The one
   exception is the place step's copy beside its target
-  (`.ep-<random>.save`) when the folder is on another volume. Never write
-  any other temporary or growing file inside the folder.
+  (`.ep-<random>.save`) when the folder is on another volume; one a crash
+  left is removed when the folder next opens (`clear_saves`, run by
+  `recover`). Never write any other temporary or growing file inside the
+  folder.
 - **Rust moves bytes; TypeScript reads notes.** Notes use the home's
   Markdown grammar from `@epicenter/app/markdown` (`src/lib/format/note.ts`).
   Do not parse a note in Rust or copy the grammar.
