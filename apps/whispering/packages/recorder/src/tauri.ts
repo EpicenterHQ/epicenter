@@ -30,8 +30,6 @@ import {
 import { type AudioFiles, type Recorder, RecorderError } from './recording.js';
 import { createSignals } from './signals.js';
 
-export * from './recording.js';
-
 /** A refusal from the shell, as this package names it. */
 function fromNative(error: NativeRecorderError, label = '') {
 	switch (error.name) {

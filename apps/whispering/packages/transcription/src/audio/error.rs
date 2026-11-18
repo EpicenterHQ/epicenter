@@ -1,11 +1,10 @@
 use thiserror::Error;
 
-/// Failure modes for the audio decode/encode pipeline.
+/// Why audio could not be decoded.
 ///
-/// Variants document the failure mode for log/debug consumption. The current
-/// consumer (`transcription::run_transcription`) stringifies and wraps any
-/// variant into `TranscriptionError::AudioReadError`, so the discriminant
-/// does not cross the IPC boundary.
+/// The variants are for logs. Transcription (`model_cache.rs`) turns any of
+/// them into `TranscriptionError::AudioReadError` with its message, so the
+/// variant does not cross the IPC boundary.
 #[derive(Error, Debug)]
 pub enum AudioError {
     #[error("Audio decode failed: {message}")]

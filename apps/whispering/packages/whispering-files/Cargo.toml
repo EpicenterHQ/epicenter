@@ -1,7 +1,7 @@
 [package]
 name = "whispering-files"
 version = "0.0.1"
-description = "How Whispering writes its folder: the plain-name path rule its shell and its recorder share, and the write beside a target its shell makes"
+description = "How Whispering reaches its folder on the desktop: the plain-name path rule, the write beside a target, the file operations, Change…, and the Git check, shared by its shell and its recorder"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"

@@ -66,7 +66,7 @@ test('a recording starts by its id in the folder, and stop answers its id and le
 	const [start] = calls;
 	expect(start?.cmd).toBe('plugin:epicenter-recorder|start');
 	expect(start?.args).toMatchObject({
-		dir: folder,
+		folder,
 		id: 'a',
 		device: 'coreaudio:desk-uid',
 	});

@@ -82,7 +82,7 @@ pub fn folder_git(folder: &Path) -> Result<FolderGit> {
 /// takes the filter away with `-filter`, `!filter`, or another `filter=`.
 /// Blank lines, comments, quoted patterns, and macro lines (`[attr]`) say
 /// nothing.
-pub fn lfs_webm_line(line: &str) -> Option<bool> {
+pub(crate) fn lfs_webm_line(line: &str) -> Option<bool> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') || line.starts_with('"') {
         return None;

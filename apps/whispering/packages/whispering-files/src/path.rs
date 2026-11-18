@@ -30,7 +30,7 @@ pub fn is_bare_name(segment: &str) -> bool {
 
 /// Whether `segment` is a file's name: a bare name, with at most one
 /// extension of one or more letters or digits.
-pub fn is_file_name(segment: &str) -> bool {
+pub(crate) fn is_file_name(segment: &str) -> bool {
     match segment.split_once('.') {
         None => is_bare_name(segment),
         Some((base, extension)) => {
@@ -42,7 +42,7 @@ pub fn is_file_name(segment: &str) -> bool {
 }
 
 /// Why the folder-relative file path `relative` fails the rule, or `None`.
-pub fn file_problem(relative: &str) -> Option<String> {
+pub(crate) fn file_problem(relative: &str) -> Option<String> {
     if relative.is_empty() {
         return Some("the path is empty".into());
     }
@@ -63,7 +63,7 @@ pub fn file_problem(relative: &str) -> Option<String> {
 
 /// Why the folder-relative directory path `relative` fails the rule, or
 /// `None`. The empty path is the folder.
-pub fn dir_problem(relative: &str) -> Option<String> {
+pub(crate) fn dir_problem(relative: &str) -> Option<String> {
     if relative.is_empty() || relative.split('/').all(is_bare_name) {
         None
     } else {
@@ -72,7 +72,7 @@ pub fn dir_problem(relative: &str) -> Option<String> {
 }
 
 /// Refuse a folder that is not an absolute path.
-pub fn check_folder(folder: &Path) -> Result<()> {
+pub(crate) fn check_folder(folder: &Path) -> Result<()> {
     if folder.is_absolute() {
         Ok(())
     } else {

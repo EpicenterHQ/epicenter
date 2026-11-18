@@ -22,7 +22,7 @@ cpal = "0.18.1"
 # Encodes a recording to Opus as it records (`opus.rs`); the same libopus the
 # transcription plugin decodes with, built from source (`.cargo/config.toml`).
 audiopus = "0.3.0-rc.0"
-# Converts the microphone's own rate to the recording's 16 kHz; the shell's decoder uses the same crate.
+# Converts the microphone's own rate to the recording's 16 kHz; the transcription plugin's decoder uses the same crate.
 rubato = "0.15"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }

@@ -14,19 +14,21 @@ use tauri::{plugin::TauriPlugin, AppHandle, Manager, Runtime};
 pub mod audio;
 mod process;
 pub use process::run;
+#[cfg(test)]
 mod command_names;
+#[cfg(test)]
+use command_names::COMMANDS;
 mod download;
 pub mod transcription;
-pub use command_names::COMMANDS;
 pub use download::DownloadProgress;
 pub use transcription::*;
 
 /// The settings file's name, in `local/` in the app's local data directory.
-pub const SETTINGS_FILE: &str = "local-transcription.json";
+pub(crate) const SETTINGS_FILE: &str = "local-transcription.json";
 
 /// The directory in the app's local data directory that holds the settings
 /// file: this computer's own, never in Whispering's folder.
-pub const SETTINGS_DIR: &str = "local";
+pub(crate) const SETTINGS_DIR: &str = "local";
 
 type OpenSettings<R> = Box<dyn Fn(&AppHandle<R>) -> Result<(), String> + Send + Sync>;
 
@@ -40,7 +42,8 @@ pub struct PluginState<R: Runtime> {
 
 /// This app's model cache, created on first use with its idle watcher.
 /// No Hugging Face download or model load happens here.
-pub fn model_cache<R: Runtime>(app: &AppHandle<R>) -> Result<ModelCache, String> {
+#[cfg(test)]
+fn model_cache<R: Runtime>(app: &AppHandle<R>) -> Result<ModelCache, String> {
     let state = app
         .try_state::<PluginState<R>>()
         .ok_or("Transcription plugin is not installed")?;

@@ -7,9 +7,9 @@
 //! progress on the same microphone would go silent. So the rate is converted
 //! here, on the writer thread, as chunks arrive.
 //!
-//! The sinc parameters are the ones the shell's own decoder uses to bring an
-//! uploaded file to 16 kHz for transcription, so a recording and a file sound
-//! the same to the transcriber.
+//! The sinc parameters are the ones the transcription plugin's decoder uses to
+//! bring a file to 16 kHz, so a recording and a file sound the same to the
+//! transcriber.
 
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,

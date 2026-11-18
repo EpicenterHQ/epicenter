@@ -37,20 +37,22 @@ use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WindowEvent};
 
+#[cfg(test)]
 mod command_names;
+#[cfg(test)]
+use command_names::COMMANDS;
 mod commands;
-pub mod ended;
-pub mod error;
+mod ended;
+mod error;
 mod meter;
 mod opus;
-pub mod permission;
+mod permission;
 mod rate;
-pub mod recorder;
+mod recorder;
 mod webm;
 
-pub use command_names::COMMANDS;
-pub use ended::{EndedReason, RecordingSignal};
-pub use error::RecorderError;
+#[cfg(test)]
+use error::RecorderError;
 
 const PLUGIN_NAME: &str = "epicenter-recorder";
 

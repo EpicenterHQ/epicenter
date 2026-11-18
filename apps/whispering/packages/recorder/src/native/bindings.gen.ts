@@ -19,7 +19,7 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording the take `id` for the folder `dir` (`allowed_folder`),
+	 *  Start recording the take `id` for the folder `folder` (`allowed_folder`),
 	 *  from the microphone whose id is `device` or the system default. An
 	 *  ending nobody asked for arrives on `signals`.
 	 *
@@ -28,7 +28,7 @@ export const commands = {
 	 *  `stop` finishes it in place. Microphone access is asked for before the
 	 *  device is resolved. A refusal opens nothing.
 	 */
-	start: (dir: string, id: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { dir, id, device, signals })),
+	start: (folder: string, id: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { folder, id, device, signals })),
 	/**
 	 *  Stop the recording this window started and finish its take in place at
 	 *  `recordings/<id>.webm`; answers its id and how long it plays. Finishing
@@ -113,7 +113,7 @@ export type RecorderError =
  */
 { name: "NoInputDevice"; message: string } |
 /**
- *  The page asked for a microphone by name and none by that name is
+ *  The page asked for a microphone by id and none with that id is
  *  connected. Nothing was opened in its place: recording from another
  *  microphone than the one the person chose is a refusal, not a fallback.
  */

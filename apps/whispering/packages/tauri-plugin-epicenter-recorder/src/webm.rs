@@ -366,9 +366,7 @@ fn close<S: Storage>(
     size[0] = 0x01;
     out.seek(SeekFrom::Start(layout.segment_body - 8))?;
     out.write_all(&size)?;
-    out.sync_data()?;
-    out.seek(SeekFrom::Start(finished))?;
-    Ok(())
+    out.sync_data()
 }
 
 /// A Cluster of `packets` from packet index `first`; with `last_padding`,

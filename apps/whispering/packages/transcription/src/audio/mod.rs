@@ -4,12 +4,9 @@
 //! FLAC, OGG, WebM, including Opus inside any of those) into a `Vec<f32>`
 //! of 16 kHz mono samples, ready for local GGUF transcription.
 //!
-//! Replaces the old `transcription::audio` module, which dispatched
-//! across three tiers (WAV fast-path, hound + rubato, external sidecar)
-//! and required users to install an external decoder for compressed
-//! formats. The new pipeline is one path built on Symphonia (demux +
-//! non-Opus decode), libopus via `audiopus` (Opus decode, straight to
-//! 16 kHz), and rubato (resample everything else to 16 kHz).
+//! One path: Symphonia demuxes every container and decodes everything but
+//! Opus, libopus via `audiopus` decodes Opus straight to 16 kHz, and rubato
+//! resamples everything else to 16 kHz.
 //!
 //! The whole file is decoded into memory before transcription reads it: an
 //! hour is about 230 MB of 16 kHz f32 samples, more for a source at a higher

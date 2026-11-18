@@ -337,13 +337,13 @@ pub type OnEnded = Arc<dyn Fn(&str, EndedReason) + Send + Sync>;
 /// "Held" rather than "in flight", because capture may already be over. The
 /// recording keeps this slot either way until its owner resolves it.
 struct HeldRecording {
-    /// The id the host minted at `start`, which a capture's ending names.
-    id: String,
+    /// The serial the host minted at `start`, which a capture's ending names.
+    serial: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
     /// The recording's id, as the page named it: its take is
-    /// `recordings/<take_id>.webm`.
-    take_id: String,
+    /// `recordings/<id>.webm`.
+    id: String,
     /// `None` while capture is running. `Some` once capture ended on its own,
     /// which is a fact about this recording and not a separate state machine:
     /// everything else about it is unchanged.
@@ -399,15 +399,12 @@ impl Recorder {
 
     /// The page `owner` showed is gone, by a reload or because the window
     /// closed: finalize what it was recording, which nobody can stop now, and
-    /// count the next page.
-    /// Also answers whether it closed any meter.
-    pub fn page_ended(&mut self, owner: &str) -> (Option<StoppedRecording>, bool) {
+    /// count the next page. Its meters close with it.
+    pub fn page_ended(&mut self, owner: &str) -> Option<StoppedRecording> {
         *self.pages.entry(owner.to_string()).or_default() += 1;
-        let meters = self.meters.len();
         self.meters
             .retain(|_, (meter_owner, _)| meter_owner != owner);
-        let meters_closed = self.meters.len() != meters;
-        (self.finish_owned_by(owner), meters_closed)
+        self.finish_owned_by(owner)
     }
 
     /// Keep the meter `id` that `owner` opened while it showed page `page`. A
@@ -479,7 +476,7 @@ impl Recorder {
     /// default.
     ///
     /// `take` is the absolute path the take is recorded at,
-    /// `recordings/<take_id>.webm` in its folder, whose directory exists.
+    /// `recordings/<id>.webm` in its folder, whose directory exists.
     /// The take is created only after the device and its configuration
     /// resolve, and never over anything already there.
     ///
@@ -491,7 +488,7 @@ impl Recorder {
         &mut self,
         requested_device: Option<&str>,
         take: PathBuf,
-        take_id: String,
+        id: String,
         owner_label: String,
         signals: Channel<RecordingSignal>,
         on_ended: OnEnded,
@@ -527,7 +524,7 @@ impl Recorder {
             })?;
         let capture = CaptureFile::open(take, file, device_rate)?;
 
-        let id = next_id();
+        let serial = next_id();
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
         let (cmd_tx, cmd_rx) = mpsc::channel::<RecorderCmd>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<()>>();
@@ -536,8 +533,8 @@ impl Recorder {
             sample_tx,
             dropped_chunks: Arc::clone(&dropped_chunks),
         };
-        let on_error = capture_error_handler(Arc::clone(&on_ended), id.clone());
-        let worker_id = id.clone();
+        let on_error = capture_error_handler(Arc::clone(&on_ended), serial.clone());
+        let worker_id = serial.clone();
 
         let worker = thread::spawn(move || {
             let stream = match build_input_stream(
@@ -609,12 +606,12 @@ impl Recorder {
         }
 
         info!(
-            "Recording started: id={id}, owner={owner_label}, take={take_id}, device={device_name}, {device_rate} Hz, {device_channels} channels",
+            "Recording started: id={id}, serial={serial}, owner={owner_label}, device={device_name}, {device_rate} Hz, {device_channels} channels",
         );
         self.active = Some(HeldRecording {
-            id,
+            serial,
             owner_label,
-            take_id,
+            id,
             ended_reason: None,
             signals,
             cmd_tx,
@@ -637,11 +634,11 @@ impl Recorder {
     /// it idempotent when cpal reports the same failure more than once.
     pub fn end_capture(
         &mut self,
-        id: &str,
+        serial: &str,
         reason: EndedReason,
     ) -> Option<Channel<RecordingSignal>> {
         let active = self.active.as_mut()?;
-        if active.id != id || active.ended_reason.is_some() {
+        if active.serial != serial || active.ended_reason.is_some() {
             return None;
         }
         active.ended_reason = Some(reason);
@@ -678,10 +675,7 @@ impl Recorder {
         let id = active.id.clone();
         match finish(active) {
             Ok(stopped) => {
-                info!(
-                    "Recording {id} ({}) finalized because its page is gone",
-                    stopped.id
-                );
+                info!("Recording {id} finalized because its page is gone");
                 Some(stopped)
             }
             Err(error) => {
@@ -722,7 +716,8 @@ impl Recorder {
 
     /// A recording whose capture ended still holds the slot until its owner
     /// stops it, but departure would no longer cut it off. Meters do not record.
-    pub fn is_recording(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_recording(&self) -> bool {
         self.active
             .as_ref()
             .is_some_and(|active| active.ended_reason.is_none())
@@ -748,7 +743,7 @@ impl Recorder {
             Some(_) => "has ended and is waiting to be stopped",
         };
         Err(RecorderError::busy(format!(
-            "a recording ({}) started by window '{}' {state}",
+            "recording '{}' started by window '{}' {state}",
             active.id, active.owner_label
         )))
     }
@@ -769,7 +764,7 @@ impl Recorder {
         if active.owner_label != caller_label {
             return Err(RecorderError::not_recording(format!(
                 "recording '{}' is owned by window '{}', not '{caller_label}'",
-                active.take_id, active.owner_label
+                active.id, active.owner_label
             )));
         }
         Ok(())
@@ -808,7 +803,7 @@ fn finish(active: HeldRecording) -> Result<StoppedRecording> {
     // by the time the slot is observably free.
     let _ = active.worker.join();
     Ok(StoppedRecording {
-        id: active.take_id,
+        id: active.id,
         duration_ms: finished?,
     })
 }
@@ -977,8 +972,9 @@ const CAPTURE_CLOSE_TIMEOUT: Duration = Duration::from_millis(50);
 /// function calls a cpal method, and a test can supply any value whose drop
 /// closes the sender.
 ///
-/// A write failure is not fatal to the stop: it means the disk is gone, and
-/// keeping the prefix that reached it beats failing the whole recording.
+/// A write failure ends the drain. The capture remembers it, so Stop answers
+/// `Failed` and leaves the take as its whole seconds reached the file, as a
+/// crash would (`CaptureFile::finish`).
 fn close_capture_and_drain<S>(
     stream: S,
     capture: &mut CaptureFile,
@@ -991,7 +987,7 @@ fn close_capture_and_drain<S>(
         match sample_rx.recv_timeout(remaining) {
             Ok(samples) => {
                 if let Err(error) = capture.write(&samples) {
-                    warn!("Could not write the last queued audio, finalizing without it: {error}");
+                    warn!("Could not write the last queued audio: {error}");
                     return;
                 }
             }
@@ -1417,8 +1413,8 @@ pub(crate) mod tests {
     pub(crate) fn hold_recording(
         recorder: &mut Recorder,
         take: &Path,
-        take_id: &str,
         id: &str,
+        serial: &str,
         owner_label: &str,
     ) {
         let file = File::options()
@@ -1434,9 +1430,9 @@ pub(crate) mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel::<RecorderCmd>();
         let worker = thread::spawn(move || await_resolution(capture, &cmd_rx));
         recorder.active = Some(HeldRecording {
-            id: id.to_string(),
+            serial: serial.to_string(),
             owner_label: owner_label.to_string(),
-            take_id: take_id.to_string(),
+            id: id.to_string(),
             ended_reason: None,
             signals: no_page(),
             cmd_tx,
@@ -1500,7 +1496,7 @@ pub(crate) mod tests {
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
         let page = recorder.page("app-notes");
 
-        assert!(recorder.page_ended("whispering").0.is_none());
+        assert!(recorder.page_ended("whispering").is_none());
         assert!(
             recorder.is_capturing(),
             "another window's page leaving changes nothing"
@@ -1509,7 +1505,6 @@ pub(crate) mod tests {
 
         let stopped = recorder
             .page_ended("app-notes")
-            .0
             .expect("the departed page's recording is finalized");
         assert_eq!(
             stopped,
@@ -1633,7 +1628,7 @@ pub(crate) mod tests {
             .active
             .as_ref()
             .expect("an ended recording is still held");
-        assert_eq!(held.id, "1");
+        assert_eq!(held.serial, "1");
         assert_eq!(held.owner_label, "app-notes");
         assert_eq!(held.ended_reason, Some(EndedReason::DeviceDisconnected));
     }

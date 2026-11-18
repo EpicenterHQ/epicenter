@@ -15,7 +15,7 @@ use crate::error::{FilesError, Result};
 use crate::path::{is_file_name, make_parents, resolve, resolve_dir};
 
 /// What `read_many` writes for a path with no file, in place of its length.
-pub const MISSING: u32 = u32::MAX;
+pub(crate) const MISSING: u32 = u32::MAX;
 
 /// Whether `error` says nothing is at a path: a missing file, a directory
 /// where a file was asked for, or a file where a directory is on the way.

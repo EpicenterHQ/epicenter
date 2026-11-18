@@ -35,7 +35,7 @@ pub enum RecorderError {
     #[error("{message}")]
     NoInputDevice { message: String },
 
-    /// The page asked for a microphone by name and none by that name is
+    /// The page asked for a microphone by id and none with that id is
     /// connected. Nothing was opened in its place: recording from another
     /// microphone than the one the person chose is a refusal, not a fallback.
     #[error("{message}")]

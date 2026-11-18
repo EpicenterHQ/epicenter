@@ -37,7 +37,7 @@ pub(crate) fn decide(access: Access, request: impl FnOnce() -> bool) -> Result<(
         Ok(())
     } else {
         Err(RecorderError::PermissionDenied {
-            message: "Microphone access is not allowed for Epicenter".to_string(),
+            message: "Microphone access is not allowed for this app".to_string(),
         })
     }
 }

@@ -187,17 +187,23 @@ pub fn remove_leftovers(folder: &Path) -> io::Result<usize> {
 }
 
 /// Flush the directory holding `path`, so a name just made in it survives a
+/// power loss ([`sync_directory`]).
+pub(crate) fn sync_directory_of(path: &Path) {
+    if let Some(directory) = path.parent() {
+        sync_directory(directory);
+    }
+}
+
+/// Flush `directory`, so the names just made or removed in it survive a
 /// power loss. A directory that cannot be flushed is reported, not a
 /// failure. Windows has no such call.
-pub(crate) fn sync_directory_of(path: &Path) {
+pub(crate) fn sync_directory(directory: &Path) {
     #[cfg(unix)]
-    if let Some(Ok(directory)) = path.parent().map(File::open) {
-        if let Err(error) = directory.sync_all() {
-            log::warn!("{} was not flushed: {error}", path.display());
-        }
+    if let Err(error) = File::open(directory).and_then(|opened| opened.sync_all()) {
+        log::warn!("{} was not flushed: {error}", directory.display());
     }
     #[cfg(not(unix))]
-    let _ = path;
+    let _ = directory;
 }
 
 #[cfg(test)]

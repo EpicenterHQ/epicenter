@@ -119,7 +119,7 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
     closed
 }
 
-/// Start recording the take `id` for the folder `dir` (`allowed_folder`),
+/// Start recording the take `id` for the folder `folder` (`allowed_folder`),
 /// from the microphone whose id is `device` or the system default. An
 /// ending nobody asked for arrives on `signals`.
 ///
@@ -131,7 +131,7 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 #[specta::specta]
 pub async fn start<R: Runtime>(
     webview: Webview<R>,
-    dir: String,
+    folder: String,
     id: String,
     device: Option<String>,
     signals: Channel<RecordingSignal>,
@@ -143,15 +143,19 @@ pub async fn start<R: Runtime>(
     // time it would record, and nobody could stop what it started.
     let page = recorders.lock().page(&owner);
 
-    let folder = allowed_folder(&webview, &dir)?;
+    let folder = allowed_folder(&webview, &folder)?;
     if !whispering_files::is_bare_name(&id) {
         return Err(RecorderError::refused(format!(
             "{id:?} is not a recording id: one or more of A-Z, a-z, 0-9, - and _"
         )));
     }
     let audio = audio_path(&id);
-    let take = whispering_files::resolve(&folder, &audio)
-        .map_err(|error| RecorderError::refused(error.to_string()))?;
+    let take = whispering_files::resolve(&folder, &audio).map_err(|error| match error {
+        whispering_files::FilesError::Io { .. } => RecorderError::failed(error.to_string()),
+        _ => RecorderError::refused(error.to_string()),
+    })?;
+    // Checked here as well as at creation, so an id whose audio is there is
+    // refused before the microphone permission prompt.
     if std::fs::symlink_metadata(&take).is_ok() {
         return Err(RecorderError::refused(format!(
             "a file is already at {audio}"

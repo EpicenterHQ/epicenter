@@ -164,9 +164,9 @@ fn invoke(
     command: &str,
     mut args: Value,
 ) -> Result<Value, Value> {
-    if command == "start" && args.get("dir").is_none() {
+    if command == "start" && args.get("folder").is_none() {
         if let Some(folder) = FOLDER.with(|folder| folder.borrow().clone()) {
-            args["dir"] = json!(folder);
+            args["folder"] = json!(folder);
         }
     }
     call(window, "epicenter-recorder", command, args)
@@ -365,7 +365,7 @@ fn permission_granted_after_page_departure_resolves_no_device() {
         let args = match command {
             "open_meter" => json!({ "device": "not an id", "levels": "__CHANNEL__:1" }),
             _ => {
-                json!({ "dir": fixture.root, "id": "a", "device": "not an id", "signals": "__CHANNEL__:1" })
+                json!({ "folder": fixture.root, "id": "a", "device": "not an id", "signals": "__CHANNEL__:1" })
             }
         };
         let calling = std::thread::spawn(move || invoke(&main, command, args));
@@ -425,7 +425,7 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
         let args = match command {
             "open_meter" => json!({ "device": "not an id", "levels": "__CHANNEL__:1" }),
             _ => {
-                json!({ "dir": fixture.root, "id": "a", "device": "not an id", "signals": "__CHANNEL__:1" })
+                json!({ "folder": fixture.root, "id": "a", "device": "not an id", "signals": "__CHANNEL__:1" })
             }
         };
         let calling = std::thread::spawn(move || invoke(&main, command, args));
@@ -457,7 +457,7 @@ fn start_refuses_a_folder_the_scope_does_not_allow() {
         let refused = invoke(
             &main,
             "start",
-            json!({ "dir": folder, "id": "a", "device": null, "signals": "__CHANNEL__:1" }),
+            json!({ "folder": folder, "id": "a", "device": null, "signals": "__CHANNEL__:1" }),
         )
         .unwrap_err();
         assert_eq!(name(&refused), "Refused", "{refused}");

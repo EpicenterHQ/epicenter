@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::beside::{sync_directory_of, through_temporary};
+use crate::beside::{sync_directory, through_temporary};
 use crate::error::{FilesError, Result};
 use crate::path::check_folder;
 
@@ -149,8 +149,8 @@ fn move_entries(from: &Path, to: &Path, names: &[std::ffi::OsString]) -> Result<
             }
         }
     }
-    sync_directory_of(&to.join("x"));
-    sync_directory_of(&from.join("x"));
+    sync_directory(to);
+    sync_directory(from);
     Ok(())
 }
 
@@ -221,6 +221,8 @@ fn copy_tree(from: &Path, to: &Path, names: &[std::ffi::OsString]) -> Result<()>
         }
         return Err(error);
     }
+    // The copies' names are on the disk before any original goes.
+    sync_directory(to);
     for file in &files {
         if let Err(error) = fs::remove_file(from.join(file)) {
             log::warn!(
