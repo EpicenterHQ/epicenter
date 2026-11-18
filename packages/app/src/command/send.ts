@@ -103,13 +103,9 @@ export async function fetchListing(
 		'The connection to serve ended before its listing',
 	);
 	if (error) return Err(error);
-	const invalid = () =>
-		ActionError.Unreachable({ message: 'serve sent an invalid listing' });
-	// A refusal is a NotStarted in the body, read as a call's is.
-	if (!response.ok) {
-		const { error: refusal } = await readAnswer(response);
-		return refusal ? Err(refusal) : invalid();
-	}
+	// A refusal is read as a call's is, and answers only its error.
+	if (!response.ok)
+		return (await readAnswer(response)) as Result<never, PublicError>;
 	try {
 		const listing = (await response.json()) as Listing;
 		if (Array.isArray(listing?.apps) && Array.isArray(listing.problems))
@@ -117,7 +113,7 @@ export async function fetchListing(
 	} catch {
 		// Not JSON: the same as JSON that is no listing.
 	}
-	return invalid();
+	return ActionError.Unreachable({ message: 'serve sent an invalid listing' });
 }
 
 /**
