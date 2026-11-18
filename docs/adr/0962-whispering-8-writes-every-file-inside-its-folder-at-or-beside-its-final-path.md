@@ -68,9 +68,8 @@ each written whole in one write (`webm.rs`). Nothing is written back into a
 Cluster. A file cut off at any moment is whole Clusters, with at most a
 torn one at its end. A browser's `MediaRecorder` writes the same shape, with
 unknown sizes and no Duration. Whispering's browser build keeps those files
-as they are, and `audioDurationMs`
-(`whispering-keeps-its-recordings-local:apps/whispering/packages/recorder/src/container.ts`)
-reads their length from their last blocks.
+as they are. A take's length comes from Stop, which writes it into the
+take's note; Whispering reads no length from the audio's bytes.
 
 A test on 2026-11-18 checked that the desktop plays such a file. A scratch
 program included the branch's `webm.rs` and `opus.rs` unchanged and wrote a
@@ -151,11 +150,14 @@ repairs a file.**
 - **Nothing repairs a take a crash cut off.** The file stays as the crash
   left it: whole Clusters, perhaps a torn one at its end, no Duration, no
   Cues, and a Segment of unknown size. It has no note, so it lists as an
-  untitled recording, as audio with no note already does (ADR-0894).
-  Whispering plays it and reads its length with `audioDurationMs`.
+  untitled recording, as audio with no note already does (ADR-0894),
+  and states no length, since only Stop writes one. Whispering plays it,
+  and transcribes it to its last whole block: the decoder takes a torn
+  block at the end as the end of the audio.
 - **A note or `settings.md` is replaced by a rename from beside it.**
   `write` puts the bytes in a hidden temporary file in the target's own
-  directory, flushes it, and renames it over the target. `checkPath`, the
+  directory, named with a random part so two writes of one target never
+  share it, flushes it, and renames it over the target. `checkPath`, the
   path rule of `Files`, refuses a hidden name, so the temporary file is
   never listed or read as a note. When the folder opens, Whispering deletes
   any temporary file of its own that a crash left there.
@@ -211,8 +213,9 @@ repairs a file.**
 - The take is captured on the folder's disk. Unplugging that disk during a
   recording loses the rest of the take. The staged design captured on the
   app's own disk and would have kept it.
-- A take a crash cut off is never completed. Whispering and WKWebView play
-  it and show its length; another player may show no length for it.
+- A take a crash cut off is never completed. Whispering lists it with no
+  length and plays it; WKWebView shows its length once it loads, and
+  another player may show none.
 - One write path serves every folder, on any disk. The other-disk copy,
   the two sweeps, and the recovery at launch go.
 - **What this removes, and who accepts it** (ADR-0943):
@@ -220,7 +223,7 @@ repairs a file.**
   | Removed | Who loses what | Who takes on the work |
   | --- | --- | --- |
   | The promise that the folder never holds an unfinished file, and any name that marks one | Git, a file syncer, or another program may read a take while it grows, and no ignore line or glob can skip it; a home's checkpoints during a recording cost space | The person, who pays the space; Whispering's maintainers, who keep the growing take out of the list |
-  | Repair of a take a crash cut off | Another player may show no length for that file | The person; Whispering's maintainers, who test that the player, `audioDurationMs`, and the transcription decoder read a cut-off file |
+  | Repair of a take a crash cut off | Whispering's list and another player may show no length for that file | The person; Whispering's maintainers, who test that the player and the transcription decoder read a cut-off file |
   | Capture on the app's own disk | Unplugging the folder's disk during a recording loses the rest of the take | The person |
 
 ## Not decided
@@ -229,9 +232,10 @@ repairs a file.**
 - Whether the home's `put` (`packages/cli/src/disk.ts`), which stages in
   `local/.tmp/` (ADR-0939), should write its temporary file beside the
   target instead. The home keeps its rule.
-- What Whispering does when its transcription decoder or a cloud
-  transcription service refuses a cut-off file. Neither was tested, and
-  ADR-0702 said the decoder meets "a torn block" in one.
+- What Whispering does when a cloud transcription service refuses a
+  cut-off file. It was not tested. Whispering's own decoder reads one to
+  its last whole block: a test cuts a take at every 29th byte and decodes
+  each cut.
 - Whether a quit or a closed window finishes the take in place, as Stop
   does. ADR-0543 had the shell finish a recording whose window left.
 - The mode of the temporary file. ADR-0822 created its save file `0600`,

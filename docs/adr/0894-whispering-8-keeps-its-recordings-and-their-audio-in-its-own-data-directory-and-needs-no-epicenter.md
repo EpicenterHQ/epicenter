@@ -239,15 +239,19 @@ Hugging Face cache               local models, shared with other programs
 - **Another program may write the folder, so Whispering checks before it
   replaces.** A file syncer such as iCloud Drive or Syncthing may change a
   note, and in a home a Git command such as a checkout or a revert may. Whispering lists the folder again when its window regains
-  focus, and re-reads only the notes whose size or modified time changed.
+  focus, and reads its notes again.
   Before it replaces a note it re-reads the file; if the bytes differ from
   what it showed, it does not write, and shows the newer text.
 - **Whispering reads its folder through plain services and TanStack
   Query.** The services read and write over `Files`, keep nothing between
   calls, and answer `Result`s. TanStack Query holds what they read: the
   folder is one query, read again when the window regains focus and after
-  every write, and the writes are mutations, one at a time per kind of
-  note. There is no watcher and no store per collection.
+  every write. Every write `folderMutations` makes (a note, `settings.md`,
+  deleting audio) waits in one queue and runs alone, so two changes to one
+  note never interleave. A transcription's request stays outside the
+  queue, so a slow model never holds up a save; the transcript it writes
+  and the browser's finished audio are new files. There is no watcher and
+  no store per collection.
 - **No import from v7.** A person who wants their v7 recordings copies the
   Markdown files.
 - **First run asks one question:** where transcription runs, a local model,
