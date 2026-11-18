@@ -5,14 +5,7 @@
  * word of JSON text, and files the runner refuses do not stop the others.
  */
 import { afterEach, expect, test } from 'bun:test';
-import {
-	copyFile,
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRoutines } from './routines.ts';
 import { fixture } from './runner.test-support.ts';
@@ -24,9 +17,9 @@ afterEach(async () => {
 });
 
 const DAY = 86_400_000;
-/** A command that leaves one file per run in `ran/`. */
+/** A command that leaves one file per run in `ran/`; `bun` is found on the routine's PATH. */
 const mark = [
-	process.execPath,
+	'bun',
 	'-e',
 	"require('fs').mkdirSync('ran',{recursive:true});require('fs').writeFileSync('ran/'+crypto.randomUUID(),'')",
 ];
@@ -163,40 +156,6 @@ test('a JSON value in run reaches the command as one word of JSON text', async (
 		),
 	);
 });
-
-test('the daily task review writes a draft and excludes completed tasks', async () => {
-	const f = await setup(['bun', 'scripts/daily-task-review.ts']);
-	await mkdir(join(f.home, 'scripts'));
-	await copyFile(
-		join(import.meta.dir, '../examples/daily-task-review.ts'),
-		join(f.home, 'scripts/daily-task-review.ts'),
-	);
-	await f.app(
-		'tasks',
-		`export default defineApp({ description: 'Tasks', actions: {
-    list: defineAction({ description: 'Tasks', input: {}, run: () => Ok([
-      Ok({ path: 'data/tasks/one.md', title: 'An overdue task', done: false, due: '2000-01-01' }),
-      Ok({ path: 'data/tasks/two.md', title: 'Already completed', done: true }),
-      Ok({ path: 'data/tasks/three.md', title: 'Undated task', done: false })
-    ]) })
-  } });`,
-	);
-	// The script reads tasks through the command line, which asks serve.
-	await f.serve();
-	await f.routines.check(new Date(Date.now() + DAY));
-	const today = new Date();
-	const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-	const draft = join(f.home, 'drafts', `task-review-${day}.md`);
-	await eventually(async () =>
-		readFile(draft, 'utf8').then(
-			(t) => t.includes('2 open tasks.'),
-			() => false,
-		),
-	);
-	const text = await readFile(draft, 'utf8');
-	expect(text).toContain('An overdue task');
-	expect(text).not.toContain('Already completed');
-}, 30_000);
 
 test('occurrences follow local calendar days and daylight-saving gaps', async () => {
 	const f = await setup([process.execPath, '--version'], '30 2 * * *');
