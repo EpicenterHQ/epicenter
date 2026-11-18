@@ -71,7 +71,9 @@ env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
   claude -p --setting-sources project --strict-mcp-config \
   --mcp-config '{"mcpServers":{"deepwiki":{"type":"http","url":"https://mcp.deepwiki.com/mcp"}}}' \
   --permission-mode acceptEdits \
-  --allowedTools 'Bash(bun test:*)' 'Bash(bun run:*)' \
+  --allowedTools 'Bash(bun test*)' 'Bash(bun run test*)' \
+    'Bash(bun run typecheck*)' 'Bash(bun run check*)' 'Bash(bun run lint*)' \
+    'Bash(bun run format*)' \
     'Bash(git status:*)' 'Bash(git diff:*)' 'Bash(git log:*)' \
     WebSearch mcp__deepwiki \
   --model claude-opus-5-5 --effort high --output-format json <<'ASSIGNMENT'
@@ -81,8 +83,8 @@ ASSIGNMENT
 
 - `--permission-mode acceptEdits` lets Claude edit files inside the checkout.
   Writes outside it are refused.
-- `--allowedTools` lists the only shell commands Claude can run: tests, package
-  scripts, and read-only Git. Anything else, including `git add`, `git commit`
+- `--allowedTools` lists the only shell commands Claude can run: tests, the
+  check, lint, format and typecheck scripts, and read-only Git. Anything else, including `git add`, `git commit`
   and `git push`, is refused and appears in `permission_denials`. If the
   assignment needs another command, add a narrow entry for it.
 - `--setting-sources project` keeps the repository's own rules, such as
