@@ -343,7 +343,7 @@ A command whose port answers for something else runs nothing, and a second
 serve does not start; both say the same:
 
 ```txt
-Port 4747 is in use by another Epicenter's serve. Set a different `port` in EPICENTER.md.
+Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
 ```
 
 It says `another program` when what answers is not an Epicenter's serve. A
@@ -364,8 +364,8 @@ serve is already running for this Epicenter on port 4747.
 When something else holds the port, it says who, asking as a command does:
 
 ```txt
-Port 4747 is in use by another Epicenter's serve. Set a different `port` in EPICENTER.md.
-Port 4747 is in use by another program. Set a different `port` in EPICENTER.md.
+Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
+Port 4747 is in use by another program. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
 ```
 
 After an upgrade, the serve that was already running is still the old
