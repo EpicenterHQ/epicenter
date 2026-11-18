@@ -371,7 +371,11 @@ An action runs in serve's environment: it does not see variables exported in
 the caller's shell, and what it prints goes to serve's output, not to the
 command. Each load drops cached modules under `codePath`, dependencies
 included, then imports `code/epicenter.ts`. The next call reads edits to code
-or its imports without restarting serve.
+or its imports without restarting serve, with one exception: Bun keeps a
+module whose code threw while it ran, or that imported a missing file, so
+that failure stays until serve restarts, even once the file is fixed. Restart
+serve after fixing an app that failed to load; `epicenter check` tries the
+fixed code without one.
 
 An action shares its process with other calls. `process.exit` ends serve:
 every call then running is cut off, and a command that sent one answers

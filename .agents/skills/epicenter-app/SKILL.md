@@ -212,7 +212,9 @@ packages only once its path is added by hand to `workspaces` in the Epicenter's
 no command runs it, and a call never installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
-the restart. Upgrade Epicenter by editing the `@epicenter/app` version in the
+the restart. Restart it too after fixing an app that failed to load because
+its code threw or imported a missing file: serve keeps that failure until it
+restarts, while `epicenter check` already tries the fixed code. Upgrade Epicenter by editing the `@epicenter/app` version in the
 Epicenter's `package.json`, then running `bun install && bun run build` at the top.
 That one package is the library and the `epicenter` command.
 Write each action with `defineAction`, which types its

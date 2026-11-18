@@ -40,7 +40,9 @@ EPICENTER.md (default 4747). It starts in the Epicenter's folder. An
 Epicenter has one serve, and only serve loads app code: epicenter <app> and
 bare epicenter ask it, and are refused while it is stopped. Each call runs
 from the app's code as it is on disk then, to its end, and serve keeps
-nothing about it. It runs the Epicenter's routines: a routines/<name>.md
+nothing about it. An app whose code threw while loading, or imported a file
+that was missing, keeps that failure until serve restarts, even once fixed;
+epicenter check tries the fixed code. It runs the Epicenter's routines: a routines/<name>.md
 declares cron: "0 8 * * *" and run: [executable, ...arguments], and once a
 minute serve starts each routine whose schedule had an occurrence since its
 last check. It records nothing about them, and epicenter on its own lists
