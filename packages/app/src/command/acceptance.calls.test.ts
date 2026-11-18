@@ -358,7 +358,7 @@ function held(
 	const marker = join(folder, 'EPICENTER.md');
 	return holder === 'another Epicenter'
 		? `Port ${port} is in use by another Epicenter's serve, not the one for ${folder}. Set a different \`port\` in ${marker}.\n`
-		: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}.\n`;
+		: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}. If it is an epicenter serve from before an upgrade, stop it and start it again.\n`;
 }
 
 async function holdPort(
@@ -396,41 +396,6 @@ test('a command is refused, and runs nothing, when its port is held by another E
 		}
 	}
 	expect(await Bun.file(join(f.data, 'monday.md')).exists()).toBe(false);
-	// A serve from before the upgrade named its root in x-epicenter-home.
-	const older = await holdPort(
-		f,
-		() =>
-			new Response('', {
-				headers: { 'x-epicenter-home': encodeURIComponent(f.epicenter) },
-			}),
-	);
-	try {
-		expect(await f.run('notes', 'write', '{"page":"monday"}')).toEqual({
-			code: 2,
-			stdout: '',
-			stderr: `Port ${f.port} is in use by a serve started before Epicenter was upgraded; stop it and start it again\nRun: epicenter serve\n`,
-		});
-		expect((await f.run('serve')).stderr).toBe(
-			`Port ${f.port} is in use by a serve started before Epicenter was upgraded; stop it and start it again\nRun: epicenter serve\n`,
-		);
-	} finally {
-		await older.stop(true);
-	}
-	// One that names another root is another Epicenter's serve.
-	const otherOlder = await holdPort(
-		f,
-		() =>
-			new Response('', {
-				headers: { 'x-epicenter-home': encodeURIComponent('/elsewhere') },
-			}),
-	);
-	try {
-		expect((await f.run('notes', 'write', '{"page":"monday"}')).stderr).toBe(
-			held(f.port, 'another Epicenter', f.epicenter),
-		);
-	} finally {
-		await otherOlder.stop(true);
-	}
 });
 
 test('every answer of serve says it is an Epicenter and names no path, and a call through it adds no line', async () => {

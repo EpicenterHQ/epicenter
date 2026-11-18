@@ -71,7 +71,7 @@ async function reach(
 		// Once the answer begins, it may stream for as long as the action runs.
 		clearTimeout(timer);
 	}
-	const holder = answeredBy(response, root);
+	const holder = answeredBy(response);
 	if (holder !== 'its serve') {
 		await response.body?.cancel().catch(() => undefined);
 		return portHeld(root, holder);

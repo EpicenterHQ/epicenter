@@ -346,11 +346,9 @@ serve does not start; both say the same:
 Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
 ```
 
-It says `another program` when what answers is not an Epicenter's serve. A
-serve of this Epicenter started before the upgrade sets `x-epicenter-home`
-to its path instead; the command and a new serve recognize it and say to stop
-it and start it again, and one of another Epicenter reads as another
-Epicenter's. This lasts one release. Two
+It says `another program` when what answers is not an Epicenter's serve,
+and adds that a serve from before an upgrade is stopped and started again:
+one from before 0.8 sets no `x-epicenter`, and nothing tells it apart. Two
 Epicenters on one computer each need their own `port`, a whole number from 1 to
 65535.
 
@@ -365,7 +363,7 @@ When something else holds the port, it says who, asking as a command does:
 
 ```txt
 Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
-Port 4747 is in use by another program. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
+Port 4747 is in use by another program. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md. If it is an epicenter serve from before an upgrade, stop it and start it again.
 ```
 
 After an upgrade, the serve that was already running is still the old

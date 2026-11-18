@@ -33,33 +33,16 @@ export function rootHeaderValue({
 	return encodeURIComponent(folder);
 }
 
-/**
- * The header a serve from 0.7 or before set on every answer, to its root's
- * real path encoded as `rootHeaderValue` encodes it. Remove it, and the
- * `an older serve` answer, in the release after the first that sends
- * `x-epicenter-root`: by then a serve still running from 0.7 is two
- * upgrades old.
- */
-const OLDER_SERVE_HEADER = 'x-epicenter-home';
-
 /** Who answered a request that named a root. */
 export type Holder = ReturnType<typeof answeredBy>;
 
 /**
- * Who answered a request that named `root`: its own serve, another
- * Epicenter's serve, which refuses it with 409, its own serve started before
- * an upgrade, or another program, which sets neither header. An older serve
- * of another Epicenter is another Epicenter's.
+ * Who answered a request that named a root: its own serve, another
+ * Epicenter's serve, which refuses it with 409, or another program, which
+ * does not set `x-epicenter`. A serve from before 0.8 sets no `x-epicenter`
+ * and reads as another program.
  */
-export function answeredBy(
-	response: Response,
-	root: Pick<EpicenterRoot, 'folder'>,
-) {
-	const older = response.headers.get(OLDER_SERVE_HEADER);
-	if (older !== null)
-		return older === rootHeaderValue(root)
-			? 'an older serve'
-			: 'another Epicenter';
+export function answeredBy(response: Response) {
 	if (response.headers.get(SERVE_HEADER) !== '1') return 'another program';
 	return response.status === 409 ? 'another Epicenter' : 'its serve';
 }
@@ -76,18 +59,12 @@ export function portHeld(
 	{ folder, port }: EpicenterRoot,
 	holder: Exclude<Holder, 'its serve'>,
 ) {
-	if (holder === 'an older serve')
-		return ActionError.NotStarted({
-			cause: 'unavailable',
-			message: `Port ${port} is in use by a serve started before Epicenter was upgraded; stop it and start it again`,
-			next: 'epicenter serve',
-		});
 	const marker = join(folder, MARKER);
 	return ActionError.NotStarted({
 		cause: 'unavailable',
 		message:
 			holder === 'another Epicenter'
 				? `Port ${port} is in use by another Epicenter's serve, not the one for ${folder}. Set a different \`port\` in ${marker}.`
-				: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}.`,
+				: `Port ${port} is in use by another program. Set a different \`port\` in ${marker}. If it is an epicenter serve from before an upgrade, stop it and start it again.`,
 	});
 }

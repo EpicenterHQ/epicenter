@@ -621,9 +621,7 @@ route, so the route never spells the record's path.
 ## Upgrading from 0.7
 
 - **Restart `epicenter serve`** after `bun install`. Until you do, the
-  command finds the old serve by the `x-epicenter-home` header it still
-  sets, and says to stop it and start it again. The release after this one
-  stops recognizing that header.
+  command reads the old serve as another program on the port.
 - **A command finds its Epicenter only by walking up** from the folder it
   runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd`
   into your Epicenter, or set a script's working directory there.

@@ -89,10 +89,11 @@ none.**
   its own `x-epicenter-root`. A `409` means another Epicenter's serve holds
   the port, any other answer with `x-epicenter: 1` means its own serve is
   already running, and an answer without it means another program.
-- A serve started before this decision sets `x-epicenter-home` to its
-  root's encoded path and no `x-epicenter`. The command and a second
-  `serve` compare that value: their own root's means their own serve, to be
-  restarted, and another means another Epicenter's. This lasts one release.
+- A serve started before this decision sets no `x-epicenter`, so it reads
+  as another program. The refusal says that a serve from before an upgrade
+  is stopped and started again; the owner restarts serve after upgrading
+  (ADR-0953). An earlier version of this record recognized the old
+  `x-epicenter-home` header for one release; the owner chose a clean break.
 - What serve sends hides this computer's folders in its messages: the
   error of every HTTP and MCP answer, a refusal before a call, and the
   listing's problems and routines read the Epicenter's real path as `.` and
@@ -115,8 +116,7 @@ none.**
   A command or serve from another Epicenter learns only that the port is
   taken by an Epicenter that is not its own.
 - `whoAnswers` in `serve.ts` and `reach` in `send.ts` read `x-epicenter` and
-  the status, not a path; `rootHeaderValue` builds the request header and
-  is what an older serve's `x-epicenter-home` is compared with.
+  the status, not a path; `rootHeaderValue` builds the request header.
 - Deleted from `cli.ts`: the load, the input read and the help built from a
   loaded app. Serve has two ways in for an action, a call at
   `POST /<app>/<action>` and MCP at `POST /`, and no request that takes a
