@@ -1,7 +1,7 @@
 /**
  * An action: a function an app exposes, carrying what the CLI, MCP, and a UI
- * need to call it: a description and its input's fields. Call it as any
- * function, inside a run:
+ * need to call it: a description and the JSON Schema of its input. Call it as
+ * any function, inside a run:
  *
  * ```ts
  * const learn = defineAction({
@@ -36,10 +36,20 @@
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import { isActionResult, type PublicError } from './action-result.ts';
-import { absentValue, defaultIn, type FilledKeys } from './field.ts';
+import {
+	absentValue,
+	defaultIn,
+	type FilledKeys,
+	type ObjectSchema,
+	objectSchema,
+} from './field.ts';
 
-/** An action's input: a record of fields, or of any TypeBox schemas. */
-export type Input = Record<string, TSchema>;
+/**
+ * An action's input as an app writes it: a record of fields, or of any
+ * TypeBox schemas. Each is an object, so another action's `input`, a schema
+ * whose `type` is text, is not one; its fields are `input.properties`.
+ */
+export type Input = Record<string, TSchema & object>;
 
 /**
  * MCP's tool annotations, verbatim. They are hints the action gives an MCP
@@ -55,10 +65,9 @@ export type Annotations = {
 	openWorldHint?: boolean;
 };
 
-/** An action's metadata, shared by its declaration and callers. */
-export type ActionMeta<I extends Input = Input> = {
+/** What an action's declaration and the action it makes both carry. */
+type Shared = {
 	readonly description: string;
-	readonly input: I;
 	readonly annotations?: Annotations;
 	/**
 	 * `false` keeps the action out of the tools serve offers over MCP:
@@ -70,6 +79,15 @@ export type ActionMeta<I extends Input = Input> = {
 	 */
 	readonly mcp?: boolean;
 };
+
+/**
+ * An action's metadata, as callers read it. `input` is one complete JSON
+ * Schema object, made once from the fields the action was written with: it
+ * lists its `required` keys, `[]` when none is, and refuses other keys. It
+ * survives `JSON.stringify` whole, so validation, MCP's `inputSchema`,
+ * `--help`, and `list --json` all read this one value (ADR-0953).
+ */
+export type ActionMeta = Shared & { readonly input: ObjectSchema };
 
 /**
  * What `run` calls to report while it runs. It returns at once and never
@@ -144,7 +162,9 @@ export type ActionDef<
 	I extends Input,
 	Out extends Answer | Promise<Answer> = Answer | Promise<Answer>,
 	U extends Returned = never,
-> = ActionMeta<I> & {
+> = Shared & {
+	/** Each key the action takes, as a field: `{ word: field.text() }`. */
+	readonly input: I;
 	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
 	run(input: InputOf<I>, update: Update<U>): Out;
 };
@@ -181,9 +201,10 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
 
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
- * the fields. Calling it gives `run` an absent switch as `false` and an absent
- * list with no `min` as `[]`, as a read of a data file does, however it is called. Inside
- * `run`, the app's data and `folder` reach the folder of the run that
+ * the fields. The action carries its input as one JSON Schema object made
+ * from the fields (`ActionMeta`). Calling it gives `run` an absent switch as
+ * `false` and an absent list with no `min` as `[]`, as a read of a data file
+ * does, however it is called. Inside `run`, the app's data and `folder` reach the folder of the run that
  * called it, however deep. The type of `run`'s `update` argument is the type
  * of every caller's `onUpdate`. Throws when the definition is wrong in a way
  * its types cannot say, such as a field with a `default`.
@@ -204,6 +225,7 @@ export function defineAction(def: ActionDef<Input, Answer, Returned>): Action {
 				.join('\n'),
 		);
 	const { run, ...meta } = def;
+	const input = objectSchema(def.input);
 	const filled = Object.entries(def.input).flatMap(([key, schema]) => {
 		const absent = absentValue(schema);
 		return absent === undefined ? [] : [[key, absent] as const];
@@ -233,7 +255,7 @@ export function defineAction(def: ActionDef<Input, Answer, Returned>): Action {
 		close();
 		return checked(answer, meta.description);
 	};
-	return Object.assign(action, meta);
+	return Object.assign(action, { ...meta, input });
 }
 
 /** What an action is made of; anything else, such as `readonly`, is a typo the types let through. */
@@ -264,7 +286,11 @@ function actionProblems(def: object): string[] {
 	if (typeof input !== 'object' || input === null)
 		return [...problems, 'has no input'];
 	for (const [key, schema] of Object.entries(input as Input)) {
-		if (defaultIn(schema))
+		if (typeof schema !== 'object' || schema === null || Array.isArray(schema))
+			problems.push(
+				`has "${key}" in its input, which is not a field; to reuse another action's input, write \`input: other.input.properties\``,
+			);
+		else if (defaultIn(schema))
 			problems.push(
 				`has a default in "${key}"; no field has one, so write the default in run, where the value is read, such as \`limit ?? 50\``,
 			);

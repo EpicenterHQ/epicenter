@@ -39,6 +39,8 @@ export { checkData } from './data-check.ts';
 export { ActionError, type Problem } from './errors.ts';
 export {
 	field,
+	type ObjectSchema,
+	objectSchema,
 	whatFits,
 	whatTakes,
 } from './field.ts';
