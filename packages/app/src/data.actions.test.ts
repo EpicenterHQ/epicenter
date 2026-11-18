@@ -16,8 +16,8 @@ async function setup(seed: Record<string, string> = {}) {
 	const fields = {
 		title: field.text(),
 		note: field.text({ optional: true }),
-		done: field.boolean(),
-		tags: field.list(field.text()),
+		done: field.boolean({ optional: true }),
+		tags: field.list(field.text(), { optional: true }),
 	};
 	const data = defineData(folder, {
 		notes: { description: 'a note', fields },
@@ -48,11 +48,9 @@ test('folder actions create, list, read, patch, and delete the handle records', 
 		id: 'Dune',
 		title: 'Dune',
 		body: 'spice',
-		done: false,
-		tags: [],
 	});
 	expect(await read('data/notes/Dune.md')).toBe(
-		'---\ntitle: "Dune"\ndone: false\ntags: []\n---\nspice',
+		'---\ntitle: "Dune"\n---\nspice',
 	);
 	expect(expectOk(await notes.get({ id: 'Dune' }))).toEqual(added);
 	expect(expectOk(await notes.list({})).map(expectOk)).toEqual([added]);
@@ -61,6 +59,16 @@ test('folder actions create, list, read, patch, and delete the handle records', 
 	).toEqual({ ...added, note: 'read', body: 'Arrakis' });
 	expect(expectOk(await notes.delete({ id: 'Dune' }))).toBe(true);
 	expect(expectOk(await notes.delete({ id: 'Dune' }))).toBe(false);
+});
+
+test('the create action and handle.create write the same file for the same input', async () => {
+	const { read, data, notes } = await setup();
+	const input = { title: 'Dune', note: 'spice', body: 'Arrakis' };
+	expectOk(await notes.create({ id: 'by-action', ...input }));
+	expectOk(await data.notes.create('by-handle', input));
+	const written = await read('data/notes/by-action.md');
+	expect(written).toBe('---\ntitle: "Dune"\nnote: "spice"\n---\nArrakis');
+	expect(await read('data/notes/by-handle.md')).toBe(written);
 });
 
 test('folder get and patch answer Missing while a duplicate create answers Changed (there)', async () => {

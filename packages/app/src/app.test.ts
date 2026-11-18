@@ -327,8 +327,11 @@ describe('defineAction', () => {
 		const { folder, read } = await tempFolder();
 		const say = defineAction({
 			description: 'Say',
-			input: { message: field.text(), loud: field.boolean() },
-			async run({ message, loud }, update: Update<string | { loud: boolean }>) {
+			input: { message: field.text(), loud: field.boolean({ optional: true }) },
+			async run(
+				{ message, loud = false },
+				update: Update<string | { loud: boolean }>,
+			) {
 				update(message);
 				update({ loud });
 				await folder.write('data/said.md', message);
@@ -389,20 +392,18 @@ describe('defineAction', () => {
 		).toThrow('reports by calling update, its second argument');
 	});
 
-	test('a call fills an absent switch and list, and nothing else', async () => {
+	test('a call fills in nothing: an absent field stays absent', async () => {
 		const tag = defineAction({
 			description: 'Tag',
 			input: {
-				tags: field.list(field.text()),
-				done: field.boolean(),
+				tags: field.list(field.text(), { optional: true }),
+				done: field.boolean({ optional: true }),
 				note: field.text({ optional: true }),
 			},
 			run: (input) => Ok(input),
 		});
-		const given = {};
-		expect(tag(given)).toEqual(Ok({ tags: [], done: false }));
-		expect(given).toEqual({});
-		expect(tag({ done: true })).toEqual(Ok({ tags: [], done: true }));
+		expect(tag({})).toEqual(Ok({}));
+		expect(tag({ done: true })).toEqual(Ok({ done: true }));
 	});
 
 	test('refuses a field with a default at any depth, and a field helper an option it does not declare', () => {
@@ -429,9 +430,11 @@ describe('defineAction', () => {
 			'field.integer takes no default: no field has one, so write the default in code where the value is read',
 		);
 		expect(() =>
-			// @ts-expect-error a switch takes no optional: it is never required
-			field.boolean({ optional: true }),
-		).toThrow('field.boolean takes no option "optional"; it takes description');
+			// @ts-expect-error a switch takes no min
+			field.boolean({ min: 1 }),
+		).toThrow(
+			'field.boolean takes no option "min"; it takes description, optional',
+		);
 	});
 
 	test('names each problem its types cannot', () => {

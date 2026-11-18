@@ -15,8 +15,8 @@ const data = defineData(folder, {
 			title: field.text(),
 			note: field.text({ optional: true }),
 			n: field.integer(),
-			done: field.boolean(),
-			tags: field.list(field.text()),
+			done: field.boolean({ optional: true }),
+			tags: field.list(field.text(), { optional: true }),
 			choice: field.select(['yes', 'no']),
 			raw: Type.Number(),
 			created: field.datetime(),
@@ -48,8 +48,8 @@ test('record and method types retain the exact declared fields', () => {
 				title: string;
 				note?: string;
 				n: number;
-				done: boolean;
-				tags: string[];
+				done?: boolean;
+				tags?: string[];
 				choice: 'yes' | 'no';
 				raw: number;
 				created: string;

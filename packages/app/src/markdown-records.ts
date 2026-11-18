@@ -8,13 +8,7 @@ import {
 	type PublicError,
 } from './action-result.ts';
 import { ActionError, type Problem } from './errors.ts';
-import {
-	absentValue,
-	type FilledKeys,
-	isOptional,
-	type OptionalKeys,
-	whatFits,
-} from './field.ts';
+import { isOptional, type OptionalKeys, whatFits } from './field.ts';
 import { type Folder, readText } from './folder.ts';
 import {
 	changeMarkdown,
@@ -32,12 +26,10 @@ type ValueOf<F extends Fields, K extends keyof F> = Exclude<
 	Static<F[K]>,
 	undefined
 >;
-type MayLack<F> = Exclude<OptionalKeys<F>, FilledKeys<F>>;
-
-/** Required fields, filled switches and lists, and possibly absent optional fields. */
+/** Required fields, and possibly absent optional fields. */
 export type Fitting<F extends Fields> = {
-	-readonly [K in Exclude<keyof F, MayLack<F>>]-?: ValueOf<F, K>;
-} & { -readonly [K in MayLack<F>]?: ValueOf<F, K> };
+	-readonly [K in Exclude<keyof F, OptionalKeys<F>>]-?: ValueOf<F, K>;
+} & { -readonly [K in OptionalKeys<F>]?: ValueOf<F, K> };
 
 /** Fields that fit, with invalid or missing fields absent. */
 export type Loose<F extends Fields> = {
@@ -145,7 +137,7 @@ export function createMarkdownRecords({
 	 * The record `file` gives at `path`, and the result a read answers: the
 	 * record, or a Misfit with each problem and, when the front matter can be
 	 * read, the record for repair. Each field is its value if it fits, else
-	 * absent; an absent switch or list is `false` or `[]`. `path`, `id`,
+	 * absent. `path`, `id`,
 	 * and `body` come from the file, and no field can be named as one of them.
 	 */
 	function project(path: string, file: MarkdownFile) {
@@ -156,9 +148,7 @@ export function createMarkdownRecords({
 			const bare = file.notJson.find((each) => each.key === key);
 			if (bare) problems.push(notJsonProblem(key, schema, bare));
 			else if (!Object.hasOwn(file.fields, key)) {
-				const absent = absentValue(schema);
-				if (absent !== undefined) values[key] = structuredClone(absent);
-				else if (file.readable && !isOptional(schema))
+				if (file.readable && !isOptional(schema))
 					problems.push(problem(`${key} is missing`));
 			} else if (Value.Check(schema, value)) values[key] = value;
 			else problems.push(misfit(key, schema, value));
@@ -204,11 +194,7 @@ export function createMarkdownRecords({
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
 					problems.push(misfit(key, schema, set[key]));
-			} else if (
-				creating &&
-				!isOptional(schema) &&
-				absentValue(schema) === undefined
-			)
+			} else if (creating && !isOptional(schema))
 				problems.push(problem(`${key} is missing`));
 		}
 		if (problems.length)

@@ -155,14 +155,14 @@ describe('an app author', () => {
 		() => vocab();
 	});
 
-	test('a list with min is required, to give and in a read, and never always filled', () => {
+	test('a list is required unless it says optional, with or without a min', () => {
 		const route = defineAction({
 			description: 'Save a route',
 			input: {
 				airports: field.list(field.text(), { min: 1 }),
-				stops: field.list(field.text(), { min: 0 }),
+				stops: field.list(field.text(), { optional: true }),
 			},
-			run: ({ airports, stops }) => {
+			run: ({ airports, stops = [] }) => {
 				assertType<Equal<typeof airports, string[]>>();
 				assertType<Equal<typeof stops, string[]>>();
 				return Ok(airports.length + stops.length);
@@ -173,13 +173,17 @@ describe('an app author', () => {
 		>();
 	});
 
-	test('a caller may leave out a defaulted field, and run receives it', () => {
+	test('a caller may leave out an optional field, and run writes its default', () => {
 		const tag = defineAction({
 			description: 'Tag',
-			input: { tags: field.list(field.text()), done: field.boolean() },
-			run: ({ tags, done }) => {
+			input: {
+				tags: field.list(field.text(), { optional: true }),
+				done: field.boolean({ optional: true }),
+			},
+			run: (input) => {
+				assertType<Equal<typeof input.done, boolean | undefined>>();
+				const { tags = [], done = false } = input;
 				assertType<Equal<typeof tags, string[]>>();
-				assertType<Equal<typeof done, boolean>>();
 				return Ok({ count: tags.length, at: done ? 'now' : undefined });
 			},
 		});

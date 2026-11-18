@@ -27,8 +27,8 @@ async function setup(seed: Record<string, string> = {}) {
 			fields: {
 				title: field.text(),
 				count: field.integer({ optional: true }),
-				done: field.boolean(),
-				tags: field.list(field.text()),
+				done: field.boolean({ optional: true }),
+				tags: field.list(field.text(), { optional: true }),
 			},
 		},
 		settings: {
@@ -52,8 +52,6 @@ test('folder verbs read, create, patch, compute, list, and delete flat records',
 		id: 'Dune',
 		title: 'Dune',
 		body: 'Arrakis',
-		done: false,
-		tags: [],
 	});
 	expect(expectOk(await notes.get('Dune'))).toEqual(added);
 	expect(
@@ -541,7 +539,7 @@ test('handles write refs as given without opening the referenced file', async ()
 		checks: {
 			fields: {
 				watch: field.ref('watches'),
-				many: field.list(field.ref('watches')),
+				many: field.list(field.ref('watches'), { optional: true }),
 				count: field.integer(),
 			},
 		},

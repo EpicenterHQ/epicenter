@@ -21,8 +21,8 @@ const empty = defineAction({
 });
 const classify = defineAction({
 	description: 'Classify',
-	input: { yes: field.boolean() },
-	run: ({ yes }) =>
+	input: { yes: field.boolean({ optional: true }) },
+	run: ({ yes = false }) =>
 		yes
 			? Ok(1)
 			: Err({ name: 'NoRoute' as const, message: 'No route', airport: 'LAX' }),
