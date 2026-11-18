@@ -74,5 +74,5 @@ test('two identical additions get distinct ids chosen inside the action', async 
 	]));
 	expect(expectOk(first).id).not.toBe(expectOk(second).id);
 	expect(expectOk(await inRun(context, () => list({})))).toHaveLength(2);
-	expect(add.input).not.toHaveProperty('id');
+	expect(add.input.properties).not.toHaveProperty('id');
 });

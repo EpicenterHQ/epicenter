@@ -6,8 +6,8 @@
  * stdin. A page, an agent, and the command line give the same object, and
  * `checkInput` checks it for all three.
  */
-import { type Action, type Input, isName, whatFits } from '@epicenter/app';
-import { type TSchema, Type } from 'typebox';
+import { type Action, isName, whatFits } from '@epicenter/app';
+import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 
 /**
@@ -28,14 +28,9 @@ export function matchAction(
 	return undefined;
 }
 
-/** The fields a caller must give: those TypeBox requires. */
-export function requiredKeys(input: Input): Set<string> {
-	return new Set(Type.Object(input).required ?? []);
-}
-
 /**
- * Check an input against its action's schema, the one check a page, an agent,
- * and the command line share. Nothing is filled: an action made by
+ * Check an input against its action's schema (ADR-0953), the one check a
+ * page, an agent, and the command line share. Nothing is filled: an action made by
  * `defineAction` fills its absent switches and lists itself, and a data
  * verb writes only what it was given. A key the action does not
  * take is refused, naming the keys it does.
@@ -44,7 +39,7 @@ export function checkInput(
 	action: Action,
 	raw: unknown,
 ): { ok: true; input: Record<string, unknown> } | { error: string } {
-	const schema = Type.Object(action.input, { additionalProperties: false });
+	const schema = action.input;
 	const value = structuredClone(raw);
 	if (Value.Check(schema, value))
 		return { ok: true, input: value as Record<string, unknown> };
@@ -53,10 +48,10 @@ export function checkInput(
 			? (value as Record<string, unknown>)
 			: undefined;
 	const unknown = given
-		? Object.keys(given).find((key) => !Object.hasOwn(action.input, key))
+		? Object.keys(given).find((key) => !Object.hasOwn(schema.properties, key))
 		: undefined;
 	if (unknown !== undefined) {
-		const keys = Object.keys(action.input);
+		const keys = Object.keys(schema.properties);
 		return {
 			error: `${JSON.stringify(unknown)} is not a key this action takes; ${keys.length ? `it takes ${keys.join(', ')}` : 'it takes none'}`,
 		};
@@ -73,7 +68,7 @@ export function checkInput(
 		return {
 			error: `${[...at, params?.requiredProperties?.[0]].filter(Boolean).join('.') || name} is needed`,
 		};
-	const fieldSchema = field ? action.input[field] : undefined;
+	const fieldSchema = field ? schema.properties[field] : undefined;
 	const words =
 		field && fieldSchema && given && whatFits(fieldSchema, given[field]);
 	if (words) return { error: `${name} must be ${words}` };
@@ -90,8 +85,8 @@ export function usageLine(
 	action: Action,
 ): string {
 	const command = `epicenter ${appName} ${key}`;
-	if (!Object.keys(action.input).length) return command;
-	return requiredKeys(action.input).size
+	if (!Object.keys(action.input.properties).length) return command;
+	return action.input.required.length
 		? `${command} <input>`
 		: `${command} [<input>]`;
 }
@@ -144,15 +139,15 @@ function exampleOf(field: Described): unknown {
  * when none is required, so the example always shows the object's shape.
  */
 function exampleInput(action: Action): string {
-	const required = [...requiredKeys(action.input)];
+	const { properties, required } = action.input;
 	const shown = required.length
 		? required
-		: Object.keys(action.input).slice(0, 1);
+		: Object.keys(properties).slice(0, 1);
 	return JSON.stringify(
 		Object.fromEntries(
 			shown.map((key) => [
 				key,
-				exampleOf(action.input[key] as TSchema as Described),
+				exampleOf(properties[key] as TSchema as Described),
 			]),
 		),
 	);
@@ -171,21 +166,6 @@ export function exampleCommand(
 ): string {
 	const command = `epicenter ${appName} ${key}`;
 	return `${command} ${quoted(exampleInput(action))}`;
-}
-
-/** A map of fields as the JSON Schema of one object; TypeBox's internal markers are non-enumerable. */
-export function jsonSchema(fields: Input): {
-	type: 'object';
-	properties?: Record<string, object>;
-	[key: string]: unknown;
-} {
-	const schema = JSON.parse(
-		JSON.stringify(Type.Object(fields, { additionalProperties: false })),
-	);
-	const required = [...requiredKeys(fields)];
-	if (required.length) schema.required = required;
-	else delete schema.required;
-	return schema;
 }
 
 /**

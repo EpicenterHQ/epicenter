@@ -45,6 +45,8 @@ export {
 } from './errors.ts';
 export {
 	field,
+	type ObjectSchema,
+	objectSchema,
 	whatFits,
 	whatTakes,
 } from './field.ts';
