@@ -12,8 +12,8 @@ took its own module: the last commit's age, a count of uncommitted files, the
 commits ahead of origin, and a walk of `apps/` for nested repositories. Each
 is a Git read the owner can run directly, and Git's own answer says more: it
 names the uncommitted files instead of counting them. The nested walk
-duplicated the refusal in the home's checkpoint script, which is where a
-commit is made.
+duplicated a warning Git gives itself: `git add` names an embedded
+repository when it meets one.
 
 ## Decision
 
@@ -28,14 +28,14 @@ git status -sb               # branch, commits ahead of origin, each uncommitted
 git log -1 --format=%cr      # how long ago the last commit was
 ```
 
-The checkpoint script keeps its nested-repository refusal; its message goes
-where serve's output goes.
+A repository nested under `apps/` is named by `git add` when the owner
+commits.
 
 ## Consequences
 
 - `repository.ts` and `originOf` leave the CLI.
-- A stopped checkpoint shows in Git, in any Git app, and in the script's own
-  error, not in the bare report. An owner who wants both runs
+- How long ago the home was last committed shows in Git and in any Git app,
+  not in the bare report. An owner who wants both runs
   `epicenter && git status -sb`.
 - A false warning about a repository under an app's ignored `local/` is gone
   with the walk that raised it.

@@ -317,12 +317,10 @@ action, and adds none: the action is ordinary code, and its author decides.
 Epicenter runs actions and serves pages. Git stores the home, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. After direct
 edits, make a named commit with Git, such as
-`git add -A && git commit -m "<what changed>"`. Between named commits, the
-home is committed only by what its owner set up, such as a routine that runs
-the owner's own script; without one, nothing is committed or pushed on its
-own. The branch and index are shared, and a commit made while serve runs
-samples files, not intent: it can capture a partial edit or part of a running
-action. Make a named commit before a risky change.
+`git add -A && git commit -m "<what changed>"`. Nothing commits or pushes
+the home on its own: what is not committed is in neither its history nor its
+backup. The branch and index are shared, and a commit made while serve runs
+can capture a partial edit or part of a running action. Make a named commit before a risky change.
 
 A routine's `run` is a program and its arguments. An argument may be a JSON
 value, which reaches the command as one word of JSON text:

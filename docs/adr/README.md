@@ -8,7 +8,7 @@ outcome we committed to.
 **Start with [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md).** On 2026-11-07 Epicenter became where one person's
 software lives: each app is a container whose `code/epicenter.ts` defines its actions
 ([ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)),
-and root checkpoints record pending code and records
+and one private Git repository holds their code and records
 ([ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Records 0802 to 0839 designed a folder sync product for many people, with
 [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
@@ -1160,5 +1160,5 @@ When you add an ADR, add its row here.
 | [0955](0955-no-command-makes-or-copies-an-app.md) | No command makes or copies an app | Proposed (supersedes 0911 and 0929; amends 0940) |
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
-| [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942 and 0944) |
-| [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858) |
+| [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942, 0944 and 0962) |
+| [0962](0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md) | Whispering 8 writes every file inside its folder, at or beside its final path | Accepted (amends 0858; amended by 0958) |
