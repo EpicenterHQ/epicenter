@@ -20,11 +20,11 @@ import {
 } from 'typebox';
 import { Value } from 'typebox/value';
 
+/** What every field helper takes: a description, and whether it may be absent. */
 type Options = {
 	description?: string;
+	optional?: boolean;
 };
-
-type MaybeOptional = Options & { optional?: boolean };
 
 /**
  * Throw when `options` names one `helper` does not declare, so it is never
@@ -45,9 +45,8 @@ function only(
 	}
 }
 
-const OPTIONS = ['description'] as const;
-const MAYBE_OPTIONAL = [...OPTIONS, 'optional'] as const;
-const BOUNDED = [...MAYBE_OPTIONAL, 'min', 'max'] as const;
+const OPTIONS = ['description', 'optional'] as const;
+const BOUNDED = [...OPTIONS, 'min', 'max'] as const;
 
 /**
  * One object whose keys are fields, as plain JSON Schema: each field under
@@ -124,7 +123,7 @@ export function refKeyOf(schema: unknown): string | undefined {
 	return typeof key === 'string' ? key : undefined;
 }
 
-type ListOptions = MaybeOptional & {
+type ListOptions = Options & {
 	/** The fewest items it holds. */
 	min?: number;
 };
@@ -134,7 +133,7 @@ function list<const T extends TSchema, const O extends ListOptions>(
 	item: T,
 	options?: O,
 ) {
-	only('list', options, [...MAYBE_OPTIONAL, 'min']);
+	only('list', options, [...OPTIONS, 'min']);
 	const min = options?.min ?? 0;
 	if (!Number.isInteger(min) || min < 0)
 		throw new Error(
@@ -149,7 +148,7 @@ function list<const T extends TSchema, const O extends ListOptions>(
 	);
 }
 
-function maybeOptional<T extends TSchema, O extends MaybeOptional>(
+function maybeOptional<T extends TSchema, O extends Options>(
 	schema: T,
 	options: O | undefined,
 ): Optionally<T, O> {
@@ -182,8 +181,8 @@ export const field = {
 	 * a `description` that reads after "must be", since that is how a refusal
 	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
 	 */
-	text: <const O extends MaybeOptional & { pattern?: string }>(options?: O) => {
-		only('text', options, [...MAYBE_OPTIONAL, 'pattern']);
+	text: <const O extends Options & { pattern?: string }>(options?: O) => {
+		only('text', options, [...OPTIONS, 'pattern']);
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
@@ -194,7 +193,7 @@ export const field = {
 	},
 
 	/** A number, at least `min` and at most `max` when they are given. */
-	number: <const O extends MaybeOptional & Bounds>(options?: O) => {
+	number: <const O extends Options & Bounds>(options?: O) => {
 		only('number', options, BOUNDED);
 		return maybeOptional(
 			Type.Number({ ...schemaOptions(options), ...bounds(options) }),
@@ -203,7 +202,7 @@ export const field = {
 	},
 
 	/** A whole number, at least `min` and at most `max` when they are given. */
-	integer: <const O extends MaybeOptional & Bounds>(options?: O) => {
+	integer: <const O extends Options & Bounds>(options?: O) => {
 		only('integer', options, BOUNDED);
 		return maybeOptional(
 			Type.Integer({ ...schemaOptions(options), ...bounds(options) }),
@@ -212,8 +211,8 @@ export const field = {
 	},
 
 	/** A moment, written RFC 3339 with an offset (`2026-11-10T22:41:05+08:00`): JSON Schema's `format: 'date-time'`. */
-	datetime: <const O extends MaybeOptional>(options?: O) => {
-		only('datetime', options, MAYBE_OPTIONAL);
+	datetime: <const O extends Options>(options?: O) => {
+		only('datetime', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date-time' }),
 			options,
@@ -221,8 +220,8 @@ export const field = {
 	},
 
 	/** A day, written `2026-11-08`: JSON Schema's `format: 'date'`, which TypeBox checks, so `2026-13-45` is refused. */
-	date: <const O extends MaybeOptional>(options?: O) => {
-		only('date', options, MAYBE_OPTIONAL);
+	date: <const O extends Options>(options?: O) => {
+		only('date', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date' }),
 			options,
@@ -232,12 +231,12 @@ export const field = {
 	/** One of `values`, as `field.select(['archive', 'trash'])`. */
 	select: <
 		const V extends readonly [string, ...string[]],
-		const O extends MaybeOptional,
+		const O extends Options,
 	>(
 		values: V,
 		options?: O,
 	) => {
-		only('select', options, MAYBE_OPTIONAL);
+		only('select', options, OPTIONS);
 		return maybeOptional(
 			Type.Union(
 				values.map((value) => Type.Literal(value)),
@@ -248,8 +247,8 @@ export const field = {
 	},
 
 	/** True or false. */
-	boolean: <const O extends MaybeOptional>(options?: O) => {
-		only('boolean', options, MAYBE_OPTIONAL);
+	boolean: <const O extends Options>(options?: O) => {
+		only('boolean', options, OPTIONS);
 		return maybeOptional(Type.Boolean(schemaOptions(options)), options);
 	},
 
@@ -264,8 +263,8 @@ export const field = {
 	 * confirms names a file there. Reads open no other file. `defineData`
 	 * refuses a target that is not one of its keys.
 	 */
-	ref: <const O extends MaybeOptional>(target: string, options?: O) => {
-		only('ref', options, MAYBE_OPTIONAL);
+	ref: <const O extends Options>(target: string, options?: O) => {
+		only('ref', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), [REF]: { key: target } }),
 			options,
