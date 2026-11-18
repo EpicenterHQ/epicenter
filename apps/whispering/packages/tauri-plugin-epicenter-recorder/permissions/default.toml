@@ -1,14 +1,13 @@
 "$schema" = "schemas/schema.json"
 
-# Granting this to a window lets it record a take and place it in a folder the
-# app's file system scope allows.
+# Granting this to a window lets it record a take into a folder the app's file
+# system scope allows.
 [default]
-description = "List the microphones and read one's level, record a take and place it in a folder the file system scope allows, stop that recording, and place takes a quit cut off."
+description = "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording."
 permissions = [
   "allow-inputs",
   "allow-open-meter",
   "allow-close-meter",
   "allow-start",
   "allow-stop",
-  "allow-recover",
 ]

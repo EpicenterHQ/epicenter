@@ -1,7 +1,7 @@
 /**
  * What the app reads in the audio files a recorder writes: how long one
- * plays (`audioDurationMs`). The desktop's cut-off recordings, which its
- * shell finishes, and imported files are measured here.
+ * plays (`audioDurationMs`). Audio no `stop` answered a length for, such as
+ * a desktop recording a crash cut off, and imported files are measured here.
  *
  * - Opus in WebM, written whole (the desktop's): Info's Duration names the
  *   length that plays.

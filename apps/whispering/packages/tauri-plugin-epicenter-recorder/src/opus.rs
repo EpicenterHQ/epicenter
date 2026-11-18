@@ -89,7 +89,7 @@ impl<S: Storage> OpusRecording<S> {
     /// Encode what is left, then silence until every sample has left the
     /// encoder's lookahead, and finish the file. Answers how many samples
     /// play. On an error the file holds every whole second written before,
-    /// for `webm::finish_cut_off`.
+    /// which plays as a take a crash cut off.
     pub fn finish(mut self) -> Result<u64, String> {
         let wanted = self.pre_skip + self.samples * TO_48K;
         while !self.frame.is_empty() || self.webm.packets() * FRAME_48K < wanted {
@@ -120,7 +120,7 @@ fn written(error: std::io::Error) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::webm::{finish_cut_off, CutOff, CLUSTER_PACKETS};
+    use crate::webm::CLUSTER_PACKETS;
     use std::fs::File;
     use std::path::Path;
 
@@ -203,12 +203,6 @@ pub(crate) mod tests {
         let original = as_f32(&samples);
         assert_eq!(best_lag(&original, &decoded), 0);
         assert!(likeness(&original, &decoded, 0) > 0.95);
-        assert_eq!(
-            finish_cut_off(&path).unwrap(),
-            CutOff::Finished {
-                played: samples.len() as u64 * TO_48K
-            }
-        );
     }
 
     #[test]
@@ -284,49 +278,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// Cut off at random bytes, a recording is finished from its whole
-    /// seconds, decodes to exactly the samples it says it plays, each in
-    /// its place, and a second recovery writes nothing.
-    #[test]
-    fn a_recording_cut_off_at_random_bytes_decodes_exactly_once_recovered() {
-        let directory = tempfile::tempdir().unwrap();
-        let samples = sweep(6 * RECORDING_RATE as usize);
-        let original = as_f32(&samples);
-        let whole = directory.path().join("whole.webm");
-        let mut recording = OpusRecording::new(File::create(&whole).unwrap()).unwrap();
-        recording.write(&samples).unwrap();
-        // Dropped unfinished: the file as a crash leaves it.
-        drop(recording);
-        let bytes = std::fs::read(&whole).unwrap();
-        let mut seed = 0x2545_F491_4F6C_DD1Du64;
-        for round in 0..16 {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            let cut = (seed % bytes.len() as u64) as usize;
-            let path = directory.path().join(format!("{round}.webm"));
-            std::fs::write(&path, &bytes[..cut]).unwrap();
-            let played = match finish_cut_off(&path).unwrap() {
-                CutOff::Recovered { played } => played,
-                CutOff::Empty => {
-                    assert_eq!(std::fs::read(&path).unwrap(), &bytes[..cut]);
-                    continue;
-                }
-                finished => panic!("cut at {cut}: {finished:?}"),
-            };
-            let recovered = std::fs::read(&path).unwrap();
-            let decoded = decoded(&recovered);
-            assert_eq!(decoded.len() as u64 * TO_48K, played, "cut at {cut}");
-            if decoded.len() > 3_000 {
-                assert_eq!(best_lag(&original, &decoded), 0, "cut at {cut}");
-            }
-            assert_eq!(finish_cut_off(&path).unwrap(), CutOff::Finished { played });
-            assert_eq!(std::fs::read(&path).unwrap(), recovered);
-        }
-    }
-
     /// A disk that fills mid-recording ends it with a clear error, keeps
-    /// every whole second before, and those decode exactly once finished.
+    /// every whole second before, and those decode in place as they are.
     #[test]
     fn a_full_disk_ends_a_recording_with_what_was_written() {
         use crate::webm::tests::FullDisk;
@@ -347,12 +300,8 @@ pub(crate) mod tests {
             "{error}"
         );
         drop(recording);
-        let CutOff::Recovered { played } = finish_cut_off(&path).unwrap() else {
-            panic!("expected the whole seconds to be finished");
-        };
         let decoded = decoded(&std::fs::read(&path).unwrap());
-        assert_eq!(decoded.len() as u64 * TO_48K, played);
-        assert!(played > OPUS_RATE, "{played}");
+        assert!(decoded.len() > RECORDING_RATE as usize, "{}", decoded.len());
         assert_eq!(best_lag(&as_f32(&samples), &decoded), 0);
     }
 
@@ -382,7 +331,7 @@ pub(crate) mod tests {
 
     /// A process killed mid-recording (SIGKILL: nothing of it runs after)
     /// loses at most the second it held and the encoder's lookahead. Its
-    /// file is finished from the whole seconds on the disk, which decode
+    /// file, as the kill left it, decodes the whole seconds on the disk
     /// exactly, in place.
     #[cfg(unix)]
     #[test]
@@ -435,7 +384,7 @@ pub(crate) mod tests {
             let packets = fed / FRAME;
             let on_disk = (packets - 1) / CLUSTER_PACKETS * CLUSTER_PACKETS;
             let kept = (on_disk * FRAME).saturating_sub(lookahead);
-            let found = finish_cut_off(&path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
             let lost = fed - kept;
             most = most.max(lost);
             assert!(
@@ -443,17 +392,14 @@ pub(crate) mod tests {
                 "{seconds} s: lost {lost} samples"
             );
             if kept == 0 {
-                assert_eq!(found, CutOff::Empty, "{seconds} s");
+                let cluster = [0x1F, 0x43, 0xB6, 0x75];
+                assert!(
+                    !bytes.windows(4).any(|id| id == cluster),
+                    "{seconds} s: no Cluster reached the disk"
+                );
                 continue;
             }
-            assert_eq!(
-                found,
-                CutOff::Recovered {
-                    played: kept as u64 * TO_48K
-                },
-                "{seconds} s"
-            );
-            let decoded = decoded(&std::fs::read(&path).unwrap());
+            let decoded = decoded(&bytes);
             assert_eq!(decoded.len(), kept, "{seconds} s");
             assert_eq!(best_lag(&as_f32(&sweep(fed)), &decoded), 0, "{seconds} s");
         }

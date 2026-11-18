@@ -6,12 +6,10 @@
 //! here at start) and the one the dialog granted
 //! (`tauri-plugin-persisted-scope` restores it at each start). The page
 //! holds none of the file system plugin's commands, and Rust keeps no
-//! folder setting. A save is staged in `local/.tmp/` and a take is recorded
-//! in `local/recording/`, both in the app's local data directory, and each
-//! reaches the folder by one rename (`whispering-files`), so the folder only
-//! ever receives finished files. It records from the first sample
-//! (`tauri-plugin-epicenter-recorder`),
-//! transcribes on this computer (`tauri-plugin-epicenter-transcription`),
+//! folder setting. Every file is written inside the folder (ADR-0962): a
+//! take at its own path from its first second
+//! (`tauri-plugin-epicenter-recorder`), and a note through a temporary file
+//! beside it (`whispering-files`). It transcribes on this computer (`tauri-plugin-epicenter-transcription`),
 //! sends a provider's requests from the page through `tauri-plugin-http`
 //! with a key it reads from the Keychain (`secrets.rs`), and starts and stops
 //! a recording from a global shortcut (`shortcut.rs`). A second launch
@@ -36,10 +34,6 @@ const WINDOW: &str = "whispering:main";
 
 /// The default folder, inside the app's local data directory.
 const DEFAULT_FOLDER: &str = "data";
-
-/// This computer's own files, inside the app's local data directory: never
-/// in the folder, and never moved with it.
-const LOCAL: &str = "local";
 
 fn main() {
     let context = tauri::generate_context!();
@@ -81,8 +75,7 @@ fn main() {
     tauri_plugin_epicenter_transcription::run(app, |_, _| {});
 }
 
-/// Make the default folder and `local/`, clear `local/.tmp/`, allow the
-/// default folder, then open the window.
+/// Make the default folder, allow it, then open the window.
 ///
 /// The scope is the grant every file command checks. A capability's file
 /// system grant would count only inside the file system plugin's own
@@ -94,19 +87,9 @@ fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         format!("The system did not say where Whispering keeps its files: {error}")
     })?;
     let folder = local_data.join(DEFAULT_FOLDER);
-    let local = files::Local(local_data.join(LOCAL));
-    for directory in [folder.clone(), local.0.join("recording"), local.tmp()] {
-        std::fs::create_dir_all(&directory)
-            .map_err(|error| format!("{} could not be made: {error}", directory.display()))?;
-    }
-    // Saves a quit cut short; each is safe to delete, and none is a take.
-    if let Err(error) = whispering_files::clear(&local.tmp()) {
-        log_warning(&format!(
-            "{} was not cleared: {error}",
-            local.tmp().display()
-        ));
-    }
-    app.manage(local);
+    std::fs::create_dir_all(&folder)
+        .map_err(|error| format!("{} could not be made: {error}", folder.display()))?;
+    app.manage(files::Opened::default());
     app.fs_scope()
         .allow_directory(&folder, true)
         .map_err(|error| format!("{} could not be opened: {error}", folder.display()))?;

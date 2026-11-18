@@ -48,10 +48,11 @@ extension, so `..`, a hidden file and an absolute path are refused.
   start, or the one the dialog granted and `tauri-plugin-persisted-scope`
   restores) and refuses a symbolic link. Reads answer raw bytes;
   `files_read_many` answers one buffer of a count, each length (or a
-  missing marker), then the bytes. A write is staged in `local/.tmp/` in
-  the app's local data directory and renamed into the folder, so the
-  folder only ever holds finished files. The page holds none of
-  `@tauri-apps/plugin-fs`'s commands.
+  missing marker), then the bytes. A write goes to a hidden temporary
+  file beside its target (`.<name>.tmp`), flushed and renamed over it, so
+  a reader finds the old file or the new one; the first command on a
+  folder in a run removes what a crash left of those (ADR-0962). The page
+  holds none of `@tauri-apps/plugin-fs`'s commands.
 - `opfsFiles(dir)` writes through `createWritable()`, whose changes reach
   the file when the stream closes, and reads a few files at a time.
 - `memoryFiles()` is a map, for tests.
@@ -59,7 +60,8 @@ extension, so `..`, a hidden file and an absolute path are refused.
 `src/lib/files/conformance.ts` is one suite all three pass: `files.test.ts`
 runs it against memory and against `tauriFiles` over a stand-in for the
 shell's commands, and a real browser runs it against OPFS from the dev
-page. The shell's own Rust tests cover the commands and the place step.
+page. The shell's own Rust tests cover the commands, and `whispering-files`
+covers the write beside a target and the removal of leftovers.
 
 Notes are read and written in the home's Markdown grammar,
 `@epicenter/app/markdown` (`src/lib/format/note.ts`): `key: <JSON>` lines
@@ -190,24 +192,25 @@ lands at `recordings/<id>.<ext>` when Stop answers.
 - In a browser the recorder asks for AAC in MP4 first and Opus in WebM
   second, keeps each piece in memory, and at Stop writes the take once
   through `Files`. A crash or a closed tab loses the take.
-- In a Tauri window the shell encodes Opus into the take
-  `local/recording/<id>.webm` in the app's local data directory, outside
-  the folder, a second at a time, and at Stop finishes it and places it at
-  `recordings/<id>.webm` by one rename that replaces nothing. A take it
-  cannot place answers `Unplaced` and stays.
+- In a Tauri window the shell encodes Opus at `recordings/<id>.webm` in
+  the folder, a second at a time from its first second, and at Stop
+  finishes it there (ADR-0962). It refuses an id whose audio is already
+  there.
 
 A recording has no note while it records: the record screen
-(`RecorderCard.svelte`) shows the take. Once Stop answers with the audio at
-its path, the note (title, `recordedAt`, `durationMs`) is written and the
-audio listed again. Audio that could not be written fails the recording,
+(`RecorderCard.svelte`) shows the take, and the library leaves its id out
+until its note is written (`takeInProgress`), though on the desktop its
+audio is at its path. Once Stop answers with the audio at its path, the
+note (title, `recordedAt`, `durationMs`) is written and the audio listed
+again. Audio that could not be written fails the recording,
 saying why. A note that could not be written leaves the audio listed as an
 untitled recording, and the recorder says so.
 
-On the desktop a quit or a crash leaves the take in `local/recording/`.
-Each launch, beside the pages, `capture.recover` finishes it from its
-whole seconds and places it in the folder, where it lists as an untitled
-recording; what it cannot complete, and a take whose audio's place is
-taken, is said.
+On the desktop a quit or a closed window finishes the take, as Stop does.
+A crash leaves it at its path as it is: its whole seconds, perhaps a torn
+block at its end, no Duration or Cues. Nothing repairs it. It lists as an
+untitled recording, plays, and transcribes from its whole seconds; a take
+a crash cut off before its first second holds no audio and lists too.
 
 The microphone choice and its test belong to `microphone-input.svelte.ts`,
 one owner of at most one open microphone. The choice is in `localStorage`

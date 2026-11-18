@@ -3,17 +3,13 @@
  * (ADR-0543, decision 84).
  *
  * The shell's recorder encodes the microphone to Opus from the first sample
- * and writes it, a second at a time, into the take
- * `local/recording/<id>.webm` in the app's local data directory, outside
- * the folder, so no listing, file syncer, or Git checkpoint sees a growing
- * file (ADR-0894). It refuses a folder the app's grant does not hold, and an
- * id whose audio or take is already there. `stop` finishes the take and
- * places it at `recordings/<id>.webm` by one rename, never over a file
- * there; a take it cannot place answers `Unplaced` and is kept. When the
- * page reloads or its window closes, the shell finishes and places the
+ * and writes it, a second at a time, at `recordings/<id>.webm` in the
+ * folder (ADR-0962). It refuses a folder the app's grant does not hold, and
+ * an id whose audio is already there. `stop` finishes the take in place.
+ * When the page reloads or its window closes, the shell finishes the
  * recording itself: the audio is kept. A process that ends before then
- * leaves the take with every whole second but the last; `recorder.recover`
- * finishes it from those and places it.
+ * leaves the take with every whole second but the last, which plays as it
+ * is.
  *
  * An ending nobody asked for, and a meter's levels, arrive on a channel
  * this page alone hears.
@@ -51,8 +47,6 @@ function fromNative(error: NativeRecorderError, label = '') {
 			return RecorderError.NotRecording({ reason: error.message });
 		case 'Refused':
 			return RecorderError.Refused({ reason: error.message });
-		case 'Unplaced':
-			return RecorderError.Unplaced({ reason: error.message });
 		case 'Failed':
 			return RecorderError.Failed({ cause: error.message });
 		default:
@@ -80,7 +74,7 @@ function locationOf(files: AudioFiles) {
 	return Ok(files.location);
 }
 
-/** Record into a take from the first sample, placed at `recordings/<id>.webm` when it stops. */
+/** Record at `recordings/<id>.webm` from the first sample, finished there when it stops. */
 const start: Recorder['start'] = async ({ files, id, input, signal }) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const folder = locationOf(files);
@@ -118,24 +112,6 @@ const start: Recorder['start'] = async ({ files, id, input, signal }) => {
 			}
 		},
 	});
-};
-
-/**
- * Finish every take a quit or a crash cut short, from its whole seconds,
- * and place it in the folder. Answers each one placed, with how long it
- * plays, and each one kept because audio with its id is already there. Run
- * it before anything lists, plays, or transcribes a recording.
- */
-const recover: Recorder['recover'] = async ({ files }) => {
-	const folder = locationOf(files);
-	if (folder.error !== null) return folder;
-	try {
-		const { data, error } = await commands.recover(folder.data);
-		if (error !== null) return fromNative(error);
-		return Ok(data);
-	} catch (cause) {
-		return RecorderError.Failed({ cause });
-	}
 };
 
 /** The microphones connected now, each by the id the shell lists it under. Opens nothing. */
@@ -186,7 +162,6 @@ const openMeter: Recorder['openMeter'] = async ({ input, signal } = {}) => {
 /** The shell's microphones, recording into the folder the page names. */
 export const recorder = {
 	start,
-	recover,
 	listInputs,
 	openMeter,
 } satisfies Recorder;

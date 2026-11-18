@@ -15,7 +15,6 @@ export * from './recording.js';
 const shell = () => import('./tauri.js').then((module) => module.recorder);
 const shellRecorder: Recorder = {
 	start: async (options) => (await shell()).start(options),
-	recover: async (options) => (await shell()).recover(options),
 	listInputs: async () => (await shell()).listInputs(),
 	openMeter: async (options) => (await shell()).openMeter(options),
 };

@@ -18,27 +18,24 @@
 //!   with at most a torn one at its end, and a crash loses at most the
 //!   second held.
 //!
-//! Finishing ([`LiveWebm::finish`] at Stop, [`finish_cut_off`] for a file a
-//! crash left) states what the file holds, in an order that makes the
-//! Segment's size the mark of a finished file:
+//! Finishing ([`LiveWebm::finish`] at Stop) states what the file holds, in
+//! an order that makes the Segment's size the mark of a finished file:
 //!
 //! 1. the last Cluster, from memory, its last packet in a BlockGroup whose
-//!    DiscardPadding trims what the encoder padded the end with (a cut-off
-//!    file keeps its Clusters as they are: nothing to trim);
+//!    DiscardPadding trims what the encoder padded the end with;
 //! 2. Cues, one per Cluster;
 //! 3. the Cues' Seek and the Duration, each over its Void;
 //! 4. flushed to the disk, then the Segment's size, flushed again.
 //!
-//! A file whose Segment states its size is finished, and `finish_cut_off`
-//! leaves it alone. One cut off anywhere before that is finished again
-//! from its whole Clusters, whatever the cut tore.
+//! A file cut off before that is left as it is (ADR-0962): its whole
+//! Clusters play, and a player and the transcription decoder stop at a torn
+//! one at its end.
 //!
 //! A block's time is where its packet starts in the encoded stream,
 //! pre-skip included; a player subtracts CodecDelay.
 
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom, Write};
-use std::path::Path;
 
 /// libopus decodes at 48 kHz; Matroska's Opus times and paddings count at it.
 pub const OPUS_RATE: u64 = 48_000;
@@ -271,7 +268,7 @@ impl<S: Storage> LiveWebm<S> {
     /// Write the held Cluster, its last packet trimmed so that `played`
     /// samples at 48 kHz play after the pre-skip, and finish the file.
     /// Answers where it was written. On an error the file still holds its
-    /// whole Clusters, for [`finish_cut_off`].
+    /// whole Clusters, which play as a take a crash cut off.
     pub fn finish(mut self, played: u64) -> io::Result<S> {
         if self.held.is_empty() {
             return Err(io::Error::new(
@@ -298,7 +295,7 @@ impl<S: Storage> LiveWebm<S> {
             &self.layout,
             self.cues,
             self.end,
-            Some(last),
+            last,
             played,
         )?;
         Ok(self.out)
@@ -324,14 +321,10 @@ fn close<S: Storage>(
     layout: &Layout,
     mut cues: Vec<(u64, u64)>,
     end: u64,
-    last: Option<(u64, Vec<u8>)>,
+    (first, mut tail): (u64, Vec<u8>),
     played: u64,
 ) -> io::Result<()> {
-    let mut tail = Vec::new();
-    if let Some((first, bytes)) = last {
-        cues.push((ticks(first * FRAME_48K), end - layout.segment_body));
-        tail = bytes;
-    }
+    cues.push((ticks(first * FRAME_48K), end - layout.segment_body));
     let cues_position = end + tail.len() as u64 - layout.segment_body;
     let points: Vec<u8> = cues
         .iter()
@@ -416,288 +409,6 @@ fn seek_head(info_at: u64, tracks_at: u64, cues_at: Option<u64>) -> Vec<u8> {
         ]
         .concat(),
     )
-}
-
-// ---------------------------------------------------------------- recovery
-
-/// What [`finish_cut_off`] found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CutOff {
-    /// Already finished: nothing was written. Holds the samples at 48 kHz
-    /// that play.
-    Finished { played: u64 },
-    /// Cut off, and now finished with every whole Cluster it held.
-    Recovered { played: u64 },
-    /// No whole Cluster, or not even a whole head: it holds no audio.
-    /// Nothing was written.
-    Empty,
-}
-
-/// Finish the recording at `path` that a crash or a full disk cut off, in
-/// place, from its whole Clusters; a torn Cluster at its end is dropped. A
-/// finished file is left alone, so running it twice writes once. On an
-/// error the file still holds its whole Clusters, for the next try.
-pub fn finish_cut_off(path: &Path) -> io::Result<CutOff> {
-    let bytes = std::fs::read(path)?;
-    let mut out = File::options().write(true).open(path)?;
-    finish_cut_off_in(&bytes, &mut out)
-}
-
-/// [`finish_cut_off`] of a file holding `bytes`, written through `out`.
-fn finish_cut_off_in<S: Storage>(bytes: &[u8], out: &mut S) -> io::Result<CutOff> {
-    let Some(scan) = scan(bytes) else {
-        return Ok(CutOff::Empty);
-    };
-    if let Some(played) = scan.finished {
-        return Ok(CutOff::Finished { played });
-    }
-    let Some(last) = scan.clusters.last() else {
-        return Ok(CutOff::Empty);
-    };
-    let packets: u64 = scan.clusters.iter().map(|cluster| cluster.packets).sum();
-    let played = (packets * FRAME_48K)
-        .checked_sub(scan.layout.pre_skip + last.padding)
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "its Clusters hold less than the encoder's delay",
-            )
-        })?;
-    let cues = scan
-        .clusters
-        .iter()
-        .map(|cluster| (cluster.time, cluster.start - scan.layout.segment_body))
-        .collect();
-    out.set_len(last.end)?;
-    close(out, &scan.layout, cues, last.end, None, played)?;
-    Ok(CutOff::Recovered { played })
-}
-
-/// What a file holds, read back.
-struct Scan {
-    layout: Layout,
-    /// The samples at 48 kHz it plays, when it is finished: its Segment
-    /// states its length, and it has its Duration and Cues.
-    finished: Option<u64>,
-    /// The run of whole Clusters from the first, each at the time the
-    /// packets before it end.
-    clusters: Vec<ClusterRead>,
-}
-
-/// A whole Cluster read back.
-struct ClusterRead {
-    start: u64,
-    end: u64,
-    /// Its time in ticks.
-    time: u64,
-    packets: u64,
-    /// Its last packet's DiscardPadding, at 48 kHz.
-    padding: u64,
-}
-
-/// One element read back.
-#[derive(Clone, Copy)]
-struct Element {
-    id: u32,
-    start: usize,
-    body: usize,
-    end: usize,
-}
-
-/// Read `bytes` as this module writes a recording, or `None` when not even
-/// its head is whole.
-fn scan(bytes: &[u8]) -> Option<Scan> {
-    let length = bytes.len();
-    let ebml = element(bytes, 0, length).filter(|element| element.id == EBML)?;
-    // The Segment's size, eight bytes: unknown until it is finished.
-    let (segment_id, id_length) = vint(bytes, ebml.end, true)?;
-    let (stated, size_length) = vint(bytes, ebml.end + id_length, false)?;
-    if segment_id as u32 != SEGMENT || size_length != 8 {
-        return None;
-    }
-    let segment_body = ebml.end + id_length + size_length;
-    let sized = stated != (1u64 << 56) - 1;
-    let segment_end = if sized {
-        usize::try_from(stated).ok()?.checked_add(segment_body)?
-    } else {
-        length
-    };
-    let limit = segment_end.min(length);
-
-    let mut at = segment_body;
-    let mut take = |want: u32| {
-        let found = element(bytes, at, limit).filter(|element| element.id == want)?;
-        at = found.end;
-        Some(found)
-    };
-    let seek_head = take(SEEK_HEAD)?;
-    let info = take(INFO)?;
-    let tracks = take(TRACKS)?;
-    let slot = *children(bytes, &info)?.last()?;
-    if slot.end - slot.start != DURATION_LENGTH || !(slot.id == VOID || slot.id == DURATION) {
-        return None;
-    }
-    let entry = children(bytes, &tracks)?
-        .into_iter()
-        .find(|element| element.id == TRACK_ENTRY)?;
-    let private = children(bytes, &entry)?
-        .into_iter()
-        .find(|element| element.id == CODEC_PRIVATE)?;
-    let head = &bytes[private.body..private.end];
-    if head.len() < 19 || &head[..8] != b"OpusHead" {
-        return None;
-    }
-    let layout = Layout {
-        segment_body: segment_body as u64,
-        seek_head_at: seek_head.start as u64,
-        info_at: (info.start - segment_body) as u64,
-        tracks_at: (tracks.start - segment_body) as u64,
-        duration_at: slot.start as u64,
-        pre_skip: u64::from(u16::from_le_bytes([head[10], head[11]])),
-    };
-
-    let mut clusters: Vec<ClusterRead> = Vec::new();
-    let mut packets = 0;
-    let mut has_cues = false;
-    let mut cursor = tracks.end;
-    while let Some(found) = element(bytes, cursor, limit) {
-        if found.id == CUES {
-            has_cues = true;
-            break;
-        }
-        let Some(read) = (found.id == CLUSTER)
-            .then(|| read_cluster(bytes, &found))
-            .flatten()
-            .filter(|read| read.time == ticks(packets * FRAME_48K))
-        else {
-            break;
-        };
-        packets += read.packets;
-        cursor = found.end;
-        clusters.push(read);
-    }
-    let finished = (sized && segment_end == length && slot.id == DURATION && has_cues).then(|| {
-        let value: [u8; 8] = bytes[slot.end - 8..slot.end]
-            .try_into()
-            .expect("eight bytes");
-        (f64::from_be_bytes(value) * OPUS_RATE as f64 / 1_000.0).round() as u64
-    });
-    Some(Scan {
-        layout,
-        finished,
-        clusters,
-    })
-}
-
-/// A whole Cluster's time, how many packets it holds, and the
-/// DiscardPadding of its last; `None` for anything else.
-fn read_cluster(bytes: &[u8], cluster: &Element) -> Option<ClusterRead> {
-    let mut time = None;
-    let mut packets = 0;
-    let mut padding = 0;
-    let is_block = |element: &Element| {
-        let body = &bytes[element.body..element.end];
-        body.len() > 4 && body[0] == 0x80 | TRACK
-    };
-    for child in children(bytes, cluster)? {
-        match child.id {
-            TIMESTAMP => time = Some(read_uint(bytes, &child)),
-            SIMPLE_BLOCK if is_block(&child) => {
-                packets += 1;
-                padding = 0;
-            }
-            BLOCK_GROUP => {
-                let parts = children(bytes, &child)?;
-                if !parts.iter().any(|part| part.id == BLOCK && is_block(part)) {
-                    return None;
-                }
-                packets += 1;
-                padding = parts
-                    .iter()
-                    .find(|part| part.id == DISCARD_PADDING)
-                    .map_or(0, |part| {
-                        let ns = read_signed(bytes, part).max(0) as u64;
-                        (ns * OPUS_RATE + 500_000_000) / 1_000_000_000
-                    });
-            }
-            _ => return None,
-        }
-    }
-    Some(ClusterRead {
-        start: cluster.start as u64,
-        end: cluster.end as u64,
-        time: time?,
-        packets,
-        padding,
-    })
-}
-
-/// A variable-length integer at `at`, with its length marker or without,
-/// and its length.
-fn vint(bytes: &[u8], at: usize, keep_marker: bool) -> Option<(u64, usize)> {
-    let first = *bytes.get(at)?;
-    if first == 0 {
-        return None;
-    }
-    let length = first.leading_zeros() as usize + 1;
-    let rest = bytes.get(at + 1..at + length)?;
-    let first = if keep_marker {
-        first
-    } else {
-        first & 0xFFu8.checked_shr(length as u32).unwrap_or(0)
-    };
-    let value = rest.iter().fold(u64::from(first), |value, &byte| {
-        (value << 8) | u64::from(byte)
-    });
-    Some((value, length))
-}
-
-/// The element at `at`, of a known size and whole within `limit`.
-fn element(bytes: &[u8], at: usize, limit: usize) -> Option<Element> {
-    let (id, id_length) = vint(bytes, at, true)?;
-    let (size, size_length) = vint(bytes, at + id_length, false)?;
-    if id_length > 4 || size == (1u64 << (7 * size_length)) - 1 {
-        return None;
-    }
-    let body = at + id_length + size_length;
-    let end = body.checked_add(usize::try_from(size).ok()?)?;
-    (end <= limit).then_some(Element {
-        id: id as u32,
-        start: at,
-        body,
-        end,
-    })
-}
-
-/// Every child of `parent`, each whole.
-fn children(bytes: &[u8], parent: &Element) -> Option<Vec<Element>> {
-    let mut found = Vec::new();
-    let mut at = parent.body;
-    while at < parent.end {
-        let child = element(bytes, at, parent.end)?;
-        at = child.end;
-        found.push(child);
-    }
-    Some(found)
-}
-
-fn read_uint(bytes: &[u8], element: &Element) -> u64 {
-    bytes[element.body..element.end]
-        .iter()
-        .fold(0, |value, &byte| (value << 8) | u64::from(byte))
-}
-
-fn read_signed(bytes: &[u8], element: &Element) -> i64 {
-    let value = &bytes[element.body..element.end];
-    let value = &value[value.len().saturating_sub(8)..];
-    let sign = if value.first().is_some_and(|byte| byte & 0x80 != 0) {
-        0xFF
-    } else {
-        0
-    };
-    let mut extended = [sign; 8];
-    extended[8 - value.len()..].copy_from_slice(value);
-    i64::from_be_bytes(extended)
 }
 
 // ---------------------------------------------------------------- elements
@@ -881,6 +592,50 @@ pub(crate) mod tests {
         CUE_TRACK_POSITIONS,
     ];
 
+    /// One element read back.
+    #[derive(Clone, Copy)]
+    struct Element {
+        id: u32,
+        body: usize,
+        end: usize,
+    }
+
+    /// A variable-length integer at `at`, with its length marker or without,
+    /// and its length.
+    fn vint(bytes: &[u8], at: usize, keep_marker: bool) -> Option<(u64, usize)> {
+        let first = *bytes.get(at)?;
+        if first == 0 {
+            return None;
+        }
+        let length = first.leading_zeros() as usize + 1;
+        let rest = bytes.get(at + 1..at + length)?;
+        let first = if keep_marker {
+            first
+        } else {
+            first & 0xFFu8.checked_shr(length as u32).unwrap_or(0)
+        };
+        let value = rest.iter().fold(u64::from(first), |value, &byte| {
+            (value << 8) | u64::from(byte)
+        });
+        Some((value, length))
+    }
+
+    /// The element at `at`, of a known size and whole within `limit`.
+    fn element(bytes: &[u8], at: usize, limit: usize) -> Option<Element> {
+        let (id, id_length) = vint(bytes, at, true)?;
+        let (size, size_length) = vint(bytes, at + id_length, false)?;
+        if id_length > 4 || size == (1u64 << (7 * size_length)) - 1 {
+            return None;
+        }
+        let body = at + id_length + size_length;
+        let end = body.checked_add(usize::try_from(size).ok()?)?;
+        (end <= limit).then_some(Element {
+            id: id as u32,
+            body,
+            end,
+        })
+    }
+
     /// Every element from `at` to `end`, each read whole.
     fn read(bytes: &[u8], mut at: usize, end: usize) -> Vec<Read> {
         let mut elements = Vec::new();
@@ -940,13 +695,6 @@ pub(crate) mod tests {
     /// `count` packets pushed and finished to play `played` samples.
     fn finished(count: u64, played: u64) -> Vec<u8> {
         live(count).finish(played).unwrap().into_inner()
-    }
-
-    /// `finish_cut_off` of `bytes`, and the file it leaves.
-    fn recovered(bytes: &[u8]) -> (CutOff, Vec<u8>) {
-        let mut out = Cursor::new(bytes.to_vec());
-        let found = finish_cut_off_in(bytes, &mut out).unwrap();
-        (found, out.into_inner())
     }
 
     /// The fields Safari and Chromium read to play an Opus stream from its
@@ -1028,7 +776,6 @@ pub(crate) mod tests {
                 .uint();
             assert_eq!(segment_body + position as usize, cluster.start);
         }
-        assert_eq!(recovered(&bytes), (CutOff::Finished { played }, bytes));
     }
 
     #[test]
@@ -1091,82 +838,10 @@ pub(crate) mod tests {
         assert!(took < std::time::Duration::from_millis(500), "{took:?}");
     }
 
-    /// Cut off at every byte, a file is finished from the whole Clusters
-    /// before the cut, says what plays, and a second recovery writes
-    /// nothing; a file cut before its first whole Cluster holds no audio
-    /// and is not touched.
-    #[test]
-    fn a_file_cut_off_at_any_byte_is_finished_from_its_whole_clusters_once() {
-        let bytes = cut_off(181);
-        let head = cut_off(0).len();
-        let clusters: Vec<usize> = read(&bytes, head, bytes.len())
-            .iter()
-            .map(|cluster| cluster.start)
-            .chain([bytes.len()])
-            .collect();
-        assert_eq!(clusters.len(), 4, "three whole Clusters");
-        for cut in 0..=bytes.len() {
-            let (found, after) = recovered(&bytes[..cut]);
-            let whole = clusters[1..].iter().filter(|end| **end <= cut).count();
-            if whole == 0 {
-                assert_eq!(found, CutOff::Empty, "cut at {cut}");
-                assert_eq!(after, &bytes[..cut], "cut at {cut}");
-                continue;
-            }
-            let played = whole as u64 * 50 * FRAME_48K - PRE_SKIP;
-            assert_eq!(found, CutOff::Recovered { played }, "cut at {cut}");
-            // The Clusters are as written; only the head states more.
-            assert_eq!(&after[head..clusters[whole]], &bytes[head..clusters[whole]]);
-            assert_eq!(
-                recovered(&after),
-                (CutOff::Finished { played }, after.clone()),
-                "cut at {cut}"
-            );
-            let top = read(&after, 0, after.len());
-            assert_eq!(top[1].all(CLUSTER).len(), whole);
-            assert_eq!(top[1].one(CUES).all(CUE_POINT).len(), whole);
-        }
-    }
-
-    /// Stop can be cut off at any byte it writes: the file is finished
-    /// again to the same length, its last packet still trimmed.
-    #[test]
-    fn a_stop_cut_off_while_it_finishes_is_finished_again_to_its_exact_length() {
-        let played = 120 * FRAME_48K - PRE_SKIP - 700;
-        let before = cut_off(120).len();
-        let bytes = finished(120, played);
-        // A cut anywhere in what Stop appended, and one after it appended
-        // everything and wrote all but the size.
-        let mut size_unknown = bytes.clone();
-        let size_at = read(&bytes, 0, bytes.len())[1].start + 4;
-        size_unknown[size_at..size_at + 8].copy_from_slice(&UNKNOWN_SIZE);
-        let last_end = element(&bytes, before, bytes.len()).unwrap().end;
-        for cut in (before..bytes.len())
-            .map(|cut| bytes[..cut].to_vec())
-            .chain([size_unknown])
-        {
-            let (found, after) = recovered(&cut);
-            let whole_last = cut.len() >= last_end;
-            let expected = if whole_last {
-                played
-            } else {
-                100 * FRAME_48K - PRE_SKIP
-            };
-            assert_eq!(
-                found,
-                CutOff::Recovered { played: expected },
-                "{}",
-                cut.len()
-            );
-            assert_eq!(recovered(&after).0, CutOff::Finished { played: expected });
-        }
-    }
-
     /// A disk that fills mid-recording refuses the Cluster that does not
-    /// fit, says so, and leaves the Clusters before it; finishing what was
-    /// written waits for room, and loses nothing more while it waits.
+    /// fit, says so, and leaves the Clusters before it, whole.
     #[test]
-    fn a_full_disk_keeps_the_whole_clusters_and_they_finish_once_there_is_room() {
+    fn a_full_disk_keeps_the_whole_clusters_before_it() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("a.webm");
         let room = (cut_off(151).len() + 40) as u64;
@@ -1193,28 +868,5 @@ pub(crate) mod tests {
         drop(webm);
         let three = std::fs::read(&path).unwrap();
         assert_eq!(three, cut_off(151), "three whole Clusters, nothing torn");
-
-        // Still full: nothing more is lost, and nothing is finished.
-        let mut full = FullDisk {
-            file: File::options().write(true).open(&path).unwrap(),
-            room: three.len() as u64 + 8,
-        };
-        assert!(finish_cut_off_in(&three, &mut full).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), three);
-
-        let played = 150 * FRAME_48K - PRE_SKIP;
-        assert_eq!(finish_cut_off(&path).unwrap(), CutOff::Recovered { played });
-        assert_eq!(finish_cut_off(&path).unwrap(), CutOff::Finished { played });
-    }
-
-    #[test]
-    fn a_file_that_is_not_a_recording_holds_no_audio() {
-        for bytes in [
-            &b""[..],
-            &b"not audio at all"[..],
-            &[0x1A, 0x45, 0xDF, 0xA3, 0x9F][..],
-        ] {
-            assert_eq!(recovered(bytes), (CutOff::Empty, bytes.to_vec()));
-        }
     }
 }

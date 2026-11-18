@@ -331,18 +331,6 @@
           "markdownDescription": "Denies the open_meter command without any pre-configured scope."
         },
         {
-          "description": "Enables the recover command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-recover",
-          "markdownDescription": "Enables the recover command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the recover command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-recover",
-          "markdownDescription": "Denies the recover command without any pre-configured scope."
-        },
-        {
           "description": "Enables the start command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start",
@@ -367,10 +355,10 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "List the microphones and read one's level, record a take and place it in a folder the file system scope allows, stop that recording, and place takes a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`",
+          "description": "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "List the microphones and read one's level, record a take and place it in a folder the file system scope allows, stop that recording, and place takes a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`"
+          "markdownDescription": "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`"
         }
       ]
     }

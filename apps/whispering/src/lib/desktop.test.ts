@@ -13,8 +13,7 @@
  * - Requests go through Tauri's HTTP plugin, which follows no redirect
  * - Ollama and LM Studio are looked for through it with no key
  * - Transcription on this computer takes the uploaded audio
- * - The shell's microphone records `recordings/<id>` in the data folder and
- *   repairs by ids, with each repaired recording's length
+ * - The shell's microphone records `recordings/<id>` in the data folder
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import type { AudioFiles } from '@epicenter/recorder';
@@ -101,21 +100,6 @@ mock.module(
 					stop: async () => Ok({ id: options.id, durationMs: 1500 }),
 				});
 			},
-			recover: async (options: { files: unknown }) => {
-				started.push(options);
-				return Ok({
-					recovered: [
-						{ id: 'a', durationMs: 1500 },
-						{ id: 'b', durationMs: 2500 },
-					],
-					unplaced: [
-						{
-							id: 'c',
-							take: '/Users/me/Library/Application Support/so.epicenter.whispering/local/recording/c.webm',
-						},
-					],
-				});
-			},
 		},
 	}),
 );
@@ -193,7 +177,7 @@ test('transcription on this computer takes the uploaded audio', async () => {
 	});
 });
 
-test('the shell’s microphone records a take by id, and recovery answers each take it placed or kept', async () => {
+test('the shell’s microphone records a take by id', async () => {
 	const capture = createMicrophoneDevice({
 		files: audioFiles,
 		recorder: microphone,
@@ -211,19 +195,4 @@ test('the shell’s microphone records a take by id, and recovery answers each t
 		},
 	]);
 	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
-	// A take kept outside the folder, because audio with its id is there, is
-	// answered with where it is.
-	expect(expectOk(await capture.recover!())).toEqual({
-		recovered: [
-			{ id: 'a', durationMs: 1500 },
-			{ id: 'b', durationMs: 2500 },
-		],
-		unplaced: [
-			{
-				id: 'c',
-				take: '/Users/me/Library/Application Support/so.epicenter.whispering/local/recording/c.webm',
-			},
-		],
-	});
-	expect(started.at(-1)).toEqual({ files: audioFiles });
 });

@@ -10,8 +10,8 @@
  * raw bytes, not JSON: `files_read_many` answers one buffer holding a
  * count, each path's length in the order asked (or a marker for a missing
  * file), then the bytes. `files_write` sends its bytes as the request's
- * body; the shell stages them in `local/.tmp/` and renames them into the
- * folder, so the folder only ever holds finished files (ADR-0894).
+ * body; the shell writes them to a hidden temporary file beside the target
+ * and renames it over the target (ADR-0962).
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import {

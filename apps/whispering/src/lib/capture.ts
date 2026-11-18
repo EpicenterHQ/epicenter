@@ -1,13 +1,11 @@
 /**
  * Audio capture for one recording at a time. Stop answers once the audio is
  * in the folder (`recordings/<id>.<ext>`), with how long it plays. On the
- * desktop the shell writes Opus in WebM from the first sample into a take
- * outside the folder (`local/recording/<id>.webm`) and places it at Stop,
- * so a quit or a crash keeps the take, and `recover` finishes and places it
- * at the next launch (decision 84, ADR-0894). In a
- * browser the take is kept in memory and written once at Stop; a crash or a
- * closed tab loses it, and there is nothing to recover (ADR-0779,
- * ADR-0780).
+ * desktop the shell writes Opus in WebM at `recordings/<id>.webm` from the
+ * first sample and finishes it there at Stop, so a quit or a crash keeps
+ * the take as it is (decision 84, ADR-0962). In a browser the take is kept
+ * in memory and written once at Stop; a crash or a closed tab loses it
+ * (ADR-0779, ADR-0780).
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`'s
  * `recorder`, which chooses the shell's or the page's microphone, and lists
@@ -19,7 +17,6 @@ import type {
 	RecorderError,
 	Recording,
 	RecordingInput,
-	Recovery,
 } from '@epicenter/recorder';
 import type { Result } from 'wellcrafted/result';
 
@@ -56,11 +53,4 @@ export type CaptureDevice = {
 		'listInputs' | 'openMeter' | 'allow' | 'onInputsChange'
 	>;
 	start(options: CaptureStart): Promise<Result<Capture, RecorderError>>;
-	/**
-	 * The desktop's alone: finish and place every take a quit or a crash cut
-	 * short (`recovered`, by id, with how long it plays), and answer each
-	 * take kept outside the folder because audio with its id is there
-	 * (`unplaced`). Where a take waits is the recorder's to know.
-	 */
-	recover?(): Promise<Result<Recovery, RecorderError>>;
 };

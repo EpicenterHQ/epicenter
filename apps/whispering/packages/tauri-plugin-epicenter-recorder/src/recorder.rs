@@ -25,19 +25,18 @@
 //!
 //! # A recording is a file from the first sample
 //!
-//! The take, a WebM in `local/recording/` in the app's local data directory,
-//! is created when the recording starts, and each second of it is written
-//! there whole as soon as it is encoded (ADR-0543), so a process that ends
-//! mid-recording leaves every second but the last behind a head that does
-//! not yet state its length; `takes::recover` finishes such a take the next
-//! time the folder opens. Once capture has begun, nothing here deletes a
-//! file that holds audio.
+//! The take, a WebM at `recordings/<id>.webm` in the folder, is created when
+//! the recording starts, and each second of it is written there whole as
+//! soon as it is encoded (ADR-0962), so a process that ends mid-recording
+//! leaves every second but the last behind a head that does not state its
+//! length. Nothing repairs such a take: it plays from its whole seconds as
+//! it is. Once capture has begun, nothing here deletes a file that holds
+//! audio.
 //!
 //! `stop` finishes the take in place, which is the same few milliseconds
 //! for a recording of any length (the last second, the Cues, and its
-//! length), places it at `recordings/<id>.webm` in the folder
-//! (`takes::place_take`), and answers its id and length. Exit and a page
-//! that leaves do the same.
+//! length), and answers its id and length. Exit and a page that leaves do
+//! the same.
 //!
 //! # The microphone keeps its rate; the file is 16 kHz
 //!
@@ -104,7 +103,7 @@ use crate::error::RecorderError;
 use crate::meter::Meter;
 use crate::opus::{OpusRecording, TO_48K};
 use crate::rate::RateConverter;
-use crate::webm::{finish_cut_off, CutOff, Storage};
+use crate::webm::Storage;
 
 /// Recorder result type. Errors cross the IPC boundary as the internally
 /// tagged `RecorderError` enum (`{ name, message }`) so the JS side switches
@@ -137,7 +136,7 @@ const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(1);
 /// stop it.
 #[derive(Debug)]
 enum RecorderCmd {
-    Stop(mpsc::Sender<Result<FinishedRecording>>),
+    Stop(mpsc::Sender<Result<u32>>),
     EndCapture,
 }
 
@@ -256,14 +255,13 @@ impl<S: Storage> CaptureFile<S> {
         self.write_samples(&padding)
     }
 
-    /// Finish the file in place and report how long it plays.
+    /// Finish the file in place and report how long it plays, in
+    /// milliseconds.
     ///
-    /// A capture whose writes failed keeps what reached the file: its whole
-    /// seconds are finished as `takes::recover` would on the next open
-    /// (`webm::finish_cut_off`). Nothing here deletes the file; one that
-    /// cannot be finished now, as on a disk still full, stays for the next
-    /// open.
-    fn finish(mut self) -> Result<FinishedRecording> {
+    /// A capture whose writes failed is left as its whole seconds reached
+    /// the file, like a take a crash cut off, and answers why. Nothing here
+    /// deletes the file.
+    fn finish(mut self) -> Result<u32> {
         let finished = if self.write_failed {
             Err(RecorderError::failed(
                 "the recording could not be written to the end",
@@ -271,33 +269,15 @@ impl<S: Storage> CaptureFile<S> {
         } else {
             self.finish_recording()
         };
-        let duration_ms = match finished {
-            Ok(samples) => ms(samples * TO_48K),
-            Err(error) => {
+        finished
+            .map(|samples| ms(samples * TO_48K))
+            .map_err(|error| {
                 drop(self.recording.take());
-                warn!(
-                    "Recording {} did not finish cleanly: {error}",
+                RecorderError::failed(format!(
+                    "{error}; what reached the disk stays at {}",
                     self.path.display()
-                );
-                match finish_cut_off(&self.path) {
-                    Ok(CutOff::Finished { played } | CutOff::Recovered { played }) => ms(played),
-                    Ok(CutOff::Empty) => {
-                        return Err(RecorderError::failed(format!(
-                            "{error}; nothing of it reached the disk"
-                        )))
-                    }
-                    Err(finishing) => {
-                        return Err(RecorderError::failed(format!(
-                            "{error}; what was written could not be finished: {finishing}"
-                        )))
-                    }
-                }
-            }
-        };
-        Ok(FinishedRecording {
-            path: std::mem::take(&mut self.path),
-            duration_ms,
-        })
+                ))
+            })
     }
 
     /// The tail, the padding, and the file's end, answering how many samples
@@ -336,19 +316,8 @@ fn remove_recording(path: &Path) -> Result<()> {
     }
 }
 
-/// A capture's file, finished: where it is and how long it plays.
-///
-/// The capture behind it is closed: its microphone is released, its worker has
-/// exited, and its file states its length.
-#[derive(Debug)]
-pub(crate) struct FinishedRecording {
-    pub path: PathBuf,
-    pub duration_ms: u32,
-}
-
-/// What `stop` answers once the take is finished and placed at
-/// `recordings/<id>.webm`, and the microphone released: the recording's id
-/// and how long it plays.
+/// What `stop` answers once the take is finished at `recordings/<id>.webm`
+/// and the microphone released: the recording's id and how long it plays.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoppedRecording {
@@ -372,12 +341,7 @@ struct HeldRecording {
     id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// The take while it records, absolute, in `local/recording/`, which
-    /// `recover` leaves alone.
-    take: PathBuf,
-    /// The folder it is placed in once it stops.
-    folder: PathBuf,
-    /// The recording's id, as the page named it: the take is placed at
+    /// The recording's id, as the page named it: its take is
     /// `recordings/<take_id>.webm`.
     take_id: String,
     /// `None` while capture is running. `Some` once capture ended on its own,
@@ -515,11 +479,10 @@ impl Recorder {
     /// person did not choose is not what they asked for. `None` is the system
     /// default.
     ///
-    /// `take` is the absolute path the take is recorded into, in
-    /// `local/recording/`; `folder` is the folder it is placed in when it
-    /// stops, at `recordings/<take_id>.webm`. The take is created only
-    /// after the device and its configuration resolve, and never over
-    /// anything already there.
+    /// `take` is the absolute path the take is recorded at,
+    /// `recordings/<take_id>.webm` in its folder, whose directory exists.
+    /// The take is created only after the device and its configuration
+    /// resolve, and never over anything already there.
     ///
     /// The cpal stream is built inside the worker (macOS requires the stream and
     /// the run loop driving it to share a thread) and its outcome is reported
@@ -529,7 +492,6 @@ impl Recorder {
         &mut self,
         requested_device: Option<&str>,
         take: PathBuf,
-        folder: PathBuf,
         take_id: String,
         owner_label: String,
         signals: Channel<RecordingSignal>,
@@ -559,13 +521,12 @@ impl Recorder {
             .create_new(true)
             .open(&take)
             .map_err(|error| match error.kind() {
-                std::io::ErrorKind::AlreadyExists => RecorderError::refused(format!(
-                    "a take of {take_id} is already waiting at {}",
-                    take.display()
-                )),
+                std::io::ErrorKind::AlreadyExists => {
+                    RecorderError::refused(format!("a file is already at {}", take.display()))
+                }
                 _ => RecorderError::failed(format!("create {}: {error}", take.display())),
             })?;
-        let capture = CaptureFile::open(take.clone(), file, device_rate)?;
+        let capture = CaptureFile::open(take, file, device_rate)?;
 
         let id = next_id();
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
@@ -654,8 +615,6 @@ impl Recorder {
         self.active = Some(HeldRecording {
             id: id.clone(),
             owner_label,
-            take,
-            folder,
             take_id,
             ended_reason: None,
             signals,
@@ -696,8 +655,8 @@ impl Recorder {
         Some(active.signals.clone())
     }
 
-    /// Stop the recording the window `caller_label` started, finish its
-    /// take, and place it in its folder.
+    /// Stop the recording the window `caller_label` started, and finish its
+    /// take in place.
     ///
     /// Works the same whether capture is still running or already ended. That is
     /// the point of holding an ended recording: `stop` is the one finalizing
@@ -771,12 +730,6 @@ impl Recorder {
             .is_some_and(|active| active.ended_reason.is_none())
     }
 
-    /// The take `recover` must leave alone: the held recording's, which its
-    /// worker still writes.
-    pub fn held_path(&self) -> Option<&Path> {
-        self.active.as_ref().map(|active| active.take.as_path())
-    }
-
     /// The one admission rule, in one place: the slot must be empty.
     ///
     /// A recording whose capture already ended still occupies it. Reporting that
@@ -825,11 +778,9 @@ impl Recorder {
     }
 }
 
-/// End a recording and keep it: tell the worker to finish the take, join it
-/// so the cpal stream is released, and place the take at
-/// `recordings/<id>.webm` in its folder, never over a file there. A take
-/// that could not be finished or placed stays in `local/recording/`, where
-/// the next `recover` finishes and places it, or answers where it is.
+/// End a recording and keep it: tell the worker to finish the take in
+/// place, and join it so the cpal stream is released. A take that could not
+/// be finished stays as it is at its path.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
 /// `&mut Recorder` comes from the one recorder mutex and nothing else can
@@ -858,23 +809,9 @@ fn finish(active: HeldRecording) -> Result<StoppedRecording> {
     // answers, and joining is what makes "the microphone is released" true
     // by the time the slot is observably free.
     let _ = active.worker.join();
-    let finished = finished.map_err(|error| {
-        RecorderError::failed(format!(
-            "{error}; the take is kept at {} until the folder is opened again",
-            active.take.display()
-        ))
-    })?;
-    crate::takes::place_take(&finished.path, &active.folder, &active.take_id).map_err(|error| {
-        RecorderError::Unplaced {
-            message: format!(
-                "{error}; the take is kept, finished, at {}",
-                active.take.display()
-            ),
-        }
-    })?;
     Ok(StoppedRecording {
         id: active.take_id,
-        duration_ms: finished.duration_ms,
+        duration_ms: finished?,
     })
 }
 
@@ -1395,12 +1332,11 @@ pub(crate) mod tests {
                 }
             }
             close_capture_and_drain(stream, &mut capture, &rx);
-            let finished = capture.finish().unwrap();
-            let samples = samples_in(&finished.path);
+            let duration_ms = capture.finish().unwrap();
+            let samples = samples_in(&path);
             let rms = (sum_of_squares / captured.max(1) as f64).sqrt();
             eprintln!(
-                "NATIVE_CAPTURE_RESULT device={name_of_device}, rate={rate}, captured={captured}, rms={rms:.5}, duration_ms={}, samples={samples}",
-                finished.duration_ms
+                "NATIVE_CAPTURE_RESULT device={name_of_device}, rate={rate}, captured={captured}, rms={rms:.5}, duration_ms={duration_ms}, samples={samples}",
             );
             assert_eq!(dropped.load(Ordering::Relaxed), 0);
             // Longer than the 1 s below which a recording is padded, so the
@@ -1409,7 +1345,7 @@ pub(crate) mod tests {
                 captured as f64 >= rate as f64 * 1.3,
                 "the microphone delivered {captured} samples at {rate} Hz in 1.5 s"
             );
-            assert!(finished.duration_ms >= 1_300, "{} ms", finished.duration_ms);
+            assert!(duration_ms >= 1_300, "{duration_ms} ms");
             assert!(rms > MIN_LIVE_RMS, "the input was silent: rms {rms}");
             // Opening the microphone left its rate alone, for every other app.
             let after = input_config(&device).unwrap().sample_rate();
@@ -1463,35 +1399,26 @@ pub(crate) mod tests {
     ///
     /// The stand-in worker is the real [`await_resolution`], parked on a real
     /// capture in a temporary folder. That is exactly the state a worker is in
-    /// once its capture has ended, so `stop` here finishes and places an
-    /// actual recording rather than a mock of one, and a dropped recorder
+    /// once its capture has ended, so `stop` here finishes an actual
+    /// recording rather than a mock of one, and a dropped recorder
     /// cannot hang its join: `await_resolution` returns on `Stop` and on a
     /// dropped channel.
     fn recording_owned_by(recorder: &mut Recorder, root: &TempDir, id: &str, owner_label: &str) {
-        std::fs::create_dir_all(root.path().join("staging")).unwrap();
-        hold_recording(
-            recorder,
-            &staged_in(root, id),
-            root.path(),
-            id,
-            id,
-            owner_label,
-        );
+        std::fs::create_dir_all(root.path().join("recordings")).unwrap();
+        hold_recording(recorder, &take_in(root, id), id, id, owner_label);
     }
 
-    /// Where `recording_owned_by` writes the recording `id` while it is held.
-    fn staged_in(root: &TempDir, id: &str) -> PathBuf {
-        root.path().join("staging").join(format!("{id}.webm"))
+    /// Where `recording_owned_by` records the recording `id`.
+    fn take_in(root: &TempDir, id: &str) -> PathBuf {
+        root.path().join("recordings").join(format!("{id}.webm"))
     }
 
-    /// Hold a one-second take written at `staged` for `owner_label`, to be
-    /// placed at `recordings/<take_id>.webm` in `folder` when it stops, as
+    /// Hold a one-second take written at `take` for `owner_label`, as
     /// `start` would have, without a microphone. `id` is the host's own.
     /// The plugin's own tests use it too.
     pub(crate) fn hold_recording(
         recorder: &mut Recorder,
-        staged: &Path,
-        folder: &Path,
+        take: &Path,
         take_id: &str,
         id: &str,
         owner_label: &str,
@@ -1499,10 +1426,10 @@ pub(crate) mod tests {
         let file = File::options()
             .write(true)
             .create_new(true)
-            .open(staged)
+            .open(take)
             .expect("create the recording");
         let mut capture =
-            CaptureFile::open(staged.to_path_buf(), file, TEST_RATE).expect("open the capture");
+            CaptureFile::open(take.to_path_buf(), file, TEST_RATE).expect("open the capture");
         capture
             .write(&tone(TEST_RATE, 1))
             .expect("write the capture");
@@ -1511,8 +1438,6 @@ pub(crate) mod tests {
         recorder.active = Some(HeldRecording {
             id: id.to_string(),
             owner_label: owner_label.to_string(),
-            take: staged.to_path_buf(),
-            folder: folder.to_path_buf(),
             take_id: take_id.to_string(),
             ended_reason: None,
             signals: no_page(),
@@ -1529,7 +1454,6 @@ pub(crate) mod tests {
             RecorderError::Busy { .. } => "Busy",
             RecorderError::NotRecording { .. } => "NotRecording",
             RecorderError::Refused { .. } => "Refused",
-            RecorderError::Unplaced { .. } => "Unplaced",
             RecorderError::Failed { .. } => "Failed",
         }
     }
@@ -1548,7 +1472,6 @@ pub(crate) mod tests {
     fn a_fresh_recorder_is_idle_and_owns_nothing() {
         let recorder = Recorder::new();
         assert!(!recorder.is_capturing());
-        assert!(recorder.held_path().is_none());
         recorder
             .require_free_slot()
             .expect("an idle recorder admits a start");
@@ -1564,14 +1487,12 @@ pub(crate) mod tests {
         let path = root.path().join("a.webm");
         let before = std::fs::metadata(&path).unwrap().len();
         assert!(before > 4_000, "two whole seconds are already in the file");
-        let finished = capture.finish().unwrap();
-        assert_eq!(finished.path, path);
-        assert_eq!(finished.duration_ms, 3_000);
+        assert_eq!(capture.finish().unwrap(), 3_000);
         assert_eq!(samples_in(&path), 3 * TEST_RATE as usize);
     }
 
     /// A page that reloads or closes cannot stop its recording, so the host
-    /// finishes and places it: the audio is kept and the slot is free. The
+    /// finishes it: the audio is kept and the slot is free. The
     /// page count moves on, which is what refuses a `start` the departed page
     /// sent late.
     #[test]
@@ -1603,8 +1524,6 @@ pub(crate) mod tests {
             samples_in(&root.path().join("recordings/1.webm")),
             TEST_RATE as usize
         );
-        assert!(!staged_in(&root, "1").exists());
-        assert!(recorder.held_path().is_none());
         assert_ne!(recorder.page("app-notes"), page);
         recorder
             .require_free_slot()
@@ -1636,11 +1555,10 @@ pub(crate) mod tests {
 
         // The refusal left the owner's recording completely untouched.
         assert!(recorder.is_capturing());
-        assert!(staged_in(&root, "1").exists());
-        assert!(!root.path().join("recordings/1.webm").exists());
+        assert!(recorder.active.is_some());
     }
 
-    /// Stop answers once the recording is finished and in its folder.
+    /// Stop answers once the recording is finished at its path.
     #[test]
     fn a_stopped_recording_is_at_its_path_when_stop_answers() {
         let root = folder_root();
@@ -1659,63 +1577,14 @@ pub(crate) mod tests {
             samples_in(&root.path().join("recordings/1.webm")),
             TEST_RATE as usize
         );
-        assert!(!staged_in(&root, "1").exists(), "moved, not copied");
-        assert!(recorder.held_path().is_none());
         recorder
             .require_free_slot()
-            .expect("the slot is free once it is placed");
+            .expect("the slot is free once it stops");
 
         let again = recorder
             .stop("app-notes")
             .expect_err("there is nothing left to stop");
         assert_eq!(error_name(&again), "NotRecording");
-    }
-
-    /// A file something made at the recording's audio path meanwhile is
-    /// never replaced: Stop answers `Unplaced` and says where the take is
-    /// kept, and `recover` leaves it there, finished, and answers where it
-    /// is.
-    #[test]
-    fn a_stop_never_replaces_a_file_at_its_path() {
-        let directory = folder_root();
-        let root = std::fs::canonicalize(directory.path()).unwrap();
-        let (takes, folder) = (root.join("local/recording"), root.join("data"));
-        std::fs::create_dir_all(&takes).unwrap();
-        std::fs::create_dir_all(folder.join("recordings")).unwrap();
-        let kept = crate::takes::take_path(&takes, "k3x9");
-        let mut recorder = Recorder::new();
-        hold_recording(&mut recorder, &kept, &folder, "k3x9", "1", "app-notes");
-        std::fs::write(folder.join("recordings/k3x9.webm"), b"theirs").unwrap();
-
-        let refused = recorder.stop("app-notes").unwrap_err();
-        assert_eq!(error_name(&refused), "Unplaced");
-        assert!(
-            refused.to_string().contains(&format!(
-                "the take is kept, finished, at {}",
-                kept.display()
-            )),
-            "{refused}"
-        );
-        recorder
-            .require_free_slot()
-            .expect("the slot is free either way");
-
-        for _ in 0..2 {
-            let recovery = crate::takes::recover(&takes, &folder, |_| false).unwrap();
-            assert!(recovery.recovered.is_empty());
-            assert_eq!(
-                recovery.unplaced,
-                [crate::takes::UnplacedTake {
-                    id: "k3x9".to_string(),
-                    take: kept.to_string_lossy().into_owned(),
-                }]
-            );
-            assert_eq!(samples_in(&kept), TEST_RATE as usize);
-            assert_eq!(
-                std::fs::read(folder.join("recordings/k3x9.webm")).unwrap(),
-                b"theirs"
-            );
-        }
     }
 
     /// A destroyed window can never claim its recording, so the host finalizes
@@ -1881,19 +1750,11 @@ pub(crate) mod tests {
         assert_eq!(error_name(&error), "NotRecording");
     }
 
-    /// `recover` must not finish the file a live recording is writing.
+    /// A disk that fills mid-recording ends the capture, and Stop says so
+    /// and where the take is. Nothing repairs it: every whole second that
+    /// reached the file plays as it is, like a take a crash cut off.
     #[test]
-    fn the_held_recording_names_its_file() {
-        let root = folder_root();
-        let mut recorder = Recorder::new();
-        recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        assert_eq!(recorder.held_path(), Some(staged_in(&root, "1").as_path()));
-    }
-
-    /// A disk that fills mid-recording ends the capture, and Stop answers
-    /// with every whole second that reached the file, finished.
-    #[test]
-    fn a_full_disk_stops_with_what_reached_the_file() {
+    fn a_full_disk_stops_with_what_reached_the_file_as_it_is() {
         use crate::webm::tests::FullDisk;
         let root = folder_root();
         let path = root.path().join("a.webm");
@@ -1910,17 +1771,20 @@ pub(crate) mod tests {
             error.to_string().contains("No space left on device"),
             "{error}"
         );
-        let finished = capture.finish().expect("what reached the file is kept");
+        let refused = capture.finish().unwrap_err();
+        assert!(
+            refused.to_string().contains(&format!(
+                "what reached the disk stays at {}",
+                path.display()
+            )),
+            "{refused}"
+        );
         let kept = samples_in(&path);
         assert!(kept >= TEST_RATE as usize, "{kept} samples");
-        assert_eq!(
-            finished.duration_ms as usize,
-            (kept * 1_000 + 8_000) / 16_000
-        );
     }
 
-    /// A capture whose writes never reached the file has nothing to finish.
-    /// Stop says so, and the file is still not deleted.
+    /// A capture whose writes never reached the file fails its Stop too, and
+    /// the file is still not deleted.
     #[test]
     fn a_capture_that_wrote_nothing_fails_its_stop_and_leaves_the_file() {
         use crate::webm::tests::FullDisk;
@@ -1936,7 +1800,7 @@ pub(crate) mod tests {
         assert!(
             refused
                 .to_string()
-                .contains("nothing of it reached the disk"),
+                .contains("could not be written to the end"),
             "{refused}"
         );
         assert!(path.exists());
@@ -1997,14 +1861,14 @@ pub(crate) mod tests {
         let short = capture_holding(&root, "a.webm", &[64; 100])
             .finish()
             .expect("finish a short clip");
-        assert_eq!(short.duration_ms, 1_250);
-        assert_eq!(samples_in(&short.path), 20_000);
+        assert_eq!(short, 1_250);
+        assert_eq!(samples_in(&root.path().join("a.webm")), 20_000);
 
         let empty = capture_holding(&root, "b.webm", &[])
             .finish()
             .expect("finish an empty clip");
         assert_eq!(
-            empty.duration_ms, 0,
+            empty, 0,
             "a recording that captured nothing must not be padded into looking real"
         );
 
@@ -2012,7 +1876,7 @@ pub(crate) mod tests {
         let long = capture_holding(&root, "c.webm", &tone(TEST_RATE, 2))
             .finish()
             .expect("finish a long clip");
-        assert_eq!(long.duration_ms, 2_000);
+        assert_eq!(long, 2_000);
     }
 
     /// A microphone at another rate is converted as it is written: two seconds
@@ -2030,8 +1894,7 @@ pub(crate) mod tests {
         for chunk in tone(48_000, 2).chunks(480) {
             capture.write(chunk).unwrap();
         }
-        let finished = capture.finish().unwrap();
-        assert_eq!(finished.duration_ms, 2_000);
+        assert_eq!(capture.finish().unwrap(), 2_000);
         assert_eq!(samples_in(&path), 2 * RECORDING_RATE as usize);
     }
 
@@ -2088,7 +1951,7 @@ pub(crate) mod tests {
 
         let stopped = capture.finish().expect("finalize");
         assert_eq!(
-            stopped.duration_ms, 1_000,
+            stopped, 1_000,
             "every accepted chunk must reach the file, including one enqueued while the stream closed"
         );
     }
@@ -2139,7 +2002,7 @@ pub(crate) mod tests {
 
         let stopped = capture.finish().expect("finalize");
         assert_eq!(
-            stopped.duration_ms, 1_000,
+            stopped, 1_000,
             "audio delivered while the stream was still closing must reach the file"
         );
     }
@@ -2164,10 +2027,7 @@ pub(crate) mod tests {
         drop(wedged);
 
         let stopped = capture.finish().expect("finalize");
-        assert_eq!(
-            stopped.duration_ms, 2_000,
-            "what was already written survives"
-        );
+        assert_eq!(stopped, 2_000, "what was already written survives");
     }
 
     /// The one-recorder invariant across a stop. `stop` runs the whole worker

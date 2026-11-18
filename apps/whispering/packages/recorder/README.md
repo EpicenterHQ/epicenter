@@ -21,7 +21,7 @@ same way:
 
 ```txt
 @epicenter/recorder           the shared vocabulary (Recorder, the types, RecorderError, audioDurationMs) and recorder, chosen when it loads
-  src/tauri.ts   → in a Tauri window, over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM to the take local/recording/<id>.webm from the first sample, and places it at recordings/<id>.webm at stop
+  src/tauri.ts   → in a Tauri window, over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM at recordings/<id>.webm from the first sample, and finishes it there at stop
   src/browser.ts → in a browser, over MediaRecorder: pieces kept in memory, written once at recordings/<id>.m4a (or .webm) at stop
   /browser    → the page's own recorder and VAD, for code that records from the page in both (Vocab's dictation)
   /vad-assets → the VAD runtime files, for a build's static copy
@@ -30,7 +30,6 @@ same way:
 | `Recorder` | What it does |
 | --- | --- |
 | `start({ files, id, input?, signal? })` | Record recording `id`; the handle's `stop` answers `{ id, durationMs }` once its audio is at `recordings/<id>.<ext>` |
-| `recover?({ files })` | Desktop only: finish and place the takes a quit or a crash cut off: `{ recovered, unplaced }` |
 | `listInputs()` | The inputs connected now, `{ inputs: [{ deviceId, label }], namesWithheld? }`. Opens nothing and never asks for access |
 | `openMeter({ input?, signal? })` | Open one input for its level only, until `close` |
 | `allow?({ signal? })` | Browser only: ask for access so inputs are listed by name, releasing the default microphone at once |
@@ -42,7 +41,6 @@ one of them, on its own.
 ```ts
 import { recorder } from '@epicenter/recorder';
 
-await recorder.recover?.({ files: audio }); // desktop: when the app opens its folder
 const { data: recording, error } = await recorder.start({
 	files: audio, // AudioFiles: the folder's read and write, and its location on the desktop
 	id: '2026-10-15T09-30-00-000Z-k3x9a2f8', // one plain name; the audio is recordings/<id>.<ext>
@@ -52,21 +50,20 @@ const { data: stopped } = await recording.stop(); // { id, durationMs }: the mic
 ```
 
 `start({ files, id, input, signal })` records recording `id`, whose audio
-is placed at `recordings/<id>.<ext>` in the app's folder (`AudioFiles`):
-on the desktop the shell places the take into the folder at
-`files.location`; in a browser Stop writes the take once with
+is at `recordings/<id>.<ext>` in the app's folder (`AudioFiles`): on the
+desktop the shell records the take there, in the folder at
+`files.location`, from its first second; in a browser Stop writes the take once with
 `files.write`, which answers once it landed. `stop()` answers
 `{ id, durationMs }`.
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| The file | `recordings/<id>.webm`: Opus in WebM written from the first sample to the take `local/recording/<id>.webm` in the app's local data directory, outside the folder, finished and placed by `stop` | `recordings/<id>.m4a`, else `.webm`, written once by `stop` |
-| `stop` | Finishes the take and places it by one rename (a copy beside the target, then a rename, when the folder is on another volume): the same few milliseconds for a recording of any length. A file already there is never replaced: `stop` answers `Unplaced` and the take is kept | Joins the pieces and writes them with `files.write`, answering once the write landed |
+| The file | `recordings/<id>.webm`: Opus in WebM written there from the first sample, and finished in place by `stop` ([ADR-0962](../../../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)) | `recordings/<id>.m4a`, else `.webm`, written once by `stop` |
+| `stop` | Finishes the take in place: the same few milliseconds for a recording of any length. A take that could not be written to its end is left as it is and answers `Failed` | Joins the pieces and writes them with `files.write`, answering once the write landed |
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | Each whole second is written as it is encoded | Each piece `MediaRecorder` hands over (about a second) is kept in memory; the leave guard asks before the page closes |
-| Quit, crash, closed window or tab | Audio kept up to about the last second | The take is lost |
-| `recover({ files })` | Finishes every take a quit cut off from its whole seconds and places it as `stop` does. Answers `recovered`, each `{ id, durationMs }` placed, from the length its file states, and `unplaced`, each `{ id, take }` whose audio's place holds another file: that take is never deleted, stays finished at `take`, and is answered on every run until a person moves one of the two, so an app says where it is. Run it before anything lists, plays, or transcribes a recording | None: a take never reaches the folder unfinished |
-| Refused before the microphone opens | The folder is not one the app may use, the id is not a plain name, or its audio or take is already there | Audio with the id is there |
+| Quit, crash, closed window or tab | A closed window or a quit finishes the take. A crash keeps it up to about the last second, as it is: no Duration or Cues, perhaps a torn block at its end. Nothing repairs it; it plays, and transcribes, from its whole seconds | The take is lost |
+| Refused before the microphone opens | The folder is not one the app may use, the id is not a plain name, or its audio is already there | Audio with the id is there |
 | Chosen microphone | Asked for by the shell's ID, as `listInputs` answers it (`input.deviceId`) | Asked for by the browser's ID, as `listInputs` answers it (`input.deviceId`) |
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
 | `signal` aborted after the microphone opened | Stopped: the recording is finished and kept | Released; nothing was written |
@@ -74,9 +71,10 @@ on the desktop the shell places the take into the folder at
 
 `audioDurationMs(bytes, ext)` reads how long a `wav`, `m4a`, or `webm`
 plays, from its own bytes (a desktop `webm`'s stated Duration, exact to the
-sample), so an app can measure audio at its path that `recover` did not
-answer a length for: a recording the shell placed after its page left, one
-whose `stop` answer nobody heard, or an imported file.
+sample, or the last block of one a crash cut off), so an app can measure
+audio at its path that no `stop` answered a length for: a recording the
+shell finished after its page left, one a crash cut off, one whose `stop`
+answer nobody heard, or an imported file.
 
 AAC in MP4 is asked for first (`audio/mp4;codecs=mp4a.40.2`, saved as `.m4a`),
 then Opus in WebM (`.webm`). The browser recorder reads the page's own

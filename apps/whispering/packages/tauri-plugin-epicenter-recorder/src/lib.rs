@@ -1,9 +1,9 @@
-//! Whispering's microphone recorder, which writes each take to the disk from
-//! the moment it starts and places it in the app's folder at Stop (ADR-0543,
-//! ADR-0894).
+//! Whispering's microphone recorder, which writes each take at its path in
+//! the app's folder from the moment it starts and finishes it there at Stop
+//! (ADR-0962).
 //!
 //! A shell installs it beside `tauri-plugin-fs`, whose scope says which
-//! folders it may place a take in:
+//! folders it may record into:
 //!
 //! ```ignore
 //! tauri::Builder::default()
@@ -18,19 +18,15 @@
 //! (`permission.rs`), for every caller.
 //!
 //! To record, a page names its folder, which the file system scope must
-//! allow, and the recording's id. `start` creates the take,
-//! `<appLocalDataDir>/local/recording/<id>.webm`, and encodes the
-//! microphone into it as Opus as it captures, writing it a second at a time
-//! (`opus`, `webm`); `stop` finishes it in place, places it at
-//! `recordings/<id>.webm` in the folder by one rename that never replaces a
-//! file (`takes`, through `whispering_files`), and answers its id and
-//! length. The folder only ever receives the finished file, so a listing,
-//! a file syncer, or a home's checkpoint never sees a half-written one.
-//! Nothing deletes a recording's audio once capture has begun. When the
-//! page that started a recording reloads, or its window is destroyed, or
-//! the app exits, the recording is finished and placed for it. A recording
-//! adds no Close or Quit warning. `recover` finishes and places any take a
-//! quit or crash left, which a page calls when it opens its folder.
+//! allow, and the recording's id. `start` creates the take at
+//! `recordings/<id>.webm` in the folder, never over a file there, and
+//! encodes the microphone into it as Opus as it captures, writing it a
+//! second at a time (`opus`, `webm`); `stop` finishes it in place and
+//! answers its id and length. Nothing deletes a recording's audio once
+//! capture has begun, and nothing repairs a take a crash cut off: it plays
+//! from its whole seconds as it is. When the page that started a recording
+//! reloads, or its window is destroyed, or the app exits, the recording is
+//! finished for it. A recording adds no Close or Quit warning.
 //!
 //! There is one recorder per host and at most one recording at a time; a
 //! second `start` from any window is refused `Busy`.
@@ -51,7 +47,6 @@ mod opus;
 pub mod permission;
 mod rate;
 pub mod recorder;
-pub mod takes;
 mod webm;
 
 pub use command_names::COMMANDS;
@@ -59,10 +54,6 @@ pub use ended::{EndedReason, RecordingSignal};
 pub use error::RecorderError;
 
 const PLUGIN_NAME: &str = "epicenter-recorder";
-
-/// Where takes are recorded, in the app's local data directory: this
-/// computer's own, outside the folder, wherever the folder moves.
-pub const TAKES: &str = "local/recording";
 
 /// Told whether a microphone is open, by a recording or a meter, whenever that
 /// may have changed, on the main thread. A shell draws its indicator from it.
@@ -75,8 +66,6 @@ pub(crate) struct Recorders<R: Runtime> {
     /// Asked before any microphone opens: [`permission::ensure_access`],
     /// which tests replace.
     pub(crate) access: fn() -> recorder::Result<()>,
-    /// Where takes are recorded: `<appLocalDataDir>/local/recording`.
-    pub(crate) takes: std::path::PathBuf,
 }
 
 impl<R: Runtime> Recorders<R> {
@@ -91,7 +80,6 @@ impl<R: Runtime> Recorders<R> {
 pub struct Builder<R: Runtime> {
     on_capturing: Option<OnCapturing<R>>,
     access: fn() -> recorder::Result<()>,
-    takes: Option<std::path::PathBuf>,
 }
 
 impl<R: Runtime> Default for Builder<R> {
@@ -99,7 +87,6 @@ impl<R: Runtime> Default for Builder<R> {
         Self {
             on_capturing: None,
             access: permission::ensure_access,
-            takes: None,
         }
     }
 }
@@ -128,31 +115,17 @@ impl<R: Runtime> Builder<R> {
         self
     }
 
-    /// Record takes in `takes` instead of the app's local data directory, so
-    /// a test writes only where it cleans up.
-    #[cfg(test)]
-    pub(crate) fn takes(mut self, takes: std::path::PathBuf) -> Self {
-        self.takes = Some(takes);
-        self
-    }
-
     pub fn build(self) -> TauriPlugin<R> {
         let handler = specta_builder::<R>().invoke_handler();
         let on_capturing = self.on_capturing;
         let access = self.access;
-        let takes = self.takes;
         tauri::plugin::Builder::new(PLUGIN_NAME)
             .invoke_handler(handler)
             .setup(move |app, _api| {
-                let takes = match takes {
-                    Some(takes) => takes,
-                    None => app.path().app_local_data_dir()?.join(TAKES),
-                };
                 app.manage(Recorders {
                     recorder: Mutex::new(recorder::Recorder::new()),
                     on_capturing,
                     access,
-                    takes,
                 });
                 Ok(())
             })
@@ -167,8 +140,7 @@ impl<R: Runtime> Builder<R> {
                     event: WindowEvent::Destroyed,
                     ..
                 } => page_ended(app, label),
-                // Finished and placed, so the recording is in its folder
-                // without waiting for the next `recover`.
+                // Finished, so the take states its length.
                 RunEvent::Exit => {
                     if let Some(recorders) = app.try_state::<Recorders<R>>() {
                         recorders.lock().shutdown();
@@ -195,16 +167,14 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::close_meter::<tauri::Wry>,
             commands::start::<tauri::Wry>,
             commands::stop::<tauri::Wry>,
-            commands::recover::<tauri::Wry>,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 
 /// The page `window` showed is gone: a new one started loading, or the window
-/// was destroyed. Whatever it was recording is finished and placed, since it
-/// can no longer be stopped (a take that cannot be placed stays for
-/// `recover`), and a `start` that page sent and that has not yet run is
-/// refused.
+/// was destroyed. Whatever it was recording is finished in place, since it
+/// can no longer be stopped, and a `start` that page sent and that has not
+/// yet run is refused.
 ///
 /// This runs on the main thread and joins the capture worker, which is safe for
 /// two reasons worth stating, because both could quietly stop being true. The

@@ -23,38 +23,20 @@ export const commands = {
 	 *  from the microphone whose id is `device` or the system default. An
 	 *  ending nobody asked for arrives on `signals`.
 	 *
-	 *  `id` must be one plain name, with no audio at `recordings/<id>.webm` in
-	 *  the folder and no take of it yet. The take is recorded into
-	 *  `<appLocalDataDir>/local/recording/<id>.webm`, written a second at a
-	 *  time; `stop` finishes it and places it in the folder. Microphone access
-	 *  is asked for before the device is resolved. A refusal opens nothing.
+	 *  `id` must be one plain name, with nothing at `recordings/<id>.webm` in
+	 *  the folder. The take is recorded there, written a second at a time;
+	 *  `stop` finishes it in place. Microphone access is asked for before the
+	 *  device is resolved. A refusal opens nothing.
 	 */
 	start: (dir: string, id: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { dir, id, device, signals })),
 	/**
-	 *  Stop the recording this window started, finish its take, and place it at
-	 *  `recordings/<id>.webm` in its folder, never over a file there; answers
-	 *  its id and how long it plays. Finishing writes the last second, the
-	 *  Cues, and the length, so it takes the same few milliseconds for a
-	 *  recording of any length. A take that cannot be placed stays in
-	 *  `local/recording/`, and the refusal is `Unplaced`.
+	 *  Stop the recording this window started and finish its take in place at
+	 *  `recordings/<id>.webm`; answers its id and how long it plays. Finishing
+	 *  writes the last second, the Cues, and the length, so it takes the same
+	 *  few milliseconds for a recording of any length. A take that could not
+	 *  be written to its end is left as it is, and the answer is `Failed`.
 	 */
 	stop: () => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop")),
-	/**
-	 *  Finish every take a quit or a crash left in `local/recording/` and place
-	 *  it at `recordings/<id>.webm` in the folder `dir` (`allowed_folder`).
-	 *  Answers each one placed (`recovered`), by id with how long it plays
-	 *  (`durationMs`, so a page never reads the audio back to measure it), and
-	 *  each one left (`unplaced`), by id with the take's absolute path: another
-	 *  file is at its audio path, or it could not be finished or placed. A page
-	 *  runs it when it opens its folder, and says what is unplaced. The take a
-	 *  live recording is writing is left alone. Running it again places nothing
-	 *  more.
-	 *
-	 *  First it removes the `.ep-*.save` files a crash left in the folder while
-	 *  a copy to another volume was placing a file
-	 *  (`whispering_files::clear_saves`); one a copy is still writing stays.
-	 */
-	recover: (dir: string) => typedError<Recovery, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { dir })),
 };
 
 /* Types */
@@ -151,18 +133,10 @@ export type RecorderError =
 { name: "NotRecording"; message: string } |
 /**
  *  The window may not record here: the folder is not one the app's file
- *  system scope allows, the id is not one plain name, or its audio or
- *  its take already exists. Nothing was opened or written.
+ *  system scope allows, the id is not one plain name, or its audio
+ *  already exists. Nothing was opened or written.
  */
 { name: "Refused"; message: string } |
-/**
- *  The take was finished but not placed in the folder: a file is
- *  already at its audio path, a link is on the way, or the disk
- *  refused. Nothing recorded is lost: the take stays in
- *  `local/recording/`, `message` says where, and `recover` places it
- *  once it can.
- */
-{ name: "Unplaced"; message: string } |
 /**
  *  Any other recording failure (device config, stream build, filesystem,
  *  internal). The frontend does not branch on these.
@@ -186,41 +160,14 @@ export type RecordingSignal =
 /**  The host ended the capture on its own, and why. */
 { kind: "ended"; reason: EndedReason };
 
-/**  A take `recover` placed: its recording's id, and how long it plays. */
-export type RecoveredRecording = {
-	id: string,
-	/**  How long it plays, to the nearest millisecond, as its file states. */
-	durationMs: number,
-};
-
-/**  What `recover` did with the takes a quit or a crash left. */
-export type Recovery = {
-	/**  Each take finished and placed at `recordings/<id>.webm`, by id. */
-	recovered: RecoveredRecording[],
-	/**
-	 *  Each take left in `local/recording/`, by id: another file is at its
-	 *  audio path, or it could not be finished or placed. It stays until it
-	 *  is placed or a person moves it.
-	 */
-	unplaced: UnplacedTake[],
-};
-
 /**
- *  What `stop` answers once the take is finished and placed at
- *  `recordings/<id>.webm`, and the microphone released: the recording's id
- *  and how long it plays.
+ *  What `stop` answers once the take is finished at `recordings/<id>.webm`
+ *  and the microphone released: the recording's id and how long it plays.
  */
 export type StoppedRecording = {
 	/**  The id the page started it with. */
 	id: string,
 	durationMs: number,
-};
-
-/**  A take `recover` did not place. */
-export type UnplacedTake = {
-	id: string,
-	/**  The take's absolute path, in `local/recording/`. */
-	take: string,
 };
 
 /* Tauri Specta runtime */

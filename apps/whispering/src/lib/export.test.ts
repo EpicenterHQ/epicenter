@@ -22,7 +22,7 @@ const files = memoryFiles({
 	'settings.md': encode('---\nshortcut: Alt+R\n---\n'),
 	'recordings/a.md': encode('---\ntitle: "A"\n---\nnotes\n'),
 	'recordings/a.webm': audio,
-	'recordings/.ep-x-b.recording': encode('a take in progress'),
+	'recordings/.b.md.tmp': encode('a save in progress'),
 	'transcriptions/t.md': encode('---\nrecordingId: a\n---\nhello\n'),
 	'elsewhere/kept.md': encode('not Whispering’s'),
 });

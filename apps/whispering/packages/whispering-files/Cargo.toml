@@ -1,7 +1,7 @@
 [package]
 name = "whispering-files"
 version = "0.0.1"
-description = "How a file reaches Whispering's folder: the plain-name path rule and the one place step its shell and its recorder share"
+description = "How Whispering writes its folder: the plain-name path rule and the write beside a target its shell and its recorder share"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -15,7 +15,7 @@ name = "whispering_files"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 
-# An exclusive rename, so a placed take never replaces a file (`place.rs`).
+# An exclusive rename, so a folder move never replaces a file (`beside.rs`).
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2"
 

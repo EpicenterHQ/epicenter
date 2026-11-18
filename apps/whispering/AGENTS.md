@@ -19,14 +19,14 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   conformance suite (`src/lib/files/conformance.ts`). On the desktop
   `tauriFiles` calls Whispering's own `files_*` commands; the page holds
   none of `@tauri-apps/plugin-fs`'s commands.
-- **The folder only ever receives finished files, each by one rename.** A
-  write stages in `local/.tmp/` and a take records in `local/recording/`,
-  both in the app's local data directory, outside the folder. The one
-  exception is the place step's copy beside its target
-  (`.ep-<random>.save`) when the folder is on another volume; one a crash
-  left is removed when the folder next opens (`clear_saves`, run by
-  `recover`). Never write any other temporary or growing file inside the
-  folder.
+- **Every file is written inside the folder, at or beside its path**
+  ([ADR-0962](../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)).
+  A take is `recordings/<id>.webm` from its first second and is finished
+  there; nothing repairs one a crash cut off. A note or `settings.md` is
+  written to `.<name>.tmp` beside it, flushed, and renamed over it; the
+  first file command on a folder in a run removes what a crash left of
+  those. Nothing waits in the app's local data directory on its way into
+  the folder.
 - **Rust moves bytes; TypeScript reads notes.** Notes use the home's
   Markdown grammar from `@epicenter/app/markdown` (`src/lib/format/note.ts`).
   Do not parse a note in Rust or copy the grammar.
@@ -64,9 +64,9 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   never rename a recording's files (results point at it by id).
 - **A recording's note is written once, after Stop, when its audio is at
   its path.** The note holds facts only: never a status, pending, or
-  interrupted field. On the desktop, audio a quit or a crash cut off is
-  completed by the next launch's `capture.recover`, beside the pages, and
-  lists as an untitled recording.
+  interrupted field. The library leaves the take under way out until its
+  note is written (`takeInProgress`). Audio a crash cut off stays as it is
+  and lists as an untitled recording.
 - **What belongs to one computer stays out of the folder**
   (`src/lib/this-computer.ts`). A secret (a connection's key) is a Keychain
   item on the desktop and in `localStorage` in a browser. The folder's path

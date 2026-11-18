@@ -8,9 +8,8 @@
  * here chooses between them: in a browser the page's own microphone, in a
  * Tauri window the shell's (ADR-0571), which lists inputs
  * by name without access and asks for access itself, so it has no `allow`.
- * Either way the recording is placed at `recordings/<id>.<ext>` when it
- * stops; only the desktop's shell keeps a take through a quit, so only it
- * recovers.
+ * Either way the recording is at `recordings/<id>.<ext>` when it stops;
+ * only the desktop's shell keeps a take through a quit.
  *
  * A chosen microphone is asked for by the exact ID the recorder listed it
  * under. When that one cannot be opened, the answer is a refusal: no other
@@ -29,7 +28,6 @@ export function createMicrophoneDevice({
 	/** Lists, tests, and records from the microphone. */
 	recorder: Recorder;
 }): CaptureDevice {
-	const { recover } = recorder;
 	return {
 		inputs: recorder,
 		async start({ id, input, signal }) {
@@ -51,6 +49,5 @@ export function createMicrophoneDevice({
 				},
 			});
 		},
-		...(recover && { recover: () => recover({ files }) }),
 	};
 }

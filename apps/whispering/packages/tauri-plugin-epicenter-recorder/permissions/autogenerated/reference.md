@@ -1,6 +1,6 @@
 ## Default Permission
 
-List the microphones and read one's level, record a take and place it in a folder the file system scope allows, stop that recording, and place takes a quit cut off.
+List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording.
 
 #### This default permission set includes the following:
 
@@ -9,7 +9,6 @@ List the microphones and read one's level, record a take and place it in a folde
 - `allow-close-meter`
 - `allow-start`
 - `allow-stop`
-- `allow-recover`
 
 ## Permission Table
 
@@ -94,32 +93,6 @@ Enables the open_meter command without any pre-configured scope.
 <td>
 
 Denies the open_meter command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-recorder:allow-recover`
-
-</td>
-<td>
-
-Enables the recover command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-recorder:deny-recover`
-
-</td>
-<td>
-
-Denies the recover command without any pre-configured scope.
 
 </td>
 </tr>

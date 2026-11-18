@@ -15,12 +15,11 @@
 //!   listing asks for nothing.
 //! - Permission granted after page departure resolves no device for that page.
 //! - `start` records only for a folder the file system scope allows, with an
-//!   id that is one plain name, whose audio and take do not exist yet.
+//!   id that is one plain name, whose audio does not exist yet, and records
+//!   at its audio's path.
 //! - `stop` reaches only a recording the window started; no command deletes
-//!   one. It answers once the take is finished and placed in the folder.
-//! - `recover` finishes and places cut-off takes in such a folder, and is
-//!   idempotent.
-//! - A destroyed window's recording is finished and placed, never deleted.
+//!   one. It answers once the take is finished at its path.
+//! - A destroyed window's recording is finished in place, never deleted.
 //! - A window without the plugin's permission cannot call it.
 
 use std::cell::RefCell;
@@ -80,7 +79,7 @@ struct Fixture {
     app: App<MockRuntime>,
     /// The folder the scope allows.
     root: PathBuf,
-    /// Where the recorder records its takes.
+    /// Where the recorder records its takes: `recordings/` in the folder.
     takes: PathBuf,
     _directory: tempfile::TempDir,
 }
@@ -99,13 +98,12 @@ fn context() -> tauri::Context<MockRuntime> {
 
 thread_local! {
     /// The folder this test's fixture allows, which `invoke` names as `dir`
-    /// for `start` and `recover` when a test names none.
+    /// for `start` when a test names none.
     static FOLDER: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
 
 /// An app with the file system plugin and the recorder, its scope allowing
-/// the folder `notes`, as the shell allows its default folder, and its takes
-/// recorded in `local/recording` beside it.
+/// the folder `notes`, as the shell allows its default folder.
 fn fixture() -> Fixture {
     fixture_with_access(|| Ok(()))
 }
@@ -114,10 +112,11 @@ fn fixture() -> Fixture {
 fn fixture_with_access(access: fn() -> crate::recorder::Result<()>) -> Fixture {
     let directory = tempfile::tempdir().unwrap();
     let real = std::fs::canonicalize(directory.path()).unwrap();
-    let (root, takes) = (real.join("notes"), real.join("local/recording"));
+    let root = real.join("notes");
+    let takes = root.join("recordings");
     let app = mock_builder()
         .plugin(tauri_plugin_fs::init())
-        .plugin(Builder::new().access(access).takes(takes.clone()).build())
+        .plugin(Builder::new().access(access).build())
         .build(context())
         .expect("mock app");
     std::fs::create_dir_all(&root).unwrap();
@@ -165,7 +164,7 @@ fn invoke(
     command: &str,
     mut args: Value,
 ) -> Result<Value, Value> {
-    if matches!(command, "start" | "recover") && args.get("dir").is_none() {
+    if command == "start" && args.get("dir").is_none() {
         if let Some(folder) = FOLDER.with(|folder| folder.borrow().clone()) {
             args["dir"] = json!(folder);
         }
@@ -468,52 +467,21 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
 }
 
 #[test]
-fn start_and_recover_refuse_a_folder_the_scope_does_not_allow() {
+fn start_refuses_a_folder_the_scope_does_not_allow() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     let outside = fixture.root.with_file_name("elsewhere");
     std::fs::create_dir_all(&outside).unwrap();
     for folder in [json!(outside), json!("relative/notes")] {
-        for (command, args) in [
-            (
-                "start",
-                json!({ "dir": folder, "id": "a", "device": null, "signals": "__CHANNEL__:1" }),
-            ),
-            ("recover", json!({ "dir": folder })),
-        ] {
-            let refused = invoke(&main, command, args).unwrap_err();
-            assert_eq!(name(&refused), "Refused", "{command}: {refused}");
-        }
+        let refused = invoke(
+            &main,
+            "start",
+            json!({ "dir": folder, "id": "a", "device": null, "signals": "__CHANNEL__:1" }),
+        )
+        .unwrap_err();
+        assert_eq!(name(&refused), "Refused", "{refused}");
     }
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
-    assert_eq!(
-        invoke(&main, "recover", json!({})).unwrap(),
-        json!({ "recovered": [], "unplaced": [] })
-    );
-}
-
-/// Opening the folder (`recover`) removes the copies a crash left beside
-/// their targets, and only in the folder it was allowed to open.
-#[test]
-fn recover_removes_leftover_saves_from_the_folder_it_opens() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    let outside = fixture.root.with_file_name("elsewhere");
-    for folder in [&fixture.root, &outside] {
-        std::fs::create_dir_all(folder.join("recordings")).unwrap();
-        std::fs::write(folder.join("recordings/.ep-k3x9a2f8.save"), b"half").unwrap();
-    }
-    std::fs::write(fixture.root.join("recordings/.DS_Store"), b"").unwrap();
-    let refused = invoke(&main, "recover", json!({ "dir": outside })).unwrap_err();
-    assert_eq!(name(&refused), "Refused", "{refused}");
-    assert!(outside.join("recordings/.ep-k3x9a2f8.save").exists());
-
-    assert_eq!(
-        invoke(&main, "recover", json!({})).unwrap(),
-        json!({ "recovered": [], "unplaced": [] })
-    );
-    assert!(!fixture.root.join("recordings/.ep-k3x9a2f8.save").exists());
-    assert!(fixture.root.join("recordings/.DS_Store").exists());
 }
 
 #[test]
@@ -537,7 +505,7 @@ fn start_refuses_an_id_that_is_not_one_plain_name_before_opening_anything() {
 }
 
 #[test]
-fn start_never_records_an_id_whose_audio_or_take_exists() {
+fn start_never_records_an_id_whose_audio_exists() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
@@ -547,15 +515,6 @@ fn start_never_records_an_id_whose_audio_or_take_exists() {
     assert_eq!(
         std::fs::read(fixture.root.join("recordings/a.webm")).unwrap(),
         b"kept"
-    );
-
-    std::fs::create_dir_all(&fixture.takes).unwrap();
-    std::fs::write(fixture.takes.join("b.webm"), b"a take").unwrap();
-    let refused = start(&main, "b").unwrap_err();
-    assert_eq!(name(&refused), "Refused", "{refused}");
-    assert_eq!(
-        std::fs::read(fixture.takes.join("b.webm")).unwrap(),
-        b"a take"
     );
 }
 
@@ -580,67 +539,23 @@ fn stop_reaches_only_a_recording_this_window_started() {
     let refused = invoke(&main, "stop", json!({})).unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
 
-    let path = fixture.root.join("recordings/a.webm");
+    let path = fixture.takes.join("a.webm");
     std::fs::create_dir_all(&fixture.takes).unwrap();
-    let take = crate::takes::take_path(&fixture.takes, "a");
-    crate::recorder::tests::hold_recording(
-        &mut recorders(&fixture),
-        &take,
-        &fixture.root,
-        "a",
-        "7",
-        "main",
-    );
-    assert!(
-        !path.exists(),
-        "a recording is not in the folder while it records"
-    );
+    crate::recorder::tests::hold_recording(&mut recorders(&fixture), &path, "a", "7", "main");
+    assert!(path.exists(), "a recording is at its path while it records");
     let refused = invoke(&other, "stop", json!({})).unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
     let stopped = invoke(&main, "stop", json!({})).unwrap();
     assert_eq!(stopped, json!({ "id": "a", "durationMs": 1000 }));
-    // In the folder, finished, when Stop answers.
+    // Finished at its path when Stop answers.
     assert_eq!(
         decoded_samples(&path),
         crate::recorder::RECORDING_RATE as usize
     );
-    assert!(!take.exists());
+    assert_eq!(takes_in(&fixture.takes), ["a.webm"], "nothing beside it");
     assert!(
         !recording(&fixture),
         "the recorder is free for the next start"
-    );
-}
-
-/// A take whose audio path another file took meanwhile is kept, and Stop
-/// answers `Unplaced` with where it is.
-#[test]
-fn a_stop_that_cannot_place_answers_unplaced_and_keeps_the_take() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    std::fs::create_dir_all(&fixture.takes).unwrap();
-    let take = crate::takes::take_path(&fixture.takes, "a");
-    crate::recorder::tests::hold_recording(
-        &mut recorders(&fixture),
-        &take,
-        &fixture.root,
-        "a",
-        "7",
-        "main",
-    );
-    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
-    std::fs::write(fixture.root.join("recordings/a.webm"), b"theirs").unwrap();
-    let refused = invoke(&main, "stop", json!({})).unwrap_err();
-    assert_eq!(name(&refused), "Unplaced", "{refused}");
-    assert_eq!(
-        decoded_samples(&take),
-        crate::recorder::RECORDING_RATE as usize
-    );
-    assert_eq!(
-        invoke(&main, "recover", json!({})).unwrap(),
-        json!({
-            "recovered": [],
-            "unplaced": [{ "id": "a", "take": take.to_string_lossy() }],
-        })
     );
 }
 
@@ -654,7 +569,7 @@ fn decoded_samples(path: &std::path::Path) -> usize {
     .len()
 }
 
-/// The takes in the takes directory.
+/// The files in the takes directory.
 fn takes_in(takes: &std::path::Path) -> Vec<String> {
     std::fs::read_dir(takes)
         .map(|entries| {
@@ -670,27 +585,18 @@ fn recorders(fixture: &Fixture) -> std::sync::MutexGuard<'_, crate::recorder::Re
 }
 
 /// What the plugin does when a window is destroyed: its page can no longer
-/// stop the recording, so it is finished and placed for it and the slot is
+/// stop the recording, so it is finished in place for it and the slot is
 /// free.
 #[test]
 fn a_destroyed_window_finalizes_its_recording() {
     let fixture = fixture();
-    let path = fixture.root.join("recordings/a.webm");
+    let path = fixture.takes.join("a.webm");
     std::fs::create_dir_all(&fixture.takes).unwrap();
-    let take = crate::takes::take_path(&fixture.takes, "a");
-    crate::recorder::tests::hold_recording(
-        &mut recorders(&fixture),
-        &take,
-        &fixture.root,
-        "a",
-        "7",
-        "main",
-    );
+    crate::recorder::tests::hold_recording(&mut recorders(&fixture), &path, "a", "7", "main");
     assert!(recording(&fixture));
     crate::page_ended(fixture.app.handle(), "other");
     // Another window going leaves this one recording.
     assert!(recording(&fixture));
-    assert_eq!(recorders(&fixture).held_path(), Some(take.as_path()));
 
     crate::page_ended(fixture.app.handle(), "main");
     assert!(!recording(&fixture));
@@ -698,53 +604,6 @@ fn a_destroyed_window_finalizes_its_recording() {
         decoded_samples(&path),
         crate::recorder::RECORDING_RATE as usize
     );
-    assert!(!take.exists());
-}
-
-/// What a quit or a crash leaves: the take in `local/recording/`, its whole
-/// seconds written and its length not yet stated. `recover` finishes and
-/// places it, and leaves the one a live recording is writing.
-#[test]
-fn recover_places_cut_off_takes_in_the_folder() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    let recover = || invoke(&main, "recover", json!({}));
-    let nothing = json!({ "recovered": [], "unplaced": [] });
-    assert_eq!(
-        recover().unwrap(),
-        nothing,
-        "no takes directory has nothing to recover"
-    );
-
-    std::fs::create_dir_all(&fixture.takes).unwrap();
-    let take = crate::takes::take_path(&fixture.takes, "a");
-    let path = fixture.root.join("recordings/a.webm");
-    let mut cut_off =
-        crate::opus::OpusRecording::new(std::fs::File::create(&take).unwrap()).unwrap();
-    cut_off.write(&vec![1_000i16; 40_000]).unwrap();
-    drop(cut_off);
-    let live = crate::takes::take_path(&fixture.takes, "live");
-    crate::recorder::tests::hold_recording(
-        &mut recorders(&fixture),
-        &live,
-        &fixture.root,
-        "live",
-        "7",
-        "main",
-    );
-    // Two and a half seconds cut off keep their first two, less the
-    // encoder's 6.5 ms delay.
-    assert_eq!(
-        recover().unwrap(),
-        json!({
-            "recovered": [{ "id": "a", "durationMs": 1994 }],
-            "unplaced": [],
-        })
-    );
-    assert_eq!(decoded_samples(&path), 32_000 - 104);
-    assert!(!take.exists());
-    assert!(live.exists(), "a live take is its writer's");
-    assert_eq!(recover().unwrap(), nothing);
 }
 
 #[test]

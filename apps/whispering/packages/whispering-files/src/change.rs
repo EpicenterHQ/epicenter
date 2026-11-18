@@ -10,7 +10,8 @@
 //!
 //! On one volume each entry moves by one rename that never replaces, and a
 //! failure renames the moved ones back. Across volumes the whole tree is
-//! copied in through the place step, each copy is checked against its
+//! copied in, each file beside its target and then renamed, each copy is
+//! checked against its
 //! original, size and bytes, and only then are the old files removed.
 
 use std::fs::{self, File};
@@ -19,9 +20,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::beside::{copy_beside, crosses_devices, rename, sync_directory_of, Mode};
 use crate::error::{FilesError, Result};
 use crate::path::check_folder;
-use crate::place::{copy_beside, crosses_devices, rename, sync_directory_of, Mode};
 
 /// What a folder change did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -179,9 +180,9 @@ fn tree(from: &Path, names: &[std::ffi::OsString]) -> Result<(Vec<PathBuf>, Vec<
     Ok((files, directories))
 }
 
-/// Copy the tree under `names` from `from` into `to` through the place step,
-/// check every copy against its original, and only then remove the
-/// originals. A failure before that removes what was copied and leaves
+/// Copy the tree under `names` from `from` into `to`, each file beside its
+/// target first ([`copy_beside`]), check every copy against its original,
+/// and only then remove the originals. A failure before that removes what was copied and leaves
 /// `from` as it was.
 pub(crate) fn copy_tree(from: &Path, to: &Path, names: &[std::ffi::OsString]) -> Result<()> {
     let (files, directories) = tree(from, names)?;

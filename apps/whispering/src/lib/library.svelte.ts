@@ -131,10 +131,15 @@ export function createLibrary({
 	/** The folder as the query last read it. The pages open once it was read. */
 	const snapshot: FolderSnapshot = $derived(read.data ?? EMPTY_FOLDER);
 
+	// The take under way is the record screen's until its note is written,
+	// though on the desktop its audio is at its path (ADR-0962).
 	const entries = $derived(
-		[...snapshot.recordings.items, ...unnotedOf(snapshot)].toSorted(
-			newest((note) => note.recordedAt),
-		),
+		[
+			...snapshot.recordings.items,
+			...unnotedOf(snapshot).filter(
+				(note) => note.id !== whispering.takeInProgress,
+			),
+		].toSorted(newest((note) => note.recordedAt)),
 	);
 	const transcriptions = $derived(
 		snapshot.transcriptions.items.toSorted(newest((note) => note.createdAt)),

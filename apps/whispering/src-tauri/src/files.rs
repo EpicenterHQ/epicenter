@@ -10,15 +10,18 @@
 //! inside the folder must pass the plain-name rule, no link may be on its
 //! way, and the final path is checked against the scope too.
 //!
-//! A write is staged in `<appLocalDataDir>/local/.tmp/` and renamed over its
-//! target, so the folder only ever receives finished files
-//! (`whispering_files::place`). Every command runs its disk work off the
-//! async runtime.
+//! A write goes to a hidden temporary file beside its target, flushed and
+//! renamed over it (`whispering_files::beside`, ADR-0962). The first
+//! command on a folder in a run removes what a crash left of those files
+//! there, before anything writes it (`opened`). Every command runs its disk
+//! work off the async runtime.
 //!
 //! A failure crosses as the page's `FilesError`,
 //! `{ name: "NotFound" | "Refused" | "Io", message }`.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use percent_encoding::percent_decode_str;
 use tauri::ipc::{InvokeBody, Request, Response};
@@ -26,19 +29,17 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_fs::FsExt;
 use whispering_files::{Changed, Entry, FilesError, FolderGit};
 
-/// `<appLocalDataDir>/local`: this computer's own, never in the folder.
-/// `.tmp/` beside the takes holds saves on their way into the folder.
-pub struct Local(pub PathBuf);
+/// The folders a command has opened in this run, each once its leftovers
+/// were removed.
+#[derive(Default)]
+pub struct Opened(Mutex<HashSet<PathBuf>>);
 
-impl Local {
-    /// Where a save waits before it is placed.
-    pub fn tmp(&self) -> PathBuf {
-        self.0.join(".tmp")
-    }
-}
-
-/// The folder at the absolute path `folder`, when the scope allows it.
-fn granted<R: Runtime>(app: &AppHandle<R>, folder: &str) -> Result<PathBuf, FilesError> {
+/// The folder at the absolute path `folder`, when the scope allows it. The
+/// first time a run opens it, the temporary files a crash left there are
+/// removed (`whispering_files::remove_leftovers`), under a lock every
+/// command takes, so no write of this run is using one. A failure to remove
+/// them is logged: a leftover is never read, and the next run tries again.
+async fn opened<R: Runtime>(app: &AppHandle<R>, folder: &str) -> Result<PathBuf, FilesError> {
     let path = PathBuf::from(folder);
     if !path.is_absolute() {
         return Err(FilesError::refused(format!(
@@ -46,7 +47,25 @@ fn granted<R: Runtime>(app: &AppHandle<R>, folder: &str) -> Result<PathBuf, File
         )));
     }
     allowed(app, &path)?;
-    Ok(path)
+    let app = app.clone();
+    blocking(move || {
+        let opened = app.state::<Opened>();
+        let mut opened = opened
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !opened.contains(&path) {
+            if let Err(error) = whispering_files::remove_leftovers(&path) {
+                crate::log_warning(&format!(
+                    "Unfinished saves in {} were not removed: {error}",
+                    path.display()
+                ));
+            }
+            opened.insert(path.clone());
+        }
+        Ok(path)
+    })
+    .await
 }
 
 /// Refuse `path` unless the app's file system scope allows it.
@@ -93,7 +112,7 @@ pub async fn files_read<R: Runtime>(
     folder: String,
     path: String,
 ) -> Result<Response, FilesError> {
-    let folder = granted(&app, &folder)?;
+    let folder = opened(&app, &folder).await?;
     granted_file(&app, &folder, &path)?;
     let bytes = blocking(move || whispering_files::read(&folder, &path)).await?;
     Ok(Response::new(bytes))
@@ -109,7 +128,7 @@ pub async fn files_read_many<R: Runtime>(
     folder: String,
     paths: Vec<String>,
 ) -> Result<Response, FilesError> {
-    let folder = granted(&app, &folder)?;
+    let folder = opened(&app, &folder).await?;
     for path in &paths {
         granted_file(&app, &folder, path)?;
     }
@@ -133,22 +152,21 @@ fn header(request: &Request<'_>, name: &str) -> Result<String, FilesError> {
 }
 
 /// Replace the file named by the `x-path` header in the folder named by
-/// `x-folder` (both percent-encoded) with the request's raw body: staged in
-/// `local/.tmp/`, synced, and renamed over the target.
+/// `x-folder` (both percent-encoded) with the request's raw body, written
+/// and flushed beside the target, then renamed over it.
 #[tauri::command]
 pub async fn files_write<R: Runtime>(
     app: AppHandle<R>,
     request: Request<'_>,
 ) -> Result<(), FilesError> {
-    let folder = granted(&app, &header(&request, "x-folder")?)?;
+    let folder = opened(&app, &header(&request, "x-folder")?).await?;
     let path = header(&request, "x-path")?;
     granted_file(&app, &folder, &path)?;
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err(FilesError::refused("a write's body must be raw bytes"));
     };
     let bytes = bytes.clone();
-    let tmp = app.state::<Local>().tmp();
-    blocking(move || whispering_files::write(&folder, &path, &bytes, &tmp)).await
+    blocking(move || whispering_files::write(&folder, &path, &bytes)).await
 }
 
 /// The files in the directory `dir` in `folder` (the folder itself for
@@ -160,7 +178,7 @@ pub async fn files_list<R: Runtime>(
     folder: String,
     dir: String,
 ) -> Result<Vec<Entry>, FilesError> {
-    let folder = granted(&app, &folder)?;
+    let folder = opened(&app, &folder).await?;
     let directory = whispering_files::resolve_dir(&folder, &dir)?;
     allowed(&app, &directory)?;
     blocking(move || whispering_files::list(&folder, &dir)).await
@@ -174,7 +192,7 @@ pub async fn files_remove<R: Runtime>(
     folder: String,
     path: String,
 ) -> Result<(), FilesError> {
-    let folder = granted(&app, &folder)?;
+    let folder = opened(&app, &folder).await?;
     granted_file(&app, &folder, &path)?;
     blocking(move || whispering_files::remove(&folder, &path)).await
 }
@@ -189,8 +207,8 @@ pub async fn files_change_folder<R: Runtime>(
     from: String,
     to: String,
 ) -> Result<Changed, FilesError> {
-    let from = granted(&app, &from)?;
-    let to = granted(&app, &to)?;
+    let from = opened(&app, &from).await?;
+    let to = opened(&app, &to).await?;
     blocking(move || whispering_files::change_folder(&from, &to)).await
 }
 
@@ -202,7 +220,7 @@ pub async fn folder_git<R: Runtime>(
     app: AppHandle<R>,
     folder: String,
 ) -> Result<FolderGit, FilesError> {
-    let folder = granted(&app, &folder)?;
+    let folder = opened(&app, &folder).await?;
     blocking(move || whispering_files::folder_git(&folder)).await
 }
 
@@ -235,15 +253,13 @@ mod tests {
         folder: PathBuf,
         /// A folder beside it that is not granted.
         outside: PathBuf,
-        local: PathBuf,
         _temp: tempfile::TempDir,
     }
 
     fn fixture() -> Fixture {
         let temp = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(temp.path()).unwrap();
-        let (folder, outside, local) =
-            (root.join("data"), root.join("outside"), root.join("local"));
+        let (folder, outside) = (root.join("data"), root.join("outside"));
         for directory in [&folder, &outside] {
             std::fs::create_dir_all(directory).unwrap();
         }
@@ -255,7 +271,7 @@ mod tests {
         }
         let app = mock_builder()
             .plugin(tauri_plugin_fs::init())
-            .manage(Local(local.clone()))
+            .manage(Opened::default())
             .invoke_handler(tauri::generate_handler![
                 files_read,
                 files_read_many,
@@ -276,7 +292,6 @@ mod tests {
             window,
             folder,
             outside,
-            local,
             _temp: temp,
         }
     }
@@ -355,13 +370,12 @@ mod tests {
             Value::Null
         );
         write(&fixture, &fixture.folder, "settings.md", "café".as_bytes()).unwrap();
-        assert_eq!(
-            std::fs::read_dir(fixture.local.join(".tmp"))
-                .unwrap()
-                .count(),
-            0,
-            "nothing is left staged"
-        );
+        let mut names: Vec<_> = std::fs::read_dir(&fixture.folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["recordings", "settings.md"], "nothing left beside");
         assert_eq!(
             raw(
                 &fixture,
@@ -429,6 +443,32 @@ mod tests {
             .unwrap(),
             json!([])
         );
+    }
+
+    /// What a crash left of a save is removed by the first command on the
+    /// folder in a run, and only then: a later one is a write's to finish.
+    #[test]
+    fn the_first_command_on_a_folder_removes_what_a_crash_left() {
+        let fixture = fixture();
+        let leftover = fixture.folder.join(".settings.md.tmp");
+        std::fs::write(&leftover, b"half").unwrap();
+        let listed = invoke(
+            &fixture,
+            "files_list",
+            json!({ "folder": fixture.folder, "dir": "" }),
+        )
+        .unwrap();
+        assert_eq!(listed, json!([]), "a temporary file is never listed");
+        assert!(!leftover.exists());
+
+        std::fs::write(&leftover, b"half").unwrap();
+        invoke(
+            &fixture,
+            "files_list",
+            json!({ "folder": fixture.folder, "dir": "" }),
+        )
+        .unwrap();
+        assert!(leftover.exists(), "removed once per run");
     }
 
     #[test]

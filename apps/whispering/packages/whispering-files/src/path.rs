@@ -8,8 +8,8 @@
 //! and a directory with an extension do not. A directory's path is the same
 //! without an extension, and the empty directory path is the folder itself.
 //!
-//! The rule leaves out every hidden name, so nothing the place step leaves
-//! beside a target (`.ep-<random>.save`) is ever a path.
+//! The rule leaves out every hidden name, so the temporary file a write
+//! keeps beside its target (`.<name>.tmp`, `beside.rs`) is never a path.
 
 use std::fs;
 use std::io::ErrorKind;

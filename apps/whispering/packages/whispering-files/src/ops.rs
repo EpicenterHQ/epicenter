@@ -10,9 +10,9 @@ use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
 
+use crate::beside::replace;
 use crate::error::{FilesError, Result};
-use crate::path::{is_file_name, resolve, resolve_dir};
-use crate::place::{place_into, stage, Mode};
+use crate::path::{is_file_name, make_parents, resolve, resolve_dir};
 
 /// What `read_many` writes for a path with no file, in place of its length.
 pub const MISSING: u32 = u32::MAX;
@@ -70,18 +70,14 @@ pub fn read_many(folder: &Path, paths: &[String]) -> Result<Vec<u8>> {
     Ok(lengths)
 }
 
-/// Replace the file `relative` in `folder` whole with `bytes`: written and
-/// synced in `local_tmp`, then renamed over the target (`Mode::Replace`).
-/// A save that does not reach the folder is removed from `local_tmp`.
-pub fn write(folder: &Path, relative: &str, bytes: &[u8], local_tmp: &Path) -> Result<()> {
-    resolve(folder, relative)?;
-    let staged = stage(local_tmp, bytes)
-        .map_err(|error| FilesError::from_io("the save could not be staged", &error))?;
-    let placed = place_into(&staged, folder, relative, Mode::Replace);
-    if placed.is_err() {
-        let _ = fs::remove_file(&staged);
-    }
-    placed.map(|_| ())
+/// Replace the file `relative` in `folder` whole with `bytes`, its missing
+/// directories made: written and flushed beside it, then renamed over it
+/// ([`replace`]).
+pub fn write(folder: &Path, relative: &str, bytes: &[u8]) -> Result<()> {
+    let target = resolve(folder, relative)?;
+    make_parents(folder, relative)?;
+    replace(&target, bytes)
+        .map_err(|error| FilesError::from_io(format!("{relative} could not be written"), &error))
 }
 
 /// Remove the file `relative` in `folder`; one that is not there is not a
@@ -224,22 +220,23 @@ mod tests {
     #[test]
     fn read_write_and_remove_a_file() {
         let folder = tempfile::tempdir().unwrap();
-        let local = tempfile::tempdir().unwrap();
-        let tmp = local.path().join(".tmp");
         assert!(matches!(
             read(folder.path(), "recordings/a.md"),
             Err(FilesError::NotFound { .. })
         ));
-        write(folder.path(), "recordings/a.md", b"one", &tmp).unwrap();
-        write(folder.path(), "recordings/a.md", b"two", &tmp).unwrap();
+        write(folder.path(), "recordings/a.md", b"one").unwrap();
+        write(folder.path(), "recordings/a.md", b"two").unwrap();
         assert_eq!(read(folder.path(), "recordings/a.md").unwrap(), b"two");
         assert_eq!(
-            fs::read_dir(&tmp).unwrap().count(),
-            0,
-            "nothing left staged"
+            fs::read_dir(folder.path().join("recordings"))
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<Vec<_>>(),
+            ["a.md"],
+            "nothing left beside it"
         );
         assert!(matches!(
-            write(folder.path(), ".hidden", b"x", &tmp),
+            write(folder.path(), ".hidden", b"x"),
             Err(FilesError::Refused { .. })
         ));
         remove(folder.path(), "recordings/a.md").unwrap();

@@ -5,13 +5,13 @@
  * the same folder.
  *
  * Where a take is kept while it records depends on where the page runs
- * (ADR-0779, ADR-0780): the desktop shell encodes it into the data folder
- * from the first sample, and on the next launch finishes, in the
- * background, what a quit or a crash cut off (`capture.recover`); a browser
- * keeps it in the page's memory and writes it once at Stop, so a crash or a
- * closed tab loses it. Stop answers once its audio is at its path, and its
- * note is written then. Audio whose note was not written, or that a crash
- * cut off, lists as an untitled recording (ADR-0894).
+ * (ADR-0779, ADR-0780): the desktop shell encodes it at its path in the
+ * folder from the first sample (ADR-0962); a browser keeps it in the page's
+ * memory and writes it once at Stop, so a crash or a closed tab loses it.
+ * Stop answers once its audio is at its path, and its note is written
+ * then. The library leaves the take out until its note is written
+ * (`takeInProgress`). Audio whose note was not written, or that a crash cut
+ * off, lists as an untitled recording (ADR-0894).
  *
  * The models are the page's one merge of endpoints (`ai`, ADR-0757): the
  * connections the person saved, then what runs on this computer, each
@@ -183,6 +183,12 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
 	/** The last Stop until it has finished, its note written included. */
 	let finishing: Promise<void> | undefined;
+	/**
+	 * The recording whose take is under way, from Start until its note is
+	 * written or its Stop failed. On the desktop its audio is at its path
+	 * all that time, and the library leaves it out.
+	 */
+	let takeInProgress = $state<string | undefined>();
 	let recorderError = $state<string | undefined>();
 
 	const input = createMicrophoneInput({
@@ -229,6 +235,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		// Nothing is in the library yet, so a failure leaves nothing to undo:
 		// whatever audio was written lists as an untitled recording.
 		if (error !== null) {
+			takeInProgress = undefined;
 			recorderError = error.message;
 			void query.reread();
 			return;
@@ -244,36 +251,9 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 				durationMs: Math.max(0, Math.round(stopped.durationMs)),
 			},
 		});
+		takeInProgress = undefined;
 		if (kept.error !== null && !disposed)
 			recorderError = `The recording's audio is saved, but its note was not: ${kept.error.message} It is listed as an untitled recording.`;
-	}
-
-	/**
-	 * On the desktop, finish every take a quit or a crash cut short and place
-	 * it in the folder, where it lists as an untitled recording. It runs
-	 * once, beside the pages. What cannot be completed is said and left for
-	 * the next launch. A take kept outside the folder because audio with its
-	 * id is there is said with where it is, on every launch until a person
-	 * moves one of the two. A browser keeps nothing through a crash, so it
-	 * has none to finish (ADR-0780).
-	 */
-	async function completeCutOffRecordings(
-		recover: NonNullable<CaptureDevice['recover']>,
-	) {
-		const { data, error } = await recover();
-		if (disposed) return;
-		if (error !== null) {
-			recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
-			return;
-		}
-		if (data.recovered.length > 0) void query.reread();
-		if (data.unplaced.length > 0)
-			recorderError = `A recording is kept outside the library, because audio with its id is already there: ${data.unplaced
-				.map(
-					({ id, take }) =>
-						`recordings/${id}.webm is another file, and the recording is at ${take}`,
-				)
-				.join('; ')}. Move the other file, and the next start adds it.`;
 	}
 
 	function dispose(): void {
@@ -285,8 +265,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			captureState = { phase: 'idle' };
 		}
 	}
-
-	if (capture.recover) void completeCutOffRecordings(capture.recover);
 
 	return {
 		/** Whether the sidebar is open on a wide window. */
@@ -336,6 +314,10 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		get recorderError() {
 			return recorderError;
 		},
+		/** The recording whose take is under way, which the library leaves out until its note is written; tracks in Svelte. */
+		get takeInProgress() {
+			return takeInProgress;
+		},
 		/**
 		 * Start a recording from the chosen microphone. Its audio is written
 		 * into the files as it records; its note waits for Stop.
@@ -347,6 +329,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			const at = new Date();
 			const id = timeId(at);
 			captureState = { phase: 'starting', attempt };
+			takeInProgress = id;
 			input.release();
 			const { data: started, error } = await capture.start({
 				id,
@@ -356,10 +339,12 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			// Closed while the microphone was opening: an aborted opener releases it.
 			if (attempt.signal.aborted || disposed) {
 				captureState = { phase: 'idle' };
+				takeInProgress = undefined;
 				return;
 			}
 			if (error !== null) {
 				captureState = { phase: 'idle' };
+				takeInProgress = undefined;
 				recorderError = error.message;
 				input.noteRecordingError(error);
 				return;

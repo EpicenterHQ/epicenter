@@ -203,15 +203,13 @@ and `src/lib/app.ts` makes every capability once, for the page's life:
   grant: the default folder, which the shell allows at start, or the
   folder picked in Settings, which the system's folder dialog grants and
   `tauri-plugin-persisted-scope` restores at each start. The path itself
-  is kept in `localStorage`. A write is staged in `local/.tmp/` in the
-  app's local data directory and renamed into the folder, so the folder
-  only ever holds finished files.
+  is kept in `localStorage`. A write goes to a hidden temporary file
+  beside its target, and is renamed over it.
 - **Recording** goes through the shell's microphone
-  (`tauri-plugin-epicenter-recorder`), which encodes Opus in WebM from the
-  first sample into the take `local/recording/<id>.webm`, outside the
-  folder, and places it at `recordings/<id>.webm` when Stop answers. A recording a quit or a
-  crash cut off is finished and placed on the next launch, in the
-  background beside the pages, and lists as an untitled recording.
+  (`tauri-plugin-epicenter-recorder`), which encodes Opus in WebM at
+  `recordings/<id>.webm` from the first sample, and finishes it there at
+  Stop. A recording a crash cut off stays as it is and lists as an
+  untitled recording.
 - **Transcription on this computer** runs in the app
   (`localSpeech()` from `@epicenter/transcription`, models downloaded in
   Settings), which takes the recording's audio as an upload.

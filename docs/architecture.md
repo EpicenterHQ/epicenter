@@ -65,10 +65,11 @@ Around them:
    `packages/folder/src/folder.ts` reads the file, then calls the store's
    `put(path, bytes, expect)`. If the file moved, the folder reads and applies
    the change again, merging a body with `settle`.
-2. In a Tauri window the store is the shell's
-   (`packages/tauri-plugin-epicenter-folder`): it stages the bytes beside the
-   target as `.ep-<random>.save`, checks the version again, and renames. The
-   folder holds only its content; nothing of Epicenter's goes in it.
+2. In a Tauri window the store was the shell's
+   (`packages/tauri-plugin-epicenter-folder`, since deleted): it staged the
+   bytes beside the target as `.ep-<random>.save`, checked the version again,
+   and renamed. The folder held only its content; nothing of Epicenter's went
+   in it.
 3. The desktop app does not sync. Epicenter's programs do (step 1 of the next
    flow), and the app reads the record Epicenter keeps to say whether
    Epicenter syncs its folder (`syncedRecord()` in `@epicenter/folder/tauri`).

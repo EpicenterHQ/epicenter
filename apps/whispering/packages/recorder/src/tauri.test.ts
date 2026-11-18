@@ -9,13 +9,10 @@
  *   by and its name; `openMeter` opens one by ID, hears its levels, and
  *   closes it, and a meter withdrawn while opening is closed
  * - `stop` asks the shell to stop this window's recording, answers its id
- *   and length, and stops hearing the channel; a take it could not place
- *   arrives as `Unplaced`
+ *   and length, and stops hearing the channel
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
- * - `recover` names the folder, and answers each take placed with its
- *   length and each take kept with where it is
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -109,7 +106,6 @@ test('a command that throws instead of answering is a failure, not a refusal', a
 	).toMatchObject(failed);
 	expect(expectErr(await recorder.openMeter())).toMatchObject(failed);
 	expect(expectErr(await recorder.listInputs())).toMatchObject(failed);
-	expect(expectErr(await recorder.recover({ files }))).toMatchObject(failed);
 });
 
 test('the system default is asked for by naming no microphone', async () => {
@@ -117,10 +113,10 @@ test('the system default is asked for by naming no microphone', async () => {
 	expect(calls[0]?.args.device).toBeNull();
 });
 
-test('a stop the shell refuses arrives by name, an unplaced take among them', async () => {
+test('a stop the shell refuses arrives by name', async () => {
 	for (const [name, expected] of [
 		['NotRecording', { name: 'NotRecording', reason: 'held' }],
-		['Unplaced', { name: 'Unplaced', reason: 'held' }],
+		['Failed', { name: 'Failed', cause: 'held' }],
 	] as const) {
 		const recording = expectOk(await recorder.start({ files, id: 'a' }));
 		answer = () => {
@@ -175,48 +171,21 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	]);
 });
 
-test('recover names the folder and answers each take placed, and each kept with where it is', async () => {
-	const recovery = {
-		recovered: [
-			{ id: 'a', durationMs: 1250 },
-			{ id: 'b', durationMs: 3000 },
-		],
-		unplaced: [
-			{
-				id: 'c',
-				take: '/Users/someone/Library/Application Support/so.epicenter.whispering/local/recording/c.webm',
-			},
-		],
-	};
-	answer = () => recovery;
-	expect(expectOk(await recorder.recover({ files }))).toEqual(recovery);
-	expect(calls).toEqual([
-		{ cmd: 'plugin:epicenter-recorder|recover', args: { dir: folder } },
-	]);
-});
-
 test('a folder with no path here is refused before the shell is asked', async () => {
 	const nowhere = { ...files, location: null };
 	expect(
 		expectErr(await recorder.start({ files: nowhere, id: 'a' })).name,
-	).toBe('Refused');
-	expect(
-		expectErr(await recorder.recover({ files: nowhere })).name,
 	).toBe('Refused');
 	expect(calls).toEqual([]);
 });
 
 test('a reply that is none of the shell’s refusals is a failure, not an answer', async () => {
 	answer = () => {
-		throw 'no such command plugin:epicenter-recorder|recover';
+		throw 'no such command plugin:epicenter-recorder|inputs';
 	};
-	expect(
-		expectErr(
-			await recorder.recover({ files }),
-		),
-	).toMatchObject({
+	expect(expectErr(await recorder.listInputs())).toMatchObject({
 		name: 'Failed',
-		cause: 'no such command plugin:epicenter-recorder|recover',
+		cause: 'no such command plugin:epicenter-recorder|inputs',
 	});
 });
 

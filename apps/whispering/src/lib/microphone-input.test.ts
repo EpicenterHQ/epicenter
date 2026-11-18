@@ -156,11 +156,10 @@ function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 				onEnded: () => () => {},
 				async stop() {
 					release();
-					return Ok({ durationMs: 1000, placed: Promise.resolve(Ok({})) });
+					return Ok({ durationMs: 1000 });
 				},
 			});
 		},
-		recover: async () => Ok({ recovered: [], unplaced: [] }),
 	};
 	return {
 		device,
