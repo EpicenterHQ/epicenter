@@ -193,7 +193,11 @@ the restart. Upgrade Epicenter by editing both versions in the home's `package.j
 running `bun install && bun run build` at the top: the two are released at
 one version, and `epicenter` refuses to load apps while the home names two.
 Write each action with `defineAction`, which types its
-`run` from its `input`. Every action returns one Result. Return `Ok(value)`,
+`run` from its `input`. The action carries that input as one JSON Schema
+object, `{ type, properties, required, additionalProperties: false }`, which
+MCP, `--help`, and `--json` read as it is; a test or tool that inspects a key
+reads `action.input.properties.<key>` and `action.input.required`. Every
+action returns one Result. Return `Ok(value)`,
 `Ok(undefined)` for no value, or the Result of another action or data
 method. A tagged factory such as `ActionError.Missing({ path })` already
 returns an Err. When continuing a calculation, use

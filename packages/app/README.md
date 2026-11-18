@@ -318,6 +318,29 @@ finite JSON; recursive schemas use references rather than cyclic JavaScript
 objects. No field name is reserved: the command line reads the input as one
 JSON object, so `json`, `help`, and `input` are keys like any other.
 
+### An action's input schema
+
+An app writes an action's input as a map of fields. `defineAction` turns the
+map into one JSON Schema object and keeps that as `action.input`
+(ADR-0953). For Reading's `log` above it is:
+
+```json
+{
+  "type": "object",
+  "required": ["minutes"],
+  "properties": { "minutes": { "type": "number" }, "book": { "type": "string" } },
+  "additionalProperties": false
+}
+```
+
+`required` lists every key a caller must give, and is `[]` when none is.
+TypeBox marks an optional field with a property that `JSON.stringify` drops,
+so `required` is the only record of it that survives being sent. The schema
+survives `JSON.parse(JSON.stringify(...))` unchanged. Every caller reads this
+one value: the check a call's input passes, MCP's `inputSchema`, `--help` and
+its example, and `epicenter <app> --json`. `objectSchema(fields)` builds the
+same object from any map of fields.
+
 A secret, such as a token, is ordinary input: the app's page sends it once
 and the action keeps it under `local/`, which never enters Git:
 `await folder.write('local/google.md', token)`, read back with
@@ -594,6 +617,28 @@ gives the error object itself:
 - **A page that matched `Refused` to catch a call that never ran** matches `NotStarted`. `Refused` now comes only from an action.
 - **An action that returned `ActionError.Unreachable`**, or its own error named `NotStarted` or `Unreachable`, now answers `Threw`. Return another name, or `Ok` with a field saying the result was not confirmed.
 - **Exit codes:** 2 is exactly `NotStarted`. A connection that dropped after the call was sent still exits 1, now as `Unreachable`.
+
+### An action's input is one JSON Schema object
+
+Write an action's `input` as before, a map of fields. What an action carries
+changed: in 0.6, `action.input` was that map; in 0.7 it is one JSON Schema
+object, with the fields under `properties` and the keys a caller must give in
+`required` (see [An action's input schema](#an-actions-input-schema)).
+
+- **Code that read a field from the map** reads it from `properties`:
+  `add.input.title` becomes `add.input.properties.title`, and
+  `Object.keys(add.input)` becomes `Object.keys(add.input.properties)`.
+- **Code that wrapped the map** in `Type.Object(action.input)` to check a value
+  passes `action.input` itself, which already refuses keys the action does not
+  take.
+- **Code that worked out which keys are required** reads `action.input.required`.
+- **An action that reuses another's input** writes
+  `input: other.input.properties`. `input: other.input` is a type error, and
+  `defineAction` refuses it where it is defined.
+
+TypeScript flags a read of a field from the map, since the schema has no key
+of that name. `Object.keys(action.input)` and `toHaveProperty` in a test still
+compile, so search each app's code and tests for `.input`.
 
 ### Steps
 

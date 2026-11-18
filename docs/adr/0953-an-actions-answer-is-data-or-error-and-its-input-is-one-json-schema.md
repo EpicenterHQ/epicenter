@@ -1,10 +1,9 @@
 # 0953. An action's answer is `{ data, error }`, and its input is one JSON Schema
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) at "Keep the existing `returned` / `threw` / `error` wire envelope": the envelope goes, and an error's name says whether the action ran. [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) at its host answer table: the `kind` and `reason` rows go. [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "with the ADR-0926 answer": the final `{"answer": ...}` frame carries the plain answer, and a refusal before the action runs is `NotStarted`.
 - **Relates:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) (one serve runs every action), [ADR-0938](0938-an-action-says-whether-agents-are-offered-it.md) (`mcp: false`).
-- **Unbuilt:** the stored input schema. `action.input` is still the record of fields an author writes, and `packages/cli/src/input.ts` still rebuilds `required` from it.
 
 Two decisions about the same boundary, where an action meets its callers: what comes back (D1) and what goes in (D2).
 
