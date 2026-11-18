@@ -9,10 +9,7 @@ resolver = "2"
 members = [
     "apps/whispering/src-tauri",
     "apps/whispering/packages/epicenter-transcription-build",
-    "packages/tauri-epicenter-account",
     "apps/whispering/packages/tauri-epicenter-standalone",
-    "packages/tauri-plugin-epicenter-folder",
-    "packages/tauri-plugin-epicenter-folder/core",
     "apps/whispering/packages/tauri-plugin-epicenter-recorder",
     "apps/whispering/packages/transcription",
 ]

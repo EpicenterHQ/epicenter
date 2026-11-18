@@ -179,7 +179,7 @@ disposable Postgres clusters and drives them with real access tokens.
 names what is deployment-specific:
 
 The hosted origin is `https://api.epicenter.so`. The Worker and its local
-development scripts use the origins in `@epicenter/definition/site`. Bun defaults to port
+development scripts use the origins in `site.ts`. Bun defaults to port
 8788 and allows a public origin override.
 
 `worker/oauth-registrations.ts` declares the registered OAuth clients.

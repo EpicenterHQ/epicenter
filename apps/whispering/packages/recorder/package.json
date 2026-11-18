@@ -20,8 +20,6 @@
 		"./vad-assets": "./src/vad-assets.ts"
 	},
 	"dependencies": {
-		"@epicenter/definition": "workspace:*",
-		"@epicenter/folder": "workspace:*",
 		"@ricky0123/vad-web": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"wellcrafted": "catalog:"

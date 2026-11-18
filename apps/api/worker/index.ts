@@ -14,7 +14,7 @@
 import {
 	PRODUCTION_API_URL,
 	resolveOAuthAudiences,
-} from '@epicenter/definition/site';
+} from '../site.js';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,

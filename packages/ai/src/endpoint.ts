@@ -6,8 +6,8 @@
  * (ADR-0757).
  *
  * Every HTTP endpoint is one implementation, `openAiCompatible`, configured by
- * a base URL, an optional key, and the `fetch` that sends it. `hosted`,
- * `custom` and `localServers` are configurations of it, and `openAi` merges
+ * a base URL, an optional key, and the `fetch` that sends it. `custom` and
+ * `localServers` are configurations of it, and `openAi` merges
  * any number of endpoints into one value.
  */
 
@@ -44,7 +44,7 @@ export type Endpoint = {
 	/**
 	 * Where its requests go, for an endpoint reached over HTTP: the base URL
 	 * every path is under. Absent for an engine inside the app and for an
-	 * endpoint that cannot send now (hosted while signed out). An app shows it,
+	 * endpoint that cannot send now. An app shows it,
 	 * and compares it to tell an endpoint that moved from one that did not.
 	 */
 	baseUrl?: string;
@@ -119,12 +119,19 @@ async function withoutKey(response: Response, key: string): Promise<Response> {
 }
 
 /**
+ * A key an endpoint sends as a bearer token: the key itself, or a read of
+ * it made as each request leaves (the desktop's Keychain), answering null
+ * when none is kept.
+ */
+export type EndpointKey = string | (() => Promise<string | null | undefined>);
+
+/**
  * An OpenAI-compatible HTTP endpoint at `baseUrl`. Each request goes to a
  * path under it and never elsewhere, through `fetch` (the page's own by
- * default; on the desktop, the shell's), with `key` as a bearer token when
- * there is one. Cookies and an `Authorization` header from the caller are
- * dropped, a redirect fails the request, and a refusal's body never repeats
- * the key.
+ * default; the app may pass another, such as Tauri's HTTP plugin), with
+ * `key` as a bearer token when there is one. Cookies and an `Authorization`
+ * header from the caller are dropped, a redirect fails the request, and a
+ * refusal's body never repeats the key.
  */
 export function openAiCompatible({
 	id,
@@ -139,11 +146,10 @@ export function openAiCompatible({
 	name: string;
 	source: Source;
 	baseUrl: string;
-	key?: string;
+	key?: EndpointKey;
 	fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 	models: () => readonly EndpointModel[];
 }): Endpoint {
-	const bearer = key?.trim();
 	return {
 		id,
 		name,
@@ -159,6 +165,9 @@ export function openAiCompatible({
 			const headers = new Headers(init?.headers);
 			headers.delete('authorization');
 			headers.delete('cookie');
+			// A key read as the request leaves is awaited; any other sends at once.
+			const bearer =
+				(typeof key === 'function' ? await key() : key)?.trim() || undefined;
 			if (bearer) headers.set('authorization', `Bearer ${bearer}`);
 			const response = await fetch(url, {
 				...init,

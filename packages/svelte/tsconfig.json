@@ -1,8 +1,0 @@
-{
-	"extends": "../../tsconfig.dom.json",
-	"compilerOptions": {
-		"types": ["bun"],
-		"noUnusedLocals": true,
-		"noUnusedParameters": true
-	}
-}

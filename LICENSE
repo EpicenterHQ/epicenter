@@ -26,7 +26,6 @@ anyone who forks and distributes a modified binary shares the changes back.
     packages/account         @epicenter/account
     packages/ai              @epicenter/ai
     packages/server          @epicenter/server
-    packages/svelte          @epicenter/svelte
     packages/ui              @epicenter/ui
 
   Apps:

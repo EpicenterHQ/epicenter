@@ -24,7 +24,7 @@
  *     `wrangler.jsonc` by `wrangler-config.ts`.
  */
 
-import { APPS, resolveOAuthAudiences } from '@epicenter/definition/site';
+import { APPS, resolveOAuthAudiences } from './site.js';
 import { type } from 'arktype';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';

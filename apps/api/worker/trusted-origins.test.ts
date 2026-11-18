@@ -4,7 +4,7 @@
  * extension and wildcard trust, and freezes arrays shared by Worker isolates.
  */
 import { describe, expect, test } from 'bun:test';
-import { APPS, localUrl } from '@epicenter/definition/site';
+import { APPS, localUrl } from '../site.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
 const PROD = buildEpicenterTrustedOrigins('https://api.epicenter.so');

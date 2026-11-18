@@ -10,7 +10,6 @@
 		"./module-graph": "./src/module-graph.ts"
 	},
 	"dependencies": {
-		"@epicenter/definition": "workspace:*",
 		"@sveltejs/kit": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"vite": "catalog:"

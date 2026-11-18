@@ -52,8 +52,8 @@ const isLive = (entry: Endpoint | LiveEndpoints): entry is LiveEndpoints =>
  * without a new one. An app makes its `openAi` once.
  *
  * ```ts
- * export const ai = openAi([hosted(account), customEndpoints(), localServers()]);
- * for await (const { data, error } of ai.chat({ endpoint: 'hosted', model, messages })) …
+ * export const ai = openAi([customEndpoints({ store, keys }), localServers()]);
+ * for await (const { data, error } of ai.chat({ endpoint: 'ollama', model, messages })) …
  * ```
  */
 export function openAi(entries: readonly EndpointEntry[]) {

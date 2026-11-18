@@ -1,5 +1,6 @@
 import {
 	type Endpoint,
+	type EndpointKey,
 	type EndpointModel,
 	guessCapabilities,
 	openAiCompatible,
@@ -10,10 +11,9 @@ import {
  * for, or a server on another machine. `models` are the ids they chose or a
  * discovery found, each able to do what its id suggests unless it says.
  *
- * On the desktop the app passes the shell's `fetch`, which adds the key the
- * shell keeps for this endpoint, and gives no `key`, so the key never
- * reaches the page. On the web the page holds the key and plain fetch sends
- * it.
+ * `key` may be read as each request leaves (the desktop's Keychain), and
+ * `fetch` is the page's own unless the app passes another (the desktop's
+ * Tauri HTTP plugin, which no endpoint's CORS refuses).
  */
 export function custom({
 	id,
@@ -28,7 +28,7 @@ export function custom({
 	/** Defaults to the base URL's host. */
 	name?: string;
 	baseUrl: string;
-	key?: string;
+	key?: EndpointKey;
 	fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 	models?: readonly (string | EndpointModel)[];
 }): Endpoint {
