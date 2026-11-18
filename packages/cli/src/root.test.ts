@@ -345,7 +345,11 @@ test('a new home commits itself: the script init writes commits, pushes, waits o
 	expect(await gitIn(home, 'ls-files', '--', '.env*')).toBe('.env.example');
 	expect(await gitIn(home, 'show', 'HEAD:bunfig.toml')).toBe('env = false');
 	const child = Bun.spawn(
-		['bun', '-e', 'process.stdout.write(process.env.GOOGLE_CLIENT_SECRET ?? "")'],
+		[
+			'bun',
+			'-e',
+			'process.stdout.write(process.env.GOOGLE_CLIENT_SECRET ?? "")',
+		],
 		{ cwd: home, env: process.env, stdout: 'pipe' },
 	);
 	expect(await new Response(child.stdout).text()).toBe('');
