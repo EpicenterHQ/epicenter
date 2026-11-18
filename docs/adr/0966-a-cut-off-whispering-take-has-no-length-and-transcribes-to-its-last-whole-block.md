@@ -15,15 +15,17 @@ whole Clusters, perhaps a torn block at its end, no Duration, and a Segment
 of unknown size (`01 FF FF FF FF FF FF FF`). It has no note.
 
 ADR-0962 said Whispering reads such a file's length with `audioDurationMs`
-(`apps/whispering/packages/recorder/src/container.ts`), and left open what
+(`whispering-keeps-its-recordings-local:apps/whispering/packages/recorder/src/container.ts` before the build deleted it), and left open what
 the transcription decoder does with the torn block. Building it showed two
 things:
 
 - Nothing in the app called `audioDurationMs`. The list and the detail pane
   take a recording's length from its note's `durationMs`.
-- Symphonia's WebM reader (symphonia-format-mkv 0.5) refuses the torn block
-  with a `DecodeError` whose message contains "past master element". So
-  `transcribe_audio` failed on every take a crash cut off.
+- Symphonia 0.5's WebM reader (symphonia-format-mkv 0.5.5) refused the torn
+  block with a `DecodeError` whose message contains "past master element", so
+  `transcribe_audio` failed on every take a crash cut off. On a finished WebM
+  that lost its end, it panicked when its SeekHead pointed past the end, and
+  the release build (`panic = "abort"`) closed Whispering.
 
 ## Decision
 
@@ -32,12 +34,15 @@ things:
 `container.ts` and `audioDurationMs` are deleted. A cut-off take has no note,
 so it lists as an untitled recording with an empty length.
 
-**The decoder reads a cut-off take to its last whole block.** In
-`apps/whispering/packages/transcription/src/audio/decode.rs`, a
-`SymphoniaError::DecodeError` whose message contains "past master element"
-ends the audio when the file's Segment size is unknown, as Stop never
-finished it. In a file whose Segment size is known, the same error is
-damage and stays an error. Nothing rewrites the file.
+**The decoder reads a cut-off take to its last whole block.** Whispering
+decodes with Symphonia 0.6. Its WebM reader reports the torn block at the
+end of a Segment of unknown size, which is how Stop leaves a take it never
+finished, as an unexpected end of file; in
+`whispering-keeps-its-recordings-local:apps/whispering/packages/transcription/src/audio/decode.rs` an
+`std::io::ErrorKind::UnexpectedEof` ends the audio. A Segment whose stated
+size runs past the file's bytes is a finished file that lost its end, and
+the reader refuses to open it: an error, never a shortened transcript.
+Nothing rewrites the file.
 
 ## Consequences
 
@@ -46,14 +51,16 @@ damage and stays an error. Nothing rewrites the file.
   WKWebView shows the take's length once it loads; another player may show
   none.
 - About 420 lines of WebM parsing in TypeScript are gone.
-- The decoder depends on the wording of a Symphonia message. A test in the
-  transcription crate decodes a torn take, so a Symphonia release that
-  changes the wording fails there. A test in the recorder crate cuts a take
-  at every 29th byte and decodes each cut.
-- A damaged finished file still fails to transcribe rather than returning a
-  shortened transcript.
-- Whispering's takes have no SeekHead and no Cues. A cut-off file from
-  another program that has them is not covered by this rule.
+- The rule rests on how Symphonia 0.6's WebM reader ends a file, not on an
+  error message's wording. Tests hold it there: the transcription crate cuts
+  a finished WebM with a SeekHead and Cues at every byte and expects an error
+  at each cut, and decodes a torn take; the recorder crate cuts a take at
+  every 29th byte and decodes each cut. A Symphonia upgrade that changes
+  either behavior fails those tests.
+- A damaged finished file fails to transcribe rather than returning a
+  shortened transcript, whichever program wrote it.
+- Symphonia 0.6 also trims MP3 and AAC encoder delay and padding by
+  default.
 
 ## Considered alternatives
 
@@ -64,6 +71,9 @@ damage and stays an error. Nothing rewrites the file.
   Stop never finished would break that.
 - **Repair the file so every reader accepts it.** ADR-0962 decided nothing
   repairs a take.
-- **Treat "past master element" as the end in any file.** Damage in the
-  middle of a finished file would return a shortened transcript with no
-  error.
+- **Stay on Symphonia 0.5 and match its "past master element" message.**
+  The rule would depend on an error's wording, and 0.5 panics on a finished
+  WebM cut off before what its SeekHead points to, which needed a check of
+  its own in `decode.rs`.
+- **Treat any decode error at the end as the end of the audio.** Damage in a
+  finished file would return a shortened transcript with no error.
