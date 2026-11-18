@@ -1,14 +1,31 @@
-/** Run actions: find one, check its input, and answer what it did. */
+/**
+ * Run actions in serve: find one, check its input, and answer what it did.
+ * A page and an agent name an action by its key; the command sends its words
+ * as typed, and serve finds the action they name (ADR-0961).
+ */
 
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { encodeActionResult, isActionResult } from '../action-result.ts';
 import { RESERVED_NAMES } from '../errors.ts';
-import { type Action, ActionError, type Answer, Err } from '../index.ts';
-import { loadHomeApp, type Runnable } from './home.ts';
-import { checkInput } from './input.ts';
+import {
+	type Action,
+	ActionError,
+	type Answer,
+	isName,
+	type NotStarted,
+} from '../index.ts';
+import { type LoadedApp, loadHomeApp } from './home.ts';
+import { checkInput, matchAction, readInput, usageLine } from './input.ts';
 import { stderrJsonLines } from './output.ts';
 import type { EpicenterRoot } from './root.ts';
+
+/** An action found in its loaded app, by the key its words make. */
+export type Found = { app: LoadedApp; key: string; action: Action };
+
+/** A call ready to run: the action and its checked input. */
+export type Call = Found & { input: Record<string, unknown> };
 
 type Thrown = { name: string; message: string } & Record<string, unknown>;
 
@@ -26,10 +43,7 @@ const runLog = createLogger('cli/run', stderrJsonLines);
  * record has neither the input nor the result, which can hold personal data.
  */
 export async function runAction(
-	located: Runnable,
-	key: string,
-	action: Action,
-	input: Record<string, unknown>,
+	{ app, key, action, input }: Call,
 	{ onUpdate, log = runLog }: Following = {},
 ): Promise<Answer> {
 	const started = performance.now();
@@ -92,7 +106,7 @@ export async function runAction(
 		?.name;
 	try {
 		log.info('action run ended', {
-			app: located.name,
+			app: app.name,
 			action: key,
 			durationMs: Math.round(performance.now() - started),
 			...(error === null
@@ -117,49 +131,93 @@ type Following = {
 	log?: Logger;
 };
 
-/** A call that is ready to run, or the `NotStarted` that answers it instead. */
-type Resolved =
-	| { refusal: Answer }
-	| {
-			refusal?: undefined;
-			located: Runnable;
-			action: Action;
-			input: Record<string, unknown>;
-	  };
+const usage = (message: string, next?: string) =>
+	ActionError.NotStarted({ cause: 'usage', message, next });
 
-/**
- * Load the current code, find the action, and check its input, running
- * nothing.
- */
-export async function resolveAction(
+/** `find`'s answer, or `NotStarted` (`internal`) for what it threw: nothing ran. */
+async function guarded<T>(
+	find: () => Promise<Result<T, NotStarted>>,
+): Promise<Result<T, NotStarted>> {
+	try {
+		return await find();
+	} catch (cause) {
+		return ActionError.NotStarted({
+			cause: 'internal',
+			message: extractErrorMessage(cause),
+		});
+	}
+}
+
+/** Load the app's current code and find the action its key names, running nothing. */
+export function findAction(
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 	key: string,
-	raw: unknown,
-): Promise<Resolved> {
-	const usage = (message: string, next?: string) => ({
-		refusal: ActionError.NotStarted({ cause: 'usage', message, next }),
-	});
-	try {
-		const { data: located, error: notLoaded } = await loadHomeApp(root, name);
-		if (notLoaded) return { refusal: Err(notLoaded) };
-		const action = Object.hasOwn(located.actions, key)
-			? located.actions[key]
+): Promise<Result<Found, NotStarted>> {
+	return guarded(async () => {
+		const { data: app, error } = await loadHomeApp(root, name);
+		if (error) return Err(error);
+		const action = Object.hasOwn(app.actions, key)
+			? app.actions[key]
 			: undefined;
 		if (!action)
 			return usage(`${name} has no action "${key}"`, `epicenter ${name}`);
-		if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
-			return usage('The input is not a JSON object');
-		const checked = checkInput(action, raw);
-		if ('error' in checked)
-			return usage(checked.error, `epicenter ${name} ${key} --help`);
-		return { located, action, input: checked.input };
-	} catch (cause) {
-		return {
-			refusal: ActionError.NotStarted({
-				cause: 'internal',
-				message: extractErrorMessage(cause),
-			}),
-		};
-	}
+		return Ok({ app, key, action });
+	});
+}
+
+/**
+ * Load the app's current code and find the action the command's words name:
+ * the longest run of them that is an action's key. What follows the action's
+ * words is `rest`, the input as typed.
+ */
+export function findWords(
+	root: Pick<EpicenterRoot, 'folder'>,
+	name: string,
+	words: string[],
+): Promise<Result<Found & { rest: string[] }, NotStarted>> {
+	return guarded(async () => {
+		const { data: app, error } = await loadHomeApp(root, name);
+		if (error) return Err(error);
+		const matched = matchAction(app.actions, words);
+		const action = matched && app.actions[matched.key];
+		if (matched && action)
+			return Ok({ app, key: matched.key, action, rest: matched.rest });
+		// The words that could name an action: those before the input.
+		const end = words.findIndex((word) => !isName(word));
+		const asked = words.slice(0, end < 0 ? undefined : end).join(' ');
+		return usage(
+			`${name} has no action ${JSON.stringify(asked || words[0] || '')}. Its actions:\n${Object.entries(
+				app.actions,
+			)
+				.map(([key, each]) => usageLine(name, key, each.input))
+				.join('\n')}`,
+			`epicenter ${name}`,
+		);
+	});
+}
+
+/** Help for checking `found`'s input, after a refusal. */
+const helpFor = ({ app, key }: Found) => `epicenter ${app.name} ${key} --help`;
+
+/** Check an input a page or an agent sent as JSON, running nothing. */
+export function checkCall(
+	found: Found,
+	raw: unknown,
+): Result<Call, NotStarted> {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return usage('The input is not a JSON object');
+	const checked = checkInput(found.action.input, raw);
+	if ('error' in checked) return usage(checked.error, helpFor(found));
+	return Ok({ ...found, input: checked.input });
+}
+
+/** Read and check the input the command typed after the action's words, running nothing. */
+export function readCall(
+	found: Found,
+	rest: string[],
+): Result<Call, NotStarted> {
+	const read = readInput(found.action.input, rest);
+	if ('error' in read) return usage(read.error, helpFor(found));
+	return Ok({ ...found, input: read.input });
 }

@@ -110,6 +110,27 @@ test('HTTP tools/list offers app actions', async () => {
 	]);
 });
 
+test('GET / answers the one listing as JSON, naming no path, and tools/list offers its actions', async () => {
+	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
+	const response = await fetch(`${f.base}/`, {
+		headers: { accept: 'application/json' },
+	});
+	expect(response.status).toBe(200);
+	const text = await response.text();
+	expect(text).not.toContain(f.root);
+	const listing = JSON.parse(text);
+	expect(Object.keys(listing)).toEqual([
+		'version',
+		'apps',
+		'problems',
+		'routines',
+	]);
+	const tools = (await (await mcp(f.base, 'tools/list')).json()) as {
+		result: { tools: unknown[] };
+	};
+	expect(tools.result.tools).toEqual(listing.apps[0].actions);
+});
+
 test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup((f) =>
 		f.app(

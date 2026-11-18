@@ -3,18 +3,26 @@
  *
  * ```txt
  * POST /                MCP, stateless JSON
- * GET  /                the launcher; 405 when asked for an event stream (MCP)
+ * GET  /                the listing as JSON (accept: application/json), else the
+ *                       launcher; 405 when asked for an event stream (MCP)
  * GET  /<app>/...       the app's UI: ui/dist/ as static files, as the app's build left it
  * GET  /<app>           308 to /<app>/
- * POST /<app>/<action>  call an action; its words are joined by `.`
+ * POST /<app>           the command: {"words": [...]} as typed after the app's name
+ * POST /<app>/<action>  a page's call; its words are joined by `.`
  * ```
+ *
+ * Serve alone loads app code (ADR-0961). The `epicenter` command sends the
+ * words it was given, and serve finds the action, reads and checks the input,
+ * and answers "no such action" or "this input does not fit" itself; with
+ * `"help": true` it answers the action's tool instead. The listing at `GET /`
+ * feeds every view of the apps (`listing.ts`).
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
  * the call arrives (`home.ts`, `run.ts`), and stores nothing about it. When a
  * run ends, serve writes one JSON line to stderr naming the app, the action,
  * the outcome and how long it took, never the input or the result.
  *
- * A call's body is its input as JSON. Its answer is JSON lines:
+ * A page's call's body is its input as JSON. A call's answer is JSON lines:
  * `{"update": value}` for each update the action sends, then
  * `{"answer": {data, error}}` (ADR-0953). A call refused before it begins
  * answers that one answer, a `NotStarted`, as the body of a 400, and writes
@@ -51,13 +59,22 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { ActionError, type Answer, isName } from '../index.ts';
-import { findEntry, homeEntries, loadHomeApp, localProblem } from './home.ts';
+import { Err, Ok } from 'wellcrafted/result';
+import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
+import { findEntry, homeEntries, localProblem } from './home.ts';
+import { actionTool, listApps } from './listing.ts';
 import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import { type EpicenterRoot, MARKER } from './root.ts';
 import { createRoutines } from './routines.ts';
-import { resolveAction, runAction } from './run.ts';
+import {
+	type Call,
+	checkCall,
+	findAction,
+	findWords,
+	readCall,
+	runAction,
+} from './run.ts';
 import { HOME_HEADER, homeName, whoAnswers } from './serve-call.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
@@ -129,180 +146,160 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
-/** What the listener serves. */
-type Site = {
-	/** Answer an MCP request. */
-	mcp(request: Request): Promise<Response>;
-	/** The launcher at `GET /`, or 405 when MCP asks for an event stream. */
-	launcher(request: Request): Promise<Response>;
-	/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
-	ui(request: Request): Promise<Response>;
-};
-
 const notFound = () => new Response('Not found', { status: 404 });
 
 /** Where an app's built UI lives, relative to its code folder. Its own build writes it; `serve` never builds. */
 const UI_DIST = join('ui', 'dist');
 
-/** The private listener's site: MCP, the launcher, and each app's UI and actions. */
-function createSite(root: EpicenterRoot): Site {
-	const uiFile = async (app: string, path: string) => {
-		if (!isName(app)) return notFound();
-		const entry = (await findEntry(root, app)).data;
-		if (!entry || entry.problem) return notFound();
-		let decoded: string;
-		try {
-			decoded = decodeURIComponent(path);
-		} catch {
+/** A file of the app's built UI at `path`, or 404. */
+async function uiFile(root: EpicenterRoot, app: string, path: string) {
+	const entry = await findEntry(root, app);
+	if (!entry || entry.problem) return notFound();
+	let decoded: string;
+	try {
+		decoded = decodeURIComponent(path);
+	} catch {
+		return notFound();
+	}
+	if (
+		decoded.includes('\\') ||
+		isAbsolute(decoded) ||
+		// `.`, `..`, and other dot names: never part of a UI.
+		decoded.split('/').some((part) => part.startsWith('.'))
+	)
+		return notFound();
+	try {
+		// The UI in ui/dist/ is the only thing served (ADR-0860).
+		const dist = await realpath(join(entry.codePath, UI_DIST));
+		if (!dist.startsWith(`${entry.codePath}${sep}`)) return notFound();
+		const candidate = join(dist, decoded || 'index.html');
+		const file = await realpath(
+			(await stat(candidate)).isDirectory()
+				? join(candidate, 'index.html')
+				: candidate,
+		);
+		if (!file.startsWith(`${dist}${sep}`) || !(await stat(file)).isFile())
 			return notFound();
-		}
-		if (
-			decoded.includes('\\') ||
-			isAbsolute(decoded) ||
-			// `.`, `..`, and other dot names: never part of a UI.
-			decoded.split('/').some((part) => part.startsWith('.'))
-		)
-			return notFound();
-		try {
-			// The UI in ui/dist/ is the only thing served (ADR-0860).
-			const root = await realpath(join(entry.codePath, UI_DIST));
-			if (!root.startsWith(`${entry.codePath}${sep}`)) return notFound();
-			const candidate = join(root, decoded || 'index.html');
-			const file = await realpath(
-				(await stat(candidate)).isDirectory()
-					? join(candidate, 'index.html')
-					: candidate,
-			);
-			if (!file.startsWith(`${root}${sep}`) || !(await stat(file)).isFile())
-				return notFound();
-			return new Response(Bun.file(file), {
-				headers: {
-					'cache-control': decoded.startsWith('_app/immutable/')
-						? 'public, max-age=31536000, immutable'
-						: 'no-cache',
-				},
-			});
-		} catch {
-			return notFound();
-		}
-	};
-	return {
-		async mcp(request) {
-			const server = await createMcpServer(root);
-			const transport = new WebStandardStreamableHTTPServerTransport({
-				enableJsonResponse: true,
-			});
-			try {
-				await server.connect(transport);
-				return await transport.handleRequest(request);
-			} finally {
-				await server.close();
-			}
-		},
-		async launcher(request) {
-			// MCP's GET for a server-sent stream: stateless, so there is none.
-			const wantsStream = request.headers
-				.get('accept')
-				?.includes('text/event-stream');
-			if (
-				(request.method !== 'GET' && request.method !== 'HEAD') ||
-				wantsStream
-			)
-				return new Response('Method not allowed', {
-					status: 405,
-					headers: { allow: 'GET, HEAD, POST' },
-				});
-			const apps = await Promise.all(
-				(await homeEntries(root)).map(async (entry) => {
-					if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
-					const { data: located } = await loadHomeApp(root, entry.entry);
-					return {
-						name: entry.entry,
-						description: located?.app.description ?? '',
-						icon: (await uiFile(entry.entry, 'icon.png')).ok,
-					};
-				}),
-			);
-			return new Response(
-				launcherPage(
-					basename(root.folder),
-					apps.filter((app) => app !== undefined),
-				),
-				{
-					headers: {
-						'content-type': 'text/html; charset=utf-8',
-						'cache-control': 'no-cache',
-					},
-				},
-			);
-		},
-		async ui(request) {
-			if (request.method !== 'GET' && request.method !== 'HEAD')
-				return notFound();
-			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(
-				new URL(request.url).pathname,
-			);
-			if (!match) return notFound();
-			const app = match[1];
-			if (!isName(app)) return notFound();
-			if (match[2] === undefined) {
-				if ((await findEntry(root, app)).error) return notFound();
-				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
-				return new Response(null, {
-					status: 308,
-					headers: { location: `/${encodeURIComponent(app)}/` },
-				});
-			}
-			return uiFile(app, match[2]);
-		},
-	};
+		return new Response(Bun.file(file), {
+			headers: {
+				'cache-control': decoded.startsWith('_app/immutable/')
+					? 'public, max-age=31536000, immutable'
+					: 'no-cache',
+			},
+		});
+	} catch {
+		return notFound();
+	}
+}
+
+/** `POST /`: one MCP request, answered by a server made for it alone. */
+async function mcp(root: EpicenterRoot, request: Request) {
+	const server = await createMcpServer(root);
+	const transport = new WebStandardStreamableHTTPServerTransport({
+		enableJsonResponse: true,
+	});
+	try {
+		await server.connect(transport);
+		return await transport.handleRequest(request);
+	} finally {
+		await server.close();
+	}
 }
 
 /**
- * `POST /<app>/<action>`: run the action and answer its updates and then its
- * answer as JSON lines. Updates wait in order for a slow caller, because one
- * can be a piece of text the next extends, and are dropped once it is gone.
+ * `GET /`: the listing as JSON to a caller that accepts it, else the
+ * launcher page of each app in it with a UI; 405 when MCP asks for an event
+ * stream.
  */
-async function call(root: EpicenterRoot, request: Request): Promise<Response> {
-	// A call meant for another home is refused, so a command in a second home
-	// cannot write into this one (ADR-0936).
-	const meant = request.headers.get(HOME_HEADER);
-	if (meant !== null && meant !== homeName(root))
-		return new Response('This call is for another Epicenter', { status: 409 });
-	return callAnswer(root, request);
+async function listing(root: EpicenterRoot, request: Request) {
+	const accept = request.headers.get('accept') ?? '';
+	// MCP's GET for a server-sent stream: stateless, so there is none.
+	if (
+		(request.method !== 'GET' && request.method !== 'HEAD') ||
+		accept.includes('text/event-stream')
+	)
+		return new Response('Method not allowed', {
+			status: 405,
+			headers: { allow: 'GET, HEAD, POST' },
+		});
+	const listed = await listApps(root);
+	if (accept.includes('application/json'))
+		return Response.json(listed, { headers: { 'cache-control': 'no-store' } });
+	const apps = await Promise.all(
+		listed.apps.map(async ({ name, description }) =>
+			(await uiFile(root, name, 'index.html')).ok
+				? {
+						name,
+						description,
+						icon: (await uiFile(root, name, 'icon.png')).ok,
+					}
+				: undefined,
+		),
+	);
+	return new Response(
+		launcherPage(
+			basename(root.folder),
+			apps.filter((app) => app !== undefined),
+		),
+		{
+			headers: {
+				'content-type': 'text/html; charset=utf-8',
+				'cache-control': 'no-cache',
+			},
+		},
+	);
 }
 
-async function callAnswer(
-	root: EpicenterRoot,
+/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
+async function ui(root: EpicenterRoot, request: Request) {
+	if (request.method !== 'GET' && request.method !== 'HEAD') return notFound();
+	const match = /^\/([^/]+)(?:\/(.*))?$/.exec(new URL(request.url).pathname);
+	if (!match) return notFound();
+	const app = match[1];
+	if (!isName(app)) return notFound();
+	if (match[2] === undefined) {
+		if (!(await findEntry(root, app))) return notFound();
+		// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
+		return new Response(null, {
+			status: 308,
+			headers: { location: `/${encodeURIComponent(app)}/` },
+		});
+	}
+	return uiFile(root, app, match[2]);
+}
+
+const JSON_LINES = {
+	'content-type': 'application/x-ndjson',
+	'cache-control': 'no-store',
+};
+
+/** A call refused before it began: its `NotStarted` alone, as the body of a 400. */
+const refused = (error: NotStarted) =>
+	Response.json(Err(error), { status: 400 });
+
+/** An answer that needs no run, as the one line a call's response ends with. */
+const answered = (answer: Answer) =>
+	new Response(`${JSON.stringify({ answer })}\n`, { headers: JSON_LINES });
+
+/** The body as JSON, or `undefined` when it is not JSON. */
+async function bodyJson(
 	request: Request,
-): Promise<Response> {
-	const parts = new URL(request.url).pathname.split('/');
-	let app: string;
-	let words: string[];
+): Promise<{ value: unknown } | undefined> {
+	const text = new TextDecoder().decode(await request.arrayBuffer());
 	try {
-		app = decodeURIComponent(parts[1] ?? '');
-		words = decodeURIComponent(parts[2] ?? '').split('.');
+		return { value: JSON.parse(text) };
 	} catch {
-		return notFound();
+		return undefined;
 	}
-	if (parts.length !== 3 || !isName(app) || !words.every(isName))
-		return notFound();
-	const key = words.join(' ');
-	const bytes = await request.arrayBuffer();
-	let input: unknown;
-	try {
-		input = JSON.parse(new TextDecoder().decode(bytes));
-	} catch {
-		return Response.json(
-			ActionError.NotStarted({
-				cause: 'usage',
-				message: 'The input is not valid JSON',
-			}),
-			{ status: 400 },
-		);
-	}
-	const resolved = await resolveAction(root, app, key, input);
-	if (resolved.refusal) return Response.json(resolved.refusal, { status: 400 });
+}
+
+/**
+ * Run `call`, and answer its updates and then its answer as JSON lines.
+ * Updates wait in order for a slow caller, because one can be a piece of
+ * text the next extends, and are dropped once it is gone.
+ */
+function stream(call: Call): Response {
+	const { app, key } = call;
 	const encoder = new TextEncoder();
 	let listening = true;
 	const body = new ReadableStream<Uint8Array>({
@@ -315,7 +312,9 @@ async function callAnswer(
 				} catch (cause) {
 					// A line that is not JSON, such as a cyclic update, is dropped
 					// alone: the call goes on and its answer still arrives.
-					serveLog.warn(ServeError.DroppedLine({ app, key, cause }).error);
+					serveLog.warn(
+						ServeError.DroppedLine({ app: app.name, key, cause }).error,
+					);
 					return;
 				}
 				try {
@@ -325,7 +324,7 @@ async function callAnswer(
 					listening = false;
 				}
 			};
-			void runAction(resolved.located, key, resolved.action, resolved.input, {
+			void runAction(call, {
 				// JSON has no undefined, and a line with no update is not one.
 				onUpdate: (update) => send({ update: update ?? null }),
 			}).then((answer) => {
@@ -337,12 +336,90 @@ async function callAnswer(
 			listening = false;
 		},
 	});
-	return new Response(body, {
-		headers: {
-			'content-type': 'application/x-ndjson',
-			'cache-control': 'no-store',
-		},
-	});
+	return new Response(body, { headers: JSON_LINES });
+}
+
+/** `POST /<app>/<action>`: a page's call, its action's words joined by `.` and its input the body. */
+async function pageCall(
+	root: EpicenterRoot,
+	app: string,
+	path: string,
+	request: Request,
+) {
+	let words: string[];
+	try {
+		words = decodeURIComponent(path).split('.');
+	} catch {
+		return notFound();
+	}
+	if (!words.every(isName)) return notFound();
+	const body = await bodyJson(request);
+	if (!body)
+		return refused(
+			ActionError.NotStarted({
+				cause: 'usage',
+				message: 'The input is not valid JSON',
+			}).error,
+		);
+	const { data: found, error } = await findAction(root, app, words.join(' '));
+	if (error) return refused(error);
+	const { data: call, error: misfit } = checkCall(found, body.value);
+	if (misfit) return refused(misfit);
+	return stream(call);
+}
+
+/**
+ * `POST /<app>`: the command's words after the app's name as typed, as
+ * `{"words": [...]}` (ADR-0961). Serve finds the action they name and reads
+ * the word after it as the input. With `"help": true` it answers the
+ * action's tool instead of running it.
+ */
+async function commandCall(root: EpicenterRoot, app: string, request: Request) {
+	const body = await bodyJson(request);
+	const { words, help } = (body?.value ?? {}) as {
+		words?: unknown;
+		help?: unknown;
+	};
+	if (
+		!Array.isArray(words) ||
+		!words.length ||
+		!words.every((word) => typeof word === 'string')
+	)
+		return refused(
+			ActionError.NotStarted({
+				cause: 'usage',
+				message: 'The command sends {"words": [...]}, the words after the app',
+			}).error,
+		);
+	const { data: found, error } = await findWords(root, app, words);
+	if (error) return refused(error);
+	if (help === true)
+		return answered(Ok(actionTool(app, found.key, found.action)));
+	const { data: call, error: misfit } = readCall(found, found.rest);
+	if (misfit) return refused(misfit);
+	return stream(call);
+}
+
+/** `POST /<app>` from the command, or `POST /<app>/<action>` from a page. */
+async function post(root: EpicenterRoot, request: Request) {
+	// A call meant for another home is refused, so a command in a second home
+	// cannot write into this one (ADR-0936).
+	const meant = request.headers.get(HOME_HEADER);
+	if (meant !== null && meant !== homeName(root))
+		return new Response('This call is for another Epicenter', { status: 409 });
+	const [, first = '', action, ...more] = new URL(request.url).pathname.split(
+		'/',
+	);
+	let app: string;
+	try {
+		app = decodeURIComponent(first);
+	} catch {
+		return notFound();
+	}
+	if (!isName(app) || more.length) return notFound();
+	return action === undefined
+		? commandCall(root, app, request)
+		: pageCall(root, app, action, request);
 }
 
 /**
@@ -376,7 +453,6 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * starts.
  */
 function startHttpServer(root: EpicenterRoot) {
-	const site = createSite(root);
 	const name = homeName(root);
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
@@ -396,13 +472,13 @@ function startHttpServer(root: EpicenterRoot) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
-		const response = await (request.method === 'POST'
-			? pathname === '/'
-				? site.mcp(request)
-				: call(root, request)
-			: pathname === '/'
-				? site.launcher(request)
-				: site.ui(request));
+		const response = await (pathname === '/'
+			? request.method === 'POST'
+				? mcp(root, request)
+				: listing(root, request)
+			: request.method === 'POST'
+				? post(root, request)
+				: ui(root, request));
 		// Every answer to a request serve accepts names its home, so a command
 		// or a second serve can tell who holds the port.
 		response.headers.set(HOME_HEADER, name);
@@ -501,8 +577,8 @@ export async function serveHttp(
 		return portTaken((await whoAnswers(root)) ?? { home: false });
 	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${server.port}.`);
-	for (const { entry, realPath } of await homeEntries(root)) {
-		const local = await localProblem(entry, realPath);
+	for (const found of await homeEntries(root)) {
+		const local = await localProblem(found);
 		if (local) writeErr(local);
 	}
 	await new Promise<void>((resolve) => {

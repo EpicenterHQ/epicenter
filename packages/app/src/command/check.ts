@@ -7,25 +7,24 @@
  * nothing.
  */
 
+import { join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { type CheckedKey, checkData } from '../data-check.ts';
 import { ActionError, type Answer, Err, Ok } from '../index.ts';
-import { parseWords } from './commands.ts';
 import {
 	discoverAll,
+	type LoadedApp,
 	loadHomeApp,
 	localProblem,
-	type Runnable,
 } from './home.ts';
 import type { EpicenterRoot } from './root.ts';
 
 /** An app with a problem outside its records: it did not load, a read failed, or its `local/` could reach Git. */
 type Unchecked = { entry: string; folder: string; problems: string[] };
 
-/** Every data key of `located`, read from its folder; nothing is written. */
-async function checkApp(located: Runnable) {
-	const { data } = located.app;
-	return data ? checkData(located.realPath, data) : {};
+/** Every data key of `loaded`, read from its folder; nothing is written. */
+async function checkApp({ app, realPath }: LoadedApp) {
+	return app.data ? checkData(realPath, app.data) : {};
 }
 
 /** The report as a person reads it: each app, then each data key. */
@@ -74,38 +73,35 @@ function render(
  */
 export async function checkCommand(
 	root: Pick<EpicenterRoot, 'folder'>,
-	words: string[],
+	name: string | undefined,
 	json: boolean,
 ): Promise<Answer> {
-	const { data: given, error: misused } = parseWords('check', words, [0, 1]);
-	if (misused) return Err(misused);
-	const [name] = given;
-	let runnable: Runnable[];
+	const folder = (app: string) => join(root.folder, 'apps', app);
+	let loaded: LoadedApp[];
 	const unchecked: Unchecked[] = [];
 	if (name === undefined) {
 		const found = await discoverAll(root);
-		runnable = found.apps;
-		for (const { entry, folder, problems } of found.problems)
-			unchecked.push({ entry, folder, problems });
+		loaded = found.apps;
+		for (const { name, problems } of found.problems)
+			unchecked.push({ entry: name, folder: folder(name), problems });
 	} else {
 		const { data: one, error } = await loadHomeApp(root, name);
 		if (error) return Err(error);
-		runnable = [one];
-		const local = await localProblem(one.entry, one.realPath);
+		loaded = [one];
+		const local = await localProblem(one);
 		if (local)
-			unchecked.push({
-				entry: one.entry,
-				folder: one.folder,
-				problems: [local],
-			});
+			unchecked.push({ entry: name, folder: folder(name), problems: [local] });
 	}
 	const apps: Record<string, Record<string, CheckedKey>> = {};
-	for (const located of runnable) {
+	for (const each of loaded) {
 		try {
-			apps[located.entry] = await checkApp(located);
+			apps[each.name] = await checkApp(each);
 		} catch (error) {
-			const { entry, folder } = located;
-			unchecked.push({ entry, folder, problems: [extractErrorMessage(error)] });
+			unchecked.push({
+				entry: each.name,
+				folder: folder(each.name),
+				problems: [extractErrorMessage(error)],
+			});
 		}
 	}
 	const report = json ? { apps, problems: unchecked } : render(apps, unchecked);

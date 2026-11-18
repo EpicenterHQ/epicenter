@@ -1,16 +1,19 @@
 /**
- * Which action a person meant, and its input (ADR-0841, ADR-0925). The longest
- * run of words that names an action is the action; when none does, the CLI
- * lists the app's actions. After the action's words comes at most one more
- * word, the input: one JSON object as text, or `-` to read that text from
- * stdin. A page, an agent, and the command line give the same object, and
- * `checkInput` checks it for all three.
+ * Which action a person meant, and its input (ADR-0841, ADR-0925, ADR-0961).
+ * Serve reads the words the command sends as typed: the longest run of words
+ * that names an action is the action, and after them comes at most one more
+ * word, the input as one JSON object. The command reads `-` from its own
+ * stdin and sends that text in its place. A page, an agent, and the command
+ * line give the same object, and `checkInput` checks it for all three.
+ *
+ * What an input takes is plain JSON Schema, so help and examples are written
+ * from the schema alone, by serve or by a command that loaded no app.
  */
 
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import { whatFits } from '../field.ts';
-import { type Action, isName } from '../index.ts';
+import { type ObjectSchema, whatFits } from '../field.ts';
+import { isName } from '../index.ts';
 
 /**
  * Match the longest action prefix so spaced action keys keep their spelling.
@@ -38,13 +41,11 @@ export function matchAction(
  * take is refused, naming the keys it does.
  */
 export function checkInput(
-	action: Action,
-	raw: unknown,
-): { ok: true; input: Record<string, unknown> } | { error: string } {
-	const schema = action.input;
-	const value = structuredClone(raw);
+	schema: ObjectSchema,
+	value: unknown,
+): { input: Record<string, unknown> } | { error: string } {
 	if (Value.Check(schema, value))
-		return { ok: true, input: value as Record<string, unknown> };
+		return { input: value as Record<string, unknown> };
 	const given =
 		typeof value === 'object' && value !== null && !Array.isArray(value)
 			? (value as Record<string, unknown>)
@@ -84,13 +85,11 @@ export function checkInput(
 export function usageLine(
 	appName: string,
 	key: string,
-	action: Action,
+	input: ObjectSchema,
 ): string {
 	const command = `epicenter ${appName} ${key}`;
-	if (!Object.keys(action.input.properties).length) return command;
-	return action.input.required.length
-		? `${command} <input>`
-		: `${command} [<input>]`;
+	if (!Object.keys(input.properties).length) return command;
+	return input.required.length ? `${command} <input>` : `${command} [<input>]`;
 }
 
 type Described = {
@@ -140,8 +139,7 @@ function exampleOf(field: Described): unknown {
  * An input to show: each required key with a value it takes, or the first key
  * when none is required, so the example always shows the object's shape.
  */
-function exampleInput(action: Action): string {
-	const { properties, required } = action.input;
+function exampleInput({ properties, required }: ObjectSchema): string {
 	const shown = required.length
 		? required
 		: Object.keys(properties).slice(0, 1);
@@ -164,28 +162,30 @@ function quoted(text: string): string {
 export function exampleCommand(
 	appName: string,
 	key: string,
-	action: Action,
+	input: ObjectSchema,
 ): string {
 	const command = `epicenter ${appName} ${key}`;
-	return `${command} ${quoted(exampleInput(action))}`;
+	return `${command} ${quoted(exampleInput(input))}`;
 }
 
 /**
- * Read an action's input from the words after its name: none is `{}`, `-`
- * reads the JSON text from stdin, and any other word is the JSON text itself.
- * Stdin is read only for `-`.
+ * Read an action's input from the words after its name: none is `{}`, and
+ * one word is the JSON text of the object.
  */
-export async function readInput(action: Action, rest: string[]) {
-	const example = quoted(exampleInput(action));
+export function readInput(
+	schema: ObjectSchema,
+	rest: string[],
+): { input: Record<string, unknown> } | { error: string } {
+	const example = quoted(exampleInput(schema));
 	if (rest.length > 1)
 		return {
 			error: `The input is one argument, a JSON object such as ${example}; quote it whole`,
 		};
 	const [word] = rest;
-	if (word === undefined) return checkInput(action, {});
+	if (word === undefined) return checkInput(schema, {});
 	let raw: unknown;
 	try {
-		raw = JSON.parse(word === '-' ? await Bun.stdin.text() : word);
+		raw = JSON.parse(word);
 	} catch {
 		return {
 			error: `The input is not JSON; give one JSON object, such as ${example}`,
@@ -195,5 +195,5 @@ export async function readInput(action: Action, rest: string[]) {
 		return {
 			error: `The input is not a JSON object; give one, such as ${example}`,
 		};
-	return checkInput(action, raw);
+	return checkInput(schema, raw);
 }

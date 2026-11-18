@@ -296,6 +296,33 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 		},
 	});
 	expect(await ran()).toBe('xx');
+	// Listings and help come from serve too, so each is refused alike.
+	for (const words of [[], ['where'], ['where', 'am', '--help']])
+		expect((await f.json(...words)).answer.error).toMatchObject({
+			cause: 'unavailable',
+			message,
+		});
+});
+
+test('only serve loads app code: the command asks it for the listing, help and calls', async () => {
+	const f = await setup();
+	const loads = join(f.root, 'loads.txt');
+	await f.folder(join(f.apps, 'where'), {
+		'code/epicenter.ts': `${header}
+import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(loads)}, process.pid + '\\n');
+export default defineApp(() => ({ description: 'Where', actions: {
+	am: defineAction({ description: 'Say which process ran this', input: {}, run: () => Ok(process.pid) }),
+} }));
+`,
+	});
+	for (const words of [[], ['where'], ['where', 'am', '--help']])
+		expect((await f.run(...words)).code).toBe(0);
+	const inServe = (await f.json('where', 'am')).answer.data;
+	const loaders = new Set(
+		(await readFile(loads, 'utf8')).trim().split('\n').map(Number),
+	);
+	expect([...loaders]).toEqual([inServe]);
 });
 
 /** Hold the fixture's port as `answer` does, in place of its serve. */

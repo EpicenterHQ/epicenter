@@ -110,7 +110,8 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 		JSON.parse((await f.runIn(f.home, '--json')).stdout).error.message,
 	).toBe(`${marker}: prot is not a field; the only field is port`);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
-	expect((await f.runIn(f.home, '--json')).code).toBe(0);
+	// check asks no serve, so it shows the marker reads alone.
+	expect((await f.runIn(f.home, 'check', '--json')).code).toBe(0);
 });
 
 test('port 0 names no port a command could find serve at, so the marker refuses it', async () => {

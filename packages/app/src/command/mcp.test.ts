@@ -200,6 +200,16 @@ test('an action with mcp: false is not offered or run over MCP, and still runs f
 		expect(answer.content).toEqual([
 			{ type: 'text', text: 'messages send is not offered over MCP' },
 		]);
+		// Said before the input is read, so a wrong input tells an agent nothing more.
+		for (const args of [{}, { text: 3 }, { nope: true }]) {
+			const refused = await client.callTool({
+				name: 'messages_send',
+				arguments: args,
+			});
+			expect(refused.content).toEqual([
+				{ type: 'text', text: 'messages send is not offered over MCP' },
+			]);
+		}
 		expect(await Bun.file(sent).exists()).toBe(false);
 		const cli = await f.run('messages', 'send', '{"text":"from me"}', '--json');
 		expect(JSON.parse(cli.stdout)).toEqual({ data: 'from me', error: null });

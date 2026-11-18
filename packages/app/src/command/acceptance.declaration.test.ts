@@ -299,8 +299,11 @@ test("D3 the input is one JSON object after the action's words, or - to read it 
 
 	for (const [args, message] of [
 		[['between', '2026-11-01', '2026-11-08'], 'The input is one argument'],
-		[['between', '--from', '2026-11-01'], 'The input is one argument'],
-		[['between', '--input', between], 'The input is one argument'],
+		// No word starts with -, so a flag is refused before serve is asked.
+		[['between', '--from', '2026-11-01'], '--from is not an option'],
+		[['between', '--input', between], '--input is not an option'],
+		[['between', '--', between], '-- is not an option'],
+		[['--', 'between', between], '-- is not an option'],
 		[['between', '2026-11-01'], 'The input is not JSON'],
 		[['between', '[]'], 'The input is not a JSON object'],
 		[['between', '{"from":"2026-11-01"}'], 'to is needed'],

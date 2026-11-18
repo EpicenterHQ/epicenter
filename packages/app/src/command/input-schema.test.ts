@@ -121,7 +121,7 @@ async function home() {
 
 /** The input `--help` shows for an action, read back from its command. */
 function exampleOf(name: string, key: string, action: Action) {
-	const command = exampleCommand(name, key, action);
+	const command = exampleCommand(name, key, action.input);
 	const text = command.slice(command.indexOf("'") + 1, -1);
 	return JSON.parse(text.replaceAll(`'\\''`, "'")) as Record<string, unknown>;
 }

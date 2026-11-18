@@ -32,6 +32,11 @@ function shellLine(words: string[]): string {
 		.join(' ');
 }
 
+/** A routine as the listing shows it: its schedule, next occurrence, and command to copy into a terminal, or why its file is refused. */
+export type RoutineRow =
+	| { name: string; cron: string; next: string | undefined; command: string }
+	| { name: string; problem: string };
+
 /** Why a routine did not run. Serve logs it and keeps its clock going. */
 const RoutineError = defineErrors({
 	Unreadable: ({ routine, cause }: { routine: string; cause: unknown }) => ({
@@ -149,7 +154,7 @@ export function createRoutines({ folder }: { folder: string }) {
 
 	return {
 		/** Each routine's schedule, next occurrence, and command as a shell line, or why its file is refused. */
-		async list(now = new Date()) {
+		async list(now = new Date()): Promise<RoutineRow[]> {
 			return Promise.all(
 				(await names()).map(async (name) => {
 					try {

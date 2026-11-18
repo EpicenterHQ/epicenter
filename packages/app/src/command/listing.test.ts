@@ -17,8 +17,8 @@ import {
 	field,
 	Ok,
 } from '../index.ts';
-import type { Runnable } from './home.ts';
-import { oneAppListing } from './listing.ts';
+import type { LoadedApp } from './home.ts';
+import { appListing } from './listing.ts';
 
 test("a reference's schema names its target key in the listing", () => {
 	const data = defineData({} as Folder, {
@@ -35,25 +35,19 @@ test("a reference's schema names its target key in the listing", () => {
 		data,
 		actions: { shelve },
 	}))({ folder: {} as Folder });
-	const located: Runnable = {
-		entry: 'books',
-		folder: '/tmp/books',
+	const loaded: LoadedApp = {
+		name: 'books',
 		realPath: '/tmp/books',
 		codePath: '/tmp/books/code',
-		ok: true,
-		name: 'books',
 		app,
 		actions: { shelve },
 	};
-	const listed = oneAppListing(located, true) as {
-		data: Record<string, { fields: { properties: object } }>;
-		actions: { inputSchema: { properties: object } }[];
-	};
+	const listed = appListing(loaded);
 	const ref = {
 		type: 'string',
 		'x-epicenter-ref': { key: 'shelves' },
 	};
-	expect(listed.data.books?.fields.properties).toEqual({ shelf: ref });
+	expect(listed.data?.books?.fields.properties).toEqual({ shelf: ref });
 	expect(listed.actions[0]?.inputSchema.properties).toEqual({
 		shelves: { type: 'array', 'x-epicenter-field': 'list', items: ref },
 	});

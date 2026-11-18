@@ -16,13 +16,13 @@ import { expect, test } from 'bun:test';
 import { createLogger, type Logger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineAction, Err, field, Ok } from '../index.ts';
-import type { Runnable } from './home.ts';
+import type { LoadedApp } from './home.ts';
 import { runAction } from './run.ts';
 
 const SECRET = 'diary entry 4417';
 
 // The record names the app, which is all a run reads of it.
-const notes = { name: 'notes' } as Runnable;
+const notes = { name: 'notes' } as LoadedApp;
 
 function run(
 	key: string,
@@ -34,7 +34,10 @@ function run(
 		input: { text: field.text() },
 		run: run as never,
 	});
-	return runAction(notes, key, action, { text: SECRET }, { log });
+	return runAction(
+		{ app: notes, key, action, input: { text: SECRET } },
+		{ log },
+	);
 }
 
 function recorder() {

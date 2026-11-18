@@ -13,7 +13,6 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
-import { COMMANDS } from './commands.ts';
 import { fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
@@ -147,7 +146,10 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'log', '{"minutes":"oops"}'], 'minutes must be a number'],
 		[['reading', 'log', '{"minutes":3}', '{}'], 'one argument'],
 		[['reading', 'tag', '{"done":"maybe"}'], 'done must be true or false'],
-		[['reading', 'log', '{"minutes":3}', '--version'], 'one argument'],
+		[
+			['reading', 'log', '{"minutes":3}', '--version'],
+			'--version stands alone',
+		],
 		[['setup'], 'Unknown app "setup"'],
 	];
 	for (const [args, message] of cases) {
@@ -274,20 +276,20 @@ Routines:
 
 test('a misused command answers its usage line, with its help as the next step', async () => {
 	const f = await setup();
-	const misused = [
-		['check', 'reading', 'vault'],
-		['check', '--from', './x'],
-	] as const;
-	for (const [command, ...words] of misused) {
-		const result = await f.run(command, ...words, '--json');
+	const check = 'epicenter check [<app>] [--json]';
+	for (const words of [
+		['reading', 'vault'],
+		['--from', './x'],
+	]) {
+		const result = await f.run('check', ...words, '--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout)).toEqual({
 			data: null,
 			error: {
 				name: 'NotStarted',
 				cause: 'usage',
-				message: `Usage: ${COMMANDS[command].usage}`,
-				next: `epicenter ${command} --help`,
+				message: `Usage: ${check}`,
+				next: 'epicenter check --help',
 			},
 		});
 	}
@@ -298,8 +300,8 @@ test('a misused command answers its usage line, with its help as the next step',
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /<app>/<action>',
 	);
-	expect((await f.run('check', '--help')).stdout).toBe(
-		`${COMMANDS.check.usage}\n${COMMANDS.check.help}\n`,
+	expect((await f.run('check', '--help')).stdout).toStartWith(
+		`${check}\nReads every data key`,
 	);
 });
 

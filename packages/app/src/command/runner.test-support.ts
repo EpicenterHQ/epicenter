@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { COMMANDS } from './commands.ts';
+import { COMMAND_WORDS } from './home.ts';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
 
@@ -85,17 +85,18 @@ export async function stopFixtureServes() {
 	fixtures.clear();
 }
 
-/** Whether `args` ask `epicenter` to run an app's action, which needs serve. */
-function callsAction(args: string[]) {
+/**
+ * Whether `args` ask `epicenter` something only serve answers: every command
+ * but `check`, `serve`, and help or the version on their own (ADR-0961).
+ */
+function needsServe(args: string[]) {
 	const words = args.filter((arg) => arg !== '--json');
 	const [first] = words;
-	return (
-		words.length > 1 &&
-		first !== undefined &&
-		!first.startsWith('-') &&
-		!Object.hasOwn(COMMANDS, first) &&
-		!args.some((arg) => arg === '--help' || arg === '-h')
-	);
+	if (first === undefined)
+		return !args.some((arg) =>
+			['--help', '-h', '--version', '-V'].includes(arg),
+		);
+	return !(COMMAND_WORDS as readonly string[]).includes(first);
 }
 
 /**
@@ -105,8 +106,8 @@ function callsAction(args: string[]) {
  * output, exit codes, and the folders on disk are tested together. Nothing
  * here reads the person's own home.
  *
- * Only serve runs an action, so a `run` of one starts `epicenter serve` for
- * this home unless one is running, and it is stopped when the test ends.
+ * Only serve loads app code, so a `run` of any command that asks it starts
+ * `epicenter serve` for this home unless one is running, and it is stopped when the test ends.
  * `serve` starts it without a `run`, for a test that spawns the command
  * itself. While a serve from `startServe` runs, the fixture starts none, and
  * after `stopServe` it starts none again.
@@ -167,7 +168,8 @@ export async function fixture() {
 					if (serving.own === own) serving.own = undefined;
 				});
 		}
-		await serving.own;
+		// A serve that does not start leaves the command to say why.
+		await serving.own.catch(() => undefined);
 	}
 	/** Stop the serve the fixture started, and start no other. */
 	async function stopServe() {
@@ -178,7 +180,7 @@ export async function fixture() {
 	}
 
 	async function runIn(cwd: string, ...args: string[]) {
-		if (callsAction(args)) await serve();
+		if (needsServe(args)) await serve();
 		const child = Bun.spawn([...command, ...args], {
 			cwd,
 			env,

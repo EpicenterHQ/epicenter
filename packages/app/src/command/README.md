@@ -223,17 +223,18 @@ epicenter --version
 ```
 
 The commands are `check` and `serve`. Their usage and help live in
-`src/commands.ts`. No command makes an Epicenter, makes an app, or copies
+`cli.ts`. No command makes an Epicenter, makes an app, or copies
 one: [Make an Epicenter](#make-an-epicenter) and
 [What an app holds](#what-an-app-holds) list the files
 ([ADR-0958](../../../../docs/adr/0958-no-command-makes-an-epicenter.md),
 [ADR-0955](../../../../docs/adr/0955-no-command-makes-or-copies-an-app.md)).
-`epicenter` on its own reports the home: the version of the command running,
-its apps, and its routines. See
+`epicenter` on its own reports the home: the version serve runs, its apps,
+and its routines. See
 [The home's report](#the-homes-report).
-Any other first word names an app. `--json` and `--help` (`-h`) go anywhere
-before `--`; `--version` is read only on its own. A command refuses any other
-flag. Every command answers one `{ data, error }`, as an action call does
+Any other first word names an app. `--json` and `--help` (`-h`) go anywhere;
+`--version` stands alone. No other word starts with `-`: names are lowercase,
+and an input is `{...}` or `-` alone, so a command refuses any other flag,
+`--` included. Every command answers one `{ data, error }`, as an action call does
 (see [What a run answers](#what-a-run-answers)); a misuse answers `NotStarted`
 with its usage line and its help command as the next step.
 
@@ -252,7 +253,7 @@ An import or declaration failure is listed under that app's problems with a
 `code/epicenter.ts:` prefix. A wrong default export is also a problem, and so
 is a `local/` with no `.gitignore` (the app still runs). One broken app
 does not hide the others. Listings include container locations, data keys,
-schemas, and actions. The listing's `Version` is the running command's. They carry no per-app Git status. An
+schemas, and actions. The listing's `Version` is the one serve runs. They carry no per-app Git status. An
 empty Epicenter says `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 
 The container's real path is `folder.path`. Contracts address `data/...`
@@ -265,8 +266,11 @@ An action's input is one argument after its words, `epicenter <app> <action>
 stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
 closed and an agent whose shell holds it open both run. Text that is not a
 JSON object, or more than one word, is refused with exit 2 and an example
-object. The command line checks the object as HTTP and MCP do, with the same
-messages; a key the action does not take is refused, naming the keys it does.
+object. Serve reads and checks the object, for the command line as for HTTP
+and MCP, with the same messages: the command sends its words as typed and
+reads `-` from its own stdin, sending the text in its place
+([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)).
+A key the action does not take is refused, naming the keys it does.
 `null` removes a field that accepts it. For text a person wrote, `- <<'EOF'`
 avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
 and prints an example to copy. A listing or action help with `--json` exposes
@@ -284,11 +288,14 @@ and the plain listing adds `(not offered to agents)`.
 One serve per home. The port is its name and its lock. You start it and keep it
 running; the command line never starts it or stands in for it.
 
-`epicenter serve` is the only process that runs an app's actions.
-`epicenter <app> <action>` checks its words and input, then sends the call to
-serve at the port in `EPICENTER.md`, the same `POST /<app>/<action>` a page
-makes, and prints the updates and the answer it reads back. It never runs the
-action itself.
+`epicenter serve` is the only process that loads app code and runs an app's
+actions. `epicenter <app> <action>` sends its words as typed to serve at the
+port in `EPICENTER.md`, at `POST /<app>`. Serve finds the action, reads the
+input, runs it, and answers "no such action" and "this input does not fit"
+itself; the command prints the updates and the answer it reads back. Bare
+`epicenter`, `epicenter <app>` and an action's `--help` print serve's one
+listing, `GET /` as JSON, or ask it for one action. The command never loads
+an app, so it and serve cannot disagree about one.
 
 While serve is stopped, an action is refused with exit 2 and nothing runs. Its
 answer is `NotStarted` with cause `unavailable`:
@@ -299,7 +306,10 @@ serve is not running; its output says why it stopped
 Run: epicenter serve
 ```
 
-Listings, `--help`, and `check` do not need serve.
+Bare `epicenter`, `epicenter <app>` and an action's `--help` are refused the
+same way. Only `check`, and `--help` or `--version` on their own, work while
+serve is stopped: `check` loads each app as it is on disk, in its own
+process, so it also tries changed code before a restart.
 
 The port is the home's name. Serve puts the home in an `x-epicenter-home`
 header on every answer, and a call says which home it is for, so serve
@@ -343,9 +353,9 @@ to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, the listing at `GET /` to a request that accepts `application/json`, the command's words at `POST /<app>`, each app's actions to its UI at `POST /<app>/<action>`, and each app's UI at `/<app>/`: its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
-MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
+MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` offers the actions of serve's listing, which loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
 
 A page calls actions through `@epicenter/app/client`, at
 `POST /<app>/<action>`. See [A call over HTTP](#a-call-over-http).
@@ -613,15 +623,16 @@ report as `error.report` and a one-line summary as its message. Without
 
 ## The home's report
 
-`epicenter` on its own prints the version of the command that is running,
-the one `packages/app/package.json` states. `--json` answers the report as
+`epicenter` on its own prints serve's listing: the version serve runs, the
+one its `packages/app/package.json` states. `--json` answers the report as
 `data`, with that version as `version`. Then come the
-apps and any problems loading them, then
+apps serve loaded and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
 refused. `--json` adds them as
-`routines: [{ name, cron, next } | { name, problem }]`. The report reads only.
-It starts nothing and works while serve is stopped. It exits 0 when it
-could report, even when an app or a routine file has a problem.
+`routines: [{ name, cron, next } | { name, problem }]`, and the Epicenter's
+folder and each app's, which the command adds. The report reads only and
+starts nothing; while serve is stopped it is refused as a call is. It exits
+0 when it could report, even when an app or a routine file has a problem.
 
 The report says nothing about the home's repository; Git does
 ([ADR-0956](../../../../docs/adr/0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md)).

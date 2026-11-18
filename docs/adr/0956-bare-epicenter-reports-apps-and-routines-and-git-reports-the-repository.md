@@ -18,8 +18,10 @@ repository when it meets one.
 ## Decision
 
 Bare `epicenter` reports the version, the apps, any problems loading them,
-and the routines. It says nothing about the repository, and `--json` has no
-`repository` field.
+and the routines. It prints serve's listing
+([ADR-0961](0961-the-command-sends-an-actions-words-to-serve-and-serve-alone-reads-them.md)),
+so it reports what serve loaded and needs serve running. It says nothing
+about the repository, and `--json` has no `repository` field.
 
 Git reports on the home's repository:
 
