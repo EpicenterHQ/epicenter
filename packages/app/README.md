@@ -36,7 +36,7 @@ export default defineApp(({ folder }) => {
   return {
     description: 'How much I read each week',
     data,
-    actions: { books: data.books.actions('list', 'get', 'create', 'patch'), log },
+    actions: { ...data.books.actions('list', 'get', 'create', 'patch'), log },
   };
 });
 ```
@@ -51,7 +51,7 @@ time it loads the app, which today is on every call, so a value kept in the
 function body does not survive from one call to the next: keep it in a file.
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
-`epicenter reading books patch '{"id":"dune","finished":"2026-11-10"}'`
+`epicenter reading patch '{"id":"dune","finished":"2026-11-10"}'`
 runs a verb the data key gives. `@epicenter/app` is the API of the `epicenter` that runs
 the app, and the package that holds that command too. An Epicenter is one Bun
 workspace whose `package.json` depends on `@epicenter/app`, so `bun install`
@@ -91,17 +91,17 @@ run it.
 - `defineApp` takes a function of `{ folder }` and returns a function that
   calls it and checks what it returned. That object needs
   `description` and `actions`, with `{}` for none, and takes `data` when the
-  app keeps records. Each action's words are its keys in `actions`, so
-  `{ books: data.books.actions('list', 'get', 'create', 'patch'), log }` gives
-  `books list` through `books patch` and `log`. `app.actions.books.create(...)`
-  in code, `epicenter reading books create` on the command line, and
-  `reading_books_create` over MCP are one action. No key at any depth may be
-  `then`, which a UI's client cannot call.
+  app keeps records. Each action has one name, its key in `actions`, so
+  `{ ...data.books.actions('list', 'get', 'create', 'patch'), log }` gives
+  `list` through `patch` and `log`. `app.actions.create(...)` in code,
+  `epicenter reading create` on the command line, `reading_create` over MCP
+  and `app.call('create', ...)` in a page are one action. A name is lowercase
+  letters, digits and dashes; actions do not nest. It may also return
+  `fetch`; see [Web requests](#web-requests).
 
-An app with one data key usually spreads its verbs at the top, so they are
-the app's own: `actions: { ...data.tasks.actions('list', 'get', 'patch'), add }`
-reads `epicenter tasks add`, not `epicenter tasks tasks add`. An app with
-several keys nests each under its name, as the example above does.
+Two data keys give verbs with the same names, so an app with several keys
+names the second key's apart: `const notes = data.notes.actions('list');`
+then `actions: { ...data.books.actions('list'), 'list-notes': notes.list }`.
 
 A later key replaces an earlier one, as in any object:
 `{ ...data.words.actions('list', 'get', 'create'), create: learn }` gives
@@ -515,7 +515,7 @@ in its input and uses it as the record's key. See the
 
 ## A UI
 
-An app's UI calls its actions through `epicenter serve`, under the same words,
+An app's UI calls its actions through `epicenter serve` by their names,
 typed by the app. It imports the app as a type, so its bundle carries no app
 code:
 
@@ -524,9 +524,9 @@ import { type ActionOutput, connect } from '@epicenter/app/client';
 import type reading from '../../epicenter.ts';
 
 const app = connect<typeof reading>();
-type Book = ActionOutput<ReturnType<typeof reading>['actions']['books']['get']>;
+type Book = ActionOutput<ReturnType<typeof reading>['actions']['get']>;
 
-const { data: books, error } = await app.books.list();
+const { data: books, error } = await app.call('list');
 ```
 
 The client exposes the action's Result in JSON form, exactly as serve
@@ -592,8 +592,8 @@ package does not depend on TanStack Query.
 ```ts
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 
-export const reads = resultQueries(['reading'], { list: app.books.list });
-export const writes = resultMutations(['reading'], { patch: app.books.patch });
+export const reads = resultQueries(['reading'], { list: app.action('list') });
+export const writes = resultMutations(['reading'], { patch: app.action('patch') });
 // In a component: createQuery(() => reads.list()), createMutation(() => writes.patch)
 ```
 
@@ -620,6 +620,62 @@ only returns reports `never` as its `ActionUpdate`.
 A UI routes to a record by its id, which every folder row carries,
 URL-encoded: `#/words/<id>`. The page calls `get` with the id from its
 route, so the route never spells the record's path.
+
+## Web requests
+
+An app may return `fetch` beside `description`, `data` and `actions`: a
+web-standard `(request: Request) => Response | Promise<Response>`
+([ADR-0945](../../docs/adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md)).
+A Hono or Elysia app's `fetch` fits as it is. It reaches the app's folder by
+closing over `folder`:
+
+```ts
+import { defineApp } from '@epicenter/app';
+import { Hono } from 'hono';
+
+export default defineApp(({ folder }) => {
+	const web = new Hono({ strict: false }).basePath('/apps/mail');
+	web.get('/oauth/callback', async (c) => {
+		await folder.write('local/code.txt', c.req.query('code') ?? '');
+		return c.redirect('../');
+	});
+	return { description: 'Mail', actions: {}, fetch: web.fetch };
+});
+```
+
+`epicenter serve` gives each app the address `/apps/<app>/`. A `GET` or `HEAD`
+there answers a file from `code/ui/dist/` when one matches; every other
+request goes to `fetch`, and an app without one answers 404. The request
+arrives as the browser sent it, whole path included, so the app names its
+own address: `basePath('/apps/mail')` above, after its folder. Serve
+redirects `/apps/mail` to `/apps/mail/`, so a page route `'/'` needs
+`strict: false`, which lets Hono match the trailing slash. A body over
+25 MB is refused with 413. A `fetch` that throws answers 500, and serve logs a line naming the app.
+
+`fetch` is for protocols someone else defined: an OAuth redirect, a file
+download, a feed, a form upload, or an app's own page when it has no build
+step. The command line and MCP never see its routes, so anything a person or
+an agent should be able to do is an action. The launcher links only to an
+app with a built page.
+
+Serve refuses a request a browser marks as coming from another site
+(`Sec-Fetch-Site: cross-site`) unless it opens a page: a top-level `GET`
+navigation, which is how an OAuth provider sends the browser back. Another
+site's `<img>`, script, `fetch()` or frame gets 403. A cross-site form
+`POST`, such as OAuth's `response_mode=form_post`, is refused.
+
+Serve loads the app again for each request that reaches `fetch`, as it does
+for each action call, so nothing an app keeps in memory lasts from one
+request to the next. A load takes well under a millisecond for a small app
+and leaves a little memory behind until serve restarts. A page of many
+images makes one load per image.
+
+A test calls `fetch` with no server:
+
+```ts
+const app = mail({ folder });
+const answer = await app.fetch(new Request('http://localhost/apps/mail/oauth/callback?code=abc'));
+```
 
 ## Upgrading from 0.7.0
 
@@ -724,11 +780,42 @@ cannot see are in the next section.
 - `epicenter serve` starts only in the Epicenter's own folder. Started anywhere else it refuses and exits, so a job that restarts it on exit fails again each time. Set the job's working directory to your Epicenter: `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=` in a systemd unit.
 - Bare `epicenter`, `epicenter <app>` and an action's `--help` ask serve, and are refused while it is stopped. `epicenter check` still works without it.
 
+
+### Addresses and action names
+
+Serve's addresses change, every action has one name, and every app's page
+must be rebuilt
+([ADR-0967](../../docs/adr/0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)).
+
+| 0.7.0 | After |
+| --- | --- |
+| an app's page at `/<app>/` | `/apps/<app>/` |
+| `POST /<app>/<words joined by .>`, such as `POST /vocab/words.create` | `POST /actions/<app>/<action>`, such as `POST /actions/vocab/create-word` |
+| actions nested in groups, `actions: { words: { create } }` | one flat name each, `actions: { 'create-word': create }` |
+| `epicenter vocab words create`, MCP tool `vocab_words_create` | `epicenter vocab create-word`, MCP tool `vocab_create-word` |
+| a page calls `app.list(input)`, `app.words.create(input)` | `app.call('list', input)`, or `app.action('list')` held as a function |
+| a refused call: a 400 whose body is `{ data: null, error }` | a 200 whose one line is `{"answer": { data: null, error }}` |
+
+- **Rename grouped actions.** Give each action in a group one name of
+  lowercase letters, digits and dashes, and change the scripts, routines and
+  playbooks that name it.
+- **Rebuild every page** (step 4). A page bundles `@epicenter/app/client`,
+  and an old bundle calls the old address, which now answers 404.
+- **Bookmarks and home-screen icons** that open `/<app>/` need the new
+  address. Nothing redirects.
+- **A page that calls `connect()` with no `app`** reads its app from
+  `/apps/<app>/` with no change. A page served elsewhere passes `{ app }`.
+- **A script or test that posts to serve directly**, or fakes its URLs,
+  uses `/actions/<app>/<action>`, and reads a refusal from the `answer` line
+  of a 200. Any status other than 200 means serve did not take the call.
+- **Serve refuses a cross-site request that does not open a page.** Another
+  site that loaded an app's icon or framed its page gets 403.
+
 ### Upgrade steps
 
 1. In the root `package.json`, remove `@epicenter/cli` and set `@epicenter/app` to the new version.
 2. Run `bun install`.
-3. Fix each app until `bun run typecheck` and `bun test` pass.
+3. Fix each app until `bun run typecheck` and `bun test` pass, and rename its grouped actions.
 4. Run `bun run build` in each app that has a UI.
 5. Restart `epicenter serve`. Until you do, the command reads the old serve as another program on the port and runs nothing.
 6. Commit the result as one commit, so reverting it returns everything to 0.7.0.

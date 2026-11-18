@@ -3,7 +3,7 @@
 Things to do, as an app in `~/Epicenter/apps/tasks`. This `code/` folder holds
 the software; sibling `data/` holds the tasks. The Epicenter’s private Git
 repository holds both, and actions make no commits. `epicenter serve`
-serves its UI at `/tasks/`.
+serves its UI at `/apps/tasks/`.
 
 Use the latest `@epicenter/app`, which carries the `epicenter` command.
 To add Tasks to your Epicenter, run these at the top of the Epicenter
@@ -16,7 +16,7 @@ export PATH="$PWD/node_modules/.bin:$PATH"   # the epicenter command bun install
 epicenter serve
 ```
 
-Open `/tasks/` at the address printed by `serve`. Add a task with the plus
+Open `/apps/tasks/` at the address printed by `serve`. Add a task with the plus
 button. Your new list starts empty.
 
 ## A task is a file

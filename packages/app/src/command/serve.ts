@@ -2,18 +2,23 @@
  * `epicenter serve` over HTTP (ADR-0864): one address for people and agents.
  *
  * ```txt
- * POST /                MCP, stateless JSON
- * GET  /                the listing as JSON (accept: application/json), else the
- *                       launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...       the app's UI: ui/dist/ as static files, as the app's build left it
- * GET  /<app>           308 to /<app>/
- * POST /<app>/<action>  a call from a page or the command; its words are joined by `.`
+ * POST /                        MCP, stateless JSON
+ * GET  /                        the launcher; 405 when asked for an event stream (MCP)
+ * GET  /actions/                the listing as JSON
+ * POST /actions/<app>/<action>  a call from a page or the command
+ * ANY  /apps/<app>/...          the app: a file in code/ui/dist/, else its fetch, else 404
+ * GET  /apps/<app>              308 to /apps/<app>/
  * ```
+ *
+ * Serve's own routes take their own first segment, and everything under
+ * `/apps/<app>/` belongs to the app (ADR-0967). A `GET` or `HEAD` there is a
+ * file from the app's own build when one matches. Any other request goes to
+ * the `fetch` the app returned, if any, unchanged (ADR-0945).
  *
  * Serve alone loads app code and reads an action's input (ADR-0961). A page
  * and the `epicenter` command call an action the same way, and serve answers
  * "no such action" or "this input does not fit" itself. The listing at
- * `GET /` feeds every view of the apps (`listing.ts`).
+ * `GET /actions/` feeds every view of the apps (`listing.ts`).
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
  * the call arrives (`apps.ts`, `run.ts`), and stores nothing about it. When a
@@ -23,9 +28,10 @@
  * A call's body is its input as JSON text. A call's answer is JSON lines:
  * `{"update": value}` for each update the action sends, then
  * `{"answer": {data, error}}` (ADR-0953). A call refused before it begins
- * answers that one answer, a `NotStarted`, as the body of a 400, and writes
- * no line. An action runs to its end whether or not its caller stays: a
- * caller that leaves stops reading, nothing stops the action from outside,
+ * answers a 200 with that one line, a `NotStarted`, and writes no line to
+ * stderr; any other status means serve did not take the call (ADR-0967).
+ * An action runs to its end whether or not its caller stays: a caller that
+ * leaves stops reading, nothing stops the action from outside,
  * and its line on stderr is what remains of how it ended.
  *
  * An Epicenter has one `serve`, and its port is how it is found. A command names
@@ -40,8 +46,11 @@
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
  * device reaches it only through a proxy the owner runs on this computer,
- * such as `tailscale serve`. It answers only a `Host` that
- * is a loopback name, an IP literal, or a `*.ts.net` name, which a DNS
+ * such as `tailscale serve`. A browser marks where a request came from
+ * (`Sec-Fetch-Site`), and serve refuses one from another site unless it opens
+ * a page: a top-level `GET` navigation, such as an OAuth redirect back. It
+ * answers only a `Host` that is a loopback name, an IP literal, or a
+ * `*.ts.net` name, which a DNS
  * rebinding name is not, and refuses a request a Tailscale Funnel or
  * Cloudflare Tunnel delivered. Both set their header on every request, and
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
@@ -62,7 +71,13 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
-import { appEntries, findEntry, localProblem } from './apps.ts';
+import {
+	type AppEntry,
+	appEntries,
+	findEntry,
+	loadEntry,
+	localProblem,
+} from './apps.ts';
 import { hidePaths } from './hide-paths.ts';
 import { listApps } from './listing.ts';
 import { createMcpServer } from './mcp.ts';
@@ -107,6 +122,10 @@ const ServeError = defineErrors({
 	Unanswered: ({ cause }: { cause: unknown }) => ({
 		message: `A request threw before its answer: ${extractErrorMessage(cause)}`,
 	}),
+	FetchFailed: ({ app, cause }: { app: string; cause: unknown }) => ({
+		message: `${app} fetch: ${extractErrorMessage(cause)}`,
+		app,
+	}),
 });
 
 /** Serve's record of what it could not do, beside its run records. */
@@ -121,14 +140,14 @@ const escapeHtml = (text: string) =>
 			] as string,
 	);
 
-/** The page at `/`: each app with a UI, its icon, name, and description, linking to `/<app>/`. */
+/** The page at `/`: each app with a page, its icon, name, and description, linking to `/apps/<app>/`. */
 function launcherPage(
 	name: string,
 	apps: { name: string; description: string; icon: boolean }[],
 ) {
 	const items = apps
 		.map(({ name, description, icon }) => {
-			const href = `/${encodeURIComponent(name)}/`;
+			const href = `/apps/${encodeURIComponent(name)}/`;
 			const image = icon
 				? `<img src="${href}icon.png" alt="" width="56" height="56">`
 				: `<span class="blank">${escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
@@ -155,9 +174,8 @@ const notFound = () => new Response('Not found', { status: 404 });
 const UI_DIST = join('ui', 'dist');
 
 /** A file of the app's built UI at `path`, or 404. */
-async function uiFile(root: EpicenterRoot, app: string, path: string) {
-	const entry = await findEntry(root, app);
-	if (!entry || entry.problem) return notFound();
+async function uiFile(entry: AppEntry, path: string) {
+	if (entry.problem) return notFound();
 	let decoded: string;
 	try {
 		decoded = decodeURIComponent(path);
@@ -209,44 +227,42 @@ async function mcp(root: EpicenterRoot, request: Request) {
 	}
 }
 
+/** `GET /actions/`: the listing, with this computer's folders hidden. */
+async function listing(root: EpicenterRoot) {
+	const listed = await listApps(root);
+	const hide = hidePaths(root);
+	return Response.json(
+		{
+			...listed,
+			problems: hide.value(listed.problems),
+			routines: hide.value(listed.routines),
+		},
+		{ headers: { 'cache-control': 'no-store' } },
+	);
+}
+
 /**
- * `GET /`: the listing as JSON to a caller that accepts it, else the
- * launcher page of each app in it with a UI; 405 when MCP asks for an event
- * stream.
+ * `GET /`: the launcher, a link to each app with a built page;
+ * 405 when MCP asks for an event stream.
  */
-async function listing(root: EpicenterRoot, request: Request) {
-	const accept = request.headers.get('accept') ?? '';
+async function launcher(root: EpicenterRoot, request: Request) {
 	// MCP's GET for a server-sent stream: stateless, so there is none.
 	if (
 		(request.method !== 'GET' && request.method !== 'HEAD') ||
-		accept.includes('text/event-stream')
+		(request.headers.get('accept') ?? '').includes('text/event-stream')
 	)
-		return new Response('Method not allowed', {
-			status: 405,
-			headers: { allow: 'GET, HEAD, POST' },
-		});
+		return methodNotAllowed('GET, HEAD, POST');
 	const listed = await listApps(root);
-	if (accept.includes('application/json')) {
-		const hide = hidePaths(root);
-		return Response.json(
-			{
-				...listed,
-				problems: hide.value(listed.problems),
-				routines: hide.value(listed.routines),
-			},
-			{ headers: { 'cache-control': 'no-store' } },
-		);
-	}
 	const apps = await Promise.all(
-		listed.apps.map(async ({ name, description }) =>
-			(await uiFile(root, name, 'index.html')).ok
-				? {
-						name,
-						description,
-						icon: (await uiFile(root, name, 'icon.png')).ok,
-					}
-				: undefined,
-		),
+		listed.apps.map(async ({ name, description }) => {
+			const entry = await findEntry(root, name);
+			if (!entry || !(await uiFile(entry, 'index.html')).ok) return undefined;
+			return {
+				name,
+				description,
+				icon: (await uiFile(entry, 'icon.png')).ok,
+			};
+		}),
 	);
 	return new Response(
 		launcherPage(
@@ -262,32 +278,75 @@ async function listing(root: EpicenterRoot, request: Request) {
 	);
 }
 
-/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
-async function ui(root: EpicenterRoot, request: Request) {
-	if (request.method !== 'GET' && request.method !== 'HEAD') return notFound();
-	const match = /^\/([^/]+)(?:\/(.*))?$/.exec(new URL(request.url).pathname);
-	if (!match) return notFound();
-	const app = match[1];
-	if (!isName(app)) return notFound();
-	if (match[2] === undefined) {
-		if (!(await findEntry(root, app))) return notFound();
+/**
+ * A request under `/apps/<app>`: a file from the app's build for a `GET` or
+ * `HEAD` that names one, else the app's `fetch`, else 404. `/apps/<app>`
+ * alone redirects to `/apps/<app>/`.
+ */
+async function app(
+	root: EpicenterRoot,
+	request: Request,
+	name: string,
+	path: string | undefined,
+) {
+	const entry = await findEntry(root, name);
+	// No code/epicenter.ts is no app to answer for: 404, as for no folder.
+	if (!entry || entry.problem) return notFound();
+	if (path === undefined)
 		// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
 		return new Response(null, {
 			status: 308,
-			headers: { location: `/${encodeURIComponent(app)}/` },
+			headers: { location: `/apps/${encodeURIComponent(name)}/` },
 		});
+	if (request.method === 'GET' || request.method === 'HEAD') {
+		const file = await uiFile(entry, path);
+		if (file.ok) return file;
 	}
-	return uiFile(root, app, match[2]);
+	return appFetch(root, request, entry);
 }
+
+/**
+ * Hand a request no file answered to the app's `fetch`, unchanged: the app
+ * knows its address, `/apps/<app>/`, from its folder's name. An app without
+ * `fetch` answers 404; one that does not load answers 500 with its problems.
+ */
+async function appFetch(
+	root: EpicenterRoot,
+	request: Request,
+	entry: AppEntry,
+): Promise<Response> {
+	const { data: loaded, error: notLoaded } = await loadEntry(entry);
+	if (notLoaded)
+		return new Response(hidePaths(root).text(notLoaded.message), {
+			status: 500,
+		});
+	const handler = loaded.app.fetch;
+	if (!handler) return notFound();
+	try {
+		const response = await handler(request);
+		if (response instanceof Response) return response;
+		throw new Error(
+			`answered ${response === null ? 'null' : typeof response}, not a Response`,
+		);
+	} catch (cause) {
+		serveLog.error(ServeError.FetchFailed({ app: entry.name, cause }).error);
+		return new Response('Internal server error', { status: 500 });
+	}
+}
+
+const methodNotAllowed = (allow: string) =>
+	new Response('Method not allowed', { status: 405, headers: { allow } });
 
 const JSON_LINES = {
 	'content-type': 'application/x-ndjson',
 	'cache-control': 'no-store',
 };
 
-/** A call refused before it began: its `NotStarted` alone, as the body of a 400. */
+/** A call refused before it began: a 200 with its one answer line, its `NotStarted`. */
 const refused = (error: NotStarted) =>
-	Response.json(Err(error), { status: 400 });
+	new Response(`${JSON.stringify({ answer: Err(error) })}\n`, {
+		headers: JSON_LINES,
+	});
 
 /**
  * Run `call`, and answer its updates and then its answer as JSON lines.
@@ -335,23 +394,30 @@ function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
 	return new Response(body, { headers: JSON_LINES });
 }
 
-/** `POST /<app>/<action>`: a call from a page or the command, its action's words joined by `.` and its input the body. */
+/** `POST /actions/<app>/<action>`: a call from a page or the command, its input the body. */
 async function call(root: EpicenterRoot, request: Request) {
-	const [, first = '', path = '', ...more] = new URL(
-		request.url,
-	).pathname.split('/');
-	let app: string;
-	let words: string[];
+	const { pathname } = new URL(request.url);
+	let names: string[];
 	try {
-		app = decodeURIComponent(first);
-		words = decodeURIComponent(path).split('.');
+		names = pathname
+			.slice(ACTIONS.length)
+			.split('/')
+			.map((segment) => decodeURIComponent(segment));
 	} catch {
-		return notFound();
+		names = [];
 	}
-	if (more.length || !isName(app) || !words.every(isName)) return notFound();
+	const [app = '', key = '', ...more] = names;
+	if (more.length || !isName(app) || !isName(key))
+		return refused(
+			ActionError.NotStarted({
+				cause: 'usage',
+				message: `${pathname} is not an action's address: /actions/<app>/<action>`,
+				next: 'epicenter',
+			}).error,
+		);
 	const text = new TextDecoder().decode(await request.arrayBuffer());
 	const hide = hidePaths(root);
-	const { data: found, error } = await findAction(root, app, words.join(' '));
+	const { data: found, error } = await findAction(root, app, key);
 	if (error) return refused(hide.value(error));
 	const { data: checked, error: misfit } = checkCall(found, { text });
 	if (misfit) return refused(hide.value(misfit));
@@ -380,6 +446,26 @@ function isPrivateHost(host: string | null) {
 
 const forbidden = () => new Response('Forbidden', { status: 403 });
 
+/** The first segment of serve's action routes: the listing and each call. */
+const ACTIONS = '/actions/';
+
+/**
+ * Whether a browser marked `request` as coming from another site, other than
+ * to open a page (Fetch Metadata). A top-level `GET` navigation, such as a
+ * link or an OAuth redirect back, is allowed; another site's `<img>`,
+ * script, `fetch()` or frame is not. A request with no `Sec-Fetch-Site`
+ * comes from a program, or a browser that sends none, and is allowed.
+ */
+function fromAnotherSite(request: Request) {
+	const { headers } = request;
+	if (headers.get('sec-fetch-site') !== 'cross-site') return false;
+	const opensPage =
+		request.method === 'GET' &&
+		headers.get('sec-fetch-mode') === 'navigate' &&
+		headers.get('sec-fetch-dest') === 'document';
+	return !opensPage;
+}
+
 /**
  * Start the listener and the routine clock. The listener answers everything
  * for a request from this computer or the tailnet whose `Origin`, if any, is
@@ -405,13 +491,21 @@ function startHttpServer(root: EpicenterRoot) {
 			)
 				return forbidden();
 		}
+		if (fromAnotherSite(request)) return forbidden();
 		return stamped(await route(request));
 	};
 	// Every answer to a request serve accepts says it is an Epicenter's serve,
 	// and no more, so a command or a second serve can tell who holds the port.
+	// An app's fetch may answer `Response.redirect`, whose headers are frozen.
 	const stamped = (response: Response) => {
-		response.headers.set(SERVE_HEADER, '1');
-		return response;
+		try {
+			response.headers.set(SERVE_HEADER, '1');
+			return response;
+		} catch {
+			const copy = new Response(response.body, response);
+			copy.headers.set(SERVE_HEADER, '1');
+			return copy;
+		}
 	};
 	const route = async (request: Request) => {
 		// A request meant for another Epicenter is refused without naming this one,
@@ -426,15 +520,31 @@ function startHttpServer(root: EpicenterRoot) {
 		if (pathname === '/')
 			return request.method === 'POST'
 				? mcp(root, request)
-				: listing(root, request);
-		return request.method === 'POST' ? call(root, request) : ui(root, request);
+				: launcher(root, request);
+		if (pathname === ACTIONS)
+			return request.method === 'GET' || request.method === 'HEAD'
+				? listing(root)
+				: methodNotAllowed('GET, HEAD');
+		if (pathname.startsWith(ACTIONS))
+			return request.method === 'POST'
+				? call(root, request)
+				: methodNotAllowed('POST');
+		const under = /^\/apps\/([^/]+)(?:\/(.*))?$/.exec(pathname);
+		if (!under) return notFound();
+		let name: string;
+		try {
+			name = decodeURIComponent(under[1] as string);
+		} catch {
+			return notFound();
+		}
+		return app(root, request, name, under[2]);
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,
 		port: root.port,
 		idleTimeout: 0,
-		// Bun refuses a larger body itself, with a bare 413. The command refuses
-		// such an input before sending it, so only a page or an agent meets it.
+		// Bun refuses a larger body itself, with a bare 413, for an action and an
+		// app's fetch alike. The command refuses such an input before sending it.
 		maxRequestBodySize: MAX_INPUT_BYTES,
 		// Bun's development mode answers a throw with its stack; serve names no path.
 		development: false,

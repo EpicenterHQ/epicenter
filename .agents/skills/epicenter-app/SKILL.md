@@ -14,7 +14,8 @@ holds records and settings. The source and live Epicenter use this layout
 `EPICENTER.md`, and refuses outside any; run it from inside the Epicenter you
 mean, so a temporary one for testing stays apart from the person's own.
 `epicenter serve` starts only in the Epicenter's own folder and listens only on this
-computer and offers MCP at `/` and each UI at `/<app>/`, on the marker's `port`
+computer and offers MCP at `/`, each app at `/apps/<app>/`, and each action at
+`POST /actions/<app>/<action>`, on the marker's `port`
 or 4747 when absent. Other devices reach it through the owner's private network,
 such as `tailscale serve`.
 
@@ -89,9 +90,10 @@ kind, such as settings, is an ordinary key with a fixed id:
 key gives a `description`, what one record is as a singular noun (`'task'`, not `'tasks'`), and
 `fields`, the front matter of each file.
 `data.tasks.actions('list', 'get', 'create', 'patch', 'edit', 'delete')`
-gives the verbs it names and only those. An app with one key spreads its verbs at the top, so they are its
-own (`epicenter tasks patch`, MCP `tasks_patch`); an app with several nests each
-under its name (`epicenter mail proposals list`). A record's address is its
+gives the verbs it names and only those. Spread a key's verbs into `actions`, so they are the app's
+own (`epicenter tasks patch`, MCP `tasks_patch`). Every action has one name and
+actions do not nest; an app with several keys names the others' verbs apart,
+such as `'list-proposals': proposals.list` (`epicenter mail list-proposals`). A record's address is its
 path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`. `defineData`
 refuses a key that is not a name, a key without a description, a field named `path`, `body`, or `id`
 (a verb's input folds the fields beside them), and a `readOnly` field. No field has a `default`: a definition with
@@ -209,6 +211,24 @@ export default defineApp(({ folder }) => {
   return { description: 'Words I am learning', data, actions: { ...data.words.actions('list', 'get'), learn } };
 });
 ```
+
+### Answer a web request with `fetch`
+
+Return `fetch` beside the actions only for a protocol someone else defined:
+an OAuth redirect back, a file download, a feed, a form upload, or a page for
+an app with no build step (ADR-0945). Anything a person or an agent should be
+able to do is an action, because the command line and MCP never see `fetch`.
+`fetch` is `(request: Request) => Response | Promise<Response>`, so a Hono
+app's `fetch` passes as it is; it reaches files by closing over `folder`.
+
+Serve answers `/apps/<app>/<path>` with a file from `code/ui/dist/` first, for
+`GET` and `HEAD`, then `fetch`, with the request unchanged: a Hono app sets
+`new Hono({ strict: false }).basePath('/apps/<app>')`, its folder's name
+(`strict: false` so a page route `'/'` matches `/apps/<app>/`). A cross-site request reaches it only as a top-level `GET` navigation. Serve
+loads the app for each request, so keep nothing in memory between requests;
+an app that serves many files per page, such as media, waits for serve to
+load each app once (ADR-0959). Test it by calling
+`app({ folder }).fetch(new Request('http://localhost/apps/mail/oauth/callback?code=x'))`.
 
 The Epicenter is one Bun workspace and an app's code/ is one package
 of it: `code/package.json` is named for the app, and the Epicenter has the one
@@ -437,8 +457,14 @@ pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts
 const app = connect<typeof tasksApp>();
-export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
-export const writes = resultMutations(['tasks'], { add: app.add, patch: app.patch });
+export const reads = resultQueries(['tasks'], {
+  list: app.action('list'),
+  get: app.action('get'),
+});
+export const writes = resultMutations(['tasks'], {
+  add: app.action('add'),
+  patch: app.action('patch'),
+});
 ```
 
 A page that reopens cannot rejoin a call. It shows what the app's records
@@ -480,7 +506,7 @@ example, with `type Actions = ReturnType<typeof tasksApp>['actions']`,
 `ActionInput<Actions['patch']>` and `ActionOutput<Actions['get']>`.
 
 An action that sends updates takes `onUpdate` after its input, to show its
-work as it comes: `app.chat.say({ message }, { onUpdate: (token) => (draft += token) })`
+work as it comes: `app.call('say', { message }, { onUpdate: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
 still refreshes once it returns. Closing the view stops it listening; the
@@ -602,7 +628,7 @@ mkdir -p apps/example
 cp -R "$source_path" apps/example/code
 # set "name" in apps/example/code/package.json to "example"
 bun install && bun run build
-HOME="$test_dir" epicenter serve &             # drive /example/ on port 4799
+HOME="$test_dir" epicenter serve &             # drive /apps/example/ on port 4799
 epicenter example --help
 ```
 

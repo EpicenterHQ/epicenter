@@ -340,7 +340,7 @@ return {
 	description: 'How much I read each week',
 	data,
 	actions: {
-		books: data.books.actions('list', 'get', 'create', 'patch'),
+		...data.books.actions('list', 'get', 'create', 'patch'),
 		log: defineAction({
 			description: 'Record minutes read today',
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
@@ -355,14 +355,12 @@ return {
 			annotations: { readOnlyHint: true },
 			run: ({ from, to }) => Ok(({ from, to })),
 		}),
-		week: {
-			show: defineAction({
-				description: 'Minutes read this week',
-				input: {},
-				annotations: { readOnlyHint: true, openWorldHint: false },
-				run: () => Ok(210),
-			}),
-		},
+		'show-week': defineAction({
+			description: 'Minutes read this week',
+			input: {},
+			annotations: { readOnlyHint: true, openWorldHint: false },
+			run: () => Ok(210),
+		}),
 		explode: defineAction({
 			description: 'Write, then throw',
 			input: {},
@@ -380,15 +378,15 @@ return {
 /** The source of an app with many kinds of input, for `fixture().app`. */
 export const reading = `export default defineApp(({ folder }) => ({ description: 'The reading app', actions: {
 	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return Ok(input); } }),
-	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => Ok(({minutes:210})) }) },
+	'week-summary': defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => Ok(({minutes:210})) }),
 	tag: defineAction({ description:'Tag records', input: { tags: field.list(field.text(), { optional: true }), done: field.boolean({ optional: true }) }, run: ({ tags = [], done = false }) => Ok({ tags, done }) }),
 	collect: defineAction({ description:'Collect tags', input: { tags: field.list(field.text(), { optional: true }) }, run: (input) => Ok(input) }),
 	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('local/index.json', '{}'); return Ok({folder:folder.path}); } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } }));`;
 
-/** The source of an app whose actions share the word `calendar`. */
-export const vault = `export default defineApp(() => ({ description: 'The vault app', actions: { calendar: {
-	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},run:({day})=>Ok(({day}))}),
-	add: defineAction({description:'Add a day',input:{day:field.date()},run:({day})=>Ok(({day}))}),
-} } }));`;
+/** The source of an app whose action names are two words joined by a dash. */
+export const vault = `export default defineApp(() => ({ description: 'The vault app', actions: {
+	'show-day': defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},run:({day})=>Ok(({day}))}),
+	'add-day': defineAction({description:'Add a day',input:{day:field.date()},run:({day})=>Ok(({day}))}),
+} }));`;

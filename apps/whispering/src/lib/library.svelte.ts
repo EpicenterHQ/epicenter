@@ -93,6 +93,12 @@ export function createLibrary({
 		/** The order of the recordings table. */
 		recordingSort: DEFAULT_SORT as RecordingSort,
 		/**
+		 * The page of the recordings table, from 0. A new search or order sets
+		 * it back to the first (`viewWith`); past the last page, the table
+		 * shows the last.
+		 */
+		recordingPage: 0,
+		/**
 		 * The recordings selected in the table, by id. A listing removes ids
 		 * that are gone; search keeps hidden selections.
 		 */

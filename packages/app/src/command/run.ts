@@ -19,7 +19,7 @@ import { checkObject, noSuchAction, readInput } from './input.ts';
 import { stderrJsonLines } from './output.ts';
 import type { EpicenterRoot } from './root.ts';
 
-/** An action found in its loaded app, by the key its words make. */
+/** An action found in its loaded app, by its name. */
 export type Found = { app: LoadedApp; key: string; action: Action };
 
 /** A call ready to run: the action and its checked input. */
@@ -155,9 +155,8 @@ export function findAction(
 	return guarded(async () => {
 		const { data: app, error } = await loadApp(root, name);
 		if (error) return Err(error);
-		const action = Object.hasOwn(app.actions, key)
-			? app.actions[key]
-			: undefined;
+		const { actions } = app.app;
+		const action = Object.hasOwn(actions, key) ? actions[key] : undefined;
 		if (!action) return usage(noSuchAction(name, key), `epicenter ${name}`);
 		return Ok({ app, key, action });
 	});

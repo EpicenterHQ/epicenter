@@ -43,7 +43,6 @@ test("a reference's schema names its target key in the listing", () => {
 		realPath: '/tmp/books',
 		codePath: '/tmp/books/code',
 		app,
-		actions: { shelve },
 	};
 	const listed = appListing(loaded);
 	const ref = {

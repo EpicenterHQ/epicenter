@@ -162,7 +162,7 @@ For the author, the home is the Mac Studio.
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, sending its call to the home's running `serve` | you, agents with a shell |
-| `epicenter serve` | MCP at `/`, the launcher for a browser, and each app's UI at `/<app>/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices; UIs in a browser |
+| `epicenter serve` | MCP at `/`, the launcher for a browser, and each app's UI at `/apps/<app>/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices; UIs in a browser |
 | the files | the folder itself | your editor, Claude Code on the home, a program that writes the contract |
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
@@ -222,7 +222,7 @@ changes in place ([ADR-0910]).
 | an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: one a data key gives, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
-| a UI | a web page built from the app's `code/ui/` into `code/ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over HTTP |
+| a UI | a web page built from the app's `code/ui/` into `code/ui/dist/`, served at `/apps/<app>/`, that shows its data and calls its actions over HTTP |
 | `epicenter` | the command: it sends an action to the home's running `serve`, which offers every app over MCP and HTTP |
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
@@ -350,9 +350,12 @@ which other devices reach it, for the author the tailnet ([ADR-0927]).
 
 ## UIs
 
-An app's UI ([ADR-0860]) is a web page served at `/<app>/` that reads and
+An app's UI ([ADR-0860]) is a web page served at `/apps/<app>/` that reads and
 changes the app only by calling its actions. It never knows where they run and
-keeps nothing of its own.
+keeps nothing of its own. An app may also answer web requests at that address
+with its own `fetch`, for protocols someone else defined, such as an OAuth
+redirect or a download ([ADR-0945]); what a person or an agent does is still
+an action.
 
 ## One ladder
 
@@ -438,6 +441,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
 [ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
 [ADR-0941]: adr/0941-epicenter-serve-is-a-program-you-keep-running.md
+[ADR-0945]: adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md
 [ADR-0880]: adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md
 [ADR-0882]: adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md
 [ADR-0889]: adr/0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md

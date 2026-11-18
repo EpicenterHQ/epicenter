@@ -14,6 +14,10 @@
 	import { cn } from '@epicenter/ui/utils';
 	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import ChevronsLeftIcon from '@lucide/svelte/icons/chevrons-left';
+	import ChevronsRightIcon from '@lucide/svelte/icons/chevrons-right';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import { pathOf } from './nav-items.js';
@@ -25,14 +29,18 @@
 		type RecordingSortKey,
 		type RecordingStatus,
 		deleteCaptured,
+		pageOf,
 		selectionIn,
+		selectionReach,
+		selectRange,
 		shownRows,
 		STATUS_LABELS,
-		toggleAllShown,
+		toggleRows,
 		toggleSelected,
 		transcribeRows,
 		transcriptExcerpt,
 		transcriptsToCopy,
+		viewWith,
 	} from '$lib/recordings-table.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { copyText } from './actions.js';
@@ -41,9 +49,11 @@
 
 	/**
 	 * Every recording as one table: search, sort, tick, and act on several.
-	 * The search text, the order, and the ticks are the library's, so they
-	 * are as they were after a visit to another page. Activating a row
-	 * opens that recording's details; ticking one does not.
+	 * The search and sort run over every recording and the table draws one
+	 * page of what they keep. The search text, the order, the page, and the
+	 * ticks are the library's, so they are as they were after a visit to
+	 * another page. Activating a row opens that recording's details; ticking
+	 * one does not.
 	 */
 	let { onOpen }: {
 		/** A recording was opened from its row: show its details. */
@@ -53,12 +63,44 @@
 	const library = getLibrary();
 	const { ui } = library;
 
+	/** Every row the search keeps, in order, on every page. */
 	const rows = $derived(shownRows(library, ui.recordingQuery, ui.recordingSort));
 	const hidden = $derived(library.entries.length - rows.length);
+	/** The rows drawn. Past the last page, as after deleting its rows, this is the last page. */
+	const page = $derived(pageOf(rows, ui.recordingPage));
 	const selection = $derived(selectionIn(ui.recordingSelected, rows, library));
 	const selectedIds = $derived(new Set(selection.rows.map((row) => row.id)));
-	const allSelected = $derived(rows.length > 0 && selection.rows.length === rows.length);
+	const pageSelected = $derived(page.rows.filter((row) => selectedIds.has(row.id)).length);
+	const pageAllSelected = $derived(page.rows.length > 0 && pageSelected === page.rows.length);
+	const reach = $derived(selectionReach(selectedIds, page, rows));
 	const busy = $derived(ui.recordingBulk !== undefined);
+	const searching = $derived(ui.recordingQuery.trim() !== '');
+
+	/** Search, sort, or turn the page. A new search or order starts at the first page. */
+	function show(change: Parameters<typeof viewWith>[1]) {
+		Object.assign(ui, viewWith(ui, change));
+	}
+
+	let scroller = $state<HTMLElement | null>(null);
+	/** Turn to page `index`, from the top of its rows. */
+	function turnTo(index: number) {
+		show({ recordingPage: index });
+		scroller?.scrollTo({ top: 0 });
+	}
+
+	/** The row last ticked or cleared: a shift-click ticks from it to the row clicked. */
+	let anchor: string | undefined;
+	/** Whether Shift was held for the click that is changing a tick now. */
+	let shiftHeld = false;
+	function tickRow(id: string, on: boolean) {
+		ui.recordingSelected = shiftHeld
+			? selectRange(ui.recordingSelected, page.rows, anchor, id, on, library)
+			: toggleSelected(ui.recordingSelected, id, on, library);
+		anchor = id;
+		shiftHeld = false;
+	}
+
+	const formatCount = (n: number) => n.toLocaleString();
 
 	/**
 	 * The columns beside the title, shown only when the list is wide. Narrower,
@@ -108,7 +150,7 @@
 		if (library.openRecording(id)) onOpen();
 	}
 
-	const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+	const several = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 	/** Up to a few reasons, so a long run still reads as one message. */
 	const reasons = (items: readonly { title: string; reason: string }[]) =>
 		items
@@ -196,7 +238,7 @@
 				type="single"
 				bind:value={
 					() => orderValue(ui.recordingSort),
-					(value) => (ui.recordingSort = orders.find(({ sort }) => orderValue(sort) === value)?.sort ?? ui.recordingSort)
+					(value) => show({ recordingSort: orders.find(({ sort }) => orderValue(sort) === value)?.sort ?? ui.recordingSort })
 				}
 			>
 				<Select.Trigger size="sm" class="@3xl:hidden" aria-label="Sort recordings" data-testid="recording-sort">
@@ -218,7 +260,7 @@
 				<Input
 					type="search"
 					class="ps-8"
-					bind:value={ui.recordingQuery}
+					bind:value={() => ui.recordingQuery, (recordingQuery) => show({ recordingQuery })}
 					placeholder="Search titles, notes, and transcripts"
 					aria-label="Search recordings"
 					autocomplete="off"
@@ -234,8 +276,31 @@
 						<Spinner class="mr-1 inline size-3.5" />
 						{ui.recordingBulk.label} {ui.recordingBulk.done} of {ui.recordingBulk.total}…
 					{:else if selection.rows.length > 0}
-						<!-- Actions are on the ticked rows that are shown. What a search hides stays ticked and is left alone. -->
-						{selection.rows.length} of the recordings shown {selection.rows.length === 1 ? 'is' : 'are'} selected{#if selection.hidden > 0}.
+						<!--
+							Actions are on every ticked row the search keeps, on every page. What a search hides
+							stays ticked and is left alone.
+						-->
+						{#if reach === 'all'}
+							All {formatCount(rows.length)}{searching ? ' matching' : ''} recordings are selected
+						{:else if reach === 'page'}
+							All {formatCount(page.rows.length)} on this page are selected{#if selection.rows.length > pageSelected}, and
+								{formatCount(selection.rows.length - pageSelected)} on other pages{/if}.
+							<Button
+								variant="link"
+								size="sm"
+								class="h-auto p-0"
+								onclick={() => (ui.recordingSelected = toggleRows(ui.recordingSelected, rows, true, library))}
+								data-testid="select-every-match"
+							>
+								Select all {formatCount(rows.length)}{searching ? ' matching' : ''}
+							</Button>
+						{:else if pageSelected === 0}
+							{formatCount(selection.rows.length)} selected on other pages
+						{:else}
+							{formatCount(selection.rows.length)} selected{#if selection.rows.length > pageSelected}, {formatCount(
+									selection.rows.length - pageSelected,
+								)} on other pages{/if}
+						{/if}{#if selection.hidden > 0}.
 							{selection.hidden} more selected {selection.hidden === 1 ? 'is' : 'are'} hidden by the search and not included{/if}
 					{:else}
 						None of the recordings shown is selected. {selection.hidden} selected {selection.hidden === 1 ? 'is' : 'are'} hidden by the
@@ -250,13 +315,13 @@
 						onclick={() => void transcribeSelected()}
 						data-testid="transcribe-selected"
 					>
-						Transcribe {selection.rows.length}
+						Transcribe {formatCount(selection.rows.length)}
 					</Button>
 					<Button size="sm" variant="outline" disabled={selection.rows.length === 0} onclick={() => void copySelected()} data-testid="copy-selected">
 						Copy {selection.rows.length === 1 ? 'transcript' : 'transcripts'}
 					</Button>
 					<Button size="sm" variant="destructive" disabled={busy || selection.rows.length === 0} onclick={() => void deleteSelected()} data-testid="delete-selected">
-						Delete {selection.rows.length}
+						Delete {formatCount(selection.rows.length)}
 					</Button>
 					<Button
 						size="sm"
@@ -271,18 +336,22 @@
 		{/if}
 	</div>
 
-	<div class="min-h-0 flex-1 overflow-y-auto">
+	<div class="min-h-0 flex-1 overflow-y-auto" bind:this={scroller}>
 		{#if rows.length > 0}
 			<Table.Root class="table-fixed" aria-label="Saved recordings" data-testid="recording-list">
 				<Table.Header>
 					<Table.Row class="hover:bg-transparent">
 						<Table.Head class="w-9 ps-3 sm:ps-4">
 							<Checkbox
-								checked={allSelected}
-								indeterminate={selection.rows.length > 0 && !allSelected}
+								checked={pageAllSelected}
+								indeterminate={pageSelected > 0 && !pageAllSelected}
 								onCheckedChange={(checked) =>
-									(ui.recordingSelected = toggleAllShown(ui.recordingSelected, rows, checked === true, library))}
-								aria-label={allSelected ? 'Clear the selection of the recordings shown' : 'Select every recording shown'}
+									(ui.recordingSelected = toggleRows(ui.recordingSelected, page.rows, checked === true, library))}
+								aria-label={pageAllSelected
+									? 'Clear the selection on this page'
+									: page.count > 1
+										? 'Select every recording on this page'
+										: 'Select every recording shown'}
 								data-testid="select-all"
 							/>
 						</Table.Head>
@@ -296,7 +365,7 @@
 									variant="ghost"
 									size="sm"
 									class="-ms-2.5 {sorted ? '' : 'text-muted-foreground'}"
-									onclick={() => (ui.recordingSort = nextSort(ui.recordingSort, column.key))}
+									onclick={() => show({ recordingSort: nextSort(ui.recordingSort, column.key) })}
 									data-testid="sort-{column.key}"
 								>
 									{column.label}
@@ -307,7 +376,7 @@
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
-					{#each rows as row (row.id)}
+					{#each page.rows as row (row.id)}
 						{@const open = ui.showingDetail && library.selectedId === row.id}
 						{@const excerpt = transcriptExcerpt(row, ui.recordingQuery)}
 						{@const recorded = formatTime(row.note.recordedAt, 'short')}
@@ -327,8 +396,8 @@
 							<Table.Cell class="ps-3 sm:ps-4" onclick={(event) => event.stopPropagation()}>
 								<Checkbox
 									checked={selectedIds.has(row.id)}
-									onCheckedChange={(checked) =>
-										(ui.recordingSelected = toggleSelected(ui.recordingSelected, row.id, checked === true, library))}
+									onclick={(event) => (shiftHeld = event.shiftKey)}
+									onCheckedChange={(checked) => tickRow(row.id, checked === true)}
 									aria-label="Select {row.title}"
 								/>
 							</Table.Cell>
@@ -375,7 +444,6 @@
 				</Table.Body>
 			</Table.Root>
 		{:else}
-			{@const searching = ui.recordingQuery.trim() !== ''}
 			<Empty.Root class="py-10">
 				<Empty.Header>
 					<Empty.Media variant="icon">
@@ -393,6 +461,41 @@
 			</Empty.Root>
 		{/if}
 	</div>
+
+	{#if page.count > 1}
+		<!-- After the rows, so Tab reaches the page's rows and then these. -->
+		<nav class="flex items-center justify-end gap-1 border-t px-3 py-2 text-sm sm:px-4" aria-label="Pages of recordings" data-testid="recording-pages">
+			<span class="me-2 text-muted-foreground tabular-nums" aria-live="polite">
+				{formatCount(page.from)} to {formatCount(page.to)} of {formatCount(page.total)}
+			</span>
+			<Button variant="ghost" size="icon-sm" disabled={page.index === 0} onclick={() => turnTo(0)} aria-label="First page">
+				<ChevronsLeftIcon />
+			</Button>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				disabled={page.index === 0}
+				onclick={() => turnTo(page.index - 1)}
+				aria-label="Previous page"
+				data-testid="previous-page"
+			>
+				<ChevronLeftIcon />
+			</Button>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				disabled={page.index === page.count - 1}
+				onclick={() => turnTo(page.index + 1)}
+				aria-label="Next page"
+				data-testid="next-page"
+			>
+				<ChevronRightIcon />
+			</Button>
+			<Button variant="ghost" size="icon-sm" disabled={page.index === page.count - 1} onclick={() => turnTo(page.count - 1)} aria-label="Last page">
+				<ChevronsRightIcon />
+			</Button>
+		</nav>
+	{/if}
 
 	{#if library.repairs.length > 0}
 		<div class="max-h-[50%] overflow-y-auto border-t bg-warning/10 px-3 py-2 text-xs" data-testid="recording-repairs">

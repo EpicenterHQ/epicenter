@@ -72,14 +72,14 @@ return {description: 'Route notes', data, actions: {
 					};
 				}
 			>({ app: 'notes', url: mcp.served.base });
-			expect(await app.inspect()).toEqual(misfitAnswer);
+			expect(await app.call('inspect')).toEqual(misfitAnswer);
 			const misfitTool = await mcp.client.callTool({
 				name: 'notes_inspect',
 				arguments: {},
 			});
 			expect(misfitTool.isError).toBe(true);
 			expect(misfitTool.structuredContent).toEqual(misfitAnswer);
-			const response = await fetch(`${mcp.served.base}/notes/check`, {
+			const response = await fetch(`${mcp.served.base}/actions/notes/check`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: '{}',
@@ -91,7 +91,7 @@ return {description: 'Route notes', data, actions: {
 					.split('\n')
 					.map((line) => JSON.parse(line)),
 			).toEqual([{ update: 'looking' }, { answer: returned }]);
-			expect(await app.check()).toEqual(returned);
+			expect(await app.call('check')).toEqual(returned);
 			const tool = await mcp.client.callTool({
 				name: 'notes_check',
 				arguments: {},
@@ -163,14 +163,22 @@ export default defineApp(({ folder }) => ({description: 'Staged drafts', actions
 			);
 
 			const post = (input: object) =>
-				fetch(`${mcp.served.base}/drafts/stage`, {
+				fetch(`${mcp.served.base}/actions/drafts/stage`, {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify(input),
 				});
 			const turnedAway = await post({ via: 'http' });
-			expect(turnedAway.status).toBe(400);
-			expect(await turnedAway.json()).toEqual(refused);
+			// A refused call is a 200 whose one line is its NotStarted answer.
+			expect(turnedAway.status).toBe(200);
+			expect(turnedAway.headers.get('content-type')).toBe(
+				'application/x-ndjson',
+			);
+			const lines = (await turnedAway.text()).split('\n');
+			expect(lines.pop()).toBe('');
+			expect(lines.map((line) => JSON.parse(line))).toEqual([
+				{ answer: refused },
+			]);
 			expect(await Bun.file(draft('http')).exists()).toBe(false);
 			const stream = await post({ via: 'http', title: ' ' });
 			expect(stream.status).toBe(200);

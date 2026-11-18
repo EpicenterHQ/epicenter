@@ -77,15 +77,16 @@ const vocab = defineApp(({ folder }) => {
 		},
 	});
 
+	// Two keys' verbs share names, so the second key's are named apart.
+	const settings = data.settings.actions('get', 'patch');
 	return {
 		description: 'Words I am learning',
 		data,
 		actions: {
-			words: {
-				...data.words.actions('list', 'get', 'patch', 'edit'),
-				create: learn,
-			},
-			settings: data.settings.actions('get', 'patch'),
+			...data.words.actions('list', 'get', 'patch', 'edit'),
+			create: learn,
+			'get-settings': settings.get,
+			'patch-settings': settings.patch,
 			review,
 		},
 	};
@@ -98,32 +99,34 @@ type In<A> = A extends (input: infer I) => unknown ? I : never;
 type Out<A> = A extends (input: never) => infer O ? Awaited<O> : never;
 
 describe('an app author', () => {
-	test('gets every action under its words, with exact inputs and outputs', () => {
-		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
+	test('gets every action under its one name, with exact inputs and outputs', () => {
 		assertType<
 			Equal<
-				keyof Actions['words'],
-				'list' | 'get' | 'create' | 'patch' | 'edit'
+				keyof Actions,
+				| 'list'
+				| 'get'
+				| 'create'
+				| 'patch'
+				| 'edit'
+				| 'get-settings'
+				| 'patch-settings'
+				| 'review'
 			>
 		>();
-		assertType<Equal<keyof Actions['settings'], 'get' | 'patch'>>();
 		assertType<
 			Equal<
-				In<Actions['words']['patch']>,
+				In<Actions['patch']>,
 				{ id: string; meaning?: string | null | undefined; body?: string }
 			>
 		>();
 		assertType<
-			Equal<
-				In<Actions['words']['edit']>,
-				{ id: string; old: string; new: string }
-			>
+			Equal<In<Actions['edit']>, { id: string; old: string; new: string }>
 		>();
 		// @ts-expect-error an edit names both old and new
-		() => made.actions.words.edit({ id: 'a', old: 'x' });
-		assertType<Equal<In<Actions['words']['get']>, { id: string }>>();
-		assertType<Equal<In<Actions['settings']['get']>, { id: string }>>();
-		type Item = NonNullable<Out<Actions['words']['list']>['data']>[number];
+		() => made.actions.edit({ id: 'a', old: 'x' });
+		assertType<Equal<In<Actions['get']>, { id: string }>>();
+		assertType<Equal<In<Actions['get-settings']>, { id: string }>>();
+		type Item = NonNullable<Out<Actions['list']>['data']>[number];
 		assertType<
 			Equal<
 				Extract<Item, Ok<unknown>>['data'],
@@ -138,12 +141,12 @@ describe('an app author', () => {
 		assertType<Equal<Extract<Item, Err<unknown>>['error']['name'], 'Misfit'>>();
 		assertType<
 			Equal<
-				In<Actions['settings']['patch']>,
+				In<Actions['patch-settings']>,
 				{ id: string; dailyGoal?: number | null | undefined; body?: string }
 			>
 		>();
 		assertType<
-			Equal<In<Actions['words']['create']>, { word: string; meaning?: string }>
+			Equal<In<Actions['create']>, { word: string; meaning?: string }>
 		>();
 		assertType<
 			Equal<
@@ -155,8 +158,7 @@ describe('an app author', () => {
 
 	test('an app is a function of its folder, and its actions are functions of their input', () => {
 		assertType<Equal<Parameters<typeof vocab>, [{ folder: Folder }]>>();
-		() =>
-			vocab({ folder: unusedFolder }).actions.words.create({ word: '你好' });
+		() => vocab({ folder: unusedFolder }).actions.create({ word: '你好' });
 		// @ts-expect-error an app is called with its folder
 		() => vocab();
 	});
@@ -233,7 +235,7 @@ describe('an app author', () => {
 		assertType<Equal<ActionOutput<typeof say>, { reply: string }>>();
 		assertType<Equal<ActionUpdate<typeof say>, string | { step: number }>>();
 		assertType<Equal<ActionUpdate<typeof tag>, never>>();
-		assertType<Equal<ActionUpdate<Actions['words']['patch']>, never>>();
+		assertType<Equal<ActionUpdate<Actions['patch']>, never>>();
 		const chat = defineApp(() => ({ description: 'Chat', actions: { say } }));
 		type ChatActions = ReturnType<typeof chat>['actions'];
 		assertType<
@@ -241,7 +243,8 @@ describe('an app author', () => {
 		>();
 		const chatUi = connect<typeof chat>({ app: 'chat' });
 		() =>
-			chatUi.say(
+			chatUi.call(
+				'say',
 				{ message: 'hi' },
 				{
 					onUpdate: (value) => {
@@ -251,7 +254,7 @@ describe('an app author', () => {
 			);
 		const vocabUi = {} as AppClient<Actions>;
 		// @ts-expect-error an action that only returns takes no onUpdate
-		() => vocabUi.review({ word: 'a' }, { onUpdate: () => {} });
+		() => vocabUi.call('review', { word: 'a' }, { onUpdate: () => {} });
 		// The same two arguments call it in the Epicenter.
 		() => say({ message: 'hi' }, { onUpdate: (value) => void value });
 		// In the library every action takes options; one that only returns never calls onUpdate.
@@ -269,10 +272,10 @@ describe('an app author', () => {
 		});
 	});
 
-	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
+	test('a UI calls each action by its name, typed by the app, and gets a Result', () => {
 		const vocabUi = connect<typeof vocab>({ app: 'vocab' });
 		assertType<Equal<typeof vocabUi, AppClient<Actions>>>();
-		const call = () => vocabUi.words.patch({ id: 'a', meaning: 'x' });
+		const call = () => vocabUi.call('patch', { id: 'a', meaning: 'x' });
 		type Answer = Awaited<ReturnType<typeof call>>;
 		assertType<
 			Equal<
@@ -286,15 +289,20 @@ describe('an app author', () => {
 			>
 		>();
 		assertType<Answer extends Result<unknown, ActionError> ? true : false>();
+		// The same call, held as a function for a query or a mutation.
+		const patch = vocabUi.action('patch');
+		assertType<Equal<ReturnType<typeof patch>, ReturnType<typeof call>>>();
 		// @ts-expect-error a field the data key does not declare
-		() => vocabUi.words.patch({ id: 'a', due: 'x' });
+		() => vocabUi.call('patch', { id: 'a', due: 'x' });
 		// @ts-expect-error a verb takes the id, not a path
-		() => vocabUi.words.get({ path: 'data/words/a.md' });
-		() => vocabUi.settings.get({ id: 'settings' });
-		() => vocabUi.words.list();
-		() => vocabUi.review({ word: 'a' });
-		// @ts-expect-error no action is named then
-		() => vocabUi.then;
+		() => vocabUi.call('get', { path: 'data/words/a.md' });
+		// @ts-expect-error no action has this name
+		() => vocabUi.call('words');
+		// @ts-expect-error no action has this name
+		() => vocabUi.action('words');
+		() => vocabUi.call('get-settings', { id: 'settings' });
+		() => vocabUi.call('list');
+		() => vocabUi.action('review')({ word: 'a' });
 	});
 });
 
