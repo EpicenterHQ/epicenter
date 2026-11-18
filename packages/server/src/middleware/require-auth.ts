@@ -11,7 +11,7 @@ import { asPrincipalId } from '@epicenter/account';
 import type { Session, User } from 'better-auth';
 import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
-import type { OAuthAudiences, OAuthScope } from '../auth/oauth-policy.js';
+import type { OAuthScope } from '../auth/oauth-policy.js';
 import {
 	authorizeAccountRequest,
 	readAccessToken,
@@ -20,7 +20,7 @@ import type { CloudEnv } from '../types.js';
 import { RequestGuardError } from './request-guard-errors.js';
 
 /**
- * Admit a request that carries an access token for `audience` with `scope`,
+ * Admit a request with an access token for the API origin and the required scope,
  * and set `c.var.principal` to the account it acts for. A refusal answers
  * 401 or 403 with `WWW-Authenticate` naming the audience's
  * `resource_metadata` (RFC 9728); an unreadable database answers 503, so a
@@ -29,14 +29,8 @@ import { RequestGuardError } from './request-guard-errors.js';
  * Needs the cloud context (`c.var.db`) installed before it.
  */
 export function requireAccessToken({
-	audience,
 	scope,
 }: {
-	/**
-	 * Which of this deployment's audiences the resource is. Its identifier is
-	 * `c.var.audiences[audience]`, which the deployment names (ADR-0326).
-	 */
-	audience: keyof OAuthAudiences;
 	scope: OAuthScope;
 }): MiddlewareHandler<CloudEnv> {
 	return createMiddleware<CloudEnv>(async (c, next) => {
@@ -44,7 +38,7 @@ export function requireAccessToken({
 		try {
 			decided = await authorizeAccountRequest(c.var.db, {
 				token: readAccessToken(c.req.header('authorization')),
-				audience: c.var.audiences[audience],
+				audience: c.var.authBaseURL,
 				scope,
 			});
 		} catch {

@@ -12,20 +12,13 @@
  */
 
 import {
-	PRODUCTION_API_URL,
-	resolveOAuthAudiences,
-} from '@epicenter/definition/site';
-import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createR2BlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountFolders,
 	mountInferenceApp,
 	mountTranscriptionApp,
-	type OAuthScope,
 	registerFirstPartyClients,
 	requireAccessToken,
 	requireSessionCookie,
@@ -36,6 +29,7 @@ import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
 import pg from 'pg';
+import { PRODUCTION_API_URL } from '../origins.js';
 import {
 	chargeOpenAiCreditsWithAutumn,
 	chargeOpenAiTranscriptionCredits,
@@ -62,9 +56,6 @@ const app = createServerApp<CloudEnv>({
 	// to this deployment's own `Cloudflare.Env` is the honest edge (ADR-0066).
 	resolveOrigin: resolveApiOrigin,
 	resolveTrustedOrigins: buildEpicenterTrustedOrigins,
-	// Both audiences are on this origin: the API at it, the folders at
-	// `/folders` (ADR-0326, ADR-0828).
-	resolveAudiences: resolveOAuthAudiences,
 });
 
 // The cloud UI (apps/api/ui) is one root-based SvelteKit SPA whose fallback
@@ -129,7 +120,7 @@ const registerClientsOnce = createMiddleware<CloudEnv>(async (c, next) => {
 	if (!firstPartyClientsRegistered) {
 		await c.var.auth.$context;
 		await registerFirstPartyClients(c.var.db, {
-			audiences: c.var.audiences,
+			origin: c.var.authBaseURL,
 			clients: buildFirstPartyClients(c.var.authBaseURL),
 		});
 		firstPartyClientsRegistered = true;
@@ -149,27 +140,17 @@ mountAuthRoutes(app, {
 // its operation needs (ADR-0549). Account management on the authorization
 // server's own pages takes only its session cookie: billing here, and sign-in
 // methods and account deletion through Better Auth under `/auth/*`.
-const resource = (audience: 'api' | 'folders', scope: OAuthScope) =>
-	every(cloudContext, requireAccessToken({ audience, scope }));
+const aiAccess = every(cloudContext, requireAccessToken({ scope: 'ai' }));
 const accountSession = every(cloudContext, requireSessionCookie());
 
-// Folders at api.epicenter.so/folders/<id> (ADR-0811, ADR-0824): each one's
-// log in Postgres through Hyperdrive, its bytes over 16 KiB in R2 (`BLOBS`),
-// and their listing and sharing at `/api/folders`. Each request is decided
-// from the access token, the folder's membership, and its attached apps
-// (`authorizeFolderRequest`), so they take no guard here. Unmetered.
-mountFolders(app, {
-	setup: cloudContext,
-	resolveBlobs: (env) => createR2BlobStore((env as Cloudflare.Env).BLOBS),
-});
 mountInferenceApp(app, {
-	auth: resource('api', 'ai'),
+	auth: aiAccess,
 	policies: [chargeOpenAiCreditsWithAutumn],
 });
 // OpenAI-compatible STT gateway (OpenAI whisper-1, house key). Metered by audio
 // duration, settled after the call (per-minute); see chargeOpenAiTranscriptionCredits.
 mountTranscriptionApp(app, {
-	auth: resource('api', 'ai'),
+	auth: aiAccess,
 	policies: [chargeOpenAiTranscriptionCredits],
 });
 

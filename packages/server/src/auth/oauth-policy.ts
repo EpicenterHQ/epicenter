@@ -1,17 +1,12 @@
 /**
- * What the authorization server issues (ADR-0549, ADR-0565): the scopes, each
- * resource's audience and scope ceiling, token lifetimes, and the token
- * prefixes. The deployment names its audiences and its first-party clients;
- * this module owns the policy every deployment shares.
+ * OAuth policy shared by the Bun and Worker deployments (ADR-0549, ADR-0565).
  */
 import type { OAuthResourceInput } from '@better-auth/oauth-provider';
 
 /**
  * Every scope the server grants. A scope exists only while some route refuses
  * a token without it, or userinfo withholds a claim without it (`email`);
- * none of them changes the account. `folders:all` reaches every folder the
- * person holds, as the CLI and the Epicenter app do; a token without it
- * reaches only the folders attached to its app (ADR-0811).
+ * none of them changes the account.
  */
 export const OAUTH_SCOPES = [
 	'openid',
@@ -19,9 +14,6 @@ export const OAUTH_SCOPES = [
 	'profile',
 	'email',
 	'ai',
-	'folders:read',
-	'folders:write',
-	'folders:all',
 ] as const;
 export type OAuthScope = (typeof OAUTH_SCOPES)[number];
 
@@ -38,42 +30,18 @@ export const TOKEN_PREFIX = {
 	refresh: 'ep_rt_',
 } as const;
 
-/** The token audiences of one deployment, named by the deployment. */
-export type OAuthAudiences = {
-	/** Inference and transcription. */
-	api: string;
-	/** Every folder's log, files, and bytes, at `<origin>/folders`, and `/api/folders`. */
-	folders: string;
-};
+export const PROTECTED_RESOURCE_METADATA_PATH =
+	'/.well-known/oauth-protected-resource';
 
-/**
- * The scopes each audience's routes check, as its protected resource metadata
- * (RFC 9728) lists them. This is what a client asks for to use the audience,
- * not what a token for it may carry: see {@link oauthResourceInputs}.
- */
-export const SCOPES_SUPPORTED = {
-	api: ['ai'],
-	folders: ['folders:read', 'folders:write', 'folders:all'],
-} as const satisfies Record<keyof OAuthAudiences, readonly OAuthScope[]>;
-
-/**
- * The `oauthResource` rows for a deployment's audiences.
- *
- * `allowedScopes` is what a token for the audience may carry. The library
- * intersects a request's scopes with it and stores the result on the refresh
- * token as well as the access token, so a list narrower than the grant would
- * shrink the grant on its first refresh for that audience. Every audience
- * therefore allows every scope: a refresh never narrows the grant, and the
- * audience alone keeps a folders token out of inference.
- */
-export function oauthResourceInputs(
-	audiences: OAuthAudiences,
-): OAuthResourceInput[] {
-	return Object.values(audiences).map((identifier) => ({
-		identifier,
-		accessTokenTtl: ACCESS_TOKEN_TTL_SECONDS,
-		allowedScopes: [...OAUTH_SCOPES],
-	}));
+/** The OAuth resource row for inference and transcription. */
+export function oauthResourceInputs(origin: string): OAuthResourceInput[] {
+	return [
+		{
+			identifier: origin,
+			accessTokenTtl: ACCESS_TOKEN_TTL_SECONDS,
+			allowedScopes: [...OAUTH_SCOPES],
+		},
+	];
 }
 
 /** SHA-256, base64url without padding: the provider's stored token form. */

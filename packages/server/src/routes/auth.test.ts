@@ -1,7 +1,7 @@
 /**
  * Hosted auth routing keeps sign-in query input out of redirects, serves the
  * authorization server's pages from the UI shell, and answers RFC 9728
- * discovery for the audiences this origin serves.
+ * discovery for the API origin.
  */
 import { expect, test } from 'bun:test';
 import { Hono } from 'hono';
@@ -14,10 +14,6 @@ function setup() {
 	const app = new Hono<CloudEnv>();
 	app.use(async (c, next) => {
 		c.set('authBaseURL', origin);
-		c.set('audiences', {
-			api: origin,
-			folders: `${origin}/folders`,
-		});
 		await next();
 	});
 	mountAuthRoutes(app, {
@@ -58,47 +54,34 @@ test('the provider catch-all remains and the consent and device pages are shells
 		expect(await response.text()).toBe('sign-in shell');
 	}
 });
-test('protected resource metadata answers only for audiences on this origin', async () => {
+test('protected resource metadata describes the API and rejects other paths and origins', async () => {
 	const app = setup();
 	const api = await app.request(
 		`${origin}/.well-known/oauth-protected-resource`,
 	);
 	expect(api.status).toBe(200);
-	expect(await api.json()).toMatchObject({
+	expect((await api.json()) as unknown).toEqual({
 		resource: origin,
 		authorization_servers: [`${origin}/auth`],
+		scopes_supported: ['ai'],
+		bearer_methods_supported: ['header'],
 	});
 	// No audience lives at another path on this origin.
 	expect(
-		(await app.request(`${origin}/.well-known/oauth-protected-resource/mcp`))
-			.status,
+		(
+			await app.request(
+				`${origin}/.well-known/oauth-protected-resource/folders`,
+			)
+		).status,
 	).toBe(404);
 	// Another origin's metadata is not this origin's to answer.
 	expect(
 		(
 			await app.request(
-				'https://other.example.test/.well-known/oauth-protected-resource/folders',
+				'https://other.example.test/.well-known/oauth-protected-resource',
 			)
 		).status,
 	).toBe(404);
-});
-test("each audience's metadata lists its own scopes, at its own path", async () => {
-	const app = setup();
-	const api = await app.request(
-		`${origin}/.well-known/oauth-protected-resource`,
-	);
-	expect(await api.json()).toMatchObject({
-		scopes_supported: ['ai'],
-	});
-	const folders = await app.request(
-		`${origin}/.well-known/oauth-protected-resource/folders`,
-	);
-	expect((await folders.json()) as object).toEqual({
-		resource: `${origin}/folders`,
-		authorization_servers: [`${origin}/auth`],
-		scopes_supported: ['folders:read', 'folders:write', 'folders:all'],
-		bearer_methods_supported: ['header'],
-	});
 });
 test('the sign-in page serves a private shell outside the Better Auth catch-all', async () => {
 	const response = await setup().request('/sign-in?redirect=%2Fdashboard');

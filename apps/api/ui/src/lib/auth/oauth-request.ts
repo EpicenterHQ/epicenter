@@ -47,16 +47,9 @@ export function deviceAuthorizeUrl(userCode: string) {
 
 /**
  * What each scope lets an app do, in the words a person reads, in the order
- * they are shown. `folders:all` comes first: it says which folders the
- * reading and changing below it reach (ADR-0820).
+ * they are shown.
  */
 const SCOPE_COPY = new Map([
-	[
-		'folders:all',
-		'Reach every folder you have, not only the ones you use with this app',
-	],
-	['folders:read', 'Read your folders'],
-	['folders:write', 'Change your folders'],
 	['ai', 'Use Epicenter AI on your plan'],
 	['profile', 'See your name, plan, and usage'],
 	['email', 'See your email address'],

@@ -14,11 +14,7 @@ import {
 } from './apple-client-secret.js';
 import { BASE_AUTH_CONFIG } from './base-config.js';
 import { createCookieAdvancedConfig } from './cookie-config.js';
-import {
-	authPlugins,
-	type OAuthServerConfig,
-	oauthServerPlugins,
-} from './plugins.js';
+import { authPlugins, oauthServerPlugins } from './plugins.js';
 import { requireAccountSession, SESSION_POLICY } from './session-policy.js';
 
 /**
@@ -133,12 +129,12 @@ export function createAuth({
 	/** Deployment-supplied trusted origins (CORS, CSRF, redirect allow-list). */
 	trustedOrigins: string[];
 	/**
-	 * The authorization server's audiences.
+	 * Whether to compose the authorization server for this origin.
 	 * Only the `/auth/*` routes compose it: the provider seeds its resources
 	 * when an instance initializes, and a Worker builds one per request, so a
 	 * route that only resolves a session must not pay those reads.
 	 */
-	oauth?: Omit<OAuthServerConfig, 'db'>;
+	oauth?: boolean;
 }) {
 	// Better Auth signs session credentials and OAuth state with this secret. Handed
 	// an empty or missing one, the library silently falls back to its PUBLIC default
@@ -251,7 +247,7 @@ export function createAuth({
 		rateLimit: { storage: 'memory' },
 		plugins: [
 			...authPlugins(baseURL),
-			...(oauth ? oauthServerPlugins(oauth) : []),
+			...(oauth ? oauthServerPlugins(baseURL) : []),
 		],
 		hooks: {
 			before: requireAccountSession(

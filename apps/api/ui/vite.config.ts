@@ -1,7 +1,7 @@
-import { APPS } from '@epicenter/definition/site';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
+import { LOCAL_API_ORIGIN } from '../origins.js';
 
 // Dashboard is same-origin with API: in prod, served as static assets from
 // `api.epicenter.so/dashboard`; in dev, the proxy below routes /api and /auth
@@ -16,7 +16,7 @@ export default defineConfig({
 		proxy: {
 			// Forward API requests to the local Hono dev server
 			'/api': {
-				target: `http://localhost:${APPS.API.port}`,
+				target: LOCAL_API_ORIGIN,
 				changeOrigin: true,
 			},
 			// Everything under /auth is a Better Auth API endpoint (sign-in/social,
@@ -25,7 +25,7 @@ export default defineConfig({
 			// /session/callback) live at root and are served by SvelteKit directly, so
 			// neither collides with this proxy.
 			'/auth': {
-				target: `http://localhost:${APPS.API.port}`,
+				target: LOCAL_API_ORIGIN,
 				changeOrigin: true,
 			},
 		},

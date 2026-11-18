@@ -11,7 +11,6 @@
  *   clients carry both the production and the local origin
  */
 import { describe, expect, test } from 'bun:test';
-import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import { buildFirstPartyClients } from './oauth-registrations.js';
 
 const PRODUCTION = 'https://api.epicenter.so';
@@ -31,7 +30,7 @@ describe('native clients', () => {
 			expect(clientId).toMatch(/^so\.epicenter\.[a-z]+\.native$/);
 	});
 
-	test('a loopback redirect on any port, the API alone, and no folders scope', () => {
+	test('a loopback redirect on any port, the API alone, and their registered scopes', () => {
 		const expectedScopes = [
 			'openid',
 			'offline_access',
@@ -42,7 +41,7 @@ describe('native clients', () => {
 		for (const client of natives) {
 			expect(client.applicationType).toBe('native');
 			expect(client.redirectUris).toEqual(['http://127.0.0.1/callback']);
-			expect(client.resources).toEqual([resolveOAuthAudiences(PRODUCTION).api]);
+			expect(client.resources).toEqual([PRODUCTION]);
 			expect([...client.scopes].sort()).toEqual([...expectedScopes].sort());
 		}
 	});
@@ -92,5 +91,18 @@ test('browser clients redirect only to their own production and local callbacks'
 		expect(
 			localClients.find((client) => client.clientId === clientId)?.redirectUris,
 		).toEqual([callback(productionOrigin), callback(localOrigin)]);
+	}
+});
+
+test('every OAuth client is linked only to the API origin and grants current scopes', () => {
+	for (const origin of [PRODUCTION, LOCAL]) {
+		for (const client of buildFirstPartyClients(origin)) {
+			expect(client.resources).toEqual([origin]);
+			expect(client.scopes).toEqual(
+				client.clientId === 'so.epicenter.cli'
+					? ['openid', 'offline_access', 'profile', 'ai']
+					: ['openid', 'offline_access', 'profile', 'email', 'ai'],
+			);
+		}
 	}
 });

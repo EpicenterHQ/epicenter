@@ -15,10 +15,6 @@ const origin = 'https://api.example.com';
 const identity = {
 	resolveOrigin: () => origin,
 	resolveTrustedOrigins: () => [origin],
-	resolveAudiences: () => ({
-		api: origin,
-		folders: `${origin}/folders`,
-	}),
 };
 const authOptions = {
 	resolveAuthSecrets: () => ({

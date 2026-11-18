@@ -7,8 +7,6 @@
  *
  *   - the `db` leg   a module-scope `pg.Pool` over `DATABASE_URL`, drained
  *                    fire-and-forget in the live process (no `waitUntil`)
- *   - folders        each one's log in the same Postgres, and its bytes over
- *                    16 KiB on disk under `BLOB_STORE_ROOT`
  *
  * This is additive: `wrangler dev`/`deploy` still serve the Worker unchanged.
  * `bun --watch server.ts` boots instantly with real stack traces. This entry is
@@ -17,10 +15,10 @@
  *
  * The whole Bun bootstrap lives here, in the app, not behind a shared
  * `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the cloud
- * auth layer, the inference and folder mounts, `Bun.serve`) is this app's
+ * auth layer, the AI mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
- * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive, R2,
+ * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive,
  * edge placement) will not surface here, so `wrangler dev` /
  * staging stays the fidelity gate before any deploy touching runtime behavior.
  *
@@ -39,29 +37,21 @@
 import { statSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import {
-	API_BUN_DEV_PORT,
-	resolveOAuthAudiences,
-} from '@epicenter/definition/site';
-import {
 	CloudAuthBindings,
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createDiskBlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountFolders,
 	mountInferenceApp,
 	mountTranscriptionApp,
-	type OAuthScope,
 	registerFirstPartyClients,
 	requireAccessToken,
 	ServerBindings,
-} from '@epicenter/server/bun';
+} from '@epicenter/server';
 import { type } from 'arktype';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
-import { compress } from 'hono/compress';
 import pg from 'pg';
 import { buildFirstPartyClients } from './worker/oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
@@ -85,9 +75,6 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 	DATABASE_URL: 'string',
 	'PORT?': 'string',
 	'API_PUBLIC_ORIGIN?': 'string',
-	// Where folders' bytes over 16 KiB live. Unset, an upload of them answers
-	// 503; smaller bytes live in Postgres either way.
-	'BLOB_STORE_ROOT?': 'string',
 	// The built authorization pages (`apps/api/ui`'s `build`), by default
 	// beside this file at `ui/build`.
 	'API_UI_DIR?': 'string',
@@ -168,11 +155,12 @@ export async function startBunApiServer(): Promise<void> {
 		process.exit(1);
 	}
 
-	const port = Number(env.PORT ?? API_BUN_DEV_PORT);
+	const port = Number(env.PORT ?? 8788);
 	// The auth origin must match where the process actually listens (cookies and
 	// hosted callback URLs derive from it). Default to localhost
 	// on the chosen port; an operator overrides it with their domain.
-	const origin = env.API_PUBLIC_ORIGIN ?? `http://localhost:${port}`;
+	const origin = new URL(env.API_PUBLIC_ORIGIN ?? `http://localhost:${port}`)
+		.origin;
 
 	// One pool for the process. Drizzle checks out clients per query; the
 	// request middleware borrows the pool and has no per-request client to close.
@@ -182,16 +170,14 @@ export async function startBunApiServer(): Promise<void> {
 	// This process serves its own origin, so it writes the first-party clients
 	// and resources for that origin once, at boot (ADR-0549, ADR-0326). The
 	// Worker writes the hosted ones once per isolate.
-	const audiences = resolveOAuthAudiences(origin);
 	await registerFirstPartyClients(db, {
-		audiences,
+		origin,
 		clients: buildFirstPartyClients(origin),
 	});
 
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
-		resolveAudiences: () => audiences,
 	});
 
 	const ui = uiPages(env.API_UI_DIR ?? resolve(import.meta.dir, 'ui', 'build'));
@@ -219,32 +205,14 @@ export async function startBunApiServer(): Promise<void> {
 	});
 	// Every resource takes only an access token for its audience and the scope
 	// its operation needs (ADR-0549).
-	const resource = (audience: 'api' | 'folders', scope: OAuthScope) =>
-		every(cloudContext, requireAccessToken({ audience, scope }));
-	// Folders (ADR-0824): each one's log in this Postgres, and its bytes over
-	// 16 KiB on disk under BLOB_STORE_ROOT.
-	const blobs = env.BLOB_STORE_ROOT
-		? createDiskBlobStore({ root: env.BLOB_STORE_ROOT })
-		: null;
-	// Cloudflare's edge compresses the Worker's JSON replies; this host has
-	// no edge, so it compresses the folders' own: the listing and reads
-	// a web page takes at connect are megabytes of notes uncompressed.
-	// Hono's content-type filter leaves a folder's bytes as sent.
-	app.use(
-		`${new URL(audiences.folders).pathname.replace(/\/$/, '')}/*`,
-		compress(),
-	);
-	mountFolders(app, {
-		setup: cloudContext,
-		resolveBlobs: () => blobs,
-	});
-	mountInferenceApp(app, { auth: resource('api', 'ai') });
+	const auth = every(cloudContext, requireAccessToken({ scope: 'ai' }));
+	mountInferenceApp(app, { auth });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered
 	// here for the same reason inference is: this host composes no billing, so
 	// there is no Autumn policy to attach. Mounting it is what keeps a `star`
 	// transcription working against `dev:bun`; the Worker is the only hosted
 	// artifact, and it meters both gateways.
-	mountTranscriptionApp(app, { auth: resource('api', 'ai') });
+	mountTranscriptionApp(app, { auth });
 
 	const server = Bun.serve({
 		port,

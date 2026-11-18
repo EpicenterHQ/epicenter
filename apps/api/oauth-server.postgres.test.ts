@@ -9,7 +9,7 @@
  *
  * The resource check runs in this process against the same database, the way
  * every resource will run it, and a real access token reaches each entry's own
- * resource over HTTP: the folder listing. Each entry writes its own first-party registrations: the Bun entry at boot, the
+ * inference mount over HTTP. The Bun entry writes its first-party clients at boot and the
  * Worker before its first authorization-server request, and concurrent writes
  * agree. Requires initdb and pg_ctl on PATH; never connects to a configured
  * database and never deploys.
@@ -20,20 +20,15 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
-	type FolderListing,
-	PRODUCTION_API_URL,
-	resolveOAuthAudiences,
-} from '@epicenter/definition/site';
-import {
 	authorizeAccountRequest,
 	createDb,
 	firstPartyClientRow,
-	type OAuthAudiences,
 	type OAuthScope,
 	oauthResourceInputs,
 	readAccessToken,
 	registerFirstPartyClients,
-} from '@epicenter/server/bun';
+} from '@epicenter/server';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client } from 'pg';
 import {
@@ -48,6 +43,7 @@ import {
 	type OAuthHarness,
 } from '../../packages/server/src/test-helpers/oauth-checks.js';
 import { OAuthTestClient } from '../../packages/server/src/test-helpers/oauth-client.js';
+import { PRODUCTION_API_URL } from './origins.js';
 import { buildFirstPartyClients } from './worker/oauth-registrations.js';
 
 const apiRoot = import.meta.dir;
@@ -109,11 +105,10 @@ async function harnessFor(
 	origin: string,
 	client: Client,
 ): Promise<OAuthHarness> {
-	const audiences: OAuthAudiences = resolveOAuthAudiences(origin);
 	const db = createDb(client);
 	// A registered client that asks for consent, beside the first-party ones.
 	await registerFirstPartyClients(db, {
-		audiences,
+		origin,
 		clients: [
 			...buildFirstPartyClients(origin),
 			{
@@ -121,8 +116,8 @@ async function harnessFor(
 				name: 'Untrusted agent',
 				redirectUris: ['http://127.0.0.1/callback'],
 				grantTypes: ['authorization_code', 'refresh_token'],
-				scopes: ['offline_access', 'folders:read', 'folders:write'],
-				resources: [audiences.folders],
+				scopes: ['offline_access', 'profile'],
+				resources: [origin],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -130,7 +125,6 @@ async function harnessFor(
 	});
 	return {
 		client: new OAuthTestClient(origin, client, secret),
-		audiences,
 		desktop: {
 			clientId: 'so.epicenter',
 			redirectUri: 'http://127.0.0.1:53111/callback',
@@ -192,38 +186,28 @@ function checks(
 	});
 }
 
-/**
- * One person's folders-audience token lists their folders; an API-audience
- * token is refused, since the listing is the folders audience's.
- */
+/** The token gets past the gateway's guard, then an unknown model gets 400. */
 async function checkResourcesOverHttp(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('http');
-	const folders = await client.codeGrant({
-		...h.desktop,
-		cookie: person.cookie,
-		resource: [h.audiences.folders],
-	});
 	const api = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
-		scope: 'ai folders:read folders:write',
-		resource: [h.audiences.api],
+		scope: 'ai',
+		resource: [client.origin],
 	});
-	const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
-
-	const listing = await fetch(`${client.origin}/api/folders`, {
-		headers: bearer(folders.access_token),
+	const response = await fetch(API_ROUTES.ai.completions.url(client.origin), {
+		method: 'POST',
+		headers: {
+			authorization: 'Bearer ' + api.access_token,
+			'content-type': 'application/json',
+		},
+		body: JSON.stringify({ model: 'unknown-fixture-model' }),
 	});
-	expect(listing.status).toBe(200);
-	expect((await listing.json()) as FolderListing).toEqual({
-		folders: [],
-		pending: [],
+	expect(response.status).toBe(400);
+	expect(await response.json()).toMatchObject({
+		error: { code: 'UnknownModel' },
 	});
-	const wrongAudience = await fetch(`${client.origin}/api/folders`, {
-		headers: bearer(api.access_token),
-	});
-	expect(wrongAudience.status).toBe(401);
 }
 
 const running: { stop: () => Promise<void> }[] = [];
@@ -284,7 +268,7 @@ beforeAll(async () => {
 	}
 
 	// The Worker entry under local workerd. The config is wrangler.jsonc
-	// without its production route, Artifacts, assets, or required secrets.
+	// without its production route, assets, or required secrets.
 	{
 		const port = await freePort();
 		const origin = `http://127.0.0.1:${port}`;
@@ -327,6 +311,8 @@ beforeAll(async () => {
 				`API_PUBLIC_ORIGIN:${origin}`,
 				'--var',
 				`BETTER_AUTH_SECRET:${secret}`,
+				'--var',
+				'AUTUMN_SECRET_KEY:fixture',
 			],
 			{
 				cwd: scratch,
@@ -419,14 +405,13 @@ test('concurrent registrations of the hosted clients on a fresh database all suc
 	);
 	const connections = [first, ...others];
 	try {
-		const audiences = resolveOAuthAudiences(PRODUCTION_API_URL);
 		const clients = buildFirstPartyClients(PRODUCTION_API_URL);
 		// Isolates that start together, then the same isolates restarting.
 		for (let round = 0; round < 3; round++)
 			await Promise.all(
 				connections.map((connection) =>
 					registerFirstPartyClients(createDb(connection), {
-						audiences,
+						origin: PRODUCTION_API_URL,
 						clients,
 					}),
 				),
@@ -435,7 +420,7 @@ test('concurrent registrations of the hosted clients on a fresh database all suc
 			'select identifier, access_token_ttl, allowed_scopes from oauth_resource order by identifier',
 		);
 		expect(resources.rows).toEqual(
-			oauthResourceInputs(audiences)
+			oauthResourceInputs(PRODUCTION_API_URL)
 				.map((resource) => ({
 					identifier: resource.identifier,
 					access_token_ttl: resource.accessTokenTtl,

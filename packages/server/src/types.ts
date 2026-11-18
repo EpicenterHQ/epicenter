@@ -7,7 +7,6 @@
 
 import type { Principal } from '@epicenter/account';
 import type { createAuth } from './auth/create-auth.js';
-import type { OAuthAudiences } from './auth/oauth-policy.js';
 import type { Db } from './db/create-db.js';
 import type { ServerBindings } from './server-bindings.js';
 
@@ -26,7 +25,7 @@ import type { ServerBindings } from './server-bindings.js';
  * binding casts `env` to its own `Cloudflare.Env` at the `apps/*` edge.
  *
  * `Variables` are populated by request-scoped middleware: the resolved origin,
- * trust set, and token audiences, and the resolved principal.
+ * trust set, and the resolved principal.
  * The library does NOT carry `planId` (apps/api billing) or any Postgres /
  * Better Auth handle (cloud-only, {@link CloudEnv}).
  */
@@ -41,11 +40,6 @@ export type Env = {
 		 * library.
 		 */
 		trustedOrigins: string[];
-		/**
-		 * This deployment's OAuth token audiences, resolved from `authBaseURL`
-		 * by the deployment (`createServerApp`'s `resolveAudiences`).
-		 */
-		audiences: OAuthAudiences;
 		principal: Principal;
 	};
 };

@@ -2,9 +2,8 @@
  * Fail when a wire URL path Epicenter serves or calls is hardcoded outside
  * packages/server/src/api-routes.ts.
  *
- * Every wire URL path lives in one place:
- * packages/server/src/api-routes.ts. Consumers import patterns and
- * URL builders from there.
+ * Shared API route patterns and URL builders live in
+ * packages/server/src/api-routes.ts.
  *
  * Excluded:
  *   - The route file itself (it IS the source of truth).
@@ -34,9 +33,9 @@ const EXCLUDED_DIRS = new Set([
 	'.svelte-kit',
 ]);
 
-// A quoted route literal for a path @epicenter/server/api-routes owns. `([^a-z]|$)`
-// keeps `/api/sessions-of-mine` style prefixes from matching.
-const HARDCODED_PATH = /['"`]\/api\/(session|rooms|ai)([^a-z]|$)/;
+// The session projection and the two OpenAI-compatible gateways.
+const HARDCODED_PATH =
+	/['"`]\/(?:api\/session|v1\/(?:chat\/completions|audio\/transcriptions))(?=[/'"`?#]|$)/;
 
 // The next two regexes test the full `path:line:content` record, exactly as
 // the workflow's `grep -v` filters did.

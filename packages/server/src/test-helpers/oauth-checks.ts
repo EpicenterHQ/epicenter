@@ -8,19 +8,17 @@
  * against that database (ADR-0549's one query).
  */
 import { expect } from 'bun:test';
-import type { OAuthAudiences } from '../auth/oauth-policy.js';
 import { hashPrefixedToken, TOKEN_PREFIX } from '../auth/oauth-policy.js';
 import { type OAuthTestClient, type Person, pkce } from './oauth-client.js';
 
 export type ResourceAnswer = {
 	status: number;
 	challenge: string | null;
-	body: { error?: string; role?: string; accountId?: string };
+	body: { error?: string; accountId?: string };
 };
 
 export type OAuthHarness = {
 	client: OAuthTestClient;
-	audiences: OAuthAudiences;
 	/** The resource check for one request on the person's account. */
 	resource(
 		token: string,
@@ -71,9 +69,9 @@ async function closeReplayWindow(h: OAuthHarness, refreshToken: string) {
 	);
 }
 
-const read = (h: OAuthHarness) => ({
-	audience: h.audiences.folders,
-	scope: 'folders:read',
+const aiAccess = (h: OAuthHarness) => ({
+	audience: h.client.origin,
+	scope: 'ai',
 });
 
 /**
@@ -86,7 +84,7 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('family');
 	const other = await client.person('family-other');
-	const resource = [h.audiences.folders];
+	const resource = [h.client.origin];
 	const code = (who: Person) =>
 		client.codeGrant({ ...h.desktop, cookie: who.cookie, resource });
 	const device = async () => {
@@ -153,9 +151,9 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 	expect(replayA.status).toBe(400);
 	expect(replayA.body.error).toBe('invalid_grant');
 	for (const token of [rotatedA.body.access_token, B.access_token])
-		expect((await h.resource(token, read(h))).status).toBe(401);
-	expect((await h.resource(D1.access_token, read(h))).status).toBe(200);
-	expect((await h.resource(O.access_token, read(h))).status).toBe(200);
+		expect((await h.resource(token, aiAccess(h))).status).toBe(401);
+	expect((await h.resource(D1.access_token, aiAccess(h))).status).toBe(200);
+	expect((await h.resource(O.access_token, aiAccess(h))).status).toBe(200);
 	expect(await alive()).toEqual({
 		A: false,
 		B: false,
@@ -171,7 +169,7 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 	current.D1.refresh = rotatedD1.body.refresh_token!;
 	await closeReplayWindow(h, oldD1);
 	expect((await client.refresh(h.cli.clientId, oldD1)).status).toBe(400);
-	expect((await h.resource(D2.access_token, read(h))).status).toBe(401);
+	expect((await h.resource(D2.access_token, aiAccess(h))).status).toBe(401);
 	expect(await alive()).toEqual({
 		A: false,
 		B: false,
@@ -202,7 +200,7 @@ export async function checkFlows(h: OAuthHarness) {
 	expect(metadata.grant_types_supported).not.toContain('client_credentials');
 
 	const person = await client.person('flows');
-	const resource = [h.audiences.folders];
+	const resource = [h.client.origin];
 	const issued = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
@@ -238,41 +236,33 @@ export async function checkFlows(h: OAuthHarness) {
 		const first = await client.token(form);
 		expect(first.status).toBe(200);
 		expect((await client.token(form)).status).toBe(400);
-		expect((await h.resource(first.body.access_token, read(h))).status).toBe(
-			401,
-		);
+		expect(
+			(await h.resource(first.body.access_token, aiAccess(h))).status,
+		).toBe(401);
 	}
 
 	// The resource: its audience and scope.
-	const owner = await h.resource(issued.access_token, read(h));
+	const owner = await h.resource(issued.access_token, aiAccess(h));
 	expect(owner.status).toBe(200);
 	expect(owner.body).toMatchObject({ accountId: person.id });
-	expect(
-		(
-			await h.resource(issued.access_token, {
-				...read(h),
-				scope: 'folders:write',
-			})
-		).status,
-	).toBe(200);
 	const wrongAudience = await h.resource(issued.access_token, {
-		...read(h),
-		audience: h.audiences.api,
+		...aiAccess(h),
+		audience: 'https://another-resource.example.test',
 	});
 	expect(wrongAudience.status).toBe(401);
 	expect(wrongAudience.challenge).toContain('resource_metadata=');
-	const readOnly = await client.codeGrant({
+	const profileOnly = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
 		resource,
-		scope: 'folders:read',
+		scope: 'profile',
 	});
-	const noWrite = await h.resource(readOnly.access_token, {
-		...read(h),
-		scope: 'folders:write',
+	const noAi = await h.resource(profileOnly.access_token, {
+		...aiAccess(h),
+		scope: 'ai',
 	});
-	expect(noWrite.status).toBe(403);
-	expect(noWrite.body.error).toBe('insufficient_scope');
+	expect(noAi.status).toBe(403);
+	expect(noAi.body.error).toBe('insufficient_scope');
 
 	// Rotation, and revocation that the very next request sees.
 	const rotated = await client.refresh(
@@ -280,9 +270,9 @@ export async function checkFlows(h: OAuthHarness) {
 		issued.refresh_token!,
 	);
 	expect(rotated.status).toBe(200);
-	expect((await h.resource(rotated.body.access_token, read(h))).status).toBe(
-		200,
-	);
+	expect(
+		(await h.resource(rotated.body.access_token, aiAccess(h))).status,
+	).toBe(200);
 	expect(
 		await client.revoke(
 			h.desktop.clientId,
@@ -290,9 +280,9 @@ export async function checkFlows(h: OAuthHarness) {
 			'access_token',
 		),
 	).toBe(200);
-	expect((await h.resource(rotated.body.access_token, read(h))).status).toBe(
-		401,
-	);
+	expect(
+		(await h.resource(rotated.body.access_token, aiAccess(h))).status,
+	).toBe(401);
 	const again = await client.refresh(
 		h.desktop.clientId,
 		rotated.body.refresh_token!,
@@ -304,7 +294,9 @@ export async function checkFlows(h: OAuthHarness) {
 			'refresh_token',
 		),
 	).toBe(200);
-	expect((await h.resource(again.body.access_token, read(h))).status).toBe(401);
+	expect((await h.resource(again.body.access_token, aiAccess(h))).status).toBe(
+		401,
+	);
 	expect(
 		(await client.refresh(h.desktop.clientId, again.body.refresh_token!))
 			.status,
@@ -334,17 +326,12 @@ export async function checkFlows(h: OAuthHarness) {
 		).rowCount,
 	).toBe(sessionsBefore.rowCount);
 	expect(
-		(
-			await h.resource(device.tokens!.access_token, {
-				...read(h),
-				scope: 'folders:write',
-			})
-		).status,
+		(await h.resource(device.tokens!.access_token, aiAccess(h))).status,
 	).toBe(200);
 
 	// Each client's registration is its ceiling.
 	const browserDevice = await client.request('/auth/device/code', {
-		form: { client_id: h.browser.clientId, scope: 'folders:read', resource },
+		form: { client_id: h.browser.clientId, scope: 'profile', resource },
 	});
 	expect(browserDevice.status).toBe(400);
 	expect((await client.json(browserDevice)).error).toBe('unauthorized_client');
@@ -368,7 +355,7 @@ export async function checkFlows(h: OAuthHarness) {
 		...h.browser,
 		cookie: person.cookie,
 		resource,
-		scope: 'folders:read',
+		scope: 'profile',
 	});
 	expect(browserGrant.refresh_token).toBeUndefined();
 	const offline = await client.codeGrant({
@@ -381,16 +368,16 @@ export async function checkFlows(h: OAuthHarness) {
 		person.sessionId,
 		new Date(Date.now() - 60_000),
 	]);
-	expect((await h.resource(browserGrant.access_token, read(h))).status).toBe(
-		401,
-	);
+	expect(
+		(await h.resource(browserGrant.access_token, aiAccess(h))).status,
+	).toBe(401);
 	const afterExpiry = await client.refresh(
 		h.desktop.clientId,
 		offline.refresh_token!,
 	);
 	expect(afterExpiry.status).toBe(200);
 	expect(
-		(await h.resource(afterExpiry.body.access_token, read(h))).status,
+		(await h.resource(afterExpiry.body.access_token, aiAccess(h))).status,
 	).toBe(200);
 
 	// Signing out deletes the access tokens issued under that session; an
@@ -401,7 +388,7 @@ export async function checkFlows(h: OAuthHarness) {
 			...h.browser,
 			cookie: leaving.cookie,
 			resource,
-			scope: 'folders:read',
+			scope: 'profile',
 		});
 		const desktopGrant = await client.codeGrant({
 			...h.desktop,
@@ -413,13 +400,13 @@ export async function checkFlows(h: OAuthHarness) {
 			json: {},
 		});
 		expect(signedOut.status).toBe(200);
-		expect((await h.resource(browserToken.access_token, read(h))).status).toBe(
-			401,
-		);
+		expect(
+			(await h.resource(browserToken.access_token, aiAccess(h))).status,
+		).toBe(401);
 		expect(await tokenRow(h, browserToken.access_token)).toBeUndefined();
-		expect((await h.resource(desktopGrant.access_token, read(h))).status).toBe(
-			200,
-		);
+		expect(
+			(await h.resource(desktopGrant.access_token, aiAccess(h))).status,
+		).toBe(200);
 		expect(
 			(await client.refresh(h.desktop.clientId, desktopGrant.refresh_token!))
 				.status,
@@ -429,15 +416,13 @@ export async function checkFlows(h: OAuthHarness) {
 
 /**
  * Check 3: the consent page. An app that does not skip consent lands there,
- * and the person's answer is the grant, with no choice of folders: which
- * folders a token reaches is its scopes and the apps folders are attached
- * to (ADR-0811). The same page approves a device code, and silent
- * re-authorization then needs no page.
+ * and the person's answer is the grant. The same page approves a device code.
+ * Silent re-authorization then needs no page.
  */
 export async function checkConsent(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('consent');
-	const resource = [h.audiences.folders];
+	const resource = [h.client.origin];
 
 	const { verifier, challenge } = await pkce();
 	const authorized = await client.authorize({
@@ -445,6 +430,7 @@ export async function checkConsent(h: OAuthHarness) {
 		cookie: person.cookie,
 		challenge,
 		resource,
+		scope: 'profile',
 	});
 	const consentPage = new URL(authorized.location, client.origin);
 	expect(consentPage.pathname).toBe('/consent');
@@ -462,7 +448,14 @@ export async function checkConsent(h: OAuthHarness) {
 		verifier,
 		resource,
 	});
-	expect((await h.resource(tokens.access_token, read(h))).status).toBe(200);
+	expect(
+		(
+			await h.resource(tokens.access_token, {
+				audience: h.client.origin,
+				scope: 'profile',
+			})
+		).status,
+	).toBe(200);
 
 	// Silent re-authorization after the consent needs no page.
 	const silent = await pkce();
@@ -471,16 +464,16 @@ export async function checkConsent(h: OAuthHarness) {
 		cookie: person.cookie,
 		challenge: silent.challenge,
 		resource,
+		scope: 'profile',
 		prompt: 'none',
 	});
 	expect(new URL(reauthorized.location).searchParams.get('code')).toBeString();
 
-	// A device code asking for every folder reaches the consent page with
-	// `folders:all` in its signed request, which the page shows (ADR-0820).
+	// The device consent page receives the requested scopes.
 	const started = await client.request('/auth/device/code', {
 		form: {
 			client_id: h.cli.clientId,
-			scope: 'offline_access folders:read folders:all',
+			scope: 'offline_access profile ai',
 			resource,
 		},
 	});
@@ -495,9 +488,7 @@ export async function checkConsent(h: OAuthHarness) {
 		client.origin,
 	);
 	expect(deviceConsent.pathname).toBe('/consent');
-	expect(deviceConsent.searchParams.get('scope')?.split(' ')).toContain(
-		'folders:all',
-	);
+	expect(deviceConsent.searchParams.get('scope')?.split(' ')).toContain('ai');
 
 	// A device code is approved on the consent page.
 	const device = await client.deviceGrant({
@@ -505,9 +496,9 @@ export async function checkConsent(h: OAuthHarness) {
 		cookie: person.cookie,
 		resource,
 	});
-	expect((await h.resource(device.tokens!.access_token, read(h))).status).toBe(
-		200,
-	);
+	expect(
+		(await h.resource(device.tokens!.access_token, aiAccess(h))).status,
+	).toBe(200);
 }
 
 /**
@@ -519,33 +510,39 @@ export async function checkConsent(h: OAuthHarness) {
 export async function checkSilentReauthorization(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('silent');
-	const resource = [h.audiences.api, h.audiences.folders];
+	const resource = [h.client.origin];
 	const { verifier, challenge } = await pkce();
 	const silent = await client.authorize({
 		...h.browser,
 		cookie: person.cookie,
 		challenge,
 		resource,
-		scope: 'folders:read',
+		scope: 'profile',
 		prompt: 'none',
 	});
 	expect(silent.status).toBe(302);
 	expect(silent.location.startsWith(h.browser.redirectUri)).toBe(true);
 	const code = new URL(silent.location).searchParams.get('code')!;
-	// One audience per token request: a token naming both is refused at each.
 	const issued = await client.exchange({
 		...h.browser,
 		code,
 		verifier,
-		resource: [h.audiences.folders],
+		resource,
 	});
 	expect(issued.refresh_token).toBeUndefined();
-	expect((await h.resource(issued.access_token, read(h))).status).toBe(200);
+	expect(
+		(
+			await h.resource(issued.access_token, {
+				audience: h.client.origin,
+				scope: 'profile',
+			})
+		).status,
+	).toBe(200);
 
 	const anonymous = await client.authorize({
 		...h.browser,
 		challenge,
-		scope: 'folders:read',
+		scope: 'profile',
 		prompt: 'none',
 	});
 	expect(anonymous.status).toBe(302);
@@ -557,7 +554,7 @@ export async function checkSilentReauthorization(h: OAuthHarness) {
 	const interactive = await client.authorize({
 		...h.browser,
 		challenge,
-		scope: 'folders:read',
+		scope: 'profile',
 	});
 	expect(new URL(interactive.location, client.origin).pathname).toBe(
 		'/sign-in',
@@ -567,7 +564,7 @@ export async function checkSilentReauthorization(h: OAuthHarness) {
 		...h.untrusted,
 		cookie: person.cookie,
 		challenge,
-		scope: 'folders:read',
+		scope: 'profile',
 		prompt: 'none',
 	});
 	expect(new URL(untrusted.location).searchParams.get('error')).toBe(
@@ -579,7 +576,7 @@ export async function checkSilentReauthorization(h: OAuthHarness) {
 		...h.untrusted,
 		cookie: person.cookie,
 		challenge,
-		scope: 'folders:read ai',
+		scope: 'profile ai',
 		prompt: 'none',
 	});
 	expect(new URL(wider.location).searchParams.get('error')).toBe(

@@ -7,7 +7,6 @@ import type { BetterAuthOptions } from 'better-auth';
 import {
 	ACCESS_TOKEN_TTL_SECONDS,
 	OAUTH_SCOPES,
-	type OAuthAudiences,
 	oauthResourceInputs,
 	REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
 	REFRESH_TOKEN_TTL_SECONDS,
@@ -15,14 +14,8 @@ import {
 } from './oauth-policy.js';
 import { offlineDetach } from './offline-detach.js';
 
-/** The authorization server's deployment inputs. */
-export type OAuthServerConfig = {
-	/** This deployment's token audiences. */
-	audiences: OAuthAudiences;
-};
-
 /** The OAuth 2.1 authorization server (ADR-0549). */
-export function oauthServerPlugins({ audiences }: OAuthServerConfig) {
+export function oauthServerPlugins(origin: string) {
 	return [
 		oauthProvider({
 			// Opaque, hashed access tokens checked in the database on every
@@ -35,7 +28,7 @@ export function oauthServerPlugins({ audiences }: OAuthServerConfig) {
 			// Every client is a first-party row the deployment registers
 			// (`registerFirstPartyClients`); no client registers itself.
 			allowDynamicClientRegistration: false,
-			resources: oauthResourceInputs(audiences),
+			resources: oauthResourceInputs(origin),
 			// An existing row is never rewritten, as `registerFirstPartyClients`
 			// leaves it.
 			resourceSeedMode: 'insertOnly',

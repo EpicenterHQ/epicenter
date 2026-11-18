@@ -24,7 +24,6 @@
  *     `wrangler.jsonc` by `wrangler-config.ts`.
  */
 
-import { APPS, resolveOAuthAudiences } from '@epicenter/definition/site';
 import { type } from 'arktype';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
@@ -36,6 +35,7 @@ import {
 	oauthServerPlugins,
 } from '../../packages/server/src/auth/plugins';
 import * as schema from '../../packages/server/src/db/schema';
+import { LOCAL_API_ORIGIN } from './origins.js';
 import { LOCAL_DATABASE_URL } from './wrangler-config';
 
 const env = type({
@@ -48,7 +48,6 @@ const client = new pg.Client({
 });
 await client.connect();
 const db = drizzle(client, { schema });
-const baseURL = `http://localhost:${APPS.API.port}`;
 
 export const auth = betterAuth({
 	...BASE_AUTH_CONFIG,
@@ -57,14 +56,11 @@ export const auth = betterAuth({
 	 * affect schema generation. The session and passkey plugins need a valid
 	 * origin at initialization. Runtime configuration uses the deployment's origin.
 	 */
-	baseURL,
+	baseURL: LOCAL_API_ORIGIN,
 	database: drizzleAdapter(db, { provider: 'pg', schema }),
 	secret: env.BETTER_AUTH_SECRET,
 	plugins: [
-		...authPlugins(baseURL),
-		...oauthServerPlugins({
-			db,
-			audiences: resolveOAuthAudiences(baseURL),
-		}),
+		...authPlugins(LOCAL_API_ORIGIN),
+		...oauthServerPlugins(LOCAL_API_ORIGIN),
 	],
 });

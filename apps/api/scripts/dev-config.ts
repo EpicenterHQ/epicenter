@@ -1,8 +1,8 @@
-import { APPS, localUrl } from '@epicenter/definition/site';
+import { LOCAL_API_ORIGIN } from '../origins.js';
 
 /** The public issuer used by the local Worker and its sign-in pages. */
 export function localPublicOrigin(override: string | undefined): string {
-	const origin = override ?? localUrl(APPS.API);
+	const origin = override ?? LOCAL_API_ORIGIN;
 	const url = new URL(origin);
 	if (
 		url.protocol !== 'http:' ||

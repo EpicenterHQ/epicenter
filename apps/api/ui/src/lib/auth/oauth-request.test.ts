@@ -7,12 +7,12 @@ import {
 } from './oauth-request.js';
 
 const signed =
-	'response_type=code&client_id=so.epicenter&scope=offline_access+folders%3Aread&prompt=login&state=s&exp=1&ba_iat=2&ba_param=client_id&sig=abc';
+	'response_type=code&client_id=so.epicenter&scope=offline_access+ai&prompt=login&state=s&exp=1&ba_iat=2&ba_param=client_id&sig=abc';
 
 test('a signed authorization request keeps its query and resumes without the signature', () => {
 	const request = readOAuthRequest(`?${signed}`);
 	expect(request?.clientId).toBe('so.epicenter');
-	expect(request?.scopes).toEqual(['offline_access', 'folders:read']);
+	expect(request?.scopes).toEqual(['offline_access', 'ai']);
 	expect(request?.oauthQuery).toBe(signed);
 	const resume = new URL(request?.resumeUrl ?? '', 'https://api.example');
 	expect(resume.pathname).toBe('/auth/oauth2/authorize');
@@ -42,31 +42,13 @@ test('an unsigned query is not an authorization request', () => {
 });
 
 test('scope lines skip scopes that grant nothing on their own', () => {
-	expect(describeScopes(['openid', 'folders:write', 'ai'])).toEqual([
-		'Change your folders',
+	expect(describeScopes(['openid', 'ai'])).toEqual([
 		'Use Epicenter AI on your plan',
-	]);
-});
-
-test('reaching every folder is shown first, as every folder the person has', () => {
-	expect(
-		describeScopes([
-			'openid',
-			'offline_access',
-			'folders:read',
-			'folders:write',
-			'folders:all',
-		]),
-	).toEqual([
-		'Reach every folder you have, not only the ones you use with this app',
-		'Read your folders',
-		'Change your folders',
-		'Stay signed in on that device',
 	]);
 });
 
 test('scope lines ignore inherited object keys and keep declared scopes', () => {
 	expect(
-		describeScopes(['constructor', 'toString', '__proto__', 'folders:read']),
-	).toEqual(['Read your folders']);
+		describeScopes(['constructor', 'toString', '__proto__', 'profile']),
+	).toEqual(['See your name, plan, and usage']);
 });

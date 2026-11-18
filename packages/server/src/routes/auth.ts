@@ -8,26 +8,11 @@ import {
 } from '@better-auth/oauth-provider';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { type OAuthAudiences, SCOPES_SUPPORTED } from '../auth/oauth-policy.js';
-import { protectedResourceMetadataUrl } from '../auth/resource-access.js';
+import { PROTECTED_RESOURCE_METADATA_PATH } from '../auth/oauth-policy.js';
 import type { CloudEnv } from '../types.js';
 
 /** The browser pages this server owns, served from the deployment's UI shell. */
 const AUTH_PAGES = ['/sign-in', '/consent', '/device'];
-
-/** The RFC 9728 document for one audience: the scopes its routes check. */
-function protectedResourceMetadata(
-	kind: keyof OAuthAudiences,
-	audience: string,
-	issuer: string,
-) {
-	return {
-		resource: audience,
-		authorization_servers: [issuer],
-		scopes_supported: SCOPES_SUPPORTED[kind],
-		bearer_methods_supported: ['header'],
-	};
-}
 
 export function mountAuthRoutes(
 	app: Hono<CloudEnv>,
@@ -54,34 +39,26 @@ export function mountAuthRoutes(
 		oauthProviderOpenIdConfigMetadata(c.var.auth)(c.req.raw),
 	);
 
-	// RFC 9728: each audience names this issuer. A resource's 401 points here
-	// through `resource_metadata`, on the resource's own origin, with the
-	// well-known segment before its path (`…/oauth-protected-resource/folders`);
-	// a request for another origin's metadata finds nothing.
-	app.get('/.well-known/oauth-protected-resource/*', (c) =>
-		protectedResource(c),
-	);
-	app.get('/.well-known/oauth-protected-resource', (c) => protectedResource(c));
-	function protectedResource(c: Context<CloudEnv>) {
-		const requested = new URL(c.req.url);
-		const issuer = `${new URL(c.var.authBaseURL).origin}/auth`;
-		const { audiences } = c.var;
-		for (const kind of Object.keys(audiences) as (keyof OAuthAudiences)[]) {
-			const metadataUrl = new URL(
-				protectedResourceMetadataUrl(audiences[kind]),
-			);
-			if (
-				metadataUrl.origin === requested.origin &&
-				metadataUrl.pathname === requested.pathname
-			)
-				return c.json(
-					protectedResourceMetadata(kind, audiences[kind], issuer),
-					200,
-					{ 'Cache-Control': 'public, max-age=3600' },
-				);
-		}
-		return c.notFound();
-	}
+	// A resource's 401 links to this RFC 9728 document on the API origin.
+	app.get(PROTECTED_RESOURCE_METADATA_PATH, (c) => {
+		const origin = c.var.authBaseURL;
+		const requestUrl = new URL(c.req.url);
+		if (
+			requestUrl.origin !== origin ||
+			requestUrl.pathname !== PROTECTED_RESOURCE_METADATA_PATH
+		)
+			return c.notFound();
+		return c.json(
+			{
+				resource: origin,
+				authorization_servers: [`${origin}/auth`],
+				scopes_supported: ['ai'],
+				bearer_methods_supported: ['header'],
+			},
+			200,
+			{ 'Cache-Control': 'public, max-age=3600' },
+		);
+	});
 
 	app.on(
 		['GET', 'POST'],

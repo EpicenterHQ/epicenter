@@ -4,9 +4,9 @@
  * migration applied: the spike's refresh lineage, consent, and silent
  * re-authorization checks, the end-to-end flows, the refusal of a client
  * that names a metadata document, the resource check's 401 and 403 answers through a
- * test-only protected route, and the real protected mounts behind
+ * test-only route, and the inference mount behind
  * `requireAccessToken` the way the deployments compose them.
- * Requires initdb and pg_ctl on PATH (a write lands in a disk store);
+ * Requires initdb and pg_ctl on PATH. It
  * never connects to a configured database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -17,10 +17,8 @@ import { every } from 'hono/combine';
 import type { Client } from 'pg';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
-import { createMemoryBlobStore } from '../log/memory-blob-store.js';
 import { requireAccessToken } from '../middleware/require-auth.js';
 import { mountAuthRoutes } from '../routes/auth.js';
-import { mountFolders } from '../routes/folders.js';
 import { mountInferenceApp } from '../routes/inference.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
@@ -39,18 +37,10 @@ import {
 	TOKEN_PREFIX,
 } from './oauth-policy.js';
 import { registerFirstPartyClients } from './oauth-registrations.js';
-import {
-	authorizeAccountRequest,
-	authorizeFolderRequest,
-	readAccessToken,
-} from './resource-access.js';
+import { authorizeAccountRequest, readAccessToken } from './resource-access.js';
 
 const origin = 'http://127.0.0.1:47911';
 const secret = 'oauth-server-postgres-secret-0123456789';
-const audiences = {
-	api: origin,
-	folders: `${origin}/folders`,
-};
 const desktop = {
 	clientId: 'so.epicenter',
 	redirectUri: 'http://127.0.0.1:53111/callback',
@@ -82,23 +72,15 @@ beforeAll(async () => {
 		),
 	});
 	await registerFirstPartyClients(db, {
-		audiences,
+		origin,
 		clients: [
 			{
 				...desktop,
 				name: 'Epicenter',
 				redirectUris: ['http://127.0.0.1/callback'],
 				grantTypes: ['authorization_code', 'refresh_token'],
-				scopes: [
-					'openid',
-					'offline_access',
-					'profile',
-					'ai',
-					'folders:read',
-					'folders:write',
-					'folders:all',
-				],
-				resources: [audiences.api, audiences.folders],
+				scopes: ['openid', 'offline_access', 'profile', 'ai'],
+				resources: [origin],
 				skipConsent: true,
 				applicationType: 'native',
 			},
@@ -110,16 +92,8 @@ beforeAll(async () => {
 					'urn:ietf:params:oauth:grant-type:device_code',
 					'refresh_token',
 				],
-				scopes: [
-					'openid',
-					'offline_access',
-					'profile',
-					'ai',
-					'folders:read',
-					'folders:write',
-					'folders:all',
-				],
-				resources: [audiences.api, audiences.folders],
+				scopes: ['openid', 'offline_access', 'profile', 'ai'],
+				resources: [origin],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -128,16 +102,8 @@ beforeAll(async () => {
 				name: 'Todos',
 				redirectUris: [browser.redirectUri],
 				grantTypes: ['authorization_code', 'refresh_token'],
-				scopes: [
-					'openid',
-					'offline_access',
-					'profile',
-					'email',
-					'ai',
-					'folders:read',
-					'folders:write',
-				],
-				resources: [audiences.api, audiences.folders],
+				scopes: ['openid', 'offline_access', 'profile', 'email', 'ai'],
+				resources: [origin],
 				skipConsent: true,
 				applicationType: 'web',
 			},
@@ -146,8 +112,8 @@ beforeAll(async () => {
 				name: 'Untrusted agent',
 				redirectUris: ['http://127.0.0.1/callback'],
 				grantTypes: ['authorization_code', 'refresh_token'],
-				scopes: ['offline_access', 'folders:read', 'folders:write'],
-				resources: [audiences.folders],
+				scopes: ['offline_access', 'profile'],
+				resources: [origin],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -157,7 +123,6 @@ beforeAll(async () => {
 	app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
-		resolveAudiences: () => audiences,
 	});
 	const context = {
 		connect: async () => ({ db, close: async () => {} }),
@@ -173,12 +138,8 @@ beforeAll(async () => {
 	});
 	// The real protected mounts, guarded the way both deployments guard them.
 	const resourceContext = createCloudContextMiddleware(context);
-	const resource = (audience: keyof typeof audiences, scope: OAuthScope) =>
-		every(resourceContext, requireAccessToken({ audience, scope }));
-	mountInferenceApp(app, { auth: resource('api', 'ai') });
-	mountFolders(app, {
-		setup: resourceContext,
-		resolveBlobs: () => createMemoryBlobStore(),
+	mountInferenceApp(app, {
+		auth: every(resourceContext, requireAccessToken({ scope: 'ai' })),
 	});
 	// Test-only protected route: the resource check, as every resource runs it.
 	app.get('/test/resource', async (c) => {
@@ -202,7 +163,6 @@ beforeAll(async () => {
 	);
 	harness = {
 		client,
-		audiences,
 		desktop,
 		browser,
 		cli,
@@ -255,8 +215,8 @@ test('a client that names a metadata document is unknown', async () => {
 		redirectUri: 'http://127.0.0.1:53999/callback',
 		cookie: person.cookie,
 		challenge,
-		resource: [audiences.folders],
-		scope: 'offline_access folders:read',
+		resource: [origin],
+		scope: 'offline_access profile',
 	});
 	// No client identifies itself by URL: there is no metadata document
 	// support and no dynamic registration (ADR-0578).
@@ -265,186 +225,14 @@ test('a client that names a metadata document is unknown', async () => {
 	);
 }, 60_000);
 
-test('one grant serves the API and the folders, in any order of refreshes', async () => {
-	const { client } = harness;
-	const person = await client.person('audiences');
-	const everyScope =
-		'ai folders:read folders:write offline_access openid profile';
-	const grant = await client.deviceGrant({
-		clientId: cli.clientId,
-		cookie: person.cookie,
-		scope: 'openid offline_access profile ai folders:read folders:write',
-		resource: [audiences.api, audiences.folders],
-		redeemFor: audiences.api,
-	});
-	expect(grant.tokens!.scope?.split(' ').sort().join(' ')).toBe(everyScope);
-	let refresh = grant.tokens!.refresh_token!;
-	const at = async (token: string, audience: string, scope: OAuthScope) =>
-		(await harness.resource(token, { audience, scope })).status;
-	for (const [audience, scope] of [
-		[audiences.folders, 'folders:write'],
-		[audiences.api, 'ai'],
-		[audiences.folders, 'folders:write'],
-		[audiences.api, 'profile'],
-	] as const) {
-		const rotated = await client.token({
-			grant_type: 'refresh_token',
-			client_id: cli.clientId,
-			refresh_token: refresh,
-			resource: audience,
-		});
-		expect(rotated.status).toBe(200);
-		// Every first-party audience allows every scope, so the grant keeps
-		// them all, and each access token is still bound to its audience.
-		expect(rotated.body.scope?.split(' ').sort().join(' ')).toBe(everyScope);
-		const token = rotated.body.access_token;
-		expect(await at(token, audience, scope)).toBe(200);
-		const elsewhere =
-			audience === audiences.folders ? audiences.api : audiences.folders;
-		expect(await at(token, elsewhere, 'folders:read')).toBe(401);
-		refresh = rotated.body.refresh_token!;
-	}
-	const stored = await sqlClient.query<{ scopes: string[] }>(
-		'select scopes from oauth_refresh_token where token = $1',
-		[await hashPrefixedToken(refresh, TOKEN_PREFIX.refresh)],
-	);
-	expect(stored.rows[0]?.scopes.sort().join(' ')).toBe(everyScope);
-}, 60_000);
-
-describe('the resource check', () => {
-	/** A person, a token from the desktop app, and a folder they hold. */
-	async function issue(scope = 'offline_access folders:read') {
-		const person = await harness.client.person('resource');
-		const tokens = await harness.client.codeGrant({
-			...desktop,
-			cookie: person.cookie,
-			resource: [audiences.folders],
-			scope,
-		});
-		const folder = await folderOf(person.id);
-		return { person, token: tokens.access_token, folder };
-	}
-	/** A folder `accountId` holds as `role`. */
-	async function folderOf(accountId: string, { role = 'member' } = {}) {
-		const id = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-			.map((byte) => 'abcdefghijklmnopqrstuvwxyz0123456789'[byte % 36])
-			.join('');
-		await sqlClient.query('insert into folder (id) values ($1)', [id]);
-		await sqlClient.query(
-			'insert into folder_member (folder_id, account_id, role) values ($1, $2, $3)',
-			[id, accountId, role],
-		);
-		return id;
-	}
-	const at = (
-		token: string | null,
-		folder: string,
-		scope: OAuthScope = 'folders:read',
-	) =>
-		authorizeFolderRequest(db, {
-			token,
-			audience: audiences.folders,
-			scope,
-			folder,
-		});
-
-	test('answers 401 with resource_metadata for a missing, foreign, unknown, expired, or revoked token', async () => {
-		const { token, folder } = await issue();
-		const metadata = `resource_metadata="${origin}/.well-known/oauth-protected-resource/folders"`;
-		for (const presented of [
-			null,
-			'not-an-epicenter-token',
-			`${TOKEN_PREFIX.access}unknown`,
-		]) {
-			const { error } = await at(presented, folder);
-			expect(error?.status).toBe(401);
-			expect(error?.challenge).toBe(
-				`Bearer error="invalid_token", ${metadata}`,
-			);
-		}
-		const hash = await hashPrefixedToken(token, TOKEN_PREFIX.access);
-		await sqlClient.query(
-			'update oauth_access_token set expires_at = $2 where token = $1',
-			[hash, new Date(Date.now() - 1000)],
-		);
-		expect((await at(token, folder)).error?.status).toBe(401);
-		const fresh = await issue();
-		await sqlClient.query(
-			'update oauth_access_token set revoked = $2 where token = $1',
-			[await hashPrefixedToken(fresh.token, TOKEN_PREFIX.access), new Date()],
-		);
-		expect((await at(fresh.token, fresh.folder)).error?.status).toBe(401);
-		const foreign = await authorizeFolderRequest(db, {
-			token: (await issue()).token,
-			audience: audiences.api,
-			scope: 'folders:read',
-			folder,
-		});
-		expect(foreign.error?.status).toBe(401);
-		expect(foreign.error?.challenge).toContain(
-			`resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
-		);
-	}, 60_000);
-
-	test('answers 403 for a missing scope, a folder not held, an invitation not accepted, or one not attached to the app', async () => {
-		const { person, token, folder } = await issue(
-			'offline_access folders:read folders:all',
-		);
-		const scope = await at(token, folder, 'folders:write');
-		expect(scope.error?.status).toBe(403);
-		expect(scope.error?.body.error).toBe('insufficient_scope');
-		expect(scope.error?.challenge).toContain(
-			'error="insufficient_scope", scope="folders:write"',
-		);
-		const stranger = await harness.client.person('stranger');
-		const theirs = await at(token, await folderOf(stranger.id));
-		expect(theirs.error?.status).toBe(403);
-		expect(theirs.error?.body.error).toBe('forbidden');
-		expect(theirs.error?.challenge).toContain('resource_metadata=');
-		// A folder that does not exist is refused the same way.
-		const none = await at(token, 'zzzzzzzzzzzzzzzz');
-		expect(none.error?.body).toEqual(theirs.error?.body);
-		// An invitation to the person's email grants nothing until accepted.
-		const waiting = await folderOf(stranger.id);
-		await sqlClient.query(
-			'insert into folder_invitation (folder_id, email, role) values ($1, lower($2), $3)',
-			[waiting, person.email, 'member'],
-		);
-		expect((await at(token, waiting)).error?.status).toBe(403);
-		// Without folders:all, a token reaches the folders attached to its app.
-		const app = await issue('offline_access folders:read');
-		const unattached = await at(app.token, app.folder);
-		expect(unattached.error?.status).toBe(403);
-		expect(unattached.error?.body.error_description).toContain('attached');
-		await sqlClient.query(
-			'insert into folder_app (folder_id, app) values ($1, $2)',
-			[app.folder, desktop.clientId],
-		);
-		expect((await at(app.token, app.folder)).error).toBeNull();
-	}, 60_000);
-
-	test('returns the account, its role, and what the token reaches', async () => {
-		const { person, token, folder } = await issue(
-			'offline_access folders:read folders:all',
-		);
-		expect((await at(token, folder)).data).toEqual({
-			accountId: person.id,
-			role: 'member',
-			clientId: desktop.clientId,
-			folder,
-			app: null,
-		});
-	}, 60_000);
-});
-
 describe('the protected routes', () => {
-	/** A browser app's one access token, as `createBrowserOAuth` gets it. */
-	async function browserToken(resource: string, scope: string) {
+	/** A browser grant for the API origin. */
+	async function browserToken(scope: string) {
 		const person = await harness.client.person('routes');
 		const tokens = await harness.client.codeGrant({
 			...browser,
 			cookie: person.cookie,
-			resource: [resource],
+			resource: [origin],
 			scope,
 		});
 		return { person, token: tokens.access_token };
@@ -470,88 +258,52 @@ describe('the protected routes', () => {
 		call('/auth/oauth2/userinfo', token);
 	const inference = (token: string | null) =>
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
-	/** The first request of a push: the receive-pack advertisement. */
-	const push = (token: string | null, folder = 'aaaaaaaaaaaaaaaa') =>
-		call(`/folders/${folder}/changes`, token, {
-			method: 'POST',
-			body: { files: [{ path: 'a.md', expect: null, text: 'one' }] },
-		});
 
 	test('answer 401 with resource_metadata without a token, or with a session token', async () => {
 		const person = await harness.client.person('no-token');
 		const sessionToken = decodeURIComponent(
 			/=([^;]+)/.exec(person.cookie)?.[1] ?? '',
 		);
-		for (const [response, metadata] of [
-			[await inference(null), ''],
-			[await push(null), '/folders'],
-			[await inference(sessionToken), ''],
-		] as const) {
+		for (const response of [
+			await inference(null),
+			await inference(sessionToken),
+		]) {
 			expect(response.status).toBe(401);
 			expect(response.headers.get('www-authenticate')).toBe(
-				`Bearer error="invalid_token", resource_metadata="${origin}/.well-known/oauth-protected-resource${metadata}"`,
+				`Bearer error="invalid_token", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
 			);
 		}
 	}, 60_000);
 
-	test("answer 401 for another audience's token and 403 for a missing scope", async () => {
-		const folders = await browserToken(
-			audiences.folders,
-			'openid folders:read folders:write',
-		);
-		// A folders token at an API route is another audience's: 401, not 403
-		// (ADR-0549).
-		expect((await inference(folders.token)).status).toBe(401);
-		const api = await browserToken(audiences.api, 'openid profile');
-		expect((await push(api.token)).status).toBe(401);
+	test('inference answers 403 when the token lacks its scope', async () => {
+		const api = await browserToken('openid profile');
 		const refused = await inference(api.token);
 		expect(refused.status).toBe(403);
 		expect(refused.headers.get('www-authenticate')).toBe(
 			`Bearer error="insufficient_scope", scope="ai", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
 		);
 		expect(await refused.json()).toMatchObject({ error: 'insufficient_scope' });
-		const readOnly = await browserToken(
-			audiences.folders,
-			'openid folders:read',
-		);
-		expect((await push(readOnly.token)).status).toBe(403);
 	}, 60_000);
 
 	test('admit a token for the audience with the scope, as its account', async () => {
-		const api = await browserToken(audiences.api, 'openid profile ai');
+		const api = await browserToken('openid profile ai');
 		// The profile read is userinfo, which names the token's account.
 		const read = await userinfo(api.token);
 		expect(read.status).toBe(200);
 		expect(await read.json()).toMatchObject({ sub: api.person.id });
 		// Past the guard, the gateway reads the body: 400, not 401 or 403.
 		expect((await inference(api.token)).status).toBe(400);
-		const folders = await browserToken(
-			audiences.folders,
-			'openid folders:read folders:write',
-		);
-		const count = async () =>
-			(await sqlClient.query('select id from folder')).rowCount;
-		const before = await count();
-		// A first sync from the app makes its folder, attached to the app.
-		const joined = await call('/folders', folders.token, {
-			method: 'POST',
-			body: { create: true },
-		});
-		expect(joined.status).toBe(201);
-		const { folder } = (await joined.json()) as { folder: string };
-		expect(await count()).toBe((before ?? 0) + 1);
-		expect((await push(folders.token, folder)).status).toBe(200);
 	}, 60_000);
 
 	test('stop admitting a token once it is revoked or its browser session ends', async () => {
-		const api = await browserToken(audiences.api, 'openid profile ai');
+		const api = await browserToken('openid profile ai');
 		// Past the guard, the gateway reads the body: 400.
 		expect((await inference(api.token)).status).toBe(400);
 		expect(
 			await harness.client.revoke(browser.clientId, api.token, 'access_token'),
 		).toBe(200);
 		expect((await inference(api.token)).status).toBe(401);
-		const other = await browserToken(audiences.api, 'openid profile ai');
+		const other = await browserToken('openid profile ai');
 		await sqlClient.query(
 			'update session set expires_at = $2 where user_id = $1',
 			[other.person.id, new Date(Date.now() - 1000)],
@@ -566,7 +318,7 @@ describe('the protected routes', () => {
 			...browser,
 			challenge,
 			cookie: person.cookie,
-			resource: [audiences.api],
+			resource: [origin],
 			scope: 'openid profile ai',
 			prompt: 'none',
 		});
@@ -574,7 +326,7 @@ describe('the protected routes', () => {
 		const signedOut = await harness.client.authorize({
 			...browser,
 			challenge,
-			resource: [audiences.api],
+			resource: [origin],
 			scope: 'openid profile ai',
 			prompt: 'none',
 		});
@@ -584,100 +336,19 @@ describe('the protected routes', () => {
 	}, 60_000);
 });
 
-describe('one browser sign-in for the API and the folders (decision 65)', () => {
-	const everyScope = 'openid profile ai folders:read folders:write';
-	/** What `createBrowserOAuth` asks for with two resources. */
-	const signInScope = `${everyScope} offline_access`;
-	const at = async (token: string, audience: string, scope: OAuthScope) =>
-		(await harness.resource(token, { audience, scope })).status;
-
-	/** One redirect for both audiences; its code, unredeemed. */
-	async function authorizeBoth(label: string) {
-		const person = await harness.client.person(label);
-		const { verifier, challenge } = await pkce();
-		const authorized = await harness.client.authorize({
+describe('browser grants with offline_access', () => {
+	test('the browser grant stays bound to its session, and ends at sign-out', async () => {
+		const person = await harness.client.person('session-bound');
+		const api = await harness.client.codeGrant({
 			...browser,
 			cookie: person.cookie,
-			challenge,
-			resource: [audiences.api, audiences.folders],
-			scope: signInScope,
+			resource: [origin],
+			scope: 'openid profile ai offline_access',
 		});
-		const code = new URL(authorized.location).searchParams.get('code');
-		if (!code) throw new Error(`no code: ${authorized.location}`);
-		return { person, code, verifier };
-	}
-
-	const redeem = (
-		{ code, verifier }: { code: string; verifier: string },
-		resource?: string,
-	) =>
-		harness.client.token({
-			grant_type: 'authorization_code',
-			client_id: browser.clientId,
-			code,
-			code_verifier: verifier,
-			redirect_uri: browser.redirectUri,
-			...(resource && { resource }),
-		});
-
-	/** The browser callback: exchange for the API, then refresh once for the folders. */
-	async function signInBoth(label: string) {
-		const authorized = await authorizeBoth(label);
-		const api = await redeem(authorized, audiences.api);
-		expect(api.status).toBe(200);
-		const folders = await harness.client.token({
-			grant_type: 'refresh_token',
-			client_id: browser.clientId,
-			refresh_token: api.body.refresh_token!,
-			resource: audiences.folders,
-		});
-		expect(folders.status).toBe(200);
-		return { person: authorized.person, api: api.body, folders: folders.body };
-	}
-
-	test('a code for both audiences and one refresh give one token per audience', async () => {
-		const { person, api, folders } = await signInBoth('both-audiences');
-		expect(await at(api.access_token, audiences.api, 'ai')).toBe(200);
-		expect(await at(api.access_token, audiences.folders, 'folders:read')).toBe(
-			401,
-		);
-		expect(
-			await at(folders.access_token, audiences.folders, 'folders:write'),
-		).toBe(200);
-		expect(await at(folders.access_token, audiences.api, 'ai')).toBe(401);
-		// The refresh never narrows the grant: both answers carry all of it.
-		const sorted = (scope?: string) => scope?.split(' ').sort().join(' ');
-		expect(sorted(api.scope)).toBe(sorted(signInScope));
-		expect(sorted(folders.scope)).toBe(sorted(signInScope));
-	}, 60_000);
-
-	test('a replayed code is refused and revokes what it issued', async () => {
-		const authorized = await authorizeBoth('replay');
-		const first = await redeem(authorized, audiences.api);
-		expect(first.status).toBe(200);
-		const replay = await redeem(authorized, audiences.folders);
-		expect(replay.status).toBe(400);
-		expect(replay.body).toMatchObject({ error: 'invalid_grant' });
-		expect(await at(first.body.access_token, audiences.api, 'ai')).toBe(401);
-	}, 60_000);
-
-	test('a token for both audiences is refused at each', async () => {
-		const authorized = await authorizeBoth('two-audiences');
-		// Without `resource`, the library issues one token for every bound audience.
-		const both = await redeem(authorized);
-		expect(both.status).toBe(200);
-		expect(await at(both.body.access_token, audiences.api, 'ai')).toBe(401);
-		expect(
-			await at(both.body.access_token, audiences.folders, 'folders:read'),
-		).toBe(401);
-	}, 60_000);
-
-	test('the browser grant stays bound to its session, and ends at sign-out', async () => {
-		const { person, api, folders } = await signInBoth('session-bound');
 		const desktopGrant = await harness.client.codeGrant({
 			...desktop,
 			cookie: person.cookie,
-			resource: [audiences.folders],
+			resource: [origin],
 		});
 		const sessionOf = async (table: string, column: string, token: string) =>
 			(
@@ -690,15 +361,18 @@ describe('one browser sign-in for the API and the folders (decision 65)', () => 
 			(await hashPrefixedToken(token, TOKEN_PREFIX.access))!;
 		const refreshHash = async (token: string) =>
 			(await hashPrefixedToken(token, TOKEN_PREFIX.refresh))!;
-		for (const token of [api.access_token, folders.access_token])
-			expect(
-				await sessionOf('oauth_access_token', 'token', await accessHash(token)),
-			).toBe(person.sessionId);
+		expect(
+			await sessionOf(
+				'oauth_access_token',
+				'token',
+				await accessHash(api.access_token),
+			),
+		).toBe(person.sessionId);
 		expect(
 			await sessionOf(
 				'oauth_refresh_token',
 				'token',
-				await refreshHash(folders.refresh_token!),
+				await refreshHash(api.refresh_token!),
 			),
 		).toBe(person.sessionId);
 		// The desktop app's offline grant is still detached from the session.
@@ -715,15 +389,19 @@ describe('one browser sign-in for the API and the folders (decision 65)', () => 
 			json: {},
 		});
 		expect(signedOut.status).toBe(200);
-		expect(await at(api.access_token, audiences.api, 'ai')).toBe(401);
 		expect(
-			await at(folders.access_token, audiences.folders, 'folders:read'),
+			(
+				await harness.resource(api.access_token, {
+					audience: origin,
+					scope: 'ai',
+				})
+			).status,
 		).toBe(401);
 		const refreshed = await harness.client.token({
 			grant_type: 'refresh_token',
 			client_id: browser.clientId,
-			refresh_token: folders.refresh_token!,
-			resource: audiences.api,
+			refresh_token: api.refresh_token!,
+			resource: origin,
 		});
 		expect(refreshed.status).toBe(400);
 		expect(refreshed.body).toMatchObject({ error: 'invalid_grant' });

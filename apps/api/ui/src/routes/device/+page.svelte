@@ -2,7 +2,7 @@
 	The device page (ADR-0549). The `epicenter` CLI shows a code and this
 	address. A code goes to `/auth/oauth2/authorize?user_code=<code>`, where the
 	authorization server signs the person in and shows the consent page, which
-	approves or denies the code with the folders it may reach. The server then
+	approves or denies the requested access. The server then
 	returns here with `status`, or with `error` for a code it could not use.
 -->
 <script lang="ts">

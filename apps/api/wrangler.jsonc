@@ -47,22 +47,10 @@
 	// --- Vars: non-secret config accessible via env ---
 	// The public origin (Better Auth baseURL, OAuth issuer, token audience) is
 	// intentionally NOT here. It never changes for the hosted cloud, so the
-	// worker bakes `PRODUCTION_API_URL` from @epicenter/definition/site and local dev
+	// worker bakes `PRODUCTION_API_URL` from origins.ts and local dev
 	// overrides it via `API_PUBLIC_ORIGIN` (apps/api/scripts/dev.ts). This keeps
 	// a single source of truth in TypeScript instead of a duplicated string.
 	//
-	// --- R2: a folder's bytes over 16 KiB (ADR-0824) ---
-	// At `folders/<folder id>/blobs/<sha256>`, read and written over the
-	// binding alone; Postgres holds smaller ones inline. Bound here, never in
-	// the dashboard: a dashboard binding is overwritten on the next deploy.
-	// The bucket keeps the name it was made with, from when it held Git LFS
-	// objects; it held none, since hosted Git never ran.
-	"r2_buckets": [
-		{
-			"binding": "BLOBS",
-			"bucket_name": "epicenter-lfs"
-		}
-	],
 	// --- Durable Objects ---
 	// The Worker has none, and carries no migration history. The Worker that
 	// held StoreAuthority, GenerationsLedger, and GitHubConnection (migrations
@@ -114,7 +102,7 @@
 	"placement": {
 		"region": "aws:eu-central-1"
 	},
-	// Raise the per-invocation CPU ceiling to 5 min: the /api/ai/chat SSE stream
+	// Raise the per-invocation CPU ceiling to 5 min: the /v1/chat/completions SSE stream
 	// holds open for minutes of wall-clock, though most of that is provider I/O
 	// wait (low CPU). Billing is on actual CPU used, so the higher ceiling is
 	// headroom, not cost.

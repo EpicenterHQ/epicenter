@@ -1,4 +1,8 @@
-import { APPS, localUrl } from '@epicenter/definition/site';
+import {
+	BROWSER_APP_ORIGINS,
+	LOCAL_API_ORIGIN,
+	PRODUCTION_API_URL,
+} from '../origins.js';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the
@@ -7,10 +11,7 @@ import { APPS, localUrl } from '@epicenter/definition/site';
  */
 
 /**
- * Production origins trusted on every Epicenter cloud deployment: each app's
- * production `url`.
- *
- * Adding an app to `APPS` auto-extends this.
+ * Production origins trusted by every Epicenter API deployment.
  *
  * No desktop webview origin is trusted. Epicenter's windows never call this
  * API themselves: the desktop host relays their account traffic with its own
@@ -26,9 +27,11 @@ import { APPS, localUrl } from '@epicenter/definition/site';
  * exceptions; self-distributed XPIs get a random per-install UUID) rather than
  * a wildcard, which is what defeated CSRF protection the first time.
  */
-const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = Object.values(APPS).map(
-	(app) => app.url,
-);
+const PRODUCTION_TRUSTED_ORIGINS = [
+	PRODUCTION_API_URL,
+	'https://epicenter.sh',
+	...Object.values(BROWSER_APP_ORIGINS).map(([production]) => production),
+];
 
 /**
  * Development-only origins: each app's `localhost:<port>` dev server plus the
@@ -44,9 +47,11 @@ const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = Object.values(APPS).map(
  */
 const DEVELOPMENT_TRUSTED_ORIGINS: readonly string[] = [
 	'http://localhost:5177',
-	`http://127.0.0.1:${APPS.TODOS.port}`,
-	...Object.values(APPS).map((app) => localUrl(app)),
-	`http://${new URL(APPS.API.url).host}`,
+	'http://localhost:5173',
+	'http://127.0.0.1:5186',
+	LOCAL_API_ORIGIN,
+	...Object.values(BROWSER_APP_ORIGINS).map(([, development]) => development),
+	`http://${new URL(PRODUCTION_API_URL).host}`,
 ];
 
 /**

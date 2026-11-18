@@ -4,7 +4,6 @@
  * extension and wildcard trust, and freezes arrays shared by Worker isolates.
  */
 import { describe, expect, test } from 'bun:test';
-import { APPS, localUrl } from '@epicenter/definition/site';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
 const PROD = buildEpicenterTrustedOrigins('https://api.epicenter.so');
@@ -28,26 +27,28 @@ describe('buildEpicenterTrustedOrigins', () => {
 	});
 
 	test('a production deployment does not trust localhost dev origins', () => {
-		expect(PROD).not.toContain(localUrl(APPS.CAPTURE));
-		expect(PROD).not.toContain(localUrl(APPS.API));
-		expect(PROD).not.toContain(`http://${new URL(APPS.API.url).host}`);
+		expect(PROD).not.toContain('http://localhost:5179');
+		expect(PROD).not.toContain('http://localhost:8787');
+		expect(PROD).not.toContain('http://api.epicenter.so');
 		expect(PROD.some((o) => o.startsWith('http://localhost'))).toBe(false);
 	});
 
 	test('a local deployment trusts the localhost dev origins', () => {
 		expect(LOCAL).toContain('http://localhost:5177');
+		expect(LOCAL).toContain('http://localhost:5173');
+		expect(PROD).toContain('https://epicenter.sh');
 		expect(PROD).not.toContain('http://localhost:5177');
-		expect(LOCAL).toContain(localUrl(APPS.CAPTURE));
+		expect(LOCAL).toContain('http://localhost:5179');
 		expect(LOCAL).toContain('http://127.0.0.1:5186');
 		expect(PROD).not.toContain('http://127.0.0.1:5186');
-		expect(LOCAL).toContain(localUrl(APPS.API));
-		expect(LOCAL).toContain(`http://${new URL(APPS.API.url).host}`);
+		expect(LOCAL).toContain('http://localhost:8787');
+		expect(LOCAL).toContain('http://api.epicenter.so');
 	});
 
 	test('both deployments trust the production app origins', () => {
-		expect(PROD).toContain(APPS.CAPTURE.url);
-		expect(PROD).toContain(APPS.TODOS.url);
-		expect(LOCAL).toContain(APPS.CAPTURE.url);
+		expect(PROD).toContain('https://capture.epicenter.so');
+		expect(PROD).toContain('https://todos.epicenter.so');
+		expect(LOCAL).toContain('https://capture.epicenter.so');
 		expect(PROD).toContain('https://zhongwen.bradenwong.com');
 		expect(LOCAL).toContain('https://zhongwen.bradenwong.com');
 		expect(PROD).not.toContain('http://localhost:5207');

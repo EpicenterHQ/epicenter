@@ -15,7 +15,7 @@ export function createCloudContextMiddleware(opts: {
 	resolveAuthSecrets: (c: Context<CloudEnv>) => CloudAuthBindings;
 	/**
 	 * True for the context that serves `/auth/*`: it composes the
-	 * authorization server for the request's `c.var.audiences`. Omit it for a
+	 * authorization server for this origin. Omit it for a
 	 * context that only resolves sessions.
 	 */
 	oauthServer?: boolean;
@@ -48,7 +48,7 @@ export function createCloudContextMiddleware(opts: {
 					env: opts.resolveAuthSecrets(c),
 					baseURL: c.var.authBaseURL,
 					trustedOrigins: c.var.trustedOrigins,
-					oauth: opts.oauthServer ? { audiences: c.var.audiences } : undefined,
+					oauth: opts.oauthServer,
 				}),
 			);
 			await next();

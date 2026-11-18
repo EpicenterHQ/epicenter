@@ -78,10 +78,11 @@ test('the launcher passes a route-free local config to Wrangler', async () => {
 				join(scripts, name),
 				await readFile(new URL(`./${name}`, import.meta.url), 'utf8'),
 			);
-		await writeFile(
-			join(api, 'wrangler.jsonc'),
-			await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'),
-		);
+		for (const name of ['origins.ts', 'wrangler.jsonc'])
+			await writeFile(
+				join(api, name),
+				await readFile(new URL(`../${name}`, import.meta.url), 'utf8'),
+			);
 		await writeFile(devVars, 'stale-local-secret\n');
 		await writeFile(
 			join(bin, 'bun'),
@@ -120,7 +121,7 @@ test('the launcher passes a route-free local config to Wrangler', async () => {
 		clearTimeout(timer);
 		if (timedOut)
 			throw new Error(`dev launcher timed out: ${stdout}\n${stderr}`);
-		expect(code).toBe(0);
+		expect(code, stderr).toBe(0);
 		expect(await readFile(buildArguments, 'utf8')).toBe(
 			'run\n--cwd\nui\nbuild\n',
 		);

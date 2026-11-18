@@ -13,11 +13,7 @@ import {
 	oauthClientResource,
 	oauthResource,
 } from '../db/schema/oauth.js';
-import {
-	type OAuthAudiences,
-	type OAuthScope,
-	oauthResourceInputs,
-} from './oauth-policy.js';
+import { type OAuthScope, oauthResourceInputs } from './oauth-policy.js';
 
 /** One pre-registered public client. Its registration is its ceiling. */
 export type FirstPartyClient = {
@@ -74,16 +70,13 @@ export function firstPartyClientRow(client: FirstPartyClient) {
  */
 export async function registerFirstPartyClients(
 	db: Db,
-	{
-		audiences,
-		clients,
-	}: { audiences: OAuthAudiences; clients: FirstPartyClient[] },
+	{ origin, clients }: { origin: string; clients: FirstPartyClient[] },
 ): Promise<void> {
 	const now = new Date();
 	await db
 		.insert(oauthResource)
 		.values(
-			oauthResourceInputs(audiences).map((resource) => ({
+			oauthResourceInputs(origin).map((resource) => ({
 				id: resource.identifier,
 				identifier: resource.identifier,
 				name: resource.identifier,

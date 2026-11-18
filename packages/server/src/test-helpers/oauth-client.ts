@@ -146,7 +146,7 @@ export class OAuthTestClient {
 			response_type: 'code',
 			client_id: o.clientId,
 			redirect_uri: o.redirectUri,
-			scope: o.scope ?? 'offline_access folders:read folders:write',
+			scope: o.scope ?? 'offline_access profile ai',
 			state: `state-${crypto.randomUUID()}`,
 			code_challenge: o.challenge,
 			code_challenge_method: 'S256',
@@ -278,7 +278,7 @@ export class OAuthTestClient {
 		const started = await this.request('/auth/device/code', {
 			form: {
 				client_id: o.clientId,
-				scope: o.scope ?? 'offline_access folders:read folders:write',
+				scope: o.scope ?? 'offline_access profile ai',
 				resource: o.resource,
 			},
 		});
