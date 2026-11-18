@@ -33,6 +33,34 @@ Use a factory when it owns construction inputs or state whose lifetime
 matters. Whispering passes `folder.audio` and the platform recorder to
 [`createMicrophoneDevice`](../../../../apps/whispering/src/lib/microphone.ts). Each successful `start` returns a session whose `stop` closes over that recording. If the platform recorder supports recovering a take after a quit or crash, the device also exposes `recover`.
 
+The complete `start` method shows the lifetime boundary. The factory's other members are omitted:
+
+```typescript
+async start({ id, input, signal }) {
+	const { data: recording, error } = await recorder.start({
+		files,
+		path: `${DIRECTORY}/${id}`,
+		input,
+		signal,
+	});
+	if (error !== null) return Err(error);
+	const startedAt = performance.now();
+	return Ok({
+		startedAt,
+		onEnded: recording.onEnded,
+		async stop() {
+			const { data, error: stopError } = await recording.stop();
+			if (stopError !== null) return Err(stopError);
+			return Ok({ durationMs: data.durationMs });
+		},
+	});
+},
+```
+
+`files` and `recorder` belong to the device instance. Each call to `start`
+captures a different `recording`, and the returned session's `stop` method
+closes over that recording.
+
 ## Decision
 
 Keep a factory when at least one is true:

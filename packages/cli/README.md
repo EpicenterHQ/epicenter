@@ -639,13 +639,12 @@ Epicenter runs actions and serves pages. Git stores the home, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. `init` gives a
 new home two files of its own, which the owner may change.
 
-`routines/checkpoint.md` runs the script every five minutes while serve runs,
-one run at a time:
+`routines/checkpoint.md` runs the script every five minutes while serve runs:
 
 ```yaml
 ---
 cron: "*/5 * * * *"
-run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
+run: ["sh", "scripts/checkpoint.sh"]
 ---
 Commit everything pending and push to the backup.
 ```
@@ -672,8 +671,8 @@ The script commits everything pending as one commit named `checkpoint`,
 including what is already staged, and pushes when there is an origin. It
 waits out a merge, rebase, revert or cherry-pick. It refuses while a nested
 Git repository is staged, because the commit would hold only a pointer to it.
-`/usr/bin/lockf` is macOS; on Linux the routine's `run` starts with
-`"flock", "-n", ".git/checkpoint.lock"` instead.
+It takes no lock: Git refuses a second commit while one is being made, and a
+push still running when the next run starts costs an error line.
 
 A commit made this way samples files, not intent: it can hold a partial edit
 or part of a running action's writes. The branch and index belong to every
@@ -761,24 +760,18 @@ the code subtree instead of a top-level declaration. A folder that holds
 several apps is refused with their names and the `--from` for one of them.
 Anything else, such as a Git URL or a bare word, is refused with a hint.
 
-The copy uses the source's commit. Files visible in a local source folder may
-differ from that commit. For a folder on disk, `new` reports the copied commit
-and warns about tracked, staged, deleted, or untracked code it left out. It
-applies the same code filter as the copy, excluding records, local files,
-dependencies, builds, and provenance. The source is not changed or committed
-automatically.
+The copy uses the source's commit. The code it copies must match it: when
+`git status` shows any change or untracked file in that code (an app
+container's `code/`, not its `data/`), `new` refuses with
+`<from> has uncommitted changes; commit them, then copy.` and keeps nothing ([ADR-0946](../../docs/adr/0946-new-from-a-local-folder-refuses-uncommitted-code.md)).
+Files the source ignores do not count. The source is never changed.
 
 The private development commit and the public publication commit are separate.
 Export writes your Epicenter's committed code into the publication folder. Commit those exported files
 there before asking someone to copy that version with `new --from`. A refreshed
 export that is not committed is still outside the publication's copied commit.
 
-With `--json`, a copy adds `source: { commit, notCopied? }` to the result.
-`notCopied` lists relative code paths: an empty array means the local source
-was checked and matches; a missing key means no local working tree could be
-compared, as for a GitHub folder, and `null` means comparison failed. A comparison failure is a warning,
-not a failed copy. These differences are measured against the commit actually
-copied, so the report also covers a source commit made during the copy.
+With `--json`, a copy adds `source: { commit }` to the result.
 
 The command uses a temporary clone, then checks out selected committed
 files into the new container's ignored `.code-build-copy-*` directory before

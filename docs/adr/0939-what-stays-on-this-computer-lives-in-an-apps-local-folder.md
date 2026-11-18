@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) on how a file is marked as staying here: by its place, not its name. Its rule that such a file never leaves its computer stands. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on an app's layout: `local/` sits beside `code/` and `data/`.
+- **Amended by:** [ADR-0948](0948-a-credential-the-owner-pastes-goes-in-the-homes-env-which-only-env-reads.md): Mail's OAuth client moves from `local/google.md` to the home's `.env`; `local/` keeps what code writes.
 - **Relates:** [ADR-0938](0938-an-action-says-whether-agents-are-offered-it.md) (a secret is ordinary input the first time), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (where an action writes).
 
 ## Context

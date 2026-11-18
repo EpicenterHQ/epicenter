@@ -318,7 +318,7 @@ new home. `routines/checkpoint.md`:
 ```yaml
 ---
 cron: "*/5 * * * *"
-run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
+run: ["sh", "scripts/checkpoint.sh"]
 ---
 Commit everything pending and push to the backup.
 ```
@@ -341,8 +341,8 @@ GIT_TERMINAL_PROMPT=0 git push -q origin HEAD
 ```
 
 Serve starts the routine every five minutes, with the home as the working
-directory. `/usr/bin/lockf` is macOS; on Linux start `run` with
-`"flock", "-n", ".git/checkpoint.lock"` instead. Without the routine, nothing
+directory. It takes no lock: Git refuses a second commit while one is being made.
+Without the routine, nothing
 is committed or pushed on its own. The branch and index are shared: the script
 commits staged work along with everything else, and it samples files, not
 intent, so it can capture a partial edit or part of a running action. Make a
@@ -396,8 +396,9 @@ utilities. Fonts, layout, and components
 belong to the app.
 
 For a Svelte UI like Tasks, copy its `ui/build.ts`, `ui/svelte-plugin.ts`, and
-the components the view uses. Copy `bunfig.toml` with the build: `peer = false`
-keeps a peer named `bun` from shadowing Bun. Keep component source editable in
+the components the view uses. Do not add a `bunfig.toml`: an Epicenter installs
+once at its root, which never reads one in `code/`, and `peer = false` there
+would install a second `@epicenter/app`. Keep component source editable in
 `src/lib/components/ui/` alongside `components.json` in `ui/` and `src/lib/utils.ts`.
 The UI calls Epicenter through `@epicenter/app/client`. Declare other imported
 packages in `code/package.json` with versions resolvable from npm.
@@ -568,8 +569,8 @@ use the replacement action rather than add conflict machinery by default.
 Never run anything against the real `~/Epicenter` until the person asks.
 Use a temporary home and a committed source. `new --from` copies code,
 creates empty sibling data/, and prints `Run: cd <home> && bun install && bun
-run build`; run it and read its errors. Uncommitted edits
-are not copied. To test them, commit in a disposable copy outside the live
+run build`; run it and read its errors. A source with
+uncommitted edits is refused. To test them, commit in a disposable copy outside the live
 Epicenter, without changing the live branch or index.
 
 ```sh

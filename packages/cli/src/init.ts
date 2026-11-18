@@ -42,10 +42,10 @@ const HOME_PACKAGE = `${JSON.stringify(
 	2,
 )}\n`;
 
-/** The routine a new home commits itself with: the script under a lock, every five minutes. */
+/** The routine a new home commits itself with: the script, every five minutes. */
 const CHECKPOINT_ROUTINE = `---
 cron: "*/5 * * * *"
-run: ["/usr/bin/lockf", "-t", "0", ".git/checkpoint.lock", "sh", "scripts/checkpoint.sh"]
+run: ["sh", "scripts/checkpoint.sh"]
 ---
 Commit everything pending and push to the backup.
 `;
@@ -126,7 +126,7 @@ while \`epicenter serve\` is running:
 
 ${indented(CHECKPOINT_ROUTINE)}
 
-It runs scripts/checkpoint.sh, one run at a time:
+It runs scripts/checkpoint.sh:
 
 ${indented(CHECKPOINT_SCRIPT)}
 
@@ -134,9 +134,9 @@ The script commits everything pending as one commit named "checkpoint", and
 pushes when there is an origin. It waits out a merge, rebase, revert or
 cherry-pick. It refuses while a Git repository is nested in this folder,
 because the commit would hold only a pointer to it and not its files.
-/usr/bin/lockf is on macOS. On Linux, start the routine's run with
-"flock", "-n", ".git/checkpoint.lock" instead. Remove the routine file and
-nothing is committed or pushed on its own.
+Two runs need no lock: Git refuses a second commit while one is being made,
+and a push still running when the next run starts costs an error line. Remove the routine file and nothing is committed or
+pushed on its own.
 
 Run \`epicenter\` to see each routine, how long ago the last commit was, how
 many files are uncommitted, and how many commits are not on origin.
