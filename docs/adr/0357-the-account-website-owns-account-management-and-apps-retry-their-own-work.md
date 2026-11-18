@@ -60,7 +60,7 @@ before allowing the targeted flow to continue. A mismatch asks the person to
 sign into the intended account. The context grants no authority, transfers no
 credential, and never silently switches accounts. A direct website visit
 manages the website's signed-in account. `createAccountManagementUrl` in
-`packages/account/src/account-management.ts` builds these links.
+`folder-package:packages/account/src/account-management.ts` builds these links.
 
 ## Consequences
 

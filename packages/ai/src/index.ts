@@ -6,12 +6,6 @@
  */
 
 export {
-	ChoiceError,
-	type ModelChoices,
-	modelChoices,
-	SettingError,
-} from './choices.js';
-export {
 	AiError,
 	type ChatChunk,
 	type ChatMessage,
@@ -28,7 +22,10 @@ export {
 } from './client.js';
 export { custom } from './custom.js';
 export {
+	type ConnectionKeys,
+	type ConnectionRecord,
 	type ConnectionSnapshot,
+	type ConnectionStore,
 	type CustomConnectionInput,
 	type CustomEndpoints,
 	customEndpoints,
@@ -37,12 +34,12 @@ export {
 	type Capability,
 	type Endpoint,
 	type EndpointFetch,
+	type EndpointKey,
 	type EndpointModel,
 	guessCapabilities,
 	openAiCompatible,
 	type Source,
 } from './endpoint.js';
-export { hosted, type LiveAccount } from './hosted.js';
 export { localServers } from './local-servers.js';
 export {
 	type Ai,

@@ -4,13 +4,14 @@ Save thoughts, quotes, and links. Find them when you sit down to write.
 The browser, terminal, and your agent use the same actions and Markdown files.
 No AI account or external service is needed.
 
-Use the latest Epicenter CLI.
+Use the latest `@epicenter/app`, which carries the `epicenter` command.
 To add Writing to your home, run these at the top of the home
 
 ```sh
 mkdir -p apps/writing/code
 curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
 bun install && bun run build
+export PATH="$PWD/node_modules/.bin:$PATH"   # the epicenter command bun installed
 epicenter serve
 ```
 
@@ -36,7 +37,7 @@ epicenter writing search '{"project":"My essay"}'
 
 Use a returned id with `epicenter writing get '{"id":"ID"}'` to read one
 note. `epicenter writing add --help` lists the keys an action takes.
-The CLI lists every action with `epicenter writing`. `patch` changes fields,
+`epicenter writing` lists every action. `patch` changes fields,
 and `edit` with `{ id, old, new }` replaces one exact passage in the body. The
 UI changes only the body, through `edit`.
 MCP offers the same actions at the server root. Start by asking an assistant

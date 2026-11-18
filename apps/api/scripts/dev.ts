@@ -40,8 +40,7 @@ if (auth.exitCode !== 0 || !auth.stdout.toString().trim()) {
 
 // Wrangler rewrites localhost Origin headers when a local Worker keeps the
 // production custom-domain route, so a development copy removes that route.
-// Wrangler simulates the R2 blob bucket locally. Keep the copy beside
-// wrangler.jsonc so its relative paths still resolve.
+// Keep the copy beside wrangler.jsonc so its relative paths still resolve.
 const config = Bun.JSONC.parse(
 	await Bun.file(resolve(apiRoot, 'wrangler.jsonc')).text(),
 ) as WranglerConfig;

@@ -21,11 +21,11 @@
  *
  * const app = connect<typeof tasks>();
  * export const taskReads = resultQueries(['tasks'], { list: app.list, get: app.get });
- * export const taskWrites = resultMutations(['tasks'], { set: app.set });
+ * export const taskWrites = resultMutations(['tasks'], { patch: app.patch });
  *
  * const list = createQuery(() => taskReads.list());
- * const setTask = createMutation(() => taskWrites.set);
- * setTask.mutate({ id, done: true });
+ * const patchTask = createMutation(() => taskWrites.patch);
+ * patchTask.mutate({ id, done: true });
  * ```
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
@@ -81,7 +81,7 @@ type JsonOf<T> = unknown extends T
 							}
 						>;
 
-/** What action `A` takes from a caller: `ActionInput<Actions['set']>`, where `Actions` is `ReturnType<typeof app>['actions']`. */
+/** What action `A` takes from a caller: `ActionInput<Actions['patch']>`, where `Actions` is `ReturnType<typeof app>['actions']`. */
 export type ActionInput<A> = A extends (input: infer In) => unknown
 	? In
 	: never;

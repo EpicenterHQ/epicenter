@@ -256,11 +256,10 @@ Not done, and needed before this can be called accepted on the desktop:
   content security policy, and that the owner's events arrive.
 - Record, play, transcribe, transform, quit, and reopen against a disposable
   folder. Confirm the microphone permission prompt, that
-  `.epicenter/recordings/recordings/<id>.webm` grows about once a second
-  while recording, that Stop leaves `recordings/<id>.webm` at once and
-  nothing in `.epicenter/recordings`, and that quitting mid-recording leaves
-  a file that becomes `recordings/<id>.webm`, playing to within a second of
-  the cut, once the folder reopens and `recorder.recover` runs.
+  `recordings/<id>.webm` grows about once a second while recording and is
+  not listed, that Stop finishes it in place, and that a crash mid-recording
+  leaves it listed as an untitled recording that plays and transcribes to
+  within a second of the cut.
 - Exercise both debug recording-write failures in the window, confirming an
   obstructed row leaves the recording running with its audio saved and no
   row, with the folder's own message for the row.

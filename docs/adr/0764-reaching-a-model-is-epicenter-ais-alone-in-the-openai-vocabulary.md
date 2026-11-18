@@ -113,7 +113,7 @@ for provider keys is built.
 an engine is `{ messages: ChatMessage[], tools: ChatTool[] }`.
 `ModelMessage`, `ModelToolCall` and `AgentEngineToolDefinition` leave
 `engine.ts`, and `toChatMessage` and `toChatTool` leave `chat-engine.ts`.
-`AgentMessage` in `packages/ai/src/agent/message.ts` is the transcript the
+`AgentMessage` in `folder-package:packages/ai/src/agent/message.ts` is the transcript the
 loop stores, not a request; the loop builds `ChatMessage[]` from it, where
 `toModelMessages` builds `ModelMessage[]` today.
 

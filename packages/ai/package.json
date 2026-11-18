@@ -6,20 +6,13 @@
 	"license": "AGPL-3.0-or-later",
 	"exports": {
 		".": "./src/index.ts",
-		"./agent": "./src/agent/index.ts",
-		"./choices": "./src/choices.ts",
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts"
 	},
 	"dependencies": {
-		"@epicenter/account": "workspace:*",
-		"@epicenter/definition": "workspace:*",
-		"@epicenter/folder": "workspace:*",
-		"@epicenter/local": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
-		"@tauri-apps/api": "catalog:",
 		"nanoid": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"

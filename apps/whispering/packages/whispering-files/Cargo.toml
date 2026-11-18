@@ -1,0 +1,24 @@
+[package]
+name = "whispering-files"
+version = "0.0.1"
+description = "How Whispering reaches its folder on the desktop: the plain-name path rule, the write beside a target, the file operations, Change…, and the Git check, shared by its shell and its recorder"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+name = "whispering_files"
+
+[dependencies]
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+
+# An exclusive rename, so a folder move never replaces a file (`change.rs`).
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3.8"

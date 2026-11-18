@@ -17,24 +17,23 @@ import { writeFileSync } from 'node:fs';
 import { chmod, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { normalizePath } from './folder.ts';
-import { ActionError, defineData, Err, field, Ok } from './index.ts';
-import { tempFolder } from './temp-folder.test-support.ts';
+import { folderOnDisk, normalizePath } from './folder.ts';
+import { Err, Ok } from './index.ts';
+import { tempFolder } from './library.test-support.ts';
 
-test('path is the directory the folder was made on', async () => {
-	const { dir, folder } = await tempFolder();
-	expect(folder.path).toBe(dir);
+test('path is the directory the folder was made on, which making it does not touch', () => {
+	expect(folderOnDisk('/no/such/app').path).toBe('/no/such/app');
 });
 
 test('writes make parents, replace whole files and take text or bytes', async () => {
-	const { dir, folder, read } = await tempFolder();
+	const { folder, read } = await tempFolder();
 	await folder.write('data/nested/a.txt', 'first');
 	await folder.write('data/nested/a.txt', 'second');
 	expect(await read('data/nested/a.txt')).toBe('second');
-	expect(await readdir(join(dir, 'data/nested'))).toEqual(['a.txt']);
+	expect(await readdir(join(folder.path, 'data/nested'))).toEqual(['a.txt']);
 	await folder.write('data/bytes', new Uint8Array([0, 255]));
 	expect(
-		new Uint8Array(await Bun.file(join(dir, 'data/bytes')).bytes()),
+		new Uint8Array(await Bun.file(join(folder.path, 'data/bytes')).bytes()),
 	).toEqual(new Uint8Array([0, 255]));
 	await folder.delete('data/missing');
 	await folder.delete('data/bytes');
@@ -42,18 +41,20 @@ test('writes make parents, replace whole files and take text or bytes', async ()
 });
 
 test('a write keeps the mode of the file it replaces', async () => {
-	const { dir, folder, read } = await tempFolder();
+	const { folder, read } = await tempFolder();
 	await folder.write('data/run.sh', 'echo one\n');
-	await chmod(join(dir, 'data/run.sh'), 0o755);
+	await chmod(join(folder.path, 'data/run.sh'), 0o755);
 	await folder.write('data/run.sh', 'echo two\n');
-	expect((await stat(join(dir, 'data/run.sh'))).mode & 0o777).toBe(0o755);
+	expect((await stat(join(folder.path, 'data/run.sh'))).mode & 0o777).toBe(
+		0o755,
+	);
 	expect(await read('data/run.sh')).toBe('echo two\n');
 });
 
 test('a new file under local/ is readable by its owner alone and a new directory there is open to its owner alone', async () => {
-	const { dir, folder } = await tempFolder();
+	const { folder } = await tempFolder();
 	const mode = async (path: string) =>
-		(await stat(join(dir, path))).mode & 0o777;
+		(await stat(join(folder.path, path))).mode & 0o777;
 	await folder.write('local/google.md', 'a');
 	await folder.edit('local/tokens/mail.md', () => Ok({ text: 'b' }));
 	expect(await mode('local')).toBe(0o700);
@@ -61,20 +62,20 @@ test('a new file under local/ is readable by its owner alone and a new directory
 	expect(await mode('local/google.md')).toBe(0o600);
 	expect(await mode('local/tokens/mail.md')).toBe(0o600);
 	// What the owner widened keeps what they chose.
-	await chmod(join(dir, 'local/google.md'), 0o640);
+	await chmod(join(folder.path, 'local/google.md'), 0o640);
 	await folder.write('local/google.md', 'again');
 	expect(await mode('local/google.md')).toBe(0o640);
-	await chmod(join(dir, 'local/tokens'), 0o755);
+	await chmod(join(folder.path, 'local/tokens'), 0o755);
 	await folder.write('local/tokens/calendar.md', 'd');
 	expect(await mode('local/tokens')).toBe(0o755);
 	expect(await mode('local/tokens/calendar.md')).toBe(0o600);
 });
 
 test('the first write anywhere makes local/ with an ignore file for everything in it', async () => {
-	const { dir, folder, read } = await tempFolder();
+	const { folder, read } = await tempFolder();
 	await folder.write('data/a.md', 'a');
 	expect(await read('local/.gitignore')).toBe('*\n');
-	expect((await stat(join(dir, 'local'))).mode & 0o777).toBe(0o700);
+	expect((await stat(join(folder.path, 'local'))).mode & 0o777).toBe(0o700);
 });
 
 test('a local/ that already exists is not given an ignore file', async () => {
@@ -84,24 +85,26 @@ test('a local/ that already exists is not given an ignore file', async () => {
 });
 
 test('a write after local/ was removed makes it again, with its ignore file', async () => {
-	const { dir, folder, read } = await tempFolder();
+	const { folder, read } = await tempFolder();
 	await folder.write('data/a.md', 'a');
-	await rm(join(dir, 'local'), { recursive: true });
+	await rm(join(folder.path, 'local'), { recursive: true });
 	await folder.write('data/a.md', 'b');
 	expect(await read('data/a.md')).toBe('b');
 	expect(await read('local/.gitignore')).toBe('*\n');
 });
 
 test('a write under data/ keeps its temporary file in local/, and a failed write removes it', async () => {
-	const { dir, folder, files } = await tempFolder();
+	const { folder, files } = await tempFolder();
 	await folder.write('data/a.md', 'first');
 	await folder.edit('data/a.md', (text) => Ok({ text: `${text} second` }));
 	// A file cannot take the name of a directory, so this rename fails.
-	await mkdir(join(dir, 'data/taken'));
+	await mkdir(join(folder.path, 'data/taken'));
 	await expect(folder.write('data/taken', 'no')).rejects.toThrow();
 	expect(await files('data')).toEqual(['data/a.md']);
 	expect(await files('local')).toEqual(['local/.gitignore']);
-	expect((await stat(join(dir, 'local/.tmp'))).mode & 0o777).toBe(0o700);
+	expect((await stat(join(folder.path, 'local/.tmp'))).mode & 0o777).toBe(
+		0o700,
+	);
 });
 
 test('every write and delete outside data/ and local/ throws, and nothing is written', async () => {
@@ -165,9 +168,9 @@ test('edit creates a file from undefined and answers the value it returned', asy
 });
 
 test('edit that returns Ok({}) or an error writes nothing', async () => {
-	const { dir, folder, read } = await tempFolder();
+	const { folder, read } = await tempFolder();
 	await folder.write('data/same.txt', 'a\n');
-	const before = await stat(join(dir, 'data/same.txt'));
+	const before = await stat(join(folder.path, 'data/same.txt'));
 	expect(expectOk(await folder.edit('data/same.txt', () => Ok({})))).toBe(
 		undefined,
 	);
@@ -179,23 +182,23 @@ test('edit that returns Ok({}) or an error writes nothing', async () => {
 	expect(refusal).toEqual({ name: 'Taken', message: 'no' });
 	expectOk(await folder.edit('data/absent.txt', () => Ok({})));
 	expect(await read('data/absent.txt')).toBeUndefined();
-	const after = await stat(join(dir, 'data/same.txt'));
+	const after = await stat(join(folder.path, 'data/same.txt'));
 	expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
 });
 
 test('edit whose text is what is there leaves the file untouched', async () => {
-	const { dir, folder } = await tempFolder();
+	const { folder } = await tempFolder();
 	await folder.write('data/same.txt', 'a\n');
-	const before = await stat(join(dir, 'data/same.txt'));
+	const before = await stat(join(folder.path, 'data/same.txt'));
 	await folder.edit('data/same.txt', (text = '') => Ok({ text }));
-	const after = await stat(join(dir, 'data/same.txt'));
+	const after = await stat(join(folder.path, 'data/same.txt'));
 	expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
 });
 
 test('edit changes a file that starts with a byte order mark, comparing what is there as bytes', async () => {
-	const { dir, folder, read } = await tempFolder();
-	await mkdir(join(dir, 'data'));
-	await writeFile(join(dir, 'data/bom.txt'), '﻿a\n');
+	const { folder, read } = await tempFolder();
+	await mkdir(join(folder.path, 'data'));
+	await writeFile(join(folder.path, 'data/bom.txt'), '﻿a\n');
 	await folder.edit('data/bom.txt', (text) => Ok({ text: `${text}b\n` }));
 	expect(await read('data/bom.txt')).toBe('a\nb\n');
 });
@@ -213,29 +216,13 @@ test('concurrent edits of one file each land, and leave nothing beside it', asyn
 	expect(await files('data')).toEqual(['data/log.txt']);
 });
 
-test('concurrent edits of one data file each land, each computed from the record it replaces', async () => {
-	const { dir, folder, read } = await tempFolder({
-		'data/counters/a.md': '---\nn: 0\n---\n',
-	});
-	const { counters } = defineData(folder, {
-		counters: { fields: { n: field.integer({ optional: true }) } },
-	});
-	await Promise.all(
-		Array.from({ length: 5 }, () =>
-			counters.edit('a', (record) => Ok({ n: (record?.n ?? 0) + 1 })),
-		),
-	);
-	expect(await read('data/counters/a.md')).toBe('---\nn: 5\n---\n');
-	expect((await readdir(join(dir, 'data/counters'))).sort()).toEqual(['a.md']);
-});
-
 test('edit runs its decision once and does not look at the file again', async () => {
-	const { dir, folder, read } = await tempFolder({ 'data/once.txt': '0' });
+	const { folder, read } = await tempFolder({ 'data/once.txt': '0' });
 	let runs = 0;
 	await folder.edit('data/once.txt', () => {
 		runs++;
 		// A writer outside epicenter is not guarded against: the edit wins.
-		writeFileSync(join(dir, 'data/once.txt'), 'outside');
+		writeFileSync(join(folder.path, 'data/once.txt'), 'outside');
 		return Ok({ text: 'mine' });
 	});
 	expect(runs).toBe(1);
@@ -256,21 +243,4 @@ test('edit whose decision throws writes nothing', async () => {
 	).rejects.toThrow('no file');
 	expect(await read('data/kept.txt')).toBe('kept');
 	expect(await read('data/absent.txt')).toBeUndefined();
-});
-
-test('a data edit forwards a returned Changed and lets a thrown Changed escape, including on an absent file', async () => {
-	const { folder, read } = await tempFolder();
-	const counter = defineData(folder, {
-		'counter.md': { fields: { n: field.integer({ optional: true }) } },
-	})['counter.md'];
-	const path = 'data/counter.md';
-	const refusal = ActionError.Changed({ path, cause: 'quote' });
-	expect(await counter.edit(() => refusal)).toBe(refusal);
-	const thrown = await counter
-		.edit(() => {
-			throw refusal.error;
-		})
-		.catch((cause: unknown) => cause);
-	expect(thrown).toBe(refusal.error);
-	expect(await read(path)).toBeUndefined();
 });

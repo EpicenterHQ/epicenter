@@ -20,12 +20,11 @@ import {
 	type Folder,
 	field,
 } from './index.ts';
-
-type Equal<X, Y> =
-	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
-		? true
-		: false;
-const assertType = <T extends true>(): T | undefined => undefined;
+import {
+	assertType,
+	type Equal,
+	unusedFolder,
+} from './library.test-support.ts';
 
 const vocab = defineApp(({ folder }) => {
 	const data = defineData(folder, {
@@ -151,7 +150,7 @@ describe('an app author', () => {
 	test('an app is a function of its folder, and its actions are functions of their input', () => {
 		assertType<Equal<Parameters<typeof vocab>, [{ folder: Folder }]>>();
 		() =>
-			vocab({ folder: {} as Folder }).actions.words.create({ word: '你好' });
+			vocab({ folder: unusedFolder }).actions.words.create({ word: '你好' });
 		// @ts-expect-error an app is called with its folder
 		() => vocab();
 	});

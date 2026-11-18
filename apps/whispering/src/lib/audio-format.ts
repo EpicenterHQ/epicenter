@@ -1,7 +1,6 @@
 /**
  * Facts about audio files, read from their names. A file's extension decides
- * the MIME type the app plays or sends it as; how long one plays is read
- * from its bytes by `audioDurationMs` from `@epicenter/recorder`.
+ * the MIME type the app plays or sends it as.
  */
 
 const BY_EXTENSION = new Map([

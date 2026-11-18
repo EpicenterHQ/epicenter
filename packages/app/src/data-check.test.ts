@@ -6,13 +6,13 @@
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { checkData, defineApp, defineData, field } from './index.ts';
-import { foldsCase, tempFolder } from './temp-folder.test-support.ts';
+import { checkData, defineData, field } from './index.ts';
+import { foldsCase, tempFolder } from './library.test-support.ts';
 
 test.skipIf(foldsCase)(
 	'NFC and case aliases form one problem per group, with each affected file counted once',
 	async () => {
-		const { dir, folder } = await tempFolder({
+		const { folder } = await tempFolder({
 			'data/notes/Dune.md': '',
 			'data/notes/dune.md': '',
 			'data/notes/DUNE.md': '',
@@ -26,7 +26,7 @@ test.skipIf(foldsCase)(
 			'data/notes/ᏸ.md': '',
 		});
 		const report = await checkData(
-			dir,
+			folder.path,
 			defineData(folder, { notes: { fields: {} } }),
 		);
 		expect(report.notes).toMatchObject({
@@ -51,11 +51,11 @@ test.skipIf(foldsCase)(
 );
 
 test('an id that is not NFC is counted and never read', async () => {
-	const { dir, folder } = await tempFolder({
+	const { folder } = await tempFolder({
 		'data/notes/cafe\u0301.md': '---\nnot parsed\n',
 	});
 	const report = await checkData(
-		dir,
+		folder.path,
 		defineData(folder, { notes: { fields: {} } }),
 	);
 	expect(report.notes).toMatchObject({
@@ -69,9 +69,9 @@ test('an id that is not NFC is counted and never read', async () => {
 test('an id over 200 UTF-8 bytes is counted and never read', async () => {
 	// 'é' is two bytes and 101 of them fit a file name, which allows 255 bytes.
 	const path = `data/notes/${'é'.repeat(101)}.md`;
-	const { dir, folder } = await tempFolder({ [path]: '---\nnot parsed\n' });
+	const { folder } = await tempFolder({ [path]: '---\nnot parsed\n' });
 	const report = await checkData(
-		dir,
+		folder.path,
 		defineData(folder, { notes: { fields: {} } }),
 	);
 	expect(report.notes).toMatchObject({
@@ -82,7 +82,7 @@ test('an id over 200 UTF-8 bytes is counted and never read', async () => {
 });
 
 test('refs in a one-file key and nested lists resolve targets declared later', async () => {
-	const { dir, folder } = await tempFolder({
+	const { folder } = await tempFolder({
 		'data/settings.md':
 			'---\nwatch: "Exact"\nnested: [["Exact", "missing"]]\n---\n',
 		'data/watches/Exact.md': '',
@@ -96,10 +96,7 @@ test('refs in a one-file key and nested lists resolve targets declared later', a
 		},
 		watches: { fields: {} },
 	});
-	const app = defineApp(() => ({ description: 'Watches', data, actions: {} }))({
-		folder,
-	});
-	const report = await checkData(dir, app.data);
+	const report = await checkData(folder.path, data);
 	expect(report['settings.md']).toMatchObject({
 		files: 1,
 		withProblems: 1,
@@ -114,7 +111,7 @@ test('refs in a one-file key and nested lists resolve targets declared later', a
 });
 
 test('a union of refs fits when the id is listed in either target', async () => {
-	const { dir, folder } = await tempFolder({
+	const { folder } = await tempFolder({
 		'data/notes/one.md': '---\ntarget: "present"\n---\n',
 		'data/second/present.md': '',
 	});
@@ -125,7 +122,7 @@ test('a union of refs fits when the id is listed in either target', async () => 
 		first: { fields: {} },
 		second: { fields: {} },
 	});
-	const report = await checkData(dir, data);
+	const report = await checkData(folder.path, data);
 	expect(report.notes).toMatchObject({
 		files: 1,
 		withProblems: 0,

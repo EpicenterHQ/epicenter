@@ -31,6 +31,7 @@
  * app's folder; a test calls it with a folder on a temporary directory.
  */
 import { type Action, isAction } from './action.ts';
+import { isPlainObject } from './action-result.ts';
 import type { AnyData } from './data.ts';
 import type { Folder } from './folder.ts';
 
@@ -38,12 +39,12 @@ import type { Folder } from './folder.ts';
 export type Actions = { readonly [word: string]: Action | Actions };
 
 /** What an app's function returns: its description, data and actions. */
-export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
+export type App = {
 	readonly description: string;
 	/** What `defineData` returned, when the app keeps records. */
-	readonly data?: D;
+	readonly data?: AnyData;
 	/** Each action, nested under its words. */
-	readonly actions: A;
+	readonly actions: Actions;
 };
 
 /** What an app's function is called with: the one thing it is handed. */
@@ -89,12 +90,9 @@ export function isName(value: unknown): value is string {
 const notName =
 	'which is not lowercase letters, digits, and dashes, starting with a letter';
 
-const isObject = (value: unknown): value is object =>
-	typeof value === 'object' && value !== null && !Array.isArray(value);
-
 /** What is wrong with `app` beyond its types, one sentence each. */
 function appProblems(app: unknown): string[] {
-	if (!isObject(app))
+	if (!isPlainObject(app))
 		return [
 			'An app returns an object: defineApp(({ folder }) => ({ description, data, actions }))',
 		];
@@ -102,9 +100,9 @@ function appProblems(app: unknown): string[] {
 	const problems: string[] = [];
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('An app needs a description');
-	if (data !== undefined && !isObject(data))
+	if (data !== undefined && !isPlainObject(data))
 		problems.push('An app needs data: the value returned by defineData(...)');
-	if (isObject(data)) {
+	if (isPlainObject(data)) {
 		for (const [key, handle] of Object.entries(data)) {
 			const name = key.replace(/\.md$/, '');
 			if (!isName(name))
@@ -112,8 +110,8 @@ function appProblems(app: unknown): string[] {
 					`data has the key ${JSON.stringify(key)}, which must be a name, optionally followed by .md`,
 				);
 			if (
-				!isObject(handle) ||
-				!isObject(handle.fields) ||
+				!isPlainObject(handle) ||
+				!isPlainObject(handle.fields) ||
 				typeof handle.get !== 'function' ||
 				typeof handle.path !== 'function' ||
 				(key.endsWith('.md')
@@ -123,7 +121,7 @@ function appProblems(app: unknown): string[] {
 				problems.push(`data.${key} is not a handle from defineData(...)`);
 		}
 	}
-	if (!isObject(actions))
+	if (!isPlainObject(actions))
 		problems.push(
 			'An app needs actions: an object of defineAction(...) and groups of them, {} for none',
 		);
@@ -151,6 +149,6 @@ function appProblems(app: unknown): string[] {
 			else walk(entry, [...words, word]);
 		}
 	};
-	if (isObject(actions)) walk(actions, []);
+	if (isPlainObject(actions)) walk(actions, []);
 	return problems;
 }

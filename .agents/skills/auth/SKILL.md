@@ -1,17 +1,18 @@
 ---
 name: auth
-description: 'Epicenter account package: `@epicenter/account`, the auth client Svelte reads through `reactive`, OAuth sign-in for browser and desktop apps, the Account lifetime, account-bound fetch, and hosted resource authorization. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
+description: 'Epicenter account package: `@epicenter/account`, the dashboard''s cookie-session auth client that Svelte reads through `reactive`, the Account lifetime, account-bound fetch, and hosted resource authorization. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
 metadata:
   author: epicenter
-  version: '11.0'
+  version: '12.0'
 ---
 
 # Epicenter auth
 
 Better Auth is the deployment's OAuth 2.1 authorization server (ADR-0549).
-Apps using hosted OAuth sign in through it. A hosted resource accepts only an
-opaque access token for its audience. A self-hosted server is `apps/api` on
-Bun with Postgres and issues the same tokens.
+A hosted resource accepts only an opaque access token for its audience: the
+API at its own origin (the folders audience has no routes). A self-hosted server is `apps/api` on Bun
+with Postgres and issues the same tokens. Whispering has no sign-in
+(ADR-0894); the account dashboard is the one client in this repository.
 
 Read `packages/account/README.md` and `packages/account/src/auth-contract.ts`
 before changing client API shape. The README owns the explanation; the
@@ -33,19 +34,13 @@ identity.
 
 ## Client composition
 
-| Program | Client |
-| --- | --- |
-| A client using browser OAuth | `createBrowserOAuth` from `@epicenter/account`, with one build-configured `AuthServer` |
-| Whispering in a Tauri window | `connectAccount` selects `createTauriAuth`, backed by the `epicenter-account` crate |
-| The account dashboard | `createCookieSessionAuth` in `apps/api/ui`, over the authorization server's own session cookie |
-
-Never restore a server destination from saved preferences. An auth
-client has the shape every capability has (ADR-0769): it reads `state()`,
-its actions answer promises, and `subscribe` hears a change. A Svelte app
-adapts it once with `reactive` from `@epicenter/svelte/reactive`, and
-`auth.state()` tracks in a template, `$derived` or effect. Whispering passes the plain `signIn` client to `hosted(signIn)` so the capability can read and subscribe to account changes itself.
-Retain the callback-capable type where a callback route needs it
-(`isCallbackAuthClient`).
+The account dashboard's client is `createCookieSessionAuth` in
+`apps/api/ui`, over the authorization server's own session cookie. Never
+restore a server destination from saved preferences. An auth client has the
+shape every capability has (ADR-0769): it reads `state()`, its actions
+answer promises, and `subscribe` hears a change. The dashboard adapts it
+once with its own `reactive` (`apps/api/ui/src/lib/reactive.ts`), and
+`auth.state()` tracks in a template, `$derived` or effect.
 
 ## Account lifetime
 
@@ -63,9 +58,6 @@ lifetime. Preserve these guarantees:
 - Retry and inference work uses the captured Account, never a new read of
   mutable auth state.
 
-`startSignIn` begins a flow and `completeSignIn` consumes a callback; do not
-make one verb infer the other from a query string. The callback route leaves
-with `location.replace(returnTo)` and opens no store.
 `startSignIn({ reauthenticate: true })` asks for a completed sign-in without
 signing out first, so the Account survives.
 

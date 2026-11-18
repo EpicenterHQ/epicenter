@@ -11,7 +11,7 @@ to replace those guesses with the contract that owns the value.
 Start with the package or directory under review:
 
 ```bash
-audit_scope=packages/account/src
+audit_scope=apps/api/ui/src/lib
 ```
 
 Find casts that let code inspect properties its existing type does not declare:
@@ -35,8 +35,8 @@ helpers can escape the patterns. Follow relevant calls and declarations.
 Once a property or guard looks relevant, search for its producers and uses:
 
 ```bash
-rg -n 'completeSignIn|isCallbackAuthClient' \
-  packages/account/src apps/whispering/src
+rg -n '\bsubscribes\b|subscribe\(listener' \
+  apps/api/ui/src packages/ai/src
 ```
 
 Substitute the names involved in the candidate being investigated.
@@ -59,48 +59,39 @@ Keep runtime checks that recognize a supported capability or validate
 input whose shape is not yet known. Establish why the check is sufficient
 for its callers. A comment can explain that reasoning, but cannot replace it.
 
-## Worked example: completing browser sign-in
+## Worked example: recognizing a capability
 
-The account package provides browser and desktop clients. Both support
-starting sign-in. The browser client also completes sign-in when the
-browser returns to a callback page. The desktop shell handles its own return.
+A capability says it changed through one `subscribe(listener)` that
+returns the unsubscribe
+([ADR-0769](../../../../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)).
+The dashboard's Svelte adapter,
+[reactive.ts](../../../../apps/api/ui/src/lib/reactive.ts), adapts any
+member that holds its own `subscribe` as a capability of its own and passes
+other values through.
 
-The package declares that distinction in
-[auth-contract.ts](../../../../packages/account/src/auth-contract.ts):
-`CallbackAuthClient` extends `AuthClient` with `completeSignIn`.
-
-The search finds this check inside `isCallbackAuthClient`:
-
-```ts
-typeof (client as { completeSignIn?: unknown }).completeSignIn ===
-  'function'
-```
-
-Follow the implementations:
-
-- [The browser client](../../../../packages/account/src/browser-oauth.ts)
-  supplies `completeSignIn`.
-- [The desktop client](../../../../packages/account/src/tauri.ts)
-  does not supply it.
-- [connectAccount](../../../../packages/account/src/connect.ts)
-  selects the implementation for the current environment.
-
-Then follow the consumer.
-[Whispering’s callback page](../../../../apps/whispering/src/lib/components/SignInCallback.svelte)
-checks the capability before calling it:
+The search finds this check inside `subscribes`:
 
 ```ts
-if (!isCallbackAuthClient(account)) return;
-void account.completeSignIn().then(({ data, error }) => {
-  // Handle the result.
-});
+typeof (value as { subscribe?: unknown }).subscribe === 'function'
 ```
 
-Keep this guard. It distinguishes a supported capability whose contract
-already belongs to the account package.
+Follow the producers.
+[openAi](../../../../packages/ai/src/open-ai.ts) declares
+`subscribe(listener: () => void): () => void` on the object it returns,
+as every capability factory does.
 
-The check establishes that the method is callable. Its argument and return
-contract comes from the typed implementations. Do not treat this guard as
+Then follow the consumer. `adapt` runs the check on each member and on
+each value a read answers:
+
+```ts
+if (isObject(value) && subscribes(value)) return own(value);
+```
+
+Keep this guard. The adapter accepts capabilities it has never seen, so no
+single type can describe them; the convention owns the contract.
+
+The check establishes that `subscribe` is callable. The listener and
+unsubscribe contract comes from the convention. Do not treat this guard as
 validation of an arbitrary external object.
 
 If another consumer independently guesses the same shape, investigate
