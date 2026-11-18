@@ -50,8 +50,8 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	description: 'The clash app',
 	data,
 	actions: {
-		...data.words.actions('list', 'get', 'set'),
-		set: defineAction({ description: 'Save a word my way', input: { stem: field.text() }, run: ({ stem }) => Ok(\`mine: \${stem}\`) }),
+		...data.words.actions('list', 'get', 'patch'),
+		patch: defineAction({ description: 'Save a word my way', input: { stem: field.text() }, run: ({ stem }) => Ok(\`mine: \${stem}\`) }),
 	},
 });
 `,
@@ -126,8 +126,8 @@ export default defineApp({ description: 'The misplaced app', actions: { show } }
 			'code/epicenter.ts: actions.show is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
 		],
 	});
-	// A later key replaces an earlier one: the written set replaces the data key's.
-	const clash = await f.run('clash', 'set', '{"stem":"serendipity"}');
+	// A later key replaces an earlier one: the written patch replaces the data key's.
+	const clash = await f.run('clash', 'patch', '{"stem":"serendipity"}');
 	expect(clash.stdout).toBe('mine: serendipity\n');
 	expect(JSON.stringify(listing)).not.toContain('readme-only');
 	expect(JSON.stringify(listing)).not.toContain('json-only');
@@ -166,8 +166,8 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	expect(reading.actions.map((tool: { name: string }) => tool.name)).toEqual([
 		'reading_books_list',
 		'reading_books_get',
-		'reading_books_add',
-		'reading_books_set',
+		'reading_books_create',
+		'reading_books_patch',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
@@ -390,11 +390,11 @@ const capture = `const data = defineData({
 export default defineApp({
 	description: 'Things I want to keep',
 	data,
-	actions: data.items.actions('list', 'get', 'add', 'set', 'delete'),
+	actions: data.items.actions('list', 'get', 'create', 'patch', 'edit', 'delete'),
 });
 `;
 
-test("D8 an app of one data key's verbs adds, reads, changes, and deletes its files from the terminal and MCP", async () => {
+test("D8 an app of one data key's verbs creates, reads, changes, and deletes its files from the terminal and MCP", async () => {
 	const f = await setup();
 	const folder = await f.app('capture', capture);
 	const json = async (...args: string[]) => {
@@ -402,19 +402,19 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 		return { code: result.code, answer: JSON.parse(result.stdout) };
 	};
 
-	const help = await f.run('capture', 'add', '--help');
-	expect(help.stdout).toContain('epicenter capture add <input>');
+	const help = await f.run('capture', 'create', '--help');
+	expect(help.stdout).toContain('epicenter capture create <input>');
 	expect(help.stdout).toContain(
 		'  kind   required  one of thought, link, quote',
 	);
 	expect(help.stdout).toContain('  id     optional  text.');
 	expect(help.stdout).toContain(
-		`epicenter capture add '{"kind":"thought","added":"2026-11-12"}'`,
+		`epicenter capture create '{"kind":"thought","added":"2026-11-12"}'`,
 	);
 
 	expect(
 		await json(
-			'add',
+			'create',
 			JSON.stringify({
 				id: 'dune',
 				kind: 'quote',
@@ -442,35 +442,51 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 	// Refused before anything is written: by the command line (2) or by the data key (1).
 	const refused = [
 		[
-			['set', { id: 'dune', kind: 'poem' }],
+			['patch', { id: 'dune', kind: 'poem' }],
 			2,
 			'kind must be one of thought, link, quote',
 		],
 		[
-			['set', { id: 'dune', added: '2026-13-45' }],
+			['patch', { id: 'dune', added: '2026-13-45' }],
 			2,
 			'added must be a day like 2026-11-12',
 		],
-		[['add', { id: 'new-one', kind: 'link' }], 2, 'added is needed'],
+		[['create', { id: 'new-one', kind: 'link' }], 2, 'added is needed'],
 		[
-			['add', { id: 'dune', kind: 'link', added: '2026-11-09' }],
+			['create', { id: 'dune', kind: 'link', added: '2026-11-09' }],
 			1,
 			'data/items/dune.md is already there',
 		],
 		[
-			['add', { id: '..', kind: 'link', added: '2026-11-09' }],
+			['create', { id: '..', kind: 'link', added: '2026-11-09' }],
 			1,
 			'items: \\"..\\": an id cannot start with .',
 		],
 		[
-			['set', { id: 'new-one', kind: 'link' }],
+			['patch', { id: 'new-one', kind: 'link' }],
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[['set', { id: 'a\\b', kind: 'link' }], 1, 'an id cannot contain / or'],
-		[['set', { id: 'dune', kind: null }], 2, 'kind'],
-		[['set', { id: 'dune', added: null }], 2, 'added'],
-		[['set', { id: 'dune', knd: 'link' }], 2, 'is not a key this action takes'],
+		[['patch', { id: 'a\\b', kind: 'link' }], 1, 'an id cannot contain / or'],
+		[['patch', { id: 'dune', kind: null }], 2, 'kind'],
+		[['patch', { id: 'dune', added: null }], 2, 'added'],
+		[
+			['patch', { id: 'dune', knd: 'link' }],
+			2,
+			'is not a key this action takes',
+		],
+		// A passage edit changes no field and does not replace the body.
+		[
+			['edit', { id: 'dune', old: 'Fear', new: 'Hope', kind: 'link' }],
+			2,
+			'is not a key this action takes',
+		],
+		[
+			['edit', { id: 'dune', edit: { old: 'Fear', new: 'Hope' } }],
+			2,
+			'is not a key this action takes',
+		],
+		[['edit', { id: 'dune', old: '', new: 'Hope' }], 2, 'old'],
 	] as const;
 	for (const [[verb, input], code, message] of refused) {
 		const result = await json(verb, JSON.stringify(input));
@@ -482,11 +498,7 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 	);
 	// A passage names the record it did not find.
 	expect(
-		await f.run(
-			'capture',
-			'set',
-			'{"id":"new-one","edit":{"old":"x","new":"y"}}',
-		),
+		await f.run('capture', 'edit', '{"id":"new-one","old":"x","new":"y"}'),
 	).toEqual({
 		code: 1,
 		stdout: '',
@@ -494,13 +506,14 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 	});
 
 	expect(
-		(await json('set', '{"id":"dune","url":"https://example.com/dune"}')).code,
+		(await json('patch', '{"id":"dune","url":"https://example.com/dune"}'))
+			.code,
 	).toBe(0);
 	expect(
 		(
 			await json(
-				'set',
-				'{"id":"dune","edit":{"old":"mind-killer","new":"little-death"}}',
+				'edit',
+				'{"id":"dune","old":"mind-killer","new":"little-death"}',
 			)
 		).code,
 	).toBe(0);
@@ -565,23 +578,35 @@ test("D8 an app of one data key's verbs adds, reads, changes, and deletes its fi
 		expect(tools.map((tool) => tool.name)).toEqual([
 			'capture_list',
 			'capture_get',
-			'capture_add',
-			'capture_set',
+			'capture_create',
+			'capture_patch',
+			'capture_edit',
 			'capture_delete',
 		]);
-		expect(tools[4]?.annotations).toEqual({
+		const hints = Object.fromEntries(
+			tools.map((tool) => [tool.name, tool.annotations?.idempotentHint]),
+		);
+		expect(hints).toEqual({
+			capture_list: undefined,
+			capture_get: undefined,
+			capture_create: false,
+			capture_patch: true,
+			capture_edit: false,
+			capture_delete: true,
+		});
+		expect(tools[5]?.annotations).toEqual({
 			readOnlyHint: false,
 			destructiveHint: true,
 			idempotentHint: true,
 			openWorldHint: false,
 		});
 		const added = await client.callTool({
-			name: 'capture_add',
+			name: 'capture_create',
 			arguments: { id: 'petrichor', kind: 'thought', added: '2026-11-09' },
 		});
 		expect(added.isError).toBeFalsy();
 		const bad = await client.callTool({
-			name: 'capture_set',
+			name: 'capture_patch',
 			arguments: { id: 'petrichor', kind: 'poem' },
 		});
 		expect(bad.isError).toBe(true);

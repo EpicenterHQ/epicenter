@@ -13,21 +13,21 @@
  * const learn = defineAction({
  *   description: 'Learn a word',
  *   input: { word: field.text(), meaning: field.text() },
- *   run: ({ word, meaning }) => data.words.add(word, { meaning }),
+ *   run: ({ word, meaning }) => data.words.create(word, { meaning }),
  * });
  *
  * export default defineApp({
  *   description: 'Words I am learning',
  *   data,
  *   actions: {
- *     words: { ...data.words.actions('list', 'get', 'set'), add: learn },
- *     settings: data['settings.md'].actions('get', 'set'),
+ *     words: { ...data.words.actions('list', 'get', 'patch'), create: learn },
+ *     settings: data['settings.md'].actions('get', 'patch'),
  *   },
  * });
  * ```
  *
- * The actions nest as they are called: `app.actions.words.add({ word })` in
- * code, `epicenter vocab words add` on the command line, `vocab_words_add`
+ * The actions nest as they are called: `app.actions.words.create({ word })` in
+ * code, `epicenter vocab words create` on the command line, `vocab_words_create`
  * over MCP. An app's name is its folder's.
  */
 import { type Action, isAction } from './action.ts';
@@ -48,8 +48,8 @@ export type App<A extends Actions = Actions, D extends AnyData = AnyData> = {
 /**
  * Define an app: its description, its data when it keeps records, and its
  * actions, `{}` for none. Each action's words are its keys in `actions`, so
- * `words: { ...data.words.actions('list', 'get', 'add'), add: learn }` gives
- * `words list` and `words get`, with `words add` replaced by `learn`. A later
+ * `words: { ...data.words.actions('list', 'get', 'create'), create: learn }`
+ * gives `words list` and `words get`, with `words create` replaced by `learn`. A later
  * key replaces an earlier one, as in any object. Returns `app` itself; throws
  * when it is wrong in a way its types cannot say, so `epicenter` checks an
  * app it loads by calling this again.

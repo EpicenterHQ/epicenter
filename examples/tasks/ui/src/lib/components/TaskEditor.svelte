@@ -23,24 +23,24 @@
 	type Change = { title?: string; done?: boolean; due?: string | null };
 	/** Save only the fields the person changed. */
 	function save(change: Change) {
-		setTask.mutate({ id, ...change });
+		patchTask.mutate({ id, ...change });
 	}
 
-	const setTask = createMutation(() => ({
-		...writes.set,
+	const patchTask = createMutation(() => ({
+		...writes.patch,
 		onSuccess: async (file, variables, previous, context) => {
-			await writes.set.onSuccess(file, variables, previous, context);
+			await writes.patch.onSuccess(file, variables, previous, context);
 			if (variables.title !== undefined && title?.trim() === variables.title) {
 				title = undefined;
 				titleError = '';
 			}
 		},
 		onMutate: () => {
-			toast.dismiss(`set:${id}`);
+			toast.dismiss(`patch:${id}`);
 		},
 		onError: (error, { id: _id, ...change }) => {
 			toast.error('Could not save the task', {
-				id: `set:${id}`,
+				id: `patch:${id}`,
 				description: error.message,
 				action: change.title === undefined ? undefined : { label: 'View submitted text', onClick: () => toast('Submitted task', { description: change.title || '(empty)', duration: Infinity }) },
 			});
@@ -79,8 +79,8 @@
 		},
 	}));
 	const deleteTask = createMutation(() => writes.delete);
-	const fields = $derived({ ...task.data, ...(setTask.isPending ? setTask.variables : {}) });
-	const busy = $derived(setTask.isPending || deleteTask.isPending);
+	const fields = $derived({ ...task.data, ...(patchTask.isPending ? patchTask.variables : {}) });
+	const busy = $derived(patchTask.isPending || deleteTask.isPending);
 	let title = $state<string>();
 	let titleError = $state('');
 	/** The notes being typed, kept until saved; `undefined` shows the saved notes. */

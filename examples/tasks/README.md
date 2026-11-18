@@ -30,7 +30,7 @@ The deck is in Drive.
 
 `data/tasks/<id>.md`, named by the time it was added, such as
 `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`. The file stem is the task's id:
-`get`, `set`, and `delete` name it with `{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8"}`.
+`get`, `patch`, `edit`, and `delete` name it with `{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8"}`.
 `title` is required and is one line, not blank. `done` is `false` unless set.
 `due` is a day, absent when there is none. The notes are the body, in
 Markdown. `add` makes the id with `timeId()` inside the action.
@@ -44,7 +44,7 @@ included in the open task groups.
 
 | Action | Does |
 | --- | --- |
-| `list`, `get`, `set`, `delete` | list all tasks, or use a task's `id` to read, change, or delete it |
+| `list`, `get`, `patch`, `edit`, `delete` | list all tasks, or use a task's `id` to read, change fields, replace a passage of the notes, or delete it |
 | `add` | a new task named by the time, from `title` and optional `due` and `notes`; a title of several lines keeps its first line as the title and the rest as notes |
 
 Each action takes one JSON object; `epicenter tasks <action> --help` lists
@@ -52,8 +52,8 @@ its keys.
 
 ```sh
 epicenter tasks add '{"title":"Email Sam the slides","due":"2026-11-12"}'
-epicenter tasks set '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'
-epicenter tasks set '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","due":null}'
+epicenter tasks patch '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'
+epicenter tasks patch '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","due":null}'
 ```
 
 A title or notes that may hold an apostrophe or a line break go on stdin,
@@ -65,18 +65,19 @@ epicenter tasks add - <<'EOF'
 EOF
 ```
 
-To change the notes, `set` with an `edit` object quotes what is there and gives what replaces it;
-`old` must be nonempty and occur exactly once. Use `body` to replace empty
-notes:
+To change the notes, `edit` quotes what is there as `old` and gives what
+replaces it as `new`; `old` must be nonempty and occur exactly once. `edit` is
+not safe to repeat, since a second call edits the result of the first. Use
+`patch` with `body` to replace empty notes:
 
 ```sh
-epicenter tasks set - <<'EOF'
-{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","edit":{"old":"The deck is in Drive.","new":"The deck's final copy is in Drive."}}
+epicenter tasks edit - <<'EOF'
+{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","old":"The deck is in Drive.","new":"The deck's final copy is in Drive."}
 EOF
 ```
 
-`set` merges as JSON Merge Patch does, so `"due":null`, over the command
-line, MCP, or the UI, removes the line. `set` refuses a title of several lines
+`patch` merges as JSON Merge Patch does, so `"due":null`, over the command
+line, MCP, or the UI, removes the line. `patch` refuses a title of several lines
 or a blank one. Field patches use the last write. A save of a deleted task
 returns Missing and does not recreate it.
 
@@ -93,7 +94,7 @@ grouped as Overdue, Today, Upcoming, and No date. Done tasks fold under Complete
 A task's page is at its key (`#/tasks/<id>`): it edits the title, done,
 due day, and notes, and deletes the task after asking.
 
-Done, title, and due changes use ordinary TanStack mutations through `set`.
+Done, title, and due changes use ordinary TanStack mutations through `patch`.
 Title saves when its field changes; notes save whenever I leave their field.
 Until then, notes live only in the page: navigation, reload, or closing before
 blur can discard them, with no notes-specific leave warning. Failed writes
@@ -102,9 +103,9 @@ reads, so a click on a due-day button after leaving notes still counts.
 Reloading with an unsaved title asks before leaving.
 
 Title, due and completion changes use field patches. Notes quote the previous
-nonempty body through `set` with `edit`. If the quote changed, the page keeps
+nonempty body through `edit`. If the quote changed, the page keeps
 the draft and offers Save mine against the latest saved text, or Show saved
-to drop it. Empty notes use `set` with `body`. Every write refreshes the active
+to drop it. Empty notes use `patch` with `body`. Every write refreshes the active
 reads. Reads also refresh when the page becomes visible, with no polling.
 
 A task whose file does not fit shows a mark in the list, and its page quotes

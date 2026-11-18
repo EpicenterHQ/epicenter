@@ -83,14 +83,14 @@ matters most. Declare them with `defineData` in `code/epicenter.ts` (or a
 `data/tasks/<id>.md`, one record per file, named by its id. A key ending in
 `.md` is one file: `settings.md` is `data/settings.md`. Each key gives
 `fields`, the front matter of each file, and may give a `description` of one
-record. `data.tasks.actions('list', 'get', 'add', 'set', 'delete')` gives the
-verbs it names and only those; a one-file key offers `get`, `set`, and
-`delete`. An app with one key spreads its verbs at the top, so they are its
-own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests each
+record. `data.tasks.actions('list', 'get', 'create', 'patch', 'edit', 'delete')`
+gives the verbs it names and only those; a one-file key offers `get`, `patch`,
+`edit`, and `delete`. An app with one key spreads its verbs at the top, so they are its
+own (`epicenter tasks patch`, MCP `tasks_patch`); an app with several nests each
 under its name (`epicenter mail proposals list`). A record's address is its
 path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`. `defineData`
-refuses a key that is not a name, a field named `path`, `body`, `id`, or
-`edit`, and a `readOnly` field. No field has a `default`: a definition with
+refuses a key that is not a name, a field named `path`, `body`, or `id`
+(a verb's input folds the fields beside them), and a `readOnly` field. No field has a `default`: a definition with
 one is refused, so write the default where the value is read (`limit ?? 50`).
 
 - Choose the id by how people and agents will name a file. `timeId()` suits
@@ -100,8 +100,8 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   `\`, control characters, a leading dot, or whitespace at either end. An id
   is the file name exactly: no method or generated verb changes it, and one
   that does not fit is `Refused` with the reason, so trim what a person typed
-  before passing it. A generated `add` names the record with
-  `timeId()` when `id` is left out. An action takes an id as `field.text()`;
+  before passing it. A generated `create` names the record with
+  `timeId()` when `id` is left out; a caller that may retry sends an id. An action takes an id as `field.text()`;
   the handle refuses a bad one, quoting it, with the name to send instead.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
@@ -113,16 +113,19 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
 - `list` returns one Result per file, bodies included. Put what a list or an
   agent needs at a glance in a field (a task's `title`); put prose in the
   body.
-- Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
+- Keep fields few. `patch` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
-  required field takes no `null`. A generated `set` requires at least one
-  submitted field or body edit.
+  required field takes no `null`, and `body` replaces the whole body.
+- `create` refuses a name that is taken and a folder key's `patch` refuses
+  one that is not there, so a mistyped id never makes a stray file. Code that
+  computes a name and makes the record when absent uses `edit` with a
+  function.
 - When only the app's own actions may write a field (Vocab's schedule,
   Capture's `capturedAt`), leave the verb that would write it out of
   `actions(...)` and write the app's own action instead (Capture's `add`).
 - Constrain text with `field.text({ pattern, description })`, the description
   reading after "must be" (Tasks' title: `one line, not blank, saying what to
-  do`), so the generated `set` refuses what the app's own `add` would.
+  do`), so the generated `patch` refuses what the app's own `add` would.
 - `get(id)` gives `Ok(record)` when the file fits: its `path`, `id`, fields,
   and `body`. An absent switch reads as `false` and an absent list as `[]`. A
   missing file gives `Ok(undefined)` to the method and `Missing` to the
@@ -136,14 +139,16 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   caller. An action that cannot run without an item declares
   `field.list(item, { min: 1 })`: it is required, `--help` and the schema an
   agent receives say so, and an empty list is refused before `run`.
-- The `set` verb sends what the caller last saw, since it cannot send a
-  function: `id`, the fields, and `body` or `edit: { old, new }` to replace
-  the passage `old` of the body. `old` must be non-empty and occur exactly
-  once. One call is one write: when the passage is gone or appears twice, it
-  is refused with `Changed` (`why` is `quote` or `twice`) and nothing is
-  written, fields included. So a page that saves a record's
-  fields and its notes sends one `set`. In code, `set` carries `body`, as
-  data or from a function of the record.
+- A verb's input is its method's arguments folded into one object: the id as
+  `id`, the change's keys beside it. The `edit` verb takes `{ id, old, new }`
+  and no fields, and replaces the passage `old` of the body the caller last
+  saw. `old` must be non-empty and occur exactly once: when the passage is
+  gone or appears twice, it is refused with `Changed` (`why` is `quote` or
+  `twice`) and nothing is written. It answers `Missing` for an absent record,
+  for a one-file key too. `edit` is not safe to repeat, so a page that changes
+  fields and notes sends a `patch` and an `edit`. In code,
+  `edit(id, { old, new })` is the same replacement, and `edit(id, fn)`
+  computes a change from the record.
 - An app is `code/`, `data/` and `local/`. What is in `local/` stays on the
   computer that runs the app: the root `.gitignore` leaves it out of every
   commit, and `folder` makes a new file there `0600`. Git's ignore rules are
@@ -197,13 +202,13 @@ returns an Err. When continuing a calculation, use
 verbs: a rule on making a file (Tasks' `add` splits a title from its notes),
 a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
-`{ ...data.words.actions('list', 'get', 'set'), add: learn }`. Inside `run`,
+`{ ...data.words.actions('list', 'get', 'create'), create: learn }`. Inside `run`,
 read and write through the key's methods, which name a record by its id and
 take the change second (`data.words.get(word)`,
-`data.words.set(word, { meaning, body })`, `data.words.update(word, change)`),
+`data.words.patch(word, { meaning, body })`, `data.words.edit(word, change)`),
 instead of parsing front matter again. A one-file key's methods take no id
 (`data['settings.md'].get()`); it reads as `Ok(undefined)` before the first
-write, has no `add`, and its `set` method or verb can create the file. For
+write, has no `create`, and its `patch` method or verb can create the file. For
 other files, the imported `folder` supplies atomic writes and updates.
 `data.words.path(word)` gives a record's path; never build one by hand.
 Make the first write through `folder` or a data method, so the call takes the
@@ -234,17 +239,17 @@ reaches every app `serve` runs.
 
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
-directly. A value computed from `get` and written with `set` is last write
-wins: a change made between them is lost. Compute it inside `update`. Its
+directly. A value computed from `get` and written with `patch` is last write
+wins: a change made between them is lost. Compute it inside `edit`. Its
 callback receives the fitting record, or `undefined` for an absent file, and
 returns `Ok(patch)` or a tagged Err; from `undefined` it creates the file. No
 other write to the file runs between its read and its write. Vocab's
 `review` schedules a word this way, so two reviews at once both count.
-The patch can carry a new `body`, so Reading's `start` makes a book or starts it in one `update`,
-never `get` then `add`, which two calls at once would race.
+The patch can carry a new `body`, so Reading's `start` makes a book or starts it in one `edit`,
+never `get` then `create`, which two calls at once would race.
 
 ```ts
-return data.words.update(word, (found) =>
+return data.words.edit(word, (found) =>
   found ? Ok({ reps: (found.reps ?? 0) + 1 }) : ActionError.Missing({ path: data.words.path(word) }),
 );
 ```
@@ -261,13 +266,13 @@ await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},
 
 Use `folder.edit(path, decide)` for a raw text change that may decline. Return
 `Err(reason)`, `Ok({ value })` to preserve the file, or `Ok({ value, text })`
-to replace it. The result carries the value from the winning attempt. `set` given fields writes
+to replace it. The result carries the value from the winning attempt. `patch` given fields writes
 the values it is given, and `folder.write` is for a file whose whole content
 the action decides: for both, the last write wins.
 
 The generated verbs take a record's `id` flat, beside the other fields. On the
 command line an action's input is one JSON object, the same one MCP takes:
-`epicenter vocab set '{"id":"serendipity","meaning":"a lucky find"}'`.
+`epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'`.
 For text a person wrote, pipe it with `- <<'EOF'`, which has no quoting to get
 wrong; `epicenter <app> <action> --help` lists the keys. An action you write
 chooses its own input, and should take what its caller knows: Vocab's `review`
@@ -429,7 +434,7 @@ pages watch and what they change with Wellcrafted (see `query-layer`):
 ```ts
 const app = connect<typeof tasksApp>();
 export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
-export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
+export const writes = resultMutations(['tasks'], { add: app.add, patch: app.patch });
 ```
 
 A page that reopens cannot rejoin a call. It shows what the app's records
@@ -456,8 +461,8 @@ using its own `@tanstack/svelte-query` so the bundle carries one copy.
 Check the helper's export in the app you copy. Provide the client through
 `<QueryClientProvider>` and apply the invalidation rule from `query-layer`.
 Pages read with `createQuery(() => reads.get({ id }))` and write with
-`createMutation(() => writes.set)`. Use the server app's action types, for
-example `ActionInput<typeof tasksApp.actions.set>` and
+`createMutation(() => writes.patch)`. Use the server app's action types, for
+example `ActionInput<typeof tasksApp.actions.patch>` and
 `ActionOutput<typeof tasksApp.actions.get>`.
 
 An action that sends updates takes `onUpdate` after its input, to show its
@@ -477,12 +482,12 @@ reread the record before deciding what happened.
 
 - It is a phone Home Screen app first: safe-area insets, 44 px targets, 16 px
   inputs so iOS does not zoom, light and dark from the system.
-- Send `set` only the fields being submitted, and `null` for one emptied.
+- Send `patch` only the fields being submitted, and `null` for one emptied.
   Do not spread an entire cached record into a field update. Comparing with
   cached data can avoid a request; it cannot establish what is currently saved.
   Submitting a title must not also write back a stale completion status from
-  the cached record. Skip `set` when there are no submitted fields or body
-  edits. The generated action returns `Refused` for an empty change.
+  the cached record. Skip `patch` when there are no submitted fields or body
+  changes. An empty change writes nothing and answers the record as it is.
   An unchanged-looking value may still be an intentional
   submission.
 - When draft, recovery, or workflow promises are unsettled, use
@@ -491,12 +496,12 @@ reread the record before deciding what happened.
   [input ownership](../svelte/references/input-ownership.md).
   Writes also arrive from other tabs, agents, and the command line; blocking
   local edits while pending prevents only this page's overlap.
-- Use `set` with its quoted base (`edit: { old: base, new: draft }`, beside
-  any fields) when the app promises conflict detection. On `Changed`, reread and preserve the submitted text
+- Use `edit` with its quoted base (`{ id, old: base, new: draft }`) when the
+  app promises conflict detection. On `Changed`, reread and preserve the submitted text
   while resolving the conflict. When last-write-wins is accepted, use the app's
   replacement action without adding rebasing or a recovery queue.
 - Show a write before it lands from the mutations still pending:
-  `useMutationState({ filters: { mutationKey: writes.set.mutationKey, status:
+  `useMutationState({ filters: { mutationKey: writes.patch.mutationKey, status:
   'pending' } })` (Tasks' done, Vocab's review queue, Capture's adds). When the
   write settles, the refreshed read takes over. Say a failed write in a toast
   with `error.message`.
@@ -540,12 +545,12 @@ An immediate editor that already owns accepted typing needs no second draft.
 
 ### Fields, body, and conflict responses
 
-For a form that saves fields and a body together, send one generated `set`
-with the record's `id`, submitted fields, and
-`edit: { old: base, new: draft }`. The `set` verb checks the passage before
-writing the file. If another writer changed the passage, the entire edit
-returns `Changed`. A workflow that deliberately makes separate writes
-must account for each completed write when a later one fails.
+For a form that saves fields and a body together, send a generated `patch`
+with the record's `id` and submitted fields, and a generated `edit` with
+`{ id, old: base, new: draft }`. The `edit` verb checks the passage before
+writing the file. If another writer changed the passage, it returns
+`Changed` and writes nothing. The two are separate writes, so account for a
+completed `patch` when the `edit` that follows it fails.
 
 Two earlier app designs illustrate different responses to a body conflict:
 

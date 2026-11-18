@@ -65,30 +65,46 @@ type WriteError<TKey extends string, TDef extends DataDef> =
 	| Misfit<TKey, TDef>
 	| Refused
 	| Changed;
-type Update<
+/** One passage of the body and the text to put in its place. */
+type Passage = { old: string; new: string };
+type Edit<
 	TKey extends string,
 	TDef extends DataDef,
 	TArgs extends unknown[],
-> = <TError extends CallbackError = never>(
-	...args: [
-		...TArgs,
-		change: (
-			record: DataRecord<TKey, TDef> | undefined,
-		) => Result<Change<TDef['fields']>, TError>,
-	]
-) => Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | TError>>;
+> = {
+	/**
+	 * Compute a patch from a fitting record, or undefined when absent; the
+	 * patch may create the file.
+	 */
+	<TError extends CallbackError = never>(
+		...args: [
+			...TArgs,
+			change: (
+				record: DataRecord<TKey, TDef> | undefined,
+			) => Result<Change<TDef['fields']>, TError>,
+		]
+	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | TError>>;
+	/**
+	 * Replace the one passage `old` of the body with `new`. Changed (quote)
+	 * when it is not there, Changed (twice) when it is there more than once,
+	 * and Missing when the file is absent.
+	 */
+	(
+		...args: [...TArgs, passage: Passage]
+	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | Missing>>;
+};
 
 type OneFile<TKey extends string, TDef extends DataDef> = {
 	/** Read this file, or undefined before it exists. */
 	get(): Promise<
 		Result<DataRecord<TKey, TDef> | undefined, Misfit<TKey, TDef>>
 	>;
-	/** Patch fields and body, creating the file when absent. */
-	set(
+	/** Patch fields and replace the body, creating the file when absent. */
+	patch(
 		change: Change<TDef['fields']>,
 	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef>>>;
-	/** Compute a patch from a fitting record, or undefined when absent. */
-	update: Update<TKey, TDef, []>;
+	/** Change the file based on what it holds now. */
+	edit: Edit<TKey, TDef, []>;
 	/** Delete the file, returning whether it existed. */
 	delete(): Promise<Result<boolean, never>>;
 	/** This key's file path, without disk access. */
@@ -107,17 +123,17 @@ type FolderHandle<TKey extends string, TDef extends DataDef> = {
 	/** One Result per directly contained record, sorted by path. */
 	list(): Promise<Result<DataRecord<TKey, TDef>, Misfit<TKey, TDef>>[]>;
 	/** Create one file, returning Changed (there) when it exists. */
-	add(
+	create(
 		id: string,
 		record: Input<TDef['fields']>,
 	): Promise<Result<DataRecord<TKey, TDef>, Refused | Changed>>;
-	/** Patch an existing record; an absent id returns Missing. */
-	set(
+	/** Patch fields and replace the body of an existing record; an absent id returns Missing. */
+	patch(
 		id: string,
 		change: Change<TDef['fields']>,
 	): Promise<Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | Missing>>;
-	/** Compute a patch from a fitting record, or undefined when absent. */
-	update: Update<TKey, TDef, [id: string]>;
+	/** Change one record based on what it holds now. */
+	edit: Edit<TKey, TDef, [id: string]>;
 	/** Delete one id, returning whether its file existed. */
 	delete(id: string): Promise<Result<boolean, Refused>>;
 	/** The file path for this id as given, without checking it or the disk. */
@@ -133,12 +149,16 @@ export type AnyData = Record<
 		)
 >;
 
-type Verb = 'list' | 'get' | 'add' | 'set' | 'delete';
+type Verb = 'list' | 'get' | 'create' | 'patch' | 'edit' | 'delete';
 type Offered<TKey extends string> = TKey extends `${string}.md`
-	? 'get' | 'set' | 'delete'
+	? Exclude<Verb, 'list' | 'create'>
 	: Verb;
 type IdInput<TKey extends string> = TKey extends `${string}.md`
 	? Record<string, never>
+	: { id: string };
+/** The id a change sits beside: none for a one-file key. */
+type IdOf<TKey extends string> = TKey extends `${string}.md`
+	? unknown
 	: { id: string };
 type ActionInput<
 	TKey extends string,
@@ -146,14 +166,13 @@ type ActionInput<
 	TVerb extends Verb,
 > = TVerb extends 'list'
 	? Record<string, never>
-	: TVerb extends 'add'
+	: TVerb extends 'create'
 		? Flat<{ id?: string } & Input<TDef['fields']>>
-		: TVerb extends 'set'
-			? Flat<
-					(TKey extends `${string}.md` ? unknown : { id: string }) &
-						Change<TDef['fields']> & { edit?: { old: string; new: string } }
-				>
-			: IdInput<TKey>;
+		: TVerb extends 'patch'
+			? Flat<IdOf<TKey> & Change<TDef['fields']>>
+			: TVerb extends 'edit'
+				? Flat<IdOf<TKey> & Passage>
+				: IdInput<TKey>;
 type ActionOutput<
 	TKey extends string,
 	TDef extends DataDef,
@@ -165,11 +184,12 @@ type ActionOutput<
 		| Misfit<TKey, TDef>
 		| (TKey extends `${string}.md` ? never : Refused | Missing)
 	>;
-	add: Result<DataRecord<TKey, TDef>, Refused | Changed>;
-	set: Result<
+	create: Result<DataRecord<TKey, TDef>, Refused | Changed>;
+	patch: Result<
 		DataRecord<TKey, TDef>,
 		WriteError<TKey, TDef> | (TKey extends `${string}.md` ? never : Missing)
 	>;
+	edit: Result<DataRecord<TKey, TDef>, WriteError<TKey, TDef> | Missing>;
 	delete: Result<boolean, TKey extends `${string}.md` ? never : Refused>;
 }[TVerb];
 
@@ -238,7 +258,8 @@ export function defineData<const TSpec extends Spec>(
 			);
 		JSON.stringify(fields);
 		for (const [field, schema] of Object.entries(fields)) {
-			if (['path', 'body', 'id', 'edit'].includes(field))
+			// An action folds a record's fields beside its id and body, and a read gives its path.
+			if (['path', 'body', 'id'].includes(field))
 				throw new Error(`The data key ${key} reserves the field "${field}"`);
 			if ((schema as { readOnly?: boolean }).readOnly)
 				throw new Error(
@@ -288,8 +309,8 @@ function createHandle(key: string, def: DataDef) {
 				throw new Error(`Name the action verbs for the data key ${key}`);
 			const offered =
 				'list' in handle
-					? ['list', 'get', 'add', 'set', 'delete']
-					: ['get', 'set', 'delete'];
+					? ['list', 'get', 'create', 'patch', 'edit', 'delete']
+					: ['get', 'patch', 'edit', 'delete'];
 			for (const verb of verbs)
 				if (!offered.includes(verb))
 					throw new Error(`The data key ${key} offers no action "${verb}"`);
@@ -335,7 +356,7 @@ function createRecordHandle(key: string, def: DataDef) {
 			? Ok(undefined)
 			: records.project(path, readMarkdown(text)).result;
 	}
-	function set(id: string | undefined, change: Record<string, unknown>) {
+	function patch(id: string | undefined, change: Record<string, unknown>) {
 		const path = place(id);
 		if (typeof path !== 'string') return Promise.resolve(path);
 		const { body, ...fields } = change;
@@ -343,17 +364,20 @@ function createRecordHandle(key: string, def: DataDef) {
 			Ok({ fields, body }),
 		);
 	}
-	function update(
-		id: string | undefined,
-		change: (record: AnyRecord | undefined) => unknown,
-	) {
+	/** A function computes the change; `{ old, new }` is a fixed function that replaces one passage. */
+	function edit(id: string | undefined, change: unknown) {
 		const path = place(id);
 		if (typeof path !== 'string') return Promise.resolve(path);
+		const compute =
+			typeof change === 'function'
+				? (change as (record: AnyRecord | undefined) => unknown)
+				: replacing(path, change);
+		if (typeof compute !== 'function') return Promise.resolve(compute);
 		return records.write(
 			path,
 			'either',
 			true,
-			records.computed(change, 'update', single ? ['path'] : ['path', 'id']),
+			records.computed(compute, single ? ['path'] : ['path', 'id']),
 		);
 	}
 	async function remove(id?: string) {
@@ -368,30 +392,22 @@ function createRecordHandle(key: string, def: DataDef) {
 			...def,
 			get: () => get(),
 			path: () => base,
-			set: (change: Record<string, unknown>) => set(undefined, change),
-			update: (change: (record: AnyRecord | undefined) => unknown) =>
-				update(undefined, change),
+			patch: (change: Record<string, unknown>) => patch(undefined, change),
+			edit: (change: unknown) => edit(undefined, change),
 			delete: () => remove(),
 		};
 	return {
 		...def,
 		get,
 		path: pathFor,
-		set,
-		update,
+		patch,
+		edit,
 		delete: remove,
-		add(id: string, input: Record<string, unknown>) {
+		create(id: string, input: Record<string, unknown>) {
 			const path = place(id);
 			if (typeof path !== 'string') return Promise.resolve(path);
 			const { body, ...fields } = input;
-			const create = records.decide(path, 'either', false, () =>
-				Ok({ fields, body }),
-			);
-			return folder.edit(path, (before) =>
-				before === undefined
-					? create(undefined)
-					: ActionError.Changed({ path, why: 'there' }),
-			);
+			return records.write(path, 'absent', false, () => Ok({ fields, body }));
 		},
 		async list() {
 			const found: Result<
@@ -412,6 +428,37 @@ function createRecordHandle(key: string, def: DataDef) {
 }
 
 type JsonDef = { fields: Record<string, TUnsafe<JsonValue>> };
+
+/**
+ * The change that replaces the one passage `old` of a record's body with
+ * `new`, or Refused when `passage` is not `{ old, new }` with non-empty `old`.
+ */
+function replacing(path: string, passage: unknown) {
+	const keys =
+		typeof passage === 'object' &&
+		passage !== null &&
+		[Object.prototype, null].includes(Object.getPrototypeOf(passage))
+			? Object.keys(passage).sort().join()
+			: undefined;
+	const { old, new: replacement } = (passage ?? {}) as Record<string, unknown>;
+	if (
+		keys !== 'new,old' ||
+		typeof old !== 'string' ||
+		typeof replacement !== 'string'
+	)
+		return ActionError.Refused({
+			message: `${path}: edit takes a function or { old, new }, each text`,
+		});
+	if (old === '')
+		return ActionError.Refused({
+			message: `${path}: the passage to replace must be non-empty text`,
+		});
+	return (record: AnyRecord | undefined) => {
+		if (record === undefined) return ActionError.Missing({ path });
+		const body = edited(path, record.body, old, replacement);
+		return body.error === null ? Ok({ body: body.data }) : body;
+	};
+}
 
 /** Adapt only public handle methods; record validation and writes stay with the handle. */
 function dataAction(
@@ -454,10 +501,11 @@ function dataAction(
 					return found;
 				},
 			});
-		case 'add':
-			if (!keyed) throw new Error(`The data key ${key} offers no action "add"`);
+		case 'create':
+			if (!keyed)
+				throw new Error(`The data key ${key} offers no action "create"`);
 			return defineAction({
-				description: `Make a new ${what}, named by id or, without one, by the moment it is made; Changed (there) when one is already at its path`,
+				description: `Make a new ${what}, named by id or, without one, by the moment it is made; Changed (there) when one is already at its path. A caller that may retry should send an id, so a repeat answers Changed (there) instead of making a second`,
 				input: {
 					id: field.text({
 						optional: true,
@@ -469,12 +517,13 @@ function dataAction(
 				annotations: {
 					readOnlyHint: false,
 					destructiveHint: false,
-					idempotentHint: true,
+					// Without an id, each call makes another record.
+					idempotentHint: false,
 					...hints,
 				},
-				run: ({ id, ...record }) => handle.add(id ?? timeId(), record),
+				run: ({ id, ...record }) => handle.create(id ?? timeId(), record),
 			});
-		case 'set': {
+		case 'patch': {
 			const patch: Record<string, TSchema> = {};
 			for (const [field, schema] of Object.entries(def.fields)) {
 				const { description } = schema as { description?: string };
@@ -489,64 +538,54 @@ function dataAction(
 				);
 			}
 			return defineAction({
-				description: `Change one ${what} in one write: the fields given, keeping the rest (null removes one that may be absent), and body or edit. With edit, replace the one passage edit.old of the body with edit.new; fields may accompany edit, body may not`,
-				input: {
-					...keys,
-					...patch,
-					body,
-					edit: Type.Optional(
-						Type.Object(
-							{
-								old: Type.String({
-									minLength: 1,
-									description:
-										'The non-empty passage of the body to replace, exactly as get returned it',
-								}),
-								new: Type.String({
-									description: 'The text to put in its place',
-								}),
-							},
-							{ additionalProperties: false },
-						),
-					),
-				},
+				description: keyed
+					? `Change one ${what}: the fields given, keeping the rest (null removes one that may be absent), and body, which replaces the whole body. A missing ${what} answers Missing and is never made`
+					: `Change the ${what}: the fields given, keeping the rest (null removes one that may be absent), and body, which replaces the whole body. The file is made when it is absent`,
+				input: { ...keys, ...patch, body },
 				annotations: {
 					readOnlyHint: false,
 					destructiveHint: true,
 					idempotentHint: true,
 					...hints,
 				},
-				run: async (input) => {
+				run: (input) => {
 					// The dynamic keys schema supplies id only for folder keys.
-					const { id, edit, ...change } = input as typeof input & {
-						id: string;
-					};
-					if (edit === undefined)
-						return keyed ? handle.set(id, change) : handle.set(change);
-					if (change.body !== undefined)
-						return ActionError.Refused({
-							message: 'Give body or edit, not both',
-						});
-					if (edit.old === '')
-						return ActionError.Refused({
-							message: 'edit.old must be non-empty text',
-						});
-					const replace = (
-						record: AnyRecord | undefined,
-					): Result<Change<JsonDef['fields']>, Changed | Missing> => {
-						const path = keyed ? handle.path(id) : handle.path();
-						if (keyed && record === undefined)
-							return ActionError.Missing({ path });
-						const next = edited(path, record?.body ?? '', edit.old, edit.new);
-						if (next.error !== null) return next;
-						return Ok({ ...change, body: next.data });
-					};
-					return keyed
-						? handle.update<Changed | Missing>(id, replace)
-						: handle.update<Changed | Missing>(replace);
+					const { id, ...change } = input as typeof input & { id: string };
+					return keyed ? handle.patch(id, change) : handle.patch(change);
 				},
 			});
 		}
+		case 'edit':
+			return defineAction({
+				description: `Replace exactly one occurrence of old in the body of ${keyed ? `one ${what}` : `the ${what}`} with new; Changed when old is not there or is there more than once, and Missing when the ${what} is absent. Not safe to repeat: a second call edits the result of the first`,
+				input: {
+					...keys,
+					old: Type.String({
+						minLength: 1,
+						description:
+							'The non-empty passage of the body to replace, exactly as get returned it',
+					}),
+					new: Type.String({ description: 'The text to put in its place' }),
+				},
+				annotations: {
+					readOnlyHint: false,
+					destructiveHint: true,
+					idempotentHint: false,
+					...hints,
+				},
+				run: (input) => {
+					const {
+						id,
+						old,
+						new: replacement,
+					} = input as typeof input & {
+						id: string;
+					};
+					return keyed
+						? handle.edit(id, { old, new: replacement })
+						: handle.edit({ old, new: replacement });
+				},
+			});
 		case 'delete':
 			return defineAction({
 				description: `Delete one ${what}; true when there was one`,
