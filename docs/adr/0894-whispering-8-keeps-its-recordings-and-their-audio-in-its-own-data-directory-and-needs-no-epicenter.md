@@ -63,8 +63,10 @@ Hugging Face cache               local models, shared with other programs
   (`@tauri-apps/plugin-dialog` with `recursive: true`);
   `tauri-plugin-persisted-scope` restores the grant at each start, and the
   path itself is kept in `localStorage`. A page cannot widen the app's file
-  access, because only the dialog grants it, and Whispering adds no Rust for
-  the folder. On the computer that runs the home, it may be
+  access, because only the dialog grants it, and every native command that
+  touches a file checks the path against that grant
+  (`app.fs_scope().is_allowed`). The default folder is granted by the app's
+  capabilities. On the computer that runs the home, it may be
   `~/Epicenter/apps/whispering/data`: Whispering then writes its records
   there and stays their one writer, the inside app reads them and writes
   only its own data keys (ADR-0896), and the home's Git keeps the audio
@@ -140,6 +142,7 @@ Hugging Face cache               local models, shared with other programs
   ```ts
   type Files = {
     read(path: string): Promise<Result<Uint8Array | null, FilesError>>;
+    readMany(paths: string[]): Promise<Result<Map<string, Uint8Array>, FilesError>>;
     write(path: string, bytes: Uint8Array): Promise<Result<undefined, FilesError>>;
     list(dir: string): Promise<Result<string[], FilesError>>;
     remove(path: string): Promise<Result<undefined, FilesError>>;
@@ -149,23 +152,51 @@ Hugging Face cache               local models, shared with other programs
   `tauriFiles(dir)` on the desktop, `opfsFiles(dir)` in a browser, and
   `memoryFiles()` in tests. Startup passes one as a plain argument
   (`isTauri() ? tauriFiles(dir) : opfsFiles(dir)`); there is no container.
-  Recordings, transcriptions, transformations, and runs are read and written
-  on top of `Files` in the contract's layout. One conformance suite runs the
-  four operations against all three.
-- **`tauriFiles` is `@tauri-apps/plugin-fs`.** Its `writeFile`, `readFile`,
-  `readDir`, `mkdir`, `remove`, and `rename` are the desktop's operations.
-  `tauri-plugin-epicenter-folder` goes without a replacement.
+  Paths are relative to the folder, and a path with `..` or an absolute
+  path is refused. Recordings, transcriptions, transformations, runs, and
+  `settings.md` are read and written on top of `Files` in the contract's
+  layout. One conformance suite runs the five operations against all three.
+- **`readMany` is how a list loads.** Opening the folder lists
+  `recordings/` and `transcriptions/`, then reads every note in one
+  `readMany`. A folder of 15,000 recordings is 15,000 notes, and one
+  native call per note would cross from the page to the shell 15,000
+  times. `readMany` takes paths, not a directory, so it never reads audio.
+  In a browser it reads in parallel in the page.
+- **Rust moves bytes; TypeScript knows what they mean.** `tauriFiles` is a
+  small module of Whispering's own commands in its shell, one per
+  operation: `read_many` reads in parallel and answers one binary
+  response, `write` stages and renames in one call, and each checks its
+  path against the folder's grant. The page is granted none of
+  `@tauri-apps/plugin-fs`'s commands; the plugin is registered for its
+  scope alone. No command parses a note: Markdown is read and written in
+  TypeScript, so both builds share one reader.
+- **Notes use the home's Markdown grammar from its one owner.**
+  `@epicenter/app` exports its front matter reader and writer
+  (`readMarkdown`, `markdownOf`, `withFields`, ADR-0924) at a
+  browser-safe subpath, `@epicenter/app/markdown`, and Whispering imports
+  it, so a note Whispering writes is one `epicenter check` reads.
+- `tauri-plugin-epicenter-folder` goes without a replacement.
 - **`write` replaces a file whole.** On the desktop it writes a temporary
   file beside the target and renames it over the target, which replaces it
   in one step on macOS and Linux; on Windows the rename replaces the file
   without that promise. In a browser it uses `createWritable()`, whose
   changes reach the file only when the stream closes. A failed write keeps
   the unsaved text on screen and offers to retry.
-- **Recording streams through its own native file.** The recorder writes
-  audio to a staging file as it records, places it at
-  `recordings/{id}.{ext}` when the take ends, and repairs a take a crash
-  cut short. These checks and moves live in Whispering's recorder, not in
-  `Files`.
+- **Recording streams through its own native file.** The recorder plugin
+  keeps its capture and encoding unchanged. The page names the directory
+  and the id, and the plugin checks the directory against the folder's
+  grant:
+
+  ```ts
+  recorder.start({ dir, id })   // writes <dir>/.ep-<random>-<id>.recording as it records
+  recorder.stop()               // finishes it and places it at <dir>/<id>.webm, replacing nothing
+  recorder.recover({ dir })     // finishes and places takes a crash cut short
+  ```
+
+  The pending name, the place that replaces nothing, and the path check,
+  which it took from the folder core, become its own. In a browser the
+  recorder keeps a take in memory and writes it once at Stop through
+  `Files`; a tab that crashes while recording loses that take.
 - **Whispering runs in one place at a time, so the app is one writer.** On
   the desktop, the Tauri single-instance plugin focuses the open window
   instead of starting a second. In a browser, the open tab holds a Web Lock
@@ -330,7 +361,14 @@ none.
 - **Revive `@epicenter/folder`'s generic `Store`.** It keeps the package
   this record deletes.
 - **One storage interface per collection.** Each platform would implement
-  every collection; `Files` keeps the platform part to four operations.
+  every collection; `Files` keeps the platform part to five operations.
+- **`tauriFiles` as `@tauri-apps/plugin-fs`.** A note per native call, so
+  opening a large folder crosses to the shell once per note, and the page
+  holds every file command the plugin has.
+- **Read the notes in Rust and answer records.** A second Markdown reader,
+  in Rust, beside the one the browser build needs.
+- **Copy the front matter grammar into Whispering.** Two copies of one
+  format, which can drift from what `epicenter check` reads.
 - **Several tabs, a lock per file, and a `BroadcastChannel`.** Two writers
   made safe instead of one writer made true.
 - **A second tab that steals the lock.** A stolen Web Lock leaves the first
