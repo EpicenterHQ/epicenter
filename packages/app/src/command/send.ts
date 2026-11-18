@@ -25,9 +25,10 @@ import type { EpicenterRoot } from './root.ts';
 
 /**
  * How long the command waits for serve's answer to begin. Serve answers a
- * listing once it has loaded every app, and a call once it has loaded the
- * app and checked the input, so this allows a slow load; a listener that
- * takes the connection and never answers is given up on.
+ * listing once it has loaded every app, and begins a call's answer with a
+ * blank line once it has loaded the app and checked the input, before the
+ * action runs. So this bounds a slow load, never a long action; a listener
+ * that takes the connection and never answers is given up on.
  */
 const ANSWER_BEGINS_WITHIN_MS = 30_000;
 

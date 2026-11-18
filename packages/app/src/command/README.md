@@ -482,9 +482,16 @@ most 25 MiB. The route uses the existing Host, Origin, and tunnel guards.
 
 | Outcome | Response |
 | --- | --- |
-| The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
+| The action ran | 200, `application/x-ndjson`: a blank line as soon as the action starts, `{"update": value}` for each update, then `{"answer": { data, error }}` |
 | No such app or action, the app cannot load, or the input is not JSON, not an object, or does not fit | 400, `{ data: null, error: { name: "NotStarted", ... } }` as the body |
 | The body is larger than 25 MiB | 413 from Bun, with no body and no `x-epicenter`; the command refuses such an input before sending it |
+
+The blank line makes Bun send the headers before a quiet action ends;
+`readAnswer` skips blank lines. The command waits 30 seconds for an answer
+to begin, which covers serve loading the app and checking the input, not the
+action: once the answer begins, the command reads it for as long as the
+action runs. A port that takes the request and sends nothing in that time is
+given up on, and the command says the action may still be running.
 
 A stream that ends with no `answer` line was cut off, and its outcome is
 unknown: the action may still be running or may have finished. A page and

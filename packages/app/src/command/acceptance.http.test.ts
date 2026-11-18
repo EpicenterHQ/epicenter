@@ -403,6 +403,14 @@ const talk = `export default defineApp(({ folder }) => ({ description: 'Talk', a
 			return Ok('dripped');
 		},
 	}),
+	wait: defineAction({
+		description: 'Send nothing until data/go.md exists',
+		input: {},
+		async run() {
+			while (!(await Bun.file(folder.path + '/data/go.md').exists())) await Bun.sleep(20);
+			return Ok('went');
+		},
+	}),
 	tangle: defineAction({
 		description: 'Send an update that is not JSON between two that are',
 		input: {},
@@ -568,6 +576,23 @@ test('a call serve never started answers NotStarted alone, as the body of a 400'
 	);
 });
 
+test('an action that sends no update begins its answer at once, so a caller waiting for it to begin does not give up', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	// The command gives up on a port whose answer has not begun within 30
+	// seconds; the headers arrive with serve's first byte, before this action ends.
+	const begun = await Promise.race([
+		fetch(`${f.base}/talk/wait`, { method: 'POST', body: '{}' }),
+		Bun.sleep(5_000).then(() => 'no answer began' as const),
+	]);
+	if (typeof begun === 'string') throw new Error(begun);
+	expect(begun.status).toBe(200);
+	await mkdir(join(f.apps, 'talk', 'data'), { recursive: true });
+	await writeFile(join(f.apps, 'talk', 'data', 'go.md'), 'go');
+	expect(await linesOf(begun)).toEqual([
+		{ answer: { data: 'went', error: null } },
+	]);
+});
+
 test('a caller that leaves stops reading; the action runs to its end', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const leave = new AbortController();
@@ -577,8 +602,11 @@ test('a caller that leaves stops reading; the action runs to its end', async () 
 		signal: leave.signal,
 	});
 	const reader = response.body?.getReader();
-	const first = await reader?.read();
-	expect(new TextDecoder().decode(first?.value)).toStartWith('{"update":0}');
+	// Serve's first byte is a blank line; the first JSON line is the update.
+	let first = '';
+	while (reader && first.trim() === '')
+		first += new TextDecoder().decode((await reader.read()).value);
+	expect(first.trim()).toStartWith('{"update":0}');
 	leave.abort();
 	const data = join(f.apps, 'talk', 'data');
 	const stopped = () => Bun.file(join(data, 'stopped.md')).exists();
