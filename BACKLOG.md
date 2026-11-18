@@ -91,8 +91,8 @@ not create a second implementation assignment.
   generated practice; that does not establish a review-history or scheduling
   product. Settle the first retrieval interaction before choosing a scheduler or
   schema.
-- Distribution: A person gets an app by copying its code into their home with
-  `epicenter new` ([ADR-0929](docs/adr/0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md)).
+- Distribution: A person gets an app by copying its `code/` folder into their
+  home; no command does it ([ADR-0955](docs/adr/0955-no-command-makes-or-copies-an-app.md)).
 - Revisit when: Chinese study becomes the next product milestone.
 
 ### Make Whispering's dictation loop clear from speech to delivered text

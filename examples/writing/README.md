@@ -63,22 +63,6 @@ before experimenting, and experiment outside the live folder. `git commit
 -am 'Adapt my writing inbox'` records pending code and records together.
 Keep the repository private: it contains your writing.
 
-## Share your app
-
-Commit the code you want to share in your private Epicenter, then export it to
-a separate directory:
-
-```sh
-epicenter export writing "$PUBLIC_REPOSITORY/code"
-```
-
-Replace `PUBLIC_REPOSITORY` with the path to your publication repository.
-Export regenerates `code/`; keep Git and handwritten publication files outside
-that directory. Review the generated files, then commit and push with Git.
-Your notes and private history are not exported. If this app is part of an
-all-app collection, refresh that collection with its existing `export --all`
-command instead of creating an export inside its generated directory.
-
 ## Take changes from another copy
 
 Copying a folder makes a new app. To update this app, ask your agent to copy

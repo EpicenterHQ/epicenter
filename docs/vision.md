@@ -454,4 +454,4 @@ fields are written one `key: <JSON>` line each.
 [ADR-0936]: adr/0936-one-serve-per-home-runs-every-action.md
 [ADR-0939]: adr/0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md
 [ADR-0943]: adr/0943-epicenters-core-invariants.md
-[ADR-0955]: adr/0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md
+[ADR-0955]: adr/0955-no-command-makes-or-copies-an-app.md

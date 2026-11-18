@@ -1126,12 +1126,11 @@ When you add an ADR, add its row here.
 | [0907](0907-private-input-is-a-whole-call-handling-policy.md) | Private input is a whole-call handling policy | Accepted (amends 0906) |
 | [0908](0908-serve-runs-the-homes-daily-routines.md) | Serve runs the home's daily routines | Accepted (amends 0849, 0861, 0878, 0883, and 0898) |
 | [0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) | An Epicenter is one private repository, and each app keeps its code beside its data | Accepted (supersedes 0877 and 0884; amends 0842, 0870, 0876, 0883, 0885, 0887, 0893, and 0896) |
-| [0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) | Export copies an app's committed code into a refreshable directory | Accepted (amends 0910) |
+| [0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) | Export copies an app's committed code into a refreshable directory | Superseded by 0955 |
 | [0912](0912-shared-app-code-comes-from-the-app-we-maintain.md) | Shared app code comes from the app we maintain | Proposed (amends 0891) |
 | [0913](0913-cli-developer-previews-are-non-latest-github-releases.md) | CLI developer previews are non-latest GitHub releases | Proposed (amends 0892) |
 | [0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) | Action errors share one contract and the envelope records execution | Accepted (amended by 0953) |
 | [0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) | Serve owns a page's runs and a file input is a temporary upload | Accepted |
-| [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |
 | [0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) | A page's calls are serve-owned runs, and observing is not cancelling | Accepted (amends 0879 and 0915) |
 | [0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) | A collection selects a record by its keys, and a file that is not there reads as absent | Proposed |
 | [0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) | A collection declares its files beside its fields, and they rest in the folder named by its key | Proposed |
@@ -1148,7 +1147,7 @@ When you add an ADR, add its row here.
 | [0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) | Everything periodic is a routine file with a cron schedule | Proposed (amends 0908, 0910) |
 | [0938](0938-an-action-says-whether-agents-are-offered-it.md) | An action says whether agents are offered it | Proposed (supersedes 0907) |
 | [0939](0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md) | What stays on this computer lives in an app's `local/` folder | Accepted (amends 0870 and 0910) |
-| [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Accepted (amends 0850, 0910, 0937 and 0939) |
+| [0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) | Git stores the home, and Epicenter does not wrap it | Accepted (amends 0850, 0910, 0937 and 0939; amended by 0955 and 0956) |
 | [0941](0941-epicenter-serve-is-a-program-you-keep-running.md) | `epicenter serve` is a program you keep running | Accepted (amends 0878) |
 | [0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) | A home is one Bun workspace, and Epicenter is a dependency of it | Accepted (supersedes 0873; amends 0880 and 0910; amended by 0944) |
 | [0943](0943-epicenters-core-invariants.md) | Epicenter’s core invariants | Proposed |
@@ -1158,7 +1157,7 @@ When you add an ADR, add its row here.
 | [0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) | `api.epicenter.so` is a model API, and every client reaches it with an API key | Proposed (supersedes 0549 and 0331; amends 0634) |
 | [0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) | AI credits follow what a call uses: held before it and settled after | Proposed |
 | [0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) | An action's answer is `{ data, error }`, and its input is one JSON Schema | Accepted (amends 0914, 0926 and 0930) |
-| [0955](0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md) | `new` makes a blank app, and taking an app is copying its folder | Proposed (supersedes 0929) |
+| [0955](0955-no-command-makes-or-copies-an-app.md) | No command makes or copies an app | Proposed (supersedes 0911 and 0929; amends 0940) |
 | [0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) | Bare `epicenter` reports apps and routines, and Git reports the repository | Proposed (amends 0940) |
 | [0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) | "Home" is retired: the folder is your Epicenter, and `root` in code | Proposed |
 | [0958](0958-no-command-makes-an-epicenter.md) | No command makes an Epicenter | Proposed (amends 0940, 0942 and 0944) |

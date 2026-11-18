@@ -149,23 +149,12 @@ export async function fixture() {
 		EPICENTER_ROOT: undefined,
 	};
 
-	/** Write `files` under `dir` and, when `git` is true, commit them as a new repository. */
-	async function folder(
-		dir: string,
-		files: Record<string, string>,
-		{ git = false }: { git?: boolean } = {},
-	) {
+	/** Write `files` under `dir`. */
+	async function folder(dir: string, files: Record<string, string>) {
 		await mkdir(dir, { recursive: true });
 		for (const [path, text] of Object.entries(files)) {
 			await mkdir(dirname(join(dir, path)), { recursive: true });
 			await writeFile(join(dir, path), text);
-		}
-		if (git) {
-			await gitIn(dir, 'init', '-q');
-			await gitIn(dir, 'config', 'user.name', 'Epicenter Test');
-			await gitIn(dir, 'config', 'user.email', 'epicenter-test@example.com');
-			await gitIn(dir, 'add', '-A');
-			await gitIn(dir, 'commit', '-q', '--no-verify', '-m', 'initial');
 		}
 		return dir;
 	}
@@ -352,7 +341,7 @@ export async function connectMcp(
 	};
 }
 
-/** The ignore file every test app carries, as `epicenter new` writes it. */
+/** The ignore file every test app carries. */
 export const gitignore = 'node_modules/\nui/dist/\n';
 
 /** The import every test app's `epicenter.ts` starts with. */

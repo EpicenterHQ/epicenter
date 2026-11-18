@@ -41,8 +41,8 @@
  * Calls leave their writes pending (`run.ts`). Serve keeps one clock: once a
  * minute it starts each routine whose schedule had an occurrence since its
  * last check, a moment it keeps in memory (ADR-0908, ADR-0937). It commits
- * nothing: Git stores the home, and a home commits itself with a routine
- * that runs its own script.
+ * nothing: Git stores the home, and its owner commits it, by hand or from a
+ * routine that runs their own script.
  */
 
 import { realpath, stat } from 'node:fs/promises';

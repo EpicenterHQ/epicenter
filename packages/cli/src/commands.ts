@@ -2,34 +2,13 @@
  * The commands `epicenter` keeps for itself, each with its usage and what
  * `epicenter <command> --help` says beneath it. The CLI dispatches from this
  * table and prints its help from it, and no app may be named one of its
- * words. Each command parses its own flags with `node:util`'s `parseArgs`,
- * and every misuse answers its usage line.
+ * words. No command takes a flag of its own, and every misuse answers its
+ * usage line.
  */
-import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
+import { parseArgs } from 'node:util';
 import { ActionError, isName, Ok } from '@epicenter/app';
 
 export const COMMANDS = {
-	new: {
-		usage: 'epicenter new <name>',
-		help: `Makes apps/<name>/code/ from blank code and creates empty data/. Its package.json is
-named <name> and lists no packages: @epicenter/app comes from the home. It runs nothing: it
-prints the command that installs and builds, cd <home> && bun install && bun run build.
-To take an existing app, copy its code/ folder into apps/<name>/code/ (cp -R, or a GitHub
-archive through tar) and set "name" in its package.json to <name>.`,
-	},
-	export: {
-		usage:
-			'epicenter export <app> <directory> | epicenter export --all <directory>',
-		help: `Regenerates one owned directory from an app's committed code. With --all, the directory
-contains one child per app, including future committed apps; removed apps disappear.
-It reads the last commit and commits nothing: an app whose code/ has uncommitted
-changes is refused until you commit them.
-Keep Git, handwritten notes and other publication files outside this directory.
-Repeating the command replaces all generated contents, including local edits.
-Exports exclude records, local files, dependencies, builds, provenance, and private history.
-Unrelated nonempty destinations and Git metadata inside them are refused. All code is prepared before
-refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
-	},
 	check: {
 		usage: 'epicenter check [<app>] [--json]',
 		help: `Reads every data key of every app, or one app's, and reports each file that
@@ -51,9 +30,9 @@ routines/<name>.md declares cron: "0 8 * * *" and run: [executable,
 ...arguments], and once a minute serve starts each routine whose schedule had
 an occurrence since its last check. It records nothing about them, and
 epicenter on its own lists them. Serve commits nothing: Git stores the home,
-and a new home commits itself with routines/checkpoint.md. It has no sign-in
-and answers only this computer. To reach it from your other devices, run a private proxy
-such as: tailscale serve --bg 4747`,
+and its owner commits it. It has no sign-in and answers only this computer.
+To reach it from your other devices, run a private proxy such as:
+tailscale serve --bg 4747`,
 	},
 } as const;
 
@@ -72,14 +51,13 @@ export function nameProblem(name: unknown): string | undefined {
 }
 
 /**
- * The words after `command`, parsed strictly against its own `options`, with
- * from `min` to `max` positionals. Any misuse is `NotStarted` (`usage`): the
- * command's usage line, with its help as the next step.
+ * The words after `command`, from `min` to `max` of them and no flag. Any
+ * misuse is `NotStarted` (`usage`): the command's usage line, with its help
+ * as the next step.
  */
-export function parseWords<const O extends ParseArgsOptionsConfig>(
+export function parseWords(
 	command: Command,
 	words: string[],
-	options: O,
 	[min, max]: [number, number],
 ) {
 	const misused = ActionError.NotStarted({
@@ -88,14 +66,14 @@ export function parseWords<const O extends ParseArgsOptionsConfig>(
 		next: `epicenter ${command} --help`,
 	});
 	try {
-		const parsed = parseArgs({
+		const { positionals } = parseArgs({
 			args: words,
-			options,
+			options: {},
 			strict: true,
 			allowPositionals: true,
 		});
-		const count = parsed.positionals.length;
-		return count < min || count > max ? misused : Ok(parsed);
+		const count = positionals.length;
+		return count < min || count > max ? misused : Ok(positionals);
 	} catch {
 		return misused;
 	}

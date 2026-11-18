@@ -37,41 +37,29 @@ such as `tailscale serve`.
       google.md
 ```
 
-`epicenter new <app>` makes only a blank app. Taking an existing app is
-copying its `code/` folder into `apps/<app>/code/`, without records, Git
-history, or a remote
-([ADR-0955](../../../docs/adr/0955-new-makes-a-blank-app-and-taking-an-app-is-copying-its-folder.md)).
-From GitHub, run at the top of the home:
+No command makes an app or copies one
+([ADR-0955](../../../docs/adr/0955-no-command-makes-or-copies-an-app.md)).
+A new app is three files you write under `apps/<app>/code/`: `epicenter.ts`,
+a `package.json` holding `"name": "<app>"` and `"private": true`, and a
+`.gitignore` holding `node_modules/` and `ui/dist/`. `data/` is made by the
+first write. Then run `bun install && bun run build` at the top of the home.
+`<app>` is lowercase letters, digits, and dashes, starts with a letter, and
+is not `check` or `serve`; the bare `epicenter` reports an app that does not
+load, with what is wrong.
 
-```sh
-mkdir -p apps/writing/code
-curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
-```
-
-From a folder on this computer, or a clone from any other host:
-
-```sh
-mkdir -p apps/journal
-cp -R ~/Code/shared-apps/apps/notes/code apps/journal/code
-```
-
-When the name differs from the source's, set `"name"` in the copy's
-`package.json` to the new app name; `bun install` refuses two workspace
-packages with one name. Then run `bun install && bun run build`. Copy only
-`code/`, never someone's `data/`. Later source changes are work for the app's
-owner; there is no merge-based updater. A copied symlink stays a link, and one
-leading outside `code/` breaks unless the receiving home has that file. Keep
-everything an app uses, its palette too, as files in `code/`.
+An app can also start as a copy of another app's `code/` folder, made with
+ordinary file tools, without records, Git history, or a remote. Never copy
+someone's `data/`. Name the copy's package for the new app: `bun install`
+refuses two workspace packages with one name. A link that leads outside
+`code/` breaks in the copy, so keep everything an app uses, its palette too,
+as files in `code/`. Later source changes are work for the app's owner; there
+is no merge-based updater.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
-the smallest whole example. Keep private records out of code publication;
-publishing needs a separate code-only history. `epicenter export` writes code
-into a generated directory outside the private Epicenter; review, commit, and
-push the publication's outer repository with Git.
-
-The code travels through export; the records stay private. Someone taking the
-app copies committed code without its records or private history. A private
-origin can still back up the root, including all apps' records.
+the smallest whole example. Keep private records out of anything shared:
+only `code/` travels, and `data/`, `local/` and the root history stay
+private. A private origin can still back up the root, including all apps'
+records.
 
 Before shaping a data key, decide where its truth is (`docs/vision.md`,
 ADR-0896, ADR-0898), then copy the nearest example in `~/Epicenter/apps`:
@@ -200,7 +188,7 @@ second copy is refused when the app loads. A package nested inside an app,
 such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the home's
 `package.json`. `bun install` at the top of the home installs its packages;
-`epicenter new` prints it, and a call never installs.
+no command runs it, and a call never installs.
 Restart `serve` after packages change, by stopping and starting it: an edit
 to an app's own files shows on the next call, a changed package only after
 the restart. Upgrade Epicenter by editing both versions in the home's `package.json`, then
@@ -436,11 +424,11 @@ so it is safe to call again once its `cause` is fixed; `Threw` means it began
 and threw, with a tagged exception in `thrown`; `Unreachable` means the
 outcome is unknown; any other name is the action's own error, so it ran.
 Actions use the shared `ActionError` factories from `@epicenter/app`. The
-CLI's own commands answer the same way: `epicenter --json`, `check`, `new`
-and `export` with `--json` print `{ data, error }`, and every command
+CLI's own commands answer the same way: `epicenter --json` and `check`
+with `--json` print `{ data, error }`, and every command
 exits 0 for no error, 2 for `NotStarted` and 1 for any other error. A
-`check` that finds problems, or an `export --all` that leaves apps out,
-answers `Problems`, exit 1, with what it found under `error.report`.
+`check` that finds problems answers `Problems`, exit 1, with what it found
+under `error.report`.
 
 A page's call error is exactly the action's own errors and `NotStarted`,
 `Threw` and `Unreachable`, so a `switch` on `error.name` is exhaustive and a
@@ -600,18 +588,14 @@ Run tests one file or package at a time.
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
-- `epicenter new <app>` makes a blank app: apps/<app>/code/ and empty data/.
-  It prints the one command to run next: `cd <home> && bun install && bun run build`.
-- To take an existing app, copy its `code/` into apps/<app>/code/ as shown
-  above, set the package name to `<app>`, and run that same command.
+- Write the app's `code/` under apps/<app>/, or put a copy of an existing
+  app's `code/` there with its package named `<app>`, then run
+  `bun install && bun run build` at the top of the home.
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
   Compare incoming code outside the live Epicenter, and test compatibility with the existing
-  records before a named commit. A refreshed publication does not update
-  apps people have already copied. Bring contributions back into the maintained
-  app before refreshing an export, which would overwrite edits made in the
-  generated directory.
+  records before a named commit.
 - Back up the root to one optional private origin. Whatever commits the
   home pushes only there. Restore with one root clone
   and `bun install` at its top, then recreate what each app kept in `local/`.
@@ -619,8 +603,7 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:
   Git would commit a repository inside it as a bare pointer.
-  Use `epicenter export` for the generated code directory, then review, commit,
-  and push the outer repository with Git. Recipients can read its history and
+  Recipients can read its history and
   notes as well as its code: keep private record content out of those messages,
   notes, and source files. Never publish the private root history.
 - Run from inside the app's Epicenter. Another person's Epicenter is a
@@ -628,41 +611,3 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 
 A running serve loads edited code on the next call. It serves code/ui/dist/
 as the app's last `bun run build` left it.
-
-### Export code for sharing
-
-Keep the publication repository and its handwritten files outside the generated
-directory. For one app:
-
-```sh
-epicenter export tasks ~/Code/shared-tasks/code
-```
-
-```text
-shared-tasks/
-  .git/          publication history
-  README.md      publication notes
-  code/          generated and replaced by export
-    .epicenter-export.json
-    epicenter.ts
-```
-
-Export copies code from the last commit and commits nothing. When an app's
-`code/` has uncommitted changes it refuses: commit them with Git, then export.
-It excludes records, local files, dependencies, builds, provenance, and private
-history. It does not publish the exported code.
-
-The command owns and replaces the generated directory, including edits and
-extra files inside it. A destination must be new, empty, or carry the matching
-export marker; Git metadata inside it is refused. Review and commit the exported
-files in the outer publication repository before someone copies that version.
-Exporting files does not commit them to the publication repository.
-
-To publish several apps, `epicenter export --all ~/Code/shared-apps/apps`
-generates one child per committed app under `apps/`. A recipient can copy one
-published app by copying its folder, for example
-`curl -L https://github.com/OWNER/shared-apps/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 shared-apps-main/apps/tasks`
-after `mkdir -p apps/tasks/code`,
-replacing `OWNER` with the publication owner's username. See
-[the CLI's export contract](../../../packages/cli/README.md#export-app-code)
-for destination rules and symlinks.

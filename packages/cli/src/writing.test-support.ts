@@ -1,4 +1,4 @@
-/** Give writing tests a committed app repository, as a public source copy would be. */
+/** Give writing tests the Writing example's code, as a copy of its folder would be. */
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { fixture } from './runner.test-support.ts';
@@ -16,5 +16,5 @@ export async function writingSource(f: Awaited<ReturnType<typeof fixture>>) {
 			continue;
 		files[`writing/${path}`] = await readFile(join(code, path), 'utf8');
 	}
-	return f.folder(join(f.root, 'source'), files, { git: true });
+	return f.folder(join(f.root, 'source'), files);
 }

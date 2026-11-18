@@ -9,7 +9,6 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { checkCommand } from './check.ts';
 import { COMMANDS, type Command, parseWords } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { exportCommand } from './export.js';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
@@ -19,7 +18,6 @@ import {
 	homeListing,
 	oneAppListing,
 } from './listing.ts';
-import { newCommand } from './new.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { createRoutines } from './routines.ts';
@@ -53,8 +51,6 @@ const HANDLERS: {
 		json: boolean,
 	) => Promise<Answer | undefined>;
 } = {
-	new: newCommand,
-	export: exportCommand,
 	check: checkCommand,
 	async serve(words, json) {
 		if (json)
@@ -63,7 +59,7 @@ const HANDLERS: {
 				message: 'serve prints no answer; --json does not apply',
 				next: 'epicenter serve --help',
 			});
-		const { error } = parseWords('serve', words, {}, [0, 0]);
+		const { error } = parseWords('serve', words, [0, 0]);
 		if (error) return Err(error);
 		return serveHttp(epicenterRoot().port);
 	},

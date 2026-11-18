@@ -1,7 +1,6 @@
 /**
- * Copy an exported writing app into a home through real CLI and MCP calls. Captures retain sources,
+ * Copy the writing app into a home and use it through real CLI and MCP calls. Captures retain sources,
  * search reads bodies, and a stale edit cannot replace a note changed by another caller.
- * Also check that a missing Git identity leaves init retryable in a fresh home.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -13,8 +12,8 @@ import { writingSource } from './writing.test-support.ts';
 setDefaultTimeout(30_000);
 
 /**
- * Take the exported writing app as `name`, the way the README says: copy its
- * folder into apps/<name>/code and name its package for the app.
+ * Take the writing app as `name`: its folder copied into apps/<name>/code,
+ * and its package named for the app.
  */
 async function take(f: Awaited<ReturnType<typeof fixture>>, name: string) {
 	const code = join(f.apps, name, 'code');
@@ -29,7 +28,7 @@ async function take(f: Awaited<ReturnType<typeof fixture>>, name: string) {
 	);
 }
 
-test('an exported writing app copied as journal captures and finds text, sources, and projects', async () => {
+test('the writing app copied as journal captures and finds text, sources, and projects', async () => {
 	const f = await fixture();
 	try {
 		await take(f, 'journal');

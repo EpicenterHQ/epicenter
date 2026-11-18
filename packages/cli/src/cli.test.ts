@@ -172,11 +172,8 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 		[['--help'], 0],
 		[['check', '--help'], 0],
 		[['check'], 0],
-		[['new', 'garden'], 0],
 		[['nope'], 2],
 		[['check', 'nope'], 2],
-		[['new'], 2],
-		[['export', 'reading'], 2],
 		[['serve'], 2],
 	];
 	for (const [words, code] of answered) {
@@ -195,12 +192,6 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 				name: 'NotStarted',
 			});
 	}
-	// Text prints a command's own text as it is.
-	expect(await f.run('new', 'notes')).toEqual({
-		code: 0,
-		stdout: `${join(f.apps, 'notes')}\n`,
-		stderr: `Run: cd ${f.home} && bun install && bun run build\n`,
-	});
 });
 
 test('bare epicenter reports routines after the apps, and changes nothing', async () => {
@@ -274,9 +265,8 @@ Routines:
 test('a misused command answers its usage line, with its help as the next step', async () => {
 	const f = await setup();
 	const misused = [
-		['new'],
-		['new', 'garden', '--from', './x'],
 		['check', 'reading', 'vault'],
+		['check', '--from', './x'],
 	] as const;
 	for (const [command, ...words] of misused) {
 		const result = await f.run(command, ...words, '--json');
@@ -455,11 +445,11 @@ test('app and action views include locations, schemas, field help and version', 
 	expect((await f.run('--help')).stdout).not.toContain('epicenter install');
 });
 
-test('an empty Epicenter lists its next step and a missing marker suggests making one', async () => {
+test('an empty Epicenter says what an app is and a missing marker suggests making one', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	expect((await f.run()).stdout).toContain(
-		'No apps yet. Run: epicenter new <name>',
+		'No apps yet. An app is apps/<name>/code/epicenter.ts',
 	);
 	await rm(f.home, { recursive: true });
 	expect((await f.run('--json')).code).toBe(2);
