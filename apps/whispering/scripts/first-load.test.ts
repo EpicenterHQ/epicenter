@@ -9,11 +9,10 @@
  * before any `import()`.
  *
  * Key behaviors:
- * - No app's first load holds a Tauri plugin or the shell's API beyond
- *   `isTauri()`'s module, nor a package's desktop implementation
- * - The one desktop part a first load may carry is the account's: it reads
- *   who is signed in from a setting at once, and asks the shell only when
- *   the person acts
+ * - Whispering's first load holds no Tauri plugin and none of the shell's
+ *   API beyond `isTauri()`'s module, nor a package's desktop
+ *   implementation. Its own `files/tauri.ts` loads with the page and loads
+ *   the file system plugin when it first reads or writes.
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -24,17 +23,12 @@ const root = join(import.meta.dir, '..');
 /** A desktop module: the shell's API beyond `core`, a Tauri plugin, or a package's desktop implementation. */
 const DESKTOP = [
 	/\/node_modules\/@tauri-apps\/(?!api\/(core|external\/tslib\/tslib\.es6)\.js$)/,
-	/\/packages\/[^/]+\/(src|guest-js)\/(.+\/)?([\w-]+\.)?(tauri|relay|data-folder|desktop-folder|tauri-store|bindings\.gen)\.ts$/,
-	/\/packages\/folder\/src\/native\//,
+	/\/packages\/[^/]+\/(src|guest-js)\/(.+\/)?([\w-]+\.)?(tauri|bindings\.gen)\.ts$/,
 ];
-
-/** The account's desktop part, which reads a setting synchronously (`createTauriAuth`). */
-const SMALL_DESKTOP_PART = ['/packages/account/src/tauri.ts'];
 
 const desktopModules = (modules: readonly string[]) =>
 	modules
 		.filter((path) => DESKTOP.some((pattern) => pattern.test(path)))
-		.filter((path) => !SMALL_DESKTOP_PART.some((part) => path.endsWith(part)))
 		.map((path) => path.slice(path.indexOf(root) + root.length + 1));
 
 test("Whispering's first load holds no desktop module", async () => {

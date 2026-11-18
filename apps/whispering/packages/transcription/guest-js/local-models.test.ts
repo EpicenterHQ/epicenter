@@ -4,7 +4,7 @@
  * page or stopped request could otherwise choose a model later. Transfer
  * identity protects a newer request from late progress and cleanup.
  */
-import '../../svelte/src/svelte-modules.test-support.js';
+import './svelte-modules.test-support.js';
 import { expect, mock, test } from 'bun:test';
 import type {
 	CatalogError,

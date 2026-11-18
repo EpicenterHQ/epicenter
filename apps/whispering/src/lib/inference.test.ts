@@ -10,14 +10,12 @@
  *   transformation sends its instructions as the system message and the text,
  *   unchanged, as the user message, and reads the streamed answer whole
  * - A request goes only to the endpoint it was prepared for: one removed or
- *   moved since, even while the audio was read, is not sent anywhere; signing
- *   in moves nothing, so a run prepared signed out is sent once signed in
+ *   moved since, even while the audio was read, is not sent anywhere
  * - A refusal before sending says nothing was sent; an endpoint that never
  *   answered leaves the outcome unknown; neither carries the key
  */
 import { expect, test } from 'bun:test';
-import type { Account, AuthState } from '@epicenter/account';
-import { custom, hosted, type LiveAccount, openAi } from '@epicenter/ai';
+import { custom, openAi } from '@epicenter/ai';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
@@ -174,80 +172,19 @@ test('a connection moved while the audio was read is not sent to either', async 
 	expect(after.seen).toEqual([]);
 });
 
-/** A sign-in a test signs in, as the account's client does; everything it sends is answered `text`. */
-function liveAccount(text: string) {
-	const seen: string[] = [];
-	const listeners = new Set<() => void>();
-	let state: AuthState = { status: 'signed-out' };
-	const account: LiveAccount = {
-		baseURL: 'https://api.epicenter.test',
-		need() {},
-		state: () => state,
-		subscribe(listener) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
-		},
-	};
-	return {
-		account,
-		seen,
-		signIn() {
-			state = {
-				status: 'signed-in',
-				account: {
-					baseURL: 'https://api.epicenter.test',
-					signal: new AbortController().signal,
-					fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-						seen.push(new Request(input, init).url);
-						return Response.json({ text });
-					},
-				} as unknown as Account,
-			};
-			for (const listener of listeners) listener();
-		},
-	};
-}
-
-test('a run prepared while signed out, tried again once signed in, is sent where it was prepared for', async () => {
-	const live = liveAccount('signed in now');
-	const ai = openAi([hosted(live.account)]);
-	const target = targetOf(ai.endpoints()[0]!, 'whisper-1');
-	const before = expectErr(await transcribeAt(() => ai, target, audio));
-	expect(before.name).toBe('NotSent');
-
-	live.signIn();
-	expect(expectOk(await transcribeAt(() => ai, target, audio))).toEqual({
-		text: 'signed in now',
-	});
-	expect(live.seen).toEqual([
-		'https://api.epicenter.test/v1/audio/transcriptions',
-	]);
-});
-
 test('a refusal before sending says nothing was sent; no answer leaves the outcome unknown', async () => {
-	const signedOut = hosted(liveAccount('never').account);
+	const shellRefused = provider(() => {
+		throw { name: 'OriginRefused', message: 'Saved for another endpoint.' };
+	});
 	const notSent = expectErr(
 		await transcribeAt(
-			() => openAi([signedOut]),
-			targetOf(signedOut, 'whisper-1'),
+			() => openAi([shellRefused.endpoint]),
+			targetOf(shellRefused.endpoint, 'whisper-1'),
 			audio,
 		),
 	);
 	expect(notSent.name).toBe('NotSent');
 	expect(notSent.message).toContain('Nothing was sent');
-
-	const shellRefused = provider(() => {
-		throw { name: 'OriginRefused', message: 'Saved for another endpoint.' };
-	});
-	expect(
-		expectErr(
-			await transcribeAt(
-				() => openAi([shellRefused.endpoint]),
-				targetOf(shellRefused.endpoint, 'whisper-1'),
-				audio,
-			),
-		).name,
-	).toBe('NotSent');
 
 	const silent = provider(() => {
 		throw new TypeError(`connection reset (authorization ${KEY})`);

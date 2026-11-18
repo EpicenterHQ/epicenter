@@ -1,81 +1,104 @@
 /**
- * Whispering's capabilities, opened once for the page's life (ADR-0766),
- * each read through `reactive` here, once, under its own names. Every page,
- * component and module imports what it uses from here; product state
- * (Whispering and its library) is the app's own (`WhisperingApp`). Each
- * capability chooses where the page runs (ADR-0781); nothing here does.
+ * Whispering's capabilities, opened once for the page's life (ADR-0766).
+ * Every page, component and module imports what it uses from here; product
+ * state (Whispering and its library) is the app's own (`WhisperingApp`).
  *
- * - `folder` is the one store: the signed-in person's `whispering`
- *   repository in a browser, which keeps nothing of it (ADR-0786), and the
- *   data folder in a Tauri window; memory under the `test` condition.
- * - `account` is the sign-in with Epicenter. In a browser it holds the
- *   repository and adds hosted transcription and AI; in a Tauri window the
- *   data folder needs none, and signing in adds only those: Epicenter, not
- *   the app, syncs the folder (ADR-0822).
+ * - `folder` is Whispering's folder over one `Files` (ADR-0894): the data
+ *   folder on the desktop (`data/` in the app's local data directory unless
+ *   the person moved it, `folderPath`), and the Origin Private File System's
+ *   `data/` in a browser. It holds the notes, the audio and `settings.md`,
+ *   read by `load()` before the app renders and when the window regains
+ *   focus.
  * - `ai` is every model this page reaches (ADR-0757), in the order the
- *   model picker lists them: Epicenter's hosted models through the account
- *   signed in now, the person's connected endpoints, then what runs on this
- *   computer (Ollama and LM Studio, and in a Tauri window transcription in
- *   this app's process, `speech`). Every entry is live, so sign-in and a
- *   connection added reach it without a new one. Nothing sends a request
- *   until the person asks.
- * - `choices` is this computer's model for each job, `'transcribe'` and
- *   `'chat'`.
- * - `settings` is this computer's settings, which `<WhenOpen>` connects to
- *   beside the folder: the model choices, the connections, the microphone
- *   and the shortcut override are read at once from then.
- * - `speech` is transcription in this app's process, null in a browser:
- *   the handle `ai` merges and Settings administers.
- * - `recorder` records from the microphone into `folder.audio`, as it
- *   records: the shell's in a Tauri window, the page's own in a browser.
+ *   model picker lists them: the person's connections (`settings.md`, each
+ *   key a secret on this computer), Ollama and LM Studio on this computer,
+ *   then, on the desktop, transcription in this app's process (`speech`).
+ *   Nothing sends a request until the person asks.
+ * - `speech` is transcription in this app's process, null in a browser.
+ * - `recorder` records from the microphone into the folder's
+ *   `recordings/`: the shell's in a Tauri window, the page's own in a
+ *   browser.
  * - `shortcut` is the global shortcut, null in a browser.
- * - `connectionsRelayed` says whether the shell keeps each connection's key
- *   and sends its requests, which Settings tells the person.
  */
-import { connectAccount } from '@epicenter/account';
-import {
-	customEndpoints,
-	hosted,
-	localServers,
-	modelChoices,
-	openAi,
-} from '@epicenter/ai';
-import { APPS } from '@epicenter/definition/site';
-import { home, openFolder } from '@epicenter/folder';
-import { settings as computer } from '@epicenter/local';
-import { recorder as microphone } from '@epicenter/recorder';
-import { reactive } from '@epicenter/svelte/reactive';
+import { customEndpoints, localServers, openAi } from '@epicenter/ai';
+import { type AudioFiles, recorder as microphone } from '@epicenter/recorder';
 import { localSpeech } from '@epicenter/transcription';
-import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
-import { whispering } from './contract.js';
+import { isTauri } from '@tauri-apps/api/core';
+import { folderFiles, zipOf } from './export.js';
+import type { Files } from './files/files.js';
+import { opfsFiles } from './files/opfs.js';
+import { tauriFiles } from './files/tauri.js';
+import { openFolder } from './folder.svelte.js';
 import { createMicrophoneDevice } from './microphone.js';
+import { reactive } from './reactive.js';
 import { openShortcut } from './shortcut.js';
+import { folderPath, requestFetch, secrets } from './this-computer.js';
 
-const signIn = connectAccount({
-	clientId: APPS.WHISPERING.id,
-	api: APP_URLS.API,
-	selfHosted: SELF_HOST_ORIGIN,
-	// A timer must not navigate away in the middle of a recording.
-	automaticRenewal: false,
-});
-const files = openFolder(
-	whispering,
-	home({ site: APPS.WHISPERING.url, account: signIn }),
-);
-const connections = customEndpoints();
-const held = openShortcut(files);
+/** The default folder's name, in the app's local data directory on the desktop and in the Origin Private File System in a browser. */
+const DATA = 'data';
 
-export const account = reactive(signIn);
-export const folder = reactive(files);
+/** The desktop folder's absolute path once it is known, which the first read of the folder settles. */
+let desktopFolder: string | null = null;
+
+/** Where the desktop folder is: the one the person picked, else the default. */
+async function desktopFolderPath(): Promise<string> {
+	const picked = folderPath.get();
+	if (picked !== null) {
+		desktopFolder = picked;
+		return picked;
+	}
+	const { appLocalDataDir, join } = await import('@tauri-apps/api/path');
+	desktopFolder = await join(await appLocalDataDir(), DATA);
+	return desktopFolder;
+}
+
+const files: Files = isTauri()
+	? tauriFiles(desktopFolderPath)
+	: opfsFiles(DATA);
+
+/** The folder as the recorder writes audio into it, where the shell may write it itself. */
+const audioFiles: AudioFiles = {
+	get location() {
+		return desktopFolder;
+	},
+	read: (path) => files.read(path),
+	write: (path, bytes) => files.write(path, bytes),
+};
+
+export const folder = openFolder(files);
+
+/** Where the folder is: its absolute path on the desktop, null in a browser. */
+export const folderLocation = () => desktopFolder;
+
+/** The folder as one zip file, for a browser's export; why not, as text. */
+export async function exportFolder() {
+	const read = await folderFiles(files);
+	if (read.error !== null) return read.error.message;
+	return zipOf('whispering', read.data);
+}
+
 export const speech = localSpeech();
 export const ai = reactive(
-	openAi([hosted(signIn), connections, localServers(), speech]),
+	openAi([
+		customEndpoints({
+			store: folder.settings.connections,
+			keys: {
+				get: (id) => secrets.get(`connection.${id}`),
+				set: (id, key) => secrets.set(`connection.${id}`, key),
+			},
+			fetch: requestFetch,
+		}),
+		localServers({ fetch: requestFetch }),
+		speech,
+	]),
 );
-export const choices = reactive(modelChoices<'transcribe' | 'chat'>());
-export const settings = reactive(computer);
 export const recorder = createMicrophoneDevice({
-	files: folder.audio,
+	files: audioFiles,
 	recorder: microphone,
 });
+const held = openShortcut(folder.settings);
 export const shortcut = held && reactive(held);
-export const connectionsRelayed = connections.relayed;
+/** Start holding the global shortcut, once the folder was first read. */
+export const holdShortcut = () => held?.holdNow();
+/** Where a connection's key is kept, as Settings tells the person. */
+export const keysKept = secrets.where;

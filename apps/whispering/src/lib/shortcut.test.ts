@@ -1,28 +1,22 @@
 /**
  * The global shortcut in a Tauri window (`openShortcut` in `shortcut.ts`)
- * over the data folder and this computer's `shortcuts.md`, both in memory (a
- * `memory()` place from `@epicenter/folder/memory`, and this computer's
- * settings from `@epicenter/local` under the `test` condition), with a
- * stand-in for the shell's `set_shortcut`.
+ * over `settings.md` in memory, with a stand-in for the shell's
+ * `set_shortcut`.
  *
  * Key behaviors:
  * - A browser has none: `openShortcut` answers null and asks the shell
  *   nothing
- * - The key resolves per note: the default, then the data folder's
- *   `shortcuts.md`, then this computer's, key by key
- * - Once the folder and the settings connected, and whenever the key changes, the shell is
- *   asked to hold it, and what it refuses is the problem shown
- * - Saving writes the data folder's note and drops this computer's
- *   override, or, "only on this computer", writes this computer's note
- * - A key the shell refuses is never written, and the resolved one is held
- *   again
+ * - The key is `settings.md`'s, else the default
+ * - Once the settings were first read, and whenever the key changes, the
+ *   shell is asked to hold it, and what it refuses is the problem shown
+ * - Saving writes `settings.md`; a key the shell refuses is never written,
+ *   and the saved one is held again
  * - A label reads as a Mac menu, or as Windows and Linux spell it
  */
+import './svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
-import { openFolder } from '@epicenter/folder';
-import { memory } from '@epicenter/folder/memory';
-import { settings } from '@epicenter/local';
-import { whispering } from './contract.js';
+import { encode } from './files/files.js';
+import { memoryFiles } from './files/memory.js';
 
 /** Every key the page asked the shell to hold, in order. */
 const asked: string[] = [];
@@ -46,37 +40,29 @@ mock.module('@tauri-apps/api/event', () => ({
 }));
 
 const { acceleratorOf, labelOf, openShortcut } = await import('./shortcut.js');
+const { openSettings } = await import('./settings.svelte.js');
 
-/** This computer's `shortcuts.md`: memory, kept for the process. */
-const here = settings.file('shortcuts.md');
-
-const cleanups: (() => Promise<void>)[] = [];
-afterEach(async () => {
-	for (const cleanup of cleanups.splice(0)) await cleanup();
-	await here.write(null);
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+	for (const cleanup of cleanups.splice(0)) cleanup();
 	asked.length = 0;
 	taken.clear();
 });
 
-const note = (key: string) => `---\ntoggleRecording: "${key}"\n---\n`;
-
-/** The shortcut over a new data folder and this computer's note, `shortcuts.md` written in each where given. */
-async function open({ data, mine }: { data?: string; mine?: string } = {}) {
-	const folder = openFolder(whispering, memory());
-	if (data) await folder.shortcuts.set({}, { toggleRecording: data });
-	if (mine) await here.write(note(mine));
-	const shortcut = openShortcut(folder);
-	if (shortcut === null) throw new Error('a Tauri window has a shortcut');
-	// Its folder is followed for the page's life; a test's ends with the test.
-	cleanups.push(async () => {
-		shortcut[Symbol.dispose]();
-		folder[Symbol.dispose]();
-	});
-	return {
-		shortcut,
-		folder,
-		mine: async () => here.text(),
-	};
+/** The shortcut over `settings.md` in memory, holding its key once the settings were read. */
+async function open(shortcut?: string) {
+	const files = memoryFiles(
+		shortcut === undefined
+			? {}
+			: { 'settings.md': encode(`---\nshortcut: "${shortcut}"\n---\n`) },
+	);
+	const settings = openSettings(files);
+	const opened = openShortcut(settings);
+	if (opened === null) throw new Error('a Tauri window has a shortcut');
+	cleanups.push(() => opened[Symbol.dispose]());
+	await settings.load();
+	opened.holdNow();
+	return { shortcut: opened, settings, files };
 }
 
 async function until(check: () => boolean) {
@@ -84,68 +70,48 @@ async function until(check: () => boolean) {
 	expect(check()).toBe(true);
 }
 
-test('with no note in either place, the default is held once both are read', async () => {
+test('with no settings.md, the default is held once the settings were read', async () => {
 	const { shortcut } = await open();
 	await until(() => asked.length > 0);
 	expect(asked).toEqual(['CommandOrControl+Shift+;']);
 	expect(shortcut.accelerator()).toBe('CommandOrControl+Shift+;');
-	expect(shortcut.onThisComputer()).toBe(false);
 });
 
-test('the data folder’s key wins over the default, and this computer’s over both', async () => {
-	const { shortcut: synced } = await open({ data: 'Alt+Space' });
-	await until(() => asked.includes('Alt+Space'));
-	expect(synced.accelerator()).toBe('Alt+Space');
-	// This computer's note is one for the process: only one shortcut follows it at a time.
-	for (const cleanup of cleanups.splice(0)) await cleanup();
-	asked.length = 0;
-	const { shortcut: overridden } = await open({
-		data: 'Alt+Space',
-		mine: 'CommandOrControl+Shift+K',
-	});
+test('settings.md’s key is held instead of the default', async () => {
+	const { shortcut } = await open('Alt+Space');
 	await until(() => asked.length > 0);
-	expect(asked).toEqual(['CommandOrControl+Shift+K']);
-	expect(overridden.onThisComputer()).toBe(true);
+	expect(asked).toEqual(['Alt+Space']);
+	expect(shortcut.accelerator()).toBe('Alt+Space');
 });
 
 test('what the shell refuses is the problem shown', async () => {
 	taken.add('Alt+Space');
-	const { shortcut } = await open({ data: 'Alt+Space' });
+	const { shortcut } = await open('Alt+Space');
 	await until(() => shortcut.problem() !== null);
 	expect(shortcut.problem()).toBe('Alt+Space is unavailable: already held');
 });
 
-test('saving writes the data folder’s note and drops this computer’s override; only here writes this computer’s note', async () => {
-	const { shortcut, folder, mine } = await open({ mine: 'Alt+Space' });
-	await until(() => shortcut.read() && asked.length > 0);
+test('saving writes settings.md once the shell holds the key, and asks it once', async () => {
+	const { shortcut, settings } = await open();
+	await until(() => asked.length > 0);
 
-	expect(
-		await shortcut.save('Control+Shift+R', { onThisComputer: true }),
-	).toBeNull();
-	expect(await mine()).toBe(note('Control+Shift+R'));
-	expect(folder.shortcuts.get({})).toBeUndefined();
-
-	expect(await shortcut.save(' Alt+R ', { onThisComputer: false })).toBeNull();
-	expect(folder.shortcuts.get({})?.toggleRecording).toBe('Alt+R');
-	expect(await mine()).toBe('---\n---\n');
-	await until(() => shortcut.accelerator() === 'Alt+R');
-	expect(shortcut.onThisComputer()).toBe(false);
-	expect(asked.at(-1)).toBe('Alt+R');
+	expect(await shortcut.save(' Alt+R ')).toBeNull();
+	expect(settings.shortcut()).toBe('Alt+R');
+	expect(shortcut.accelerator()).toBe('Alt+R');
+	expect(asked).toEqual(['CommandOrControl+Shift+;', 'Alt+R']);
+	expect(shortcut.problem()).toBeNull();
 });
 
-test('a key the shell refuses is never written, and the resolved one is held again', async () => {
-	const { shortcut, folder, mine } = await open();
-	await until(() => shortcut.read() && asked.length > 0);
+test('a key the shell refuses is never written, and the saved one is held again', async () => {
+	const { shortcut, files } = await open();
+	await until(() => asked.length > 0);
 	taken.add('Alt+Space');
-	expect(await shortcut.save('Alt+Space', { onThisComputer: false })).toBe(
+	expect(await shortcut.save('Alt+Space')).toBe(
 		'Alt+Space is unavailable: already held',
 	);
-	expect(folder.shortcuts.get({})).toBeUndefined();
-	expect(await mine()).toBeNull();
+	expect((await files.read('settings.md')).data).toBeNull();
 	expect(asked.slice(-2)).toEqual(['Alt+Space', 'CommandOrControl+Shift+;']);
-	expect(await shortcut.save('  ', { onThisComputer: false })).toMatch(
-		/^Type a shortcut/,
-	);
+	expect(await shortcut.save('  ')).toMatch(/^Type a shortcut/);
 });
 
 test('a key press spells the accelerator the shell takes, by the key’s place, with the platform’s command key', () => {
@@ -201,12 +167,10 @@ test('a label reads as a Mac menu, or as Windows and Linux spell it', () => {
 
 test('a browser has no global shortcut, and asks the shell nothing', () => {
 	inTauri = false;
-	const folder = openFolder(whispering, memory());
 	try {
-		expect(openShortcut(folder)).toBeNull();
+		expect(openShortcut(openSettings(memoryFiles()))).toBeNull();
 		expect(asked).toEqual([]);
 	} finally {
 		inTauri = true;
-		folder[Symbol.dispose]();
 	}
 });

@@ -16,23 +16,20 @@
  * A file's id is its identity: renaming a recording changes its title, never
  * its path, so a result's `recordingId` never breaks.
  *
- * - `shortcuts.md` is the one settings note: `toggleRecording`, the desktop
- *   app's global shortcut in the global-shortcut plugin's spelling
- *   (`CommandOrControl+Shift+;`). It travels with the files, and a
- *   computer may override it in its own `shortcuts.md`
- *   (`platform/shortcut.tauri.svelte.ts`); the web app has no global
- *   shortcut and leaves it.
+ * - `settings.md` is the person's settings (ADR-0894): the model for each
+ *   job (`transcribe`, `chat`), each provider connection and its endpoint,
+ *   never its key, and the desktop app's global shortcut in the
+ *   global-shortcut plugin's spelling (`CommandOrControl+Shift+;`), which
+ *   a browser ignores. It moves and exports with the recordings.
  *
- * The models it uses, its connections (where requests go, and their keys)
- * and the chosen microphone belong to a device, so they stay out of its
- * files.
+ * A key and anything that names this computer's hardware (the microphone)
+ * stay out of the files: a key in the Keychain on the desktop and in
+ * `localStorage` in a browser, the rest in `localStorage`.
  *
- * The app's site names its repository `~/whispering` for a
- * folder Epicenter syncs, such as the desktop app's, built later; the web
- * build keeps its files in the browser and has none. It is published,
- * unchanged, as `static/contract.json` (`bun run contract` writes it).
+ * It is published, unchanged, as `static/contract.json` (`bun run contract`
+ * writes it).
  */
-import { defineContract } from '@epicenter/definition/contract';
+import { defineContract } from './format/contract/index.js';
 
 /** An instant in UTC, to the millisecond, as `Date.prototype.toISOString` writes it. */
 const instant = {
@@ -41,9 +38,19 @@ const instant = {
 	pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$',
 } as const;
 
+/** A model chosen for a job: the endpoint that offers it, and its id there. */
+const choice = {
+	type: 'object',
+	properties: {
+		endpoint: { type: 'string' },
+		model: { type: 'string' },
+	},
+	required: ['endpoint', 'model'],
+} as const;
+
 export const whispering = defineContract({
 	description:
-		'Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, the results of applying them, and the desktop shortcut.',
+		'Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, the results of applying them, and the person’s settings.',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -119,9 +126,29 @@ export const whispering = defineContract({
 				'input',
 			],
 		},
-		shortcuts: {
-			path: 'shortcuts.md',
-			fields: { toggleRecording: { type: 'string' } },
+		settings: {
+			path: 'settings.md',
+			fields: {
+				models: {
+					type: 'object',
+					properties: { transcribe: choice, chat: choice },
+				},
+				connections: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$' },
+							name: { type: 'string' },
+							baseUrl: { type: 'string' },
+							models: { type: 'array', items: { type: 'string' } },
+							key: { type: 'string' },
+						},
+						required: ['id', 'name', 'baseUrl', 'models'],
+					},
+				},
+				shortcut: { type: 'string' },
+			},
 		},
 	},
 });

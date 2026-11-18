@@ -9,8 +9,9 @@
 //! (ask them to connect one), a chosen input that is not connected (say so
 //! instead of recording from another), a recorder already in use by another
 //! window (say so instead of stealing it), a recording that is not the
-//! caller's to end (a benign no-op for an idempotent stop), a folder or path
-//! the window may not record into, and everything else, which the frontend
+//! caller's to end (a benign no-op for an idempotent stop), a folder or id
+//! the window may not record into, a take that was finished but not placed
+//! (it is kept, and `recover` places it later), and everything else, which the frontend
 //! labels by the command that failed and shows the message for. A
 //! finer taxonomy (io vs config vs internal) was deliberately not modeled: the
 //! frontend would discard the distinction, so it would be a decorative name on
@@ -54,11 +55,19 @@ pub enum RecorderError {
     #[error("{message}")]
     NotRecording { message: String },
 
-    /// The window may not record here: the shell bound no folder to it, the
-    /// path is not a data path the shared path rule accepts, or a file is
-    /// already at it. Nothing was opened or written.
+    /// The window may not record here: the folder is not one the app's file
+    /// system scope allows, the id is not one plain name, or its audio or
+    /// its take already exists. Nothing was opened or written.
     #[error("{message}")]
     Refused { message: String },
+
+    /// The take was finished but not placed in the folder: a file is
+    /// already at its audio path, a link is on the way, or the disk
+    /// refused. Nothing recorded is lost: the take stays in
+    /// `local/recording/`, `message` says where, and `recover` places it
+    /// once it can.
+    #[error("{message}")]
+    Unplaced { message: String },
 
     /// Any other recording failure (device config, stream build, filesystem,
     /// internal). The frontend does not branch on these.
@@ -128,6 +137,7 @@ mod tests {
             RecorderError::Busy { .. } => "Busy",
             RecorderError::NotRecording { .. } => "NotRecording",
             RecorderError::Refused { .. } => "Refused",
+            RecorderError::Unplaced { .. } => "Unplaced",
             RecorderError::Failed { .. } => "Failed",
         }
     }
@@ -231,5 +241,12 @@ mod tests {
         let json = serde_json::to_value(RecorderError::not_recording("not yours")).unwrap();
         assert_eq!(json["name"], "NotRecording");
         assert_eq!(json["message"], "not yours");
+
+        let json = serde_json::to_value(RecorderError::Unplaced {
+            message: "kept".to_string(),
+        })
+        .unwrap();
+        assert_eq!(json["name"], "Unplaced");
+        assert_eq!(json["message"], "kept");
     }
 }

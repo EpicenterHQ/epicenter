@@ -7,8 +7,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test --path-ignore-patterns='**/*.postgres.test.ts' src && bun test ./scripts",
-		"test:postgres": "bun test --isolate ./src/lib/web-sign-in.postgres.test.ts",
+		"test": "bun test --isolate --conditions=browser --conditions=svelte src && bun test ./scripts",
 		"build": "NODE_ENV=production vite build",
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"build:desktop": "tauri build --bundles app",
@@ -29,6 +28,7 @@
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
+		"jsdom": "26.1.0",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
@@ -39,12 +39,17 @@
 		"vite-plugin-devtools-json": "^1.0.0"
 	},
 	"dependencies": {
-		"@epicenter/account": "workspace:*",
 		"@epicenter/ai": "workspace:*",
+		"@epicenter/app": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/transcription": "workspace:*",
 		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-dialog": "catalog:",
+		"@tauri-apps/plugin-http": "catalog:",
+		"@tauri-apps/plugin-opener": "catalog:",
+		"nanoid": "catalog:",
 		"runed": "catalog:",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	}
 }

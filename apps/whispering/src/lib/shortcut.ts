@@ -7,67 +7,37 @@
  * holds the key while Whispering runs and sends each press; the page
  * decides what a press does (`onPress`).
  *
- * The key is `toggleRecording` in `shortcuts.md`, resolved with a shallow
- * merge, each layer over the last: the default, then the data folder's note
- * (the contract's `shortcuts`, which travels with the files), then this
- * computer's (`shortcuts.md` in this computer's settings,
- * `@epicenter/local`: AppData, whose only writer is the shell). Rust never
- * reads the note (decision 89): once the folder and the settings connected,
- * and whenever the resolved key changes, the page asks the shell to hold it
- * (`set_shortcut`).
+ * The key is `shortcut` in `settings.md` (ADR-0894), which travels with
+ * the folder; two computers sharing a folder share one shortcut. Rust never
+ * reads the note: once it is read, and whenever the key changes, the page
+ * asks the shell to hold it (`set_shortcut`).
  *
- * `openShortcut` makes a capability, once, beside the folder in
- * `src/lib/app.ts` and read through `reactive`: reads answer at once, and
- * `subscribe` hears them change.
+ * `openShortcut` makes a capability, once, in `src/lib/app.ts`, read
+ * through `reactive`: reads answer at once, and `subscribe` hears them
+ * change.
  */
-import {
-	type NoteOf,
-	noteText,
-	readNoteText,
-} from '@epicenter/definition/contract';
-import type { Folder } from '@epicenter/folder/core';
-import { settings } from '@epicenter/local';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { type Whispering, whispering } from './contract.js';
+import type { Settings } from './settings.svelte.js';
 
 /**
- * The global shortcut: the key `shortcuts.md` resolves to and the shell's
- * hold on it. Reads answer at once; `subscribe` hears them change.
+ * The global shortcut: the key `settings.md` names and the shell's hold on
+ * it. Reads answer at once; `subscribe` hears them change.
  */
 export type GlobalShortcut = {
-	/** True once both `shortcuts.md` notes were read (or found absent). */
-	read(): boolean;
-	/** The resolved key, in the global-shortcut plugin's spelling. */
+	/** The key, in the global-shortcut plugin's spelling. */
 	accelerator(): string;
-	/** The resolved key as a person reads it. */
+	/** The key as a person reads it. */
 	label(): string;
-	/** Whether this computer's `shortcuts.md` sets the key, overriding the data folder's. */
-	onThisComputer(): boolean;
-	/** Why the shell does not hold the resolved key, or why this computer's note does not read. */
+	/** Why the shell does not hold the key, or null. */
 	problem(): string | null;
 	subscribe(listener: () => void): () => void;
 	/** Hear each press of the shortcut, from any app; returns the unsubscribe. */
 	onPress(listener: () => void): () => void;
-	/** Make `typed` the shortcut, in the data folder's note or this computer's; why it was not saved, or null. */
-	save(
-		typed: string,
-		options: { onThisComputer: boolean },
-	): Promise<string | null>;
+	/** Make `typed` the shortcut; why it was not saved, or null. */
+	save(typed: string): Promise<string | null>;
 	[Symbol.dispose](): void;
 };
-
-type Shortcuts = Whispering['collections']['shortcuts'];
-const SHORTCUTS = whispering.collections.shortcuts;
-
-/** `shortcuts.md` when neither note holds a key. */
-const SHORTCUT_DEFAULTS = { toggleRecording: 'CommandOrControl+Shift+;' };
-
-/** The keys a `shortcuts.md` note sets; none for no note. */
-const keysOf = (note: { toggleRecording?: string } | null | undefined) =>
-	note?.toggleRecording === undefined
-		? {}
-		: { toggleRecording: note.toggleRecording };
 
 const isMac = navigator.userAgent.includes('Mac');
 
@@ -160,176 +130,86 @@ function hold(accelerator: string): Promise<string | null> {
 	);
 }
 
-/** This computer's `shortcuts.md` as last read: the key it sets, if any, and its body. */
-type Here = { readonly toggleRecording?: string; readonly body: string };
-
 /**
- * The global shortcut over `folder`, the data folder, and this computer's
- * `shortcuts.md`, followed from now on for the page's life, or null outside
- * a Tauri window. Once both notes are read, and whenever the resolved key
- * changes, the shell is asked to hold it.
+ * The global shortcut over `settings`, followed from now on for the page's
+ * life, or null outside a Tauri window. Whenever the key changes, the shell
+ * is asked to hold it; `holdNow` asks once the settings were first read.
  */
 export function openShortcut(
-	folder: Pick<Folder<Whispering>, 'shortcuts' | 'state'>,
-): GlobalShortcut | null {
+	settings: Pick<Settings, 'shortcut' | 'setShortcut' | 'subscribe'>,
+): (GlobalShortcut & { holdNow(): void }) | null {
 	if (!isTauri()) return null;
-	const file = settings.file('shortcuts.md');
-	const notes = folder.shortcuts;
-	/** Whether this computer's settings connected, so its note reads at once. */
-	let connected = false;
-	/** The last text of this computer's note, and what it read as. */
-	let parsed: {
-		text: string | null;
-		here: Here | null;
-		problem: string | null;
-	} | null = null;
 	/** The last key the shell was asked to hold, and its answer once it came. */
 	let asked: string | undefined;
 	let held: { accelerator: string; problem: string | null } | undefined;
+	let started = false;
 	const listeners = new Set<() => void>();
 
-	/** This computer's note: its keys and body (null when there is none), or why it does not read. */
-	function readHere() {
-		const text = file.text();
-		if (parsed !== null && parsed.text === text) return parsed;
-		if (text === null) parsed = { text, here: null, problem: null };
-		else {
-			const note = readNoteText(SHORTCUTS, text);
-			parsed =
-				note.error === null
-					? {
-							text,
-							here: { ...keysOf(note.data.fields), body: note.data.body },
-							problem: null,
-						}
-					: {
-							text,
-							here: null,
-							problem: `This computer's shortcuts.md does not read: ${note.error.message}`,
-						};
-		}
-		return parsed;
-	}
-
-	const read = () => connected && folder.state().status === 'open';
-	const here = () => (connected ? readHere().here : null);
-	const accelerator = () =>
-		({
-			...SHORTCUT_DEFAULTS,
-			...(read() ? keysOf(notes.get({})) : {}),
-			...keysOf(here()),
-		}).toggleRecording;
-
-	/** Ask the shell to hold the resolved key when it changed. */
-	function holdResolved() {
-		if (!read()) return;
-		const key = accelerator();
+	/** Ask the shell to hold the key when it changed. */
+	function holdKey() {
+		if (!started) return;
+		const key = settings.shortcut();
 		if (key === asked) return;
 		asked = key;
 		void hold(key).then((problem) => {
 			if (asked !== key) return;
 			held = { accelerator: key, problem };
-			changed();
+			tell();
 		});
 	}
 
-	function changed() {
-		holdResolved();
+	function tell() {
 		for (const listener of [...listeners]) listener();
 	}
 
-	/**
-	 * Set `toggleRecording` in this computer's note to `key`, or drop it for
-	 * undefined, keeping the note's body. A note that does not read is
-	 * replaced.
-	 */
-	async function writeHere(key: string | undefined) {
-		try {
-			await file.connected();
-		} catch (cause) {
-			return extractErrorMessage(cause);
-		}
-		const text = noteText(SHORTCUTS, {
-			toggleRecording: key,
-			body: readHere().here?.body ?? '',
-		} as NoteOf<Shortcuts>);
-		if (text.error !== null) return text.error.message;
-		try {
-			await file.write(text.data);
-		} catch (cause) {
-			return extractErrorMessage(cause);
-		}
-		changed();
-		return null;
-	}
-
 	// Followed for the page's life, as the shell holds the key for it.
-	const stops = [notes.subscribe(changed), file.subscribe(changed)];
-	void file.connected().then(
-		() => {
-			connected = true;
-			changed();
-		},
-		() => {},
-	);
+	const stop = settings.subscribe(() => {
+		holdKey();
+		tell();
+	});
 
 	return {
-		/** True once both `shortcuts.md` notes were read (or found absent). */
-		read,
-		/** The resolved key, in the global-shortcut plugin's spelling. */
-		accelerator,
-		/** The resolved key as a person reads it. */
-		label: () => labelOf(accelerator()),
-		/** Whether this computer's `shortcuts.md` sets the key, overriding the data folder's. */
-		onThisComputer: () => here()?.toggleRecording !== undefined,
-		/**
-		 * Why the shell does not hold the resolved key, or why this computer's
-		 * note does not read; null while neither is so (or the shell has not
-		 * answered).
-		 */
+		/** Start holding the key, once `settings.md` was first read. */
+		holdNow() {
+			started = true;
+			holdKey();
+		},
+		accelerator: () => settings.shortcut(),
+		label: () => labelOf(settings.shortcut()),
 		problem: () =>
-			(held?.accelerator === accelerator() ? held.problem : null) ??
-			(connected ? readHere().problem : null),
-		/** Call `listener` when a read may answer differently; returns the unsubscribe. */
+			held?.accelerator === settings.shortcut() ? held.problem : null,
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			return () => void listeners.delete(listener);
 		},
 		onPress,
 		/**
-		 * Make `typed` the shortcut: in the data folder's `shortcuts.md`
-		 * (synced with the files, so this computer's override is removed), or,
-		 * `onThisComputer`, in this computer's. The shell must hold it first,
-		 * so a key that does not parse or that another app holds is never
-		 * written. The data folder's note is written with `set`, which never
-		 * fails (ADR-0775); this computer's can be refused. Answers why it was
-		 * not saved, or null.
+		 * Make `typed` the shortcut in `settings.md`. The shell must hold it
+		 * first, so a key that does not parse or that another app holds is
+		 * never written. Answers why it was not saved, or null.
 		 */
-		async save(
-			typed: string,
-			{ onThisComputer }: { onThisComputer: boolean },
-		): Promise<string | null> {
+		async save(typed: string): Promise<string | null> {
 			const key = typed.trim();
 			if (key === '')
 				return 'Type a shortcut, such as CommandOrControl+Shift+;.';
 			const refused = await hold(key);
 			if (refused !== null) {
-				void hold(accelerator());
+				void hold(settings.shortcut());
 				return refused;
 			}
-			if (onThisComputer) {
-				const unsaved = await writeHere(key);
-				if (unsaved !== null) void hold(accelerator());
-				return unsaved;
+			// Held now, so the change `settings.md` reports asks the shell nothing more.
+			asked = key;
+			held = { accelerator: key, problem: null };
+			const saved = await settings.setShortcut(key);
+			if (saved.error !== null) {
+				asked = undefined;
+				holdKey();
+				return saved.error.message;
 			}
-			await notes.set({}, { toggleRecording: key });
-			if (here()?.toggleRecording !== undefined) return writeHere(undefined);
 			return null;
 		},
-		/** Stop following both notes; the shell keeps the key it holds. */
-		[Symbol.dispose]() {
-			for (const stop of stops.splice(0)) stop();
-		},
+		/** Stop following `settings.md`; the shell keeps the key it holds. */
+		[Symbol.dispose]: stop,
 	};
 }
 

@@ -1,8 +1,8 @@
 <!--
 	Every page of Whispering: the chrome. The app is the `(app)` group at `/`,
-	whose layout opens the store (`folder` from `src/lib/app.ts`: the person's
-	repository in a browser, the data folder in a Tauri window) and guards leaving while it saves
-	(`<WhenOpen>`); the sign-in callback is outside it and reads no files.
+	whose layout reads the folder (`folder` from `src/lib/app.ts`: the data
+	folder in a Tauri window, this site's storage in a browser) before it
+	renders.
 -->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';

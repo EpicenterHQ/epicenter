@@ -14,6 +14,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import RunStatus from './RunStatus.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
+	import SaveProblem from './SaveProblem.svelte';
 
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
@@ -64,6 +65,7 @@
 		aria-label="Transcript of {formatTime(transcript.fields.createdAt) || id}"
 		data-testid="transcript-text"
 	/>
+	<SaveProblem editor={transcript} />
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(transcript.fields.createdAt) || 'Unknown time'} · {transcript.fields.model}</span>
 		<span class="ml-auto flex items-center gap-1">

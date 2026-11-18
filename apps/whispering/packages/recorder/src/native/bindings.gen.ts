@@ -19,41 +19,38 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording `<path>.webm` in Data (`opened_root`), from the
-	 *  microphone whose id is `device` or the system default; answers the id to
-	 *  stop it by. An ending nobody asked for arrives on `signals`.
+	 *  Start recording the take `id` for the folder `dir` (`allowed_folder`),
+	 *  from the microphone whose id is `device` or the system default. An
+	 *  ending nobody asked for arrives on `signals`.
 	 *
-	 *  The path must be a data path the shared path rule accepts, with nothing at
-	 *  `<path>.webm` yet. While it records, it is a WebM beside that path under
-	 *  a new reserved name (`staging::pending`), written a second at a time;
-	 *  `stop` finishes it and places it at its path. Missing directories on the
-	 *  way are made.
-	 *  Microphone access is asked for before the device is resolved. A refusal
-	 *  opens nothing.
+	 *  `id` must be one plain name, with no audio at `recordings/<id>.webm` in
+	 *  the folder and no take of it yet. The take is recorded into
+	 *  `<appLocalDataDir>/local/recording/<id>.webm`, written a second at a
+	 *  time; `stop` finishes it and places it in the folder. Microphone access
+	 *  is asked for before the device is resolved. A refusal opens nothing.
 	 */
-	start: (path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<string, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { path, device, signals })),
+	start: (dir: string, id: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { dir, id, device, signals })),
 	/**
-	 *  Stop the recording `id` this window started, finish its file, and place it
-	 *  at its path, never over a file there; answers where it is and how long it
-	 *  plays. Finishing writes the last second, the Cues, and the length, so it
-	 *  takes the same few milliseconds for a recording of any length. A file
-	 *  that cannot be placed stays beside its path under its reserved name, and
-	 *  the refusal says why.
+	 *  Stop the recording this window started, finish its take, and place it at
+	 *  `recordings/<id>.webm` in its folder, never over a file there; answers
+	 *  its id and how long it plays. Finishing writes the last second, the
+	 *  Cues, and the length, so it takes the same few milliseconds for a
+	 *  recording of any length. A take that cannot be placed stays in
+	 *  `local/recording/`, and the refusal is `Unplaced`.
 	 */
-	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
+	stop: () => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop")),
 	/**
-	 *  Finish and place every recording under `under` in Data (`opened_root`)
-	 *  that a quit or a crash left beside its path (or, from an older build, in
-	 *  the folder's `.epicenter/recordings`), and answer each one placed
-	 *  (`recovered`), by folder-relative path with how long it plays
+	 *  Finish every take a quit or a crash left in `local/recording/` and place
+	 *  it at `recordings/<id>.webm` in the folder `dir` (`allowed_folder`).
+	 *  Answers each one placed (`recovered`), by id with how long it plays
 	 *  (`durationMs`, so a page never reads the audio back to measure it), and
-	 *  each one left pending because another file is at its path (`unplaced`),
-	 *  with where its audio is. A page runs it before it
-	 *  lists, plays, or transcribes a recording, and says what is unplaced. The
-	 *  recording still being written is left alone. Running it again places
-	 *  nothing more.
+	 *  each one left (`unplaced`), by id with the take's absolute path: another
+	 *  file is at its audio path, or it could not be finished or placed. A page
+	 *  runs it when it opens its folder, and says what is unplaced. The take a
+	 *  live recording is writing is left alone. Running it again places nothing
+	 *  more.
 	 */
-	recover: (under: string) => typedError<Recovery, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { under })),
+	recover: (dir: string) => typedError<Recovery, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { dir })),
 };
 
 /* Types */
@@ -149,11 +146,19 @@ export type RecorderError =
  */
 { name: "NotRecording"; message: string } |
 /**
- *  The window may not record here: the shell bound no folder to it, the
- *  path is not a data path the shared path rule accepts, or a file is
- *  already at it. Nothing was opened or written.
+ *  The window may not record here: the folder is not one the app's file
+ *  system scope allows, the id is not one plain name, or its audio or
+ *  its take already exists. Nothing was opened or written.
  */
 { name: "Refused"; message: string } |
+/**
+ *  The take was finished but not placed in the folder: a file is
+ *  already at its audio path, a link is on the way, or the disk
+ *  refused. Nothing recorded is lost: the take stays in
+ *  `local/recording/`, `message` says where, and `recover` places it
+ *  once it can.
+ */
+{ name: "Unplaced"; message: string } |
 /**
  *  Any other recording failure (device config, stream build, filesystem,
  *  internal). The frontend does not branch on these.
@@ -177,46 +182,41 @@ export type RecordingSignal =
 /**  The host ended the capture on its own, and why. */
 { kind: "ended"; reason: EndedReason };
 
-/**  A recording `recover` placed: where its audio is, and how long it plays. */
+/**  A take `recover` placed: its recording's id, and how long it plays. */
 export type RecoveredRecording = {
-	/**  Its folder-relative path: the path its page named plus `.webm`. */
-	path: string,
+	id: string,
 	/**  How long it plays, to the nearest millisecond, as its file states. */
 	durationMs: number,
 };
 
-/**  What `recover` did with the recordings a quit or a crash left pending. */
+/**  What `recover` did with the takes a quit or a crash left. */
 export type Recovery = {
-	/**  Each recording finished and placed at its path, by path. */
+	/**  Each take finished and placed at `recordings/<id>.webm`, by id. */
 	recovered: RecoveredRecording[],
 	/**
-	 *  Each recording finished but left pending, because another file is at
-	 *  its path, by path. Its audio stays where it is until a person moves
-	 *  one of the two.
+	 *  Each take left in `local/recording/`, by id: another file is at its
+	 *  audio path, or it could not be finished or placed. It stays until it
+	 *  is placed or a person moves it.
 	 */
-	unplaced: UnplacedRecording[],
+	unplaced: UnplacedTake[],
 };
 
 /**
- *  What `stop` answers once the recording is finished and at its path, and
- *  the microphone released: where it is and how long it plays.
+ *  What `stop` answers once the take is finished and placed at
+ *  `recordings/<id>.webm`, and the microphone released: the recording's id
+ *  and how long it plays.
  */
 export type StoppedRecording = {
-	/**  Its folder-relative path: the path the page named plus `.webm`. */
-	path: string,
+	/**  The id the page started it with. */
+	id: string,
 	durationMs: number,
 };
 
-/**  A recording `recover` did not place, because another file is at its path. */
-export type UnplacedRecording = {
-	/**  The folder-relative path it was not placed at: another file is there. */
-	path: string,
-	/**
-	 *  Where its audio is, finished: its folder-relative path, beside
-	 *  `path` under a reserved name (`.ep-<random>-<base>.recording`), or
-	 *  in `.epicenter/recordings` where an older build left it.
-	 */
-	pending: string,
+/**  A take `recover` did not place. */
+export type UnplacedTake = {
+	id: string,
+	/**  The take's absolute path, in `local/recording/`. */
+	take: string,
 };
 
 /* Tauri Specta runtime */

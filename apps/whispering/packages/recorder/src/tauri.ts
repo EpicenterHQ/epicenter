@@ -3,16 +3,17 @@
  * (ADR-0543, decision 84).
  *
  * The shell's recorder encodes the microphone to Opus from the first sample
- * and writes it, a second at a time, into a WebM in the data folder's
- * own `.epicenter/recordings`, a hidden path no watcher reports and sync
- * never sends. The shell always records into the open Data root.
- * `stop` finishes it in place and places it at `<path>.webm`, never over a
- * file there, so the recording appears at its path whole, and answers where
- * it is. When the page reloads or its window closes, the shell finishes and
- * places the recording itself: the audio is kept. A process that ends
- * before then leaves the file in `.epicenter/recordings` with every whole
- * second but the last; `recorder.recover` finishes it from those and
- * places it at its path.
+ * and writes it, a second at a time, into the take
+ * `local/recording/<id>.webm` in the app's local data directory, outside
+ * the folder, so no listing, file syncer, or Git checkpoint sees a growing
+ * file (ADR-0894). It refuses a folder the app's grant does not hold, and an
+ * id whose audio or take is already there. `stop` finishes the take and
+ * places it at `recordings/<id>.webm` by one rename, never over a file
+ * there; a take it cannot place answers `Unplaced` and is kept. When the
+ * page reloads or its window closes, the shell finishes and places the
+ * recording itself: the audio is kept. A process that ends before then
+ * leaves the take with every whole second but the last; `recorder.recover`
+ * finishes it from those and places it.
  *
  * An ending nobody asked for, and a meter's levels, arrive on a channel
  * this page alone hears.
@@ -30,7 +31,7 @@ import {
 	type RecorderError as NativeRecorderError,
 	type RecordingSignal,
 } from './native/bindings.gen.js';
-import { type Recorder, RecorderError } from './recording.js';
+import { type AudioFiles, type Recorder, RecorderError } from './recording.js';
 import { createSignals } from './signals.js';
 
 export * from './recording.js';
@@ -50,6 +51,8 @@ function fromNative(error: NativeRecorderError, label = '') {
 			return RecorderError.NotRecording({ reason: error.message });
 		case 'Refused':
 			return RecorderError.Refused({ reason: error.message });
+		case 'Unplaced':
+			return RecorderError.Unplaced({ reason: error.message });
 		case 'Failed':
 			return RecorderError.Failed({ cause: error.message });
 		default:
@@ -70,14 +73,24 @@ function nativeSignals() {
 	return { ...signals, channel };
 }
 
-/** Record into the `folder` from the first sample, landing at `<path>.webm` when it stops. */
-const start: Recorder['start'] = async ({ path, input, signal }) => {
+/** The folder's path, which the shell records into, or why there is none. */
+function locationOf(files: AudioFiles) {
+	if (files.location === null)
+		return RecorderError.Refused({ reason: 'the folder has no path here' });
+	return Ok(files.location);
+}
+
+/** Record into a take from the first sample, placed at `recordings/<id>.webm` when it stops. */
+const start: Recorder['start'] = async ({ files, id, input, signal }) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
+	const folder = locationOf(files);
+	if (folder.error !== null) return folder;
 	const signals = nativeSignals();
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
 		answer = await commands.start(
-			path,
+			folder.data,
+			id,
 			input?.deviceId ?? null,
 			signals.channel,
 		);
@@ -85,12 +98,11 @@ const start: Recorder['start'] = async ({ path, input, signal }) => {
 		return RecorderError.Failed({ cause });
 	}
 	if (answer.error !== null) return fromNative(answer.error, input?.label);
-	const id = answer.data;
 	// Withdrawn while the shell was opening the microphone: it is released,
-	// and what the shell already wrote is finalized and kept, never deleted.
+	// and what the shell already wrote is finished and kept, never deleted.
 	if (signal?.aborted) {
 		signals.retire();
-		await commands.stop(id).catch(() => {});
+		await commands.stop().catch(() => {});
 		return RecorderError.Cancelled();
 	}
 	return Ok({
@@ -98,7 +110,7 @@ const start: Recorder['start'] = async ({ path, input, signal }) => {
 		async stop() {
 			signals.retire();
 			try {
-				const { data, error } = await commands.stop(id);
+				const { data, error } = await commands.stop();
 				if (error !== null) return fromNative(error);
 				return Ok(data);
 			} catch (cause) {
@@ -109,28 +121,18 @@ const start: Recorder['start'] = async ({ path, input, signal }) => {
 };
 
 /**
- * Finish every recording a quit or a crash left in the folder's
- * `.epicenter/recordings` under `under` from its whole seconds, and place
- * it at its path. Answers each one placed, with how long it plays, then
- * each of `unnamed`: the shell places a recording at its path only whole,
- * so audio there is finished, its length unread. Also answers each one left
- * outside its path because another file is there. Run it before anything
- * lists, plays, or transcribes a recording.
+ * Finish every take a quit or a crash cut short, from its whole seconds,
+ * and place it in the folder. Answers each one placed, with how long it
+ * plays, and each one kept because audio with its id is already there. Run
+ * it before anything lists, plays, or transcribes a recording.
  */
-const recover: Recorder['recover'] = async ({ under, unnamed }) => {
+const recover: Recorder['recover'] = async ({ files }) => {
+	const folder = locationOf(files);
+	if (folder.error !== null) return folder;
 	try {
-		const { data, error } = await commands.recover(under);
+		const { data, error } = await commands.recover(folder.data);
 		if (error !== null) return fromNative(error);
-		const placed = new Set(data.recovered.map(({ path }) => path));
-		return Ok({
-			recovered: [
-				...data.recovered,
-				...unnamed
-					.filter((path) => !placed.has(path))
-					.map((path) => ({ path, durationMs: null })),
-			],
-			unplaced: data.unplaced,
-		});
+		return Ok(data);
 	} catch (cause) {
 		return RecorderError.Failed({ cause });
 	}
@@ -181,7 +183,7 @@ const openMeter: Recorder['openMeter'] = async ({ input, signal } = {}) => {
 	});
 };
 
-/** The shell's microphones, recording into the data folder the page opened. */
+/** The shell's microphones, recording into the folder the page names. */
 export const recorder = {
 	start,
 	recover,

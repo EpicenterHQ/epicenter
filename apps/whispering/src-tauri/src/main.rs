@@ -1,67 +1,154 @@
-//! Whispering's desktop app (`epicenter-standalone`, decisions 88 to 97): one
-//! window whose page opens Whispering's two roots by name: its AppData root
-//! and its data folder, `~/Epicenter/whispering`, which its bundle identifier
-//! names (`home()` from `@epicenter/folder`). It records into
-//! that folder from the first sample (`tauri-plugin-epicenter-recorder`),
-//! transcribes on this computer
-//! (`tauri-plugin-epicenter-transcription`), through the signed-in Epicenter
-//! account (`epicenter-account`, whose token the page never holds), or at an
-//! endpoint the person connected, whose key the shell adds
-//! (`connection_fetch`), and starts and stops a recording from a
-//! global shortcut, the one the page resolves from `shortcuts.md` and asks
-//! for (`set_shortcut`). Only Epicenter syncs the folder (ADR-0822); the app
-//! never does.
+//! Whispering's desktop app (ADR-0894): one window over Whispering's folder,
+//! `data/` in the app's local data directory unless the person picked
+//! another in the folder dialog. The page reads and writes the folder
+//! through Whispering's own file commands (`files.rs`), which check each
+//! folder against `tauri-plugin-fs`'s scope: the default folder (allowed
+//! here at start) and the one the dialog granted
+//! (`tauri-plugin-persisted-scope` restores it at each start). The page
+//! holds none of the file system plugin's commands, and Rust keeps no
+//! folder setting. A save is staged in `local/.tmp/` and a take is recorded
+//! in `local/recording/`, both in the app's local data directory, and each
+//! reaches the folder by one rename (`whispering-files`), so the folder only
+//! ever receives finished files. It records from the first sample
+//! (`tauri-plugin-epicenter-recorder`),
+//! transcribes on this computer (`tauri-plugin-epicenter-transcription`),
+//! sends a provider's requests from the page through `tauri-plugin-http`
+//! with a key it reads from the Keychain (`secrets.rs`), and starts and stops
+//! a recording from a global shortcut (`shortcut.rs`). A second launch
+//! focuses the open window (`tauri-plugin-single-instance`), so the app is
+//! the folder's one writer.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod files;
+mod secrets;
 mod shortcut;
 
-use epicenter_account::{AccountApp, Relays};
-use epicenter_standalone::StandaloneApp;
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_fs::FsExt;
 
 include!("command_names.rs");
 
-/// Wide: the recordings and the open one side by side.
-const WHISPERING: StandaloneApp = StandaloneApp {
-    page: "whispering",
-    title: "Whispering",
-    size: (1100.0, 760.0),
-};
+/// The window's label, which the capability selects (`whispering:*`).
+const WINDOW: &str = "whispering:main";
 
-/// Signs in only for Epicenter's hosted transcription and AI, and its page
-/// sends nothing else on the account (ADR-0822).
-const ACCOUNT: AccountApp = AccountApp {
-    client_id: "so.epicenter.whispering.native",
-    name: "Whispering",
-    scope: AccountApp::HOSTED_MODELS,
-    audiences: AccountApp::API,
-    relays: Relays::Inference,
-};
+/// The default folder, inside the app's local data directory.
+const DEFAULT_FOLDER: &str = "data";
+
+/// This computer's own files, inside the app's local data directory: never
+/// in the folder, and never moved with it.
+const LOCAL: &str = "local";
 
 fn main() {
     let context = tauri::generate_context!();
-    let builder = epicenter_standalone::builder(WHISPERING)
+    let app = tauri::Builder::default()
+        // First, so a second launch stops before anything else starts.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| focus(app)))
+        .plugin(tauri_plugin_fs::init())
+        // After the file system plugin, whose scope it restores.
+        .plugin(tauri_plugin_persisted_scope::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_epicenter_recorder::init())
         .plugin(tauri_plugin_epicenter_transcription::init())
-        .plugin(shortcut::listener());
-    let app = epicenter_account::manage(builder, ACCOUNT)
+        .plugin(shortcut::listener())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            if let Err(error) = start(&handle) {
+                quit_with(&handle, &error);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            epicenter_account::account::account_sign_in,
-            epicenter_account::account::account_sign_out,
-            epicenter_account::account::account_fetch,
-            epicenter_account::account::account_fetch_cancel,
-            epicenter_account::connection::connection_key_set,
-            epicenter_account::connection::connection_key_move,
-            epicenter_account::connection::connection_fetch,
-            epicenter_account::connection::connection_fetch_cancel,
+            secrets::secret_get,
+            secrets::secret_set,
             shortcut::set_shortcut,
+            files::files_read,
+            files::files_read_many,
+            files::files_write,
+            files::files_list,
+            files::files_remove,
+            files::files_change_folder,
+            files::folder_git,
         ])
         .build(context)
         .expect("Whispering could not start");
     // Exits without C++ static finalizers on macOS, which can race a
     // resident model (the transcription plugin's README).
     tauri_plugin_epicenter_transcription::run(app, |_, _| {});
+}
+
+/// Make the default folder and `local/`, clear `local/.tmp/`, allow the
+/// default folder, then open the window.
+///
+/// The scope is the grant every file command checks. A capability's file
+/// system grant would count only inside the file system plugin's own
+/// commands, so the default folder is allowed here; one the person picked
+/// is restored by the persisted-scope plugin.
+fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let paths = app.path();
+    let local_data = paths.app_local_data_dir().map_err(|error| {
+        format!("The system did not say where Whispering keeps its files: {error}")
+    })?;
+    let folder = local_data.join(DEFAULT_FOLDER);
+    let local = files::Local(local_data.join(LOCAL));
+    for directory in [folder.clone(), local.0.join("recording"), local.tmp()] {
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| format!("{} could not be made: {error}", directory.display()))?;
+    }
+    // Saves a quit cut short; each is safe to delete, and none is a take.
+    if let Err(error) = whispering_files::clear(&local.tmp()) {
+        log_warning(&format!(
+            "{} was not cleared: {error}",
+            local.tmp().display()
+        ));
+    }
+    app.manage(local);
+    app.fs_scope()
+        .allow_directory(&folder, true)
+        .map_err(|error| format!("{} could not be opened: {error}", folder.display()))?;
+    let webview_data = paths
+        .app_cache_dir()
+        .map_err(|error| {
+            format!("The system did not say where Whispering keeps its cache: {error}")
+        })?
+        .join("webview");
+    WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
+        .title("Whispering")
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(400.0, 400.0)
+        .data_directory(webview_data)
+        .build()
+        .map_err(|error| format!("The window could not open: {error}"))?;
+    Ok(())
+}
+
+/// Say what went wrong without stopping: the shell has no logger of its own.
+fn log_warning(message: &str) {
+    eprintln!("Whispering: {message}");
+}
+
+/// Bring the open window forward, for a second launch.
+fn focus<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window(WINDOW) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Say why Whispering could not start, with only Quit.
+fn quit_with<R: Runtime>(app: &AppHandle<R>, error: &str) {
+    let exit = app.clone();
+    app.dialog()
+        .message(error)
+        .title("Whispering could not start")
+        .kind(MessageDialogKind::Error)
+        .buttons(MessageDialogButtons::OkCustom("Quit".into()))
+        .show(move |_| exit.exit(1));
 }
 
 #[cfg(test)]
@@ -74,52 +161,42 @@ mod tests {
         serde_json::from_str(text).unwrap()
     }
 
-    /// Whispering is its own native client, `so.epicenter.<app>.native`
-    /// (decision 84), the id `apps/api/worker/oauth-registrations.ts`
-    /// registers. It signs in only for hosted models, on the API audience,
-    /// and its page sends only hosted inference on the account (ADR-0822).
+    /// The build script declares the Keychain commands, `set_shortcut`, and
+    /// the file commands, and nothing else.
     #[test]
-    fn whispering_signs_in_as_its_own_native_client_for_hosted_models_only() {
-        assert_eq!(ACCOUNT.client_id, "so.epicenter.whispering.native");
-        assert_eq!(ACCOUNT.name, "Whispering");
-        assert_eq!(ACCOUNT.scope, "openid offline_access profile email ai");
-        assert_eq!(ACCOUNT.audiences, [epicenter_account::Audience::Api]);
-        assert_eq!(ACCOUNT.relays, Relays::Inference);
+    fn the_declared_commands_are_the_secrets_the_shortcut_and_the_files() {
+        assert_eq!(
+            COMMANDS,
+            [
+                "secret_get",
+                "secret_set",
+                "set_shortcut",
+                "files_read",
+                "files_read_many",
+                "files_write",
+                "files_list",
+                "files_remove",
+                "files_change_folder",
+                "folder_git",
+            ]
+        );
     }
 
-    /// The build script declares every account and connection command and
-    /// `set_shortcut`, and nothing else: requests leave through the
-    /// connections' one shell fetch.
+    /// The bundle is `so.epicenter.whispering`, and it loads the one build
+    /// the web serves (ADR-0781). The development configuration's
+    /// identifier is the production one with `.dev`, so it has its own local
+    /// data directory and folder. Neither configures the file system plugin:
+    /// every path the file commands check is a plain name, which the scope's
+    /// default (a leading dot only matched literally) allows.
     #[test]
-    fn the_declared_commands_are_the_accounts_connections_and_set_shortcut() {
-        let mut expected = [
-            epicenter_account::COMMANDS,
-            epicenter_account::CONNECTION_COMMANDS,
-        ]
-        .concat();
-        expected.push("set_shortcut");
-        assert_eq!(COMMANDS, expected.as_slice());
-    }
-
-    /// The bundle is `so.epicenter.whispering`, which names its folder,
-    /// `~/Epicenter/whispering`, and it loads the one build the web serves
-    /// (ADR-0781). The development configuration states its environment, so its
-    /// folder is `~/Epicenter Dev/whispering`, and its identifier is the
-    /// production one with `.dev`, so it has its own AppData.
-    #[test]
-    fn whispering_is_its_own_app_with_a_folder_named_for_it() {
+    fn whispering_is_its_own_app() {
         let config = read(include_str!("../tauri.conf.json"));
         assert_eq!(config["identifier"], "so.epicenter.whispering");
-        assert_eq!(config["productName"], WHISPERING.title);
+        assert_eq!(config["productName"], "Whispering");
         assert_eq!(config["build"]["frontendDist"], "../build");
+        assert!(config.get("plugins").is_none());
         let dev = read(include_str!("../tauri.dev.conf.json"));
         assert_eq!(dev["identifier"], "so.epicenter.whispering.dev");
-        // The environment is stated, never read from the identifier.
-        assert_eq!(
-            dev["plugins"]["epicenter-standalone"]["environment"],
-            "development"
-        );
-        assert!(config["plugins"]["epicenter-standalone"].is_null());
         assert_eq!(dev["productName"], "Whispering Dev");
         for configuration in [&config, &dev] {
             assert_eq!(
@@ -129,37 +206,58 @@ mod tests {
         }
     }
 
-    /// The window reaches its roots and the record Epicenter keeps for its
-    /// folder through the folder plugin, by name, records, transcribes
-    /// uploaded audio and administers local models, hears the global
-    /// shortcut, and calls exactly the commands the build script declares.
-    /// No capability names a folder.
+    /// The window reads and writes files only through Whispering's own
+    /// commands, which check the scope (no capability names a folder, and
+    /// none grants a file system plugin command), picks a folder, sends
+    /// requests to any http or https address, records, transcribes and
+    /// administers local models, hears the global shortcut, and calls
+    /// exactly the commands the build script declares.
     #[test]
     fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
         let capability = read(include_str!("../capabilities/whispering.json"));
         assert_eq!(capability["windows"], json!(["whispering:*"]));
         assert_eq!(capability["local"], true);
-        let mut expected: Vec<String> = [
-            "epicenter-folder:default",
+        let mut expected: Vec<Value> = [
+            "core:path:default",
             "core:event:allow-listen",
             "core:event:allow-unlisten",
-            "epicenter-recorder:default",
-            "epicenter-transcription:allow-list-inference-models",
-            "epicenter-transcription:allow-transcribe-audio",
-            "epicenter-transcription:allow-list-models",
-            "epicenter-transcription:allow-download-model",
-            "epicenter-transcription:allow-reveal-model",
-            "epicenter-transcription:allow-remove-model",
-            "epicenter-transcription:allow-get-unload-policy",
-            "epicenter-transcription:allow-set-unload-policy",
+            "dialog:allow-open",
+            "opener:allow-reveal-item-in-dir",
         ]
-        .map(String::from)
+        .map(|permission| json!(permission))
         .to_vec();
+        expected.push(json!({
+            "identifier": "http:default",
+            "allow": [{ "url": "https://*" }, { "url": "http://*" }]
+        }));
+        expected.extend(
+            [
+                "epicenter-recorder:default",
+                "epicenter-transcription:allow-list-inference-models",
+                "epicenter-transcription:allow-transcribe-audio",
+                "epicenter-transcription:allow-list-models",
+                "epicenter-transcription:allow-download-model",
+                "epicenter-transcription:allow-reveal-model",
+                "epicenter-transcription:allow-remove-model",
+                "epicenter-transcription:allow-get-unload-policy",
+                "epicenter-transcription:allow-set-unload-policy",
+            ]
+            .map(|permission| json!(permission)),
+        );
         expected.extend(
             COMMANDS
                 .iter()
-                .map(|command| format!("allow-{}", command.replace('_', "-"))),
+                .map(|command| json!(format!("allow-{}", command.replace('_', "-")))),
         );
         assert_eq!(capability["permissions"], json!(expected));
+        let text = include_str!("../capabilities/whispering.json");
+        assert!(
+            !text.contains("$APP") && !text.contains("$HOME"),
+            "no folder is named"
+        );
+        assert!(
+            !text.contains("\"fs:"),
+            "no file system plugin command is granted"
+        );
     }
 }

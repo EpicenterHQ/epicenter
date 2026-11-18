@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-epicenter-recorder"
 version = "0.0.1"
-description = "The desktop shell's microphone recorder, which writes a recording into its folder from the moment it starts"
+description = "Whispering's microphone recorder, which writes a take from the moment it starts and places it in its folder at Stop"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -14,9 +14,10 @@ links = "tauri-plugin-epicenter-recorder"
 tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
-# The folder a recording is written into: the window's bound root and the shared path rule.
-epicenter-folder-core = { path = "../../../../packages/tauri-plugin-epicenter-folder/core" }
-tauri-plugin-epicenter-folder = { path = "../../../../packages/tauri-plugin-epicenter-folder" }
+# The folder a take is placed in must be in the app's file system scope.
+tauri-plugin-fs = "2.4"
+# The path rule and the one place step the shell's file commands share.
+whispering-files = { path = "../whispering-files" }
 cpal = "0.18.1"
 # Encodes a recording to Opus as it records (`opus.rs`); the same libopus the
 # transcription plugin decodes with, built from source (`.cargo/config.toml`).

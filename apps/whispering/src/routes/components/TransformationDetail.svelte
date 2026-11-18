@@ -27,6 +27,7 @@
 	import { confirmDelete, formatTime, titleOf } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import NoteRepair from './NoteRepair.svelte';
+	import SaveProblem from './SaveProblem.svelte';
 	import RunStatus from './RunStatus.svelte';
 	import SettingsForm from './SettingsForm.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
@@ -210,6 +211,7 @@
 	{:else if !recipe.exists()}
 		<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status">This transformation is no longer listed.</p>
 	{:else}
+	<div class="px-3 pt-3 sm:px-4 empty:hidden"><SaveProblem editor={recipe} /></div>
 	<Tabs.Root bind:value={() => tab, selectTab} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 		<Tabs.List>
 			<Tabs.Trigger bind:ref={tabTriggers.instructions} value="instructions" data-testid="tab-instructions">Instructions</Tabs.Trigger>

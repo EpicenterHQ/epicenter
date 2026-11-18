@@ -367,10 +367,10 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "List the microphones and read one's level, record into the Data root opened through the folder plugin, stop that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`",
+          "description": "List the microphones and read one's level, record a take and place it in a folder the file system scope allows, stop that recording, and place takes a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "List the microphones and read one's level, record into the Data root opened through the folder plugin, stop that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`"
+          "markdownDescription": "List the microphones and read one's level, record a take and place it in a folder the file system scope allows, stop that recording, and place takes a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`"
         }
       ]
     }

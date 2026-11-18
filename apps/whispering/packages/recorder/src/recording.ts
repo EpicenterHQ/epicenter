@@ -9,15 +9,18 @@
  * two need not promise the same things (ADR-0780):
  *
  * - On the desktop the shell's recorder encodes the microphone to Opus from
- *   the first sample and writes it, a second at a time, into a WebM in the
- *   data folder's `.epicenter/recordings`; Stop finishes it in place and
- *   places it at `<path>.webm`. The shell outlives the page, so a quit or a
- *   crash keeps the take: `Recorder.recover`, the desktop's alone, finishes
- *   one a cut left from its whole seconds and places it the same way.
+ *   the first sample and writes it, a second at a time, into the take
+ *   `local/recording/<id>.webm` in the app's local data directory, outside
+ *   the folder; Stop finishes it and places it at `recordings/<id>.webm`
+ *   in the folder by one rename (ADR-0894). The shell outlives the page, so
+ *   a quit or a crash keeps the take: `Recorder.recover`, the desktop's
+ *   alone, finishes one a cut left from its whole seconds and places it the
+ *   same way.
  * - In a browser the page keeps each piece `MediaRecorder` hands over in
- *   memory, and Stop writes the take once with the folder's `set` at
- *   `<path>.m4a` (or `.webm`) (ADR-0779). A crash or a closed tab loses the
- *   take; the leave guard asks before a page closes while one runs.
+ *   memory, and Stop writes the take once with `files.write` at
+ *   `recordings/<id>.m4a` (or `.webm`) (ADR-0779). A crash or a closed tab
+ *   loses the take; the leave guard asks before a page closes while one
+ *   runs.
  *
  * Nothing here says whether a recording is running. That is the live handle
  * a start returns; it ends with the page.
@@ -25,8 +28,11 @@
  * Shared code names these types, errors, and `audioDurationMs`; each
  * implementation (`tauri.ts`, `browser.ts`) re-exports them.
  */
-import type { FolderFiles } from '@epicenter/folder/core';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import {
+	defineErrors,
+	extractErrorMessage,
+	type InferErrors,
+} from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 
 export { audioDurationMs } from './container.js';
@@ -52,35 +58,43 @@ export type RecordingStart = {
 };
 
 /**
- * A file collection of the app's folder whose files are named by
- * `{ id, ext }`, such as Whispering's `folder.audio` at
- * `recordings/{id}.{ext}`, or `reactive`'s copy of it.
+ * The app's folder, as a recording is placed into it: Whispering's
+ * `Files`, and on the desktop where the folder is, which the shell places
+ * a take into itself. Paths are folder-relative (`recordings/k3x9.webm`).
  */
-export type AudioFiles = Pick<
-	FolderFiles<{ path: '{id}.{ext}' }>,
-	'get' | 'set'
->;
+export type AudioFiles = {
+	/** The folder's absolute path on this computer; null where it has none (a browser's). */
+	readonly location: string | null;
+	/** The file's bytes, or null when nothing is there. */
+	read(path: string): Promise<Result<Uint8Array | null, { message: string }>>;
+	/** Write the file whole. */
+	write(
+		path: string,
+		bytes: Uint8Array,
+	): Promise<Result<undefined, { message: string }>>;
+};
 
 /**
- * The files a recording is written into, so the audio stays where the rest
- * of the app's files are. On the desktop the shell writes into the data
- * folder itself; in a browser Stop writes the take once (`files.set`).
+ * The folder a recording is placed into, so the audio stays where the rest
+ * of the app's files are. On the desktop the shell places the take itself;
+ * in a browser Stop writes it once (`files.write`).
  */
 export type RecordingFiles = {
 	readonly files: AudioFiles;
 };
 
-/** Where a recording is written. */
+/** The directory a recording's audio is placed in, folder-relative. */
+export const RECORDINGS = 'recordings';
+
+/** Which recording to make. */
 export type StartRecordingOptions = RecordingStart &
 	RecordingFiles & {
 		/**
-		 * Store-relative, without an extension, such as
-		 * `recordings/2026-10-15-0930`: its last segment is the recording's
-		 * `id` in `files`, whose path is that directory's `{id}.{ext}`. The
-		 * extension is the format's (`webm` on the desktop; `m4a` or `webm` in
-		 * a browser). Nothing may be there.
+		 * The recording's id: its audio is placed at `recordings/<id>.<ext>`,
+		 * where the extension is the format's (`webm` on the desktop; `m4a` or
+		 * `webm` in a browser). Refused when audio with this id is there.
 		 */
-		readonly path: string;
+		readonly id: string;
 	};
 
 /** Why the host ended a capture nobody asked to end. What was captured is still the recording's. */
@@ -90,10 +104,9 @@ export type RecordingEndedReason =
 	| 'streamFailed'
 	| 'storageFailed';
 
-/** A stopped recording: its audio, at its path when `stop` answers. */
+/** A stopped recording: its audio, at `recordings/<id>.<ext>` when `stop` answers. */
 export type StoppedRecording = {
-	/** The store-relative path of the audio file, extension included. */
-	readonly path: string;
+	readonly id: string;
 	/**
 	 * How long the take plays: on the desktop its samples over their rate, in
 	 * a browser the recorder's own clock, the time it spent recording with
@@ -104,10 +117,9 @@ export type StoppedRecording = {
 
 /**
  * One recording in progress, owned by the page that started it: in a
- * browser kept in memory until `stop` writes it at `<path>.<ext>`, on the
- * desktop written into the folder's `.epicenter/recordings` until `stop`
- * places it at `<path>.webm`. Where its audio is, extension included, is
- * what `stop` answers.
+ * browser kept in memory until `stop` writes it at `recordings/<id>.<ext>`,
+ * on the desktop written into its take outside the folder until `stop`
+ * places it at `recordings/<id>.webm`.
  */
 export type Recording = {
 	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop. */
@@ -120,47 +132,30 @@ export type Recording = {
 	stop(): Promise<Result<StoppedRecording, RecorderError>>;
 };
 
-/** A recording `Recorder.recover` repaired. */
+/** A take `Recorder.recover` finished and placed. */
 export type RecoveredRecording = {
-	/** The store-relative path of its audio file. */
-	readonly path: string;
-	/**
-	 * How long it plays, as `stop` would have answered: on the desktop as
-	 * its finished file states. Null when its audio does not read as the
-	 * format it is named for.
-	 */
-	readonly durationMs: number | null;
+	readonly id: string;
+	/** How long it plays, as its finished file states. */
+	readonly durationMs: number;
 };
 
 /**
- * A recording `Recorder.recover` finished but did not place, because
- * another file is at its path. Its audio is kept, finished, at `pending`
- * until a person moves one of the two; nothing deletes it.
+ * A take `Recorder.recover` finished but did not place, because audio with
+ * its id is already in the folder. It is kept, finished, at `take` until a
+ * person moves one of the two; nothing deletes it.
  */
 export type UnplacedRecording = {
-	/** The store-relative path it was not placed at: another file is there. */
-	readonly path: string;
-	/** Where its audio is, store-relative, under `.epicenter/recordings`. */
-	readonly pending: string;
+	readonly id: string;
+	/** Where the take is, as an absolute path outside the folder. */
+	readonly take: string;
 };
 
 /** What `Recorder.recover` did. */
 export type Recovery = {
-	/** Each recording repaired, or whole, at its path. */
+	/** Each take finished and placed in the folder. */
 	readonly recovered: readonly RecoveredRecording[];
-	/** Each recording left outside its path, because another file is there. */
+	/** Each take kept outside the folder, because its audio's place is taken. */
 	readonly unplaced: readonly UnplacedRecording[];
-};
-
-export type RecoverRecordingsOptions = RecordingFiles & {
-	/** The store-relative directory recordings are kept in, such as `recordings`. */
-	readonly under: string;
-	/**
-	 * The audio files under `under` that the app keeps no record of yet, by
-	 * store-relative path (`recordings/a.webm`): audio a page left before
-	 * writing its note.
-	 */
-	readonly unnamed: readonly string[];
 };
 
 /** A microphone open for its level only: nothing is recorded or written. */
@@ -193,25 +188,20 @@ export type InputListing = {
  * functions need no `this`, so each can be passed on its own.
  */
 export type Recorder = {
-	/** Record from `input`, or the system default, into `files` at `path`. */
+	/** Record from `input`, or the system default, as recording `id` in `files`. */
 	readonly start: (
 		options: StartRecordingOptions,
 	) => Promise<Result<Recording, RecorderError>>;
 	/**
-	 * The desktop's alone (ADR-0780): finish the recordings under a
-	 * directory that a quit or a crash cut off, and answer in `recovered`
-	 * each recording the app should now record: every one it finished and
-	 * placed, and every one of `unnamed` whose audio is whole at its path,
-	 * with how long it plays when it read that (null when it did not). The
-	 * shell records outside the path and places a recording there only
-	 * whole, so it always looks for cut-off ones. It also answers
-	 * `unplaced`, every time it runs, each recording it left outside its
-	 * path because another file is there, which an app says to the person.
-	 * A browser keeps a take in memory until Stop, so it has nothing to
-	 * recover.
+	 * The desktop's alone (ADR-0780): finish every take a quit or a crash
+	 * cut short, from its whole seconds, and place it in the folder
+	 * (`recovered`). It also answers, every time it runs, each take it kept
+	 * because its audio's place is taken (`unplaced`), which an app says to
+	 * the person. A browser keeps a take in memory until Stop, so it has
+	 * nothing to recover.
 	 */
 	readonly recover?: (
-		options: RecoverRecordingsOptions,
+		options: RecordingFiles,
 	) => Promise<Result<Recovery, RecorderError>>;
 	/** The inputs connected now. Opens nothing, and never asks for access. */
 	readonly listInputs: () => Promise<Result<InputListing, RecorderError>>;
@@ -270,9 +260,14 @@ export const RecorderError = defineErrors({
 		message: `There is no such recording to end: ${reason}`,
 		reason,
 	}),
-	/** The store or the path may not be recorded into, or a file is already there. */
+	/** The folder may not be recorded into, or audio with the recording's id is already there. */
 	Refused: ({ reason }: { reason: string }) => ({
 		message: `The recording could not be saved there: ${reason}`,
+		reason,
+	}),
+	/** The take was finished but not placed in the folder; it is kept, and placed when the folder opens again. */
+	Unplaced: ({ reason }: { reason: string }) => ({
+		message: `The recording was kept but not placed in the folder: ${reason}`,
 		reason,
 	}),
 	/**
@@ -287,7 +282,7 @@ export const RecorderError = defineErrors({
 		message: 'The recording contained no audio.',
 	}),
 	Failed: ({ cause }: { cause: unknown }) => ({
-		message: `The recording failed: ${cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : String(cause)}`,
+		message: `The recording failed: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
 });

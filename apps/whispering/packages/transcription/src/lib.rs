@@ -2,10 +2,10 @@
 //!
 //! `transcribe_audio` takes the audio the page uploads, decoded where it
 //! arrives; the page's `localSpeech()` answers every transcription that way.
-//! Model settings belong to the installing app and live at the top of its
-//! AppData root, `app_data_dir()/local-transcription.json`, where every
-//! capability keeps its state on this computer (ADR-0766); model files stay
-//! in the shared Hugging Face cache.
+//! Model settings belong to the installing app and live in its local data
+//! directory's `local/`, `app_local_data_dir()/local/local-transcription.json`,
+//! where the app keeps what belongs to this computer alone (ADR-0894); model
+//! files stay in the shared Hugging Face cache.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -21,8 +21,12 @@ pub use command_names::COMMANDS;
 pub use download::DownloadProgress;
 pub use transcription::*;
 
-/// The settings file's name at the top of the app's AppData root.
+/// The settings file's name, in `local/` in the app's local data directory.
 pub const SETTINGS_FILE: &str = "local-transcription.json";
+
+/// The directory in the app's local data directory that holds the settings
+/// file: this computer's own, never in Whispering's folder.
+pub const SETTINGS_DIR: &str = "local";
 
 type OpenSettings<R> = Box<dyn Fn(&AppHandle<R>) -> Result<(), String> + Send + Sync>;
 
@@ -108,14 +112,18 @@ impl<R: Runtime> Builder<R> {
         self
     }
 
-    /// Setup fails when the app's AppData directory cannot be resolved.
+    /// Setup fails when the app's local data directory cannot be resolved.
     pub fn build(self) -> TauriPlugin<R> {
         let contract = specta_builder::<R>();
         tauri::plugin::Builder::new("epicenter-transcription")
             .invoke_handler(contract.invoke_handler())
             .setup(move |app, _| {
                 app.manage(PluginState {
-                    settings_path: app.path().app_data_dir()?.join(SETTINGS_FILE),
+                    settings_path: app
+                        .path()
+                        .app_local_data_dir()?
+                        .join(SETTINGS_DIR)
+                        .join(SETTINGS_FILE),
                     cache: Mutex::new(None),
                     open_settings: self.open_settings,
                 });

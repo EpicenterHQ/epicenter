@@ -7,10 +7,10 @@
  * answer as its body. So a result note always holds an answer.
  *
  * What lives only in this window is what is happening: a request under way,
- * why one failed (Run again sends the same request), and an answer whose
- * note is being written. A write never fails: while the store is out of
- * reach the folder keeps it until it lands (ADR-0775), so nothing here
- * holds an answer to save again. A reload loses a request under way.
+ * why one failed (Run again sends the same request), an answer whose note
+ * is being written, and an answer whose note could not be written, kept
+ * here until the person saves it again or dismisses it. A reload loses all
+ * of them.
  * Waiting for an endpoint never delays closing; an answer that arrives
  * after closing keeps nothing.
  *
@@ -19,10 +19,11 @@
  * fixed when it starts (its target: the endpoint and model chosen then), and
  * Run again sends to that target or, when it was removed or moved, nothing.
  */
-import { timeId } from '@epicenter/definition/ids';
+
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { WhisperingFiles } from './files.svelte.js';
+import type { WhisperingFolder } from './folder.svelte.js';
+import { timeId } from './format/ids.js';
 import type { Audio, Target } from './inference.js';
 import type { Chosen, RecipeRow, ResolvedRecipe } from './recipe.js';
 
@@ -42,7 +43,13 @@ export type RunState =
 	/** Nothing was received. Run again sends the same request. */
 	| { readonly kind: 'failed'; readonly message: string }
 	/** The answer arrived and its note is being written; the run ends when it lands. */
-	| { readonly kind: 'saving' };
+	| { readonly kind: 'saving' }
+	/** The answer arrived and its note could not be written. Save again writes it; nothing is sent. */
+	| {
+			readonly kind: 'unsaved';
+			readonly text: string;
+			readonly message: string;
+	  };
 
 /** The fields a result note is created with, besides its id and body. */
 type TranscriptionFields = {
@@ -101,7 +108,7 @@ export function createRuns({
 	resolve,
 	deleting,
 }: {
-	files: WhisperingFiles;
+	files: WhisperingFolder;
 	/** Send a recording's audio to `target`. Nothing is written by this. */
 	transcribe: (
 		target: Target,
@@ -130,21 +137,29 @@ export function createRuns({
 
 	/**
 	 * Write `run`'s note with `text` as its body, under the id fixed when the
-	 * run started, and end the run once it lands. It never fails (ADR-0775).
+	 * run started, and end the run once it lands. When it cannot be written,
+	 * the answer stays here, unsaved, for the person to save again.
 	 */
 	async function keep(run: Run, text: string) {
 		runs.set(run.key, { ...run, state: { kind: 'saving' } });
 		if (refused() !== undefined) return;
-		const notes = files[run.collection] as {
+		const notes = files[run.collection] as unknown as {
 			set(
 				args: { id: string },
 				changes: Record<string, unknown>,
-			): Promise<void>;
+			): Promise<Result<undefined, { message: string }>>;
 		};
-		await notes.set(
+		const saved = await notes.set(
 			{ id: run.noteId },
 			{ ...run.fields, body: resultBody(text) },
 		);
+		if (saved.error !== null) {
+			runs.set(run.key, {
+				...run,
+				state: { kind: 'unsaved', text, message: saved.error.message },
+			});
+			return;
+		}
 		runs.delete(run.key);
 	}
 
@@ -247,13 +262,16 @@ export function createRuns({
 			);
 		},
 		/**
-		 * Why a recording cannot be deleted now: a request for it is out, or a
-		 * result of it is being written. Either would leave a result naming a
-		 * recording that is gone.
+		 * Why a recording cannot be deleted now: a request for it is out, a
+		 * result of it is being written, or an answer for it waits to be saved
+		 * again. Each would leave a result naming a recording that is gone.
 		 */
 		busy(id: string): string | undefined {
 			for (const run of runs.values()) {
-				if (recordingOf(run) !== id || !underWay(run.key)) continue;
+				if (recordingOf(run) !== id) continue;
+				if (run.state.kind === 'unsaved')
+					return 'An answer for this recording was not saved. Save it again or discard it, then delete the recording.';
+				if (!underWay(run.key)) continue;
 				return run.collection === 'transcriptions'
 					? 'A transcription of this recording is still running. Wait for it to finish, then delete the recording.'
 					: 'A transformation of this recording’s transcript is still running. Wait for it to finish, then delete the recording.';
@@ -277,12 +295,17 @@ export function createRuns({
 		/**
 		 * Send a failed run's request again, to the target it was made for. An
 		 * endpoint removed or moved since fails the run with why, and nothing
-		 * is sent. Answers why nothing was tried.
+		 * is sent. An unsaved answer is written again instead, and nothing is
+		 * sent. Answers why nothing was tried.
 		 */
 		async runAgain(key: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
 			const run = runs.get(key);
+			if (run?.state.kind === 'unsaved') {
+				await keep(run, run.state.text);
+				return undefined;
+			}
 			const request = requests.get(key);
 			if (run?.state.kind !== 'failed' || request === undefined)
 				return 'This is already running.';
@@ -321,7 +344,9 @@ export function createRuns({
 			const choice = chosen('transcription');
 			if (choice.kind !== 'ready') return fail(choice.reason);
 			const { target } = choice;
-			const recording = files.recordings.get({ id });
+			const recording =
+				files.recordings.get({ id }) ??
+				files.unnoted().find((item) => item.id === id);
 			if (recording === undefined)
 				return fail(
 					files.recordings.invalid().some((note) => note.id === id)

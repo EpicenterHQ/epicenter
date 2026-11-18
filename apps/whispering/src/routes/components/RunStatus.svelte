@@ -6,8 +6,8 @@
 
 	/**
 	 * A request in this window and what became of it: its answer on the way,
-	 * being saved, or why the request failed. Run again sends the same
-	 * request. A save never fails: the folder keeps it until it lands.
+	 * being saved, why the request failed (Run again sends the same request),
+	 * or why its answer was not saved (Save again writes it; nothing is sent).
 	 */
 	let { run }: { run: Run } = $props();
 	const library = getLibrary();
@@ -26,6 +26,13 @@
 				<Button size="xs" onclick={() => void runAgain()} data-testid="run-again">Run again</Button>
 			{/if}
 			<Button size="xs" variant="ghost" onclick={() => library.dismissRun(run.key)} data-testid="dismiss-run">Dismiss</Button>
+		</div>
+	{:else if run.state.kind === 'unsaved'}
+		<p class="text-destructive" role="alert" data-testid="run-unsaved">The answer arrived but was not saved: {run.state.message}</p>
+		<p class="max-h-32 overflow-y-auto whitespace-pre-wrap rounded border p-2 text-xs" data-testid="run-unsaved-text">{run.state.text}</p>
+		<div class="flex items-center gap-1">
+			<Button size="xs" onclick={() => void runAgain()} data-testid="save-again">Save again</Button>
+			<Button size="xs" variant="ghost" onclick={() => library.dismissRun(run.key)} data-testid="dismiss-run">Discard answer</Button>
 		</div>
 	{:else}
 		<p class="flex items-center gap-2 text-muted-foreground" role="status">

@@ -9,9 +9,9 @@ resolver = "2"
 members = [
     "apps/whispering/src-tauri",
     "apps/whispering/packages/epicenter-transcription-build",
-    "apps/whispering/packages/tauri-epicenter-standalone",
     "apps/whispering/packages/tauri-plugin-epicenter-recorder",
     "apps/whispering/packages/transcription",
+    "apps/whispering/packages/whispering-files",
 ]
 # Every standalone app aborts on an unexpected panic in release. Errors
 # returned as values are unaffected.

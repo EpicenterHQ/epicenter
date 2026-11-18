@@ -1,36 +1,29 @@
 /** Construct the real app over test files and test capabilities. */
-import { openFolder } from '@epicenter/folder';
-import type { Place } from '@epicenter/folder/core';
-import { whispering as contract } from './contract.js';
+import type { Files } from './files/files.js';
 import type { TestCapabilities } from './services.test-support.js';
 
 /**
- * Same construction as the app's root (`WhisperingApp`): Whispering and its
- * library over a folder opened at `place`, read through `reactive` as
- * `app.ts` reads its folder. The lists are followed as mounted pages follow them, so
- * they list and hear changes.
+ * Same construction as the app (`app.ts`, `+layout.svelte`, `WhisperingApp`):
+ * Whispering's folder over `files`, read once before the pages render, then
+ * Whispering and its library over it. The lists are followed as mounted
+ * pages follow them.
  */
 export async function createTestWhispering({
 	services,
-	place,
+	files,
 }: {
 	services: TestCapabilities;
-	place: Place;
+	files: Files;
 }) {
 	const { createWhispering } = await import('./whispering.svelte.js');
 	const { createLibrary } = await import('./library.svelte.js');
-	const { filesOf } = await import('./files.svelte.js');
-	const { follow } = await import(
-		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
-	);
-	const { reactive } = await import('@epicenter/svelte/reactive');
-	const opened = openFolder(contract, place);
-	// The app's pages render once the folder connected (`<WhenOpen>`).
-	await opened.recordings.list();
-	const folder = reactive(opened);
+	const { openFolder } = await import('./folder.svelte.js');
+	const { follow } = await import('./follow.test-support.svelte.js');
+	const folder = openFolder(files);
+	// The app's pages render once the folder was read.
+	await folder.load();
 	const whispering = createWhispering({ folder, ...services });
-	const files = filesOf(folder);
-	const library = createLibrary({ whispering, files });
+	const library = createLibrary({ whispering, files: folder });
 	const followed = follow(() => [
 		library.entries,
 		library.repairs,
@@ -38,12 +31,12 @@ export async function createTestWhispering({
 		library.transformations,
 		library.transformationRepairs,
 		library.textRepairs,
-		files.transformation_runs.items(),
-		files.text_runs.items(),
+		folder.transformation_runs.items(),
+		folder.text_runs.items(),
 		library.entries.map((note) => library.audioOf(note.id)),
 	]);
 	return {
-		/** The folder the app reads and writes, as `app.ts`'s: its state, and a note's editor. */
+		/** The folder the app reads and writes, as `app.ts`'s. */
 		folder,
 		whispering,
 		library,
@@ -51,7 +44,6 @@ export async function createTestWhispering({
 			followed.stop();
 			library.dispose();
 			whispering.dispose();
-			opened[Symbol.dispose]();
 		},
 	};
 }

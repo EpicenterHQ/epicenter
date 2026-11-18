@@ -4,36 +4,48 @@
 //! A microphone is named by the id `inputs` answers, never by the name a
 //! WebView gives it: on the desktop the page opens no microphone of its own.
 //!
-//! A page opens the Data root through the folder plugin, then names a
-//! folder-relative path. The folder plugin
-//! answers the folder that root reached; the shared path rule decides whether
-//! the path is a data path. Only then is the microphone opened.
+//! A page names its folder by its absolute path and a recording by its id.
+//! The folder must be one the app's file system scope allows
+//! (`tauri-plugin-fs`): the default folder the shell allows at start, or one
+//! the person picked in the folder dialog. The id must be one plain name
+//! (`takes::check_id`). Only then is the microphone opened. The take is
+//! recorded in `local/recording/` and placed in the folder at Stop
+//! (`takes`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use epicenter_folder_core::page_files;
-use epicenter_folder_core::paths::path_problem;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, Webview};
-use tauri_plugin_epicenter_folder::{Root, RootsExt};
+use tauri_plugin_fs::FsExt;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
 use crate::meter::OpenedMeter;
 use crate::recorder::{Input, Result, StoppedRecording};
-use crate::staging::Recovery;
+use crate::takes::{self, Recovery};
 use crate::{refresh_capturing, Recorders};
 
-/// The folder Data reached when the app opened it (`open_root`), read
-/// once for this operation, so nothing that happens meanwhile redirects it.
-/// Data must already be open.
-fn opened_root<R: Runtime>(webview: &Webview<R>) -> Result<PathBuf> {
-    webview
-        .roots()
-        .opened(&Root::Data)
-        .map(|directory| directory.root().to_path_buf())
-        .map_err(|refusal| RecorderError::refused(refusal.to_string()))
+/// The folder at the absolute path `folder`, when the app's file system
+/// scope allows it: the default folder, or one the folder dialog granted.
+/// A page cannot widen that scope, so it cannot point the recorder anywhere
+/// else.
+fn allowed_folder<R: Runtime>(webview: &Webview<R>, folder: &str) -> Result<PathBuf> {
+    let root = PathBuf::from(folder);
+    if !root.is_absolute() {
+        return Err(RecorderError::refused(format!(
+            "{folder:?} is not an absolute path"
+        )));
+    }
+    let allowed = webview
+        .try_fs_scope()
+        .is_some_and(|scope| scope.is_allowed(&root));
+    if !allowed {
+        return Err(RecorderError::refused(format!(
+            "{folder:?} is not a folder this app may write"
+        )));
+    }
+    Ok(root)
 }
 
 /// The microphones connected now, each with the id to ask for it by. Opens
@@ -109,25 +121,24 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
     result
 }
 
-/// Start recording `<path>.webm` in Data (`opened_root`), from the
-/// microphone whose id is `device` or the system default; answers the id to
-/// stop it by. An ending nobody asked for arrives on `signals`.
+/// Start recording the take `id` for the folder `dir` (`allowed_folder`),
+/// from the microphone whose id is `device` or the system default. An
+/// ending nobody asked for arrives on `signals`.
 ///
-/// The path must be a data path the shared path rule accepts, with nothing at
-/// `<path>.webm` yet. While it records, it is a WebM beside that path under
-/// a new reserved name (`staging::pending`), written a second at a time;
-/// `stop` finishes it and places it at its path. Missing directories on the
-/// way are made.
-/// Microphone access is asked for before the device is resolved. A refusal
-/// opens nothing.
+/// `id` must be one plain name, with no audio at `recordings/<id>.webm` in
+/// the folder and no take of it yet. The take is recorded into
+/// `<appLocalDataDir>/local/recording/<id>.webm`, written a second at a
+/// time; `stop` finishes it and places it in the folder. Microphone access
+/// is asked for before the device is resolved. A refusal opens nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn start<R: Runtime>(
     webview: Webview<R>,
-    path: String,
+    dir: String,
+    id: String,
     device: Option<String>,
     signals: Channel<RecordingSignal>,
-) -> Result<String> {
+) -> Result<()> {
     let app = webview.app_handle().clone();
     let owner = webview.label().to_string();
     let recorders = app.state::<Recorders<R>>();
@@ -135,23 +146,29 @@ pub async fn start<R: Runtime>(
     // time it would record, and nobody could stop what it started.
     let page = recorders.lock().page(&owner);
 
-    let root = opened_root(&webview)?;
-    // The path the page named is checked too, so an empty one is not `.webm`.
-    if let Some(problem) = path_problem(&path) {
-        return Err(RecorderError::refused(format!("{path:?}: {problem}")));
-    }
-    // Where it lands.
-    let relative = format!("{path}.webm");
-    let target = page_files::data_path(&root, &relative).map_err(RecorderError::refused)?;
+    let folder = allowed_folder(&webview, &dir)?;
+    takes::check_id(&id).map_err(RecorderError::refused)?;
+    let audio = takes::audio_path(&id);
+    let target = whispering_files::resolve(&folder, &audio)
+        .map_err(|error| RecorderError::refused(error.to_string()))?;
     if std::fs::symlink_metadata(&target).is_ok() {
         return Err(RecorderError::refused(format!(
-            "a file is already at {relative}"
+            "a file is already at {audio}"
         )));
     }
-    if let Some((parent, _)) = path.rsplit_once('/') {
-        page_files::mkdir(&root, &root.join(parent)).map_err(RecorderError::refused)?;
+    let take = takes::take_path(&recorders.takes, &id);
+    if std::fs::symlink_metadata(&take).is_ok() {
+        return Err(RecorderError::refused(format!(
+            "a take of {id} is already waiting at {}",
+            take.display()
+        )));
     }
-    let pending = crate::staging::pending(&root, &path).map_err(RecorderError::refused)?;
+    std::fs::create_dir_all(&recorders.takes).map_err(|error| {
+        RecorderError::failed(format!(
+            "{} could not be made: {error}",
+            recorders.takes.display()
+        ))
+    })?;
 
     // Asked before any device is resolved, off the async runtime: a person
     // not yet asked answers a system prompt.
@@ -160,7 +177,7 @@ pub async fn start<R: Runtime>(
         .await
         .map_err(|error| RecorderError::failed(error.to_string()))??;
 
-    let started = {
+    {
         let mut recorder = recorders.lock();
         if recorder.page(&owner) != page {
             return Err(RecorderError::not_recording(
@@ -170,58 +187,56 @@ pub async fn start<R: Runtime>(
         let on_ended_app = app.clone();
         recorder.start(
             device.as_deref(),
-            pending,
-            root,
-            path,
+            take,
+            folder,
+            id,
             owner,
             signals,
             Arc::new(move |id: &str, reason| end_recording_capture(&on_ended_app, id, reason)),
-        )?
-    };
+        )?;
+    }
     refresh_capturing(&app);
-    Ok(started)
+    Ok(())
 }
 
-/// Stop the recording `id` this window started, finish its file, and place it
-/// at its path, never over a file there; answers where it is and how long it
-/// plays. Finishing writes the last second, the Cues, and the length, so it
-/// takes the same few milliseconds for a recording of any length. A file
-/// that cannot be placed stays beside its path under its reserved name, and
-/// the refusal says why.
+/// Stop the recording this window started, finish its take, and place it at
+/// `recordings/<id>.webm` in its folder, never over a file there; answers
+/// its id and how long it plays. Finishing writes the last second, the
+/// Cues, and the length, so it takes the same few milliseconds for a
+/// recording of any length. A take that cannot be placed stays in
+/// `local/recording/`, and the refusal is `Unplaced`.
 #[tauri::command]
 #[specta::specta]
-pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<StoppedRecording> {
+pub async fn stop<R: Runtime>(webview: Webview<R>) -> Result<StoppedRecording> {
     let app = webview.app_handle().clone();
-    let stopped = app
-        .state::<Recorders<R>>()
-        .lock()
-        .stop(&id, webview.label());
+    let stopped = app.state::<Recorders<R>>().lock().stop(webview.label());
     refresh_capturing(&app);
     stopped
 }
 
-/// Finish and place every recording under `under` in Data (`opened_root`)
-/// that a quit or a crash left beside its path (or, from an older build, in
-/// the folder's `.epicenter/recordings`), and answer each one placed
-/// (`recovered`), by folder-relative path with how long it plays
+/// Finish every take a quit or a crash left in `local/recording/` and place
+/// it at `recordings/<id>.webm` in the folder `dir` (`allowed_folder`).
+/// Answers each one placed (`recovered`), by id with how long it plays
 /// (`durationMs`, so a page never reads the audio back to measure it), and
-/// each one left pending because another file is at its path (`unplaced`),
-/// with where its audio is. A page runs it before it
-/// lists, plays, or transcribes a recording, and says what is unplaced. The
-/// recording still being written is left alone. Running it again places
-/// nothing more.
+/// each one left (`unplaced`), by id with the take's absolute path: another
+/// file is at its audio path, or it could not be finished or placed. A page
+/// runs it when it opens its folder, and says what is unplaced. The take a
+/// live recording is writing is left alone. Running it again places nothing
+/// more.
 #[tauri::command]
 #[specta::specta]
-pub async fn recover<R: Runtime>(webview: Webview<R>, under: String) -> Result<Recovery> {
-    let root = opened_root(&webview)?;
+pub async fn recover<R: Runtime>(webview: Webview<R>, dir: String) -> Result<Recovery> {
+    let folder = allowed_folder(&webview, &dir)?;
     let app = webview.app_handle().clone();
+    let takes = app.state::<Recorders<R>>().takes.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        // Asked per file, under the recorder lock: a `start` holds that lock
-        // from creating its file until the recording is held, so a file
+        // Asked per take, under the recorder lock: a `start` holds that lock
+        // from creating its take until the recording is held, so a take
         // listed here and live is always named.
         let held =
             |path: &std::path::Path| app.state::<Recorders<R>>().lock().held_path() == Some(path);
-        crate::staging::recover(&root, &under, held).map_err(RecorderError::refused)
+        takes::recover(&takes, &folder, held)
+            .map_err(|error| RecorderError::failed(error.to_string()))
     })
     .await
     .map_err(|error| RecorderError::failed(error.to_string()))?

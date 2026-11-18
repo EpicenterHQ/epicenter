@@ -1,81 +1,64 @@
 /**
  * Capabilities in a Tauri Window
  *
- * What each capability package gives `src/lib/app.ts` when the page runs
- * in a Tauri window (`isTauri()`), composed as `app.ts` composes them, over
- * a stand-in shell: Tauri's `invoke` answers from memory, so the account's
- * commands, the shell's fetch and the transcription plugin are each one
- * function here, and the shell's recorder is a stand-in for its module.
- *
- * A saved connection's place (AppData's `connections.md`, each key in the
- * shell's credentials file, every request through the shell) is
- * `@epicenter/ai`'s `customEndpoints()`, tested with that package. Who is
- * signed in is `account.json` in this computer's settings, which the shell
- * writes.
+ * What each capability gives `src/lib/app.ts` when the page runs in a
+ * Tauri window (`isTauri()`), composed as `app.ts` composes them, over a
+ * stand-in shell: Tauri's `invoke` answers from memory, Tauri's HTTP
+ * plugin is one function here, and the shell's recorder is a stand-in for
+ * its module.
  *
  * Key behaviors:
- * - Epicenter's models go through the account's relay (`account_fetch`)
- *   with no token from the page
- * - Ollama and LM Studio are looked for through the shell with no key
+ * - A connection's key is a Keychain item the shell keeps (`secret_get`,
+ *   `secret_set`)
+ * - Requests go through Tauri's HTTP plugin, which follows no redirect
+ * - Ollama and LM Studio are looked for through it with no key
  * - Transcription on this computer takes the uploaded audio
  * - The shell's microphone records `recordings/<id>` in the data folder and
  *   repairs by ids, with each repaired recording's length
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import type { AppAccount, AuthClient } from '@epicenter/account';
 import type { AudioFiles } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 
-const ORIGIN = 'http://localhost:8787';
-
 /** Every command the page sent, with its arguments. */
 const sent: { command: string; args?: Record<string, unknown> }[] = [];
-/** The requests the shell was asked to send, as the page described them. */
-const relayed: {
-	command: string;
-	connection?: string | null;
+/** The requests sent through Tauri's HTTP plugin, with its options. */
+const fetched: {
 	url: string;
-	headers: [string, string][];
+	init?: RequestInit & { maxRedirections?: number };
 }[] = [];
+/** The Keychain, as the shell keeps it. */
+const keychain = new Map<string, string>();
 
-type Listener = (message: unknown) => void;
-
-/** Answer a relayed request on its channel: a head, the body, the end. */
-function answer(args: Record<string, unknown> | undefined, body: unknown) {
-	const onEvent = args?.onEvent as { onmessage: Listener };
-	queueMicrotask(() => {
-		onEvent.onmessage({
-			kind: 'head',
-			status: 200,
-			headers: [['content-type', 'application/json']],
-		});
-		onEvent.onmessage([...new TextEncoder().encode(JSON.stringify(body))]);
-		onEvent.onmessage({ kind: 'end' });
-	});
-	return null;
-}
+mock.module('@tauri-apps/plugin-http', () => ({
+	fetch: async (
+		url: string,
+		init?: RequestInit & { maxRedirections?: number },
+	) => {
+		fetched.push({ url, init });
+		if (url.endsWith('/models'))
+			return Response.json({ data: [{ id: 'llama3' }] });
+		return new Response('Not found', { status: 404 });
+	},
+}));
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
 	Channel: class {
-		constructor(public onmessage?: Listener) {}
+		constructor(public onmessage?: (message: unknown) => void) {}
 	},
 	transformCallback: () => 0,
 	invoke: async (command: string, args?: Record<string, unknown>) => {
 		sent.push({ command, args });
 		switch (command) {
-			case 'account_fetch':
-			case 'connection_fetch': {
-				const request = args?.request as {
-					connection?: string | null;
-					url: string;
-					headers: [string, string][];
-				};
-				relayed.push({ command, ...request });
-				if (request.url.endsWith('/models'))
-					return answer(args, { data: [{ id: 'llama3' }] });
-				return answer(args, { text: `Heard through ${command}.` });
+			case 'secret_get':
+				return keychain.get(args?.name as string) ?? null;
+			case 'secret_set': {
+				const { name, value } = args as { name: string; value: string | null };
+				if (value === null) keychain.delete(name);
+				else keychain.set(name, value);
+				return null;
 			}
 			case 'plugin:epicenter-transcription|list_inference_models':
 				return [{ id: 'whisper-base', installed: true, active: false }];
@@ -103,8 +86,7 @@ const audioFiles = {} as AudioFiles;
 const started: unknown[] = [];
 // The shell's recorder, which `@epicenter/recorder` loads in a Tauri window.
 mock.module(
-	new URL('../../packages/recorder/src/tauri.ts', import.meta.url)
-		.pathname,
+	new URL('../../packages/recorder/src/tauri.ts', import.meta.url).pathname,
 	() => ({
 		recorder: {
 			listInputs: async () =>
@@ -112,36 +94,24 @@ mock.module(
 			openMeter: async () => {
 				throw new Error('not opened');
 			},
-			start: async (options: { folder: unknown; path: string }) => {
+			start: async (options: { files: unknown; id: string }) => {
 				started.push(options);
 				return Ok({
 					onEnded: () => () => {},
-					stop: async () =>
-						Ok({ path: `${options.path}.webm`, durationMs: 1500 }),
+					stop: async () => Ok({ id: options.id, durationMs: 1500 }),
 				});
 			},
-			recover: async (options: {
-				folder: unknown;
-				under: string;
-				unnamed: readonly string[];
-			}) => {
+			recover: async (options: { files: unknown }) => {
 				started.push(options);
-				// The shell's recorder: what it placed, then each unnamed one, whole.
-				const placed = [
-					{ path: `${options.under}/a.webm`, durationMs: 1500 },
-					{ path: `${options.under}/b.webm`, durationMs: 2500 },
-				];
 				return Ok({
 					recovered: [
-						...placed,
-						...options.unnamed
-							.filter((path) => !placed.some((entry) => entry.path === path))
-							.map((path) => ({ path, durationMs: null })),
+						{ id: 'a', durationMs: 1500 },
+						{ id: 'b', durationMs: 2500 },
 					],
 					unplaced: [
 						{
-							path: `${options.under}/c.webm`,
-							pending: `.epicenter/recordings/${options.under}/c.webm`,
+							id: 'c',
+							take: '/Users/me/Library/Application Support/so.epicenter.whispering/local/recording/c.webm',
 						},
 					],
 				});
@@ -150,86 +120,44 @@ mock.module(
 	}),
 );
 
-const { connectAccount } = await import('@epicenter/account');
-const { hosted, localServers, openAi } = await import('@epicenter/ai');
+const { localServers, openAi } = await import('@epicenter/ai');
 const { recorder: microphone } = await import('@epicenter/recorder');
 const { localSpeech } = await import('@epicenter/transcription');
-const { settings } = await import('@epicenter/local');
-const { outside } = await import('@epicenter/local/memory');
-
-// Who is signed in, as the shell writes it in this computer's settings.
-outside.write(
-	'account.json',
-	JSON.stringify({ origin: ORIGIN, principalId: 'person-1', refused: false }),
-);
-await settings.file('account.json').connected();
 const { createMicrophoneDevice } = await import('./microphone.js');
-
-/** Whispering's sign-in, as `app.ts` asks for it. */
-const signIn = () =>
-	connectAccount({
-		clientId: 'so.epicenter.whispering',
-		api: ORIGIN,
-	});
+const { requestFetch, secrets } = await import('./this-computer.js');
 
 /** The models `app.ts` merges in a Tauri window, but the saved connections, which `@epicenter/ai` tests. */
-function openModels(account: AppAccount = signIn()) {
-	return openAi([hosted(account), localServers(), localSpeech()]);
-}
-
-/** Once the shell said who is signed in. */
-function signedIn(account: AuthClient): Promise<void> {
-	return new Promise((resolve) => {
-		const answer = () => {
-			if (account.state().status !== 'signed-in') return false;
-			stop();
-			resolve();
-			return true;
-		};
-		const stop = account.subscribe(() => void answer());
-		answer();
-	});
+function openModels() {
+	return openAi([localServers({ fetch: requestFetch }), localSpeech()]);
 }
 
 afterEach(() => {
 	sent.length = 0;
-	relayed.length = 0;
+	fetched.length = 0;
 	started.length = 0;
 });
 
 const upload = () =>
 	new File([new Uint8Array([1, 2, 3])], 'a.webm', { type: 'audio/webm' });
 
-test('Epicenter’s models go through the account’s relay with no token from the page', async () => {
-	const account = signIn();
-	await signedIn(account);
-	const ai = openModels(account);
-	expect(ai.endpoints().find(({ id }) => id === 'hosted')?.baseUrl).toBe(
-		`${ORIGIN}/v1`,
-	);
-	expect(
-		expectOk(
-			await ai.transcribe({
-				endpoint: 'hosted',
-				model: 'whisper-1',
-				file: upload(),
-			}),
-		),
-	).toEqual({ text: 'Heard through account_fetch.' });
-	expect(relayed.map(({ command, url }) => ({ command, url }))).toEqual([
-		{ command: 'account_fetch', url: `${ORIGIN}/v1/audio/transcriptions` },
-	]);
+test('a connection’s key is a Keychain item the shell keeps', async () => {
+	expect(secrets.where).toBe('keychain');
+	expect(await secrets.get('connection.openai')).toBeNull();
+	await secrets.set('connection.openai', 'sk-test');
+	expect(await secrets.get('connection.openai')).toBe('sk-test');
+	expect(keychain.get('connection.openai')).toBe('sk-test');
+	await secrets.set('connection.openai', null);
+	expect(keychain.has('connection.openai')).toBe(false);
 });
 
-test('Ollama and LM Studio are looked for through the shell with no key', async () => {
+test('Ollama and LM Studio are looked for through Tauri’s HTTP plugin, which follows no redirect, with no key', async () => {
 	const endpoints = openModels().endpoints();
 	expect(endpoints.map(({ id }) => id)).toEqual([
-		'hosted',
 		'ollama',
 		'lm-studio',
 		'local-speech',
 	]);
-	const ollama = endpoints[1]!;
+	const ollama = endpoints[0]!;
 	await new Promise<void>((resolve) => {
 		const stop = ollama.subscribe?.(() => {
 			stop?.();
@@ -237,13 +165,11 @@ test('Ollama and LM Studio are looked for through the shell with no key', async 
 		});
 	});
 	expect(ollama.models()).toEqual([{ id: 'llama3', can: ['chat'] }]);
-	expect(relayed).toContainEqual(
-		expect.objectContaining({
-			command: 'connection_fetch',
-			connection: null,
-			url: 'http://localhost:11434/v1/models',
-		}),
+	const asked = fetched.find(
+		({ url }) => url === 'http://localhost:11434/v1/models',
 	);
+	expect(asked?.init?.maxRedirections).toBe(0);
+	expect(new Headers(asked?.init?.headers).has('authorization')).toBe(false);
 });
 
 test('transcription on this computer takes the uploaded audio', async () => {
@@ -267,7 +193,7 @@ test('transcription on this computer takes the uploaded audio', async () => {
 	});
 });
 
-test('the shell’s microphone records recordings/<id> into the data folder, and recovery answers every finished recording by id', async () => {
+test('the shell’s microphone records a take by id, and recovery answers each take it placed or kept', async () => {
 	const capture = createMicrophoneDevice({
 		files: audioFiles,
 		recorder: microphone,
@@ -279,44 +205,25 @@ test('the shell’s microphone records recordings/<id> into the data folder, and
 	expect(started).toEqual([
 		{
 			files: audioFiles,
-			path: 'recordings/20261031T093000000',
+			id: '20261031T093000000',
 			input: undefined,
 			signal: undefined,
 		},
 	]);
 	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
-	// A cut-off recording waits outside its path, so the shell always looks,
-	// and audio at its path that no note names is finished.
-	// One kept outside its path, because another file is there, is answered
-	// as it is, with where its audio is.
-	const unplaced = [
-		{
-			path: 'recordings/c.webm',
-			pending: '.epicenter/recordings/recordings/c.webm',
-		},
-	];
-	expect(expectOk(await capture.recover!([]))).toEqual({
-		whole: [
+	// A take kept outside the folder, because audio with its id is there, is
+	// answered with where it is.
+	expect(expectOk(await capture.recover!())).toEqual({
+		recovered: [
 			{ id: 'a', durationMs: 1500 },
 			{ id: 'b', durationMs: 2500 },
 		],
-		unplaced,
-	});
-	expect(started.at(-1)).toEqual({
-		files: audioFiles,
-		under: 'recordings',
-		unnamed: [],
-	});
-	expect(
-		expectOk(
-			await capture.recover!(['recordings/a.webm', 'recordings/left.webm']),
-		),
-	).toEqual({
-		whole: [
-			{ id: 'a', durationMs: 1500 },
-			{ id: 'b', durationMs: 2500 },
-			{ id: 'left', durationMs: null },
+		unplaced: [
+			{
+				id: 'c',
+				take: '/Users/me/Library/Application Support/so.epicenter.whispering/local/recording/c.webm',
+			},
 		],
-		unplaced,
 	});
+	expect(started.at(-1)).toEqual({ files: audioFiles });
 });

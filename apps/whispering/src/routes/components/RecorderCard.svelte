@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { folder } from '$lib/app.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -99,7 +98,7 @@
 			Starting…
 		{:else if whispering.recorder.phase === 'stopping'}
 			Stopping…
-		{:else if !folder.unavailable()}
+		{:else}
 			Click to record. Click again to save.
 		{/if}
 	</p>

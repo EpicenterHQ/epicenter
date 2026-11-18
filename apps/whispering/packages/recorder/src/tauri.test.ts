@@ -2,18 +2,20 @@
  * The desktop recorder against a stand-in for the shell's commands.
  *
  * Key behaviors:
- * - `start` names the path and the chosen microphone by the ID the shell
- *   listed it under, and passes the channel an ending arrives on
+ * - `start` names the folder, the recording's id, and the chosen microphone
+ *   by the ID the shell listed it under, and passes the channel an ending
+ *   arrives on
  * - `listInputs` answers the shell's inputs, each by the ID to ask for it
  *   by and its name; `openMeter` opens one by ID, hears its levels, and
  *   closes it, and a meter withdrawn while opening is closed
- * - `stop` names the recording the shell minted, answers where the shell
- *   placed it and its length, and stops hearing the channel
+ * - `stop` asks the shell to stop this window's recording, answers its id
+ *   and length, and stops hearing the channel; a take it could not place
+ *   arrives as `Unplaced`
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
- * - `recover` names the directory, in the folder's root, and answers each
- *   recording placed with its length
+ * - `recover` names the folder, and answers each take placed with its
+ *   length and each take kept with where it is
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -38,34 +40,40 @@ mock.module('@tauri-apps/api/core', () => ({
 
 const { recorder } = await import('./tauri.js');
 
-/** The audio files of the data folder the page opened, which the shell writes itself. */
-const files = {} as Parameters<typeof recorder.start>[0]['files'];
-
-/** The id the shell minted for the recording it started. */
-const started = '7';
+/** The folder the page names, which the shell writes into itself. */
+const folder =
+	'/Users/someone/Library/Application Support/so.epicenter.whispering/data';
+const files: Parameters<typeof recorder.start>[0]['files'] = {
+	location: folder,
+	read: async () => {
+		throw new Error('the shell reads the folder itself');
+	},
+	write: async () => {
+		throw new Error('the shell writes the folder itself');
+	},
+};
 
 beforeEach(() => {
 	calls = [];
 	answer = ({ cmd }) =>
-		cmd === 'plugin:epicenter-recorder|start'
-			? started
-			: cmd === 'plugin:epicenter-recorder|stop'
-				? { path: 'recordings/a.webm', durationMs: 1250 }
-				: null;
+		cmd === 'plugin:epicenter-recorder|stop'
+			? { id: 'a', durationMs: 1250 }
+			: null;
 });
 
-test('a recording starts in Data and stops by the id the shell minted', async () => {
+test('a recording starts by its id in the folder, and stop answers its id and length', async () => {
 	const recording = expectOk(
 		await recorder.start({
 			files,
-			path: 'recordings/a',
+			id: 'a',
 			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
 		}),
 	);
 	const [start] = calls;
 	expect(start?.cmd).toBe('plugin:epicenter-recorder|start');
 	expect(start?.args).toMatchObject({
-		path: 'recordings/a',
+		dir: folder,
+		id: 'a',
 		device: 'coreaudio:desk-uid',
 	});
 	expect(start?.args).not.toHaveProperty('scope');
@@ -77,21 +85,18 @@ test('a recording starts in Data and stops by the id the shell minted', async ()
 	expect(endings).toEqual(['deviceDisconnected']);
 
 	expect(expectOk(await recording.stop())).toEqual({
-		path: 'recordings/a.webm',
+		id: 'a',
 		durationMs: 1250,
 	});
 	const stop = calls.at(-1) as Call;
-	expect(stop).toEqual({
-		cmd: 'plugin:epicenter-recorder|stop',
-		args: { id: '7' },
-	});
+	expect(stop).toEqual({ cmd: 'plugin:epicenter-recorder|stop', args: {} });
 	recording.onEnded((reason) => endings.push(reason));
 	expect(endings).toEqual(['deviceDisconnected']);
 });
 
 test('a command that throws instead of answering is a failure, not a refusal', async () => {
 	const recording = expectOk(
-		await recorder.start({ files, path: 'recordings/a' }),
+		await recorder.start({ files, id: 'a' }),
 	);
 	const lost = new Error('the shell is gone');
 	answer = () => {
@@ -100,33 +105,30 @@ test('a command that throws instead of answering is a failure, not a refusal', a
 	const failed = { name: 'Failed', cause: lost };
 	expect(expectErr(await recording.stop())).toMatchObject(failed);
 	expect(
-		expectErr(await recorder.start({ files, path: 'recordings/b' })),
+		expectErr(await recorder.start({ files, id: 'b' })),
 	).toMatchObject(failed);
 	expect(expectErr(await recorder.openMeter())).toMatchObject(failed);
 	expect(expectErr(await recorder.listInputs())).toMatchObject(failed);
-	expect(
-		expectErr(
-			await recorder.recover({ files, under: 'recordings', unnamed: [] }),
-		),
-	).toMatchObject(failed);
+	expect(expectErr(await recorder.recover({ files }))).toMatchObject(failed);
 });
 
 test('the system default is asked for by naming no microphone', async () => {
-	expectOk(await recorder.start({ files, path: 'recordings/a' }));
+	expectOk(await recorder.start({ files, id: 'a' }));
 	expect(calls[0]?.args.device).toBeNull();
 });
 
-test('a stop the shell refuses arrives by name', async () => {
-	const recording = expectOk(
-		await recorder.start({ files, path: 'recordings/a' }),
-	);
-	answer = () => {
-		throw { name: 'NotRecording', message: 'already stopped' };
-	};
-	expect(expectErr(await recording.stop())).toMatchObject({
-		name: 'NotRecording',
-		reason: 'already stopped',
-	});
+test('a stop the shell refuses arrives by name, an unplaced take among them', async () => {
+	for (const [name, expected] of [
+		['NotRecording', { name: 'NotRecording', reason: 'held' }],
+		['Unplaced', { name: 'Unplaced', reason: 'held' }],
+	] as const) {
+		const recording = expectOk(await recorder.start({ files, id: 'a' }));
+		answer = () => {
+			throw { name, message: 'held' };
+		};
+		expect(expectErr(await recording.stop())).toMatchObject(expected);
+		answer = () => null;
+	}
 });
 
 test('the shell refusing a start is the matching error, with the chosen label', async () => {
@@ -144,7 +146,7 @@ test('the shell refusing a start is the matching error, with the chosen label', 
 		const refused = expectErr(
 			await recorder.start({
 				files,
-				path: 'recordings/a',
+				id: 'a',
 				input: { deviceId: 'x', label: 'USB Mic' },
 			}),
 		);
@@ -155,17 +157,14 @@ test('the shell refusing a start is the matching error, with the chosen label', 
 test('a start withdrawn while the shell opened the microphone is finalized, never deleted', async () => {
 	const controller = new AbortController();
 	answer = ({ cmd }) => {
-		if (cmd === 'plugin:epicenter-recorder|start') {
-			controller.abort();
-			return started;
-		}
+		if (cmd === 'plugin:epicenter-recorder|start') controller.abort();
 		return null;
 	};
 	expect(
 		expectErr(
 			await recorder.start({
 				files,
-				path: 'recordings/a',
+				id: 'a',
 				signal: controller.signal,
 			}),
 		).name,
@@ -174,44 +173,37 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 		'plugin:epicenter-recorder|start',
 		'plugin:epicenter-recorder|stop',
 	]);
-	expect(calls[1]?.args.id).toBe('7');
 });
 
-test('recover names the directory in Data and answers what it repaired, then each unnamed recording, whole at its path', async () => {
+test('recover names the folder and answers each take placed, and each kept with where it is', async () => {
 	const recovery = {
 		recovered: [
-			{ path: 'recordings/a.webm', durationMs: 1250 },
-			{ path: 'recordings/b.webm', durationMs: 3000 },
+			{ id: 'a', durationMs: 1250 },
+			{ id: 'b', durationMs: 3000 },
 		],
 		unplaced: [
 			{
-				path: 'recordings/c.webm',
-				pending: '.epicenter/recordings/recordings/c.webm',
+				id: 'c',
+				take: '/Users/someone/Library/Application Support/so.epicenter.whispering/local/recording/c.webm',
 			},
 		],
 	};
 	answer = () => recovery;
-	expect(
-		expectOk(
-			await recorder.recover({
-				files,
-				under: 'recordings',
-				unnamed: ['recordings/a.webm', 'recordings/left.webm'],
-			}),
-		),
-	).toEqual({
-		recovered: [
-			...recovery.recovered,
-			{ path: 'recordings/left.webm', durationMs: null },
-		],
-		unplaced: recovery.unplaced,
-	});
+	expect(expectOk(await recorder.recover({ files }))).toEqual(recovery);
 	expect(calls).toEqual([
-		{
-			cmd: 'plugin:epicenter-recorder|recover',
-			args: { under: 'recordings' },
-		},
+		{ cmd: 'plugin:epicenter-recorder|recover', args: { dir: folder } },
 	]);
+});
+
+test('a folder with no path here is refused before the shell is asked', async () => {
+	const nowhere = { ...files, location: null };
+	expect(
+		expectErr(await recorder.start({ files: nowhere, id: 'a' })).name,
+	).toBe('Refused');
+	expect(
+		expectErr(await recorder.recover({ files: nowhere })).name,
+	).toBe('Refused');
+	expect(calls).toEqual([]);
 });
 
 test('a reply that is none of the shell’s refusals is a failure, not an answer', async () => {
@@ -220,7 +212,7 @@ test('a reply that is none of the shell’s refusals is a failure, not an answer
 	};
 	expect(
 		expectErr(
-			await recorder.recover({ files, under: 'recordings', unnamed: [] }),
+			await recorder.recover({ files }),
 		),
 	).toMatchObject({
 		name: 'Failed',
@@ -299,12 +291,12 @@ test('an ending received before start answers reaches its subscriber once and re
 				kind: 'ended',
 				reason: 'permissionRevoked',
 			});
-			return started;
+			return null;
 		}
-		return { durationMs: 1250 };
+		return { id: 'a', durationMs: 1250 };
 	};
 	const recording = expectOk(
-		await recorder.start({ files, path: 'recordings/a' }),
+		await recorder.start({ files, id: 'a' }),
 	);
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
@@ -320,7 +312,7 @@ test('an ending received before start answers reaches its subscriber once and re
 
 test('an ending reaches every listener when the first listener stops the native recorder', async () => {
 	const recording = expectOk(
-		await recorder.start({ files, path: 'recordings/a' }),
+		await recorder.start({ files, id: 'a' }),
 	);
 	let stopping: ReturnType<typeof recording.stop> | undefined;
 	const endings: string[] = [];

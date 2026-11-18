@@ -13,22 +13,31 @@ epicenter-transcription-build = { path = "../packages/epicenter-transcription-bu
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-epicenter-account = { path = "../../../packages/tauri-epicenter-account" }
-epicenter-standalone = { path = "../packages/tauri-epicenter-standalone" }
+# Provider API keys, as Keychain items (`secrets.rs`).
+keyring = "4.2"
+# Decodes the folder and path a raw write carries in its headers (`files.rs`).
+percent-encoding = "2.3"
 # `generate_context!` writes the configuration's `plugins` block as
 # `serde_json` values in the app's own crate, and the tests read the
 # configuration with it.
 serde_json = "1"
 tauri = { version = "2.12", features = [] }
-# tauri-build finds plugin permissions only through direct dependencies.
-tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-recorder = { path = "../packages/tauri-plugin-epicenter-recorder" }
 tauri-plugin-epicenter-transcription = { path = "../packages/transcription" }
+tauri-plugin-fs = "2.4"
 tauri-plugin-global-shortcut = "2.3"
+tauri-plugin-http = "2.5"
+tauri-plugin-opener = "2.5"
+tauri-plugin-persisted-scope = "2.3"
+tauri-plugin-single-instance = "2.3"
+# The path rule and the one place step the file commands and the recorder share.
+whispering-files = { path = "../packages/whispering-files" }
 # A direct dependency gives this final app's build script the
 # DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.
 transcribe-cpp = { version = "0.1.0", default-features = false }
 
 [dev-dependencies]
+tempfile = "3.8"
 # The mock runtime drives the real commands in tests.
 tauri = { version = "2.12", features = ["test"] }

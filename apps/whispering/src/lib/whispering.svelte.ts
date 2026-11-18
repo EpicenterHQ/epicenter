@@ -1,8 +1,8 @@
 /**
  * Whispering for one mounted page: the models it can reach, the microphone,
  * and the recorder, over the capabilities `src/lib/app.ts` opened. What the
- * files show is the library's (`library.svelte.ts`); both write through the
- * same folder, so the folder's `saving()` counts every note either writes.
+ * folder shows is the library's (`library.svelte.ts`); both write through
+ * the same folder.
  *
  * Where a take is kept while it records depends on where the page runs
  * (ADR-0779, ADR-0780): the desktop shell encodes it into the data folder
@@ -10,29 +10,24 @@
  * background, what a quit or a crash cut off (`capture.recover`); a browser
  * keeps it in the page's memory and writes it once at Stop, so a crash or a
  * closed tab loses it. Stop answers once its audio is at its path, and its
- * note is written then (`folder-recordings.ts`). Recording never waits on
- * the network; in a browser, the write at Stop does, since the folder is
- * the person's repository (ADR-0786).
+ * note is written then. Audio whose note was not written, or that a crash
+ * cut off, lists as an untitled recording (ADR-0894).
  *
- * The models are the page's one merge of endpoints (`ai`, ADR-0757):
- * Epicenter's hosted models through the account signed in now, the
- * connections the person saved with their keys, then what runs on this
- * computer, each followed as it changes. The person chooses one model for
- * transcription and one for text; a request captures that choice when it is
- * prepared and goes there alone (`inference.ts`).
+ * The models are the page's one merge of endpoints (`ai`, ADR-0757): the
+ * connections the person saved, then what runs on this computer, each
+ * followed as it changes. The person chooses one model for transcription
+ * and one for text, in `settings.md`; a request captures that choice when
+ * it is prepared and goes there alone (`inference.ts`).
  *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
-import type { Ai, ModelChoice, ModelChoices } from '@epicenter/ai';
-import { timeId } from '@epicenter/definition/ids';
-import type { Folder } from '@epicenter/folder/core';
-import { reactive } from '@epicenter/svelte/reactive';
+import type { Ai, ModelChoice } from '@epicenter/ai';
 import { createContext } from 'svelte';
 import type { Result } from 'wellcrafted/result';
 import type { Capture, CaptureDevice } from './capture.js';
-import type { Whispering as WhisperingContract } from './contract.js';
-import { finishCutOffRecordings, keepRecording } from './folder-recordings.js';
+import type { WhisperingFolder } from './folder.svelte.js';
+import { timeId } from './format/ids.js';
 import {
 	type Audio,
 	addressOf,
@@ -42,12 +37,14 @@ import {
 } from './inference.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { MicrophonePreferences } from './microphone-preference.js';
+import { reactive } from './reactive.js';
 import {
 	type Chosen,
 	type RecipeRow,
 	type ResolvedRecipe,
 	resolveRecipe,
 } from './recipe.js';
+import type { Settings } from './settings.svelte.js';
 
 /** What a model is chosen for: transcribing a recording, or running a transformation on text. */
 export type Operation = 'transcription' | 'text';
@@ -76,11 +73,11 @@ function defaultTitle(at: Date): string {
 /** What Whispering is made over: the capabilities `src/lib/app.ts` opened, or a test's. */
 export type WhisperingCapabilities = {
 	/** Whispering's folder, which every recording and its note is written into. */
-	readonly folder: Folder<WhisperingContract>;
+	readonly folder: Pick<WhisperingFolder, 'recordings' | 'listAudio'>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
-	/** This computer's model for each job. */
-	readonly choices: ModelChoices<'transcribe' | 'chat'>;
+	/** The model chosen for each job, in `settings.md`. */
+	readonly choices: Settings['choices'];
 	/** What records each recording into `folder`. */
 	readonly capture: CaptureDevice;
 	/**
@@ -104,8 +101,8 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
 	const ai = reactive(capabilities.ai);
-	/** This computer's model for each job, read at once: the settings connected before the app rendered. */
-	const choices = reactive(capabilities.choices);
+	/** The model chosen for each job: Svelte state, read when the folder was. */
+	const { choices } = capabilities;
 	/** Why the saved connections do not read, naming the file, if they do not; tracks in Svelte. */
 	const connectionsProblem = () => ai.custom()?.problem()?.message;
 
@@ -153,12 +150,8 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	): Promise<string | undefined> {
 		const why = refused();
 		if (why !== undefined) return why;
-		try {
-			await capabilities.choices.set(CAN[operation], choice);
-			return undefined;
-		} catch (cause) {
-			return describe(cause);
-		}
+		const saved = await choices.set(CAN[operation], choice);
+		return saved.error?.message;
 	}
 
 	/** Send audio to `target`, through the endpoints merged when it is sent. */
@@ -198,7 +191,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	/**
 	 * Stop: release the microphone and finish the audio at its path, then
 	 * write its note. Once closed, nothing more is done here: what was
-	 * written stays, and the next start gives it its note.
+	 * written stays, and lists as an untitled recording.
 	 */
 	function finishRecording(): Promise<void> {
 		const current = captureState;
@@ -227,54 +220,52 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		captureState = { phase: 'idle' };
 		if (disposed) return;
 		// Nothing is in the library yet, so a failure leaves nothing to undo:
-		// whatever audio was written, the next start gives it its note, or
-		// says where it is kept when another file took its path.
+		// whatever audio was written lists as an untitled recording.
 		if (error !== null) {
 			recorderError = error.message;
+			void files.listAudio();
 			return;
 		}
-		// The audio is at its path, so its note goes after it, and lands in
-		// order: the folder keeps it until it does (ADR-0775).
-		await keepRecording(files, {
-			id: take.id,
-			title: defaultTitle(at),
-			recordedAt: at.toISOString(),
-			durationMs: stopped.durationMs,
-		});
+		// The audio is at its path, so its note goes after it.
+		const [kept] = await Promise.all([
+			files.recordings.set(
+				{ id: take.id },
+				{
+					title: defaultTitle(at),
+					recordedAt: at.toISOString(),
+					durationMs: Math.max(0, Math.round(stopped.durationMs)),
+				},
+			),
+			files.listAudio(),
+		]);
+		if (kept.error !== null && !disposed)
+			recorderError = `The recording's audio is saved, but its note was not: ${kept.error.message} It is listed as an untitled recording.`;
 	}
 
 	/**
-	 * On the desktop, finish the audio a quit or a crash cut off, then give
-	 * each such recording its note. It runs once, beside the pages: a
-	 * cut-off recording is at no data path until it is finished, so nothing
-	 * lists it first. What cannot be completed is said and left for the next
-	 * launch. A recording kept outside its path because another file is
-	 * there is said with where its audio is, on every launch until a person
+	 * On the desktop, finish every take a quit or a crash cut short and place
+	 * it in the folder, where it lists as an untitled recording. It runs
+	 * once, beside the pages. What cannot be completed is said and left for
+	 * the next launch. A take kept outside the folder because audio with its
+	 * id is there is said with where it is, on every launch until a person
 	 * moves one of the two. A browser keeps nothing through a crash, so it
 	 * has none to finish (ADR-0780).
 	 */
 	async function completeCutOffRecordings(
 		recover: NonNullable<CaptureDevice['recover']>,
 	) {
-		const finished = await finishCutOffRecordings(files, { recover }).catch(
-			(cause: unknown) => {
-				// The page left while it ran: its folder takes no more writes.
-				if (disposed) return undefined;
-				throw cause;
-			},
-		);
-		if (finished === undefined || disposed) return;
-		const { data, error } = finished;
+		const { data, error } = await recover();
+		if (disposed) return;
 		if (error !== null) {
-			if (error.name !== 'Unavailable')
-				recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
+			recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
 			return;
 		}
+		if (data.recovered.length > 0) void files.listAudio();
 		if (data.unplaced.length > 0)
-			recorderError = `A recording is kept outside the library, because another file is at its path: ${data.unplaced
+			recorderError = `A recording is kept outside the library, because audio with its id is already there: ${data.unplaced
 				.map(
-					({ path, pending }) =>
-						`its audio is at ${pending} in this folder, and ${path} is another file`,
+					({ id, take }) =>
+						`recordings/${id}.webm is another file, and the recording is at ${take}`,
 				)
 				.join('; ')}. Move the other file, and the next start adds it.`;
 	}

@@ -2,9 +2,10 @@
 <p align="center">Record, transcribe, transform, and keep it all as files.</p>
 
 Whispering is an app for voice notes. It records audio, transcribes it with
-an OpenAI-compatible endpoint you choose (or Epicenter's hosted API), turns a
-transcript into another text with instructions you write, and keeps every
-recording, transcript, instruction, and result as an ordinary file.
+an OpenAI-compatible endpoint you choose, turns a transcript into another
+text with instructions you write, and keeps every recording, transcript,
+instruction, and result as an ordinary file on your own device. It needs no
+account and no server.
 
 Those files follow Whispering's contract, `src/lib/contract.ts`, published
 unchanged as `static/contract.json` (`bun run contract` rewrites it after a
@@ -14,66 +15,57 @@ against. Any program that writes the layout is a valid writer.
 | Path | What it is |
 | --- | --- |
 | `recordings/<id>.md` | A recording: `title`, `recordedAt`, `durationMs` in front matter, your notes in the body. |
-| `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from a desktop. |
+| `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from the desktop app. Audio with no note lists as an untitled recording. |
 | `transcriptions/<id>.md` | A transcript: the `recordingId` it was made from, `createdAt`, `model`, `endpoint`; the transcript is the body. |
 | `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text model chosen in Settings); its instructions are the body. |
 | `transformation_runs/<id>.md` | A transformation applied to a transcript: what it came from, when, the model and endpoint, and the exact `prompt` and `input` sent; the answer is the body. |
 | `text_runs/<id>.md` | The same, applied to pasted text; it names no recording. |
-| `shortcuts.md` | The desktop app's global shortcut, `toggleRecording` (absent: `CommandOrControl+Shift+;`). The web app has none and leaves it. |
+| `settings.md` | Your settings: the model for each job, your connections (never their keys), and the desktop app's global shortcut (absent: `CommandOrControl+Shift+;`). |
 
 An id is when the file was made plus a random suffix (`timeId()`). A file's
 id is its identity: renaming a recording changes its `title`, never its path,
-so a transcript's `recordingId` never breaks. The one setting in its files
-is the desktop shortcut; its connections and the chosen microphone belong to
-one device and stay on it.
-
-Whispering on the web runs in a browser tab over the signed-in person's
-repository and keeps nothing in the browser. Its desktop app keeps the
-files in a folder on the computer (see [The desktop app](#the-desktop-app)).
-Both are the same pages, from one build, over the same contract; Whispering
-itself moves no files between them (decision 77).
+so a transcript's `recordingId` never breaks.
 
 ## Where the files are
 
-Whispering on the web is online
-([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)):
-its files are the folder attached to Whispering on the server (a repository
-at `/folders/<id>`), through the account (`openFolder(whispering, home({ site, account }))` in
-`src/lib/app.ts`), at the same paths a folder holds. Signed out it asks for
-a sign-in (`src/lib/components/SignIn.svelte`); signed in, every recording,
-edit, transcript and result is a change there, and nothing is kept in the
-browser. It needs the network; there is no browser copy to fall back on
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+Whispering keeps its files on the device it runs on
+([ADR-0894](../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)):
 
-- A recording lands whole at Stop: its audio, kept by its SHA-256, then its
-  note with its length (see [Recording](#recording)). Nothing is sent while
-  it records, and recording never waits on the network.
-- Transcripts, transformations, and their results are kept beside it when
-  they are made.
-- Changes another tab makes show without a reload.
-- A note at one of these paths that does not read is listed under "Needs
-  repair" with why and its text. Saving fixed text there writes it; text
-  that still does not fit is written as typed and stays listed to fix.
+- **The desktop app** keeps them in `data/` in its local data directory
+  (on macOS, `~/Library/Application Support/so.epicenter.whispering/data`).
+  Settings shows the folder, with Show in Finder, Copy path, and Change….
+  Pick an empty folder, such as one a file syncer keeps, and the
+  recordings move into it; pick a Whispering folder (one holding
+  `settings.md` or `recordings/`) and it opens, the old one left where it
+  was; any other folder is refused. Two folders are never merged.
+  Uninstalling the app or clearing its data removes the default folder
+  with it. When the folder is in a Git repository, Settings says whether
+  its audio would go into Git whole (no Git LFS rule for `.webm`) and that
+  audio deleted here stays in the repository's history.
+- **Audio is kept** until you delete it. Settings shows how much there is
+  and deletes audio older than a time you pick; a recording keeps its note
+  and transcripts.
+- **The web app** keeps them in the browser's Origin Private File System, in
+  the same layout. It asks the browser to keep them, shows how much it
+  stores, and offers Export as zip, because a browser may clear a site's
+  storage. It runs where a page can write files whole (`createWritable()`):
+  Chrome, Firefox, and Safari 26 or later.
 
-The header's status line says where the recordings are, "Your repository",
-and whether it answers: Online, Offline when it does not, or Sign in again
-when the sign-in needs renewing.
+Whispering runs in one place at a time: a second desktop window focuses the
+first, and a second browser tab says Whispering is open in another tab and
+waits until that one closes. It reads its folder again when its window
+regains focus, so a change another program made shows then. It never
+replaces a note that changed since it showed it: it shows the newer text
+instead.
 
-### Signing in
+A note at one of these paths that does not read is listed under "Needs
+repair" with why and its text. Saving fixed text there writes it; text that
+still does not fit is written as typed and stays listed to fix.
 
-On the web the sign-in holds the recordings, so Whispering asks for it
-before it opens, and signing out asks for it again. The same sign-in adds
-Epicenter's models, listed beside every other model for transcription and
-text, which send through Epicenter's hosted API. In the desktop app signing
-in is optional, from Settings, and only adds Epicenter's models; it never
-moves a recording, and signing out keeps every one.
-
-The app signs in as `so.epicenter.whispering` (`connectAccount()` in
-`src/lib/app.ts`) and asks for what each capability given the account says
-it needs: `home` the repository, `hosted(account)` the AI gateway
-([ADR-0792](../../docs/adr/0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md)).
-It has no automatic renewal, so a timer never navigates away mid-recording.
-The server is `VITE_EPICENTER_SERVER` at build time, else Epicenter's.
+What belongs to one computer stays out of the folder: a connection's key is
+in the Keychain on the desktop and in the site's `localStorage` in a
+browser, and the folder's location and the chosen microphone are in
+`localStorage`.
 
 ## Using it
 
@@ -89,19 +81,19 @@ already saved.
 | Recordings | `/recordings` | Search, sort, and select recordings; play, transcribe, and edit beside the table. |
 | Transformations | `/transformations` | The instructions you apply to transcripts or pasted text, and their results. |
 
-The header has the status line, a recorder control on every page but Home,
-and Settings (the transcription and text models, their connections, and
-the sign-in).
+The header has a recorder control on every page but Home, and Settings
+(the transcription and text models, their connections, the folder, and on
+the desktop the shortcut and transcription in the app).
 
 ### Recording
 
 Press the microphone on Home to start and again to stop. The take is kept
 in the page's memory while it records (AAC in `.m4a`, else Opus in
-`.webm`), and nothing is sent; Stop writes the audio to the repository at
+`.webm`), and nothing is sent; Stop writes the audio to the folder at
 once, then a note beside it titled with the time and holding its length,
-and the recording appears in the list
-([ADR-0779](../../docs/adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md)).
-While a take runs, leaving the page asks first.
+and the recording appears in the list. If the audio cannot be written, the
+recording fails and says why; if only the note cannot, the audio lists as
+an untitled recording. While a take runs, leaving the page asks first.
 
 The web app does not promise to keep a take through a crash or a closed
 tab: one cut off that way is lost. The desktop app keeps it
@@ -119,14 +111,15 @@ only the ticked rows shown.
 A recording's details hold its player, its transcripts (each edited where it
 is read, with Copy, Transform, and Delete), its notes, and File details:
 where it is kept, which files it has, and when it was made. The title and
-every text save as you type. A save never fails: while the files cannot be
-reached, a line at the top of the page says so, and every change waits, in
-order, until they can.
+every text save as you type. A save that fails keeps what you typed and says
+why, with Try again and Discard changes; one refused because the note
+changed elsewhere offers Keep mine and Show the newer text. Leaving the page
+with unsaved typing asks first.
 
 Deleting a recording deletes its note, its audio, its transcripts, and the
 results made from them. It is refused while a request for
-it runs, and while a transcript or result does not read (it might be this
-recording's). A result on pasted text is never deleted with a recording.
+it runs or its answer waits to be saved again, and while a transcript or
+result does not read (it might be this recording's). A result on pasted text is never deleted with a recording.
 
 ### Transcription
 
@@ -136,9 +129,9 @@ transcribed until you press it. While the request is out, the recording says
 so. If no answer comes, it says why with **Run again** (the same request, to
 the same endpoint and model, and only while that endpoint is still where it
 was) and
-**Dismiss**. When the answer arrives its transcript is saved, and the
-recording says so until it is; while the files cannot be reached, the save
-waits until they can, with no second request.
+**Dismiss**. When the answer arrives its transcript is saved. If it cannot
+be saved, the answer stays on screen with **Save again**, which writes it
+without a second request, and **Discard answer**.
 
 ### Transformations
 
@@ -168,8 +161,7 @@ Three controls sit beside the microphone on Home:
   microphones** does. A chosen microphone that is not connected refuses the
   recording; no other is used in its place. **Test microphone** shows its
   level and records nothing. The choice applies to the next recording and is
-  kept in this computer's settings (`microphone.json`: this site's
-  `localStorage`, or AppData on the desktop), never in Whispering's files.
+  kept in this computer's `localStorage`, never in Whispering's files.
 - **Transcription model.** The transcription part of Settings, the same
   choice.
 - **Post-processing.** None, or one of your transformations. Choosing sends
@@ -179,27 +171,25 @@ Three controls sit beside the microphone on Home:
 ### Models and connections
 
 Settings chooses two models, **Transcription** and **Text**, from every
-endpoint Whispering can reach (ADR-0757): Epicenter's once you sign in, each
-connection you saved (a provider's base URL and an optional key), Ollama and
-LM Studio when they run on this computer, and on the desktop transcription
-in the app itself. The same picker adds, edits and removes a connection.
-Choices and connections stay on this computer, never in Whispering's
-files: `models.md` and `connections.md` in this computer's settings (this
-site's `localStorage`, or AppData on the desktop), with each key in this
-site's `connection-keys.json`, or on the desktop in the app's
-`credentials.json`.
+endpoint Whispering can reach (ADR-0757): each connection you saved (a
+provider's base URL and an optional key), Ollama and LM Studio when they run
+on this computer, and on the desktop transcription in the app itself. The
+same picker adds, edits and removes a connection. The choices and the
+connections are in `settings.md`; each key stays on this computer (the
+Keychain on the desktop, `localStorage` in a browser), and Settings says
+where.
 
 - Nothing is sent until you press Transcribe or Run. Choosing a model sends
   nothing; adding a connection may ask its endpoint which models it serves.
 - A request goes only to the endpoint and model chosen when it was prepared,
   and is refused, with nothing sent, if that connection was removed or now
-  sends elsewhere. A key is kept only for the endpoint it was saved for,
+  sends elsewhere. A key is sent only to the base URL it was entered for,
   never carried by a redirect, and removed from any error that echoes it.
 - The web app's tab sends requests itself, so a connection's endpoint must
-  allow the page's origin (CORS). Most hosted providers refuse that;
-  Epicenter's models work. A key saved here can be read by code running on
-  the site, and Settings says so.
-- Signed out, Epicenter's models send nothing and say to sign in.
+  allow the page's origin (CORS); many hosted providers refuse that. The
+  desktop app sends through Tauri's HTTP plugin, which no endpoint's CORS
+  refuses. Code running on Whispering's page can read a key it holds, so
+  the page loads no remote script.
 - If no answer arrives, the request may have been answered with the reply
   lost; the app says the outcome is unknown and never sends it again on its
   own.
@@ -215,7 +205,7 @@ bun run --cwd apps/whispering test         # unit tests (Svelte's browser runtim
 ```
 
 The build is static: any host that answers unknown paths with `index.html`
-(for `/auth/callback`) serves it, at an origin the API registers.
+serves it.
 
 ## The desktop app
 
@@ -224,115 +214,69 @@ bun dev:whispering:desktop     # from the repository root; needs a Rust toolchai
 bun build:whispering:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
-`~/Epicenter Dev/whispering` in development. The page opens this folder,
-making it when missing for now. What this computer alone keeps, the
-shortcut's override, the connected endpoints, the model choices and the
-microphone, is this computer's settings (`settings` from `@epicenter/local`:
-files in AppData, written only by the shell), which the page connects to
-beside the folder. A failed open shows the shared recovery screen with
-Retry. The
-status details and Settings show the shell's folder path. Whispering never
-syncs it
-([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)),
-and the folder sync product that once did is retired
-([ADR-0899](../../docs/adr/0899-the-folder-sync-product-is-retired.md)).
-
 The page is the web's own build (`build/`, the dev server in development).
 One build serves both
-([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
-each capability package decides where the page runs and loads its desktop
-code only there, and `src/lib/app.ts` makes every capability once, for the
-page's life, with no branch of its own:
+([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)),
+and `src/lib/app.ts` makes every capability once, for the page's life:
 
 | Capability | In a browser | In a Tauri window |
 | --- | --- | --- |
-| `folder` (`home` from `@epicenter/folder`) | the person's repository | the data folder |
-| `account` (`connectAccount()` from `@epicenter/account`) | browser OAuth | `createTauriAuth` over `epicenter-account` |
+| `folder` (`openFolder` over `Files`) | `opfsFiles('data')` | `tauriFiles` over the picked folder, else `data/` in the app's local data directory |
 | `recorder` (from `@epicenter/recorder`) | the WebView's microphone, the take in memory | the shell's microphone |
-| `ai`: `customEndpoints()`, `localServers()` (from `@epicenter/ai`) | requests from the tab | requests through the shell's fetch, each key kept by the shell |
+| `ai`: `customEndpoints()`, `localServers()` (from `@epicenter/ai`) | requests with the page's `fetch` | requests through `@tauri-apps/plugin-http` |
+| a connection's key (`secrets` in `src/lib/this-computer.ts`) | `localStorage` | the Keychain, through `secret_get` and `secret_set` |
 | `speech` (`localSpeech()` from `@epicenter/transcription`) | `null` | transcription in the app |
 | `shortcut` (`openShortcut` in `src/lib/shortcut.ts`) | `null` | the global shortcut |
 
-The root renders the pages once the folder and the settings are open
-(`<WhenOpen>` from `@epicenter/svelte`), or the recovery screen when one
-cannot open. The views branch on what the capabilities offer: the header
-shows `FolderChrome` (where the folder is on this computer) where
-`folder.reveal` is there and `RepositoryChrome` (the repository's status
-and Sign in again) otherwise, and Settings shows `FolderSettings`,
-`SpeechSettings` and `ShortcutSettings` (in `src/lib/components/`) only
-where there is a folder on this computer, transcription in the app, and a
-shortcut. `connectionsNote` (`src/lib/connections-note.ts`) says where a
-connection's key is kept and where its requests leave from.
-
+- **The folder** is read and written through five of Whispering's own
+  commands in its shell (`files_read`, `files_read_many`, `files_write`,
+  `files_list`, `files_remove`). Each checks the folder against the app's
+  grant: the default folder, which the shell allows at start, or the
+  folder picked in Settings, which the system's folder dialog grants and
+  `tauri-plugin-persisted-scope` restores at each start. The path itself
+  is kept in `localStorage`. A write is staged in `local/.tmp/` in the
+  app's local data directory and renamed into the folder, so the folder
+  only ever holds finished files.
 - **Recording** goes through the shell's microphone
-  (`tauri-plugin-epicenter-recorder`), which encodes a recording to Opus
-  in WebM in the data folder from the first sample and places it at
-  `recordings/<id>.webm` when Stop answers, in the same few milliseconds
-  for a recording of any length. The call is the same as in a browser,
-  `recorder.start({ files, path })` from `@epicenter/recorder`, which loads
-  the shell's recorder in a Tauri window (decision 84). The note, with its
-  length, is written once Stop has answered (`folder-recordings.ts`). A
-  recording a quit or a crash cut off is finished, placed and given its
-  note on the next launch, in the background beside the pages; it is at no
-  data path until then, so nothing lists it first. The shell records into
-  the data folder it opened for the page; the page names only the
-  recording's path.
-- **Requests** to a connection, and to Ollama and LM Studio, leave from
-  Rust through the shell's one fetch (`connection_fetch` in
-  `epicenter-account`), which adds a connection's key and sends only to the
-  endpoint it was saved for, so no endpoint needs CORS; Epicenter's go
-  through the account's relay (`account_fetch`, whose token the page never
-  holds); transcription on this computer runs in the app
+  (`tauri-plugin-epicenter-recorder`), which encodes Opus in WebM from the
+  first sample into the take `local/recording/<id>.webm`, outside the
+  folder, and places it at `recordings/<id>.webm` when Stop answers. A recording a quit or a
+  crash cut off is finished and placed on the next launch, in the
+  background beside the pages, and lists as an untitled recording.
+- **Transcription on this computer** runs in the app
   (`localSpeech()` from `@epicenter/transcription`, models downloaded in
   Settings), which takes the recording's audio as an upload.
-- **Connections** are AppData's `connections.md`, which records the
-  endpoint each key was entered for and never the key
-  (`customEndpoints()` from `@epicenter/ai`). **Keys** are in the app's
-  `credentials.json` in AppData, which the shell keeps and no page reads
-  (`connection_key_set`,
-  [ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)).
-  A debug build started with `EPICENTER_SECRETS_FILE=<path>` keeps its
-  credentials in that file instead.
-- **Sign-in** is optional, from Settings, and adds Epicenter's models. It
-  is `so.epicenter.whispering.native` through the shared
-  [`epicenter-account`](../../packages/tauri-epicenter-account/README.md)
-  crate, in the system browser.
 - **The global shortcut** starts and stops a recording from any app:
-  `toggleRecording` in `shortcuts.md`, `CommandOrControl+Shift+;` by
-  default. It resolves with a shallow spread, `{ ...defaults, ...data,
-  ...here }`: the data folder's note travels with the files, and this
-  computer's `shortcuts.md` (`settings.file('shortcuts.md')`, Settings' **Only
-  on this computer**) overrides it here.
-  Settings writes the data folder's note by default, and removes this
-  computer's override when it does. The shell never reads the note: the
-  page asks it to hold the resolved key (`set_shortcut`) at startup and
-  whenever the key changes, and a key that does not parse or that another
-  app holds is refused before anything is written, the reason shown in
+  `shortcut` in `settings.md`, `CommandOrControl+Shift+;` by default. The
+  page asks the shell to hold it (`set_shortcut`) once the folder is read
+  and whenever it changes; a key that does not parse or that another app
+  holds is refused before anything is written, the reason shown in
   Settings. The Settings field records the keys pressed in it
   (`acceleratorOf`, by each key's place on the keyboard): a modifier other
   than Shift and a key, or a function key; ⌘ on a Mac and Ctrl elsewhere
-  are both `CommandOrControl`, so a synced shortcut means the same on
-  either. Escape lets go of what was pressed; Tab moves on.
+  are both `CommandOrControl`. Escape lets go of what was pressed; Tab
+  moves on.
+- **One window**: the single-instance plugin focuses the open window
+  instead of starting a second.
 
-`cargo test -p whispering` checks the identity, the native client id, that
-the capability grants exactly the plugins' permissions and the commands the
-build script declares, and how an accelerator parses.
+`cargo test -p whispering` checks the identity, the file system plugin's
+configuration, that the capability grants exactly the plugins' permissions
+and the commands the build script declares, and how an accelerator parses.
 
 ## What is not supported
 
-- Whispering syncing the desktop app's folder itself: on a computer only
-  Epicenter's programs sync (ADR-0822), and Whispering moves no recordings
-  between that folder and the web's folder on the server.
+- Syncing between devices. A recording reaches another device by export, or
+  by keeping the desktop folder in a file syncer.
+- Importing a zip the web app exported, and importing from Whispering 7.
 - In the web app, keeping a take through a crash or a closed tab, recording
-  in the background, working with no network, and a global shortcut: these
-  are the desktop app's.
+  in the background, and a global shortcut: these are the desktop app's.
+- Two tabs or windows at once.
+- Epicenter's hosted models. They come back as a connection in a later
+  change.
+- Deleting old audio in bulk, and showing the audio's size.
 - A Files view, a Source tab for notes that read, renaming files, and files
   outside the contract. A note that does not read is repaired as text where
   it is listed.
-- Reading files an earlier build kept (its IndexedDB folder, a Yjs store,
-  or the recordings an earlier web build kept in a browser). There is no
-  migration.
 - System-wide dictation beyond the desktop's one start-and-stop shortcut:
   push-to-talk, voice-activated recording, and delivering text to the
   cursor. Copy buttons are the only way text leaves the app.

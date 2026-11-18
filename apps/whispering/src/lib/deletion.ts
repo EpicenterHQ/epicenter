@@ -14,8 +14,8 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type {
 	NoteName,
 	RecordingAudio,
-	WhisperingFiles,
-} from './files.svelte.js';
+	WhisperingFolder,
+} from './folder.svelte.js';
 
 /** One note a deletion removes: its collection and id. */
 export type NoteRef = {
@@ -33,6 +33,8 @@ export type Deletion =
 			readonly kind: 'recording';
 			readonly id: string;
 			readonly title: string;
+			/** Whether it has a note; a recording may be its audio alone. */
+			readonly noted: boolean;
 			/** Its audio file, when one is listed. */
 			readonly audio: string | undefined;
 			/** Its transcripts, then the results made from them. */
@@ -58,7 +60,7 @@ export type Deletion =
 	  };
 
 export type DeletionContext = {
-	readonly files: WhisperingFiles;
+	readonly files: WhisperingFolder;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
 	busy(recordingId: string): string | undefined;
 };
@@ -91,7 +93,7 @@ function audioPath(id: string, audio: RecordingAudio) {
  * recording's.
  */
 function resultsOf(
-	files: WhisperingFiles,
+	files: WhisperingFolder,
 	id: string,
 ): Result<NoteRef[], string> {
 	const unknown = [
@@ -143,7 +145,9 @@ export function captureDeletion(
 		case 'recordings': {
 			const why = busy(note.id);
 			if (why !== undefined) return Err(why);
-			const recording = files.recordings.get({ id: note.id });
+			const noted = files.recordings.get({ id: note.id });
+			const recording =
+				noted ?? files.unnoted().find((item) => item.id === note.id);
 			if (recording === undefined)
 				return Err('This recording is no longer listed.');
 			const { data: results, error } = resultsOf(files, note.id);
@@ -152,6 +156,7 @@ export function captureDeletion(
 				kind: 'recording',
 				id: note.id,
 				title: titleOf(recording),
+				noted: noted !== undefined,
 				audio: audioPath(note.id, files.audioOf(note.id)),
 				results,
 			});
@@ -180,39 +185,41 @@ export function captureDeletion(
 }
 
 type RunContext = {
-	readonly files: WhisperingFiles;
+	readonly files: WhisperingFolder;
 	/** Forget what failed for a recording that is gone. */
 	dropFailed(recordingId: string): void;
 	/** The page state lets a deleted note go. */
 	deleted(note: NoteRef): void;
 };
 
-async function deleteNote({ files, deleted }: RunContext, note: NoteRef) {
-	await files[note.collection].delete({ id: note.id });
+/** Delete one note; why it was not deleted, or undefined. */
+async function deleteNote(
+	{ files, deleted }: RunContext,
+	note: NoteRef,
+): Promise<string | undefined> {
+	const gone = await files[note.collection].delete({ id: note.id });
+	if (gone.error !== null) return gone.error.message;
 	deleted(note);
+	return undefined;
 }
 
 /**
  * Delete what was confirmed, checking a recording's results against the
- * lists again first: one saved since the person was asked keeps it. Each
- * delete answers once it has landed and never fails (ADR-0775), so the
- * files go in order: results, the note, then the audio.
+ * lists again first: one saved since the person was asked keeps it. The
+ * files go in order (results, the note, then the audio), and the first
+ * that cannot be deleted stops the rest, so no result ever names a
+ * recording that is gone. Answers why it stopped, or undefined.
  */
 export async function runDeletion(
 	context: RunContext,
 	deletion: Deletion,
 ): Promise<string | undefined> {
-	if (deletion.kind === 'transformation') {
-		await deleteNote(context, {
+	if (deletion.kind === 'transformation')
+		return deleteNote(context, {
 			collection: 'transformations',
 			id: deletion.id,
 		});
-		return undefined;
-	}
-	if (deletion.kind !== 'recording') {
-		await deleteNote(context, deletion.note);
-		return undefined;
-	}
+	if (deletion.kind !== 'recording') return deleteNote(context, deletion.note);
 	const { id } = deletion;
 	const { data: now, error } = resultsOf(context.files, id);
 	if (error !== null) return error;
@@ -220,11 +227,15 @@ export async function runDeletion(
 	if (now.some((result) => !confirmed.has(notePath(result))))
 		return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
 	// Results first, so none is ever left naming a recording that is gone.
-	for (const result of deletion.results) await deleteNote(context, result);
-	await deleteNote(context, { collection: 'recordings', id });
+	for (const result of deletion.results) {
+		const problem = await deleteNote(context, result);
+		if (problem !== undefined) return problem;
+	}
+	const problem = await deleteNote(context, { collection: 'recordings', id });
+	if (problem !== undefined) return problem;
 	context.dropFailed(id);
-	await context.files.deleteAudio(id);
-	return undefined;
+	const audio = await context.files.deleteAudio(id);
+	return audio.error?.message;
 }
 
 const count = (n: number, one: string, many: string) =>
@@ -238,7 +249,7 @@ export function describeDeletion(deletion: Deletion): {
 	switch (deletion.kind) {
 		case 'recording': {
 			const removed = [
-				'its note',
+				...(deletion.noted ? ['its note'] : []),
 				...(deletion.audio ? [`its audio (${deletion.audio})`] : []),
 				...(deletion.results.length > 0
 					? [count(deletion.results.length, 'result', 'results')]

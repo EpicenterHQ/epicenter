@@ -1,9 +1,10 @@
 /**
  * Audio capture for one recording at a time. Stop answers once the audio is
- * at its path (`recordings/<id>.<ext>`), with how long it plays. On the
- * desktop the shell writes Opus in WebM from the first sample outside the
- * recording's path and places it there at Stop, so a quit or a crash keeps
- * the take, and `recover` finishes it at the next launch (decision 84). In a
+ * in the folder (`recordings/<id>.<ext>`), with how long it plays. On the
+ * desktop the shell writes Opus in WebM from the first sample into a take
+ * outside the folder (`local/recording/<id>.webm`) and places it at Stop,
+ * so a quit or a crash keeps the take, and `recover` finishes and places it
+ * at the next launch (decision 84, ADR-0894). In a
  * browser the take is kept in memory and written once at Stop; a crash or a
  * closed tab loses it, and there is nothing to recover (ADR-0779,
  * ADR-0780).
@@ -18,18 +19,9 @@ import type {
 	RecorderError,
 	Recording,
 	RecordingInput,
-	UnplacedRecording,
+	Recovery,
 } from '@epicenter/recorder';
 import type { Result } from 'wellcrafted/result';
-
-/** What `CaptureDevice.recover` answers. */
-export type Recovered = {
-	readonly whole: readonly {
-		readonly id: string;
-		readonly durationMs: number | null;
-	}[];
-	readonly unplaced: readonly UnplacedRecording[];
-};
 
 /** A recording being written into Whispering's files. */
 export type Capture = {
@@ -65,16 +57,10 @@ export type CaptureDevice = {
 	>;
 	start(options: CaptureStart): Promise<Result<Capture, RecorderError>>;
 	/**
-	 * The desktop's alone: finish the audio of recordings a quit or a crash
-	 * cut off, and answer each recording whose audio is whole at its path and
-	 * may have no note (`whole`), by id, with how long it plays (null: read
-	 * it to measure). `unnamed` is the audio at its path no note names, by
-	 * store-relative path (`recordings/<id>.<ext>`). It also answers each
-	 * recording kept outside its path because another file is there
-	 * (`unplaced`), which no note can name. Where a cut-off recording waits
-	 * is the recorder's to know.
+	 * The desktop's alone: finish and place every take a quit or a crash cut
+	 * short (`recovered`, by id, with how long it plays), and answer each
+	 * take kept outside the folder because audio with its id is there
+	 * (`unplaced`). Where a take waits is the recorder's to know.
 	 */
-	recover?(
-		unnamed: readonly string[],
-	): Promise<Result<Recovered, RecorderError>>;
+	recover?(): Promise<Result<Recovery, RecorderError>>;
 };

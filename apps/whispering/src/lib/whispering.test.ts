@@ -1,16 +1,16 @@
 /**
- * Whispering over its files, as the mounted app reads and writes them in a
- * browser (a place in memory stands in for the person's repository).
+ * Whispering over its files, as the mounted app reads and writes them
+ * (memory stands in for the data folder or the Origin Private File System).
  *
  * Key behaviors:
  * - A recording's audio lands at Stop, and its note, with its length, once
  *   Stop has answered with its audio at its path
  * - A take is on the record screen until Stop answers, not in the library
- * - While the files refuse writes, a recording waits in the folder and
- *   lands when they take it again, its audio before its note
- * - On the desktop, audio no note names (a note the page closed before it
- *   landed, a placement that failed) gets its note from the next launch's
- *   recovery, which runs beside the pages; what it cannot complete is said
+ * - Audio that cannot be written fails the recording, saying why; audio
+ *   whose note cannot be written lists as an untitled recording, and says so
+ * - On the desktop, audio a quit or a crash cut off is completed by the
+ *   next launch's recovery, beside the pages, and lists as an untitled
+ *   recording; what it cannot complete is said
  * - A transcription sends the recording's audio to the model chosen for it,
  *   and its transcript names that model and where it went
  * - A request goes only to the endpoint it was prepared for: one whose
@@ -18,22 +18,20 @@
  * - A result is kept when its answer arrives, even if the pages have since
  *   closed
  * - Deleting a recording deletes its transcripts, their results, and its
- *   audio; it is refused while work for it runs
- * - An answer whose result cannot land yet waits in the folder, and the
- *   run ends when it lands
+ *   audio; it is refused while work for it runs or waits to be saved
+ * - An answer whose result cannot be written stays in the window, and
+ *   Save again writes it without sending another request
  * - A note that does not read is listed for repair and repaired as text
  *
  * Run with `--conditions=browser` (`bun run test`): the lists are Svelte
  * state, and Svelte's server runtime notifies nothing.
  */
-import '../../../../packages/svelte/src/svelte-dom.test-support.js';
+import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { openFolder } from '@epicenter/folder';
 import { RecorderError } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice } from './capture.js';
-import { whispering as whisperingContract } from './contract.js';
 import {
 	deferred,
 	eventually,
@@ -49,13 +47,12 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-/** The app over a fresh place of this browser's files. */
+/** The app over fresh files in memory. */
 async function fixture(options: TestServicesOptions = {}) {
 	const test = await openTestServices(options);
-	cleanups.push(test.close);
 	const opened = await createTestWhispering({
 		services: test.services,
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
 	return { test, ...opened };
@@ -98,7 +95,6 @@ function afterStop(capture: CaptureDevice, after: () => void): CaptureDevice {
 
 test('a recording’s audio lands at Stop, and its note, with its length', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	let whenStopped: string[] = [];
 	const opened = await createTestWhispering({
 		services: {
@@ -107,7 +103,7 @@ test('a recording’s audio lands at Stop, and its note, with its length', async
 				whenStopped = test.outside.paths('recordings');
 			}),
 		},
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
 	const { library } = opened;
@@ -130,7 +126,6 @@ test('a recording’s audio lands at Stop, and its note, with its length', async
 
 test('a take is on the record screen, not in the library, until Stop answers with its audio at its path', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	// The desktop's shape: Stop finishes the audio and places it, then answers.
 	const stopping = deferred<void>();
 	const capture: CaptureDevice = {
@@ -152,7 +147,7 @@ test('a take is on the record screen, not in the library, until Stop answers wit
 	};
 	const { whispering, library } = await createTestWhispering({
 		services: { ...test.services, capture },
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(() => whispering.dispose());
 
@@ -175,83 +170,51 @@ test('a take is on the record screen, not in the library, until Stop answers wit
 	expect(whispering.recorderError).toBeUndefined();
 });
 
-test('a recording made while the files refuse writes lands when they take them again, its audio before its note', async () => {
-	const { test, folder, whispering, library } = await fixture();
-	const undo = test.outside.refuse('The disk is full', { under: 'recordings' });
+test('a recording whose audio cannot be written fails, saying why, and nothing is listed', async () => {
+	const { test, whispering, library } = await fixture();
+	test.outside.refuse('The disk is full', { under: 'recordings' });
 
 	await whispering.startRecording();
-	expect(whispering.recorder.phase).toBe('recording');
-	const stopping = whispering.stopRecording();
-	await eventually(() => test.files.unavailable() !== null);
+	await whispering.stopRecording();
+
+	expect(whispering.recorder.phase).toBe('idle');
+	expect(whispering.recorderError).toContain('The disk is full');
 	expect(library.entries).toHaveLength(0);
 	expect(test.outside.paths('recordings')).toEqual([]);
-
-	undo();
-	await stopping;
-	await eventually(() => library.entries.length === 1);
-	const [recording] = library.entries;
-	expect(test.outside.paths('recordings')).toEqual([
-		`recordings/${recording!.id}.md`,
-		`recordings/${recording!.id}.wav`,
-	]);
-	expect(folder.saving()).toBe(false);
-	expect(whispering.recorderError).toBeUndefined();
 });
 
-/** A capture that answers every audio file no note names as whole, as the desktop's does. */
-const namesUnnamed = async (unnamed: readonly string[]) =>
-	Ok({
-		whole: unnamed.map((path) => ({
-			id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
-			durationMs: null,
-		})),
-		unplaced: [],
-	});
-
-test('on the desktop, a recording whose note has not landed when the window closes gets one from the next launch, its length read from its audio', async () => {
+test('a recording whose note cannot be written lists as an untitled recording, and says so', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
-	// The audio lands at Stop; the files refuse every write after it, so the
-	// note waits in the page's folder.
-	let undo = () => {};
-	let stopped = false;
-	const first = await createTestWhispering({
+	const opened = await createTestWhispering({
 		services: {
 			...test.services,
 			capture: afterStop(test.services.capture, () => {
-				undo = test.outside.refuse('The disk is full', {
-					under: 'recordings',
-				});
-				stopped = true;
+				// The audio is at its path; every write after it is refused.
+				test.outside.refuse('The disk is full', { under: 'recordings' });
 			}),
 		},
-		place: test.place,
+		files: test.files,
 	});
-	await first.whispering.startRecording();
-	void first.whispering.stopRecording();
-	await eventually(() => stopped && first.folder.saving());
-	expect(first.library.entries).toHaveLength(0);
-	expect(first.whispering.recorderError).toBeUndefined();
-	// The page closes with the note still waiting: it is not made.
-	first.close();
+	cleanups.push(opened.close);
+	const { whispering, library } = opened;
 
-	undo();
-	const services = {
-		...test.services,
-		capture: { ...test.services.capture, recover: namesUnnamed },
-	};
-	const next = await createTestWhispering({ services, place: test.place });
-	cleanups.push(next.close);
-	await eventually(() => next.library.entries.length === 1);
-	expect(next.library.entries[0]).toMatchObject({
-		title: 'Recovered recording',
-		durationMs: 1000,
-	});
+	await whispering.startRecording();
+	await whispering.stopRecording();
+
+	await eventually(() => library.entries.length === 1);
+	const [recording] = library.entries;
+	expect(recording).toMatchObject({ title: '' });
+	expect(test.outside.paths('recordings')).toEqual([
+		`recordings/${recording!.id}.wav`,
+	]);
+	expect(whispering.recorderError).toContain(
+		'audio is saved, but its note was not',
+	);
+	expect(whispering.recorderError).toContain('The disk is full');
 });
 
-test('a recording the shell could not place gets its note when the next launch places it', async () => {
+test('a recording the shell could not place lists once the next launch places it', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	let staged: { id: string; bytes: Uint8Array } | undefined;
 	// The desktop's shape: the audio waits outside its path, Stop cannot
 	// place it, and the next start's recover does.
@@ -272,16 +235,16 @@ test('a recording the shell could not place gets its note when the next launch p
 			});
 		},
 		async recover() {
-			if (staged === undefined) return Ok({ whole: [], unplaced: [] });
+			if (staged === undefined) return Ok({ recovered: [], unplaced: [] });
 			await test.outside.write(`recordings/${staged.id}.wav`, staged.bytes);
 			return Ok({
-				whole: [{ id: staged.id, durationMs: 1000 }],
+				recovered: [{ id: staged.id, durationMs: 1000 }],
 				unplaced: [],
 			});
 		},
 	};
 	const services = { ...test.services, capture };
-	const first = await createTestWhispering({ services, place: test.place });
+	const first = await createTestWhispering({ services, files: test.files });
 	await first.whispering.startRecording();
 	await first.whispering.stopRecording();
 	expect(first.whispering.recorderError).toContain(
@@ -290,19 +253,15 @@ test('a recording the shell could not place gets its note when the next launch p
 	expect(first.library.entries).toHaveLength(0);
 	first.close();
 
-	const next = await createTestWhispering({ services, place: test.place });
+	const next = await createTestWhispering({ services, files: test.files });
 	cleanups.push(next.close);
 	await eventually(() => next.library.entries.length === 1);
-	expect(next.library.entries[0]).toMatchObject({
-		id: staged!.id,
-		durationMs: 1000,
-	});
+	expect(next.library.entries[0]).toMatchObject({ id: staged!.id, title: '' });
 	expect(next.whispering.recorderError).toBeUndefined();
 });
 
 test('on the desktop the pages do not wait for the cut-off recordings, which are listed once complete', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	const recovering = deferred<void>();
 	let asked = false;
 	const capture: CaptureDevice = {
@@ -315,14 +274,16 @@ test('on the desktop the pages do not wait for the cut-off recordings, which are
 				toneWav({ seconds: 2 }),
 			);
 			return Ok({
-				whole: [{ id: '2026-10-31T09-30-00-000Z-cutoffaa', durationMs: 2000 }],
+				recovered: [
+					{ id: '2026-10-31T09-30-00-000Z-cutoffaa', durationMs: 2000 },
+				],
 				unplaced: [],
 			});
 		},
 	};
 	const opened = await createTestWhispering({
 		services: { ...test.services, capture },
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
 	await eventually(() => asked);
@@ -331,27 +292,29 @@ test('on the desktop the pages do not wait for the cut-off recordings, which are
 
 	recovering.resolve();
 	await eventually(() => opened.library.entries.length === 1);
-	expect(opened.library.entries[0]).toMatchObject({ durationMs: 2000 });
+	expect(opened.library.entries[0]).toMatchObject({
+		id: '2026-10-31T09-30-00-000Z-cutoffaa',
+		recordedAt: '2026-10-31T09:30:00.000Z',
+	});
 });
 
-test('files that cannot be listed at all keep the folder opening, saying why', async () => {
+test('files that cannot be listed at all say why the folder did not open', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	// A private window: every call is refused, the listing included.
 	const reason =
 		'UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).';
 	test.outside.refuseReads(reason);
-	test.outside.refuse(reason);
-	const folder = openFolder(whisperingContract, test.place);
-	cleanups.push(() => folder[Symbol.dispose]());
+	const { openFolder } = await import('./folder.svelte.js');
+	const folder = openFolder(test.files);
 
-	await eventually(() => folder.unavailable() !== null);
-	expect(folder.state().status).toBe('opening');
+	const loaded = await folder.load();
+	expect(loaded.error?.message).toContain(reason);
+	expect(folder.loadProblem()?.message).toContain(reason);
+	expect(folder.loaded()).toBe(true);
 });
 
-test('on the desktop, a cut-off recording that cannot be completed is said, and left for the next launch', async () => {
+test('on the desktop, a cut-off recording that cannot be completed is said, and its audio lists', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	await test.outside.write(
 		'recordings/2026-10-31T09-30-00-000Z-cutoffaa.m4a',
 		'a closed tab left it',
@@ -364,7 +327,7 @@ test('on the desktop, a cut-off recording that cannot be completed is said, and 
 		}) as never;
 	const opened = await createTestWhispering({
 		services: test.services,
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
 
@@ -372,32 +335,31 @@ test('on the desktop, a cut-off recording that cannot be completed is said, and 
 	expect(opened.whispering.recorderError).toBe(
 		'Recordings a quit or a crash cut off could not be completed: The recording could not be captured: the disk is full',
 	);
-	expect(opened.library.entries).toHaveLength(0);
+	// Its audio is in the folder, so it lists, untitled.
+	expect(opened.library.entries).toHaveLength(1);
 });
 
-test('on the desktop, a recording kept outside its path, because another file is there, is said with where its audio is, and gets no note', async () => {
+test('on the desktop, a take kept outside the folder, because audio with its id is there, is said with where it is, and gets no note', async () => {
 	const test = await openTestServices();
-	cleanups.push(test.close);
 	test.services.capture.recover = async () =>
 		Ok({
-			whole: [],
+			recovered: [],
 			unplaced: [
 				{
-					path: 'recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm',
-					pending:
-						'.epicenter/recordings/recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm',
+					id: '2026-10-31T09-30-00-000Z-cutoffaa',
+					take: '/data/local/recording/2026-10-31T09-30-00-000Z-cutoffaa.webm',
 				},
 			],
 		});
 	const opened = await createTestWhispering({
 		services: test.services,
-		place: test.place,
+		files: test.files,
 	});
 	cleanups.push(opened.close);
 
 	await eventually(() => opened.whispering.recorderError !== undefined);
 	expect(opened.whispering.recorderError).toBe(
-		'A recording is kept outside the library, because another file is at its path: its audio is at .epicenter/recordings/recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm in this folder, and recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm is another file. Move the other file, and the next start adds it.',
+		'A recording is kept outside the library, because audio with its id is already there: recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm is another file, and the recording is at /data/local/recording/2026-10-31T09-30-00-000Z-cutoffaa.webm. Move the other file, and the next start adds it.',
 	);
 	expect(opened.library.entries).toHaveLength(0);
 });
@@ -542,8 +504,9 @@ test('an answer that arrives after the pages closed is still kept', async () => 
 	held.resolve();
 	await transcribing;
 
-	const kept = expectOk(await test.files.transcriptions.list()).items;
-	expect(kept.map(({ body }) => body)).toEqual(['late but kept\n']);
+	const [kept, ...more] = test.outside.paths('transcriptions');
+	expect(more).toEqual([]);
+	expect(await test.outside.read(kept!)).toContain('late but kept\n');
 });
 
 test('deleting a recording deletes its transcripts, their results, and its audio', async () => {
@@ -573,10 +536,8 @@ test('deleting a recording deletes its transcripts, their results, and its audio
 	expect(await library.delete(deletion)).toBeUndefined();
 
 	await eventually(() => library.entries.length === 0);
-	const left = test.outside.paths();
-	expect(
-		left.filter((path) => /\.(md|wav)$/.test(path) && !path.startsWith('.')),
-	).toEqual([
+	expect(test.outside.paths()).toEqual([
+		'settings.md',
 		// The recipe stays; a recording owns none.
 		`transformations/${library.transformations[0]!.id}.md`,
 	]);
@@ -609,7 +570,7 @@ test('a recording cannot be deleted while its transcription runs', async () => {
 	expectOk(library.deletionFor({ collection: 'recordings', id: recording.id }));
 });
 
-test('an answer whose result cannot land yet waits in the folder, and the run ends when it lands', async () => {
+test('an answer whose result cannot be written stays in the window, and Save again writes it without another request', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;
 	const recording = await record(opened);
@@ -618,22 +579,27 @@ test('an answer whose result cannot land yet waits in the folder, and the run en
 		under: 'transcriptions',
 	});
 
-	const transcribing = library.transcribe(recording.id);
-	await eventually(
-		() => library.transcriptionRun(recording.id)?.state.kind === 'saving',
+	expect(await library.transcribe(recording.id)).toBeUndefined();
+	const run = library.transcriptionRun(recording.id);
+	expect(run?.state).toMatchObject({
+		kind: 'unsaved',
+		text: 'um so a steady tone',
+	});
+	expect(run?.state.kind === 'unsaved' && run.state.message).toContain(
+		'The disk is full',
 	);
-	// Its result is on its way, so the recording is not deleted under it.
+	// The answer is not saved, so the recording is not deleted from under it.
 	expect(
 		expectErr(
 			library.deletionFor({ collection: 'recordings', id: recording.id }),
 		),
-	).toContain('still running');
+	).toContain('was not saved');
 
 	undo();
-	await transcribing;
+	expect(await library.runAgain(run!.key)).toBeUndefined();
 	expect(library.transcriptionRun(recording.id)).toBeUndefined();
 	await eventually(() => library.resultsFor(recording.id).length === 1);
-	// Landed without another request.
+	// Saved without another request.
 	expect(test.transcribed).toHaveLength(1);
 });
 
@@ -644,6 +610,7 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 		`recordings/${id}.md`,
 		'---\ntitle: [unclosed\n---\n',
 	);
+	await folder.load();
 	await eventually(() => library.repairs.length === 1);
 	expect(library.repairs[0]).toMatchObject({
 		collection: 'recordings',
@@ -651,17 +618,18 @@ test('a note that does not read is listed for repair, and repaired as text', asy
 	});
 
 	// Text that still does not read is written as typed, and stays listed for repair.
-	const edit = folder.recordings.edit({ id });
-	edit.text = 'not a recording';
-	await edit.landed();
+	expectOk(await folder.recordings.replace({ id }, 'not a recording'));
 	await eventually(
 		() => library.repairs[0]?.text?.includes('not a recording') === true,
 	);
 	expect(library.entries).toHaveLength(0);
 
-	edit.text =
-		'---\ntitle: Fixed\nrecordedAt: 2026-10-31T09:30:00.000Z\n---\nnotes\n';
-	await edit.landed();
+	expectOk(
+		await folder.recordings.replace(
+			{ id },
+			'---\ntitle: "Fixed"\nrecordedAt: "2026-10-31T09:30:00.000Z"\n---\nnotes\n',
+		),
+	);
 	await eventually(() => library.entries.length === 1);
 	expect(library.entries[0]).toMatchObject({
 		title: 'Fixed',

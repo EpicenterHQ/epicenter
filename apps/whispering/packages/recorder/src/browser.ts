@@ -3,7 +3,7 @@
  *
  * A take lands whole: `MediaRecorder` hands over a piece about once a
  * second, the page keeps each in memory, and Stop writes the take once, at
- * `<path>.<ext>` in the app's files, with the folder's `set`. Its duration is
+ * `<path>.<ext>` in the app's files, with `files.write`. Its duration is
  * the recorder's own clock: the time it spent recording, pauses left out. A
  * take a crash or a closed tab cuts off is lost; keeping one through that
  * is the desktop app's, whose shell outlives the page (ADR-0780). The app's
@@ -34,6 +34,7 @@ import {
 	type Recorder,
 	RecorderError,
 	type RecordingEndedReason,
+	RECORDINGS,
 	type RecordingStart,
 } from './recording.js';
 import { createSignals } from './signals.js';
@@ -238,23 +239,20 @@ async function openCapture(
 	});
 }
 
-/** The recording `path` names in its files, by `{ id, ext }`. */
-const recordingAt = (path: string, ext: string) => ({
-	id: path.slice(path.lastIndexOf('/') + 1),
-	ext,
-});
-
 /**
  * Record from `input` (or the system default), keeping each piece in
- * memory, and at Stop write the take once into `files` at `<path>.m4a` (or
- * `.webm`). Refused before any microphone opens when a file is already at
- * the path.
+ * memory, and at Stop write the take once into `files` at
+ * `recordings/<id>.m4a` (or `.webm`). Refused before any microphone opens
+ * when audio with the id is already there.
  */
-const start: Recorder['start'] = async ({ files, path, input, signal }) => {
-	const expected = recordingAt(path, extensionOf(requestedType() ?? ''));
-	if (files.get(expected) !== undefined)
+const start: Recorder['start'] = async ({ files, id, input, signal }) => {
+	const path = `${RECORDINGS}/${id}`;
+	const expected = `${path}.${extensionOf(requestedType() ?? '')}`;
+	const there = await files.read(expected);
+	if (there.error !== null) return RecorderError.Failed({ cause: there.error });
+	if (there.data !== null)
 		return RecorderError.Refused({
-			reason: `a file is already at ${path}.${expected.ext}`,
+			reason: `a file is already at ${expected}`,
 		});
 	const pieces: Blob[] = [];
 	const opened = await openCapture({ input, signal }, (piece) =>
@@ -262,7 +260,7 @@ const start: Recorder['start'] = async ({ files, path, input, signal }) => {
 	);
 	if (opened.error !== null) return opened;
 	const capture = opened.data;
-	const file = recordingAt(path, extensionOf(capture.type));
+	const file = `${path}.${extensionOf(capture.type)}`;
 
 	return Ok({
 		onEnded: capture.onEnded,
@@ -282,16 +280,11 @@ const start: Recorder['start'] = async ({ files, path, input, signal }) => {
 				catch: (cause) => RecorderError.Failed({ cause }),
 			});
 			if (readError !== null) return Err(readError);
-			// Lands once, whole: the folder keeps it until it does.
-			const { error: writeError } = await tryAsync({
-				try: () => files.set(file, bytes),
-				catch: (cause) => RecorderError.Failed({ cause }),
-			});
-			if (writeError !== null) return Err(writeError);
-			return Ok({
-				path: `${path}.${file.ext}`,
-				durationMs: finished.data.durationMs,
-			});
+			// Lands once, whole.
+			const written = await files.write(file, bytes);
+			if (written.error !== null)
+				return RecorderError.Failed({ cause: written.error });
+			return Ok({ id, durationMs: finished.data.durationMs });
 		},
 	});
 };

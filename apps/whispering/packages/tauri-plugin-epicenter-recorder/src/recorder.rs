@@ -25,18 +25,19 @@
 //!
 //! # A recording is a file from the first sample
 //!
-//! The WebM is created beside its path, under a reserved name, when the
-//! recording starts, and each second of it is written there whole as soon as
-//! it is encoded (ADR-0543), so a process that ends mid-recording leaves
-//! every second but the last behind a head that does not yet state its
-//! length; `staging::recover` finishes such a file the next time the folder
-//! opens. Once capture has begun, nothing here deletes a file that holds
-//! audio.
+//! The take, a WebM in `local/recording/` in the app's local data directory,
+//! is created when the recording starts, and each second of it is written
+//! there whole as soon as it is encoded (ADR-0543), so a process that ends
+//! mid-recording leaves every second but the last behind a head that does
+//! not yet state its length; `takes::recover` finishes such a take the next
+//! time the folder opens. Once capture has begun, nothing here deletes a
+//! file that holds audio.
 //!
-//! `stop` finishes the file in place, which is the same few milliseconds
+//! `stop` finishes the take in place, which is the same few milliseconds
 //! for a recording of any length (the last second, the Cues, and its
-//! length), places it at its path (`staging::place_recording`), and answers
-//! where it is. Exit and a page that leaves do the same.
+//! length), places it at `recordings/<id>.webm` in the folder
+//! (`takes::place_take`), and answers its id and length. Exit and a page
+//! that leaves do the same.
 //!
 //! # The microphone keeps its rate; the file is 16 kHz
 //!
@@ -140,8 +141,7 @@ enum RecorderCmd {
     EndCapture,
 }
 
-/// The recording one capture is writing, beside its path under a reserved
-/// name.
+/// The take one capture is writing.
 ///
 /// Owned entirely by the worker thread, which is what lets the writer stay
 /// unsynchronized: nothing else in this process writes the file, so there is
@@ -259,7 +259,7 @@ impl<S: Storage> CaptureFile<S> {
     /// Finish the file in place and report how long it plays.
     ///
     /// A capture whose writes failed keeps what reached the file: its whole
-    /// seconds are finished as `staging::recover` would on the next open
+    /// seconds are finished as `takes::recover` would on the next open
     /// (`webm::finish_cut_off`). Nothing here deletes the file; one that
     /// cannot be finished now, as on a disk still full, stays for the next
     /// open.
@@ -346,13 +346,14 @@ pub(crate) struct FinishedRecording {
     pub duration_ms: u32,
 }
 
-/// What `stop` answers once the recording is finished and at its path, and
-/// the microphone released: where it is and how long it plays.
+/// What `stop` answers once the take is finished and placed at
+/// `recordings/<id>.webm`, and the microphone released: the recording's id
+/// and how long it plays.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoppedRecording {
-    /// Its folder-relative path: the path the page named plus `.webm`.
-    pub path: String,
+    /// The id the page started it with.
+    pub id: String,
     pub duration_ms: u32,
 }
 
@@ -367,18 +368,18 @@ pub type OnEnded = Arc<dyn Fn(&str, EndedReason) + Send + Sync>;
 /// "Held" rather than "in flight", because capture may already be over. The
 /// recording keeps this slot either way until its owner resolves it.
 struct HeldRecording {
-    /// The id the host minted at `start`.
+    /// The id the host minted at `start`, which a capture's ending names.
     id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// The recording's file while it records, absolute, beside its path
-    /// under a reserved name, which `recover` leaves alone.
-    path: PathBuf,
+    /// The take while it records, absolute, in `local/recording/`, which
+    /// `recover` leaves alone.
+    take: PathBuf,
     /// The folder it is placed in once it stops.
-    root: PathBuf,
-    /// Its folder-relative path there without an extension, as the page
-    /// named it.
-    stem: String,
+    folder: PathBuf,
+    /// The recording's id, as the page named it: the take is placed at
+    /// `recordings/<take_id>.webm`.
+    take_id: String,
     /// `None` while capture is running. `Some` once capture ended on its own,
     /// which is a fact about this recording and not a separate state machine:
     /// everything else about it is unchanged.
@@ -514,11 +515,10 @@ impl Recorder {
     /// person did not choose is not what they asked for. `None` is the system
     /// default.
     ///
-    /// `pending` is the checked absolute path the recording is written to
-    /// while it records, beside its path under a reserved name; `root` is
-    /// the folder it is placed in when it stops, and `stem` its
-    /// folder-relative path there without an extension, as the page named it. The file is created
-    /// only after the device and its configuration resolve, and never over
+    /// `take` is the absolute path the take is recorded into, in
+    /// `local/recording/`; `folder` is the folder it is placed in when it
+    /// stops, at `recordings/<take_id>.webm`. The take is created only
+    /// after the device and its configuration resolve, and never over
     /// anything already there.
     ///
     /// The cpal stream is built inside the worker (macOS requires the stream and
@@ -528,9 +528,9 @@ impl Recorder {
     pub fn start(
         &mut self,
         requested_device: Option<&str>,
-        pending: PathBuf,
-        root: PathBuf,
-        stem: String,
+        take: PathBuf,
+        folder: PathBuf,
+        take_id: String,
         owner_label: String,
         signals: Channel<RecordingSignal>,
         on_ended: OnEnded,
@@ -557,15 +557,15 @@ impl Recorder {
         let file = File::options()
             .write(true)
             .create_new(true)
-            .open(&pending)
+            .open(&take)
             .map_err(|error| match error.kind() {
                 std::io::ErrorKind::AlreadyExists => RecorderError::refused(format!(
-                    "a recording of {stem} is already waiting at {}",
-                    pending.display()
+                    "a take of {take_id} is already waiting at {}",
+                    take.display()
                 )),
-                _ => RecorderError::failed(format!("create {}: {error}", pending.display())),
+                _ => RecorderError::failed(format!("create {}: {error}", take.display())),
             })?;
-        let capture = CaptureFile::open(pending.clone(), file, device_rate)?;
+        let capture = CaptureFile::open(take.clone(), file, device_rate)?;
 
         let id = next_id();
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
@@ -649,14 +649,14 @@ impl Recorder {
         }
 
         info!(
-            "Recording started: id={id}, owner={owner_label}, path={stem}, device={device_name}, {device_rate} Hz, {device_channels} channels",
+            "Recording started: id={id}, owner={owner_label}, take={take_id}, device={device_name}, {device_rate} Hz, {device_channels} channels",
         );
         self.active = Some(HeldRecording {
             id: id.clone(),
             owner_label,
-            path: pending,
-            root,
-            stem,
+            take,
+            folder,
+            take_id,
             ended_reason: None,
             signals,
             cmd_tx,
@@ -696,15 +696,15 @@ impl Recorder {
         Some(active.signals.clone())
     }
 
-    /// Stop the recording named by `id`, finish its file, and place it at its
-    /// path. Restricted to the window that started it.
+    /// Stop the recording the window `caller_label` started, finish its
+    /// take, and place it in its folder.
     ///
     /// Works the same whether capture is still running or already ended. That is
     /// the point of holding an ended recording: `stop` is the one finalizing
     /// path, so the audio captured before a microphone died is reached by the
     /// same call as the audio captured before the person let go of the button.
-    pub fn stop(&mut self, id: &str, caller_label: &str) -> Result<StoppedRecording> {
-        self.require_owned(id, caller_label)?;
+    pub fn stop(&mut self, caller_label: &str) -> Result<StoppedRecording> {
+        self.require_owned(caller_label)?;
         let active = self.active.take().expect("ownership was just verified");
         finish(active)
     }
@@ -721,8 +721,8 @@ impl Recorder {
         match finish(active) {
             Ok(stopped) => {
                 info!(
-                    "Recording {id} finalized at {} because its page is gone",
-                    stopped.path
+                    "Recording {id} ({}) finalized because its page is gone",
+                    stopped.id
                 );
                 Some(stopped)
             }
@@ -771,10 +771,10 @@ impl Recorder {
             .is_some_and(|active| active.ended_reason.is_none())
     }
 
-    /// The file `recover` must leave alone: the held recording's, which its
+    /// The take `recover` must leave alone: the held recording's, which its
     /// worker still writes.
     pub fn held_path(&self) -> Option<&Path> {
-        self.active.as_ref().map(|active| active.path.as_path())
+        self.active.as_ref().map(|active| active.take.as_path())
     }
 
     /// The one admission rule, in one place: the slot must be empty.
@@ -802,39 +802,34 @@ impl Recorder {
         )))
     }
 
-    /// The one ownership rule, in one place: the named recording must be the
-    /// one held and must belong to the calling window.
+    /// The one ownership rule, in one place: a recording must be held, and
+    /// it must belong to the calling window.
     ///
     /// Both failures collapse to `NotRecording`. The caller cannot act
-    /// differently on "no such recording" versus "not yours" (both mean "this
-    /// window has nothing to stop"), and the distinguishing detail still
-    /// travels in `message` for diagnostics.
-    fn require_owned(&self, id: &str, caller_label: &str) -> Result<()> {
+    /// differently on "nothing is recording" versus "not yours" (both mean
+    /// "this window has nothing to stop"), and the distinguishing detail
+    /// still travels in `message` for diagnostics.
+    fn require_owned(&self, caller_label: &str) -> Result<()> {
         let Some(active) = &self.active else {
-            return Err(RecorderError::not_recording(format!(
-                "no recording is held; '{id}' has already been stopped"
-            )));
+            return Err(RecorderError::not_recording(
+                "no recording is held; it has already been stopped",
+            ));
         };
-        if active.id != id {
-            return Err(RecorderError::not_recording(format!(
-                "the in-flight recording is not '{id}'"
-            )));
-        }
         if active.owner_label != caller_label {
             return Err(RecorderError::not_recording(format!(
-                "recording '{id}' is owned by window '{}', not '{caller_label}'",
-                active.owner_label
+                "recording '{}' is owned by window '{}', not '{caller_label}'",
+                active.take_id, active.owner_label
             )));
         }
         Ok(())
     }
 }
 
-/// End a recording and keep it: tell the worker to finish the file, join it
-/// so the cpal stream is released, and place the file at its path. A file
-/// that could not be finished or placed stays beside its path,
-/// where the next `recover` finishes and places it, or, when another file
-/// took its path, answers where it is.
+/// End a recording and keep it: tell the worker to finish the take, join it
+/// so the cpal stream is released, and place the take at
+/// `recordings/<id>.webm` in its folder, never over a file there. A take
+/// that could not be finished or placed stays in `local/recording/`, where
+/// the next `recover` finishes and places it, or answers where it is.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
 /// `&mut Recorder` comes from the one recorder mutex and nothing else can
@@ -863,23 +858,22 @@ fn finish(active: HeldRecording) -> Result<StoppedRecording> {
     // answers, and joining is what makes "the microphone is released" true
     // by the time the slot is observably free.
     let _ = active.worker.join();
-    let kept = |error: String| {
+    let finished = finished.map_err(|error| {
         RecorderError::failed(format!(
-            "{error}; the recording is kept in {} until the folder is opened again",
-            active.path.display()
+            "{error}; the take is kept at {} until the folder is opened again",
+            active.take.display()
         ))
-    };
-    let finished = finished.map_err(|error| kept(error.to_string()))?;
-    let path = crate::staging::place_recording(&active.root, &finished.path, &active.stem)
-        .map_err(|error| match error {
-            crate::staging::PlaceError::Taken(path) => RecorderError::refused(format!(
-                "another file is already at {path}, so the recording was not placed there; it is kept, finished, at {}",
-                active.path.display()
-            )),
-            crate::staging::PlaceError::Failed(error) => kept(error),
-        })?;
+    })?;
+    crate::takes::place_take(&finished.path, &active.folder, &active.take_id).map_err(|error| {
+        RecorderError::Unplaced {
+            message: format!(
+                "{error}; the take is kept, finished, at {}",
+                active.take.display()
+            ),
+        }
+    })?;
     Ok(StoppedRecording {
-        path,
+        id: active.take_id,
         duration_ms: finished.duration_ms,
     })
 }
@@ -1490,14 +1484,15 @@ pub(crate) mod tests {
         root.path().join("staging").join(format!("{id}.webm"))
     }
 
-    /// Hold a one-second recording written at `staged` for `owner_label`, to
-    /// be placed at `stem` in `root` when it stops, as `start` would have,
-    /// without a microphone. The plugin's own tests use it too.
+    /// Hold a one-second take written at `staged` for `owner_label`, to be
+    /// placed at `recordings/<take_id>.webm` in `folder` when it stops, as
+    /// `start` would have, without a microphone. `id` is the host's own.
+    /// The plugin's own tests use it too.
     pub(crate) fn hold_recording(
         recorder: &mut Recorder,
         staged: &Path,
-        root: &Path,
-        stem: &str,
+        folder: &Path,
+        take_id: &str,
         id: &str,
         owner_label: &str,
     ) {
@@ -1516,9 +1511,9 @@ pub(crate) mod tests {
         recorder.active = Some(HeldRecording {
             id: id.to_string(),
             owner_label: owner_label.to_string(),
-            path: staged.to_path_buf(),
-            root: root.to_path_buf(),
-            stem: stem.to_string(),
+            take: staged.to_path_buf(),
+            folder: folder.to_path_buf(),
+            take_id: take_id.to_string(),
             ended_reason: None,
             signals: no_page(),
             cmd_tx,
@@ -1534,6 +1529,7 @@ pub(crate) mod tests {
             RecorderError::Busy { .. } => "Busy",
             RecorderError::NotRecording { .. } => "NotRecording",
             RecorderError::Refused { .. } => "Refused",
+            RecorderError::Unplaced { .. } => "Unplaced",
             RecorderError::Failed { .. } => "Failed",
         }
     }
@@ -1599,11 +1595,14 @@ pub(crate) mod tests {
         assert_eq!(
             stopped,
             StoppedRecording {
-                path: "1.webm".to_string(),
+                id: "1".to_string(),
                 duration_ms: 1_000
             }
         );
-        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
+        assert_eq!(
+            samples_in(&root.path().join("recordings/1.webm")),
+            TEST_RATE as usize
+        );
         assert!(!staged_in(&root, "1").exists());
         assert!(recorder.held_path().is_none());
         assert_ne!(recorder.page("app-notes"), page);
@@ -1618,7 +1617,10 @@ pub(crate) mod tests {
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
         drop(recorder);
-        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
+        assert_eq!(
+            samples_in(&root.path().join("recordings/1.webm")),
+            TEST_RATE as usize
+        );
     }
 
     #[test]
@@ -1628,45 +1630,35 @@ pub(crate) mod tests {
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
 
         let stop = recorder
-            .stop("1", "whispering")
+            .stop("whispering")
             .expect_err("a non-owner must not stop another window's recording");
         assert_eq!(error_name(&stop), "NotRecording");
 
         // The refusal left the owner's recording completely untouched.
         assert!(recorder.is_capturing());
         assert!(staged_in(&root, "1").exists());
-        assert!(!root.path().join("1.webm").exists());
+        assert!(!root.path().join("recordings/1.webm").exists());
     }
 
-    #[test]
-    fn the_owner_cannot_stop_an_id_that_is_not_the_live_recording() {
-        let root = folder_root();
-        let mut recorder = Recorder::new();
-        recording_owned_by(&mut recorder, &root, "1", "app-notes");
-
-        let error = recorder
-            .stop("2", "app-notes")
-            .expect_err("a stale id must not stop whatever happens to be live");
-        assert_eq!(error_name(&error), "NotRecording");
-        assert!(recorder.is_capturing());
-    }
-
-    /// Stop answers once the recording is finished and at its path.
+    /// Stop answers once the recording is finished and in its folder.
     #[test]
     fn a_stopped_recording_is_at_its_path_when_stop_answers() {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
 
-        let stopped = recorder.stop("1", "app-notes").unwrap();
+        let stopped = recorder.stop("app-notes").unwrap();
         assert_eq!(
             stopped,
             StoppedRecording {
-                path: "1.webm".to_string(),
+                id: "1".to_string(),
                 duration_ms: 1_000
             }
         );
-        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
+        assert_eq!(
+            samples_in(&root.path().join("recordings/1.webm")),
+            TEST_RATE as usize
+        );
         assert!(!staged_in(&root, "1").exists(), "moved, not copied");
         assert!(recorder.held_path().is_none());
         recorder
@@ -1674,36 +1666,32 @@ pub(crate) mod tests {
             .expect("the slot is free once it is placed");
 
         let again = recorder
-            .stop("1", "app-notes")
+            .stop("app-notes")
             .expect_err("there is nothing left to stop");
         assert_eq!(error_name(&again), "NotRecording");
     }
 
-    /// A file something made at the recording's path meanwhile is never
-    /// replaced: the refusal says so and where the recording is kept, and
-    /// `recover` leaves it there, finished, and answers where it is.
+    /// A file something made at the recording's audio path meanwhile is
+    /// never replaced: Stop answers `Unplaced` and says where the take is
+    /// kept, and `recover` leaves it there, finished, and answers where it
+    /// is.
     #[test]
     fn a_stop_never_replaces_a_file_at_its_path() {
         let directory = folder_root();
         let root = std::fs::canonicalize(directory.path()).unwrap();
-        let kept = crate::staging::pending(&root, "recordings/1").unwrap();
+        let (takes, folder) = (root.join("local/recording"), root.join("data"));
+        std::fs::create_dir_all(&takes).unwrap();
+        std::fs::create_dir_all(folder.join("recordings")).unwrap();
+        let kept = crate::takes::take_path(&takes, "k3x9");
         let mut recorder = Recorder::new();
-        hold_recording(
-            &mut recorder,
-            &kept,
-            &root,
-            "recordings/1",
-            "1",
-            "app-notes",
-        );
-        std::fs::create_dir_all(root.join("recordings")).unwrap();
-        std::fs::write(root.join("recordings/1.webm"), b"theirs").unwrap();
+        hold_recording(&mut recorder, &kept, &folder, "k3x9", "1", "app-notes");
+        std::fs::write(folder.join("recordings/k3x9.webm"), b"theirs").unwrap();
 
-        let refused = recorder.stop("1", "app-notes").unwrap_err();
-        assert_eq!(error_name(&refused), "Refused");
+        let refused = recorder.stop("app-notes").unwrap_err();
+        assert_eq!(error_name(&refused), "Unplaced");
         assert!(
             refused.to_string().contains(&format!(
-                "already at recordings/1.webm, so the recording was not placed there; it is kept, finished, at {}",
+                "the take is kept, finished, at {}",
                 kept.display()
             )),
             "{refused}"
@@ -1713,22 +1701,18 @@ pub(crate) mod tests {
             .expect("the slot is free either way");
 
         for _ in 0..2 {
-            let recovery = crate::staging::recover(&root, "recordings", |_| false).unwrap();
+            let recovery = crate::takes::recover(&takes, &folder, |_| false).unwrap();
             assert!(recovery.recovered.is_empty());
             assert_eq!(
                 recovery.unplaced,
-                [crate::staging::UnplacedRecording {
-                    path: "recordings/1.webm".to_string(),
-                    pending: kept
-                        .strip_prefix(&root)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
+                [crate::takes::UnplacedTake {
+                    id: "k3x9".to_string(),
+                    take: kept.to_string_lossy().into_owned(),
                 }]
             );
             assert_eq!(samples_in(&kept), TEST_RATE as usize);
             assert_eq!(
-                std::fs::read(root.join("recordings/1.webm")).unwrap(),
+                std::fs::read(folder.join("recordings/k3x9.webm")).unwrap(),
                 b"theirs"
             );
         }
@@ -1745,7 +1729,10 @@ pub(crate) mod tests {
         recorder.end_capture("1", EndedReason::StreamFailed);
 
         assert!(recorder.finish_owned_by("app-notes").is_some());
-        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
+        assert_eq!(
+            samples_in(&root.path().join("recordings/1.webm")),
+            TEST_RATE as usize
+        );
         recorder
             .require_free_slot()
             .expect("the slot is free once the owner is gone");
@@ -1825,10 +1812,13 @@ pub(crate) mod tests {
         recorder.end_capture("1", EndedReason::DeviceDisconnected);
 
         let stopped = recorder
-            .stop("1", "app-notes")
+            .stop("app-notes")
             .expect("an ended recording is still the owner's to stop");
         assert_eq!(stopped.duration_ms, 1_000, "the captured second survived");
-        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
+        assert_eq!(
+            samples_in(&root.path().join("recordings/1.webm")),
+            TEST_RATE as usize
+        );
 
         // And stopping resolved it, so the slot is free again.
         recorder
@@ -1846,7 +1836,7 @@ pub(crate) mod tests {
         recorder.end_capture("1", EndedReason::DeviceDisconnected);
 
         let error = recorder
-            .stop("1", "whispering")
+            .stop("whispering")
             .expect_err("only the owner may claim the audio");
         assert_eq!(error_name(&error), "NotRecording");
         assert!(recorder.active.is_some());
@@ -1886,7 +1876,7 @@ pub(crate) mod tests {
     fn stopping_when_nothing_is_held_is_a_typed_refusal() {
         let mut recorder = Recorder::new();
         let error = recorder
-            .stop("1", "app-notes")
+            .stop("app-notes")
             .expect_err("there is nothing to stop");
         assert_eq!(error_name(&error), "NotRecording");
     }
@@ -2192,7 +2182,7 @@ pub(crate) mod tests {
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
 
         let stopped = recorder
-            .stop("1", "app-notes")
+            .stop("app-notes")
             .expect("the owner may stop its recording");
 
         // The worker is gone, not merely asked to go, and only now is the slot
@@ -2202,6 +2192,6 @@ pub(crate) mod tests {
             .require_free_slot()
             .expect("a stopped recording releases the slot");
         assert_eq!(stopped.duration_ms, 1_000);
-        assert!(root.path().join(&stopped.path).exists());
+        assert!(root.path().join("recordings/1.webm").exists());
     }
 }

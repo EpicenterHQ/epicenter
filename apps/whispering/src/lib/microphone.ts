@@ -8,8 +8,9 @@
  * here chooses between them: in a browser the page's own microphone, in a
  * Tauri window the shell's (ADR-0571), which lists inputs
  * by name without access and asks for access itself, so it has no `allow`.
- * Either way the recording lands at `recordings/<id>.<ext>` when it stops;
- * only the desktop's shell keeps a take through a quit, so only it recovers.
+ * Either way the recording is placed at `recordings/<id>.<ext>` when it
+ * stops; only the desktop's shell keeps a take through a quit, so only it
+ * recovers.
  *
  * A chosen microphone is asked for by the exact ID the recorder listed it
  * under. When that one cannot be opened, the answer is a refusal: no other
@@ -19,14 +20,11 @@ import type { AudioFiles, Recorder } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
 import type { CaptureDevice } from './capture.js';
 
-/** Where recordings are written. */
-const DIRECTORY = 'recordings';
-
 export function createMicrophoneDevice({
 	files,
 	recorder,
 }: {
-	/** Whispering's audio files (`folder.audio`), which every recording is written into. */
+	/** Whispering's folder as the recorder writes audio into it (`app.ts`'s `audioFiles`). */
 	files: AudioFiles;
 	/** Lists, tests, and records from the microphone. */
 	recorder: Recorder;
@@ -37,7 +35,7 @@ export function createMicrophoneDevice({
 		async start({ id, input, signal }) {
 			const { data: recording, error } = await recorder.start({
 				files,
-				path: `${DIRECTORY}/${id}`,
+				id,
 				input,
 				signal,
 			});
@@ -53,24 +51,6 @@ export function createMicrophoneDevice({
 				},
 			});
 		},
-		...(recover && {
-			async recover(unnamed: readonly string[]) {
-				// Which of these is whole, and where else a cut-off one waits, is
-				// the recorder's to know.
-				const { data, error } = await recover({
-					files,
-					under: DIRECTORY,
-					unnamed,
-				});
-				if (error !== null) return Err(error);
-				return Ok({
-					whole: data.recovered.map(({ path, durationMs }) => ({
-						id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
-						durationMs,
-					})),
-					unplaced: data.unplaced,
-				});
-			},
-		}),
+		...(recover && { recover: () => recover({ files }) }),
 	};
 }

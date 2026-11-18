@@ -1,7 +1,6 @@
 <!--
-	The header: a live recording, where the recordings are kept (the
-	person's repository, or a folder on this computer and its sync, by
-	`folder.reveal`), and Settings, where the models and the sign-in are.
+	The header: a live recording, and Settings, where the folder, the models
+	and their connections are.
 	Where there is a global shortcut (`shortcut`), its presses are heard
 	here: a press starts a recording, or stops the one under way, from any
 	app, as the header's button does.
@@ -16,9 +15,7 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { folder, shortcut } from '$lib/app.js';
-	import FolderChrome from '$lib/components/FolderChrome.svelte';
-	import RepositoryChrome from '$lib/components/RepositoryChrome.svelte';
+	import { shortcut } from '$lib/app.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { pageAt } from './nav-items.js';
 	import RecorderClock from './RecorderClock.svelte';
@@ -59,13 +56,11 @@
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={whispering.recorderError}>{whispering.recorderError}</span>
 	{/if}
 
-	{#if folder.reveal === null}<RepositoryChrome />{:else}<FolderChrome />{/if}
-
 	<div class="ml-auto flex shrink-0 items-center gap-1">
 		<Popover.Root>
 			<Popover.Trigger>
 				{#snippet child({ props })}
-					<IconButton label="Models and sign-in" size="sm" {...props} variant="ghost" data-testid="settings">
+					<IconButton label="Settings" size="sm" {...props} variant="ghost" data-testid="settings">
 						<SettingsIcon />
 					</IconButton>
 				{/snippet}

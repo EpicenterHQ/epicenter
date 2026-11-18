@@ -19,7 +19,7 @@ import type {
 	RecordingAudio,
 	RecordingNote,
 	TranscriptionNote,
-} from './files.svelte.js';
+} from './folder.svelte.js';
 import type { Library } from './library.svelte.js';
 
 export type RecordingStatus =

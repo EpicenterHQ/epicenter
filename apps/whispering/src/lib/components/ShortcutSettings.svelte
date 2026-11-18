@@ -5,14 +5,13 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Input } from '@epicenter/ui/input';
 	import { Label } from '@epicenter/ui/label';
 	import { acceleratorOf, type GlobalShortcut, labelOf } from '../shortcut.js';
 
 	let { shortcut }: { shortcut: GlobalShortcut } = $props();
 
-	/** The keys the person pressed and has not saved; none shows the shortcut as resolved. */
+	/** The keys the person pressed and has not saved; none shows the shortcut as saved. */
 	let typed = $state<string>();
 
 	/**
@@ -30,8 +29,6 @@
 		const pressed = acceleratorOf(event);
 		if (pressed !== undefined) typed = pressed;
 	}
-	/** Where the person chose to save it; none follows where the shortcut is set now. */
-	let here = $state<boolean>();
 	let saving = $state(false);
 	/** Why the last save did not land. */
 	let unsaved = $state<string | null>(null);
@@ -39,14 +36,9 @@
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		saving = true;
-		unsaved = await shortcut.save(typed ?? shortcut.accelerator(), {
-			onThisComputer: here ?? shortcut.onThisComputer(),
-		});
+		unsaved = await shortcut.save(typed ?? shortcut.accelerator());
 		saving = false;
-		if (unsaved === null) {
-			typed = undefined;
-			here = undefined;
-		}
+		if (unsaved === null) typed = undefined;
 	}
 </script>
 
@@ -64,28 +56,16 @@
 				readonly
 				spellcheck={false}
 				autocomplete="off"
-				disabled={!shortcut.read() || saving}
+				disabled={saving}
 				value={labelOf(typed ?? shortcut.accelerator())}
 				onkeydown={press}
 				data-accelerator={typed ?? shortcut.accelerator()}
 				data-testid="shortcut-input"
 			/>
-			<Button size="sm" variant="outline" type="submit" disabled={!shortcut.read() || saving} data-testid="shortcut-save">Save</Button>
-		</div>
-		<div class="flex items-center gap-2">
-			<Checkbox
-				id="shortcut-this-computer"
-				bind:checked={() => here ?? shortcut.onThisComputer(), (checked) => (here = checked)}
-				disabled={!shortcut.read() || saving}
-				data-testid="shortcut-this-computer"
-			/>
-			<Label for="shortcut-this-computer" class="font-normal">Only on this computer</Label>
+			<Button size="sm" variant="outline" type="submit" disabled={saving} data-testid="shortcut-save">Save</Button>
 		</div>
 	</form>
-	<p class="text-muted-foreground">
-		Kept in <code>shortcuts.md</code>: the data folder's goes wherever your files go;
-		“Only on this computer” keeps it in this computer's settings instead, ahead of the data folder's.
-	</p>
+	<p class="text-muted-foreground">Kept in <code>settings.md</code> in the folder, so it goes wherever your recordings go.</p>
 	{#if unsaved ?? shortcut.problem()}
 		<p class="text-destructive" role="alert" data-testid="shortcut-problem">{unsaved ?? shortcut.problem()}</p>
 	{/if}

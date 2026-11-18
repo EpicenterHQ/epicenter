@@ -12,6 +12,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./client": "./src/client.ts",
+		"./markdown": "./src/front-matter.ts",
 		"./testing": "./src/testing.ts"
 	},
 	"files": [

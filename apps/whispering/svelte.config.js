@@ -20,8 +20,8 @@ const config = {
 		// web deploy sends the policy as a header from `static/_headers`.
 	},
 	preprocess: vitePreprocess(),
-	// `@epicenter/svelte`'s Recovery, which `<WhenOpen>` shows, reads
-	// `$effect.pending()`, which async Svelte provides.
+	// Async Svelte, as the component tests compile it
+	// (`src/lib/svelte-dom.test-support.ts`).
 	compilerOptions: { experimental: { async: true } },
 };
 

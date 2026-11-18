@@ -1,22 +1,22 @@
 /**
- * Whispering's library over its files (`files.svelte.ts`): what the pages
- * list, edit, run and delete. The files are the folder `app.ts` opened,
- * which the build chose; nothing here knows which.
+ * Whispering's library over its folder (`folder.svelte.ts`): what the pages
+ * list, edit, run and delete. The folder is the one `app.ts` opened over
+ * the `Files` the build chose; nothing here knows which.
  *
- * Every list here is derived from what the files show, read reactively.
+ * Every list here is derived from what the folder shows, read reactively.
  * Notes that read are listed to edit; the rest are named, with why and
- * their text, for repair. Nothing here holds text ahead of the files: what
- * a person types is an edit in the component that shows it, and each write
- * answers once it landed and never fails (ADR-0775): while the store is out
- * of reach the folder keeps it, and `<WhenOpen>` says so. A transcription
- * or recipe run lives in this window until its answer arrives, and its
- * result is written then, in the files (`runs.svelte.ts`).
+ * their text, for repair. A recording's audio with no note lists as an
+ * untitled recording. Nothing here holds text ahead of the folder: what a
+ * person types is an editor's in the component that shows it, and a write
+ * that fails says why. A transcription or recipe run lives in this window
+ * until its answer arrives, and its result is written then
+ * (`runs.svelte.ts`).
  *
  * The library is made when the app's pages open and let go when they
  * close. Leaving waits for nothing and refuses nothing: a run under way
  * still keeps its answer in the files, unless Whispering itself is closing.
  */
-import { timeId } from '@epicenter/definition/ids';
+
 import { createContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, type Result } from 'wellcrafted/result';
@@ -32,8 +32,9 @@ import {
 	type InvalidNote,
 	type NoteName,
 	newest,
-	type WhisperingFiles,
-} from './files.svelte.js';
+	type WhisperingFolder,
+} from './folder.svelte.js';
+import { timeId } from './format/ids.js';
 import type { PostProcessingChoice } from './post-processing.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
 import { createRuns } from './runs.svelte.js';
@@ -48,7 +49,7 @@ export type {
 	TranscriptionNote,
 	TransformationNote,
 	TransformationRunNote,
-} from './files.svelte.js';
+} from './folder.svelte.js';
 export type { Run, RunState } from './runs.svelte.js';
 
 /** A note that does not read, for the person to repair as text or delete. */
@@ -83,7 +84,7 @@ export function createLibrary({
 	/** The services, the models, and whether Whispering is closing. */
 	whispering: Whispering;
 	/** The files the pages read and edit. */
-	files: WhisperingFiles;
+	files: WhisperingFolder;
 }) {
 	const { refused } = whispering;
 	/** What the pages show. Held here so no page owns it. */
@@ -137,7 +138,9 @@ export function createLibrary({
 	// --- reads -----------------------------------------------------------------
 
 	const entries = $derived(
-		files.recordings.items().toSorted(newest((note) => note.recordedAt)),
+		[...files.recordings.items(), ...files.unnoted()].toSorted(
+			newest((note) => note.recordedAt),
+		),
 	);
 	const transformations = $derived(
 		files.transformations.items().toSorted(byTitle),
@@ -369,10 +372,11 @@ export function createLibrary({
 			const why = refused();
 			if (why !== undefined) return why;
 			const id = timeId();
-			await files.transformations.set(
+			const saved = await files.transformations.set(
 				{ id },
 				{ title, model: null, body: prompt },
 			);
+			if (saved.error !== null) return saved.error.message;
 			openTransformation(id);
 			return undefined;
 		},

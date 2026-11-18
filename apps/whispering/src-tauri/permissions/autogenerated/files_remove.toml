@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-files-remove"
+description = "Enables the files_remove command without any pre-configured scope."
+commands.allow = ["files_remove"]
+
+[[permission]]
+identifier = "deny-files-remove"
+description = "Denies the files_remove command without any pre-configured scope."
+commands.deny = ["files_remove"]

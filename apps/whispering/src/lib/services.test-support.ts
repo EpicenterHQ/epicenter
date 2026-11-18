@@ -1,38 +1,27 @@
 /**
- * Capabilities for tests: this browser's files, a fixture capture device that
- * keeps a generated tone as every recording, and one saved connection whose
- * `fetch` is a stub. Nothing here reaches a network, a microphone, or a
- * provider.
+ * Capabilities for tests: Whispering's files in memory, a fixture capture
+ * device that keeps a generated tone as every recording, and one saved
+ * connection whose `fetch` is a stub. Nothing here reaches a network, a
+ * microphone, or a provider.
  *
- * The files are a place in memory (`memory()` from `@epicenter/folder/memory`)
- * holding the contract's files at the paths the repository holds them:
- * the app opens its folder there, the fixture device writes through a
- * folder of its own there, and a test writes or refuses as another program
- * through `memoryFiles`.
+ * The files are `memoryFiles()` behind `testFiles`, which a test can make
+ * refuse writes or reads under a directory, as a full disk or a private
+ * window does, and which lists every path held. The app's folder opens
+ * over them, and a test writes or reads as another program through
+ * `outside`.
  *
- * The endpoint is a connection saved in this computer's settings (memory
- * under the `test` condition), its requests answered by a plain function
- * standing where `fetch` would be (ADR-0757), so a test decides each answer
- * and counts each request while the request itself is built and read as in
- * the app.
+ * The endpoint is a connection saved in `settings.md`, its key kept in
+ * memory, its requests answered by a plain function standing where `fetch`
+ * would be (ADR-0757), so a test decides each answer and counts each
+ * request while the request itself is built and read as in the app.
  */
-import {
-	customEndpoints,
-	hosted,
-	type LiveAccount,
-	modelChoices,
-	openAi,
-} from '@epicenter/ai';
-import { openFolder } from '@epicenter/folder';
-import type { Folder } from '@epicenter/folder/core';
-import { memory, memoryFiles } from '@epicenter/folder/memory';
-import { settings } from '@epicenter/local';
-import { outside as computer } from '@epicenter/local/memory';
+import { customEndpoints, openAi } from '@epicenter/ai';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
 import { Ok, type Result } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
 import type { CaptureDevice } from './capture.js';
-import { type Whispering, whispering } from './contract.js';
+import { encode, type Files, failed } from './files/files.js';
+import { memoryFiles } from './files/memory.js';
 import type { WhisperingCapabilities } from './whispering.svelte.js';
 
 export type FixtureAudio = {
@@ -55,12 +44,12 @@ export const NO_INPUTS: CaptureDevice['inputs'] = {
  * of the session.
  */
 export function createFixtureDevice({
-	audio,
+	files,
 	name,
 	load,
 }: {
-	/** Whispering's audio files (`folder.audio`), as the microphone device takes them. */
-	audio: Folder<Whispering>['audio'];
+	/** Whispering's files, which the audio is written into at `recordings/<id>.<ext>`. */
+	files: Files;
 	name: string;
 	load: () => Promise<FixtureAudio>;
 }): CaptureDevice {
@@ -84,7 +73,12 @@ export function createFixtureDevice({
 					}
 					if (fixture.bytes.byteLength === 0) return RecorderError.Empty();
 					// The audio lands before Stop answers, as the recorder's does.
-					await audio.set({ id, ext }, fixture.bytes);
+					const written = await files.write(
+						`recordings/${id}.${ext}`,
+						fixture.bytes,
+					);
+					if (written.error !== null)
+						return RecorderError.Failed({ cause: written.error });
 					return Ok({
 						// The fixture's own length when it can be read, not the wait before Stop.
 						durationMs:
@@ -184,42 +178,119 @@ function streamed(text: string): Response {
 const refused = (message: string) =>
 	Response.json({ error: { message } }, { status: 500 });
 
-/** No one signed in, as a test's account stays. */
-export const SIGNED_OUT: LiveAccount = {
-	baseURL: 'https://api.epicenter.test',
-	need() {},
-	state: () => ({ status: 'signed-out' }),
-	subscribe: () => () => {},
-};
-
-/** Memory standing in for this site's storage, which tells every opener of it of each write, as a page's other tabs hear. */
-/** The page's own `fetch`, and the stub that answers the test endpoint in its place. */
-const pageFetch = globalThis.fetch;
-let answering:
-	| ((url: string, init?: RequestInit) => Promise<Response>)
-	| undefined;
-globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-	const url = String(input instanceof Request ? input.url : input);
-	return answering !== undefined && url.startsWith(TEST_BASE_URL)
-		? answering(url, init)
-		: pageFetch(input, init);
-}) as typeof fetch;
-
-/** The capabilities Whispering is made over, but its folder: the test makes that over its directory. */
+/** The capabilities Whispering is made over, but its folder: the test opens that over its files. */
 export type TestCapabilities = Omit<WhisperingCapabilities, 'folder'>;
 
+/** A refusal a test set: every write, or read, under `under` fails with `reason`. */
+type Refusal = { reason: string; under: string; reads: boolean };
+
 /**
- * This browser's files in a new place in memory, and capabilities whose one
- * endpoint is a saved connection answered by a stub `fetch`, chosen for
- * transcription and for text. Nothing reaches a network.
+ * Whispering's files in memory, as the app and another program reach them:
+ * `files` is what the app opens, and refuses what a test told it to;
+ * `outside` writes and reads without refusal and lists every path held.
+ */
+export function testFiles() {
+	const inner = memoryFiles();
+	const held = new Set<string>();
+	const refusals = new Set<Refusal>();
+	const refusing = (path: string, reads: boolean) =>
+		[...refusals].find(
+			(refusal) =>
+				refusal.reads === reads &&
+				(refusal.under === '' || path.startsWith(`${refusal.under}/`)),
+		);
+	const refused = (
+		operation: 'read' | 'write' | 'list' | 'remove',
+		path: string,
+		reason: string,
+	) => failed(`Could not ${operation} ${path}: ${reason}`);
+
+	const files: Files = {
+		async read(path) {
+			const refusal = refusing(path, true);
+			if (refusal) return refused('read', path, refusal.reason);
+			return inner.read(path);
+		},
+		async write(path, bytes) {
+			const refusal = refusing(path, false);
+			if (refusal) return refused('write', path, refusal.reason);
+			const written = await inner.write(path, bytes);
+			if (written.error === null) held.add(path);
+			return written;
+		},
+		async readMany(paths) {
+			for (const path of paths) {
+				const refusal = refusing(path, true);
+				if (refusal) return refused('read', path, refusal.reason);
+			}
+			return inner.readMany(paths);
+		},
+		async list(dir) {
+			const refusal = refusing(`${dir}/`, true);
+			if (refusal) return refused('list', dir, refusal.reason);
+			return inner.list(dir);
+		},
+		async remove(path) {
+			const refusal = refusing(path, false);
+			if (refusal) return refused('remove', path, refusal.reason);
+			const removed = await inner.remove(path);
+			if (removed.error === null) held.delete(path);
+			return removed;
+		},
+	};
+
+	/** Set `refusal` until the returned function undoes it. */
+	function refuse(refusal: Refusal) {
+		refusals.add(refusal);
+		return () => void refusals.delete(refusal);
+	}
+
+	return {
+		files,
+		outside: {
+			/** Write `content` at `path`, as another program does. */
+			async write(path: string, content: string | Uint8Array) {
+				const bytes = typeof content === 'string' ? encode(content) : content;
+				const written = await inner.write(path, bytes);
+				if (written.error !== null) throw written.error;
+				held.add(path);
+			},
+			/** The text at `path`, or null. */
+			async read(path: string) {
+				const read = await inner.read(path);
+				if (read.error !== null) throw read.error;
+				return read.data === null ? null : new TextDecoder().decode(read.data);
+			},
+			/** Every path held under `dir`, sorted. */
+			paths(dir = '') {
+				return [...held]
+					.filter((path) => dir === '' || path.startsWith(`${dir}/`))
+					.sort();
+			},
+			/** Refuse every write and removal under `under` (everywhere by default) until undone. */
+			refuse: (reason: string, { under = '' }: { under?: string } = {}) =>
+				refuse({ reason, under, reads: false }),
+			/** Refuse every read and listing under `under` (everywhere by default) until undone. */
+			refuseReads: (reason: string, { under = '' }: { under?: string } = {}) =>
+				refuse({ reason, under, reads: true }),
+		},
+	};
+}
+
+/**
+ * Whispering's files in memory, and capabilities whose one endpoint is a
+ * connection saved in `settings.md` and answered by a stub `fetch`, chosen
+ * for transcription and for text. Nothing reaches a network.
  */
 export async function openTestServices({
 	transcribe,
 	transform,
 }: TestServicesOptions = {}) {
-	const place = memory();
-	// The capture device's own folder over the same files, as the app's is.
-	const files = openFolder(whispering, place);
+	const { files, outside } = testFiles();
+	// Loaded here, after the test loaded the Svelte harness, which compiles runes modules.
+	const { openFolder } = await import('./folder.svelte.js');
+	// The settings as the app reads them: its folder's `settings.md`.
+	const { settings } = openFolder(files);
 
 	const transformed: TransformedRequest[] = [];
 	const transcribed: TranscribedRequest[] = [];
@@ -227,6 +298,8 @@ export async function openTestServices({
 	/** The stub endpoint: every request a saved connection sends arrives here. */
 	async function fetch(input: string, init?: RequestInit): Promise<Response> {
 		const request = new Request(input, init);
+		if (!request.url.startsWith(`${TEST_BASE_URL}/`))
+			return new Response('Not found', { status: 404 });
 		const path = request.url.slice(`${TEST_BASE_URL}/`.length);
 		if (path === 'audio/transcriptions') {
 			const form = await request.formData();
@@ -265,35 +338,40 @@ export async function openTestServices({
 		return new Response('Not found', { status: 404 });
 	}
 
-	// This computer's settings, empty for each test: one saved connection,
-	// answered by the stub, chosen for both jobs.
-	answering = fetch;
-	for (const name of ['connections.md', 'connection-keys.json', 'models.md'])
-		computer.write(name, null);
-	const connections = customEndpoints();
-	await settings.file('connections.md').connected();
+	// One saved connection, answered by the stub, chosen for both jobs.
+	const keys = new Map<string, string>();
+	const connections = customEndpoints({
+		store: settings.connections,
+		keys: {
+			get: async (id) => keys.get(id) ?? null,
+			set: async (id, key) => {
+				if (key === null) keys.delete(id);
+				else keys.set(id, key);
+			},
+		},
+		fetch,
+	});
 	const connectionId = await connections.add({
 		name: 'Test endpoint',
 		baseUrl: TEST_BASE_URL,
 		models: [TEST_MODELS.transcription, TEST_MODELS.text],
 	});
-	const choices = modelChoices<'transcribe' | 'chat'>();
-	await choices.set('transcribe', {
-		endpoint: connectionId,
-		model: TEST_MODELS.transcription,
-	});
-	await choices.set('chat', {
-		endpoint: connectionId,
-		model: TEST_MODELS.text,
-	});
+	const { choices } = settings;
+	for (const [job, model] of [
+		['transcribe', TEST_MODELS.transcription],
+		['chat', TEST_MODELS.text],
+	] as const) {
+		const chosen = await choices.set(job, { endpoint: connectionId, model });
+		if (chosen.error !== null) throw chosen.error;
+	}
 
 	const services: TestCapabilities = {
 		capture: createFixtureDevice({
-			audio: files.audio,
+			files,
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
-		ai: openAi([hosted(SIGNED_OUT), connections]),
+		ai: openAi([connections]),
 		choices,
 		preferences: {
 			microphone: () => undefined,
@@ -302,26 +380,20 @@ export async function openTestServices({
 	};
 
 	return {
-		/** Where this browser's files are: the app's folder opens here. */
-		place,
-		/** This browser's files, as another page of it opens them. */
+		/** Whispering's files, as the app opens them. */
 		files,
-		/** This browser's files as another program writes, reads, and refuses them. */
-		outside: memoryFiles(place),
+		/** The same files as another program writes, reads, and refuses them. */
+		outside,
 		services,
 		/** Every transformation request the endpoint stub received, in order. */
 		transformed,
 		/** Every transcription request the endpoint stub received, with the audio it carried. */
 		transcribed,
-		/** This computer's saved connections, and the id of the one the stub answers. */
+		/** The saved connections, and the id of the one the stub answers. */
 		connections,
 		connectionId,
-		/** This computer's model choices. */
+		/** The model choices, in `settings.md`. */
 		choices,
-		/** Close the files' folder. */
-		close() {
-			files[Symbol.dispose]();
-		},
 	};
 }
 

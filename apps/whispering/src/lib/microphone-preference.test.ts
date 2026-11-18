@@ -1,18 +1,16 @@
 /**
- * The microphone choice kept in this computer's settings
- * (`localPreferences`, `microphone.json`). A file that does not read as a
- * choice is said, never taken for the system default, and saving replaces it.
+ * The microphone choice kept in this computer's `localStorage`
+ * (`localPreferences`). What is kept that does not read as a choice is
+ * said, never taken for the system default, and saving replaces it.
  */
-import { expect, test } from 'bun:test';
-import { settings } from '@epicenter/local';
-import { outside } from '@epicenter/local/memory';
+import './svelte-dom.test-support.js';
+import { beforeEach, expect, test } from 'bun:test';
 import { localPreferences } from './microphone-preference.js';
 
-const file = settings.file('microphone.json');
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const KEY = 'whispering.microphone';
+beforeEach(() => localStorage.removeItem(KEY));
 
 test('missing and saved microphone choices read back', async () => {
-	await file.connected();
 	expect(localPreferences.microphone()).toBeUndefined();
 	expect(
 		await localPreferences.setMicrophone({
@@ -25,17 +23,14 @@ test('missing and saved microphone choices read back', async () => {
 		label: 'Fixture microphone',
 	});
 	await localPreferences.setMicrophone(undefined);
-	expect(file.text()).toBeNull();
+	expect(localStorage.getItem(KEY)).toBeNull();
 });
 
-test('a microphone.json that does not read is said by name, and saving replaces it', async () => {
-	await file.connected();
-	outside.write('microphone.json', '{broken');
-	await tick();
-	expect(() => localPreferences.microphone()).toThrow('microphone.json');
-	outside.write('microphone.json', '{"deviceId":""}');
-	await tick();
-	expect(() => localPreferences.microphone()).toThrow('microphone.json');
+test('a kept choice that does not read is said, and saving replaces it', async () => {
+	localStorage.setItem(KEY, '{broken');
+	expect(() => localPreferences.microphone()).toThrow('not JSON');
+	localStorage.setItem(KEY, '{"deviceId":""}');
+	expect(() => localPreferences.microphone()).toThrow('does not name one');
 	await localPreferences.setMicrophone({ deviceId: 'a', label: 'A' });
 	expect(localPreferences.microphone()).toEqual({ deviceId: 'a', label: 'A' });
 });
