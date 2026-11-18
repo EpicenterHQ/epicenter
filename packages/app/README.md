@@ -652,18 +652,27 @@ A `Folder` is now `path`, `write`, `edit` and `delete`; see
 gone, so a test makes a temporary directory and calls the app with
 `folderOnDisk` on it.
 
-### What the compiler does not catch
+Some other names 0.7.0 exported are gone:
 
-- **A value kept in the function body.** `epicenter` imports the app and calls its function each time it loads the app, today on every call. A cache or counter kept there starts over each time; keep it in a file.
-- **Files touched while loading.** Read and write inside actions, not in the function body: listing apps calls the function too.
-- **A test that relied on memory** for speed or isolation writes to its own temporary directory instead, and removes it afterward.
+| 0.7.0 | After |
+| --- | --- |
+| `expectOk`, `expectErr` from `@epicenter/app/testing` | the same functions from `wellcrafted/testing` |
+| `textUpdate(edit)` | `folder.edit(path, (before) => Ok({ text }))` |
+| `type Context` | the `{ folder }` the app's function is handed |
+| `App<A, D>` | `App`, which takes no type parameters |
+| `isUnderLocal`, `normalizePath`, `readMarkdown`, `isAction`, `isActionResult`, `encodeActionResult`, `whatFits`, `whatTakes`, `RESERVED_NAMES` | nothing; they were the library's own helpers |
 
-### Behavior that changed
+### Changes the compiler does not flag
 
-- **A tracked `.env`.** `epicenter serve` will not start while a `.env` at the root of the Epicenter is tracked by Git or not ignored ([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)). It says which, and the fix: `git rm --cached .env`, or add `.env*` to `.gitignore`.
-- **A `local/` without its `.gitignore`.** The folder writes `local/.gitignore` when it makes `local/`. A `local/` made another way runs, and is listed as a problem with the one-line fix.
+- `epicenter` imports the app and calls its function each time it loads the app, today on every call. A cache or counter kept in the function body starts over each time; keep it in a file.
+- Listing apps calls the function too, so read and write inside actions, not in the function body.
+- A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
+- The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
+- `checkAnswer` refuses a `Threw` whose `thrown` is not a plain object, such as an `Error` instance a test passes in, and answers `Unreachable`. An answer read from serve is parsed JSON, so it is unaffected.
+- `epicenter serve` will not start while a `.env` at the root of the Epicenter is tracked by Git or not ignored ([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)). It says which, and the fix: `git rm --cached .env`, or add `.env*` to `.gitignore`.
+- The folder writes `local/.gitignore` when it makes `local/`. A `local/` made another way runs, and is listed as a problem with the one-line fix.
 
-### Steps
+### Upgrade steps
 
 1. In the root `package.json`, remove `@epicenter/cli` and set `@epicenter/app` to the new version.
 2. Run `bun install`.
