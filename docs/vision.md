@@ -264,7 +264,13 @@ apps/vocab/
     node_modules/       ignored
   data/                 records and settings
     words/你好.md       path: data/words/你好.md
+  local/                this computer's own; never committed
 ```
+
+`data/` is what you would want back if this computer were lost, and Git
+keeps its history. `local/` is what this computer can rebuild or sign in
+again, such as a sign-in or a copy of a mailbox, and it never leaves this
+computer ([ADR-0939]).
 
 A record's address is its path from the container, with data/ included, in an
 action, a UI, and the files an agent opens. The proposed data-root API of
