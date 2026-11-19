@@ -32,9 +32,10 @@ See: a1b2c3d4e5, ADR-0534.
   or `dictation`, so one grep finds its whole story. Reuse a slug before
   making a new one.
 - Verdict: `adopted` (we built it), `dropped` (we built it and took it
-  out), `refused` (we decided against it before or instead of building it), or
-  `proposed` (accepted on paper and not yet built).
-- Reopen if: required for `dropped` and `refused`.
+  out), `refused` (we decided against it before or instead of building it),
+  `abandoned` (planned, then left when what it served went away, never judged
+  on its merits), or `proposed` (accepted on paper and not yet built).
+- Reopen if: required for `dropped`, `refused`, and `abandoned`.
 - See: one to three pointers an agent can follow. A ten-character commit
   SHA is on `main`. `ADR-NNNN` is one of the decision records `docs/adr/`
   held until 2026-11-19; every one is in the annotated `adr-archive` Git
@@ -147,8 +148,6 @@ See: de8012a288, 298bd545a8, ADR-0040.
 Files too large for Git or a Yjs document had no home. We added a blob store on the shared server: the client uploads straight to an S3-compatible bucket through a presigned URL, under a key that is the file's SHA-256 hash, and the bucket is the only index, with no blob table, queue, or confirm step. Presigned URLs kept large bodies off the Worker and ran the same code on R2, MinIO, or S3; a hash key let the bucket reject bytes that did not match their address. We gave up multipart uploads, since R2 checks a whole-object hash only on a single upload.
 
 Reopen if: a hosted service again needs to hold bytes too large for Git. This design is the starting point; the later entries record what changed in it.
-<!-- review: the reopen line is inferred; ADR-0089 gives no revisit condition. The commit body and ADR-0089's context hold the reasons. -->
-
 See: 745866ac17, ADR-0089, ADR-0091.
 
 ## 2026-06-26 · self-host · adopted · Self-hosting is a one-owner server behind one shared token
@@ -267,8 +266,6 @@ See: e354adb79b, ADR-0148.
 Sync grouped pending changes into batches for transport, and treating a batch as a commit would have promised atomic changes across rows. We refused that: each row or value converges on its own, and no other device is promised to see several rows change at once. Values that must change together go in one row or one row document; a real invariant across rows belongs in a server built for that app. Apps gave up atomic parent-and-child creation, cascades, and cleanup across rows.
 
 Reopen if: several apps need the same cross-row invariant and each building its own server for it costs more than one shared mechanism.
-<!-- review: reopen line inferred from ADR-0164's "application-specific semantic authority" clause; the record names no trigger. ADR-0212 kept this refusal when it changed the rest. -->
-
 See: ADR-0164, c3e5f59718.
 
 ## 2026-07-26 · local-transcription · adopted · The host owns one active local model, and apps cannot name one
@@ -300,8 +297,6 @@ See: b93279633b, ADR-0166, ADR-0119.
 `@epicenter/cli`, published as version 0.1.0, ran one folder with no window: `up` opened it, claimed a lease, joined sync, and kept Markdown output running, while `down`, `status`, and `logs` managed that process through pid files and signals. Every verb read the workspace package whose mount and daemon model had just been replaced, so we deleted the package. Three commands went with it: `auth` for a headless machine session, `blobs` for file uploads, and `matter` for a SQLite mirror of a Markdown folder. An earlier record had already refused turning the watcher into a local server that runs actions.
 
 Reopen if: a folder needs a process that keeps working with no window open, and none of the current programs can do it.
-<!-- review: the reason is from the commit; the reopen condition is inferred -->
-
 See: 946064c128, ADR-0112, ADR-0009.
 
 ## 2026-08-05 · desktop-host · dropped · Home stops being a shell above the apps
@@ -331,8 +326,6 @@ See: ADR-0227, ADR-0224.
 A month earlier we had built a hosted relay so a phone could attach to the Super Chat session running on the desktop, with pairing grants, a host directory, a Cloudflare Durable Object, and a client adapter. We deleted all of it, because the complete remote experience did not exist and dormant routes made an unfinished feature look supported. It also needed its own Durable Object class while hosted storage was being reset to a single one. We gave up chatting with the desktop's apps from a phone.
 
 Reopen if: a new record names the complete user-facing remote experience it serves; restore the relay from the parent of the deleting commit only then.
-<!-- review: ADR-0236 names the deleting commit as 19b9ee6a73, which is not on main; the commit on main is 4cc2092196 -->
-
 See: 4cc2092196, ADR-0236, ADR-0115.
 
 ## 2026-08-28 · data-store · dropped · The browser stores its data in SQLite over OPFS
@@ -374,8 +367,6 @@ The hosted API had run an OAuth provider since March, and on 2026-08-28 a duplic
 Reopen if: an untrusted or third-party client needs limited, delegated access to a person's data.
 
 See: ADR-0354 as of 1b720a83ff^, 0c329cbb54, 23bade0df4, 47a48940fd.
-<!-- review: ADR-0354 was deleted before the adr-archive tag; the reasons here come from ADR-0549's history table -->
-
 ## 2026-09-08 · accounts · dropped · Self-service account deletion is switched off
 
 In July we built a route, a coordinator, and dashboard UI that deleted a hosted account. It removed blobs, billing, and the sign-in record, then reported success while leaving store authorities, ledgers, and verification records behind, and ongoing writes could recreate deleted data. We made the route refuse before doing anything and disabled the button, with no automated deletion for a version that had no real users. People could not delete their own hosted account from then on.
@@ -399,8 +390,6 @@ We decided apps stay free and one Epicenter Cloud subscription pays for services
 Reopen if: Epicenter needs revenue from an app itself rather than from services it runs.
 
 See: ADR-0442, 7e2105f3d0.
-<!-- review: the record stayed Proposed; Whispering's hosted transcription behind sign-in (6544a18fb8) is the evidence it was acted on. The reopen condition is inferred; the record gives none -->
-
 ## 2026-09-24 · transformations · dropped · Recipes leave Whispering, and only transcript cleanup stays
 
 Recipes ran saved instructions on selected or copied text, often text unrelated to any recording, so treating them as a step after Polish described the wrong caller. We removed Whispering's recipe store, picker, commands, and shortcuts, and handed selected text to Capture instead. Polish was renamed cleanup: an optional light pass on each transcript, with the original text always kept beside it. A saved-command library for any text was left to a separate capability that does not belong to a speech app.
@@ -420,8 +409,6 @@ See: 98de355c46, ADR-0472.
 Whispering stored recordings in the Yjs store with an account, rendered Markdown copies from it, and kept audio in a separate blob store referenced by `audioBlobId`. We rebuilt it as a standalone desktop app that keeps recordings, transcripts, and settings as files in one Git folder. Under the store, editing a Markdown copy did nothing until it was pushed back, copying the Markdown alone could not recover a recording, and deleting a recording left its audio behind. Whispering gave up its account, sync through the store, and the workflow that ran only inside the Epicenter host.
 
 Reopen if: Whispering needs several devices editing the same recording live, which files and Git cannot merge.
-<!-- review: reopen line inferred. The commit message is thin; the reasons come from ADR-0450's context, written three days earlier. -->
-
 See: 8bc2aafd03, ADR-0450.
 
 ## 2026-10-01 · dictation · dropped · Whispering stops push-to-talk, voice-activated recording, and paste at the cursor
@@ -473,15 +460,11 @@ Five weeks after dropping OAuth for session bearers, we brought it back as the o
 Reopen if: no client needs a narrow or delegated token any more, which is the argument the 2026-11-17 API key plan made.
 
 See: ADR-0549, ADR-0565, 86b6f146a9.
-<!-- review: ADR-0549 says only that self-host "runs the same authorization server"; it gives no separate reason for deleting the one-token self-host app -->
-
 ## 2026-10-16 · blobs · dropped · Attachments live in a separate blob store
 
 Rows referred to audio and images by blob ID, and the bytes lived in a hosted S3 store and a local blob directory beside the data. Two days after the Yjs store went, we deleted the hosted blob routes and the blobs package, and an attachment became a file in the data folder next to its note. A complete copy of a folder now had to contain the bytes of every file it owns, not a pointer to them. We gave up hosted attachment URLs and storage outside Git.
 
 Reopen if: attachments grow too large or too many for a Git folder to hold, or an app must share one file across folders without copying it.
-<!-- review: the deletion commit has no body. The reasons come from ADR-0450 and ADR-0456; the reopen line is inferred. -->
-
 See: c2cfe59b98, ADR-0450, ADR-0456.
 
 ## 2026-10-16 · mcp · dropped · Epicenter hosts no MCP server for hosted folders
@@ -497,8 +480,6 @@ See: ADR-0578, ADR-0550, 089cb3838f.
 The Settings window, formerly Home, had a Chat pane: the host's chat session and the last running part of Super Chat, with catalogs of local tools and MCP servers and a relay for model calls. We deleted it in one commit that states no reason. The same day a record removed the Bun host process that the chat session ran in, so agents reach folders through Git, the `epicenter` command, and MCP instead. We gave up chatting with every app from inside the Epicenter desktop app.
 
 Reopen if: a chat that calls every app's actions is wanted again, and there is a long-running process for its session to live in.
-<!-- review: the commit message gives no reason; the context comes from ADR-0556, which lists the deletion as already done; the reopen condition is inferred -->
-
 See: 2ecb00b5ca, ADR-0556, ADR-0111.
 
 ## 2026-10-17 · dictation · dropped · Native dictation code is parked behind an off-by-default feature, then deleted
@@ -516,8 +497,6 @@ A third-party app is a static site at an origin Epicenter never sees in advance,
 Reopen if: an authorization server must accept clients that publish metadata documents, as MCP clients such as Claude and ChatGPT do.
 
 See: ADR-0614, ADR-0606, 38d61ddb24.
-<!-- review: ADR-0614 states the origin rule but never says why metadata documents lost; the origin rule itself was never built -->
-
 ## 2026-10-19 · hosted-api · adopted · Hosted inference stays, and an inference grant reaches no repository
 
 Earlier that day a record removed the hosted inference and transcription gateway, its AI credit billing, and the `ai` scope, because the planned product held only repository storage. The deletion was never applied, and a second record that day reversed it. Hosted inference stayed as an account benefit with an included allowance, and its grant became separate from repository access: an app could get inference without choosing or creating a repository, and inference granted no Git access. Someone could sync with GitHub and transcribe with Epicenter, or sync with Epicenter and use a local model.
@@ -525,8 +504,6 @@ Earlier that day a record removed the hosted inference and transcription gateway
 Reopen if: Epicenter's hosted product narrows to repository storage alone.
 
 See: ADR-0634, ADR-0618, 58ff78b5ce.
-<!-- review: the reopen condition is inferred from ADR-0618's stated reason; ADR-0634 gives none -->
-
 ## 2026-10-19 · sign-in · adopted · Apps open local data before anyone signs in
 
 Since September an app showed a sign-in screen and opened nothing while signed out, and the browser opener returned nothing without a repository grant. We made every app open, save, and reopen local data before first sign-in, with a local identity independent of any account or remote. Connecting sync attaches existing local work to one chosen repository and asks before combining a non-empty folder with a non-empty remote. Whispering was the case: it must start with local data, and a person may later sync, use only hosted inference, or never sign in.
@@ -548,8 +525,6 @@ See: a705179adf, ADR-0623, ADR-0786.
 The Epicenter desktop app had two jobs: it managed folders, and it hosted Todos, Capture, Honeycrisp, Whispering, and Messages in its own windows. Once an app's data was a file layout that any program may write, hosting bought only a second build and a second release channel for each app. We made each app its own program and left the Epicenter app to manage folders only. This reversed the July decision to ship everything as one desktop app.
 
 Reopen if: apps share enough beyond a file layout that one host saves more than a second build and release channel for each.
-<!-- review: inferred; the source gives no reopening condition -->
-
 See: ADR-0700, ADR-0701, ADR-0611.
 
 ## 2026-11-04 · oauth · refused · One sign-in shared by every program on a machine
@@ -559,16 +534,6 @@ On 2026-11-03 we decided a machine has one sign-in: one keychain item that Whisp
 Reopen if: separately signed programs gain a way to share one keychain item without prompts, or a broker can verify which program is calling.
 
 See: ADR-0731, ADR-0720, 68a32130df.
-
-## 2026-11-04 · daemon · refused · No background service owns sync
-
-The Epicenter app ran `epicenter sync --watch` for as long as it ran, and ADR-0713 made it the one program on a machine that synced folders, so every other app showed "Syncing needs Epicenter" without it. We decided sync is an operation on a folder, like save: any program with a credential runs a round when the person acts (opening the app, after a save, returning to the window), a lock in the folder keeps two rounds apart, and programs never call each other. The record refused a background service started at login because it is a process the person did not open and needs a Pause to stop. Two days later ADR-0819 had each program keep its open folders in sync while open, and the Epicenter app kept every folder open while it ran, which brought a single long-running syncer back in practice.
-
-Reopen if: people need another device's changes to appear while no Epicenter program is open, and accept a process that starts at login.
-
-<!-- review: the refusal in ADR-0750 was partly reversed two days later by ADR-0819 (e5ef6e7ad5); both died with the folder sync product on 2026-11-07. Check whether this is worth an entry or should fold into the 2026-11-07 entry. -->
-
-See: ADR-0750, ADR-0713, 2bce0c9414.
 
 ## 2026-11-04 · openai-compatible · adopted · Every model is an endpoint, including the one inside the app
 
@@ -594,9 +559,9 @@ See: ADR-0771, ADR-0705, 3598a3de17.
 
 ## 2026-11-07 · epicenter · adopted · Epicenter is where one person's software lives, and folder sync stops
 
-The folder sync product for many people was mostly unbuilt, and its one user, the owner, rarely edited on two computers in a week and shared nothing. We narrowed Epicenter to one person's software: each app is a folder with its code and its data, and each action is a command for the person and a tool for their agents. We stopped the sync engine, the server that keeps history, sharing, and the web and phone apps, and the next day deleted the Epicenter desktop app and the apps built on folder sync. For this period a non-developer cannot use Epicenter.
+The folder sync product for many people was mostly unbuilt, and its one user, the owner, rarely edited on two computers in a week and shared nothing. We narrowed Epicenter to one person's software: each app is a folder with its code and its data, and each action is a command for the person and a tool for their agents. We stopped the sync engine, the server that keeps history, sharing, and the web and phone apps, and the next day deleted the Epicenter desktop app and the apps built on folder sync. That ended a three-day turn on whether a background service should own sync: on 2026-11-04 we said no, since any program could sync when the person acted, and on 2026-11-06 a long-running syncer came back. For this period a non-developer cannot use Epicenter.
 
-See: ADR-0840, ADR-0841, ADR-0842, ADR-0843.
+See: ADR-0840, ADR-0841, ADR-0750, ADR-0819.
 
 ## 2026-11-07 · mcp · adopted · The CLI serves a folder's operations as MCP tools on the person's machine
 
@@ -643,8 +608,6 @@ See: 07bd5db61c, c5df3d2da7, ADR-0856.
 Two days after the Epicenter desktop app was deleted, a record proposed a new one: the Epicenter Mac app is `epicenter serve` with a window. It registers a login job that keeps `serve` running, shows a menu bar item for whether it runs, and carries its own `git` and `git-lfs`, but adds no actions, storage, or sync. None of it is built, and the launcher page its window was meant to show no longer exists in `serve`.
 
 Reopen if: a person who does not use a terminal needs to start and watch `serve`, or keeping it running by hand becomes a burden for the owner.
-<!-- review: the record is still Proposed and gives no trigger; the condition is inferred -->
-
 See: ADR-0865, ADR-0941.
 
 ## 2026-11-11 · monorepo · adopted · The owner's apps leave this repository
@@ -682,8 +645,6 @@ See: 817bc728b1, ADR-0875.
 Earlier drafts sorted apps into classes, each with its own machinery for mirrors, outboxes, and merging. A look at the owner's real apps showed that truth belongs to each set of records, not to the app: Mail's decisions are files in the folder, while the mail itself stays in Gmail. We set one rule: each set of records has one place that may write it, and Epicenter never reconciles two writable copies. We refused to build conflict merging; whoever holds the folder writes files, and everyone else asks an action.
 
 Reopen if: two places must write the same records and neither can ask the other through an action.
-<!-- review: inferred; the source gives no reopening condition -->
-
 See: ADR-0896, ADR-0898.
 
 ## 2026-11-13 · folder-sync · dropped · The folder sync product is retired
@@ -696,7 +657,7 @@ See: ADR-0899.
 
 ## 2026-11-13 · whispering · adopted · Whispering 8 is a clean rewrite that needs no Epicenter
 
-Unreleased Whispering had been rebuilt on the folder sync product, with sign-in and a folder on our server. We chose a clean break: Whispering 8 is a new install that keeps recordings and their audio as plain Markdown and audio files in its own folder, with no Git, no account, and no Epicenter. It imports nothing from version 7; a person who wants old recordings copies their Markdown files. People install it fresh and grant the microphone and Accessibility again.
+Unreleased Whispering had been rebuilt on the folder sync product, with sign-in and a folder on our server. We chose a clean break: Whispering 8 is a new install that keeps recordings and their audio as plain Markdown and audio files in its own folder, with no Git, no account, and no Epicenter. It imports nothing from version 7; a person who wants old recordings copies their Markdown files. People install it fresh and grant the microphone and Accessibility again. Whispering 8 reads its updates from its own address, and each release keeps v7.11.0's update file unchanged, so every v7 install reads that it is current and is never updated in place.
 
 See: ADR-0894, ADR-0892, ADR-0962.
 
@@ -746,27 +707,13 @@ See: ADR-0897.
 After the tab manager extension was deleted in August, records from November 3 and 4 planned its return as Tabs: a WXT extension that read open tabs live and saved tabs as items in a collection, written through the local Epicenter engine on the desktop. None of it was built. The plans closed with the folder sync product they depended on. The saved tabs lost in August were never recovered.
 
 Reopen if: the owner wants saved tabs again and an extension can hand them to an action in their Epicenter.
-<!-- review: no record argues against Tabs on its own merits; it closed because its platform was retired; the reopen condition is inferred -->
-
 See: ADR-0743, ADR-0745, ADR-0899.
-
-## 2026-11-13 · updates · adopted · Whispering 8 reads updates from its own address, and v7 is told it is current
-
-Whispering 7 checks `releases/latest/download/latest.json` on GitHub and shows "Failed to check for updates" when the check fails. We decided Whispering 8 is a new install, `so.epicenter.whispering`, that reads `whispering.json` instead, and that each Whispering 8 release also carries v7.11.0's own `latest.json` unchanged, so every v7 install reads that it is up to date. We refused updating v7 in place, which meant reading v7's WebView storage and an untested Windows installer path, and refused a v7.12 bridge release. People move to v8 by downloading it and granting the microphone and Accessibility again.
-
-Reopen if: many v7 users never learn that v8 exists, so a bridge release or an in-place update becomes worth its cost.
-
-<!-- review: this overlaps the existing "Whispering 8 is a clean rewrite" entry, which also cites ADR-0892; keep only if the update-address detail earns its own entry. The release workflow and `whispering.json` are unbuilt as of 2026-11-18 per the triage. -->
-
-See: ADR-0892.
 
 ## 2026-11-13 · v7-import · refused · Whispering 8 does not import from Whispering 7
 
 ADR-0892 planned an "Import from Whispering 7" button that copied v7.11's Markdown recordings into Whispering 8's folder. The same day, ADR-0894 cut it: a person who wants their v7 recordings copies the Markdown files, and Whispering 8 carries no code that reads v7's storage. The stated reason is that reading v7's WebView storage buys a clean break its author does not need. Recordings v7 kept in IndexedDB before it wrote files cannot reach v8 at all.
 
 Reopen if: people other than the author ask to bring their v7 recordings into v8 and copying files by hand proves too hard for them.
-
-<!-- review: the reason is one line in ADR-0894's alternatives. The existing history entry "Whispering 8 is a clean rewrite" says v8 "imports version 7.11's recordings when asked", which ADR-0894 and the README ("importing from Whispering 7" under not supported) contradict; that entry may need a correction. -->
 
 See: cdd7646c2c, 6c7212ba88, ADR-0894.
 
@@ -775,8 +722,6 @@ See: cdd7646c2c, 6c7212ba88, ADR-0894.
 Several records had left room for "Epicenter Cloud", a hosted computer a person could pick instead of their own. We decided the home is a computer the person controls, owned or rented, and that the program is built for one person's computer. Nothing in it is for a hosting service: no sign-in in front of `serve` and no per-caller limits. Whoever provides a rented computer can read it, and Epicenter adds no protection against that.
 
 Reopen if: people who cannot keep a computer of their own running become the people Epicenter is for.
-<!-- review: inferred; the source gives no reopening condition -->
-
 See: ADR-0903.
 
 ## 2026-11-14 · repository · adopted · An Epicenter is one private Git repository
@@ -807,8 +752,6 @@ See: 44610c1ca9, ADR-0072, ADR-0902.
 `serve` signs no one in, yet a flag let it listen on any network address, and two earlier designs gave it a public address with passkeys and OAuth. We made `serve` listen only on the local machine, with no flags. Reaching it from a phone is the job of the owner's private network, for example Tailscale. We gave up a public address and any sign-in of our own.
 
 Reopen if: reaching `serve` from another device needs more than a private network such as Tailscale gives.
-<!-- review: inferred; the source gives no reopening condition -->
-
 See: ADR-0927.
 
 ## 2026-11-17 · yjs · proposed · One app may keep a Yjs document and export Markdown
@@ -819,24 +762,20 @@ Reopen if: the first app that wants shared editing answers the spec's open quest
 
 See: ADR-0943, specs/20261117T150000-shared-documents-with-yjs-on-fetch-and-websocket.md, a352e2199d.
 
-## 2026-11-17 · hosted-api · refused · API keys replace the hosted API's OAuth server
+## 2026-11-17 · hosted-api · abandoned · API keys replace the hosted API's OAuth server
 
 With folder sync retired, Whispering was the one product still calling the hosted API, and only for paid models. We proposed cutting the API to an OpenAI-compatible model API plus a dashboard, reached by per-device API keys from Better Auth's key plugin, and deleting the OAuth server, device sign-in, and the Bun self-host server. The reasons: the OAuth clients ran to thousands of lines of rotation logic, an access token cannot be pasted into another OpenAI tool or a `.env`, and the needs that justified OAuth, MCP clients and Git credentials, were gone. The next day the whole hosted API was retired and the plan was abandoned unbuilt.
 
 Reopen if: the hosted API returns; the record's case for API keys over OAuth would apply again.
 
 See: ADR-0950, ADR-0970, 0e277395b3.
-<!-- review: abandoned because the API was retired, not rejected on its merits; "refused" is the closest verdict -->
-
-## 2026-11-17 · billing · refused · AI credits charged by what each call uses
+## 2026-11-17 · billing · abandoned · AI credits charged by what each call uses
 
 Chat cost a fixed number of credits per model per call, so a call of 200,000 tokens cost the same as an average one, and transcription had no bound on a call's length. We proposed charging by tokens or minutes: hold the most a call can cost with an Autumn lock before it, read the provider's usage during it, and settle at the real cost after. API keys would let any OpenAI tool reach the gateway, which made flat pricing easy to exploit. The hosted API was retired the next day and the plan was abandoned unbuilt.
 
 Reopen if: the hosted API returns with AI credits, especially if any OpenAI-compatible tool can call it.
 
 See: ADR-0951, ADR-0970, 9dd8161baa.
-<!-- review: abandoned because the API was retired, not rejected on its merits; "refused" is the closest verdict -->
-
 ## 2026-11-17 · daemon · dropped · Epicenter stops installing a background job for `serve`
 
 Since 2026-11-11 `epicenter service install` wrote a macOS LaunchAgent so the operating system restarted `serve` after a crash or reboot. Linux and Windows each needed a writer and tests of their own and neither was built, and the Mac app already registered its own job. We removed `epicenter service`: a person starts `serve` and keeps it running like any program, in a terminal, under their own systemd unit or LaunchAgent, or under the Mac app. We gave up a one-command way to keep `serve` alive.
@@ -850,8 +789,6 @@ See: 5a0ad0d833, ADR-0941, ADR-0878.
 The repository carried example apps, and the front page told a new owner to install one with a single command. Nothing checked the examples, so they drifted from the library, and checking them meant bending the repository around them. We deleted them: a real app lives in its owner's Epicenter, beside its records. A new owner writes a first one-file app from a walkthrough, and no command makes an app or an Epicenter.
 
 Reopen if: something checks example apps against the library on every change, so they cannot drift.
-<!-- review: inferred; the source gives no reopening condition -->
-
 See: ADR-0969, ADR-0955, ADR-0958.
 
 ## 2026-11-18 · hosted-api · dropped · The hosted API is retired
@@ -867,8 +804,6 @@ See: ADR-0970.
 The `epicenter` command and the library an app imports were two packages, `@epicenter/cli` and `@epicenter/app`, released at one version and kept equal by a peer dependency, a version script, and a structure check. Once an app became a function of its folder, nothing in memory had to be shared between them, so one package needs none of that. We moved the command into `@epicenter/app`, which now carries the `epicenter` binary, and deleted `packages/cli`. The planned npm releases of `@epicenter/cli` were never made.
 
 Reopen if: the command and the library need different release schedules, or an outside consumer needs one without the other.
-<!-- review: the reopen condition is inferred -->
-
 See: e62bc4807b, ADR-0960, ADR-0892.
 
 ## 2026-11-18 · local-transcription · dropped · The active local model goes, and every request names its model
