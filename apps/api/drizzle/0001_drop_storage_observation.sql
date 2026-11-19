@@ -1,1 +1,0 @@
-DROP TABLE "storage_observation" CASCADE;

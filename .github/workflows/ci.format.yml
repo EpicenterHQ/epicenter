@@ -12,16 +12,6 @@
 # Deliberately NOT in this gate:
 #   - Formatting. ci.autofix.yml runs `bun run format` and pushes the fix, so
 #     failing here would only tell a contributor what a bot is already doing.
-#     `bun run check` still runs `format:check` locally, before the push.
-#   - `bun run check:doc-hygiene`. Its ADR-staleness rule is time-based, so a
-#     PR that touched nothing can go red on a calendar day. It stays an explicit
-#     review command (see 91c4a87c1b), not a merge blocker.
-#   - Gmail drift. It needs a live Google endpoint; it keeps its own workflow
-#     on its own trigger.
-#
-# The gate's tests do need one local program, which this job installs:
-# PostgreSQL's initdb and pg_ctl. The session handoff tests in packages/server
-# start their own disposable cluster on a loopback port.
 name: Code quality
 
 on:
@@ -42,14 +32,14 @@ jobs:
       pull-requests: read
     steps:
       - name: No AI or tool attribution in commit messages
-        # AGENTS.md, "Git hygiene". Matches a trailer or footer that credits a
+        # Matches a trailer or footer that credits a
         # tool, not a mention of one: `chore(claude): ...` passes. The API lists
         # at most 250 commits per pull request.
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          ATTRIBUTION: '^\W*(co-authored-by:|generated with ).*\b(claude|anthropic|codex|openai|opencode|copilot|cursor|sisyphus)\b'
+          ATTRIBUTION: '^\W*(co-authored-by:|generated with ).*\b(claude|anthropic|codex|openai|copilot|cursor)\b'
         run: |
           found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '
             .[] | .sha[0:10] as $sha | .commit.message | split("\n")[]
@@ -73,16 +63,5 @@ jobs:
           bun-version-file: 'package.json'
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Put PostgreSQL's server programs on PATH
-        # Ubuntu installs initdb and pg_ctl under /usr/lib/postgresql/<major>/bin,
-        # off PATH. Use the newest one the image has, or install it.
-        run: |
-          bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -n 1 || true)
-          if [ -z "$bin" ]; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends postgresql
-            bin=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -n 1)
-          fi
-          echo "$bin" >> "$GITHUB_PATH"
       - name: Canonical gate
         run: bun run check

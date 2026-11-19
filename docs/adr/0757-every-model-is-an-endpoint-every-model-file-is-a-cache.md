@@ -8,6 +8,8 @@
 - **Relates:** [ADR-0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) (a cache is one of the five stored kinds), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (provider keys live in the app's credentials file, and the shell sends keyed requests), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (programs meet in a shared place; the sync moments), [ADR-0056](0056-local-inference-is-a-delegated-engine-behind-the-openai-compatible-seam.md) (local inference behind the OpenAI-compatible seam), [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md) (runtime transcription calls the host directly), [ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) (Epicenter adapts to what you already have), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (Epicenter is made of standards and places).
 - **Unbuilt:** all of it: `openAi([...])`, the endpoint shape `{ id, fetch, models() }`, per-model capabilities, `hosted`, `custom` and `localServers` in `@epicenter/ai`; one desktop relay in place of `948ea39cf4:apps/whispering/src-tauri/src/http.rs` and `folder-package:packages/tauri-epicenter-account/src/relay.rs`; the accessor through which `@epicenter/account` hands over the person's provider keys; `@epicenter/transcription` exporting `localSpeech()`, with its in-process fetch and its remove, load and unload beside download, in place of `@epicenter/transcription-native`.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 `@epicenter/ai` (`packages/ai`) reaches a model through constructors an app

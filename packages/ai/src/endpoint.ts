@@ -1,7 +1,7 @@
 /**
- * An endpoint is a place that answers OpenAI-compatible requests: Epicenter's
- * hosted inference, a provider the person holds a key for, a server on this
- * computer, or an engine inside the app. It is a value, not a connection: an
+ * An endpoint is a place that answers OpenAI-compatible requests: a provider
+ * the person holds a key for, a server on this computer, or an engine inside
+ * the app. It is a value, not a connection: an
  * id, a `fetch` rooted at the endpoint, and the models it offers now
  * (ADR-0757).
  *
@@ -11,11 +11,11 @@
  * any number of endpoints into one value.
  */
 
-/** What a model can do, named by the request that does it. */
-export type Capability = 'chat' | 'transcribe' | 'embed';
+/** What a model can do, named by the request that does it: transcription is the only request sent. */
+export type Capability = 'transcribe';
 
 /** Where a model runs, from the person's point of view. */
-export type Source = 'local' | 'hosted' | 'custom';
+export type Source = 'local' | 'custom';
 
 /** A model as its endpoint declares it. */
 export type EndpointModel = {
@@ -27,7 +27,7 @@ export type EndpointModel = {
 
 /**
  * The Fetch API's call shape, rooted at an endpoint: `path` is relative to
- * the endpoint (`chat/completions`, `audio/transcriptions`, `models`), and
+ * the endpoint (`audio/transcriptions`, `models`), and
  * the endpoint decides where it goes and with what credential.
  */
 export type EndpointFetch = (
@@ -59,14 +59,14 @@ export type Endpoint = {
 
 /**
  * What a model id says it can do, for a server that lists only ids. An id
- * naming embeddings or a speech recognizer does that; any other id chats.
+ * naming a speech recognizer transcribes; any other id does nothing this
+ * package sends.
  */
 export function guessCapabilities(id: string): Capability[] {
 	const name = id.toLowerCase();
-	if (name.includes('embed')) return ['embed'];
 	if (name.includes('whisper') || name.includes('transcribe'))
 		return ['transcribe'];
-	return ['chat'];
+	return [];
 }
 
 /**

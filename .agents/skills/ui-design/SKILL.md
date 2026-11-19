@@ -59,7 +59,7 @@ Collapse: <the local structure or styling that disappears>.
 
 Run this within the requested scope for every meaningful UI implementation or
 review, not only work called a redesign. This is the UI application of
-[asymmetric-wins](../asymmetric-wins/SKILL.md); load that skill when a candidate
+the asymmetric wins section of [product-collapse](../product-collapse/SKILL.md); load that skill when a candidate
 refusal needs an explicit product-loss versus deletion-prize decision.
 
 ```txt

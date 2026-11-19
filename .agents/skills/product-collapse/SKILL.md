@@ -1,6 +1,6 @@
 ---
 name: product-collapse
-description: Develop simpler product behavior with the person by questioning assumed requirements and working backward from what they need. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment.
+description: Develop simpler product behavior with the person by questioning assumed requirements and working backward from what they need. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment, or when judging asymmetric wins, meaning whether refusing a small promise would remove disproportionate complexity.
 ---
 
 # Product collapse
@@ -33,6 +33,14 @@ A recurring choice might be resolved once. A mode or degree of fidelity
 might be unnecessary. Actions might belong together, or a combined action
 might work better as separate decisions. Something the browser or
 operating system already does may be enough.
+
+Often a change only needs to take effect when something starts. Instead
+of keeping a running thing in step with it, restart or reload and let
+startup build it fresh. A window that can switch between folders can open a
+new window. A server can be rebuilt and run again instead of hot reloaded.
+A page can reload after a database key changes instead of rebinding the
+connection. The person waits a moment and may lose unsaved work, but the
+code that kept the old thing alive disappears.
 
 For example, someone who wants to review their week might need one
 useful report with a date-range choice. They may have no use for a report
@@ -81,9 +89,26 @@ Use [collapse-pass](../collapse-pass/SKILL.md) to carry an authorized
 change through its callers, remove what it made unnecessary, and verify
 the result. Use disposable data for app experiments.
 
-Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when weighing whether
-giving up one small promise could remove much larger complexity.
-
 Read [the examples](references/examples.md) for illustrations of this
 judgment. They show questions worth examining, not changes to apply by
 keyword or a required number of alternatives.
+
+## Asymmetric wins
+
+Ask: what could we refuse? Could giving up 10 to 20 percent of the
+features remove 80 to 90 percent of the complexity?
+
+Look for one small promise that drags a lot of code along with it: a fast
+path, an old format, a rare mode, a compatibility alias, a fallback parser,
+exact reproduction. Write down what people lose and the deletion prize, the
+code that goes away with it. Then check that the product still does what
+its sentence says. A second way of doing something looks cheap to add, but
+it has to be kept working forever.
+
+Choose the smallest loss that removes the second way, not simply the
+biggest deletion.
+
+For example, letting browser apps sign in with Google's one-tap costs a
+second of speed, but it forces a separate sign-in path, helpers, an error
+state, and two sets of docs and tests. Refusing it makes Google sign-in a
+few seconds slower and leaves one path for every provider.

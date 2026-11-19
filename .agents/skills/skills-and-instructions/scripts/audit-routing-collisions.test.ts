@@ -7,8 +7,7 @@
  * `--explain` flag cannot drift them.
  *
  * The content-coupled assertions are deliberate. "asymmetric wins" having
- * exactly one owner, and "simplify this" being owned by collapse-pass while
- * control-flow routes it there, are routing facts the composition audit is
+ * exactly one owner, and "simplify this" being owned by collapse-pass, are routing facts the composition audit is
  * built around; if a description edit changes one, a failing test here is the
  * report, not noise.
  *
@@ -61,7 +60,7 @@ test('a single owner exits 0 in the documented line format', () => {
 	const { code, out } = run('asymmetric wins');
 
 	expect(code).toBe(0);
-	expect(out).toBe('asymmetric wins -> asymmetric-wins/SKILL.md\n');
+	expect(out).toBe('asymmetric wins -> product-collapse/SKILL.md\n');
 });
 
 test('--explain annotates without changing the line prefix or exit code', () => {
@@ -70,22 +69,19 @@ test('--explain annotates without changing the line prefix or exit code', () => 
 
 	expect(explained.code).toBe(plain.code);
 	expect(explained.out).toBe(
-		'asymmetric wins -> asymmetric-wins/SKILL.md [claims]\n',
+		'asymmetric wins -> product-collapse/SKILL.md [claims]\n',
 	);
 });
 
-test('one claimant beside a disclaiming mention is clean routing', () => {
-	// The shape every resolved boundary has: an owner, plus the neighbour that
-	// routes the phrase to it. Counting mentions would call this a collision.
+test('a single claimant with no collision exits 0', () => {
 	const { code, out } = run('--explain', 'simplify this');
 
 	expect(code).toBe(0);
 	expect(out).toContain('collapse-pass/SKILL.md [claims]');
-	expect(out).toContain('control-flow/SKILL.md [disclaims]');
 });
 
 test('a phrase every mention routes away is reported as unowned', () => {
-	// one-sentence-test sends this back to the agent and nobody accepts it,
+	// collapse-pass sends this back to the agent and nobody accepts it,
 	// which is the intended routing. The script reports unowned; whether unowned
 	// is correct stays the reader's call.
 	const { code, out, err } = run(
@@ -94,7 +90,7 @@ test('a phrase every mention routes away is reported as unowned', () => {
 	);
 
 	expect(code).toBe(1);
-	expect(out).toContain('one-sentence-test/SKILL.md [disclaims]');
+	expect(out).toContain('collapse-pass/SKILL.md [disclaims]');
 	expect(err).toContain('No skill description claims');
 	expect(err).toContain('route it elsewhere');
 });

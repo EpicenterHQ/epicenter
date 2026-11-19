@@ -2,8 +2,6 @@
 
 # Dependencies
 node_modules
-.pnp
-.pnp.js
 
 # Testing
 /coverage
@@ -18,13 +16,9 @@ dist
 tsconfig.tsbuildinfo
 
 # Debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 *.log
 
 # Agent / benchmark scratch (machine-local, never commit)
-bench-oneshot.ts
 20??-??-??-*.txt
 
 # ENV files
@@ -40,42 +34,26 @@ bench-oneshot.ts
 # Epicenter
 .epicenter
 
-# WXT (browser extension framework)
-.wxt
+# Build output
 .output
 .svelte-kit
 
 # Wrangler (Cloudflare Workers local state)
 .wrangler
-.conductor/
-
-# Reddit exports (personal data)
-reddit_export.zip
 
 # Temporary search clones (development only)
-tmp-search/
 .tmp/
-tmp-yjs/
-
-# y-sweet server data (created when running the sync server locally)
-y-sweet-data/
 
 # Editor / agent tooling state (machine-local)
-.opencode/
-.sisyphus/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
 
 test-results/
-
-# Smoke-test and tooling run logs (machine-local, regenerated per run)
-.artifacts/
 
 # Agent scratch (machine-local, never commit)
 .scratch/
 
-# Temporary UI browser regression fixtures
-packages/ui/.browser-migration-*/
 
 # The root Cargo workspace (Cargo.toml).
 /target/

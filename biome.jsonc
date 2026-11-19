@@ -1,6 +1,5 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-	"plugins": ["./scripts/biome/c-json-errors.grit"],
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -20,18 +19,11 @@
 		"ignoreUnknown": true,
 		"includes": [
 			"**",
-			"!.conductor",
 			"!**/.svelte-kit",
 			"!**/.astro",
-			"!**/.plasmo",
 			"!**/node_modules",
 			"!**/build",
 			"!**/dist",
-			// Generated benchmark browser bundles are evidence, not lintable source.
-			"!packages/app/evidence/data/browser/**/*.html",
-			"!package-lock.json",
-			"!pnpm-lock.yaml",
-			"!yarn.lock",
 			// Written by `tauri_specta` on every `cargo test`, which has no
 			// formatter hook. Formatting them made every Rust test run dirty
 			// two files it did not change, so the generator's output is the
@@ -42,8 +34,6 @@
 			"!**/permissions/schemas/schema.json",
 			// Upstream snapshots stay as the shadcn-svelte CLI wrote them; the kit is checked against them.
 			"!packages/ui/upstream",
-			// Preserve the vendored lint rules byte-for-byte for upstream updates.
-			"!tools/oxlint/anti-slop",
 			"!**/.gitignore",
 			"!.DS_Store",
 			"!**/*.md",
@@ -127,16 +117,6 @@
 						"useMediaCaption": "off"
 					}
 				}
-			}
-		},
-		{
-			// `wrangler types` output. Its empty interfaces (`Env`, `GlobalProps`,
-			// `Disposable`, ...) exist so other declarations can merge into them;
-			// the `type X = {}` rewrite this rule suggests cannot merge and
-			// collides with the generated `interface Env` in the same namespace.
-			"includes": ["**/worker-configuration.d.ts"],
-			"linter": {
-				"rules": { "suspicious": { "noEmptyInterface": "off" } }
 			}
 		},
 		{

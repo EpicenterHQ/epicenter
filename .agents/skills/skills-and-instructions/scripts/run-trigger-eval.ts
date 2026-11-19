@@ -12,7 +12,7 @@
  * forbids claims it.
  * These are facts about descriptions. They are *not* routing results. A
  * description can carry a near-miss clause that a substring scan cannot weigh
- * (`one-sentence-test` tells the agent to answer plain comprehension questions
+ * (`collapse-pass` tells the agent to answer plain comprehension questions
  * directly, and no amount of lexical analysis sees that), and a model can route
  * correctly on intent with no lexical overlap at all. Treat this mode as a
  * cheap smoke test on description coverage, and never quote it as evidence
@@ -34,7 +34,7 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { readdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -81,28 +81,6 @@ export async function fingerprintInstructions(
 		files,
 		digest: new Bun.CryptoHasher('sha256').update(combined).digest('hex'),
 	};
-}
-
-/** Whether a stored run's numbers still describe the working tree. */
-export type RunComparability = 'comparable' | 'superseded' | 'undigested';
-
-/**
- * Decide whether a stored run may still be quoted against the current tree.
- *
- * The proof this harness exists to serve is that always-on instructions cause
- * routes, so a stored rate is a fact about the `AGENTS.md` that produced it and
- * about no other one. `undigested` is its own verdict rather than a failure
- * because a run recorded before the digest existed is not wrong, it is simply
- * unable to answer the question.
- */
-export function compareStoredRun(
-	stored: { instructions?: InstructionFingerprint },
-	current: InstructionFingerprint,
-): RunComparability {
-	if (!stored.instructions) return 'undigested';
-	return stored.instructions.digest === current.digest
-		? 'comparable'
-		: 'superseded';
 }
 
 /**
@@ -170,7 +148,6 @@ const USAGE = `Usage: bun run .agents/skills/skills-and-instructions/scripts/run
 Default mode is offline and reports description coverage, not routing.
 
   --corpus <file>   corpus JSON (default: ../evals/routing.json)
-  --verify-runs <dir>  report whether stored runs still describe this tree
   --case <id>       run one case (repeatable)
   --strict          exit 1 when the offline pass reports findings
   --json            emit results as JSON on stdout
@@ -506,31 +483,6 @@ if (import.meta.main) {
 	const scriptDir = dirname(fileURLToPath(import.meta.url));
 	const skillsDir = join(scriptDir, '..', '..');
 	const repoRoot = resolve(skillsDir, '..', '..');
-
-	// Answering "may I still quote this number?" needs no corpus and no quota,
-	// so it runs before the corpus is even loaded.
-	const verifyDir = flagValue(argv, '--verify-runs');
-	if (verifyDir !== undefined) {
-		const current = await fingerprintInstructions(repoRoot);
-		const files = (await readdir(resolve(verifyDir)))
-			.filter((name) => name.endsWith('.json'))
-			.sort();
-
-		let stale = 0;
-		for (const name of files) {
-			const stored = (await Bun.file(resolve(verifyDir, name)).json()) as {
-				instructions?: InstructionFingerprint;
-			};
-			const verdict = compareStoredRun(stored, current);
-			if (verdict !== 'comparable') stale++;
-			console.log(`${verdict}\t${name}`);
-		}
-
-		console.error(
-			`run-trigger-eval: ${files.length - stale}/${files.length} run(s) comparable against instructions=${current.digest.slice(0, 12)}.`,
-		);
-		process.exit(stale > 0 ? 1 : 0);
-	}
 
 	const corpusPath = resolve(
 		flagValue(argv, '--corpus') ??

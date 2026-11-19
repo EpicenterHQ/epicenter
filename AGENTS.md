@@ -4,14 +4,11 @@ Epicenter runs personal apps on a computer their owner controls. Each app
 keeps its code and records together in the home's private Git repository.
 The CLI runs app actions, and `epicenter serve` makes them available to
 the owner's devices and agents. The earlier folder sync product is retired.
-Some of its packages still have callers in Whispering and the hosted API.
+Some of its packages still have callers in Whispering. The hosted API is retired for now (ADR-0970).
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` lists the apps in this repository; package
 READMEs describe their contracts. Load only the context needed for the task.
-
-Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
-it into a shared package or the self-hosted deployment.
 
 ## License
 
@@ -32,29 +29,25 @@ Prefer `bun` over npm, yarn, pnpm, and node. Use `bun run`, `bun test`, `bun ins
 
 Start apps from the repo root with `bun dev:<app>`. Do not cd into an app to start it.
 
-- `bun dev:<app>` runs every process the app needs, including the hosted API on `localhost:8787` for apps that talk to it.
-- `bun dev:<app>:ui` is the frontend alone, where that split exists.
-- `bun dev:api` is the backend alone.
-- Details in the `monorepo` skill.
+- `bun dev:<app>` runs the app's dev server: Whispering's Vite server or the landing site.
+- `bun dev:whispering:desktop` runs Whispering in its native Tauri window.
+- `scripts/README.md` explains the root scripts and their names.
 
-## Script suffix convention
+## Production scripts
 
-The suffix tells you whether a script touches production.
-
-| Suffix | Meaning |
-| --- | --- |
-| `:local` | works on a fresh clone without Infisical login; reads committed config like `wrangler.jsonc` |
-| `:remote` | wraps with `infisical run --env=prod` and requires Infisical auth. Treat as a production admin operation. |
+A script name ending in `:remote` runs with production secrets through
+`infisical run --env=prod`. Treat it as a production admin operation.
 
 ## Git hygiene
 
-Stage specific files only.
-
-Do not include AI or tool attribution in commits.
+Stage specific files by name, never `git add -A` or `git commit -a`: other
+sessions share the checkout. `git stash` is shared across worktrees, so commit to
+a branch instead. Instruction and skill changes get their own commits, so they
+can be cherry-picked onto local `main`.
 
 ## Destructive actions need approval
 
-Force pushes, hard resets (`--hard`), branch deletions.
+Force pushes, hard resets (`--hard`), branch deletions, and `gh pr merge --admin`.
 
 ## External grounding
 
@@ -108,9 +101,9 @@ decision settles.
 
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
-- Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented`/`Superseded` is a hygiene smell (`scripts/check-doc-hygiene.ts` flags it).
+- Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented` or `Superseded` should be deleted.
 - When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
-- `docs/spec-history.md` is a dated index of past specs. It is history, not truth.
+- `docs/spec-history.md` is a frozen, dated index of past specs. It is history, not truth.
 
 ## Writing conventions
 
@@ -167,4 +160,5 @@ Keep procedures in skills; keep `AGENTS.md` to routing.
 | --- | --- |
 | substantial implemented changes, or changes with caller or contract consequences, including refactors, public API changes, and clean breaks | `post-implementation-review`, before final handoff or staging |
 | continuous indirection-reduction work | `collapse-pass` directly |
-| during review: an unresolved ownership, lifecycle, API, package-boundary, clean-break, compatibility-refusal, or asymmetric-win question | borrow `rethink`'s reasoning |
+| during review: an unresolved ownership, lifecycle, API, package-boundary, clean-break, or compatibility-refusal question | borrow `rethink`'s reasoning |
+| during review: whether refusing a small promise (an asymmetric win) removes disproportionate complexity | borrow `product-collapse`'s reasoning |

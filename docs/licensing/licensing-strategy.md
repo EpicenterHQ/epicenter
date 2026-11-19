@@ -39,8 +39,10 @@ the part that is easy to get wrong.
 Epicenter supplies the program, and the person supplies the home: a computer
 they control, owned or rented ([vision](../vision.md),
 [ADR-0903](../adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)).
-Revenue comes from services Epicenter hosts, such as
-`apps/api` today and hosted Notes if it is built
+Revenue is meant to come from services Epicenter hosts. None runs today: the
+hosted API is retired for now
+([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)), and hosted Notes is not
+built yet
 ([ADR-0897](../adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md)).
 To a person's Epicenter each one is an outside app, like Gmail.
 
@@ -59,7 +61,7 @@ We sort this into five scenarios:
 | 1 | An individual runs Epicenter locally for personal use | Allowed | Allowed (no §13 trigger when running locally) | Forbidden |
 | 2 | A developer forks an Epicenter library to build their own app | Allowed | Their app must also be AGPL (kills adoption) | Forbidden |
 | 3 | A company forks an Epicenter app and ships it under a new brand, closed-source | **Allowed** | Forbidden (must publish source) | Forbidden |
-| 4 | A company forks one of Epicenter's hosted services (`apps/api`) and runs it as a competitor | **Allowed** | Forbidden (§13 forces publishing source of running version) | Forbidden |
+| 4 | A company forks one of Epicenter's hosted services and runs it as a competitor | **Allowed** | Forbidden (§13 forces publishing source of running version) | Forbidden |
 | 5 | A company rents out homes, running `epicenter serve` for each person | Allowed | Allowed (§13 forces publishing any changes it makes) | Forbidden |
 
 Scenarios 3 and 4 are the threat. Scenario 5 is allowed on purpose: a provider
@@ -76,7 +78,7 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 root `LICENSE`, generated from the packages themselves.
 
 **Rationale:**
-- `apps/api` (the hosted service: sign-in, AI inference, billing, and the folder ledger of the folder sync product, which is retired; serves the same-origin dashboard SPA from its `ui/`) is the infrastructure a competitor would need to clone Epicenter's hosted services. AGPL section 13 means any hosted fork must publish source, including improvements, which destroys the economics of forking-and-hosting. Self-hosting runs the same app on Bun with Postgres (`apps/api/server.ts`); billing is hosted-only and lives in `apps/api/worker/billing/`.
+- Hosted services: the hosted API (`apps/api`) was AGPL so any hosted fork had to publish its source. It is retired ([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)); a hosted service added later takes the same tier for the same reason.
 - Consumer apps and the `epicenter` program: on a locally-run app AGPL reduces to GPL conveyance copyleft, which is what blocks a competitor forking a shipped app into a closed-source rebrand. That is real protection, not brand consistency. `epicenter serve` runs on its person's home, so §13 applies only when someone offers a modified copy to other people (scenario 5).
 - Libraries: they compose the product. None is offered for third-party embedding today, so AGPL costs no adoption.
 
@@ -98,12 +100,11 @@ This is the same pattern Bitwarden uses for `bitwarden_license/` and Sentry uses
 
 ## The self-host story, which is settled
 
-This document once planned an `apps/sync-server` split to give homelabbers something self-hostable without the cloud platform. That is answered: one shared library (`packages/server`) and one deployable, `apps/api`, that composes it on two runtimes. The Cloudflare Worker is the hosted service (Better Auth principals, Postgres, billing); the Bun entry (`apps/api/server.ts`) runs the same composition on Postgres for self-hosting, without billing. Both are AGPL, so the split was architectural rather than licensing, exactly as predicted.
-
-Nothing about that changes a license tier. It is recorded here because the trigger the old plan was waiting on has already fired.
-
-This story is about the hosted services only. A person's Epicenter needs none:
-it always runs on their home.
+This document once planned an `apps/sync-server` split to give homelabbers
+something self-hostable without the cloud platform. The hosted API that
+question was about is retired
+([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)). A person's Epicenter
+needs no hosted service: it always runs on their home.
 
 ## What MIT was, and why it went
 
@@ -128,7 +129,7 @@ versions already published, which is why `@epicenter/field@0.3.0`,
 
 The dependency-closure guard was deleted with the tier, and reintroducing MIT
 means writing it again. Write it better than the one that was here: it globbed `{packages,apps}/*/package.json`, so it never saw
-`apps/api/ui`, `apps/local-books/ui`, or `apps/local-mail/ui`; it ignored
+nested apps such as `apps/local-books/ui` or `apps/local-mail/ui`; it ignored
 `devDependencies` entirely; and a package with no `license` field was silently
 skipped as both source and target.
 
@@ -168,7 +169,7 @@ named embedder, not an intention to have one.
 Reasoning:
 - We do not sell commercial AGPL exemptions to enterprises. Our revenue model is services we host, not licensing.
 - Cal.com, dub.sh, Plausible, and most other open-core projects we are modeled on do not require CLAs either. The friction discourages contributors and provides no benefit for a hosting business.
-- If we ever needed to relicense `packages/server` or `apps/api` away from AGPL (e.g. to sell self-hosted enterprise licenses without copyleft), we would need either (a) a CLA from the start, or (b) consent from every external contributor at that point. We accept (b) as a future cost in exchange for present-day contributor friendliness. As of this spec, there are zero external contributors to AGPL components, so the cost is zero today.
+- If we ever needed to relicense a hosted service away from AGPL (e.g. to sell self-hosted enterprise licenses without copyleft), we would need either (a) a CLA from the start, or (b) consent from every external contributor at that point. We accept (b) as a future cost in exchange for present-day contributor friendliness. As of this spec, there are zero external contributors to AGPL components, so the cost is zero today.
 - If a meaningful external PR lands on an AGPL component and we anticipate ever wanting to dual-license, we can add CLA Assistant (a GitHub bot, click-through CLA) at that point. We do not pre-commit to that decision.
 
 By contributing to Epicenter, contributors agree their contributions are licensed under the same license as the file they are modifying. This is the standard "inbound = outbound" convention used by Linux, Rails, and most open source projects without formal CLAs.
@@ -212,6 +213,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 ## Open questions and review triggers
 
-- Revisit if a meaningful external contributor lands a PR on `apps/api`, `packages/server`, or `packages/sync`. Decide then whether to add CLA Assistant.
+- Revisit if a meaningful external contributor lands a PR on a hosted service or other AGPL code we might want to relicense. Decide then whether to add CLA Assistant.
 - Revisit if a specific paying customer requires a feature that AGPL would let them self-host for free. This is the trigger to populate the proprietary tier (one feature, scoped to a subdirectory). Until that happens, the tier stays empty by design.
 - Revisit if we sell self-hosted enterprise licenses. That would be the trigger for moving to a real dual-license posture (and retroactively adding CLAs).

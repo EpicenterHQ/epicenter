@@ -1,6 +1,6 @@
 ---
 name: collapse-pass
-description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Use control-flow for a request limited to one function's branching.
+description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Also use for the one-sentence test: stating in one sentence what a surface or abstraction actually does, to find orphaned surfaces, duplicate verbs, and inert abstractions. Answer a plain code-comprehension question directly instead.
 metadata:
   author: epicenter
   version: '2.0'
@@ -19,17 +19,22 @@ checks, caches, and exceptions may all exist because of one earlier
 decision. Ask what would let those pieces disappear together, then carry
 the better design through the code that uses it.
 
-For example, an editor might let a window switch between folders.
-Switching requires coordinating open files, pending work, and cleanup.
-If each window stayed with one folder, opening another folder could open
-another window. The window would still need to know its folder, but the
-work of switching a running editor could disappear. That changes the
-experience too, so develop the choice with the user unless it is already
-settled.
+A common case is a running thing that has to stay in step with a change.
+Keeping it alive while a setting changes takes a lot of code. Rebuilding it
+takes almost none, because startup already knows how.
 
-Count the coordination eliminated, not the collections deleted.
+- A server with hot reloading. Build it again and restart it, and the
+  reload machinery is never needed.
+- An editor window that can switch between folders. It has to close files,
+  settle pending work, and clean up. If a window stays with one folder,
+  opening another folder opens another window, or reloads this one.
+- A database connection when a key changes. Instead of killing it and
+  rebinding while every `db` reference keeps working, reload the page and
+  let startup make a new one.
 
-Scale investigation to the uncertainty; a local edit can be the right result of considering the whole.
+Each trades a brief interruption, and sometimes unsaved work, for deleting
+everything that kept the old thing in step. That changes the experience
+too, so develop the choice with the user unless it is already settled.
 
 ## Understand the work
 
@@ -38,24 +43,8 @@ relevant code and the code that uses it. Build on what the user has
 already decided. Ask when an unresolved purpose or tradeoff would
 change the work.
 
-Begin with the named files or subsystem. With no named target, infer the
-starting area from the conversation and current changes. Unrelated dirty
-files are not permission to edit them.
-
-A named transformation stays focused: perform and verify it without
-turning it into an open-ended hunt. Reviews, plans, and proposals remain
-read-only. Respect explicit file limits. Read callers outside those
-limits to understand behavior, but defer a change that requires editing
-them.
-
 Follow connected evidence when it points to a shared cause. Explain the
 connection before editing beyond the starting area.
-
-For a PR or branch, establish the comparison base from PR metadata, the
-upstream tracking branch, or `origin/main`. Start with changed files and
-their callers. Use an isolated worktree when switching targets would
-disturb the current checkout. Never reset the user's work. Report the
-checkout path and any uncommitted edits at handoff.
 
 ## Find what makes the work necessary
 
@@ -69,12 +58,6 @@ compatibility paths can help you find these places. Use
 [code-audit](../code-audit/SKILL.md) when one of its searches fits.
 Treat matches as clues, not instructions to delete something.
 
-When several pieces seem connected, investigate them together. What
-choice makes them necessary? Who needs that choice: the person, an
-actual caller, or only the current implementation?
-
-Existing behavior alone does not establish that someone needs it.
-
 Use [rethink](../rethink/SKILL.md) to consider how you would build this
 today. Look beyond making the existing pieces tidier:
 
@@ -86,8 +69,6 @@ today. Look beyond making the existing pieces tidier:
 - Could related operations belong together so callers stop passing the
   same information through several layers?
 - Could a different workflow make an entire subsystem unnecessary?
-
-These are examples of questions to pursue, not a required checklist.
 
 Develop the alternative far enough to show how it works. Use realistic
 caller code, an interaction, or a data flow. Try it on the awkward cases
@@ -114,16 +95,43 @@ Keep a boundary when it names non-obvious work, enforces a shared rule,
 owns a lifecycle, isolates unsafe input, or makes a long phase
 understandable. Caller count alone does not decide.
 
-For Svelte inputs, use
-[input ownership](../svelte/references/input-ownership.md) to distinguish
-unnecessary copies from unfinished work. Check the
-[template-local examples](../svelte/references/component-ui-patterns.md#template-locals-narrow-reactive-values-before-use)
-before inlining locals that preserve type narrowing.
-
 Judge the complete result. Fewer lines alone are insufficient. Deleting
 a file does not simplify the system if its job is now spread across
 callers. Name what becomes easier to understand or maintain, and account
 for any new work the replacement introduces.
+
+## Say it in one sentence
+
+To check whether something earns its place, write one plain sentence about
+what it does, in your reply where the reader can see it. Name the things
+and the verbs. If you can't finish the sentence without contradicting
+yourself, the design isn't clear yet. Say so before going on.
+
+**For a set of commands, endpoints, or options,** check each one against the
+sentence. If dropping one leaves a sentence that still describes something
+useful, see asymmetric wins in [product-collapse](../product-collapse/SKILL.md).
+
+For example, a notification API has `send`, `schedule`, `batch`, `digest`,
+`preferences`, `channels.register`, and `history`. "A notification system"
+says nothing. "Send messages to users across channels" ignores
+`preferences` and `history`. "Deliver a message to a user on their
+preferred channel, honoring quiet hours, and remember we sent it" covers
+five of them. `schedule`, `batch`, and `digest` don't fit: they are a
+separate product.
+
+**For a wrapper, flag, or helper,** describe what it does three times:
+
+```txt
+1. From the code, ignoring the name and docs:
+   "Looks up by id, counts opens and closes, and destroys the object
+   after an idle timeout."
+2. With the settings actually in use (gcTime: Infinity):
+   "Looks up by id. Nothing is ever destroyed." The counting does nothing.
+3. For what the caller needs: the caller has one id and one lifetime, so
+   the lookup does nothing either. The wrapper adds nothing. Delete it.
+```
+
+If the honest sentence is "it does nothing," delete it.
 
 ## Carry the change through
 
@@ -136,9 +144,8 @@ updates explaining meaningful findings and changes in direction.
 
 When a simpler design would change a product promise, use
 [product-collapse](../product-collapse/SKILL.md) to develop the experience
-with the user. Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when
-judging whether giving up one small promise would remove much larger
-complexity.
+with the user; its asymmetric wins section covers judging whether giving
+up one small promise would remove much larger complexity.
 
 Carry settled decisions forward. Bring back consequential choices that
 exceed existing authorization, including changes to stored formats or
@@ -196,8 +203,3 @@ is reached. Do not manufacture changes to make a pass look productive.
 Report what caused the extra work, what replaced it, what disappeared,
 what was verified, and any remaining decisions. Use
 [report guidance](references/report-format.md) for a longer campaign.
-
-A plain “collapse pass” needs no goal, checkpoint count, or scope form.
-Honor explicit budgets and commit preferences. Use
-[agent-goal](../agent-goal/SKILL.md) when asked to draft a goal. Stage,
-commit, push, or create a PR only when authorized.

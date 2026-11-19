@@ -49,9 +49,7 @@ jobs:
       # catalog stays the single source of truth for the version.
       #
       # `versions upload` runs each app's wrangler.jsonc build.command, so a
-      # preview builds through that app's normal build. (The production deploy in
-      # deploy.cloudflare.yml still uses wrangler-action; converging it onto this
-      # same invocation is a follow-up.)
+      # preview builds through that app's normal build.
       #
       # To preview another app, add it to `apps` below; it needs `preview_urls:
       # true` in its wrangler.jsonc. Each app uploads independently: a build or
