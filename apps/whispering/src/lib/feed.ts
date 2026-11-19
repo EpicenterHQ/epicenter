@@ -1,11 +1,9 @@
 /**
- * The feed's pure rules: when a recording was made, its order, its day
+ * The feed's pure rules: when a recording was made, its day
  * heading, and whether it matches a search. Nothing here reads a file.
  */
 
 import { localDay } from '@epicenter/app/time';
-
-export type Sort = 'newest' | 'oldest';
 
 /** `timeId`'s stamp: `2026-10-30T22-41-05-123Z-k3x9a2f8`. */
 const STAMP = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-/;

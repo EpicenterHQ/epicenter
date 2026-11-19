@@ -4,13 +4,12 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Input } from '@epicenter/ui/input';
-	import * as Select from '@epicenter/ui/select';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { createQuery } from '@tanstack/svelte-query';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import { dictation } from '#lib/dictation.svelte.ts';
-	import { groupByDay, matches, type Sort } from '#lib/feed.ts';
+	import { groupByDay, matches } from '#lib/feed.ts';
 	import { recordingsQueries } from '#lib/queries.ts';
 	import { settings } from '#lib/settings.svelte.ts';
 	import RecordButton from './RecordButton.svelte';
@@ -22,16 +21,16 @@
 	const list = createQuery(() => recordingsQueries.list());
 
 	let search = $state('');
-	let sort = $state<Sort>('newest');
 	let shown = $state(PAGE);
 
-	/** The list arrives oldest first. */
-	const found = $derived.by(() => {
-		const matching = (list.data ?? []).filter((recording) => matches(recording.transcript, search));
-		// `filter` made a new array, so reversing it in place is safe. (Not
-		// `toReversed`: it needs Safari 16, and the app supports macOS 10.15.)
-		return sort === 'newest' ? matching.reverse() : matching;
-	});
+	/**
+	 * Newest first. The list arrives oldest first; `filter` makes a new array,
+	 * so reversing it in place is safe. (Not `toReversed`: it needs Safari 16,
+	 * and the app supports macOS 10.15.)
+	 */
+	const found = $derived(
+		(list.data ?? []).filter((recording) => matches(recording.transcript, search)).reverse(),
+	);
 	const openId = $derived(dictation.openId ?? list.data?.at(-1)?.id);
 	const groups = $derived(groupByDay(found.slice(0, shown)));
 
@@ -80,16 +79,7 @@
 				</Empty.Header>
 			</Empty.Root>
 		{:else}
-			<div class="flex gap-2">
-				<Input type="search" placeholder="Search transcripts" bind:value={search} class="flex-1" />
-				<Select.Root type="single" bind:value={sort}>
-					<Select.Trigger class="w-36">{sort === 'newest' ? 'Newest first' : 'Oldest first'}</Select.Trigger>
-					<Select.Content>
-						<Select.Item value="newest">Newest first</Select.Item>
-						<Select.Item value="oldest">Oldest first</Select.Item>
-					</Select.Content>
-				</Select.Root>
-			</div>
+			<Input type="search" placeholder="Search transcripts" bind:value={search} />
 			<p class="-mt-2 px-1 text-xs text-muted-foreground tabular-nums">
 				{search.trim()
 					? `${found.length.toLocaleString()} of ${list.data.length.toLocaleString()} match`
