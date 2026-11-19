@@ -129,8 +129,8 @@ When executing a spec, update checkboxes and implementation notes in the same re
 
 Before deleting a spent spec, write any durable decision into the
 `## Decisions` section of the README it governs, as
-[the ADR README](../docs/adr/README.md) describes. A decision that changes
-Epicenter's direction also gets a proposed entry in
+[the ADR README](../docs/adr/README.md) describes. A decision an agent might
+propose again, including an alternative it turned down, also gets a proposed entry in
 [the history](../docs/history.md) for the owner to accept. A mechanical change
 with no durable decision needs neither. After retirement, run `bun scripts/check-doc-hygiene.ts`; resolve issues
 introduced by the work and report unrelated failures against the task baseline.

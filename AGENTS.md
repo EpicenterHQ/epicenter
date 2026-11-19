@@ -97,11 +97,12 @@ stops being true. Where an area has no Decisions section yet, its ADRs in
 `docs/adr/` still explain its rules; that directory is being retired one area
 at a time, so write no new records there.
 
-**History.** [docs/history.md](docs/history.md) holds the big turns in
-Epicenter's direction, oldest first. It is background, never instructions. An
-entry is for a decision that changes what Epicenter is or reverses a
-direction, where the losing option would take weeks to return to. Do not add
-one unprompted; propose the entry and let the owner decide.
+**History.** [docs/history.md](docs/history.md) logs what Epicenter tried,
+kept, and turned down, oldest first, with why. It is background, never
+instructions. Grep it before proposing a data store, sync, sign-in, a hosted
+service, or a new dependency. An entry is for a decision an agent might propose
+again, where returning to it would cost more than a day. Do not add one
+unprompted; propose the entry and let the owner decide.
 
 Treat conflicts among READMEs, records, code, and user intent as judgment
 points, not an automatic precedence hierarchy. Explain a conflict with the
