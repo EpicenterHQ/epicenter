@@ -123,13 +123,6 @@ comprehension, accessibility, trust, brand, or a regression-sensitive
 state. Do not ship drift under "good enough", and do not count a deletion
 that only moves complexity somewhere harder to see.
 
-Complexity is evidence, not a verdict: a feature can own a large code
-family and still be worth keeping. Establish the valuable workflow before
-ranking deletion prizes, and treat a change to the product's purpose as its
-own product decision. In architecture the expensive promise is often
-keeping both mental models alive; a half-old, half-new system is the
-usual cost.
-
 Write the decision in the spec, for example:
 
 ```txt

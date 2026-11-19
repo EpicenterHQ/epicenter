@@ -155,9 +155,7 @@ the asymmetric wins section of [product-collapse](../product-collapse/SKILL.md).
    lifetime, so dedup is a no-op: the wrapper adds nothing. Delete it.
 ```
 
-Stopping at step 1 sounds useful until the defaults neuter the feature.
-Paraphrasing the JSDoc is a summary of the claim, not a reduction. Defending
-a wrapper with features the caller's defaults disable is the same mistake.
+Stopping at step 1 sounds useful until the defaults turn the feature off.
 
 Watch for the usual reveals: inert knobs, singleton wrappers around a
 dedup or cache, "lifecycle management" that reduces to "call close when
