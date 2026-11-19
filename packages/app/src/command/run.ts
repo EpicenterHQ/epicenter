@@ -1,7 +1,9 @@
 /**
  * Answer one call in serve: find `action` of `app` in the program, check
  * `input` against its schema, run it, and answer what it did. The route, MCP
- * and every caller through them share this one call.
+ * and every caller through them share this one call, so a page, an agent and
+ * the command get the one input check (ADR-0953). Nothing is filled: an
+ * absent key stays absent, and an action's `run` writes its own default.
  *
  * A call that cannot begin is `NotStarted`. A run answers its own Result as
  * JSON, or `Threw` when it throws, returns what JSON cannot carry, or returns
@@ -11,13 +13,18 @@
  * which can hold personal data.
  */
 
+import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, trySync } from 'wellcrafted/result';
-import type { Answer } from '../answer.ts';
-import { ActionError, PLATFORM_NAMES, type Thrown } from '../answer.ts';
+import {
+	ActionError,
+	type Answer,
+	PLATFORM_NAMES,
+	type Thrown,
+} from '../answer.ts';
+import { type ObjectSchema, whatFits } from '../field.ts';
 import { isPlainObject } from '../json.ts';
-import { inputProblem } from './input.ts';
 import { stderrJsonLines } from './output.ts';
 import type { Program } from './program.ts';
 
@@ -115,4 +122,32 @@ function describeThrown(cause: unknown): { message: string; thrown?: Thrown } {
 		// Details are best effort.
 	}
 	return { message };
+}
+
+/**
+ * Why `value` is not an input `schema` takes, in words a caller reads, or
+ * undefined when it is one. A key the action does not take is refused,
+ * naming the keys it does.
+ */
+function inputProblem(schema: ObjectSchema, value: unknown) {
+	if (Value.Check(schema, value)) return undefined;
+	if (!isPlainObject(value)) return 'The input is not one JSON object';
+	const keys = Object.keys(schema.properties);
+	const unknown = Object.keys(value).find((key) => !keys.includes(key));
+	if (unknown !== undefined)
+		return `${JSON.stringify(unknown)} is not a key this action takes; ${keys.length ? `it takes ${keys.join(', ')}` : 'it takes none'}`;
+	const first = Value.Errors(schema, value)[0];
+	const params = first?.params as { requiredProperties?: string[] } | undefined;
+	const at = (first?.instancePath.split('/').slice(1) ?? []).map((part) =>
+		part.replace(/~1/g, '/').replace(/~0/g, '~'),
+	);
+	const field = at[0] || params?.requiredProperties?.[0];
+	const name = field ?? 'input';
+	// A key missing inside an object is named by its path: `address.city is needed`.
+	if (first?.keyword === 'required')
+		return `${[...at, params?.requiredProperties?.[0]].filter(Boolean).join('.') || name} is needed`;
+	const fieldSchema = field ? schema.properties[field] : undefined;
+	const words = field && fieldSchema && whatFits(fieldSchema, value[field]);
+	if (words) return `${name} must be ${words}`;
+	return `${name}: ${first?.message ?? 'is not accepted'}`;
 }

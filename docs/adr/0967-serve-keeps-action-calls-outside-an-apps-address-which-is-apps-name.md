@@ -66,6 +66,7 @@ GET  /apps/<app>                308 to /apps/<app>/
   posts to `<url>actions/<app>/add`, and `app.action('add')` is that call as a
   function, for a query or a mutation. The name is typed as one of the app's
   action names. The client has no Proxy, so an action may be named `then`.
+  <!-- doc-path-check: ignore-next-line -->
   `callAction` in `packages/app/src/command/send.ts` posts to the same route.
 - **No old address is answered.** `/<app>/` and `POST /<app>/<action>`
   answer 404. Nothing redirects.

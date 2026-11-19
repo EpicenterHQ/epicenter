@@ -39,6 +39,7 @@ input: { word: field.text(), meaning: field.text({ optional: true }) },
 {"word":{"type":"string"},"meaning":{"type":"string"}}
 ```
 
+<!-- doc-path-check: ignore-next-line -->
 Rebuilt from that JSON, `meaning` is required. `packages/app/src/command/input.ts` wraps the live record in `Type.Object` for each check, and `jsonSchema()` and `requiredKeys()` rebuild `required` for MCP, `--help` and `list --json`. Each reader rebuilds the schema its own way.
 
 ## Decision
@@ -52,7 +53,7 @@ Rebuilt from that JSON, `meaning` is required. `packages/app/src/command/input.t
 | HTTP, `POST /<app>/<action>` | the final `{"answer": ...}` line; a call refused before it starts is the body of a 400 |
 | `epicenter <app> <action> --json` | the one JSON value on stdout |
 | MCP `tools/call` | `structuredContent` |
-| `packages/app/src/command/send.ts` | what `sendToServe` returns to the CLI |
+| `51df170371:packages/app/src/command/send.ts` | what `sendToServe` returns to the CLI |
 
 ```json
 {"data":{"id":"dune"},"error":null}
