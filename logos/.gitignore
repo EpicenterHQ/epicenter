@@ -1,3 +1,0 @@
-# Raster derivatives are rebuildable from source/ via generate.ts.
-# They have no in-repo consumer, so we don't commit them (avoids drift).
-/generated/
