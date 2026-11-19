@@ -16,13 +16,13 @@ grep '· refused ·' docs/history.md  # everything turned down
 ## How an entry reads
 
 ```
-## 2026-10-14 · yjs · dropped · Plain files replace the Yjs store
+## YYYY-MM-DD · slug · verdict · What changed, in a few words
 
 What we did before, what changed, why, and what we gave up, in one paragraph.
 
 Reopen if: the condition that would make the losing option worth another look.
 
-See: ADR-0534, 74198a5cdc.
+See: a1b2c3d4e5, ADR-0534.
 ```
 
 - Date: the day the decision landed on `main`, taken from the author date
@@ -36,10 +36,10 @@ See: ADR-0534, 74198a5cdc.
   `proposed` (accepted on paper and not yet built).
 - Reopen if: required for `dropped` and `refused`.
 - See: one to three pointers an agent can follow. A ten-character commit
-  SHA is on `main`. `ADR-NNNN` is a decision record: it is in `docs/adr/`
-  until its area moves to a README, and in the `adr-archive` Git tag after
-  that. A record deleted before that tag is cited with the commit that last
-  held it (`ADR-0354 as of 1b720a83ff^`). Paths name files as they were.
+  SHA is on `main`. `ADR-NNNN` is one of the decision records `docs/adr/`
+  held until 2026-11-19; every one is in the annotated `adr-archive` Git
+  tag. A record deleted before that is cited with the commit that last held
+  it (`ADR-0354 as of 1b720a83ff^`). Paths name files as they were.
 
 To read an archived record:
 
@@ -289,7 +289,7 @@ See: 30c736fd60, ADR-0086.
 
 ## 2026-07-30 · yjs · dropped · The root Yjs workspace goes, and rows move to SQLite synced in server order
 
-Since October 2025 every app's data had lived in one Yjs document per workspace. We moved each row into a SQLite replica on every device, synced as patches that the server applies in the order it accepts them, and kept Yjs only for a lazily loaded document per row for text that must merge. The reason was memory: a device had to load the whole CRDT before it could query, so memory grew with the whole collection. The cutover deleted the workspace package, the encryption package only it used, and the Room Durable Objects, about 60,000 lines; deploying it erased what those objects stored.
+Since October 2025 every app's data had lived in one Yjs document per workspace. We moved each row into a SQLite replica on every device, synced as patches that the server applies in the order it accepts them, and kept Yjs only for a lazily loaded document per row for text that must merge. The reason was memory: a device had to load the whole CRDT before it could query, so memory grew with the whole collection. The cutover deleted the workspace package, the encryption package only it used, and the Room Durable Objects, about 45,000 lines; deploying it erased what those objects stored.
 
 Reopen if: Yjs can load part of a document, so a query no longer needs the whole collection in memory.
 
@@ -409,6 +409,12 @@ Reopen if: a general text-command capability outside Whispering exists and Whisp
 
 See: 4b298ea2f3, ADR-0440.
 
+## 2026-09-30 · domains · proposed · epicenter.so is the one product address, and other domains redirect to it
+
+Epicenter owned several domains, and registering one per app fragmented its identity and added renewals. We made `https://epicenter.so` the canonical address and planned `epicenter.software`, `epicenter.md`, and `getepicenter.com` as permanent redirects that keep the path and query, leaving each domain's email alone. A new product domain needs its own product identity, not a feature name; an app can live at a subdomain such as `music.epicenter.so`. The redirects live in Cloudflare, not in this repository, and whether every alias is set up this way has not been checked.
+
+See: 98de355c46, ADR-0472.
+
 ## 2026-10-01 · whispering · dropped · Whispering keeps its recordings in the Yjs store
 
 Whispering stored recordings in the Yjs store with an account, rendered Markdown copies from it, and kept audio in a separate blob store referenced by `audioBlobId`. We rebuilt it as a standalone desktop app that keeps recordings, transcripts, and settings as files in one Git folder. Under the store, editing a Markdown copy did nothing until it was pushed back, copying the Markdown alone could not recover a recording, and deleting a recording left its audio behind. Whispering gave up its account, sync through the store, and the workflow that ran only inside the Epicenter host.
@@ -446,7 +452,7 @@ See: b3318143d6, ADR-0529, ADR-0468.
 
 ## 2026-10-14 · yjs · dropped · Plain files replace the Yjs store, and Matter, Local Mail, and Skills are deleted
 
-Three data models ran side by side: the Yjs store synced through our servers, data folders of Markdown and JSON files with Git history, and Matter, a separate tool for Markdown tables. We kept data folders as the only model, so a person, an app, and an agent all edit the same files, and Git moves them to a server the person chooses. About 110,000 lines went, with Local Mail, Skills, and Matter and the data people had synced through the store. We gave up real-time sync: a folder syncs only when someone runs a Git transfer.
+Three data models ran side by side: the Yjs store synced through our servers, data folders of Markdown and JSON files with Git history, and Matter, a separate tool for Markdown tables. We kept data folders as the only model, so a person, an app, and an agent all edit the same files, and Git moves them to a server the person chooses. Local Mail, Skills, and Matter went, with the data people had synced through the store. We gave up real-time sync: a folder syncs only when someone runs a Git transfer.
 
 Reopen if: an app needs real-time sync, such as two people typing in one note at once.
 
@@ -648,6 +654,12 @@ On November 10, new versions of Capture, Tasks (the successor to Todos), and Voc
 Reopen if: the library needs a real app in this repository to test against and someone keeps it building in CI; ADR-0969 later answered this with tests that build their own apps.
 
 See: 026b8fd56d, 60edfd6291, ADR-0877.
+
+## 2026-11-11 · ui · proposed · `packages/ui` becomes a shadcn-svelte registry an app copies from
+
+Monorepo apps import `packages/ui` through a workspace link, which an app in an owner's Epicenter cannot do. We planned to publish the kit as a shadcn-svelte registry, so an app copies components into its own view the way shadcn-svelte intends. Only the check that each stock component is upstream's text plus at most one patch is built; there is no registry file, build script, or route.
+
+See: 0e149e978b, ADR-0874.
 
 ## 2026-11-12 · mcp · dropped · Claude.ai and ChatGPT connectors stop reaching a home
 
@@ -890,6 +902,5 @@ See: 6c7212ba88, ADR-0894, ADR-0786.
 `serve` found each app as a folder in `apps/`, with its code and its own records inside it, and each set of records generated actions. Three cases did not fit: files with no app, such as 415 moved articles; files two apps want; and files that should outlive the app that wrote them. We made the root `epicenter.ts` open the home's records once and pass them to every app, which is now a function, and `serve` imports that one module; every action is written by hand. We gave up self-contained apps: an app's type names one home's data, one broken import stops every app, and copying an app does not copy records.
 
 Reopen if: apps must be shared between homes or written by people who do not trust each other; the old containers isolated each app as if a stranger wrote it.
-<!-- review: ADR-0971 still says Proposed, although PR #2766 built it and merged it to main -->
 
 See: 7a4aa065bc, ADR-0971, #2766.
