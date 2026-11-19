@@ -78,9 +78,9 @@ topUp.mutate({ successUrl: window.location.href }, { onSuccess, onError });
 
 ### Group a feature's maps by resource
 
-A namespace can have more than one part. When a feature holds several kinds of
-data, give each kind its own map and keep the maps in a plain object. The
-property names the resource, so each method can be a plain verb:
+A namespace can have more than one part. When a feature already has distinct
+resource groups, prefer a plain object that mirrors them. Each property names
+its resource, so methods can use short verbs like `set` and `delete`.
 
 ```ts
 const folderMutations = {
