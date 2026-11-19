@@ -9,7 +9,7 @@ import { defineAction, type Update } from '../action.ts';
 import { defineData } from '../data.ts';
 import { defineEpicenter } from '../epicenter.ts';
 import { field } from '../field.ts';
-import type { Program } from './program.ts';
+import { programOf } from './program.ts';
 import { createHandler, serveHome } from './serve.ts';
 
 const homes: string[] = [];
@@ -48,11 +48,6 @@ async function setup() {
 		},
 		run: () => Ok(null),
 	});
-	const odd = defineAction({
-		description: 'Has a raw pattern that is not a regular expression',
-		input: { code: Type.String({ pattern: '[' }) },
-		run: () => Ok(null),
-	});
 	const hostile = defineAction({
 		description: 'Throws a value nothing can describe',
 		input: {},
@@ -82,16 +77,16 @@ async function setup() {
 		mcp: false,
 		run: () => Ok('sent'),
 	});
-	const program: Program = {
-		apps: defineEpicenter({
+	const program = programOf(
+		defineEpicenter({
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, odd, big, hostile, bare, send },
+					actions: { add, fail, fake, tag, big, hostile, bare, send },
 				},
 			},
-		}).apps,
-	};
+		}),
+	);
 	const answer = createHandler({ folder, port: 4747 }, program);
 	const request = (path: string, init: RequestInit = {}) =>
 		answer(
@@ -164,14 +159,6 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 		expect(line.answer.error.message).toContain(message);
 	}
 	expect(await readdir(folder)).toEqual([]);
-	// A check that throws is NotStarted too: nothing ran.
-	const [odd] = await lines(
-		await request('/actions/writing/odd', post('{"code":"x"}')),
-	);
-	expect(odd.answer.error.name).toBe('NotStarted');
-	expect(odd.answer.error.message).toContain(
-		'The input could not be checked: Invalid regular expression',
-	);
 });
 
 test('a throw is Threw, and so is a value that is not a Result or a reserved name', async () => {
@@ -246,7 +233,6 @@ test('MCP offers one tool per action and runs it', async () => {
 		'writing_fail',
 		'writing_fake',
 		'writing_tag',
-		'writing_odd',
 		'writing_big',
 		'writing_hostile',
 		'writing_bare',
@@ -268,12 +254,6 @@ test('MCP offers one tool per action and runs it', async () => {
 	});
 	expect(hidden.result.isError).toBe(true);
 	expect(hidden.result.content[0].text).toContain('has no action "send"');
-	// A check that throws is an answer over MCP as over the route.
-	const odd = await rpc('tools/call', {
-		name: 'writing_odd',
-		arguments: { code: 'x' },
-	});
-	expect(odd.result.structuredContent.error.name).toBe('NotStarted');
 	// A throw nothing can describe is Threw on both, never a protocol error.
 	const hostile = await rpc('tools/call', {
 		name: 'writing_hostile',
@@ -314,7 +294,11 @@ test('the guards refuse tunnels, foreign hosts and origins, and another home', a
 test('a home whose program did not load answers that one problem', async () => {
 	const answer = createHandler(
 		{ folder: '/home', port: 4747 },
-		{ apps: {}, problem: 'epicenter.ts did not load: boom' },
+		{
+			apps: {},
+			inputChecks: new Map(),
+			problem: 'epicenter.ts did not load: boom',
+		},
 	);
 	const request = (path: string, init?: RequestInit) =>
 		answer(

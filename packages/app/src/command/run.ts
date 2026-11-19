@@ -14,6 +14,7 @@
  * hold personal data.
  */
 
+import type { Validator } from 'typebox/compile';
 import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
@@ -54,22 +55,19 @@ export async function answerCall(
 	const run = Object.hasOwn(found.actions, action)
 		? found.actions[action]
 		: undefined;
-	if (!run) {
+	// A program from programOf has a compiled check for every action.
+	const check = run && program.inputChecks.get(run);
+	if (!run || !check) {
 		const names = Object.keys(found.actions);
 		return ActionError.NotStarted({
 			message: `${app} has no action ${JSON.stringify(action)}; ${names.length ? `its actions: ${names.join(', ')}` : 'it has none'}`,
 			next: `epicenter ${app}`,
 		});
 	}
-	const { data: problem, error: unchecked } = trySync({
-		try: () => inputProblem(run.input, input),
-		catch: (cause) =>
-			Err(`The input could not be checked: ${extractErrorMessage(cause)}`),
-	});
-	const refusal = unchecked ?? problem;
-	if (refusal !== undefined)
+	const problem = inputProblem(check, run.input, input);
+	if (problem !== undefined)
 		return ActionError.NotStarted({
-			message: refusal,
+			message: problem,
 			next: `epicenter ${app}`,
 		});
 	const started = performance.now();
@@ -119,11 +117,13 @@ function answerOf(action: string, returned: unknown): Answer {
 
 /**
  * Why `value` is not an input `schema` takes, in words a caller reads, or
- * undefined when it is one. A key the action does not take is refused,
- * naming the keys it does.
+ * undefined when it is one. `check` is `schema` as serve compiled it at
+ * load, so no check here can throw: each field's own check, run only to
+ * name the one at fault, is part of a schema that compiled. A key the
+ * action does not take is refused, naming the keys it does.
  */
-function inputProblem(schema: ObjectSchema, value: unknown) {
-	if (Value.Check(schema, value)) return undefined;
+function inputProblem(check: Validator, schema: ObjectSchema, value: unknown) {
+	if (check.Check(value)) return undefined;
 	if (!isPlainObject(value)) return 'The input is not one JSON object';
 	const keys = Object.keys(schema.properties);
 	const unknown = Object.keys(value).find((key) => !keys.includes(key));

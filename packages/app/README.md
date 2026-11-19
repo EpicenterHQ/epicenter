@@ -98,10 +98,10 @@ action name that is not lowercase letters, digits and dashes, starting
 with a letter, since an MCP tool is `<app>_<action>`; the type refuses an
 app named `serve`, the command's own word. Serve also refuses an input
 schema that does not compile, such as a raw `pattern` that is not a regular
-expression, so the input check cannot fail a call. An action whose `run`
-returns something other than a Result, or data JSON cannot carry, answers
-`Threw`. Add `mcp: false` to an
-action an agent must not call through MCP, such as one that sends as you.
+expression; every call runs the check compiled then, so it cannot fail a
+call. An action whose `run` returns something other than a Result, or data
+JSON cannot carry, answers `Threw`. Add `mcp: false` to an action an agent
+must not call through MCP, such as one that sends as you.
 
 ## The command and serve
 

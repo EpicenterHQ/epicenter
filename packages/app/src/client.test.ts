@@ -6,6 +6,7 @@ import { Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
 import { ActionError } from './answer.ts';
 import { connect } from './client.ts';
+import { programOf } from './command/program.ts';
 import { createHandler } from './command/serve.ts';
 import { defineData } from './data.ts';
 import { defineEpicenter } from './epicenter.ts';
@@ -51,7 +52,7 @@ const home = defineEpicenter({ apps: { flights: flights(data) } });
 const server = Bun.serve({
 	hostname: '127.0.0.1',
 	port: 0,
-	fetch: createHandler({ folder, port: 0 }, { apps: home.apps }),
+	fetch: createHandler({ folder, port: 0 }, programOf(home)),
 });
 afterAll(async () => {
 	await server.stop(true);
