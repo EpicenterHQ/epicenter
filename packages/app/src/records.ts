@@ -16,7 +16,7 @@ import {
 	removeFile,
 	replaceFile,
 } from './disk.ts';
-import { type Fields, isOptional, whatFits } from './field.ts';
+import { type Fields, isOptional, whyNot } from './field.ts';
 import { isPlainObject } from './json.ts';
 import {
 	changeMarkdown,
@@ -63,38 +63,23 @@ function isId(id: unknown): id is string {
 const UNREADABLE =
 	'its front matter is not key: value lines between two --- lines, each key once';
 
-/** Why a supplied field value does not fit its schema. */
-function valueProblem(key: string, schema: TSchema, value: unknown) {
-	const words = whatFits(schema, value);
-	const why = words
-		? `is not ${words}`
-		: (Value.Errors(schema, value)[0]?.message ?? 'does not fit');
-	return `${key}: ${JSON.stringify(value)} ${why}`;
-}
+/** Why a supplied field value does not fit its schema, with the value. */
+const valueProblem = (key: string, schema: TSchema, value: unknown) =>
+	`${whyNot(key, schema, value)}, not ${JSON.stringify(value)}`;
 
 /**
- * What to write for a declared key whose line is not JSON: the line number
- * and, when its text fits as a string, the exact line to write.
+ * What to write for a declared key whose line is not JSON: the exact line
+ * when its text fits as a string, which is the usual slip.
  */
 function notJsonProblem(
 	key: string,
 	schema: TSchema,
 	{ lineNumber, text }: NotJson,
-): string {
-	const notJson = (fix: string) =>
-		`${key} on line ${lineNumber} is not JSON${fix}`;
-	if (text.trim() === '')
-		return notJson(
-			': it has no value; give it one as JSON, or remove the line',
-		);
-	if (Value.Check(schema, text))
-		return notJson(`; write ${key}: ${JSON.stringify(text)}`);
-	const words = whatFits(schema, text);
-	return notJson(
-		words
-			? `; ${key} takes ${words}, written as JSON`
-			: '; write its value as JSON',
-	);
+) {
+	const fix = Value.Check(schema, text)
+		? `write ${key}: ${JSON.stringify(text)}`
+		: 'write its value as JSON';
+	return `${key} on line ${lineNumber} is not JSON; ${fix}`;
 }
 
 /** `values` in the order the data key declares its fields, then the rest. */

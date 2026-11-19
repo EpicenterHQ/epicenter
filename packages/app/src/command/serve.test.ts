@@ -127,12 +127,12 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 		['/actions/writing/nope', '{}', 'writing has no action "nope"'],
 		['/actions/nope/add', '{}', 'There is no app "nope"'],
 		['/actions/writing/add/more', '{}', "is not an action's address"],
+		['/actions/writing/tag', '{"word":" "}', 'word must match pattern "\\S"'],
 		[
 			'/actions/writing/tag',
-			'{"word":" "}',
-			'word must be text matching \\S (not blank)',
+			'{"word":"a","meta":{"n":"x"}}',
+			'meta.n must be number',
 		],
-		['/actions/writing/tag', '{"word":"a","meta":{"n":"x"}}', 'meta: '],
 	] as const) {
 		const [line] = await lines(await request(path, post(body)));
 		expect(line.answer.error.name).toBe('NotStarted');

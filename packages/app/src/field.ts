@@ -263,88 +263,16 @@ export const field = {
 	},
 };
 
-/** The parts of a field's JSON Schema that the words for it read. */
-type Described = {
-	type?: string;
-	format?: string;
-	pattern?: string;
-	description?: string;
-	minimum?: number;
-	maximum?: number;
-	minItems?: number;
-	items?: Described;
-	anyOf?: Described[];
-	const?: unknown;
-};
-
-const FORMATS: Record<string, string> = {
-	date: 'a day like 2026-11-12',
-	'date-time': 'a date and time like 2026-11-12T09:30:00Z',
-};
-
-const TYPES: Record<string, string> = {
-	string: 'text',
-	number: 'a number',
-	integer: 'a whole number',
-	boolean: 'true or false',
-	array: 'a list',
-};
-
-/** The checks `whatFits` says in words; another, such as `maxLength`, keeps TypeBox's message. */
-const SAID = new Set([
-	'type',
-	'format',
-	'const',
-	'anyOf',
-	'pattern',
-	'minimum',
-	'maximum',
-	'minItems',
-]);
-
-/** What `schema` takes, as the end of "<value> is not …". */
-function wanted(schema: Described): string | undefined {
-	if (schema.anyOf?.every((choice) => 'const' in choice))
-		return `one of ${schema.anyOf.map((choice) => String(choice.const)).join(', ')}`;
-	// A pattern is a regular expression; a description, when there is one, says what it is for.
-	if (schema.pattern !== undefined)
-		return `text matching ${schema.pattern}${schema.description ? ` (${schema.description})` : ''}`;
-	if (schema.format !== undefined) return FORMATS[schema.format];
-	if (schema.type === 'array') {
-		const each = schema.items && wanted(schema.items);
-		const min = schema.minItems ?? 0;
-		const atLeast =
-			min > 0 ? `at least ${min} item${min === 1 ? '' : 's'}` : '';
-		if (each === 'text')
-			return atLeast ? `a list of text with ${atLeast}` : 'a list of text';
-		const list = atLeast ? `a list of ${atLeast}` : 'a list';
-		return each ? `${list}, each ${each}` : list;
-	}
-	const kind = schema.type === undefined ? undefined : TYPES[schema.type];
-	if (!kind) return kind;
-	const { minimum: min, maximum: max } = schema;
-	if (min !== undefined && max !== undefined)
-		return `${kind} from ${min} to ${max}`;
-	if (min !== undefined) return `${kind} of at least ${min}`;
-	if (max !== undefined) return `${kind} of at most ${max}`;
-	return kind;
-}
-
 /**
- * What a field takes, in words such as `a day like 2026-11-12` or `a whole
- * number from 1 to 5`, when `value` does not fit it for a reason those words
- * say; `undefined` when it fits, or when they would not say why (a text too
- * long). Serve says it of an input's key and a data read of a front matter
- * line, so both say it alike.
+ * Why `value` does not fit `field`, named `name`: TypeBox's words after the
+ * part at fault, such as `nights must be >= 1` or `meta.n must be number`.
+ * A select names its choices, which TypeBox's words leave out.
  */
-export function whatFits(field: TSchema, value: unknown) {
-	if (Value.Check(field, value)) return undefined;
+export function whyNot(name: string, field: TSchema, value: unknown) {
+	const { anyOf } = field as { anyOf?: { const?: unknown }[] };
+	if (anyOf?.every((choice) => typeof choice.const === 'string'))
+		return `${name} must be one of ${anyOf.map((choice) => choice.const).join(', ')}`;
 	const [error] = Value.Errors(field, value);
-	if (!error || !SAID.has(error.keyword)) return undefined;
-	// The words describe the field, or a list's item; a failure deeper inside
-	// raw TypeBox keeps TypeBox's message.
-	const listItem =
-		(field as Described).type === 'array' && /^\/\d+$/.test(error.instancePath);
-	if (error.instancePath !== '' && !listItem) return undefined;
-	return wanted(field as Described);
+	const at = [name, ...(error?.instancePath.split('/').slice(1) ?? [])];
+	return `${at.join('.')} ${error?.message ?? 'does not fit'}`;
 }

@@ -103,7 +103,7 @@ test('a read reports each line that does not fit, and the record for repair', as
 		[
 			'data/watches/bad.md does not fit its fields:',
 			'data/watches/bad.md: to is missing',
-			'data/watches/bad.md: nights: 0 is not a whole number of at least 1',
+			'data/watches/bad.md: nights must be >= 1, not 0',
 		].join('\n'),
 	);
 	expect((await watches.list()).map((each) => each.error)).toEqual([

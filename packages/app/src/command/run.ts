@@ -23,7 +23,7 @@ import {
 	PLATFORM_NAMES,
 	type Thrown,
 } from '../answer.ts';
-import { type ObjectSchema, whatFits } from '../field.ts';
+import { type ObjectSchema, whyNot } from '../field.ts';
 import { isPlainObject } from '../json.ts';
 import { stderrJsonLines } from './output.ts';
 import type { Program } from './program.ts';
@@ -136,17 +136,11 @@ function inputProblem(schema: ObjectSchema, value: unknown) {
 	const unknown = Object.keys(value).find((key) => !keys.includes(key));
 	if (unknown !== undefined)
 		return `${JSON.stringify(unknown)} is not a key this action takes; ${keys.length ? `it takes ${keys.join(', ')}` : 'it takes none'}`;
-	const first = Value.Errors(schema, value)[0];
-	// The top-level key at fault: the one an error is inside, else the one missing.
-	const inside = first?.instancePath.split('/')[1];
-	const key =
-		inside?.replace(/~1/g, '/').replace(/~0/g, '~') ??
-		(first?.params as { requiredProperties?: string[] } | undefined)
-			?.requiredProperties?.[0];
-	if (key === undefined) return `input: ${first?.message ?? 'is not accepted'}`;
-	if (inside === undefined) return `${key} is needed`;
-	const field = schema.properties[key];
-	const words = field && whatFits(field, value[key]);
-	if (words) return `${key} must be ${words}`;
-	return `${key}: ${first?.message ?? 'is not accepted'}`;
+	for (const [key, field] of Object.entries(schema.properties)) {
+		if (!Object.hasOwn(value, key)) {
+			if (schema.required.includes(key)) return `${key} is needed`;
+		} else if (!Value.Check(field, value[key]))
+			return whyNot(key, field, value[key]);
+	}
+	return 'The input does not fit';
 }
