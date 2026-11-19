@@ -35,9 +35,10 @@ for the decision and tradeoffs.
 
 ## Local verification
 
-Run `bun dev:api-dashboard` from the repository root for the dashboard and API.
-Use `bun dev:api-dashboard:ui` when the API is already running. The hosted API
-requires its configured database and secrets.
+Run `bun dev:api` from the repository root. It builds this website at startup
+and serves it from the API. For live reload, run
+`API_PUBLIC_ORIGIN=http://localhost:5178 bun run --filter @epicenter/api --filter @epicenter/api-ui dev`.
+The hosted API requires its configured database and secrets.
 
 For a disposable local website with real session handling, simulated social
 providers, and simulated billing:

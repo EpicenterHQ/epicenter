@@ -131,8 +131,6 @@
 		"check": "bun run scripts/check.ts",
 		"dev": "bun run dev:whispering",
 		"dev:api": "bun run --cwd apps/api dev",
-		"dev:api-dashboard": "bun run scripts/dev-api-dashboard.ts",
-		"dev:api-dashboard:ui": "bun run --cwd apps/api/ui dev",
 		"dev:landing": "bun run --cwd apps/landing dev",
 		"dev:whispering": "bun run --cwd apps/whispering dev",
 		"dev:whispering:ui": "bun run --cwd apps/whispering dev:ui",

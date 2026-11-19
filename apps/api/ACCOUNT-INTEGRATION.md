@@ -28,7 +28,7 @@ chmod 600 "$account_pg/password"
 export DATABASE_URL="postgres://epicenter:$account_password@127.0.0.1:55432/epicenter_account"
 export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="$DATABASE_URL"
 bun run --cwd apps/api db:push:local
-bun dev:api-dashboard
+API_PUBLIC_ORIGIN=http://localhost:5178 bun run --filter @epicenter/api --filter @epicenter/api-ui dev
 ```
 
 Stop if any setup command fails. Port 55432 must be free. The temporary

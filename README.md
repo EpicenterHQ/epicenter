@@ -196,7 +196,6 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 | Command | Starts | App port |
 | --- | --- | --- |
 | `bun dev:api` | Hosted API worker alone | 8787 |
-| `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:landing` | Landing site, standalone | 4321 |
 
 `bun dev:whispering` runs Whispering in a browser tab.
