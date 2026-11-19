@@ -12,13 +12,14 @@ the type that owns it.
 
 ```bash
 rg -n 'as\s+\{[^}]*\??:\s*unknown|as\s+Record<string,\s*unknown>' <scope> --glob '*.ts' --glob '*.svelte'
-rg -n "\btypeof\b|['\"][^'\"]+['\"]\s+in\s|Object\.hasOwn\(" <scope> --glob '*.ts' --glob '*.svelte'
+rg -n "['\"][^'\"]+['\"]\s+in\s|Object\.hasOwn\(" <scope> --glob '*.ts' --glob '*.svelte'
 ```
 
 Follow the value to where it is created and find the type that describes it.
 Fix the type at its owner, or derive from it. Keep a check that recognizes a
-supported capability or validates input whose shape is not known yet, such
-as an adapter that accepts any member with a `subscribe` method.
+supported capability, or that narrows `unknown` input at an IPC, JSON, or
+`catch` boundary where the shape is not known yet. An adapter that accepts
+any member with a `subscribe` method is one.
 
 **Promise conversions that do nothing.** `.then(() => {})` written only to
 satisfy a narrow receiving type.
@@ -27,8 +28,9 @@ satisfy a narrow receiving type.
 rg -n -U '\.then\s*\(\s*(\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*(\{\s*\}|undefined\b)' <scope> --glob '*.ts'
 ```
 
-If the receiver only waits for completion, accept `Promise<unknown>` and drop
-the adapter. Keep a callback that does work: `Promise.allSettled(queue).then(() => close())`
+If you own the receiver and it only waits for completion, accept
+`Promise<unknown>` and drop the adapter. A library's receiver type is not
+yours to change. Keep a callback that does work: `Promise.allSettled(queue).then(() => close())`
 closes a connection after the queue settles, so removing it skips cleanup.
 
 **Logging that bypasses the logger.** Direct `console.*` calls, custom
@@ -50,14 +52,15 @@ Keep a fallback when the value can hold input the type does not list, such as
 an error from `invoke` that the declared union does not cover. See
 `error-handling` for the rule.
 
-**Single-method `Pick` and copied upstream shapes.** `Pick<Thing, 'method'>`,
-`*Like` types, `as Record<string, unknown>`, and `Parameters<typeof fn>[n]`
-keep an old object boundary alive after the caller needs one operation.
+**Single-method `Pick`.** `Pick<Thing, 'method'>` keeps an old object boundary
+alive after the caller needs one operation.
 
 ```bash
 rg "Pick<[^>]+,\s*['\"][^'\"|]+['\"]\s*>" packages apps
-rg "type\s+\w+Like\b|interface\s+\w+Like\b|as\s+\w+Like\b" packages apps
 ```
+
+Most hits pick a field, which is a fine data projection. Look only at hits
+that pick a method.
 
 Write the caller's one-sentence job and inline the picked method. If the
 sentence names only one verb, take a named function instead of the object and
@@ -67,13 +70,14 @@ multi-field views.
 ## Rust
 
 ```bash
-rg -n '\.unwrap\(\)|\.expect\(' --glob '*.rs'
-rg -n 'println!|eprintln!' --glob '*.rs'
-rg -n 'Result<[^>]*,\s*String>' --glob '*.rs'
+rg -n '\.unwrap\(\)' --glob '*.rs' --glob '!**/tests/**'
+rg -n -B2 'Result<[^>]*,\s*String>' --glob '*.rs'
 ```
 
-`unwrap` and `expect` outside tests and startup need a reason or a returned
-error. `println!` in a plugin or library is a diagnostic that belongs in the
-logger the host owns. `Result<_, String>` hides the error type from the
-TypeScript side that has to handle it; return a typed error that serializes
-to a union (see the `tauri` skill).
+A bare `.unwrap()` outside tests and startup needs an `expect` with a reason
+or a returned error. `expect("reason")` already states the invariant, and
+`lock().unwrap()` on a mutex is idiomatic, so leave both. Only a
+`Result<_, String>` on a `#[tauri::command]` matters: it hides the error
+type from the TypeScript that must handle it, so return a typed error that
+serializes to a union (see the `tauri` skill). Internal helpers may keep
+`String`.
