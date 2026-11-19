@@ -47,6 +47,12 @@ test('defining data touches no file, so a home that does not exist yet is fine',
 	expect(data.watches.description).toBe('trip idea');
 });
 
+test('rebinding keeps the type, so an app function takes the rebound data', async () => {
+	const rebound: typeof data = defineData(await tempHome(), data);
+	expect(Object.keys(rebound)).toEqual(['watches', 'checks']);
+	expect(rebound.checks.fields).toBe(data.checks.fields);
+});
+
 test('a rebound handle writes a record as Markdown under data/<key>/<id>.md', async () => {
 	const home = await tempHome();
 	const { watches } = defineData(home, data);
