@@ -17,7 +17,7 @@
  * audio stays a recording.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { audioMimeTypeOf } from './audio-format.js';
+import { audioMimeTypeOf } from './format/audio.js';
 import type { Entry, Files, FilesError } from './files/files.js';
 import { timeOf } from './format/ids.js';
 import type { NOTES } from './format/layout.js';

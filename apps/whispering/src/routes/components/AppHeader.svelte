@@ -19,7 +19,7 @@
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { pageAt } from './nav-items.js';
 	import RecorderClock from './RecorderClock.svelte';
-	import SettingsForm from './SettingsForm.svelte';
+	import SettingsForm from './settings/SettingsForm.svelte';
 
 	const whispering = getWhispering();
 

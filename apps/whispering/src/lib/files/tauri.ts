@@ -35,6 +35,37 @@ const tauriInvoke: Invoke = async (command, args, options) => {
 	return invoke(command, args, options);
 };
 
+/** What "Change…" did with the folder the person picked. */
+type FolderChange = 'moved' | 'opened';
+
+/**
+ * Change the desktop's folder from `from` to `to`, which the folder dialog
+ * granted (ADR-0894): an empty folder gets the recordings moved into it
+ * (`moved`); a Whispering folder, one holding `settings.md` or
+ * `recordings/`, is opened and the old one left as it was (`opened`); any
+ * other folder is refused with why. Two folders are never merged.
+ */
+export async function changeFolder(
+	from: string,
+	to: string,
+): Promise<FolderChange> {
+	return (await tauriInvoke('files_change_folder', { from, to }).catch(
+		(cause: unknown) => {
+			throw cause instanceof Error
+				? cause
+				: new Error(extractErrorMessage(cause));
+		},
+	)) as FolderChange;
+}
+
+/** Whether a folder is inside a Git repository, and whether that repository keeps `.webm` audio in Git LFS. */
+export type FolderGit = { repository: boolean; lfsWebm: boolean };
+
+/** Whether the desktop folder at `folder` is inside a Git repository, and how it keeps audio. */
+export async function folderGit(folder: string): Promise<FolderGit> {
+	return (await tauriInvoke('folder_git', { folder })) as FolderGit;
+}
+
 /** The marker `files_read_many` answers in place of a missing file's length. */
 const MISSING = 0xffff_ffff;
 

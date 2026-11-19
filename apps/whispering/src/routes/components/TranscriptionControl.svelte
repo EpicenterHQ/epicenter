@@ -4,7 +4,7 @@
 	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
-	import SettingsForm from './SettingsForm.svelte';
+	import SettingsForm from './settings/SettingsForm.svelte';
 
 	/**
 	 * The transcription model in use, beside the recorder. It opens the

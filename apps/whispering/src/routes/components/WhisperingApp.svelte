@@ -39,6 +39,8 @@
 
 	/** Below this width the sidebar becomes a bottom bar. */
 	const wide = new MediaQuery('(min-width: 768px)');
+	/** Whether the sidebar is open on a wide window. The layout keeps this component across pages, so the choice survives navigation. */
+	let sidebarOpen = $state(false);
 
 </script>
 
@@ -53,7 +55,7 @@
 />
 
 {#if wide.current}
-	<Sidebar.Provider bind:open={() => whispering.sidebarOpen, (open) => (whispering.sidebarOpen = open)} class="h-dvh min-h-0 overflow-hidden">
+	<Sidebar.Provider bind:open={sidebarOpen} class="h-dvh min-h-0 overflow-hidden">
 		<VerticalNav />
 		<Sidebar.Inset class="min-h-0 overflow-hidden">
 			{@render header()}

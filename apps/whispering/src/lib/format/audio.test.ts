@@ -3,7 +3,7 @@
  */
 
 import { expect, test } from 'bun:test';
-import { audioMimeTypeOf } from './audio-format.js';
+import { audioMimeTypeOf } from './audio.js';
 
 test('a file’s extension names its playback type, ignoring case', () => {
 	expect(audioMimeTypeOf('recordings/a.M4A')).toBe('audio/mp4');

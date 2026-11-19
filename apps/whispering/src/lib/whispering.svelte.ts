@@ -81,8 +81,6 @@ export type WhisperingCapabilities = {
 
 export function createWhispering(capabilities: WhisperingCapabilities) {
 	const { query, capture, preferences } = capabilities;
-	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
-	let sidebarOpen = $state(false);
 
 	/** Cleanup also fences new work and late replies. */
 	let disposed = false;
@@ -252,13 +250,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	}
 
 	return {
-		/** Whether the sidebar is open on a wide window. */
-		get sidebarOpen() {
-			return sidebarOpen;
-		},
-		set sidebarOpen(open: boolean) {
-			sidebarOpen = open;
-		},
 		/** Every model this page can reach now, with the person's connections, for the picker; tracks in Svelte. */
 		ai,
 		/** The transcription model chosen, or null when none is. */
