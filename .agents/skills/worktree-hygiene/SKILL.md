@@ -8,7 +8,7 @@ metadata:
 
 # Worktree Hygiene
 
-> **Related Skills**: [git](../git/SKILL.md) for working inside a worktree.
+> **Related Skills**: `AGENTS.md`, "Git hygiene", for working inside a worktree.
 
 A local copy is disposable once its work is on GitHub: on `origin/main`, or pushed as `backup/<branch>`. Git history keeps it findable, not the local branch. [`scripts/worktree-audit.ts`](../../../scripts/worktree-audit.ts) does the checking and deleting; this skill is the judgment it cannot make.
 
