@@ -20,7 +20,6 @@ const subDirs = [
 	// Build outputs
 	'.svelte-kit',
 	'.astro',
-	'.wxt',
 	'.output',
 	'.vercel',
 	'.build',
