@@ -9,13 +9,14 @@ and so do your agents.**
 Epicenter is where one person's software lives. `~/Epicenter` is on a computer
 you control and keep on: the home. Today that is a computer you own; a rented
 one you control is allowed and gets its own setup later. Each home
-uses one private root Git repository. Each apps/<app>/ container holds a code/
-Bun project and sibling data/ records, mostly Markdown. One command,
-`epicenter serve`, offers every app's actions over MCP, and each app's UI in a
-browser, on that computer; your private network brings your other devices in.
-Nothing syncs and no one signs in: your other devices are thin clients of the
-one copy, and `origin` is a push-only backup. This layout is implemented in the source
-and live Epicenter.
+is one private Git repository and one program: its root `epicenter.ts`
+declares the records and composes the apps. Records live in root `data/`,
+mostly Markdown; app code lives in `apps/`; caches live in root `local/`.
+One command, `epicenter serve`, offers every app's actions over MCP on that
+computer; your private network brings your other devices in. Nothing syncs
+and no one signs in: your other devices are thin clients of the one copy,
+and `origin` is a push-only backup. The layout is the one
+[`@epicenter/app`'s README](../packages/app/README.md#a-home) describes.
 
 This page is the front door. Its core invariants state what Epicenter
 promises and what it gives up. The package READMEs describe the code that
@@ -110,7 +111,7 @@ or receipt without making every app inherit that machinery.
 writes the documented shape is a valid writer and needs no Epicenter. Actions exist for reach, rules, and sign-ins.
 
 **Commit what the person made.** A copy of data whose truth is elsewhere is
-written only by its pull, whoever runs it. Keep it under the app's `local/`
+written only by its pull, whoever runs it. Keep it under the home's `local/`
 when the source can send it again; commit it as Markdown when the person
 would want it after the source is gone.
 
@@ -156,44 +157,46 @@ elsewhere: recordings, arrivals in an inbox, received mail.
 
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
-in a personal app. Scheduling belongs to the home: a routine in `routines/`
-runs an action on a cron schedule while `serve` runs. A scheduled time that
-passes while `serve` is stopped does not run
-([routines are not built yet](../packages/app/README.md#not-built-yet)). launchd
-or cron can call `epicenter <app> <action>` too.
+in a personal app. Scheduling belongs to the home, but routines, which would
+run an action on a schedule while `serve` runs, are
+[not built yet](../packages/app/README.md#not-built-yet). Until then launchd
+or cron calls `epicenter <app> <action>`, which runs only while `serve` does.
 
 | You want | Reach for |
 | --- | --- |
-| a new kind of thing about the same subject, under the same rules | a data key in the existing app |
+| a new kind of thing about the same subject, under the same rules | a data key in the home's `epicenter.ts`, and actions in the existing app |
 | a new source, sign-in, or contract with its own lifetime | a new app |
 | something that crosses apps | an agent, then an action in a personal app |
 
-For an app's shape, copy the nearest example: `examples/tasks` or
-`examples/writing` for kept records. Mail (cached) and Messages (live) are
-the author's apps and are not published yet.
+For an app's shape, start from the `writing` example in
+[`@epicenter/app`'s README](../packages/app/README.md#a-home). This
+repository ships no inside apps; Mail (cached) and Messages (live) are the
+author's and are not published.
 
 ## Ways in
 
-`~/Epicenter/apps` holds stable app containers with code/ and data/ siblings
-in the source layout. The private root origin backs up both.
+`~/Epicenter` holds the home's `epicenter.ts`, its apps' code in `apps/`, and
+its records in `data/`. The private root origin backs up all three.
 For the author, the home is the Mac Studio.
 
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, sending its call to the home's running `serve` | you, agents with a shell |
-| `epicenter serve` | MCP at `/`, the listing at `/actions/`, and each app's UI at `/apps/<app>/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices; UIs in a browser |
+| `epicenter serve` | MCP at `/`, actions at `/actions/<app>/<action>`, and the listing at `/actions/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices |
 | the files | the folder itself | your editor, Claude Code on the home, a program that writes the contract |
 
-Capture, Vocab, agents, and UIs keep nothing on a device and see the current
-files when they reach the home. `epicenter serve` runs the `code/epicenter.ts` of
-each app you trust, and no sign-in leaves the home: Mail's Google sign-in is
-a file under Mail's `local/`, on the computer that runs Mail's actions.
+Agents keep nothing on a device and see the current files when they reach
+the home. `epicenter serve` imports the home's one `epicenter.ts`, which
+composes the apps you trust, and no sign-in leaves the home: Mail's Google
+sign-in is a file under `local/`, on the computer that runs Mail's actions.
 
 Agents make apps: you start Claude Code on the home, ask for an app, and it
-writes its code and records. An app can also start as a copy of another app's
-`code/` folder, taken with ordinary file tools and kept without a remote or
-later merge (no command copies an app: [the home's rules](../packages/app/README.md#the-home)).
-The agent adapts any later source changes in place.
+writes its code in `apps/`, its data keys in `epicenter.ts`, and its records.
+An app can also start as a copy of another home's `apps/<app>/` folder, taken
+with ordinary file tools and kept without a remote or later merge (no command
+copies an app: [the home's rules](../packages/app/README.md#the-home)). The
+agent adds the data keys it reads and adapts any later source changes in
+place.
 
 ## What it is like
 
@@ -209,10 +212,10 @@ The agent adapts any later source changes in place.
   becomes `epicenter vault calendar show`. Later Claude Code changes how it
   groups events in a temporary Epicenter outside the live folder, tests it,
   then applies the code change deliberately.
-- **A capture from the phone.** You open Capture's UI in your phone's browser
-  at `/capture/` and save a quote. The UI calls `capture_add`; the home
-  writes `data/captures/<time>.md`, and your next commit records it.
-- **Tasks from anywhere.** You add a task on the phone through Tasks' UI. You
+- **A capture from the phone.** You ask the agent on your phone, connected to
+  the home over MCP, to save a quote. It calls `capture_add`; the home writes
+  `data/captures/<time>.md`, and your next commit records it.
+- **Tasks from anywhere.** You add a task on the phone through an agent. You
   also drop things into Todoist from your watch; an agent pulls that inbox,
   adds each item worth keeping with `epicenter tasks add`, and completes it in
   Todoist. Todoist stays near empty, and Tasks is the list.
@@ -220,28 +223,28 @@ The agent adapts any later source changes in place.
   and pastes with no network, and keeps each recording, with its audio, in
   its own folder
   ([Whispering's decisions](../apps/whispering/README.md#the-folder)). It needs
-  no Epicenter and no account. If you point its
-  folder into `~/Epicenter/apps/whispering/data`, or copy new files there with
-  a file syncer, the recordings appear for your agents. A later Whispering may
+  no Epicenter and no account. If its folder is inside `~/Epicenter`, or a
+  file syncer copies new files there, the recordings appear for your agents.
+  A later Whispering may
   hand each new recording over to your home once it can reach it, and from
   then on every device sees and edits it there.
 - **A weekly summary.** You ask an agent for a summary of your voice notes. It
-  adds a `summaries` data key and a `summarize-week` action to
-  Whispering's inside app. Whispering keeps writing recordings and never
-  notices.
+  adds a `summaries` data key to the home's `epicenter.ts` and a
+  `summarize-week` action to the `whispering` app. Whispering keeps writing
+  recordings and never notices.
 
 ## The pieces
 
 | Noun | What it is |
 | --- | --- |
-| Epicenter | your folder of apps, `~/Epicenter` on the home, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
-| an inside app | a folder in `~/Epicenter/apps` that runs on the home, whose `code/epicenter.ts` default-exports `defineApp`: its description, data, and actions; its name is the folder's; bare "app" on this page, in records, and in code means this |
-| a data key | a kind of record in the app, declared with `defineData`: a folder (`words` holds `data/words/<id>.md`) or one file (`settings.md`), and its fields; it gives the actions it names: `list`, `get`, `create`, `patch`, `edit`, and `delete` |
+| Epicenter | your home's folder, `~/Epicenter` on the home, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
+| an inside app | a function of the home's data, usually in `~/Epicenter/apps/<app>/`, that returns its description and actions; the root `epicenter.ts` composes it into `defineEpicenter({ apps })`, and its key there is its name; bare "app" on this page, in records, and in code means this |
+| a data key | a kind of record in the home, declared in the root `epicenter.ts` with `defineData`: a folder (`words` holds `data/words/<id>.md`) and its fields; its handle has `list`, `get`, `create`, `patch`, `edit`, and `delete`, which an app's actions call |
 | a record | one file of a data key, addressed by its path; it is yours |
 | an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
-| an action | something you can ask an app to do: one a data key gives, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
-| a UI | a web page built from the app's `code/ui/` into `code/ui/dist/`, served at `/apps/<app>/`, that shows its data and calls its actions over HTTP |
+| an action | something you can ask an app to do, written with `defineAction`; it is a command in the terminal and a tool over MCP |
+| an app's page | a web page that shows an app's data and calls its actions over HTTP; [not built yet](../packages/app/README.md#not-built-yet) |
 | `epicenter` | the command: it sends an action to the home's running `serve`, which offers every app over MCP and HTTP |
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
@@ -255,7 +258,7 @@ Every app is inside an Epicenter or outside it. The test: does it work
 without an Epicenter? If it does, it is an outside app. Data crosses only
 through an inside app's actions: Mail brings Gmail in, and Gmail does nothing.
 A product can have both halves: Whispering is an outside app, and Whispering's
-inside app is the `whispering` folder in an Epicenter.
+inside app is the `whispering` app in an Epicenter.
 
 "Epicenter" is the place, and `epicenter` is its command. "Server" means
 someone else's computer, and "hosted" means someone else runs it; yours is the
@@ -270,18 +273,18 @@ Gmail. "Local-first" is only for a product whose devices sync.
 
 ## An app
 
-An app is a stable container with code and records beside each other:
+A home is one program. Its records sit beside the code that reads them, in
+one repository:
 
 ```txt
-apps/vocab/
-  code/                 the editable Bun project
-    epicenter.ts        data and actions
-    README.md           the app's format and use
-    package.json  bun.lock
-    ui/                 source; ui/dist/ is ignored
-    node_modules/       ignored
-  data/                 records and settings
-    words/你好.md       path: data/words/你好.md
+~/Epicenter/
+  package.json          names the @epicenter/app version; its "epicenter" key marks the home
+  epicenter.ts          the data keys, and the apps composed from them
+  data/                 records
+    tasks/<id>.md       path: data/tasks/<id>.md
+    words/你好.md
+  apps/                 code only
+    tasks/index.ts      the tasks app: a function of the home's data
   local/                this computer's own; never committed
 ```
 
@@ -290,43 +293,54 @@ keeps its history. `local/` is what this computer can rebuild or sign in
 again, such as a sign-in or a copy of a mailbox, and it never leaves this
 computer.
 
-A record's address is its path from the container, with data/ included, in an
-action, a UI, and the files an agent opens.
+Records belong to the home, not to an app, so a record any app or no app
+writes still has a place. A record's address is its path from the home, with
+`data/` included, in an action and in the files an agent opens.
 
 ```ts
-import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
+// epicenter.ts
+import { defineData, defineEpicenter, field } from '@epicenter/app';
+import { tasks } from './apps/tasks';
 
-export default defineApp(({ folder }) => {
-  const data = defineData(folder, {
-    tasks: {
-      description: 'task',
-      fields: { title: field.text(), done: field.boolean() },
-    },
-  });
+export const data = defineData(import.meta.dir, {
+  tasks: {
+    description: 'task',
+    fields: { title: field.text(), done: field.boolean({ optional: true }) },
+  },
+});
+export type Data = typeof data;
 
+export default defineEpicenter({ apps: { tasks: tasks(data) } });
+```
+
+```ts
+// apps/tasks/index.ts
+import { defineAction, field, timeId } from '@epicenter/app';
+import type { Data } from '../../epicenter';
+
+export function tasks({ tasks }: Data) {
   const add = defineAction({
     description: 'Add a task to do',
     input: { title: field.text({ description: 'What to do' }) },
-    annotations: { destructiveHint: false },
-    run: ({ title }) => data.tasks.create(timeId(), { title }),
+    run: ({ title }) => tasks.create(timeId(), { title }),
   });
-
-  return {
-    description: 'Things I mean to do',
-    data,
-    actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
-  };
-});
+  const done = defineAction({
+    description: 'Mark a task done',
+    input: { id: field.text() },
+    run: ({ id }) => tasks.patch(id, { done: true }),
+  });
+  return { description: 'Things I mean to do', actions: { add, done } };
+}
 ```
 
-Tasks' actions are `tasks list`, `get`, and `patch` from its data key, and the
-`add` written here. A verb names a record by its id, the file's name:
-`epicenter tasks patch '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
+Tasks' actions are the `add` and `done` written here; a data key gives none
+of its own. An action names a record by its id, the file's name:
+`epicenter tasks done '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8"}'`.
 On the command line an action's input is one JSON object, as an agent gives
-it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action reads and writes through its
-data handles, or through the `folder` its app is given; whatever runs the app
-supplies the container. `code/epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies
-when it runs. Install other dependencies in code/.
+it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action
+reads and writes through the data handles its app is given. The home's
+`package.json` depends on `@epicenter/app` and any other package an app
+imports, and Bun installs them.
 
 ## How a write happens
 
@@ -335,8 +349,8 @@ code and records together in Git history. That is true for you in your editor, f
 Claude Code on the home, and for a program writing there.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
-action.** That is true for Claude Desktop, an agent on another computer, and a
-UI.
+action.** That is true for Claude Desktop, an agent on another computer, and,
+once it is built, an app's page.
 
 **History comes from Git, which you run.** Actions make no
 commits, nothing takes a lock, and one serve runs every action
@@ -355,25 +369,25 @@ runs on the home.
 ```txt
 ssh studio                                   you, then `epicenter …` there
 ssh studio epicenter <app> <action>           an action from a remote shell
-epicenter serve, through tailscale serve     your devices: UIs and MCP
+epicenter serve, through tailscale serve     your devices: MCP
 ```
 
 A command selects a home on the computer it is typed on and sends its action
 to that home's running `serve`. If serve is stopped, the action does not run.
-Serve runs each app as its files are on disk, so code you just changed is
-what runs. It
-signs no one in and listens only on the home; your private network decides
+Serve imports the home's program once when it starts, so restart it to run
+code you just changed. It signs no one in and listens only on the home; your private network decides
 which other devices reach it, for the author the tailnet ([serve's rules](../packages/app/README.md#running-the-home)).
 
-## UIs
+## Pages
 
-An app's UI is a web page served at `/apps/<app>/` that reads and
-changes the app only by calling its actions. It never knows where they run and
-keeps nothing of its own. An app may also answer web requests at that address
-with its own `fetch`, for protocols someone else defined, such as an OAuth
-redirect or a download
-([not built yet](../packages/app/README.md#not-built-yet)); what a person or an agent does is still
-an action.
+An app's page is [not built yet](../packages/app/README.md#not-built-yet).
+When it is, it will be a web page that reads and changes the app only by
+calling its actions, through the typed client `@epicenter/app/client`
+already exports. It never knows where they run and keeps nothing of its
+own. An app may also come to answer web requests with its own `fetch`, for
+protocols someone else defined, such as an OAuth redirect or a download;
+that is not built either. What a person or an agent does is still an
+action.
 
 ## One ladder
 
@@ -382,7 +396,7 @@ an action.
 | 1. Files | nothing | any software reads and writes it |
 | 2. History | Git, `git-lfs`, optional `origin` | the commits you make, optional private backup |
 | 3. Actions | `epicenter serve` running on the home | the CLI and agents call its actions |
-| 4. Everywhere | a private network such as Tailscale | your other devices reach it; its UIs open in a browser |
+| 4. Everywhere | a private network such as Tailscale | your other devices and their agents reach it |
 
 Whispering is whole at rung 1.
 
@@ -390,7 +404,7 @@ Whispering is whole at rung 1.
 
 | Job | Least powerful form | Steps up only when |
 | --- | --- | --- |
-| Declare an app | data keys in `epicenter.ts` | it needs a rule: an action |
+| Declare records | data keys in the home's `epicenter.ts` | it needs a rule: an action in an app |
 | Describe a field | JSON Schema | never |
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
 | Reach a service's data | ask it each time | it needs search, offline reading, or history: a pull |
@@ -398,8 +412,8 @@ Whispering is whole at rung 1.
 | Record history | a commit you make | never |
 | Back up the home | Git and an optional private origin | never |
 | Reach | MCP | never |
-| An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
-| Run something later | a routine runs an action on a cron schedule | never |
+| An interface | Claude, any agent, or the terminal | you want to see or tap: an app's page, not built yet. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
+| Run something later | launchd or cron calling `epicenter <app> <action>` | routines, not built yet, run an action on a schedule while `serve` runs |
 
 ## Next, not yet, and never
 
