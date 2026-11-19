@@ -33,8 +33,8 @@ what it loaded. To run changed code, stop serve and start it again.**
 - **Start.** Serve reads `apps/`, imports each `code/epicenter.ts` inside its
   own guard, and keeps the result. An app that throws while loading is listed
   with its problems, and the other apps still load. Serve reads `AGENTS.md`
-  and `routines/` in the same pass, then builds the listing, the MCP tools
-  and the launcher from what it loaded.
+  and `routines/` in the same pass, then builds the listing and the MCP
+  tools from what it loaded.
 - **Call.** A call looks up the app and action already loaded, checks the
   input, and runs it. Nothing is imported.
 - **Restart is stop.** Serve has no reload command. On a stop signal it
@@ -81,7 +81,8 @@ on each bare `epicenter` is a cost paid to catch a forgotten restart.
   restart, so anything an app must remember still goes in a file (rule 3 of
   ADR-0943).
 - Deleted: `forgetModules`, the load on each call in the action runner, MCP
-  and the launcher, and the `AGENTS.md` read on each MCP initialize.
+  and the launcher (since deleted, ADR-0961), and the `AGENTS.md` read on
+  each MCP initialize.
 - ADR-0880 and ADR-0945 are `Proposed` and stated the old rule. They are
   edited to match.
 

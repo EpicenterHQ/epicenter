@@ -163,11 +163,10 @@ test('GET /actions/ answers the one listing as JSON, naming no path, and tools/l
 		result: { tools: unknown[] };
 	};
 	expect(tools.result.tools).toEqual(listing.apps[0].actions);
-	// GET / is the launcher page, even asked for JSON.
-	const page = await fetch(`${f.base}/`, {
-		headers: { accept: 'application/json' },
-	});
-	expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
+	// GET / is no page: only MCP's POST is answered there.
+	const root = await fetch(`${f.base}/`);
+	expect(root.status).toBe(405);
+	expect(root.headers.get('allow')).toBe('POST');
 });
 
 test('the browser client calls a tool without initialize and writes its record', async () => {
@@ -274,12 +273,6 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
 	await mkdir(join(linked, 'code', 'ui'));
 	await symlink(outsideUi, join(linked, 'code', 'ui', 'dist'));
-	expect(await (await fetch(`${f.base}/`)).text()).toContain(
-		'href="/apps/reading/"',
-	);
-	expect(await (await fetch(`${f.base}/`)).text()).not.toContain(
-		'href="/apps/linked/"',
-	);
 	const redirect = await fetch(`${f.base}/apps/reading`, {
 		redirect: 'manual',
 	});
@@ -415,12 +408,7 @@ test("a request under /apps/<app>/ is a built file first, then the app's fetch, 
 	const broken = await at('broken/x');
 	expect(broken.status).toBe(500);
 	expect(await broken.text()).toContain("An app's fetch is a function");
-	// The launcher lists an app with a built page, and not one with only fetch.
 	expect(await (await at('hook/')).text()).toBe('hooked');
-	const launcher = await (await fetch(`${f.base}/`)).text();
-	expect(launcher).toContain('href="/apps/mail/"');
-	expect(launcher).not.toContain('href="/apps/reading/"');
-	expect(launcher).not.toContain('href="/apps/hook/"');
 	// The old addresses answer nothing.
 	expect((await fetch(`${f.base}/mail/`)).status).toBe(404);
 });

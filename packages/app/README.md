@@ -655,8 +655,9 @@ redirects `/apps/mail` to `/apps/mail/`, so a page route `'/'` needs
 `fetch` is for protocols someone else defined: an OAuth redirect, a file
 download, a feed, a form upload, or an app's own page when it has no build
 step. The command line and MCP never see its routes, so anything a person or
-an agent should be able to do is an action. The launcher links only to an
-app with a built page.
+an agent should be able to do is an action. Serve has no page at `/` that
+lists apps: `epicenter` prints them, `GET /actions/` gives them as JSON, and
+an app's page is at `/apps/<app>/`.
 
 Serve refuses a request a browser marks as coming from another site
 (`Sec-Fetch-Site: cross-site`) unless it opens a page: a top-level `GET`
@@ -860,6 +861,9 @@ The compiler flags none of these.
 - **Scripts that read `--json`** read routine rows' `app`, `action` and
   `input`, and an app's folder as `apps/<name>/` under the `epicenter`
   folder the report names.
+- **Opening the root address shows no page.** The launcher at `/` is gone;
+  `/` answers MCP only, and a browser gets 405. Bookmark an app at
+  `/apps/<app>/`, run `epicenter` for the list, or read `GET /actions/`.
 - **Stopping serve cuts what runs.** On SIGINT or SIGTERM serve closes every
   connection and exits, so a call or routine still running is cut. A write
   cut off leaves its target whole: the folder writes a temporary file and

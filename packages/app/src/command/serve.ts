@@ -3,7 +3,7 @@
  *
  * ```txt
  * POST /                        MCP, stateless JSON
- * GET  /                        the launcher; 405 when asked for an event stream (MCP)
+ * ANY  /                        405 for any method but POST
  * GET  /actions/                the listing as JSON
  * POST /actions/<app>/<action>  a call from a page or the command
  * ANY  /apps/<app>/...          the app: a file in code/ui/dist/, else its fetch, else 404
@@ -22,7 +22,7 @@
  *
  * Serve loads every app once, when it starts (ADR-0959): each entry in
  * `apps/` is either the app its code defines or its problems (`apps.ts`),
- * and every route, MCP and the launcher answer from that one object until
+ * and every route and MCP answer from that one object until
  * serve stops. To run changed code, restart serve. Serve runs every call
  * itself (`run.ts`) and stores nothing about it. When a
  * run ends, serve writes one JSON line to stderr naming the app, the action,
@@ -67,7 +67,7 @@
 
 import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { basename, isAbsolute, join, sep } from 'node:path';
+import { isAbsolute, join, sep } from 'node:path';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
@@ -127,43 +127,6 @@ const ServeError = defineErrors({
 
 /** Serve's record of what it could not do, beside its run records. */
 const serveLog = createLogger('cli/serve', stderrJsonLines);
-
-const escapeHtml = (text: string) =>
-	text.replace(
-		/[&<>"']/g,
-		(char) =>
-			({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[
-				char
-			] as string,
-	);
-
-/** The page at `/`: each app with a page, its icon, name, and description, linking to `/apps/<app>/`. */
-function launcherPage(
-	name: string,
-	apps: { name: string; description: string; icon: boolean }[],
-) {
-	const items = apps
-		.map(({ name, description, icon }) => {
-			const href = `/apps/${encodeURIComponent(name)}/`;
-			const image = icon
-				? `<img src="${href}icon.png" alt="" width="56" height="56">`
-				: `<span class="blank">${escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
-			return `<li><a href="${href}">${image}<span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(description)}</small></span></a></li>`;
-		})
-		.join('');
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark"><title>${escapeHtml(name)}</title><style>
-:root{--bg:#fafafa;--fg:#0a0a0a;--muted:#6b6b6b;--card:#fff;--line:#e5e5e5}
-@media (prefers-color-scheme:dark){:root{--bg:#141414;--fg:#f5f5f5;--muted:#a0a0a0;--card:#1e1e1e;--line:#2c2c2c}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:max(24px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
-main{max-width:560px;margin:0 auto}h1{font-size:28px;margin:8px 0 20px;letter-spacing:-.02em}
-ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-a{display:flex;gap:14px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:16px;background:var(--card);color:inherit;text-decoration:none}
-a:active{transform:scale(.99)}img,.blank{width:56px;height:56px;border-radius:13px;flex:none}
-.blank{display:grid;place-items:center;background:var(--line);font-weight:600;font-size:22px}
-strong{display:block;font-size:17px;text-transform:capitalize}small{display:block;color:var(--muted);font-size:14px}
-p{color:var(--muted)}
-</style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
-}
 
 const notFound = () => new Response('Not found', { status: 404 });
 
@@ -251,32 +214,6 @@ function listing({ listing, routines }: Served) {
 	return Response.json(
 		{ ...listing, routines: routineRows(routines) },
 		{ headers: { 'cache-control': 'no-store' } },
-	);
-}
-
-/** `GET /`: the launcher, a link to each app with a built page. */
-async function launcher({ root, apps }: Served) {
-	const shown = await Promise.all(
-		[...apps.values()].map(async ({ name, folder, app }) => {
-			if (!app || !(await uiFile(folder, 'index.html')).ok) return undefined;
-			return {
-				name,
-				description: app.description,
-				icon: (await uiFile(folder, 'icon.png')).ok,
-			};
-		}),
-	);
-	return new Response(
-		launcherPage(
-			basename(root.folder),
-			shown.filter((app) => app !== undefined),
-		),
-		{
-			headers: {
-				'content-type': 'text/html; charset=utf-8',
-				'cache-control': 'no-cache',
-			},
-		},
 	);
 }
 
@@ -399,16 +336,9 @@ function route(served: Served, request: Request) {
 	const { method } = request;
 	const { pathname } = new URL(request.url);
 	const reads = method === 'GET' || method === 'HEAD';
-	if (pathname === '/') {
-		if (method === 'POST') return mcp(served, request);
-		// MCP's GET for a server-sent stream: stateless, so there is none.
-		const stream = (request.headers.get('accept') ?? '').includes(
-			'text/event-stream',
-		);
-		return reads && !stream
-			? launcher(served)
-			: methodNotAllowed('GET, HEAD, POST');
-	}
+	// MCP is stateless, so its GET for a server-sent stream has nothing to open.
+	if (pathname === '/')
+		return method === 'POST' ? mcp(served, request) : methodNotAllowed('POST');
 	if (pathname === ACTIONS)
 		return reads ? listing(served) : methodNotAllowed('GET, HEAD');
 	const [first, app, action, ...rest] = pathname.slice(1).split('/');

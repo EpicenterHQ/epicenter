@@ -557,7 +557,7 @@ test('a second serve, or any program on the port, stops serve before it loads an
 			stdout: '',
 			stderr: taken,
 		});
-		expect((await fetch(`${served.base}/`)).status).toBe(200);
+		expect((await fetch(`${served.base}/actions/`)).status).toBe(200);
 	} finally {
 		await served.stop();
 	}

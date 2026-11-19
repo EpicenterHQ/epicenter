@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
 - **Built:** `send.ts`, `serve.ts` and `cli.ts` in `packages/app/src/command`.
 - **Amends:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) and [ADR-0927](0927-serve-listens-only-on-this-computer.md) at the port: `EPICENTER.md` must name `port`, and no port is assumed. See "The port is required" below.
+- **Amended:** 2026-11-18: serve has no page at `/`. See "Serve has no page at `/`" below.
 
 ## Context
 
@@ -64,7 +65,6 @@ description, its data keys, its problems and each action as the MCP tool
 | Reader | What it prints from the listing |
 | --- | --- |
 | MCP `tools/list` | each action not marked `mcp: false` |
-| the launcher page, `GET /` | each app with a built page |
 | bare `epicenter` and `epicenter --json` | every app, its problems, and the routines |
 | `epicenter <app>` and `--help` on an action | one app, or one action and its input |
 
@@ -104,7 +104,7 @@ none.**
   added since serve started appears after a restart.
 - The command no longer imports `@epicenter/app` to read an app. It still
   shares the answer shape with serve.
-- The MCP tool list, the launcher, the listing and help cannot disagree,
+- The MCP tool list, the listing and help cannot disagree,
   because they print one answer.
 - No device on the private network learns the account name from a header.
   A command or serve from another Epicenter learns only that the port is
@@ -163,3 +163,22 @@ explain. `EPICENTER.md` must name `port`, a whole number from 1 to 65535; a
 marker without one is refused by serve and by every command, naming the
 file: `port is missing; name one in front matter, a line such as port: 4747
 between two --- lines`.
+
+## Amendment: serve has no page at `/`
+
+The launcher page at `GET /` listed each app with a built
+`code/ui/dist/index.html`, with its icon and description. Each view read
+the disk once per app to find those files. The owner removed it: three
+places already say what an Epicenter has.
+
+- `epicenter` prints the listing, and `epicenter --json` gives it as JSON.
+- `GET /actions/` is the listing as JSON.
+- An app's page is at `/apps/<app>/`.
+
+`/` answers only MCP's `POST`. Any other method gets 405 with
+`Allow: POST`, as `/actions/<app>/<action>` does for a method other than
+`POST`. MCP's `GET` for a server-sent stream already got 405, since serve
+keeps no MCP session. Nothing redirects from `/`, and no page replaces it.
+A bookmark of the root address now gets 405; bookmark an app's
+`/apps/<app>/` instead. The launcher can be re-added from the listing.
+

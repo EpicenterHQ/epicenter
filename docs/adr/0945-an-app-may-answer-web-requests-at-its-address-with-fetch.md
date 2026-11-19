@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
+- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md#amendment-serve-has-no-page-at-): the launcher is deleted, so nothing lists apps with a built page.
 - **Relates:** [ADR-0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (an app's address is `/apps/<app>/`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is a function of its folder), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when an app is loaded), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a page calls actions).
 
 ## Context
@@ -78,9 +79,10 @@ agent should be able to do is an action.** The command line and MCP do not
 list `fetch` routes, their input is not checked, and their answers are not
 Results, and the listing does not say which apps have `fetch`.
 
-**The launcher lists an app with a built `code/ui/dist/index.html`.** An app
-with no build step can still answer its page from `fetch` at `/apps/<app>/`;
-the launcher does not guess that it does.
+**Serve does not guess which apps have a page.** An app with no build step
+can still answer its page from `fetch` at `/apps/<app>/`. (The launcher that
+listed only apps with a built `code/ui/dist/index.html` is deleted, per
+ADR-0961.)
 
 **Serve refuses a cross-site request unless it opens a page.** Before any
 route, serve reads the `Sec-Fetch-*` headers a browser sends (Fetch

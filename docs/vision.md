@@ -162,7 +162,7 @@ For the author, the home is the Mac Studio.
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, sending its call to the home's running `serve` | you, agents with a shell |
-| `epicenter serve` | MCP at `/`, the launcher for a browser, and each app's UI at `/apps/<app>/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices; UIs in a browser |
+| `epicenter serve` | MCP at `/`, the listing at `/actions/`, and each app's UI at `/apps/<app>/` | Claude Code, Claude Desktop, any agent on the home or, through your private network, on your other devices; UIs in a browser |
 | the files | the folder itself | your editor, Claude Code on the home, a program that writes the contract |
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
