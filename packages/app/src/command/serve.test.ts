@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Type } from 'typebox';
 import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from '../action.ts';
 import { defineData } from '../data.ts';
@@ -38,6 +39,24 @@ async function setup() {
 			throw new Error('broke');
 		},
 	});
+	const tag = defineAction({
+		description: 'Takes words shaped by a pattern and nested raw TypeBox',
+		input: {
+			word: field.text({ pattern: '\\S', description: 'not blank' }),
+			meta: Type.Optional(Type.Object({ n: Type.Number() })),
+		},
+		run: () => Ok(null),
+	});
+	const odd = defineAction({
+		description: 'Has a raw pattern that is not a regular expression',
+		input: { code: Type.String({ pattern: '[' }) },
+		run: () => Ok(null),
+	});
+	const bare = defineAction({
+		description: 'Forgets its Result',
+		input: {},
+		run: () => 'plain' as never,
+	});
 	const fake = defineAction({
 		description: 'Returns a name only Epicenter answers',
 		input: { name: field.select(['NotStarted', 'Threw', 'Unreachable']) },
@@ -48,11 +67,10 @@ async function setup() {
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake },
+					actions: { add, fail, fake, tag, odd, bare },
 				},
 			},
 		}).apps,
-		instructions: 'Be kind to the notes.',
 	};
 	const answer = createHandler({ folder, port: 4747 }, program);
 	const request = (path: string, init: RequestInit = {}) =>
@@ -114,18 +132,35 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 		['/actions/writing/nope', '{}', 'writing has no action "nope"'],
 		['/actions/nope/add', '{}', 'There is no app "nope"'],
 		['/actions/writing/add/more', '{}', "is not an action's address"],
+		['/actions/writing/tag', '{"word":" "}', 'word must match pattern "\\S"'],
+		[
+			'/actions/writing/tag',
+			'{"word":"a","meta":{"n":"x"}}',
+			'meta.n must be number',
+		],
 	] as const) {
 		const [line] = await lines(await request(path, post(body)));
 		expect(line.answer.error.name).toBe('NotStarted');
 		expect(line.answer.error.message).toContain(message);
 	}
 	expect(await readdir(folder)).toEqual([]);
+	// A throw before the answer still ends the stream with one.
+	const [odd] = await lines(
+		await request('/actions/writing/odd', post('{"code":"x"}')),
+	);
+	expect(odd.answer.error.name).toBe('Threw');
+	expect(odd.answer.error.message).toContain('Invalid regular expression');
 });
 
-test('a throw is Threw, and a reserved name an action returns is Threw too', async () => {
+test('a throw is Threw, and so is a value that is not a Result or a reserved name', async () => {
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
 	expect(threw.answer.error).toEqual({ name: 'Threw', message: 'broke' });
+	const [bare] = await lines(await request('/actions/writing/bare', post({})));
+	expect(bare.answer.error).toEqual({
+		name: 'Threw',
+		message: 'The action "bare" must return Ok(data) or Err(error)',
+	});
 	for (const name of ['NotStarted', 'Threw', 'Unreachable']) {
 		const [fake] = await lines(
 			await request('/actions/writing/fake', post({ name })),
@@ -174,11 +209,19 @@ test('MCP offers one tool per action and runs it', async () => {
 		capabilities: {},
 		clientInfo: { name: 'test', version: '1' },
 	});
-	expect(initialized.result.instructions).toBe('Be kind to the notes.');
+	expect(initialized.result.serverInfo.name).toBe('epicenter');
+	expect(initialized.result.instructions).toBeUndefined();
 	const listed = await rpc('tools/list', {});
 	expect(
 		listed.result.tools.map((tool: { name: string }) => tool.name),
-	).toEqual(['writing_add', 'writing_fail', 'writing_fake']);
+	).toEqual([
+		'writing_add',
+		'writing_fail',
+		'writing_fake',
+		'writing_tag',
+		'writing_odd',
+		'writing_bare',
+	]);
 	const called = await rpc('tools/call', {
 		name: 'writing_add',
 		arguments: { id: 'b', body: 'From an agent' },
@@ -218,7 +261,7 @@ test('a home whose program did not load answers that one problem', async () => {
 		answer(
 			new Request(`http://127.0.0.1:4747${path}`, {
 				...init,
-				headers: { host: '127.0.0.1:4747' },
+				headers: { host: '127.0.0.1:4747', ...init?.headers },
 			}),
 		);
 	expect(await (await request('/actions/')).json()).toEqual({
@@ -228,4 +271,15 @@ test('a home whose program did not load answers that one problem', async () => {
 	});
 	const [line] = await lines(await request('/actions/a/b', post({})));
 	expect(line.answer.error.message).toContain('boom');
+	const listed = (await (
+		await request('/', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				accept: 'application/json, text/event-stream',
+			},
+			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+		})
+	).json()) as { error: { message: string } };
+	expect(listed.error.message).toContain('boom');
 });

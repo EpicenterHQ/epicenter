@@ -6,9 +6,8 @@
  *
  * Every field is required unless it says `optional`, and an absent optional
  * field stays absent: nothing is filled in. The code that reads a value
- * writes its default, as `({ done = false, tags = [] })`. No field carries a
- * JSON Schema `default`, and a definition that has one is refused
- * (`defaultIn`).
+ * writes its default, as `({ done = false, tags = [] })`. No helper takes a
+ * JSON Schema `default`, and nothing applies one given in raw TypeBox.
  */
 import {
 	type TLiteral,
@@ -30,35 +29,6 @@ type Options = {
 	description?: string;
 	optional?: boolean;
 };
-
-/**
- * Throw when `options` names one `helper` does not declare, so it is never
- * dropped without a word. A `default` gets its own sentence: no field has one.
- */
-function only(
-	helper: string,
-	options: object | undefined,
-	declared: readonly string[],
-) {
-	if (
-		options !== undefined &&
-		(typeof options !== 'object' || options === null || Array.isArray(options))
-	)
-		throw new Error(
-			`field.${helper} takes its options as an object, such as { optional: true }, not ${JSON.stringify(options)}`,
-		);
-	for (const key of Object.keys(options ?? {})) {
-		if (declared.includes(key)) continue;
-		throw new Error(
-			key === 'default'
-				? `field.${helper} takes no default: no field has one, so write the default in code where the value is read, such as \`limit ?? 50\``
-				: `field.${helper} takes no option "${key}"; it takes ${declared.join(', ')}`,
-		);
-	}
-}
-
-const OPTIONS = ['description', 'optional'] as const;
-const BOUNDED = [...OPTIONS, 'min', 'max'] as const;
 
 /**
  * One object whose keys are fields, as plain JSON Schema: each field under
@@ -85,32 +55,6 @@ export function objectSchema(fields: Record<string, TSchema>): ObjectSchema {
 	return schema as unknown as ObjectSchema;
 }
 
-/** Keywords whose value is data, not a schema, so a `default` key inside it is a value. */
-const DATA_KEYWORDS = new Set(['const', 'enum', 'examples']);
-
-/** Keywords whose value maps names to schemas, so a key `default` there is a name. */
-const NAMED_SCHEMAS = new Set([
-	'properties',
-	'patternProperties',
-	'$defs',
-	'definitions',
-	'dependentSchemas',
-]);
-
-/** Whether `schema` has a JSON Schema `default` at any depth. */
-export function defaultIn(schema: unknown): boolean {
-	if (Array.isArray(schema)) return schema.some(defaultIn);
-	if (typeof schema !== 'object' || schema === null) return false;
-	if (Object.hasOwn(schema, 'default')) return true;
-	return Object.entries(schema).some(([key, value]) =>
-		DATA_KEYWORDS.has(key)
-			? false
-			: NAMED_SCHEMAS.has(key) && typeof value === 'object' && value !== null
-				? Object.values(value).some(defaultIn)
-				: defaultIn(value),
-	);
-}
-
 type Optionally<T extends TSchema, O> = O extends { optional: true }
 	? TOptional<T>
 	: T;
@@ -123,17 +67,6 @@ export const isOptional = (schema: TSchema) =>
 export type OptionalKeys<F> = {
 	[K in keyof F]: F[K] extends { '~optional': true } ? K : never;
 }[keyof F];
-
-/** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a data key>" } }`. */
-const REF = 'x-epicenter-ref';
-
-/** The data key named by a ref, or undefined for another field. */
-export function refKeyOf(schema: unknown): string | undefined {
-	if (typeof schema !== 'object' || schema === null) return undefined;
-	const annotation = (schema as Record<string, unknown>)[REF];
-	const key = (annotation as { key?: unknown } | undefined)?.key;
-	return typeof key === 'string' ? key : undefined;
-}
 
 type ListOptions = Options & {
 	/** The fewest items it holds. */
@@ -169,12 +102,11 @@ function bounds(options: Bounds | undefined) {
 
 export const field = {
 	/**
-	 * Text. `pattern` is a regular expression the whole value must match; give
-	 * a `description` that reads after "must be", since that is how a refusal
-	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
+	 * Text. `pattern` is a regular expression the value must contain a match
+	 * of, as JSON Schema reads it: `'\\S'` is not blank, and `'^[A-Z]{3}$'`
+	 * anchors it to the whole value.
 	 */
 	text: <const O extends Options & { pattern?: string }>(options?: O) => {
-		only('text', options, [...OPTIONS, 'pattern']);
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
@@ -186,7 +118,6 @@ export const field = {
 
 	/** A number, at least `min` and at most `max` when they are given. */
 	number: <const O extends Options & Bounds>(options?: O) => {
-		only('number', options, BOUNDED);
 		return maybeOptional(
 			Type.Number({ ...schemaOptions(options), ...bounds(options) }),
 			options,
@@ -195,7 +126,6 @@ export const field = {
 
 	/** A whole number, at least `min` and at most `max` when they are given. */
 	integer: <const O extends Options & Bounds>(options?: O) => {
-		only('integer', options, BOUNDED);
 		return maybeOptional(
 			Type.Integer({ ...schemaOptions(options), ...bounds(options) }),
 			options,
@@ -204,7 +134,6 @@ export const field = {
 
 	/** A moment, written RFC 3339 with an offset (`2026-11-10T22:41:05+08:00`): JSON Schema's `format: 'date-time'`. */
 	datetime: <const O extends Options>(options?: O) => {
-		only('datetime', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date-time' }),
 			options,
@@ -213,7 +142,6 @@ export const field = {
 
 	/** A day, written `2026-11-08`: JSON Schema's `format: 'date'`, which TypeBox checks, so `2026-13-45` is refused. */
 	date: <const O extends Options>(options?: O) => {
-		only('date', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date' }),
 			options,
@@ -228,7 +156,6 @@ export const field = {
 		values: V,
 		options?: O,
 	) => {
-		only('select', options, OPTIONS);
 		return maybeOptional(
 			Type.Union(
 				values.map((value) => Type.Literal(value)),
@@ -240,7 +167,6 @@ export const field = {
 
 	/** True or false. */
 	boolean: <const O extends Options>(options?: O) => {
-		only('boolean', options, OPTIONS);
 		return maybeOptional(Type.Boolean(schemaOptions(options)), options);
 	},
 
@@ -252,12 +178,7 @@ export const field = {
 		item: T,
 		options?: O,
 	) => {
-		only('list', options, [...OPTIONS, 'min']);
 		const min = options?.min ?? 0;
-		if (!Number.isInteger(min) || min < 0)
-			throw new Error(
-				`field.list's min must be a whole number of at least 0, not ${min}`,
-			);
 		return maybeOptional(
 			Type.Array(item, {
 				...schemaOptions(options),
@@ -266,107 +187,18 @@ export const field = {
 			options,
 		);
 	},
-
-	/**
-	 * One id in a key of the same `defineData`, which may be any of its keys:
-	 * text whose schema names that key. `defineData` refuses a key it does
-	 * not define. Nothing checks that the record is there, so an app that
-	 * needs it reads it.
-	 */
-	ref: <const O extends Options>(target: string, options?: O) => {
-		only('ref', options, OPTIONS);
-		return maybeOptional(
-			Type.String({ ...schemaOptions(options), [REF]: { key: target } }),
-			options,
-		);
-	},
 };
-
-/** The parts of a field's JSON Schema that the words for it read. */
-type Described = {
-	type?: string;
-	format?: string;
-	pattern?: string;
-	description?: string;
-	minimum?: number;
-	maximum?: number;
-	minItems?: number;
-	items?: Described;
-	anyOf?: Described[];
-	const?: unknown;
-	enum?: unknown[];
-};
-
-const FORMATS: Record<string, string> = {
-	date: 'a day like 2026-11-12',
-	'date-time': 'a date and time like 2026-11-12T09:30:00Z',
-	uri: 'a URL like https://example.com',
-	email: 'an email address',
-};
-
-const TYPES: Record<string, string> = {
-	string: 'text',
-	number: 'a number',
-	integer: 'a whole number',
-	boolean: 'true or false',
-	array: 'a list',
-	object: 'an object',
-};
-
-/** The checks `whatFits` says in words; another, such as `maxLength`, keeps TypeBox's message. */
-const SAID = new Set([
-	'type',
-	'format',
-	'const',
-	'anyOf',
-	'enum',
-	'pattern',
-	'minimum',
-	'maximum',
-	'minItems',
-]);
-
-/** What `schema` takes, as the end of "<value> is not …". */
-function wanted(schema: Described): string | undefined {
-	const choices =
-		schema.enum ??
-		(schema.anyOf?.every((choice) => 'const' in choice)
-			? schema.anyOf.map((choice) => choice.const)
-			: undefined);
-	if (choices) return `one of ${choices.map(String).join(', ')}`;
-	// A pattern is a regular expression; the field's description says it in words.
-	if (schema.pattern !== undefined) return schema.description;
-	if (schema.format !== undefined) return FORMATS[schema.format];
-	if (schema.type === 'array') {
-		const each = schema.items && wanted(schema.items);
-		const min = schema.minItems ?? 0;
-		const atLeast =
-			min > 0 ? `at least ${min} item${min === 1 ? '' : 's'}` : '';
-		if (each === 'text')
-			return atLeast ? `a list of text with ${atLeast}` : 'a list of text';
-		const list = atLeast ? `a list of ${atLeast}` : 'a list';
-		return each ? `${list}, each ${each}` : list;
-	}
-	const kind = schema.type === undefined ? undefined : TYPES[schema.type];
-	if (!kind) return kind;
-	const { minimum: min, maximum: max } = schema;
-	if (min !== undefined && max !== undefined)
-		return `${kind} from ${min} to ${max}`;
-	if (min !== undefined) return `${kind} of at least ${min}`;
-	if (max !== undefined) return `${kind} of at most ${max}`;
-	return kind;
-}
 
 /**
- * What a field takes, in words such as `a day like 2026-11-12` or `a whole
- * number from 1 to 5`, when `value` does not fit it for a reason those words
- * say; `undefined` when it fits, or when they would not say why (a text too
- * long). Serve says it of an input's key and a data read of a front matter
- * line, so both say it alike.
+ * Why `value` does not fit `field`, named `name`: TypeBox's words after the
+ * part at fault, such as `nights must be >= 1` or `meta.n must be number`.
+ * A select names its choices, which TypeBox's words leave out.
  */
-export function whatFits(field: TSchema, value: unknown) {
-	if (Value.Check(field, value)) return undefined;
+export function whyNot(name: string, field: TSchema, value: unknown) {
+	const { anyOf } = field as { anyOf?: { const?: unknown }[] };
+	if (anyOf?.every((choice) => typeof choice.const === 'string'))
+		return `${name} must be one of ${anyOf.map((choice) => choice.const).join(', ')}`;
 	const [error] = Value.Errors(field, value);
-	if (!error || !SAID.has(error.keyword)) return undefined;
-	return wanted(field as Described);
+	const at = [name, ...(error?.instancePath.split('/').slice(1) ?? [])];
+	return `${at.join('.')} ${error?.message ?? 'does not fit'}`;
 }

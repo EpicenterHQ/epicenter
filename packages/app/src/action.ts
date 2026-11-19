@@ -29,22 +29,17 @@
 
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import { isResult } from './call.ts';
-import type { PublicError } from './errors.ts';
-import {
-	defaultIn,
-	type Flat,
-	type ObjectSchema,
-	objectSchema,
-} from './field.ts';
+import type { PublicError } from './answer.ts';
+import { type Flat, type ObjectSchema, objectSchema } from './field.ts';
 
 /** An action's input as an app writes it: a record of fields. */
 export type Input = Record<string, TSchema>;
 
 /**
- * What `run` calls to report while it runs. It returns at once and never
- * throws: what a listener returns is not awaited and what it throws is
- * dropped, so no caller can slow or stop the action.
+ * What `run` calls to report while it runs. Serve's listener returns at
+ * once, never throws, and drops an update once the caller is gone, so no
+ * caller can slow or stop the action. A test that passes its own `onUpdate`
+ * gets each value as `run` sends it.
  */
 export type Update<U> = (value: U) => void;
 
@@ -106,48 +101,10 @@ type ActionDef<
 };
 
 /**
- * `update` for one call: it hands each value to `listener`, which cannot
- * reach the action. After `close`, a late update goes nowhere.
- */
-function updateChannel(listener: ((value: unknown) => unknown) | undefined) {
-	let open = listener !== undefined;
-	return {
-		update(value: unknown) {
-			if (!open) return;
-			try {
-				const heard = listener?.(value);
-				if (heard instanceof Promise) heard.catch(() => undefined);
-			} catch {
-				// A listener's failure is its own; the action goes on.
-			}
-		},
-		close() {
-			open = false;
-		},
-	};
-}
-
-/** `value`, or a throw when `run` returned something other than a Result. */
-function requireResult(value: unknown, description: string) {
-	if (!isResult(value))
-		throw new TypeError(
-			`The action "${description}" must return Ok(data) or Err(error)`,
-		);
-	return value;
-}
-
-/**
- * Marks what `defineAction` made, whose every answer it has checked.
- * Registered, so serve knows it whichever copy of this package made it.
- */
-const ACTION = Symbol.for('epicenter.action');
-
-/**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields and every caller's `onUpdate` by `run`'s `update`. Calling the
  * action hands `run` the input as given: an absent field stays absent, and
- * `run` writes its own default. Throws for an empty description or a field
- * with a `default`, which its types cannot refuse.
+ * `run` writes its own default.
  */
 export function defineAction<
 	const I extends Input,
@@ -158,34 +115,15 @@ export function defineAction(
 	def: ActionDef<Input, RunResult | Promise<RunResult>, Returned>,
 ): Action {
 	const { description, run } = def;
-	if (description.trim() === '')
-		throw new Error(
-			'An action needs a description: what it does, in a sentence',
-		);
-	for (const [key, schema] of Object.entries(def.input))
-		if (defaultIn(schema))
-			throw new Error(
-				`The action "${description}" has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
-			);
-	const input = objectSchema(def.input);
 	const action = async (
 		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
-	) => {
-		const { update, close } = updateChannel(options?.onUpdate);
-		try {
-			return requireResult(await run(given as never, update), description);
-		} finally {
-			close();
-		}
-	};
-	return Object.assign(action, { description, input, [ACTION]: true });
-}
-
-/** Whether `value` is what `defineAction` made. */
-export function isAction(value: unknown): value is Action {
-	return (
-		typeof value === 'function' &&
-		(value as { [ACTION]?: unknown })[ACTION] === true
-	);
+	) =>
+		run(given as never, (value) => {
+			options?.onUpdate?.(value);
+		});
+	return Object.assign(action, {
+		description,
+		input: objectSchema(def.input),
+	});
 }

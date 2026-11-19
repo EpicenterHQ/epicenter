@@ -23,9 +23,9 @@
  */
 import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
+import type { NotStarted, Threw, Unreachable } from './answer.ts';
 import { actionPath, postAction } from './call.ts';
 import type { Epicenter } from './epicenter.ts';
-import type { NotStarted, Threw, Unreachable } from './errors.ts';
 import type { Flat } from './field.ts';
 import type { JsonValue } from './json.ts';
 
@@ -34,7 +34,7 @@ export type {
 	NotStarted,
 	Threw,
 	Unreachable,
-} from './errors.ts';
+} from './answer.ts';
 export { timeId } from './time.ts';
 
 /**

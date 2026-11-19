@@ -69,12 +69,11 @@ Wellcrafted Result:
 - `edit` computes a change from the record and writes it with nothing else
   in this process changing the file between the read and the write.
 - A write replaces the whole file at once, changes only the lines it names,
-  keeps every other line byte for byte, and lands only in a real folder
-  under `data/`: a key folder that is a link is neither read nor written.
-- `field.ref('watches')` is text that holds the id of a record in another
-  key of the same `defineData`, which refuses a key it does not define. A
-  write does not check that the record is there: deleting one can leave a
-  ref to nothing, so an app that needs the record checks for it.
+  keeps every other line byte for byte. A link under `data/` is followed,
+  for reads and writes alike.
+- A field that holds another record's id is `field.text()`. A write does
+  not check that the record is there: deleting one can leave an id that
+  points to nothing, so an app that needs the record checks for it.
 
 `defineData` touches no file. A handle generates no actions.
 
@@ -92,9 +91,11 @@ async run({ recheck = false }, update: Update<{ checked: number }>) {
 ```
 
 An app is a function of `Data` returning `{ description, actions }`. Its
-name is its key in `defineEpicenter({ apps })`, which refuses a name that
-is not lowercase letters, digits and dashes, starting with a letter. Its
-type refuses `serve`, the command's own word.
+name is its key in `defineEpicenter({ apps })`. Serve refuses an app or
+action name that is not lowercase letters, digits and dashes, starting
+with a letter, since an MCP tool is `<app>_<action>`; the type refuses an
+app named `serve`, the command's own word. An action whose `run` returns
+something other than a Result answers `Threw`.
 
 ## The command and serve
 
@@ -150,7 +151,7 @@ await app.actions.add({ body: 'hello' });
 ```
 
 `defineData(tmp, data)` takes an earlier result as its spec and returns
-the same type, with every key, so every ref still has its target.
+the same type, with every key.
 
 ## Not built yet
 
@@ -265,3 +266,9 @@ a rule here in the same pull request as the code.
   answer, and a restart would hide the rest.
   Refused: `epicenter service` with a LaunchAgent; a parent process that
   restarts serve.
+- **MCP offers one tool per action and sends no instructions.** An agent
+  learns each tool from its action's description. A home's `AGENTS.md`
+  guides an agent working in the home's files, with steps an MCP client
+  cannot take, such as `bun install`; an agent working there reads it
+  itself.
+  Refused: sending `AGENTS.md` as MCP instructions.

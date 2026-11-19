@@ -5,7 +5,7 @@
  * ```ts
  * export const data = defineData(import.meta.dir, {
  *   watches: { description: 'trip idea', fields: { to: field.text() } },
- *   checks: { description: 'research result', fields: { watch: field.ref('watches') } },
+ *   checks: { description: 'research result', fields: { watch: field.text() } },
  * });
  * export type Data = typeof data;
  * ```
@@ -18,17 +18,10 @@
  * `defineData` touches no file. A test rebinds the same definitions to a
  * temporary folder with `defineData(tmp, data)`.
  */
-import { isAbsolute } from 'node:path';
 import type { Static, TObject } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { Exists, Misfit, Missing, PublicError } from './errors.ts';
-import {
-	defaultIn,
-	type Fields,
-	type Flat,
-	type OptionalKeys,
-	refKeyOf,
-} from './field.ts';
+import type { Exists, Misfit, Missing, PublicError } from './answer.ts';
+import type { Fields, Flat, OptionalKeys } from './field.ts';
 import { isFieldKey } from './markdown.ts';
 import { isName, NAME_RULE } from './name.ts';
 import { createHandle } from './records.ts';
@@ -106,27 +99,19 @@ export type Data<TSpec extends Spec> = {
  * The records under `<dir>/data/`, one handle per key of `spec`. `dir` is
  * the home's folder, `import.meta.dir` in its `epicenter.ts`. Given what an
  * earlier call returned, it opens the same definitions under `dir`, which is
- * how a test points a home's data at a temporary folder. Throws when a
- * definition is wrong in a way its types cannot say.
+ * how a test points a home's data at a temporary folder. Throws for a key
+ * or field name that cannot be a folder or a front matter line.
  */
 export function defineData<const TSpec extends Spec>(
 	dir: string,
 	spec: TSpec,
 ): Data<TSpec> {
-	if (!isAbsolute(dir))
-		throw new Error(
-			`defineData takes the home's folder first, as an absolute path: defineData(import.meta.dir, { ... }), not ${JSON.stringify(dir)}`,
-		);
-	for (const [key, { description, fields }] of Object.entries(spec)) {
+	for (const [key, { fields }] of Object.entries(spec)) {
 		if (!isName(key))
 			throw new Error(
 				`The data key ${JSON.stringify(key)} must be ${NAME_RULE}`,
 			);
-		if (description.trim() === '')
-			throw new Error(
-				`The data key ${key} needs a description: what one record is, such as "trip idea"`,
-			);
-		for (const [name, schema] of Object.entries(fields)) {
+		for (const name of Object.keys(fields)) {
 			// A record carries its path, id and body beside its fields.
 			if (['path', 'body', 'id'].includes(name))
 				throw new Error(`The data key ${key} reserves the field "${name}"`);
@@ -134,15 +119,6 @@ export function defineData<const TSpec extends Spec>(
 				throw new Error(
 					`The data key ${key} has a field ${JSON.stringify(name)} a front matter line cannot name`,
 				);
-			if (defaultIn(schema))
-				throw new Error(
-					`The data key ${key} has a default in field "${name}"; a read gives only what the file holds`,
-				);
-			for (const target of refsIn(schema))
-				if (!Object.hasOwn(spec, target))
-					throw new Error(
-						`The data key ${key}'s field "${name}" refers to ${JSON.stringify(target)}, which must be a key in this defineData`,
-					);
 		}
 	}
 	return Object.fromEntries(
@@ -152,14 +128,4 @@ export function defineData<const TSpec extends Spec>(
 		]),
 		// A handle at runtime reads any JSON; `Data` types it by the spec.
 	) as unknown as Data<TSpec>;
-}
-
-/** The key each ref anywhere in `schema` names. */
-function refsIn(schema: unknown): string[] {
-	if (typeof schema !== 'object' || schema === null) return [];
-	const target = refKeyOf(schema);
-	return [
-		...(target === undefined ? [] : [target]),
-		...Object.values(schema).flatMap(refsIn),
-	];
 }

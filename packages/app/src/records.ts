@@ -2,23 +2,10 @@ import { join, parse } from 'node:path';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
-import { isResult } from './call.ts';
+import { ActionError, type Misfit, type PublicError } from './answer.ts';
 import type { DataDef } from './data.ts';
-import {
-	filesIn,
-	firstNonFolder,
-	readBytes,
-	removeFile,
-	replaceFile,
-} from './disk.ts';
-import {
-	ActionError,
-	type Misfit,
-	type Problem,
-	type PublicError,
-} from './errors.ts';
-import { type Fields, isOptional, whatFits } from './field.ts';
-import { isPlainObject } from './json.ts';
+import { filesIn, readBytes, removeFile, replaceFile } from './disk.ts';
+import { type Fields, isOptional, whyNot } from './field.ts';
 import {
 	changeMarkdown,
 	type FieldValues,
@@ -28,7 +15,7 @@ import {
 	readMarkdown,
 } from './markdown.ts';
 
-export type AnyRecord = Record<string, JsonValue> & {
+type AnyRecord = Record<string, JsonValue> & {
 	path: string;
 	id: string;
 	body: string;
@@ -44,7 +31,7 @@ type Need = 'absent' | 'present' | 'either';
  * extension `.md`, else undefined. `notes/.foo.md` is `.foo` and
  * `notes/...md` is `..`; `notes/.md` and `notes/x.md.bak` are no record.
  */
-export function idOf(path: string) {
+function idOf(path: string) {
 	const { ext, name } = parse(path);
 	return ext === '.md' ? name : undefined;
 }
@@ -55,63 +42,32 @@ export function idOf(path: string) {
  * `../x`, `x/`, `a\b` and any value that is not text do not, so every id `create` writes, `list`
  * reads back as the same id.
  */
-export function isId(id: unknown): id is string {
+function isId(id: unknown): id is string {
 	return (
 		typeof id === 'string' && idOf(`${id}.md`) === id && !id.includes('\\')
 	);
 }
 
-/** A problem with nothing file-specific in it, so its line is its kind. */
-const problem = (line: string): Problem => ({ line, kind: line });
+const UNREADABLE =
+	'its front matter is not key: value lines between two --- lines, each key once';
 
-const UNREADABLE = problem(
-	'its front matter is not key: value lines between two --- lines, each key once',
-);
-
-/**
- * Why a supplied field value does not fit its schema. The problem's `kind`
- * leaves the value out, so many files can share it.
- */
-function valueProblem(key: string, schema: TSchema, value: unknown): Problem {
-	const words = whatFits(schema, value);
-	const why = words
-		? `is not ${words}`
-		: (Value.Errors(schema, value)[0]?.message ?? 'does not fit');
-	return {
-		line: `${key}: ${JSON.stringify(value)} ${why}`,
-		kind: `${key} ${why}`,
-	};
-}
+/** Why a supplied field value does not fit its schema, with the value. */
+const valueProblem = (key: string, schema: TSchema, value: unknown) =>
+	`${whyNot(key, schema, value)}, not ${JSON.stringify(value)}`;
 
 /**
- * What to write for a declared key whose line is not JSON. The problem's
- * `line` names the line number and the exact line to write; its `kind`
- * leaves both out.
+ * What to write for a declared key whose line is not JSON: the exact line
+ * when its text fits as a string, which is the usual slip.
  */
 function notJsonProblem(
 	key: string,
 	schema: TSchema,
 	{ lineNumber, text }: NotJson,
-): Problem {
-	const notJson = (fix: string, kindFix = fix) => ({
-		line: `${key} on line ${lineNumber} is not JSON${fix}`,
-		kind: `${key} is not JSON${kindFix}`,
-	});
-	if (text.trim() === '')
-		return notJson(
-			': it has no value; give it one as JSON, or remove the line',
-		);
-	if (Value.Check(schema, text))
-		return notJson(
-			`; write ${key}: ${JSON.stringify(text)}`,
-			'; write its text in double quotes',
-		);
-	const words = whatFits(schema, text);
-	return notJson(
-		words
-			? `; ${key} takes ${words}, written as JSON`
-			: '; write its value as JSON',
-	);
+) {
+	const fix = Value.Check(schema, text)
+		? `write ${key}: ${JSON.stringify(text)}`
+		: 'write its value as JSON';
+	return `${key} on line ${lineNumber} is not JSON; ${fix}`;
 }
 
 /** `values` in the order the data key declares its fields, then the rest. */
@@ -134,44 +90,30 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	const folder = `data/${key}`;
 	/** The file for `id`, from the home. */
 	const pathOf = (id: string) => `${folder}/${id}.md`;
-	/** The folder or link on the way to this key's records that is not a real folder. */
-	const nonFolder = () => firstNonFolder(home, folder);
-	/** Throw unless the key's folder is real, before a write or a delete. */
-	function refuseLinked() {
-		const refused = nonFolder();
-		if (refused !== undefined)
-			throw new Error(
-				`${refused} is a link or a file, not a folder; records are written and deleted only in real folders under data/`,
-			);
-	}
 
 	/** A change that does not fit the declared fields, as one problem. */
-	function misfitFor(id: string, line: string, kind = line) {
-		return ActionError.Misfit({
-			path: pathOf(id),
-			id,
-			problems: [{ line, kind }],
-		});
+	function misfitFor(id: string, problem: string) {
+		return ActionError.Misfit({ path: pathOf(id), id, problems: [problem] });
 	}
 
 	/**
 	 * The record `file` gives for `id`, and the result a read answers: the
 	 * record, or a Misfit with each problem and, when the front matter can be
 	 * read, the record for repair. Each field is its value if it fits, else
-	 * absent. `path`, `id`,
-	 * and `body` come from the file, and no field can be named as one of them.
+	 * absent. `path`, `id` and `body` come from the file, and no field can be
+	 * named as one of them.
 	 */
 	function recordFrom(id: string, file: MarkdownFile) {
 		const path = pathOf(id);
 		const values: FieldValues = {};
-		const problems: Problem[] = file.readable ? [] : [UNREADABLE];
+		const problems: string[] = file.readable ? [] : [UNREADABLE];
 		for (const [key, schema] of Object.entries(fields)) {
 			const value = file.fields[key];
 			const bare = file.notJson.find((each) => each.key === key);
 			if (bare) problems.push(notJsonProblem(key, schema, bare));
 			else if (!Object.hasOwn(file.fields, key)) {
 				if (file.readable && !isOptional(schema))
-					problems.push(problem(`${key} is missing`));
+					problems.push(`${key} is missing`);
 			} else if (Value.Check(schema, value)) values[key] = value as JsonValue;
 			else problems.push(valueProblem(key, schema, value));
 		}
@@ -187,17 +129,13 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		return { record, result };
 	}
 
-	/** The text of `id`'s file, or undefined when there is none or its folder is a link. */
-	function textOf(id: string) {
-		const bytes = nonFolder() ? undefined : readBytes(join(home, pathOf(id)));
-		return bytes && new TextDecoder().decode(bytes);
-	}
-
-	/** The record for `id`, or undefined when there is no file. */
+	/**
+	 * The record for `id`, or undefined when there is no file.
+	 */
 	function read(id: string): Result<AnyRecord | undefined, Misfit> {
-		const text = textOf(id);
-		if (text === undefined) return Ok(undefined);
-		return recordFrom(id, readMarkdown(text)).result;
+		const bytes = readBytes(join(home, pathOf(id)));
+		if (bytes === undefined) return Ok(undefined);
+		return recordFrom(id, readMarkdown(new TextDecoder().decode(bytes))).result;
 	}
 
 	/** Split a patch into fields to set and remove, and check each supplied value. */
@@ -206,21 +144,19 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
 			if (!Object.hasOwn(fields, key))
-				return misfitFor(id, `has no field "${key}"`, 'has no such field');
+				return misfitFor(id, `has no field "${key}"`);
 			const schema = fields[key] as TSchema;
 			if (value === undefined) continue;
 			if (value === null && isOptional(schema)) removed.push(key);
-			else if (value === null && !creating)
-				return misfitFor(id, `${key} is required, so it cannot be removed`);
 			else set[key] = value as JsonValue;
 		}
-		const problems: Problem[] = [];
+		const problems: string[] = [];
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
 					problems.push(valueProblem(key, schema, set[key]));
 			} else if (creating && !isOptional(schema))
-				problems.push(problem(`${key} is missing`));
+				problems.push(`${key} is missing`);
 		}
 		if (problems.length)
 			return ActionError.Misfit({ path: pathOf(id), id, problems });
@@ -253,26 +189,13 @@ export function createHandle(home: string, key: string, def: DataDef) {
 
 		let patch = change as Patch;
 		if (computed) {
-			const result = change(structuredClone(current?.record));
-			if (!isResult(result))
-				throw new Error(
-					'The change given to edit must return a Result: Ok(change) or Err(error)',
-				);
+			const result = change(structuredClone(current?.record)) as Result<
+				Patch,
+				PublicError
+			>;
 			if (result.error !== null) return result;
-			if (!isPlainObject(result.data))
-				throw new Error(
-					'The change given to edit must return a record patch inside Ok',
-				);
 			patch = result.data;
 		}
-		// A spread of the record carries its path and id, which name it and are not fields.
-		const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
-		if (named.length)
-			return misfitFor(
-				id,
-				`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
-				'the change names the record, not only the fields that change',
-			);
 
 		const { body, ...given } = patch;
 		if (body !== undefined && typeof body !== 'string')
@@ -290,17 +213,15 @@ export function createHandle(home: string, key: string, def: DataDef) {
 				? current.result
 				: Ok({ value: current.record });
 		const next = recordFrom(id, readMarkdown(after)).result;
+		// Nothing is written: say what the change would still leave wrong, and
+		// carry no record, since none was written.
 		if (next.error !== null)
-			return current?.result.error ? current.result : next;
+			return ActionError.Misfit({ path, id, problems: next.error.problems });
 		return Ok({ value: next.data, text: after });
 	}
 
-	/**
-	 * Write `id` as `planWrite` says, from its file now. The bytes are compared,
-	 * not the text, since decoding drops a byte order mark.
-	 */
+	/** Write `id` as `planWrite` says, from its file now. */
 	function write(id: string, need: Need, change: Patch | Compute) {
-		refuseLinked();
 		const before = readBytes(join(home, pathOf(id)));
 		const result = planWrite(
 			id,
@@ -310,23 +231,20 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		);
 		if (result.error !== null) return result as Err<PublicError>;
 		const { value, text } = result.data;
-		if (text !== undefined) {
-			const bytes = new TextEncoder().encode(text);
-			if (!before || !Buffer.from(before).equals(bytes))
-				replaceFile(home, pathOf(id), bytes);
-		}
+		// planWrite gives text only when it differs from the file's.
+		if (text !== undefined)
+			replaceFile(home, pathOf(id), new TextEncoder().encode(text));
 		return Ok(value);
 	}
 
 	/** `run`'s answer, or a Misfit at the key's folder for an id that cannot be a file name. */
 	async function withValidId<T>(id: string, run: () => T) {
 		if (isId(id)) return run();
-		const why = 'is not a file name: the id is the file name without .md';
 		return ActionError.Misfit({
 			path: folder,
 			id,
 			problems: [
-				{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
+				`${JSON.stringify(id)} is not a file name: the id is the file name without .md`,
 			],
 		});
 	}
@@ -334,8 +252,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	const handle = {
 		get: (id: string) => withValidId(id, () => read(id)),
 		async list() {
-			const names = nonFolder() ? [] : filesIn(join(home, folder));
-			return names
+			return filesIn(join(home, folder))
 				.flatMap((name) => idOf(name) ?? [])
 				.map(read)
 				.filter((each) => each.error || each.data);
@@ -347,10 +264,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		edit: (id: string, change: (record: unknown) => unknown) =>
 			withValidId(id, () => write(id, 'either', change)),
 		delete: (id: string) =>
-			withValidId(id, () => {
-				refuseLinked();
-				return Ok(removeFile(join(home, pathOf(id))));
-			}),
+			withValidId(id, () => Ok(removeFile(join(home, pathOf(id))))),
 	};
 	return { ...def, ...handle };
 }

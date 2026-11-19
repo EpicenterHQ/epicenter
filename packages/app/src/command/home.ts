@@ -11,11 +11,12 @@
  * dependencies, is walked past. Nothing here imports app code, so the
  * command learns the port without loading a single app.
  */
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Ok, type Result } from 'wellcrafted/result';
-import { ActionError, type NotStarted } from '../errors.ts';
-import { isPlainObject } from '../json.ts';
+import { ActionError, type NotStarted } from '../answer.ts';
+import { readBytes } from '../disk.ts';
+import { isPlainObject, parseJson } from '../json.ts';
 
 /** A home, found once and passed to everything that reads it. */
 export type Home = {
@@ -24,15 +25,6 @@ export type Home = {
 	/** The port serve listens on. */
 	port: number;
 };
-
-/** The parsed `package.json` in `folder`, or undefined when there is none or it is not JSON. */
-function packageIn(folder: string): unknown {
-	try {
-		return JSON.parse(readFileSync(join(folder, 'package.json'), 'utf8'));
-	} catch {
-		return undefined;
-	}
-}
 
 function isPort(value: unknown): value is number {
 	return (
@@ -51,13 +43,20 @@ function isPort(value: unknown): value is number {
 export function findHome(start = process.cwd()): Result<Home, NotStarted> {
 	let folder = start;
 	for (;;) {
-		const found = packageIn(folder);
+		const file = join(folder, 'package.json');
+		const bytes = readBytes(file);
+		const found = bytes && parseJson(new TextDecoder().decode(bytes));
+		// Walking past a broken one could reach an outer home and act on it.
+		if (bytes && found === undefined)
+			return ActionError.NotStarted({
+				message: `${file} is not JSON, so it cannot say whether this is a home; fix it`,
+			});
 		if (isPlainObject(found) && Object.hasOwn(found, 'epicenter')) {
 			const settings = found.epicenter;
 			const port = isPlainObject(settings) ? settings.port : undefined;
 			if (!isPort(port))
 				return ActionError.NotStarted({
-					message: `${join(folder, 'package.json')}: "epicenter" needs a port, a whole number from 1 to 65535, such as "epicenter": { "port": 4747 }`,
+					message: `${file}: "epicenter" needs a port, a whole number from 1 to 65535, such as "epicenter": { "port": 4747 }`,
 				});
 			return Ok({ folder: realpathSync(folder), port });
 		}
