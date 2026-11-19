@@ -19,7 +19,7 @@
 # `Content-Security-Policy` until that trial has run clean.
 #
 # Known gap that MUST be closed before enforcing: this policy's connect-src
-# only covers 'self' and the hosted API/WS origin. Whispering also makes
+# only covers 'self' and git.epicenter.so. Whispering also makes
 # direct BYOK calls from the browser to third-party AI providers (OpenAI,
 # Groq, OpenRouter, Deepgram, Anthropic, Google Generative Language) and,
 # critically, to an arbitrary user-supplied "Custom" base URL

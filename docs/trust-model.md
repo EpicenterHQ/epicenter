@@ -22,8 +22,7 @@ encrypts them.
 | One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, each app's `local/` folder included. Epicenter adds nothing against that. |
 
 Choosing where to rent a home is choosing who can read it, in the way choosing
-which agents get a shell is. Epicenter's hosted services hold no part of your
-Epicenter and none of its sign-ins.
+which agents get a shell is.
 
 ## Reaching the home
 

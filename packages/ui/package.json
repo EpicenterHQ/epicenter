@@ -9,7 +9,6 @@
 		"epicenter",
 		"components",
 		"local-first",
-		"CRDT",
 		"shadcn",
 		"tailwind"
 	],
