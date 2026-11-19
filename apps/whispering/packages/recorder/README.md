@@ -59,7 +59,7 @@ desktop the shell records the take there, in the folder at
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| The file | `recordings/<id>.webm`: Opus in WebM written there a second at a time from its first second, and finished in place by `stop` ([Whispering's decisions](../../README.md#the-folder)) | `recordings/<id>.m4a`, else `.webm`, written once by `stop` |
+| The file | `recordings/<id>.webm`: Opus in WebM written there a second at a time from its first second, and finished in place by `stop` (Whispering's [`AGENTS.md`](../../AGENTS.md)) | `recordings/<id>.m4a`, else `.webm`, written once by `stop` |
 | `stop` | Finishes the take in place: the same few milliseconds for a recording of any length. A take that could not be written to its end is left as it is and answers `Failed` | Joins the pieces and writes them with `files.write`, answering once the write landed |
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | Each whole second is written as it is encoded | Each piece `MediaRecorder` hands over (about a second) is kept in memory; the leave guard asks before the page closes |

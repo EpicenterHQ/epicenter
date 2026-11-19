@@ -57,7 +57,8 @@ const APP_MODULE = '/src/lib/app.ts';
  * reaches `src/lib/app.ts`, the file itself or anything it imports, is a new
  * world for the page, and a reload frees the old one whole (its folder, its
  * Worker, every listener) with nothing for the app to close. An edit that
- * reaches only components still updates in place.
+ * reaches only components still updates in place. This is why `app.ts` has
+ * no `import.meta.hot` handlers and no disposer of its own.
  */
 function reloadWhenAppChanges(): Plugin {
 	return {

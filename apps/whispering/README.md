@@ -258,119 +258,54 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit.
 
 ## Decisions
 
-These are the rules Whispering keeps on purpose. Each says why, and names
-the choices that lost where there were real ones. Change a rule here, in
-the same pull request as the code that changes it.
+These are the rules an agent or a contributor would most likely undo by
+mistake. Each says why, and names a tempting alternative that lost. Change
+a rule here in the same pull request as the code. `AGENTS.md` holds how the
+code is arranged.
 
 ### The folder
 
-- **Whispering keeps every recording, transcript, and its settings in one
-  folder on the device it runs on, and needs no account, server, Git, or
-  Epicenter.** Version 8 commits only to its file format, and a browser tab
-  or a phone has no Git to clone into.
-  Refused: a Git clone of an Epicenter's data; the hosted folder service for
-  the browser; IndexedDB in the browser; `~/Whispering` as a second visible
-  folder.
-- **On the desktop, the folder is a setting that only the system's folder
-  dialog grants.** Change… moves the recordings into an empty folder, opens
-  a Whispering folder and leaves the old one where it was, refuses any other
-  folder, and is disabled while a take records. A page cannot widen its own
-  file access, and a pointer change alone would leave recordings behind.
-  Refused: a fixed folder; a path file only the shell reads; merging two
-  Whispering folders, which risks two settings files and clashing ids.
-- **Every file is written inside the folder, at or beside its final path.**
-  A note or `settings.md` goes to a hidden `.<name>.<random>.tmp` beside it
-  and is renamed over it, so a reader finds the old file or the new one,
-  and a rename in one directory never crosses disks. Staging elsewhere
-  needed a second path, a copy across disks, and a repair.
-  Refused: staging in the app's data directory and moving the file in;
-  refusing a folder on another disk.
-- **A recording is its id: its audio is `recordings/<id>.<ext>` beside its
-  note, the note stores no audio path, and two audio files for one id are
-  refused.** The layout is the only link, so nothing can disagree with it.
-  Renaming a recording changes its `title`, never its files, so a
-  transcript's `recordingId` keeps pointing at it.
-  Refused: an `audioPath` field; audio in a separate directory; picking one
-  of two extensions.
-- **Audio is kept until the person deletes it.** Nothing deletes audio on
-  its own; deleting old audio removes only audio, and a recording with no
-  note gets its note first, so it stays listed.
-  Refused: discarding audio once it is transcribed.
-- **`settings.md` holds what moves with the recordings: the transcription
-  model, the connections without their keys, and the shortcut.** Settings
-  that follow the recordings travel with them, and one writer needs one
-  file.
-  Refused: a settings file per capability; every setting outside the
-  folder; a per-computer shortcut override.
+- **Whispering keeps everything in one folder on the device it runs on, and
+  needs no account, server, Git, or Epicenter.** It commits only to its
+  file format, and a browser tab or a phone has no Git to clone into.
+  Refused: a Git clone of an Epicenter's data; IndexedDB in the browser.
 - **Whispering is the folder's one writer.** The desktop app is
-  single-instance, and a browser tab holds a Web Lock that a second tab
-  waits for and never takes. With one writer there is nothing to merge, and
-  nothing interrupts a recording.
-  Refused: several tabs with per-file locks and a `BroadcastChannel`.
+  single-instance, and a second browser tab waits for the first one's Web
+  Lock and never takes it. With one writer there is nothing to merge.
+  Refused: several tabs with per-file locks.
 - **Whispering reads the folder again when its window regains focus, and
   never writes over a note that changed since it was shown.** A file syncer
   or Git may change the folder while the app runs.
   Refused: a file watcher.
-- **Whispering 8 imports nothing from Whispering 7 and has no migration
-  code.** Version 8 is a clean break; a person who wants v7's recordings
-  copies its Markdown files.
-  Refused: reading v7's WebView storage.
 
 ### Recording
 
-- **On the desktop, a take is `recordings/<id>.webm` from its first second
-  and is finished in place at Stop; only then is its note written.** An
-  unfinished WebM of whole Clusters already plays, so a take needs no other
-  name, no rename, and no move. Closing the window or quitting finishes the
-  take as Stop does.
-  Refused: a `.part` file renamed at Stop; holding the desktop take in
-  memory until Stop; an "unfinished" field in the note.
-- **Nothing repairs a take a crash cut off.** It stays as it is, has no
-  note, and lists as an untitled recording. The file plays, and a repair at
-  launch guarded against a failure no test found.
-  Refused: recovering cut-off takes at launch.
-- **A recording's length is its note's `durationMs`, written at Stop;
-  Whispering reads no length from audio.** A take with no note is rare, and
-  dropping length parsing removed about 420 lines of WebM code.
-  Refused: reading the length from the audio; writing a note at launch for
-  a cut-off take.
+- **Nothing repairs a take a crash cut off.** On the desktop a take is
+  written at its final path from its first second, and an unfinished WebM
+  of whole blocks already plays, so it stays as it is and lists as an
+  untitled recording.
+  Refused: recovering cut-off takes at launch; a `.part` file renamed at
+  Stop.
+- **A recording's length is its note's `durationMs`, written at Stop.** A
+  take with no note is rare, and parsing length from audio was a large
+  amount of WebM code for it.
+  Refused: reading the length from the audio bytes.
 
 ### Transcription
 
-- **Every transcript is its own note in `transcriptions/`, naming its
-  `recordingId`, `model`, and `endpoint`; transcribing again adds a note.**
-  Trying another model must not erase a useful earlier transcript.
-  Refused: one transcript per recording that each run replaces; a log of
-  failed attempts.
 - **A transcription goes only to the endpoint and model chosen when it was
   prepared.** A removed, moved, or unset choice refuses it with nothing
-  sent, and no other model stands in. Changing a setting must never send
-  audio somewhere the person did not choose for it.
-  Refused: falling back to another endpoint; a `transcribe` method on each
-  connection.
-- **A transcription reads the audio whole, sends those bytes, and saves the
-  transcript without reading or checking the audio again.** The answer
-  belongs to the bytes that were sent. Deleting a recording is refused
-  while it is being transcribed.
-  Refused: hashing the audio and checking it again before saving; a lazy
-  view of the file that can return newer bytes.
-- **Transcription on this computer decodes a cut-off take up to its last
-  whole block, and refuses a finished file whose stated size runs past its
-  bytes.** The rule rests on the decoder's end-of-file behavior, and tests
-  that cut a file at every byte hold it across Symphonia upgrades.
-  Refused: repairing the file; staying on Symphonia 0.5 and matching its
-  error text; treating any error near the end as the end.
-- **A request to transcription on this computer names its model and hints
-  every time, and the plugin refuses a model that is unknown or not
-  downloaded.** The transcript records exactly which model made it, and a
-  copy of the app's choice pushed into Rust went stale when a model file
-  came back.
-  Refused: one active model the picker sets; a configuration the page
-  pushes into Rust and keeps in step.
-- **The plugin's Rust side owns the model files, the idle clock, and the
-  unload policy.** When the page and Rust both read the models folder, the
-  rule for a complete file existed twice and drifted, and a backgrounded
-  page throttles its timers exactly when an idle model should unload.
+  sent. Changing a setting must never send audio somewhere the person did
+  not choose for it.
+  Refused: falling back to another endpoint or model.
+- **A request to transcription on this computer names its model every
+  time, and the plugin refuses one that is not downloaded.** The transcript
+  records exactly which model made it, and a copy of the app's choice kept
+  in Rust went stale.
+  Refused: one active model that the picker sets.
+- **The plugin's Rust side owns the model files and the clock that unloads
+  an idle model.** A backgrounded page throttles its timers exactly when an
+  idle model should unload.
   Refused: the page reading the models folder; a page-owned unload timer.
 
 ### Models and keys
@@ -378,14 +313,8 @@ the same pull request as the code that changes it.
 - **Every source of models is an endpoint in one `openAi([...])`: saved
   connections, Ollama and LM Studio when they run, and on the desktop
   transcription in the app.** One OpenAI-compatible request reaches every
-  source, so adding a source is one entry. Model files live in the shared
-  Hugging Face cache, so a file another tool fetched counts.
-  Refused: routing per provider in the app; an Epicenter model directory; a
-  model server Epicenter builds.
-- **The transcription model is data: `settings.md` keeps `{ endpoint,
-  model }` under the job key `transcribe`.** Adding a source or a job adds
-  data, not API.
-  Refused: a function per source; methods named after jobs.
+  source, so adding a source is one entry.
+  Refused: routing per provider in the app.
 - **A connection's key is sent only to the base URL it was entered for,
   and a request follows no redirect.** `settings.md` is portable and other
   programs may edit it, so a file must never be able to send a key to a new
@@ -393,69 +322,32 @@ the same pull request as the code that changes it.
   Refused: one key bound to whatever URL is configured.
 - **A key stays on this computer: a Keychain item on the desktop and
   `localStorage` in a browser, never in the folder, a log, or an error.**
-  The folder may sit in Git or a file syncer. The desktop's `localStorage`
-  is a plain file any program can read, while the Keychain asks first.
-  Refused: keys in the folder or a `credentials.json`; keys in the
-  desktop's `localStorage`; encrypting browser keys with WebCrypto, since
-  the page that reads them can decrypt them.
+  The folder may sit in Git or a file syncer, and the desktop's
+  `localStorage` is a plain file any program can read.
+  Refused: keys in the folder; encrypting browser keys with WebCrypto,
+  since the page that reads them can decrypt them.
 - **The page sends every request itself and loads no remote script.** Code
-  on the page can read a key the page holds; a relay in the shell hid keys
-  but did not stop code from spending them, and a browser has no shell.
-  Refused: the shell sending every request that carries a key.
-- **Whispering is free and has no sign-in.** Version 7 worked without one,
-  a local model needs no service, and payment buys an operated service, not
-  the software.
-  Refused: a sign-in every person passes; charging for the app.
-- **Not built yet: Epicenter's hosted models come back as one paid
-  connection, with an Epicenter API key that Connect makes for this
-  device.** Connect opens the system browser on the desktop and a popup on
-  the web, and Whispering gets no account screen. One credential reaches
-  the hosted API the way it reaches any OpenAI-compatible tool, so
-  Whispering needs no OAuth client.
-  Refused: OAuth sign-in for Whispering; pasting a key with no Connect.
-- **Not built yet: the first run asks one question, where transcription
-  runs: a local model, an API key, or Epicenter's models through Connect.**
-  It never asks for an Epicenter.
+  on the page can read a key the page holds, and a browser has no shell to
+  relay through.
+  Refused: the desktop shell sending every request that carries a key.
+- **Whispering is free and has no sign-in.** A local model needs no
+  service, and payment buys an operated service, not the software.
+  Refused: a sign-in every person passes.
 
 ### Web and desktop
 
 - **Whispering branches on what a capability offers, never on the
   platform, and one build serves the browser and the Tauri window.** A fix
   tried on one is the fix shipped to the other. A capability a place lacks
-  is `null` there, and `src/lib/page-boundary.test.ts` and
-  `apps/whispering/scripts/first-load.test.ts` keep desktop modules out of
-  the web's first load.
-  Refused: a second desktop build; `#platform/*` files with a web and a
-  desktop version each.
+  is `null` there.
+  Refused: a second desktop build; `#platform/*` files per surface.
 - **The web app and the desktop app each use what their platform gives,
   and parity is not a goal.** Keeping a take through a crash, the global
-  shortcut, and transcription on this computer are the desktop's; the web
-  keeps a take in memory until Stop and asks before a tab with a take
-  running closes. An earlier browser recorder wrote each second to browser
-  storage and repaired it on the next open to imitate a process that
-  outlives the page.
+  shortcut, and transcription on this computer are the desktop's. Stating
+  the web's limits keeps the browser build small.
   Refused: browser machinery that imitates a desktop guarantee.
-- **The web app asks the browser to keep its storage, shows how much it
-  stores, and offers Export as zip.** A browser may clear a site's storage.
-  It needs `createWritable()`.
-  Refused: a worker with synchronous access handles for Safari before 26.
 - **The desktop's global shortcut is one chord held by
-  `tauri-plugin-global-shortcut`, and the page decides what a press does.**
-  One backend works on every platform with no Accessibility grant, and a
-  press does what the record button does.
+  `tauri-plugin-global-shortcut`.** One backend works on every platform
+  with no Accessibility grant.
   Refused: a raw keyboard listener (`rdev`, a macOS `CGEventTap`); Fn or a
-  modifier alone as a binding; the recorder registering keys; the page
-  importing the shortcut plugin.
-- **In development, an edit that reaches `src/lib/app.ts` reloads the
-  page** (`reloadWhenAppChanges` in `packages/vite-config`). `app.ts` opens
-  the capabilities once, and a reload frees the old folder, recorder, and
-  listeners whole.
-  Refused: `import.meta.hot` handlers with a disposer in `app.ts`.
-- **Whispering 8 is a new install, `so.epicenter.whispering`.** Not built
-  yet: it releases as GitHub Releases tagged `v<version>` with its own
-  update manifest, `whispering.json`, and each release also carries
-  v7.11.0's `latest.json` unchanged, so v7 reads that it is up to date. A
-  failed update check in v7 shows an error, and a manifest of its own lets
-  v8 share a repository with v7's feed.
-  Refused: keeping v7's identifier and update address; a v7.12 bridge
-  release.
+  modifier alone as a binding.

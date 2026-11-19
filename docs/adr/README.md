@@ -7,19 +7,22 @@ they govern. [Whispering's](../../apps/whispering/README.md#decisions) is
 the first; the others follow one area at a time, and this directory goes
 when the last one lands. Write no new records here.
 
-Each entry is a rule, its reason, and the choices that lost:
+An entry is a rule someone would likely undo by mistake, its reason, and
+the tempting alternative that lost:
 
 ```markdown
 - **The rule, as one sentence in the present tense.** Why it holds, in one
   or two sentences.
-  Refused: the alternatives that lost, when there were real ones.
+  Refused: the tempting alternative, when there was one.
 ```
 
-Entries are grouped by topic and carry no numbers, statuses, or history. A
-rule that is decided but not built starts with "Not built yet:". When a rule
-changes, edit it in place in the same pull request as the code, and put long
-reasoning in the pull request body; merging is the approval, and git keeps
-the history.
+Entries are grouped by topic and carry no numbers, statuses, or history.
+Keep the section short, around 15 entries: behavior belongs in the README's
+other sections, code arrangement in `AGENTS.md`, and a rule about one
+function in a comment beside it. Only built rules go in; a plan goes in a
+spec or an issue. When a rule changes, edit it in place in the same pull
+request as the code, and put long reasoning in the pull request body;
+merging is the approval, and git keeps the history.
 
 A removed record is still readable from the `adr-archive` tag, as
 `git show adr-archive:docs/adr/NNNN-<title>.md`. Git does not expand a `*`

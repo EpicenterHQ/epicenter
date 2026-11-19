@@ -19,8 +19,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   conformance suite (`src/lib/files/conformance.ts`). On the desktop
   `tauriFiles` calls Whispering's own `files_*` commands; the page holds
   none of `@tauri-apps/plugin-fs`'s commands.
-- **Every file is written inside the folder, at or beside its path**
-  ([Whispering's decisions](README.md#the-folder)).
+- **Every file is written inside the folder, at or beside its path.**
   A take is `recordings/<id>.webm` from its first second and is finished
   there; nothing repairs one a crash cut off. A note or `settings.md` is
   written to a hidden `.<name>.<random>.tmp` beside it, flushed, and renamed over it; the
