@@ -40,7 +40,7 @@
 			"@tanstack/query-core": "5.107.1",
 			"@tanstack/svelte-query": "^6.4.1",
 			"nanoid": "^5.1.14",
-			"wellcrafted": "^0.47.0",
+			"wellcrafted": "^0.47.1",
 			"@ricky0123/vad-web": "^0.0.30",
 			"@biomejs/biome": "^2.5.15",
 			"wrangler": "^4.71.0",
