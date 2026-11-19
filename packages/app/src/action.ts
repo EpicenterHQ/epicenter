@@ -134,6 +134,6 @@ export function defineAction(
 	return Object.assign(action, {
 		description,
 		input: objectSchema(def.input),
-		...(mcp === false ? { mcp } : {}),
+		mcp,
 	});
 }
