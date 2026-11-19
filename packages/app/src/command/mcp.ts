@@ -29,7 +29,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer } from '../index.ts';
 import type { Apps } from './apps.ts';
 import { outcome } from './output.ts';
-import { type ActionTool, fromToolName } from './protocol.ts';
+import { fromToolName, type Listing } from './protocol.ts';
 import { checkCall, findAction, runAction } from './run.ts';
 
 /**
@@ -52,17 +52,21 @@ function toolResult(answer: Answer) {
 	};
 }
 
-/** What serve offers over MCP, fixed when it starts. */
-export type McpOffer = {
+/** An MCP server for one request, answering from what serve loaded. */
+export function createMcpServer({
+	apps,
+	listing,
+	instructions,
+}: {
 	apps: Apps;
-	/** Every action serve offers as a tool: those not marked `mcp: false`. */
-	tools: ActionTool[];
+	listing: Pick<Listing, 'apps'>;
 	/** The Epicenter's `AGENTS.md`, sent at initialize (ADR-0878). */
 	instructions: string | undefined;
-};
-
-/** An MCP server for one request, answering from what serve loaded. */
-export function createMcpServer({ apps, tools, instructions }: McpOffer) {
+}) {
+	// Every action not marked `mcp: false`: the only names a tool call may use.
+	const tools = listing.apps.flatMap(({ actions }) =>
+		actions.filter((tool) => tool.mcp !== false),
+	);
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -73,16 +77,16 @@ export function createMcpServer({ apps, tools, instructions }: McpOffer) {
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const { name, arguments: args } = request.params;
-		const { app, action } = fromToolName(name);
-		const { data: found, error } = findAction(apps, app, action);
-		if (error) return toolResult(Err(error));
-		if (found.run.mcp === false)
+		if (!tools.some((tool) => tool.name === name))
 			return toolResult(
 				ActionError.NotStarted({
 					cause: 'usage',
-					message: `${app} ${action} is not offered over MCP`,
+					message: `No tool ${JSON.stringify(name)}; tools/list names them`,
 				}),
 			);
+		const { app, action } = fromToolName(name);
+		const { data: found, error } = findAction(apps, app, action);
+		if (error) return toolResult(Err(error));
 		const { data: call, error: misfit } = checkCall(found, {
 			value: args ?? {},
 		});

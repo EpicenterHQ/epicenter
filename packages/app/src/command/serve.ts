@@ -73,9 +73,8 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
-import { type Apps, loadApps } from './apps.ts';
-import { listApps } from './listing.ts';
-import { createMcpServer, type McpOffer } from './mcp.ts';
+import { type Apps, listApps, loadApps } from './apps.ts';
+import { createMcpServer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import { type Listing, ROOT_HEADER, rootHeaderValue } from './protocol.ts';
 import { type EpicenterRoot, MARKER, rootInstructions } from './root.ts';
@@ -207,14 +206,14 @@ async function uiFile(folder: string, path: string) {
 
 /**
  * What serve loaded when it started and answers every request from until it
- * stops (ADR-0959): the apps, their listing, and what MCP offers.
+ * stops (ADR-0959): the apps, their listing, the routines and `AGENTS.md`.
  */
 type Served = {
 	root: EpicenterRoot;
 	apps: Apps;
 	routines: Routine[];
 	listing: Omit<Listing, 'routines'>;
-	mcp: McpOffer;
+	instructions: string | undefined;
 };
 
 /** Load the apps, read the routines and `AGENTS.md`, once, for serve's lifetime. */
@@ -224,22 +223,12 @@ async function load(root: EpicenterRoot): Promise<Served> {
 		rootInstructions(root),
 	]);
 	const routines = await readRoutines(root, apps);
-	const listing = listApps(apps);
-	const tools = listing.apps.flatMap(({ actions }) =>
-		actions.filter((tool) => tool.mcp !== false),
-	);
-	return {
-		root,
-		apps,
-		routines,
-		listing,
-		mcp: { apps, tools, instructions },
-	};
+	return { root, apps, routines, listing: listApps(apps), instructions };
 }
 
 /** `POST /`: one MCP request, answered by a server made for it alone. */
-async function mcp({ mcp }: Served, request: Request) {
-	const server = createMcpServer(mcp);
+async function mcp(served: Served, request: Request) {
+	const server = createMcpServer(served);
 	const transport = new WebStandardStreamableHTTPServerTransport({
 		enableJsonResponse: true,
 	});
@@ -260,14 +249,13 @@ function listing({ listing, routines }: Served) {
 }
 
 /** `GET /`: the launcher, a link to each app with a built page. */
-async function launcher({ root, apps, listing }: Served) {
+async function launcher({ root, apps }: Served) {
 	const shown = await Promise.all(
-		listing.apps.map(async ({ name, description }) => {
-			const { folder } = apps.get(name) as { folder: string };
-			if (!(await uiFile(folder, 'index.html')).ok) return undefined;
+		[...apps.values()].map(async ({ name, folder, app }) => {
+			if (!app || !(await uiFile(folder, 'index.html')).ok) return undefined;
 			return {
 				name,
-				description,
+				description: app.description,
 				icon: (await uiFile(folder, 'icon.png')).ok,
 			};
 		}),

@@ -74,10 +74,6 @@ test('a value of the wrong shape is Unreachable', () => {
 		},
 		{
 			data: null,
-			error: { ...platform, name: 'NotStarted', cause: 'usage', actions: [1] },
-		},
-		{
-			data: null,
 			error: { ...platform, name: 'NotStarted', cause: 'refused' },
 		},
 		// Each cause carries its own fields.

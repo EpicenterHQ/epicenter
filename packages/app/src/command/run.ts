@@ -16,9 +16,9 @@ import {
 	type NotStarted,
 } from '../index.ts';
 import type { Apps } from './apps.ts';
-import { checkObject, noSuchAction, readInput } from './input.ts';
+import { checkObject, readInput } from './input.ts';
 import { stderrJsonLines } from './output.ts';
-import { appProblems, unknownApp } from './protocol.ts';
+import { appProblems, noSuchAction, unknownApp } from './protocol.ts';
 
 /** An action found in its loaded app: the app's name, the action's, and what runs. */
 export type Found = { app: string; action: string; run: Action };
@@ -144,13 +144,7 @@ export function findAction(
 	if (!entry.app) return appProblems(app, entry.problems);
 	const { actions } = entry.app;
 	const run = Object.hasOwn(actions, action) ? actions[action] : undefined;
-	if (!run)
-		return ActionError.NotStarted({
-			cause: 'usage',
-			message: noSuchAction(app, action),
-			next: `epicenter ${app}`,
-			actions: Object.keys(actions),
-		});
+	if (!run) return noSuchAction(app, action, Object.keys(actions));
 	return Ok({ app, action, run });
 }
 

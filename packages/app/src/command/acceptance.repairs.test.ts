@@ -123,14 +123,15 @@ export default defineApp(() => ({ description: 'The loud app', actions: { hello:
 			data: null,
 			error: { name: 'NotStarted', cause: 'usage' },
 		});
+		// A broken app offers no tools, so a call to one is refused as no tool.
 		const broken = await client.callTool({ name: 'broken_x', arguments: {} });
 		expect(broken.isError).toBe(true);
 		expect(broken.structuredContent).toMatchObject({
 			data: null,
 			error: {
 				name: 'NotStarted',
-				cause: 'app-problems',
-				problems: [expect.any(String)],
+				cause: 'usage',
+				message: 'No tool "broken_x"; tools/list names them',
 			},
 		});
 	} finally {

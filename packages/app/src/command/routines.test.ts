@@ -133,7 +133,7 @@ test('a routine naming an unknown action, or an input that does not fit, is refu
 			problem:
 				'needs exactly cron: "<minute hour day month weekday>" and action: "<app> <action>", and may have input: {...}',
 		},
-		{ name: 'sing', problem: 'counter has no action "sing"' },
+		{ name: 'sing', problem: 'counter has no action "sing"; its actions: add' },
 		{ name: 'unfit', problem: 'input: by must be a number' },
 	]);
 	const clock = startRoutines(f.read, { log: recorder().log });
@@ -147,7 +147,7 @@ test('a routine naming an unknown action, or an input that does not fit, is refu
 	const served = await startServe(f);
 	try {
 		expect(served.stderr()).toContain(
-			'\nroutines/sing.md: counter has no action "sing"\n',
+			'\nroutines/sing.md: counter has no action "sing"; its actions: add\n',
 		);
 	} finally {
 		await served.stop();

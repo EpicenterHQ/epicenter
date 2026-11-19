@@ -15,7 +15,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import { unknownApp } from './protocol.ts';
-import { appReport, helpReport, missingAction, rootReport } from './report.ts';
+import { appReport, helpReport, rootReport } from './report.ts';
 import { epicenterRoot } from './root.ts';
 import { callAction, fetchListing } from './send.ts';
 
@@ -151,10 +151,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve reads the input and runs the action; this process only sends the call.
 		sent = true;
-		const answered = await callAction(root, app, action, input, onUpdate);
-		// Serve's refusal of a missing action carries the app's actions; the command lists them as commands.
-		const actions = (answered.error as { actions?: string[] } | null)?.actions;
-		return actions ? missingAction(app, action, actions) : answered;
+		return callAction(root, app, action, input, onUpdate);
 	}
 	let answered: Answer | undefined;
 	try {

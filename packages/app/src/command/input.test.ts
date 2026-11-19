@@ -11,7 +11,7 @@ import {
 	Ok,
 } from '../index.ts';
 import { readInput, usageLine } from './input.ts';
-import { appListing } from './listing.ts';
+import { appListing } from './apps.ts';
 import { actionHelp } from './report.ts';
 
 /** Help as the command prints it: from the action's tool, after the trip through JSON serve sends it on. */

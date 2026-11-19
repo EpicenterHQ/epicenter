@@ -45,20 +45,16 @@ export function checkAnswer(value: unknown): Answer {
 		return fits ? value : invalid();
 	}
 	if (error.name !== 'NotStarted') return value;
-	const names = (value: unknown) =>
-		Array.isArray(value) && value.every((each) => typeof each === 'string');
 	switch (error.cause) {
 		case 'usage':
-			return (error.next === undefined || typeof error.next === 'string') &&
-				(error.actions === undefined || names(error.actions))
-				? value
-				: invalid();
 		case 'unavailable':
 			return error.next === undefined || typeof error.next === 'string'
 				? value
 				: invalid();
 		case 'app-problems':
-			return typeof error.app === 'string' && names(error.problems)
+			return typeof error.app === 'string' &&
+				Array.isArray(error.problems) &&
+				error.problems.every((problem) => typeof problem === 'string')
 				? value
 				: invalid();
 		case 'internal':

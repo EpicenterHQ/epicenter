@@ -177,10 +177,3 @@ export function checkObject(
 		};
 	return checkInput(schema, raw);
 }
-
-/**
- * The refusal of an action `app` does not have, as serve states it to every
- * caller. The refusal carries the app's actions, which the command lists.
- */
-export const noSuchAction = (app: string, action: string) =>
-	`${app} has no action ${JSON.stringify(action)}`;

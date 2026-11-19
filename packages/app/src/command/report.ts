@@ -1,5 +1,5 @@
 /**
- * How the `epicenter` command prints serve's listing (`listing.ts`): bare
+ * How the `epicenter` command prints serve's listing (`listApps` in `apps.ts`): bare
  * `epicenter`, `epicenter <app>`, an action's `--help`, and the refusal for
  * an action an app does not have. It reads only the listing's plain JSON, so
  * the command never imports the code that loads apps.
@@ -9,22 +9,22 @@ import { basename } from 'node:path';
 import type { TSchemaOptions } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import { whatTakes } from '../field.ts';
-import {
-	ActionError,
-	type Answer,
-	Err,
-	type NotStarted,
-	Ok,
-} from '../index.ts';
+import { type Answer, Err, type NotStarted, Ok } from '../index.ts';
 
-import { exampleCommand, noSuchAction, usageLine } from './input.ts';
+import { exampleCommand, usageLine } from './input.ts';
 import type {
 	ActionTool,
 	AppListing,
 	AppProblems,
 	Listing,
 } from './protocol.ts';
-import { appProblems, fromToolName, toolName, unknownApp } from './protocol.ts';
+import {
+	appProblems,
+	fromToolName,
+	noSuchAction,
+	toolName,
+	unknownApp,
+} from './protocol.ts';
 import { appPath, type EpicenterRoot } from './root.ts';
 
 /** Each app's problems as `--json` prints them, with the folder serve does not say. */
@@ -186,29 +186,8 @@ export function helpReport(
 	const tool = listed.actions.find(
 		(each) => each.name === toolName(app, action),
 	);
-	if (!tool) return missingAction(app, action, actionNames(listed));
+	if (!tool) return noSuchAction(app, action, actionNames(listed));
 	return Ok(json ? tool : actionHelp(tool));
-}
-
-/**
- * The command's answer for an action `app` does not have: serve's refusal,
- * then each action it has, given as `actions`, one command a line, so a
- * person sees what to type.
- */
-export function missingAction(
-	app: string,
-	action: string,
-	actions: string[],
-): Answer {
-	return ActionError.NotStarted({
-		cause: 'usage',
-		message: [
-			`${noSuchAction(app, action)}. Its actions:`,
-			...actions.map((each) => `epicenter ${app} ${each}`),
-		].join('\n'),
-		next: `epicenter ${app}`,
-		actions,
-	});
 }
 
 /**

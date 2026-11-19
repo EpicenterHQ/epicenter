@@ -58,6 +58,14 @@ export const unknownApp = (name: string) =>
 		next: 'epicenter',
 	});
 
+/** An action `app` does not have, naming the actions it has: serve's answer, and the command's from the listing. */
+export const noSuchAction = (app: string, action: string, actions: string[]) =>
+	ActionError.NotStarted({
+		cause: 'usage',
+		message: `${app} has no action ${JSON.stringify(action)}; ${actions.length ? `its actions: ${actions.join(', ')}` : 'it has none'}`,
+		next: `epicenter ${app}`,
+	});
+
 /** An app that does not load, refusing a call or a listing's view of it. */
 export const appProblems = (name: string, problems: string[]) =>
 	ActionError.NotStarted({

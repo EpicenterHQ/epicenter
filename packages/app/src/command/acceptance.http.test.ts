@@ -609,11 +609,10 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			'talk/sing',
 			'{}',
 			{
-				message: 'talk has no action "sing"',
+				message:
+					'talk has no action "sing"; its actions: refuse, say, drip, tangle',
 				cause: 'usage',
 				next: 'epicenter talk',
-				// The app's actions, as data a page or an agent can offer.
-				actions: ['refuse', 'say', 'drip', 'tangle'],
 			},
 		],
 		[
@@ -695,10 +694,10 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 		expectErr(await client.call('sing', { words: 'la' })) as unknown,
 	).toEqual(
 		notStarted({
-			message: 'talk has no action "sing"',
+			message:
+				'talk has no action "sing"; its actions: refuse, say, drip, tangle',
 			cause: 'usage',
 			next: 'epicenter talk',
-			actions: ['refuse', 'say', 'drip', 'tangle'],
 		}).error,
 	);
 	// The CLI reads the same refusal from serve and exits 2.

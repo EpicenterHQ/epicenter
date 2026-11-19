@@ -195,7 +195,7 @@ test('an action with mcp: false is not offered or run over MCP, and still runs f
 		});
 		expect(answer.isError).toBe(true);
 		expect(answer.content).toEqual([
-			{ type: 'text', text: 'messages send is not offered over MCP' },
+			{ type: 'text', text: 'No tool "messages_send"; tools/list names them' },
 		]);
 		// Said before the input is read, so a wrong input tells an agent nothing more.
 		for (const args of [{}, { text: 3 }, { nope: true }]) {
@@ -204,7 +204,10 @@ test('an action with mcp: false is not offered or run over MCP, and still runs f
 				arguments: args,
 			});
 			expect(refused.content).toEqual([
-				{ type: 'text', text: 'messages send is not offered over MCP' },
+				{
+					type: 'text',
+					text: 'No tool "messages_send"; tools/list names them',
+				},
 			]);
 		}
 		expect(await Bun.file(sent).exists()).toBe(false);

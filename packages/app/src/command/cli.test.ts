@@ -141,10 +141,10 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 	const f = await setup();
 	const cases: [string[], string][] = [
 		[['nope'], 'nope'],
-		[['reading', 'nope'], 'reading has no action "nope". Its actions:'],
+		[['reading', 'nope'], 'reading has no action "nope"; its actions: log,'],
 		[
 			['reading', 'lgo', '{"minutes":3}'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log\nepicenter reading week-summary\n',
+			'reading has no action "lgo"; its actions: log, week-summary,',
 		],
 		[['reading', 'log', '{"minutes":3,"nope":1}'], '"nope" is not a key'],
 		[['reading', 'log'], 'minutes is needed'],
@@ -161,7 +161,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		// --help answers a mistyped action as a call does.
 		[
 			['reading', 'lgo', '--help'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log\nepicenter reading week-summary\n',
+			'reading has no action "lgo"; its actions: log, week-summary,',
 		],
 		// Not names: sent as they are, they would reach / or the root.
 		[['..', 'add'], 'Unknown app ".."'],
@@ -182,10 +182,6 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 				message: expect.stringContaining(message),
 				cause: 'usage',
 				next: expect.any(String),
-				// A missing action carries the app's actions, by name.
-				...(message.includes('Its actions')
-					? { actions: expect.arrayContaining(['log', 'week-summary']) }
-					: {}),
 			},
 		});
 	}
@@ -275,7 +271,11 @@ test('bare epicenter reports routines after the apps, each checked when serve st
 			action: 'log',
 			input: { minutes: 30, book: "it's here" },
 		},
-		{ name: 'sing', problem: 'reading has no action "sing"' },
+		{
+			name: 'sing',
+			problem:
+				'reading has no action "sing"; its actions: log, week-summary, tag, collect, inspect, explode',
+		},
 		{ name: 'unfit', problem: 'input: minutes must be a number' },
 	]);
 	// The version the Epicenter has installed, read from its node_modules.
@@ -303,7 +303,7 @@ Routines:
   old: ${value.routines[1].problem}
   review: cron 0 8 * * *, next ${value.routines[2].next}
     reading log {"minutes":30,"book":"it's here"}
-  sing: reading has no action "sing"
+  sing: reading has no action "sing"; its actions: log, week-summary, tag, collect, inspect, explode
   unfit: input: minutes must be a number
 `,
 	);
