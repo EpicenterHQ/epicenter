@@ -7,7 +7,6 @@ export {
 	type Misfit,
 	type Missing,
 	type NotStarted,
-	type Problem,
 	type PublicError,
 	type Threw,
 	type Unreachable,

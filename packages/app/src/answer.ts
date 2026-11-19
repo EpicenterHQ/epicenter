@@ -43,9 +43,6 @@ export function isResult(value: unknown): value is Answer {
 /** A tagged error an action threw: a name and a message, plus anything else. */
 export type Thrown = PublicError & Record<string, unknown>;
 
-/** One reason a file or a change does not fit its fields, naming the value. */
-export type Problem = { line: string };
-
 export const ActionError = defineErrors({
 	/**
 	 * A record, or a change to one, does not fit its declared fields. A read
@@ -60,12 +57,13 @@ export const ActionError = defineErrors({
 	}: {
 		path: string;
 		id: string;
-		problems: Problem[];
+		/** Each reason the file or change does not fit, one sentence each, naming the value. */
+		problems: string[];
 		record?: Record<string, JsonValue>;
 	}) => ({
 		message: [
 			`${path} does not fit its fields:`,
-			...problems.map((problem) => `${path}: ${problem.line}`),
+			...problems.map((problem) => `${path}: ${problem}`),
 		].join('\n'),
 		path,
 		id,

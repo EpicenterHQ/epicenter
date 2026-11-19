@@ -6,7 +6,6 @@ import {
 	ActionError,
 	isResult,
 	type Misfit,
-	type Problem,
 	type PublicError,
 } from './answer.ts';
 import type { DataDef } from './data.ts';
@@ -61,17 +60,16 @@ function isId(id: unknown): id is string {
 	);
 }
 
-const UNREADABLE: Problem = {
-	line: 'its front matter is not key: value lines between two --- lines, each key once',
-};
+const UNREADABLE =
+	'its front matter is not key: value lines between two --- lines, each key once';
 
 /** Why a supplied field value does not fit its schema. */
-function valueProblem(key: string, schema: TSchema, value: unknown): Problem {
+function valueProblem(key: string, schema: TSchema, value: unknown) {
 	const words = whatFits(schema, value);
 	const why = words
 		? `is not ${words}`
 		: (Value.Errors(schema, value)[0]?.message ?? 'does not fit');
-	return { line: `${key}: ${JSON.stringify(value)} ${why}` };
+	return `${key}: ${JSON.stringify(value)} ${why}`;
 }
 
 /**
@@ -82,10 +80,9 @@ function notJsonProblem(
 	key: string,
 	schema: TSchema,
 	{ lineNumber, text }: NotJson,
-): Problem {
-	const notJson = (fix: string) => ({
-		line: `${key} on line ${lineNumber} is not JSON${fix}`,
-	});
+): string {
+	const notJson = (fix: string) =>
+		`${key} on line ${lineNumber} is not JSON${fix}`;
 	if (text.trim() === '')
 		return notJson(
 			': it has no value; give it one as JSON, or remove the line',
@@ -132,8 +129,8 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	/** A change that does not fit the declared fields, as one problem. */
-	function misfitFor(id: string, line: string) {
-		return ActionError.Misfit({ path: pathOf(id), id, problems: [{ line }] });
+	function misfitFor(id: string, problem: string) {
+		return ActionError.Misfit({ path: pathOf(id), id, problems: [problem] });
 	}
 
 	/**
@@ -146,14 +143,14 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	function recordFrom(id: string, file: MarkdownFile) {
 		const path = pathOf(id);
 		const values: FieldValues = {};
-		const problems: Problem[] = file.readable ? [] : [UNREADABLE];
+		const problems: string[] = file.readable ? [] : [UNREADABLE];
 		for (const [key, schema] of Object.entries(fields)) {
 			const value = file.fields[key];
 			const bare = file.notJson.find((each) => each.key === key);
 			if (bare) problems.push(notJsonProblem(key, schema, bare));
 			else if (!Object.hasOwn(file.fields, key)) {
 				if (file.readable && !isOptional(schema))
-					problems.push({ line: `${key} is missing` });
+					problems.push(`${key} is missing`);
 			} else if (Value.Check(schema, value)) values[key] = value as JsonValue;
 			else problems.push(valueProblem(key, schema, value));
 		}
@@ -193,13 +190,13 @@ export function createHandle(home: string, key: string, def: DataDef) {
 				return misfitFor(id, `${key} is required, so it cannot be removed`);
 			else set[key] = value as JsonValue;
 		}
-		const problems: Problem[] = [];
+		const problems: string[] = [];
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
 					problems.push(valueProblem(key, schema, set[key]));
 			} else if (creating && !isOptional(schema))
-				problems.push({ line: `${key} is missing` });
+				problems.push(`${key} is missing`);
 		}
 		if (problems.length)
 			return ActionError.Misfit({ path: pathOf(id), id, problems });
@@ -303,9 +300,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			path: folder,
 			id,
 			problems: [
-				{
-					line: `${JSON.stringify(id)} is not a file name: the id is the file name without .md`,
-				},
+				`${JSON.stringify(id)} is not a file name: the id is the file name without .md`,
 			],
 		});
 	}
