@@ -1,5 +1,5 @@
-import { join } from 'node:path';
-import type { Static, TObject, TSchema } from 'typebox';
+import { join, parse } from 'node:path';
+import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
@@ -8,7 +8,7 @@ import {
 	type PublicError,
 } from './action-result.ts';
 import { ActionError, type Problem } from './errors.ts';
-import { isOptional, whatFits } from './field.ts';
+import { isOptional, missingRefs, whatFits } from './field.ts';
 import { type Folder, readText } from './folder.ts';
 import {
 	changeMarkdown,
@@ -22,10 +22,7 @@ import {
 /** Declared front matter fields, each a TypeBox schema. */
 export type Fields = Record<string, TSchema>;
 
-/** Fields that fit, with invalid or missing fields absent. */
-export type Loose<F extends Fields> = Partial<Static<TObject<F>>>;
-
-export type AnyRecord = Record<string, unknown> & {
+export type AnyRecord = Record<string, JsonValue> & {
 	path: string;
 	id: string;
 	body: string;
@@ -33,9 +30,32 @@ export type AnyRecord = Record<string, unknown> & {
 /** A change as data: each field to set, `null` to remove an optional one, and `body`. */
 type Patch = Record<string, unknown>;
 /** A change computed from the record: it returns `Ok(patch)` or `Err(error)`. */
-export type Compute = (record: AnyRecord | undefined) => unknown;
+type Compute = (record: AnyRecord | undefined) => unknown;
 type Misfit = Extract<ActionError, { name: 'Misfit' }>;
 type Need = 'absent' | 'present' | 'either';
+
+/**
+ * The id of the file at `path`: Node's name for it when Node calls its
+ * extension `.md`, else undefined. `notes/.foo.md` is `.foo` and
+ * `notes/...md` is `..`; `notes/.md` and `notes/x.md.bak` are no record.
+ */
+export function idOf(path: string): string | undefined {
+	const { ext, name } = parse(path);
+	return ext === '.md' ? name : undefined;
+}
+
+/**
+ * The file under `base` that holds `id`, or undefined when Node would name
+ * that file something other than `id`: `''`, `a/b`, `../x`, `x/`, and any
+ * value that is not text. So every id `create` writes, `list` reads back
+ * as the same id. On Windows `\` also separates folders, so `a\b` is
+ * refused there; on macOS and Linux it is one name, and the folder then
+ * refuses the write by throwing, since it takes `\` for a separator too.
+ */
+export function recordPath(base: string, id: unknown): string | undefined {
+	const path = `${base}/${id}.md`;
+	return idOf(path) === id ? path : undefined;
+}
 
 /** A problem with nothing file-specific in it, so its line is its kind. */
 const problem = (line: string): Problem => ({ line, kind: line });
@@ -107,11 +127,14 @@ export function createMarkdownRecords({
 	folder,
 	base,
 	fields,
+	exists,
 }: {
 	folder: Folder;
 	/** The folder under the app's that holds one file per id, such as `data/notes`. */
 	base: string;
 	fields: Fields;
+	/** Whether the key `key` has a record named `id`, for the refs a write sets. */
+	exists: (key: string, id: string) => boolean;
 }) {
 	/** The file for `id`, as given. */
 	const pathOf = (id: string) => `${base}/${id}.md`;
@@ -134,7 +157,7 @@ export function createMarkdownRecords({
 	 */
 	function project(id: string, file: MarkdownFile) {
 		const path = pathOf(id);
-		const values: Record<string, unknown> = {};
+		const values: FieldValues = {};
 		const problems: Problem[] = file.readable ? [] : [UNREADABLE];
 		for (const [key, schema] of Object.entries(fields)) {
 			const value = file.fields[key];
@@ -143,7 +166,7 @@ export function createMarkdownRecords({
 			else if (!Object.hasOwn(file.fields, key)) {
 				if (file.readable && !isOptional(schema))
 					problems.push(problem(`${key} is missing`));
-			} else if (Value.Check(schema, value)) values[key] = value;
+			} else if (Value.Check(schema, value)) values[key] = value as JsonValue;
 			else problems.push(misfit(key, schema, value));
 		}
 		const record: AnyRecord = { path, id, ...values, body: file.body };
@@ -186,6 +209,7 @@ export function createMarkdownRecords({
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
 					problems.push(misfit(key, schema, set[key]));
+				else problems.push(...missingRefs(schema, set[key], key, exists));
 			} else if (creating && !isOptional(schema))
 				problems.push(problem(`${key} is missing`));
 		}

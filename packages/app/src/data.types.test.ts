@@ -87,7 +87,7 @@ test('computed changes retain field types and callback errors', async () => {
 	expect(expectErr(result).message).toBe('stop');
 });
 
-test('a passage edit answers exactly Missing, Changed, or Misfit', () => {
+test('a computed edit answers Misfit, Changed, or its own error', () => {
 	type Names<T> = T extends () => Promise<infer R>
 		? R extends { error: infer E }
 			? E extends { name: infer N }
@@ -95,10 +95,6 @@ test('a passage edit answers exactly Missing, Changed, or Misfit', () => {
 				: never
 			: never
 		: never;
-	const folderEdit = () => data.notes.edit('a', { old: 'x', new: 'y' });
-	assertType<
-		Equal<Names<typeof folderEdit>, 'Missing' | 'Changed' | 'Misfit'>
-	>();
 	const computed = () =>
 		data.notes.edit('a', () => ActionError.Unreachable({ message: 'x' }));
 	assertType<
@@ -118,12 +114,10 @@ describe('type errors', () => {
 		() => data.notes.patch('a', () => Ok({ title: 'x' }));
 		// @ts-expect-error a computed edit returns a Result
 		() => data.notes.edit('a', () => ({ title: 'x' }));
-		// @ts-expect-error edit takes a function or a passage, never fields
+		// @ts-expect-error edit takes a function, never fields
 		() => data.notes.edit('a', { title: 'x' });
-		// @ts-expect-error a passage names old and new
-		() => data.notes.edit('a', { old: 'x' });
-		// @ts-expect-error a passage carries no fields
-		() => data.notes.edit('a', { old: 'x', new: 'y', title: 'z' });
+		// @ts-expect-error edit takes a function, never a passage; the edit action takes one
+		() => data.notes.edit('a', { old: 'x', new: 'y' });
 		// @ts-expect-error create needs the required fields, including read-only fields
 		() => data.notes.create('a', { title: 'only title' });
 		// @ts-expect-error undeclared fields cannot be written

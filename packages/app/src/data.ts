@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Static, TObject, TUnsafe } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -9,13 +10,11 @@ import { ActionError } from './errors.ts';
 import { defaultIn, type OptionalKeys, refKeyOf } from './field.ts';
 import { type Folder, filesIn } from './folder.ts';
 import { isFieldKey, type JsonValue } from './front-matter.ts';
-import { idProblem } from './id.ts';
 import {
-	type AnyRecord,
-	type Compute,
 	createMarkdownRecords,
 	type Fields,
-	type Loose,
+	idOf,
+	recordPath,
 } from './markdown-records.ts';
 
 /**
@@ -36,71 +35,46 @@ export type Change<TFields extends Fields> = Flat<
 export type NewRecord<TFields extends Fields> = Flat<
 	Static<TObject<TFields>> & { body?: string }
 >;
-type Named = { path: string; id: string; body: string };
 /** A flat record with its path, id, declared fields, and body. */
 export type DataRecord<TDef extends DataDef> = Flat<
-	Named & Static<TObject<TDef['fields']>>
+	{ path: string; id: string; body: string } & Static<TObject<TDef['fields']>>
 >;
-export type Misfit<TDef extends DataDef> = Flat<
-	Omit<Extract<ActionError, { name: 'Misfit' }>, 'id' | 'record'> & {
-		id: string;
-		record?: Flat<Named & Loose<TDef['fields']>>;
-	}
->;
-/** A change or id that does not fit: a Misfit with no record to show. */
-export type Unfit = Flat<
-	Omit<Extract<ActionError, { name: 'Misfit' }>, 'record'> & { record?: never }
->;
+/** A file or change that does not fit; a read's carries the fields that do as `record`. */
+export type Misfit = Extract<ActionError, { name: 'Misfit' }>;
 export type Changed = Extract<ActionError, { name: 'Changed' }>;
 export type Missing = Extract<ActionError, { name: 'Missing' }>;
-export type WriteError<TDef extends DataDef> = Misfit<TDef> | Unfit | Changed;
-/** One passage of the body and the text to put in its place. */
-export type Passage = { old: string; new: string };
 
 type Handle<TDef extends DataDef> = {
 	/**
-	 * Read one id, or undefined when absent. Every method that takes an id
-	 * uses it as the file name exactly, and refuses one that cannot be a name.
+	 * Read one id, or undefined when absent. The id is the file name without
+	 * `.md`; every method that takes one refuses an id Node would not give
+	 * back as that file's name, and one the system refuses as a name.
 	 */
-	get(
-		id: string,
-	): Promise<Result<DataRecord<TDef> | undefined, Misfit<TDef> | Unfit>>;
-	/** One Result per directly contained record, sorted by path. */
-	list(): Promise<Result<DataRecord<TDef>, Misfit<TDef>>[]>;
+	get(id: string): Promise<Result<DataRecord<TDef> | undefined, Misfit>>;
+	/** One Result per `.md` file directly in the key's folder, sorted by path. */
+	list(): Promise<Result<DataRecord<TDef>, Misfit>[]>;
 	/** Create one file, returning Changed (there) when it exists. */
 	create(
 		id: string,
 		record: NewRecord<TDef['fields']>,
-	): Promise<Result<DataRecord<TDef>, Unfit | Changed>>;
+	): Promise<Result<DataRecord<TDef>, Misfit | Changed>>;
 	/** Patch fields and replace the body of an existing record; an absent id returns Missing. */
 	patch(
 		id: string,
 		change: Change<TDef['fields']>,
-	): Promise<Result<DataRecord<TDef>, WriteError<TDef> | Missing>>;
-	/** Change one record based on what it holds now. */
-	edit: {
-		/**
-		 * Compute a patch from a fitting record, or undefined when absent; the
-		 * patch may create the file.
-		 */
-		<TError extends PublicError = never>(
-			id: string,
-			change: (
-				record: DataRecord<TDef> | undefined,
-			) => Result<Change<TDef['fields']>, TError>,
-		): Promise<Result<DataRecord<TDef>, WriteError<TDef> | TError>>;
-		/**
-		 * Replace the one passage `old` of the body with `new`. Changed (quote)
-		 * when it is not there, Changed (twice) when it is there more than once,
-		 * and Missing when the file is absent.
-		 */
-		(
-			id: string,
-			passage: Passage,
-		): Promise<Result<DataRecord<TDef>, WriteError<TDef> | Missing>>;
-	};
+	): Promise<Result<DataRecord<TDef>, Misfit | Changed | Missing>>;
+	/**
+	 * Compute a patch from a fitting record, or undefined when absent; the
+	 * patch may create the file.
+	 */
+	edit<TError extends PublicError = never>(
+		id: string,
+		change: (
+			record: DataRecord<TDef> | undefined,
+		) => Result<Change<TDef['fields']>, TError>,
+	): Promise<Result<DataRecord<TDef>, Misfit | Changed | TError>>;
 	/** Delete one id, returning whether its file existed. */
-	delete(id: string): Promise<Result<boolean, Unfit>>;
+	delete(id: string): Promise<Result<boolean, Misfit>>;
 	/** The file path for this id as given, without checking it or the disk. */
 	path(id: string): string;
 };
@@ -186,102 +160,84 @@ export function defineData<const TSpec extends Spec>(
 	) as unknown as Data<TSpec>;
 }
 
+/**
+ * What the system answers for a name it refuses: one too long, or one with
+ * a NUL byte, which `node:fs` throws for before it reaches the disk.
+ */
+const REFUSED_NAMES = new Set(['ENAMETOOLONG', 'ERR_INVALID_ARG_VALUE']);
+
 /** The handle for one data key: its verbs, its definition, and its actions. */
 function createHandle(folder: Folder, key: string, def: DataDef) {
 	const base = `data/${key}`;
-	const records = createMarkdownRecords({ folder, base, fields: def.fields });
-	/** Misfit when `id` breaks ADR-0933's rule, else undefined. */
-	function refusal(id: string) {
-		const problem = idProblem(id);
-		if (!problem) return undefined;
+	const records = createMarkdownRecords({
+		folder,
+		base,
+		fields: def.fields,
+		exists: (target, id) => {
+			const path = recordPath(`data/${target}`, id);
+			return path !== undefined && existsSync(join(folder.path, path));
+		},
+	});
+	/**
+	 * `run`'s answer, or a Misfit at the key's folder when `id` cannot name
+	 * one of its files: Node gives the file another name, or the system
+	 * refuses the name. Any other throw is not about the id and escapes.
+	 */
+	async function named<T>(id: string, run: () => Promise<T>) {
 		// The id names no file, so the problem sits at the key's folder.
-		const unfit = (line: string) =>
-			ActionError.Misfit({ path: base, problems: [{ line, kind: problem }] });
-		if (typeof id !== 'string') return unfit(problem);
-		// Whitespace is invisible, so quote the id, and name the tidy form the
-		// caller may send instead. The library itself never changes an id.
-		const tidy = id.normalize('NFC').trim();
-		const instead =
-			tidy !== id && idProblem(tidy) === undefined
-				? `; send ${JSON.stringify(tidy)}`
-				: '';
-		return unfit(`${JSON.stringify(id)}: ${problem}${instead}`);
+		const unfit = (why: string) =>
+			ActionError.Misfit({
+				path: base,
+				problems: [
+					{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
+				],
+			});
+		if (recordPath(base, id) === undefined)
+			return unfit('is not a file name: the id is the file name without .md');
+		try {
+			return await run();
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== undefined && REFUSED_NAMES.has(code))
+				return unfit(`is a file name the system refuses (${code})`);
+			throw error;
+		}
 	}
 	const handle = {
 		path: records.path,
-		async get(id: string) {
-			return refusal(id) ?? records.read(id);
-		},
+		get: (id: string) => named(id, () => records.read(id)),
 		async list() {
 			const found = [];
 			for (const name of await filesIn(folder.path, base)) {
-				const id = name.slice(0, -3);
-				if (!name.endsWith('.md') || idProblem(id)) continue;
+				const id = idOf(name);
+				if (id === undefined) continue;
 				const read = await records.read(id);
 				if (read.error || read.data) found.push(read);
 			}
 			return found;
 		},
-		async create(id: string, input: Record<string, unknown>) {
-			return refusal(id) ?? records.write(id, 'absent', input);
+		create: (id: string, input: Record<string, unknown>) =>
+			named(id, () => records.write(id, 'absent', input)),
+		patch: (id: string, change: Record<string, unknown>) =>
+			named(id, () => records.write(id, 'present', change)),
+		edit(id: string, change: (record: unknown) => unknown) {
+			if (typeof change !== 'function')
+				throw new Error(
+					'edit takes a function of the record; to replace a passage of the body, call the generated edit action',
+				);
+			return named(id, () => records.write(id, 'either', change));
 		},
-		async patch(id: string, change: Record<string, unknown>) {
-			return refusal(id) ?? records.write(id, 'present', change);
-		},
-		/** A function computes the change; `{ old, new }` is a fixed function that replaces one passage. */
-		async edit(id: string, change: unknown) {
-			const refused = refusal(id);
-			if (refused) return refused;
-			const compute =
-				typeof change === 'function'
-					? (change as Compute)
-					: replacing(records.path(id), change);
-			if (typeof compute !== 'function') return compute;
-			return records.write(id, 'either', compute);
-		},
-		async delete(id: string) {
-			const refused = refusal(id);
-			if (refused) return refused;
-			const path = records.path(id);
-			const existed = await Bun.file(join(folder.path, path)).exists();
-			if (existed) await folder.delete(path);
-			return Ok(existed);
-		},
+		delete: (id: string) =>
+			named(id, async () => {
+				const path = records.path(id);
+				const existed = await Bun.file(join(folder.path, path)).exists();
+				if (existed) await folder.delete(path);
+				return Ok(existed);
+			}),
 	} as AnyHandle;
 	return {
 		...def,
 		...handle,
 		actions: (...verbs: string[]) => dataActions(key, def, handle, verbs),
-	};
-}
-
-/**
- * The change that replaces the one passage `old` of a record's body with
- * `new`, or Misfit when `passage` is not `{ old, new }` with non-empty `old`.
- */
-function replacing(path: string, passage: unknown) {
-	const keys = isPlainObject(passage)
-		? Object.keys(passage).sort().join()
-		: undefined;
-	const { old, new: replacement } = (passage ?? {}) as Record<string, unknown>;
-	const unfit = (line: string) =>
-		ActionError.Misfit({ path, problems: [{ line, kind: line }] });
-	if (
-		keys !== 'new,old' ||
-		typeof old !== 'string' ||
-		typeof replacement !== 'string'
-	)
-		return unfit('edit takes a function or { old, new }, each text');
-	if (old === '') return unfit('the passage to replace must be non-empty text');
-	return (record: AnyRecord | undefined) => {
-		if (record === undefined) return ActionError.Missing({ path });
-		const { body } = record;
-		const at = body.indexOf(old);
-		if (at < 0) return ActionError.Changed({ path, cause: 'quote' });
-		if (body.indexOf(old, at + 1) >= 0)
-			return ActionError.Changed({ path, cause: 'twice' });
-		return Ok({
-			body: body.slice(0, at) + replacement + body.slice(at + old.length),
-		});
 	};
 }

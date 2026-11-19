@@ -1,7 +1,7 @@
 /**
  * Generated data actions expose only named handle verbs with their input schemas.
  * Verifies Result answers, passage edits, patch omission,
- * exact and refused ids, time-named creates, verb refusals, and MCP annotations.
+ * exact and refused ids, refs checked on write, time-named creates, verb refusals, and MCP annotations.
  */
 import { expect, test } from 'bun:test';
 import { Value } from 'typebox/value';
@@ -150,9 +150,11 @@ test('edit refuses an absent or repeated quote and an empty one without writing'
 			expectErr<ActionError>(await edit({ old, new: 'new' })),
 		).toMatchObject({ name: 'Changed', cause });
 	}
-	expect(expectErr<ActionError>(await edit({ old: '', new: 'new' })).name).toBe(
-		'Misfit',
-	);
+	// The input schema refuses an empty old before serve runs the action; a
+	// call in code is answered as a passage found more than once.
+	expect(
+		expectErr<ActionError>(await edit({ old: '', new: 'new' })),
+	).toMatchObject({ name: 'Changed', cause: 'twice' });
 	const record = expectOk(await notes.get({ id: 'a' }));
 	expect(record).toMatchObject({ title: 'old', body: 'again again' });
 });
@@ -197,8 +199,8 @@ test('list retains full fitting records and Misfit Results', async () => {
 	]);
 });
 
-test('generated writes accept refs as given and expose a declared was field as ordinary data', async () => {
-	const { folder } = await tempFolder();
+test('generated writes refuse a ref that names no record and expose a declared was field as ordinary data', async () => {
+	const { folder } = await tempFolder({ 'data/targets/there.md': '' });
 	const data = defineData(folder, {
 		targets: { description: 'target', fields: {} },
 		notes: {
@@ -208,11 +210,19 @@ test('generated writes accept refs as given and expose a declared was field as o
 	});
 	const { create, patch } = data.notes.actions('create', 'patch');
 	expect(
-		expectOk(await create({ id: 'a', target: 'absent', was: 'first' })),
-	).toMatchObject({ target: 'absent', was: 'first' });
+		expectErr(await create({ id: 'a', target: 'absent', was: 'first' })),
+	).toMatchObject({
+		name: 'Misfit',
+		message:
+			'data/notes/a.md does not fit its fields:\ndata/notes/a.md: target "absent" names no record in targets',
+	});
 	expect(
-		expectOk(await patch({ id: 'a', target: 'also-absent', was: 'last' })),
-	).toMatchObject({ target: 'also-absent', was: 'last' });
+		expectOk(await create({ id: 'a', target: 'there', was: 'first' })),
+	).toMatchObject({ target: 'there', was: 'first' });
+	expect(expectOk(await patch({ id: 'a', was: 'last' }))).toMatchObject({
+		target: 'there',
+		was: 'last',
+	});
 });
 
 test('create needs an id: a repeat with it answers Changed (there), and timeId() names one by the moment', async () => {
@@ -226,24 +236,15 @@ test('create needs an id: a repeat with it answers Changed (there), and timeId()
 	expect(await files('data/notes')).toEqual([named.path]);
 });
 
-test('generated verbs take the id as the file name and refuse one that cannot name a file, saying why', async () => {
+test('generated verbs take the id as the file name and refuse one Node would name otherwise', async () => {
 	const { notes } = await setup({
 		'data/notes/Caf\u00e9.md': '---\ntitle: "x"\n---\none two',
 	});
-	for (const [id, message] of [
-		[
-			' Caf\u00e9 ',
-			'data/notes does not fit its fields:\ndata/notes: " Caf\u00e9 ": an id cannot start or end with whitespace; send "Caf\u00e9"',
-		],
-		[
-			'Cafe\u0301',
-			'data/notes does not fit its fields:\ndata/notes: "Cafe\u0301": an id must be Unicode NFC; send "Caf\u00e9"',
-		],
-		[
-			'../bad',
-			'data/notes does not fit its fields:\ndata/notes: "../bad": an id cannot contain / or \\',
-		],
-	] as const)
+	// Spaces at the edges are part of the name, so this is another record.
+	expect(expectErr(await notes.get({ id: ' Caf\u00e9 ' })).name).toBe(
+		'Missing',
+	);
+	for (const id of ['../bad', 'a/b', ''])
 		for (const result of [
 			await notes.get({ id }),
 			await notes.create({ id, title: 'x' }),
@@ -251,7 +252,10 @@ test('generated verbs take the id as the file name and refuse one that cannot na
 			await notes.edit({ id, old: 'one', new: 'x' }),
 			await notes.delete({ id }),
 		])
-			expect(expectErr(result)).toMatchObject({ name: 'Misfit', message });
+			expect(expectErr(result)).toMatchObject({
+				name: 'Misfit',
+				message: `data/notes does not fit its fields:\ndata/notes: ${JSON.stringify(id)} is not a file name: the id is the file name without .md`,
+			});
 	expect(
 		expectOk(await notes.edit({ id: 'Caf\u00e9', old: 'one', new: 'three' }))
 			.body,

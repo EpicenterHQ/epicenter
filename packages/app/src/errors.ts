@@ -11,6 +11,7 @@ import {
 	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
+import type { JsonValue } from './front-matter.ts';
 
 export type Problem = { line: string; kind: string };
 
@@ -56,7 +57,7 @@ export const ActionError = defineErrors({
 		path: string;
 		id?: string;
 		problems: Problem[];
-		record?: Record<string, unknown>;
+		record?: Record<string, JsonValue>;
 	}) => ({
 		message: [
 			`${path} does not fit its fields:`,

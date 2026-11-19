@@ -19,6 +19,7 @@ import {
 	Type,
 } from 'typebox';
 import { Value } from 'typebox/value';
+import type { Problem } from './errors.ts';
 
 /** What every field helper takes: a description, and whether it may be absent. */
 type Options = {
@@ -128,6 +129,57 @@ export function refKeyOf(schema: unknown): string | undefined {
 	const annotation = (schema as Record<string, unknown>)[REF];
 	const key = (annotation as { key?: unknown } | undefined)?.key;
 	return typeof key === 'string' ? key : undefined;
+}
+
+/**
+ * One problem per ref in `value`, read through `schema`, that names no
+ * record by `exists`. `field` names where the value sits, such as `shelf`
+ * or `shelves[1]`. A list, an object, and a union are walked to their refs;
+ * a union fits when any choice that holds the value has no missing ref.
+ */
+export function missingRefs(
+	schema: TSchema,
+	value: unknown,
+	field: string,
+	exists: (key: string, id: string) => boolean,
+): Problem[] {
+	const { items, properties, anyOf } = schema as TSchema & {
+		items?: TSchema;
+		properties?: Record<string, TSchema>;
+		anyOf?: TSchema[];
+	};
+	const target = refKeyOf(schema);
+	if (target !== undefined && typeof value === 'string') {
+		if (exists(target, value)) return [];
+		return [
+			{
+				line: `${field} ${JSON.stringify(value)} names no record in ${target}`,
+				kind: `${field} names no record in ${target}`,
+			},
+		];
+	}
+	if (Array.isArray(value) && items)
+		return value.flatMap((item, index) =>
+			missingRefs(items, item, `${field}[${index}]`, exists),
+		);
+	if (typeof value === 'object' && value !== null && properties)
+		return Object.entries(properties).flatMap(([key, child]) =>
+			missingRefs(
+				child,
+				(value as Record<string, unknown>)[key],
+				`${field}.${key}`,
+				exists,
+			),
+		);
+	if (anyOf) {
+		const choices = anyOf
+			.filter((child) => Value.Check(child, value))
+			.map((child) => missingRefs(child, value, field, exists));
+		return (
+			choices.find((problems) => problems.length === 0) ?? choices[0] ?? []
+		);
+	}
+	return [];
 }
 
 type ListOptions = Options & {
@@ -263,9 +315,10 @@ export const field = {
 	},
 
 	/**
-	 * One id in another key of the same `defineData`: text that `check`
-	 * confirms names a file there. Reads open no other file. `defineData`
-	 * refuses a target that is not one of its keys.
+	 * One id in another key of the same `defineData`. A write that sets it
+	 * refuses an id with no record there; nothing checks it again, so a
+	 * later delete can leave it naming nothing. Reads open no other file.
+	 * `defineData` refuses a target that is not one of its keys.
 	 */
 	ref: <const O extends Options>(target: string, options?: O) => {
 		only('ref', options, OPTIONS);

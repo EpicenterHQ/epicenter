@@ -10,9 +10,6 @@ import type {
 	Misfit,
 	Missing,
 	NewRecord,
-	Passage,
-	Unfit,
-	WriteError,
 } from './data.ts';
 import { ActionError } from './errors.ts';
 import { field, isOptional } from './field.ts';
@@ -23,16 +20,16 @@ type ActionInput<TDef extends DataDef, TVerb extends Verb> = {
 	get: { id: string };
 	create: Flat<{ id: string } & NewRecord<TDef['fields']>>;
 	patch: Flat<{ id: string } & Change<TDef['fields']>>;
-	edit: Flat<{ id: string } & Passage>;
+	edit: { id: string; old: string; new: string };
 	delete: { id: string };
 }[TVerb];
 type ActionOutput<TDef extends DataDef, TVerb extends Verb> = {
-	list: Result<Result<DataRecord<TDef>, Misfit<TDef>>[], never>;
-	get: Result<DataRecord<TDef>, Misfit<TDef> | Unfit | Missing>;
-	create: Result<DataRecord<TDef>, Unfit | Changed>;
-	patch: Result<DataRecord<TDef>, WriteError<TDef> | Missing>;
-	edit: Result<DataRecord<TDef>, WriteError<TDef> | Missing>;
-	delete: Result<boolean, Unfit>;
+	list: Result<Result<DataRecord<TDef>, Misfit>[], never>;
+	get: Result<DataRecord<TDef>, Misfit | Missing>;
+	create: Result<DataRecord<TDef>, Misfit | Changed>;
+	patch: Result<DataRecord<TDef>, Misfit | Changed | Missing>;
+	edit: Result<DataRecord<TDef>, Misfit | Changed | Missing>;
+	delete: Result<boolean, Misfit>;
 }[TVerb];
 
 /** Each named verb's action, retaining its input and Result types. */
@@ -147,7 +144,19 @@ function dataAction(key: string, def: DataDef, handle: AnyHandle, verb: Verb) {
 					...hints,
 				},
 				run: ({ id, old, new: replacement }) =>
-					handle.edit(id, { old, new: replacement }),
+					handle.edit<Changed | Missing>(id, (record) => {
+						const path = handle.path(id);
+						if (record === undefined) return ActionError.Missing({ path });
+						const { body } = record;
+						const at = body.indexOf(old);
+						if (at < 0) return ActionError.Changed({ path, cause: 'quote' });
+						if (body.indexOf(old, at + 1) >= 0)
+							return ActionError.Changed({ path, cause: 'twice' });
+						return Ok({
+							body:
+								body.slice(0, at) + replacement + body.slice(at + old.length),
+						});
+					}),
 			});
 		case 'delete':
 			return defineAction({
