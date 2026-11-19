@@ -46,7 +46,7 @@ a `package.json` holding `"name": "<app>"` and `"private": true`, and a
 `.gitignore` holding `node_modules/` and `ui/dist/`. `data/` is made by the
 first write. Then run `bun install && bun run build` at the top of the Epicenter.
 `<app>` is lowercase letters, digits, and dashes, starts with a letter, and
-is not `check` or `serve`; the bare `epicenter` reports an app that does not
+is not `serve`; the bare `epicenter` reports an app that does not
 load, with what is wrong.
 
 An app can also start as a copy of another app's `code/` folder, made with
@@ -184,7 +184,8 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   disagreement: undeclared keys are kept by every write and left out of a
   read, and a missing optional field is no problem. Rename or tighten a field
   in two steps: change the code, then repair records with an action or agent.
-  Run `epicenter check <app>` afterward to see any remaining file diagnostics.
+  Call the key's `list` action afterward: it answers one Result per file, so
+  each record that still does not fit shows as a refusal.
   Commit code and repairs together.
   There is no global migration gate. Explain any repair when sharing code;
   another person's records change only when they run it.
@@ -247,8 +248,7 @@ runs that code until it stops. Nothing says the code on disk is newer, so an
 agent that skips the restart tests the old code. The Epicenter's `AGENTS.md`
 should name the owner's restart command, such as
 `launchctl kickstart -k gui/$(id -u)/<label>`; add it when it is missing and
-the owner tells you how serve is kept running. `epicenter check` tries
-changed code before the restart. Upgrade Epicenter by editing the `@epicenter/app` version in the
+the owner tells you how serve is kept running. Upgrade Epicenter by editing the `@epicenter/app` version in the
 Epicenter's `package.json`, then running `bun install && bun run build` at the top.
 That one package is the library and the `epicenter` command.
 Write each action with `defineAction`, which types its
@@ -291,8 +291,7 @@ Actions run inside `epicenter serve` itself, from the code serve loaded when
 it started, so an edit takes effect when serve restarts. The command line
 loads no app code: `epicenter`, `epicenter <app>`, an action's `--help` and
 `epicenter <app> <action>` all ask serve, and are refused with exit 2 while
-serve is stopped. `epicenter check` loads each app in its own process, so it
-tries changed code with serve stopped. Never call
+serve is stopped. Never call
 `process.exit`, `process.chdir`, or set `process.env` in an action: each
 reaches every app `serve` runs.
 
@@ -428,8 +427,8 @@ When recovering a bad write, inspect history and restore the relevant known
 version rather than retype its previous content, then record the repair in a
 named commit so history says what happened. A field change and its record
 repair belong together. Restoring only code or only data can leave the
-declaration and records disagreeing. Run `epicenter check <app>` and inspect
-the diagnostics for the affected paths. Make a named commit before
+declaration and records disagreeing. Call the affected key's `list` action
+and inspect the refusals for those paths. Make a named commit before
 risky work so the original files remain recoverable.
 
 ## Build the UI as a client
@@ -498,11 +497,9 @@ so it is safe to call again once its `cause` is fixed; `Threw` means it began
 and threw, with a tagged exception in `thrown`; `Unreachable` means the
 outcome is unknown; any other name is the action's own error, so it ran.
 Actions use the shared `ActionError` factories from `@epicenter/app`. The
-CLI's own commands answer the same way: `epicenter --json` and `check`
-with `--json` print `{ data, error }`, and every command
-exits 0 for no error, 2 for `NotStarted` and 1 for any other error. A
-`check` that finds problems answers `Problems`, exit 1, with what it found
-under `error.report`.
+CLI's own commands answer the same way: `epicenter --json` prints
+`{ data, error }`, and every command exits 0 for no error, 2 for
+`NotStarted` and 1 for any other error.
 
 A page's call error is exactly the action's own errors and `NotStarted`,
 `Threw` and `Unreachable`, so a `switch` on `error.name` is exhaustive and a

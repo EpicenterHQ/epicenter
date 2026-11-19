@@ -253,11 +253,6 @@ the fields that fit, for a repair form. `partitionResults(await data.watches.lis
 from `@epicenter/app` separates fitting records from files that need repair.
 UI code can import the same helper from `@epicenter/app/client`.
 
-`checkData(folder.path, data)`, which `epicenter check` runs, reads every key
-and reports each file that does not fit, each name that is not an id, names
-that are one file on a disk that ignores case, and each reference that names
-no file, each as one line.
-
 ### What a definition may say
 
 `defineData` refuses:
@@ -305,8 +300,8 @@ same `defineData`: `"essays"` for `data/shelves/essays.md`, never the path.
 whose target is not a key beside it when it runs; the types do not check it.
 
 - A write takes a ref as given and opens no other file, so a ref may name a
-  record that is not there. `epicenter check` reports each one, such as
-  `shelf "poems" names no file in shelves/`.
+  record that is not there, and nothing reports it until an action follows
+  it.
 - A read returns the id and opens no other file, so an id whose record was
   deleted since still reads as that id.
 - In an action's `input`, a reference is text. The action finds out whether
@@ -735,7 +730,7 @@ cannot see are in the next section.
 
 | 0.7.0 | 0.8.0 |
 | --- | --- |
-| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings record', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md`. Not flagged by the compiler for the key itself, only for the calls; a file left at `data/settings.md` is read by nothing, and `epicenter check` lists it |
+| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings record', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md`. Not flagged by the compiler for the key itself, only for the calls; a file left at `data/settings.md` is read by nothing, and nothing lists it |
 | one-file `data['settings.md'].patch(change)`, which made the file and repaired one that did not fit | no one call does both now: `data.settings.edit('settings', () => Ok(change))` makes an absent record but answers the `Misfit` for one that does not fit, and `data.settings.patch('settings', change)` repairs one that does not fit but answers `Missing` for an absent one |
 | `tasks: { fields }` | `tasks: { description: 'task', fields }`: a description is required, a noun without "a" or "the" |
 | `create({ title })` through the generated action, named by the moment | `create({ id: timeId(), title })` |
@@ -749,7 +744,7 @@ cannot see are in the next section.
 
 ### Changes the compiler does not flag
 
-- Serve calls the app's function once, when it starts, and `epicenter check` calls it once in its own process. A cache or counter kept in the function body lasts until serve restarts; keep what must last in a file. Read and write inside actions, not in the function body.
+- Serve calls the app's function once, when it starts. A cache or counter kept in the function body lasts until serve restarts; keep what must last in a file. Read and write inside actions, not in the function body.
 - A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
 - The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
 - `checkAnswer` refuses a `Threw` whose `thrown` is not a plain object, such as an `Error` instance a test passes in, and answers `Unreachable`. An answer read from serve is parsed JSON, so it is unaffected.
@@ -781,7 +776,7 @@ cannot see are in the next section.
 
 - A command finds its Epicenter only by walking up from the folder it runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd` into your Epicenter, or set a script's working directory there.
 - `epicenter serve` starts only in the Epicenter's own folder. Started anywhere else it refuses and exits, so a job that restarts it on exit fails again each time. Set the job's working directory to your Epicenter: `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=` in a systemd unit.
-- Bare `epicenter`, `epicenter <app>` and an action's `--help` ask serve, and are refused while it is stopped. `epicenter check` still works without it.
+- Bare `epicenter`, `epicenter <app>` and an action's `--help` ask serve, and are refused while it is stopped.
 
 
 ### Addresses and action names
@@ -837,6 +832,9 @@ The compiler flags none of these.
 | a folder in `apps/` without `code/epicenter.ts` answered 404 at its address | it answers 500 with its problem, and is listed with `no code/epicenter.ts` |
 | a second serve on the port, or another program there, reached through a probe | a command naming another Epicenter is refused with 409, naming the folder it took and its marker; serve refuses to start on a port in use |
 | a refusal for a missing action named the app's actions only in its message | `--json` also carries them as `error.actions` |
+| `epicenter check [<app>]` read every data key and reported files that did not fit, stray names, broken references and old `data/<key>.md` files | deleted; `epicenter check` is refused like any unknown app, and an app may be named `check` |
+| `import { checkData } from '@epicenter/app'` | deleted; call a key's `list` action, which answers one Result per file, refusals included |
+| a command's error carrying `report` printed that report on stdout | an error prints its message and next step only |
 
 - **Add the restart command to your `AGENTS.md`.** Agents that edit code
   must restart serve to run it. Write how, for this computer, in the
@@ -848,6 +846,8 @@ The compiler flags none of these.
 - **Add `port` to `EPICENTER.md`** if it has none: `port: 4747` between two
   `---` lines.
 - **Move a linked app into `apps/`.** Copy its folder in place of the link.
+- **Drop `epicenter check` and `checkData`** from scripts and tests. To see
+  which records of a key do not fit, call its `list` action.
 
 ### Upgrade steps
 
@@ -902,7 +902,7 @@ gives the error object itself:
 - **A page that matched `Refused` to catch a call that never ran** matches `NotStarted`. `Refused` now comes only from an action.
 - **An action that returned `ActionError.Unreachable`**, or its own error named `NotStarted` or `Unreachable`, now answers `Threw`. Return another name, or `Ok` with a field saying the result was not confirmed.
 - **Exit codes:** 2 is exactly `NotStarted`. A connection that dropped after the call was sent still exits 1, now as `Unreachable`.
-- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, `epicenter <app> --json` or `check --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word, answers `NotStarted` and exits 2. A `check` that finds problems ran and still exits 1: it answers `Problems`, and the report that was `data` is `.error.report`, so a script that read `jq .apps` reads `jq '.data // .error.report | .apps'`.
+- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, or `epicenter <app> --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word, answers `NotStarted` and exits 2.
 - **A page or test that matched `Refused` from a library write** matches `Misfit`. A data handle or generated verb answers `Misfit` for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments; the problem is in `problems[].line`, and the message now begins `<path> does not fit its fields:`. `Refused` from your own action is unchanged.
 - **`Changed.why` is `Changed.cause`**, with the same values: `there`, `quote` and `twice`.
 - **Errors no longer carry `namespace`.** A test that faked an error with `namespace: "epicenter/action-error"` drops the field; the name says which error it is.

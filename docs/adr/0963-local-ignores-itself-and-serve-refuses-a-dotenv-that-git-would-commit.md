@@ -50,7 +50,7 @@ apps/<app>/local/
   `*`. The pattern matches the ignore file too, so the file never shows in
   `git status`.
 - An app whose `local/` exists without that file is listed with a problem
-  by serve and by `epicenter check`:
+  by serve (`epicenter check` also did until ADR-0968 deleted it):
   `apps/<app>/local has no .gitignore; run: echo '*' > apps/<app>/local/.gitignore`.
   Serve does not write the file for it. An app may make `local/` with
   `node:fs` or SQLite and never call `folder` (ADR-0939), so the listing is

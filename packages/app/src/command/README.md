@@ -220,12 +220,11 @@ epicenter reading
 epicenter reading log '{"minutes":30,"book":"Dune"}'
 epicenter reading log '{"minutes":30}' --json
 epicenter reading patch '{"id":"dune","finished":null}'
-epicenter check
 epicenter serve
 epicenter --version
 ```
 
-The commands are `check` and `serve`. Their usage and help live in
+The one command is `serve`. Its usage and help live in
 `cli.ts`. No command makes an Epicenter, makes an app, or copies
 one: [Make an Epicenter](#make-an-epicenter) and
 [What an app holds](#what-an-app-holds) list the files
@@ -312,9 +311,8 @@ Run: epicenter serve
 ```
 
 Bare `epicenter`, `epicenter <app>` and an action's `--help` are refused the
-same way. Only `check`, and `--help` or `--version` on their own, work while
-serve is stopped: `check` loads each app as it is on disk, in its own
-process, so it also tries changed code before a restart.
+same way. Only `serve`, and `--help` or `--version` on their own, work while
+serve is stopped.
 
 The port is the Epicenter's name. A command names its Epicenter on every request in
 an `x-epicenter-root` header: its real path, sent only to `127.0.0.1`, so it
@@ -393,8 +391,7 @@ After editing an app's code, restart serve:
 launchctl kickstart -k gui/$(id -u)/<label>
 ```
 
-`epicenter check` loads an app in its own process, so it tries changed code
-before a restart. A stop cuts every call and routine run still going.
+A stop cuts every call and routine run still going.
 
 ## Keep serve running
 
@@ -515,7 +512,7 @@ What is in an app's `local/` stays on this computer. When `folder` makes
 folder whatever the root `.gitignore` says. The root line `/apps/*/local/`
 stays as a second guard, for a `local/` an app made itself with `node:fs`
 or SQLite. Such a `local/` without its own `.gitignore` is listed as a
-problem by the Epicenter listing, `epicenter check` and serve's start, with
+problem by the Epicenter listing and serve's start, with
 the fix:
 
 ```txt
@@ -570,7 +567,7 @@ including one forwarded from another action.
 
 `Ok(undefined)` arrives with null data. Human output puts success data on
 stdout and an error's message, and `Run: <next>` when there is one, on
-stderr. The CLI's own commands (`check`, the listings, `--version` and
+stderr. The CLI's own commands (the listings, `--version` and
 `--help`) answer the same way: with `--json`,
 stdout is their `{ data, error }`, and the exit code follows the same rule.
 `serve` prints no answer while it serves; a serve that cannot start answers
@@ -602,55 +599,6 @@ body: |
 ```
 
 `id` prints as a field: the command reads only the answer. A data key's `get`, `create`, `patch`, `edit`, and `delete` take `id` flat in the input object, beside the fields. `create` needs the `id` the caller chooses; a repeat with the same `id` answers `Changed` (`there`) and writes nothing.
-
-## Check records
-
-`epicenter check [<app>]` reads every data key an app declares, or every
-app's, and reports the files that do not fit their key's fields. A `get`
-returns a tagged `Misfit` for such a file. A generated `list` succeeds with
-one Result per file, including the individual refusals. The check command
-collects those diagnostics for the whole app so a person or agent can repair
-the records or the declaration.
-
-It runs `checkData` from `@epicenter/app` in a run of the app's folder and
-writes nothing. Besides files that do not fit, it reports a file in a folder
-key whose name is not a record id, names that are one file on a disk that
-ignores case, a `field.ref` that names no file in its target key, and a
-`data/<key>.md` for a declared key: a one-file record from before every key
-was a folder, read by nothing until it moves to `data/<key>/<key>.md`
-(listed with the app's problems). Every other file or folder directly under
-`data/` is the app's own and is not reported. Front
-matter no field declares is not a problem: a read does not give it, every
-write keeps it, and the check does not report it.
-
-For each key the report gives how many files it holds and how many have
-problems, then each file's path under `data/` and its problem lines.
-
-```txt
-$ epicenter check flights
-flights
-  watches  2 files, none with problems
-  checks  3 files, 1 with problems
-    checks/bad.md
-      watch: 3 is not text
-      day: "soon" is not a day like 2026-11-12
-  settings  0 files, none with problems
-```
-
-With `--json` its `data` is
-`{ "apps": { <app>: { <key>: { path, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
-A kind is a problem line without the value it quotes, so `due: "next week"`
-and `due: "soon"` are one kind; when most files share one kind, the
-declaration is often too narrow, and one change to `epicenter.ts` repairs
-them all. `records` holds only files with problems. Without an app named, an
-app that does not load is listed under `problems`, as in the Epicenter
-listing, and the other apps are still checked; a read that fails lists its
-app there too, and so does an app whose `local/` has no `.gitignore`, with
-the command that adds one. A named app that does not load did not run:
-`NotStarted`, exit 2. A clean report is `data`, exit 0. When a file or an
-app has a problem, the answer is `Problems`, exit 1, carrying the same
-report as `error.report` and a one-line summary as its message. Without
-`--json` the report prints on stdout either way, and the summary on stderr.
 
 ## The Epicenter's report
 
@@ -737,7 +685,7 @@ that holds:
 | `local/` | What this computer can rebuild or sign in again, or must keep to itself: sign-ins, caches, databases. The root `.gitignore` keeps it out of Git |
 
 `<name>` is lowercase letters, digits, and dashes, starts with a letter, and
-is not `check` or `serve`. Two packages in one Bun workspace cannot share a
+is not `serve`. Two packages in one Bun workspace cannot share a
 name, so `bun install` refuses a `package.json` whose name another app has.
 After `package.json` changes, run `bun install` at the top of the Epicenter; after
 `ui/` changes, `bun run build`. The bare `epicenter` lists an app that does
