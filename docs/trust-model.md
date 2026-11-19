@@ -108,8 +108,9 @@ The folder sync product kept every device's folder in step through an
 Epicenter server, hosted or self-hosted, that held each folder's history in
 plaintext. It is retired
 ([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)), and so is its
-trust model: a choice of server and of who a folder was shared with. Its routes
-still exist in `packages/server` until nothing imports them.
+trust model: a choice of server and of who a folder was shared with. Its server
+code was deleted with the hosted API
+([ADR-0970](adr/0970-the-hosted-api-is-retired.md)).
 
 Before that, Epicenter encrypted every value in a synced Yjs document under a
 key derived from a root its servers held. That still trusted the server, so it
