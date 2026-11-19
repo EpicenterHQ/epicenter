@@ -1,10 +1,10 @@
 /**
  * An action's input is one JSON Schema object (ADR-0953)
  *
- * Every declaration this repository ships, the example apps and the data
- * actions `defineData` generates for a key and a fixed-id settings key, carries
- * an input that survives `JSON.stringify` whole: what an agent, a page, or
- * another language receives is what validation uses.
+ * Every kind of declaration, hand-written actions and the data actions
+ * `defineData` generates for a key and a fixed-id settings key, carries an
+ * input that survives `JSON.stringify` whole: what an agent, a page, or another
+ * language receives is what validation uses.
  *
  * Key behaviors:
  * - the JSON copy deep-equals the schema, and `required` names exactly the
@@ -13,7 +13,7 @@
  * - MCP's `inputSchema` and `list --json` carry the same object
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
-import { readFile, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Value } from 'typebox/value';
 import { type Action, type App, type Folder, folderOnDisk } from '../index.ts';
@@ -23,16 +23,33 @@ import { connectMcp, fixture } from './runner.test-support.ts';
 // The public-surface test runs the real serve and command.
 setDefaultTimeout(30_000);
 
-const examples = join(import.meta.dir, '../../../../examples');
+/** Hand-written actions: a required text with a pattern, an optional select, and an all-optional input. */
+const written = `export default defineApp(() => {
+const add = defineAction({
+	description: 'Save a note',
+	input: {
+		body: field.text({ pattern: '\\\\S' }),
+		kind: field.select(['thought', 'quote'], { optional: true }),
+	},
+	run: () => Ok(undefined),
+});
+const search = defineAction({
+	description: 'Find notes',
+	input: { query: field.text({ optional: true }) },
+	run: () => Ok([]),
+});
+return { description: 'Hand-written actions', actions: { add, search } };
+});
+`;
 
-/** Generated data actions for a key and a fixed-id settings key, with a field of each kind. */
+/** Generated data actions for a key and a fixed-id settings key, with a field of each kind; `title`'s pattern reaches create and patch. */
 const generated = `export default defineApp(({ folder }) => {
 const data = defineData(folder, {
 	shelves: { description: 'shelf', fields: {} },
 	notes: {
 		description: 'note',
 		fields: {
-			title: field.text(),
+			title: field.text({ pattern: '\\\\S' }),
 			subtitle: field.text({ optional: true }),
 			pinned: field.boolean({ optional: true }),
 			tags: field.list(field.text(), { optional: true }),
@@ -60,19 +77,7 @@ return { description: 'Generated data actions', data, actions: {
 
 /** The keys each action requires, written out so a lost `required` cannot agree with itself. */
 const REQUIRED: Record<string, Record<string, string[]>> = {
-	tasks: {
-		list: [],
-		get: ['id'],
-		patch: ['id'],
-		edit: ['id', 'old', 'new'],
-		delete: ['id'],
-		add: ['title'],
-	},
-	writing: {
-		list: [],
-		get: ['id'],
-		patch: ['id'],
-		edit: ['id', 'old', 'new'],
+	written: {
 		add: ['body'],
 		search: [],
 	},
@@ -90,16 +95,10 @@ const REQUIRED: Record<string, Record<string, string[]>> = {
 	},
 };
 
-/** An Epicenter holding the example apps and the generated data actions, each loaded here too. */
-async function epicenterOfExamples() {
+/** An Epicenter holding the hand-written and the generated actions, each loaded here too. */
+async function epicenterOfApps() {
 	const f = await fixture();
-	const read = (path: string) => readFile(join(examples, path), 'utf8');
-	await f.folder(join(f.apps, 'tasks'), {
-		'code/epicenter.ts': await read('tasks/epicenter.ts'),
-	});
-	await f.folder(join(f.apps, 'writing'), {
-		'code/epicenter.ts': await read('writing/epicenter.ts'),
-	});
+	await f.app('written', written);
 	await f.app('data', generated);
 	const apps: Record<string, [string, Action][]> = {};
 	for (const name of Object.keys(REQUIRED)) {
@@ -121,8 +120,13 @@ function exampleOf(name: string, key: string, action: Action) {
 }
 
 test('every action input survives JSON whole, names its required keys, and validates alike', async () => {
-	const { f, apps } = await epicenterOfExamples();
+	const { f, apps } = await epicenterOfApps();
 	try {
+		// A data field's pattern reaches the generated inputs that take it.
+		for (const verb of ['create', 'patch'])
+			expect(
+				apps.data?.find(([key]) => key === verb)?.[1].input.properties.title,
+			).toMatchObject({ pattern: '\\S' });
 		for (const [name, actions] of Object.entries(apps)) {
 			expect(actions.map(([key]) => key)).toEqual(
 				Object.keys(REQUIRED[name] ?? {}),
@@ -163,7 +167,7 @@ test('every action input survives JSON whole, names its required keys, and valid
 });
 
 test('MCP inputSchema and list --json carry the same complete schema as the action', async () => {
-	const { f, apps } = await epicenterOfExamples();
+	const { f, apps } = await epicenterOfApps();
 	const { client, close } = await connectMcp(f);
 	try {
 		const { tools } = await client.listTools();

@@ -42,39 +42,32 @@ const repo = 'https://github.com/EpicenterHQ/epicenter';
 				</div>
 			</div>
 			<div class="min-w-0 rounded-xl border bg-muted/30 p-6 sm:p-8">
-				<h2 class="mb-5 font-semibold">Your Writing app</h2>
+				<h2 class="mb-5 font-semibold">A notes app</h2>
 				<pre
 					class="overflow-x-auto text-sm leading-7"
-				><code>{`~/Epicenter/apps/writing/
+				><code>{`~/Epicenter/apps/notes/
 ├── code/
-│   ├── epicenter.ts
-│   └── ui/
+│   └── epicenter.ts
 └── data/
     └── notes/`}</code></pre>
 			</div>
 		</section>
 
 		<section class="grid gap-5 border-t py-12 sm:grid-cols-[2fr_3fr] sm:py-16">
-			<h2 class="text-3xl font-semibold tracking-tight">
-				Start with a writing inbox
-			</h2>
+			<h2 class="text-3xl font-semibold tracking-tight">Start with one file</h2>
 			<div class="space-y-4 leading-relaxed">
 				<p>
-					Save a thought in Writing and you'll find a Markdown file in
-					<code>data/notes/</code>. Ask your agent to find the note, or open it
-					in your editor. Want to collect something else? You can change the
-					app's code beside those notes.
+					Write a notes app in one <code>epicenter.ts</code>, save a note, and
+					you'll find a Markdown file in <code>data/notes/</code>. Ask your
+					agent to find the note, or open it in your editor. Want to collect
+					something else? You can change the app's code beside those notes.
 				</p>
 				<p>
 					Run <code>epicenter serve</code> on the computer that holds these
-					files. Your browser and agents call the same actions there. One
-					private Git history records changes to your apps and their files.
+					files. Your terminal and your agents call the app's actions there, as
+					commands and MCP tools. One private Git history records changes to
+					your apps and their files.
 				</p>
-				<a
-					class="font-medium underline underline-offset-4"
-					href={repo + '/tree/main/examples/writing'}
-					>Explore the Writing app</a
-				>
 			</div>
 		</section>
 

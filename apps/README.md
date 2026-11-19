@@ -12,9 +12,8 @@ The apps in this folder are outside apps: each works without an Epicenter
 
 Personal apps such as Capture and Tasks live in the owner's Epicenter. One
 private Git repository holds each app's `apps/<name>/code/` and sibling
-`data/`. This repository includes [Writing](../examples/writing/) as an
-example you can copy into a home's `apps/writing/code/`, as the
-[Writing README](../examples/writing/README.md) shows.
+`data/`. This repository ships no apps of that kind, examples included
+([ADR-0969](../docs/adr/0969-the-repository-ships-no-apps.md)).
 The `epicenter-app` skill says how to make and change one.
 
 Honeycrisp, Local Books, the PostHog proxy, and the composition guide that
