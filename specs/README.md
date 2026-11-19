@@ -1,6 +1,6 @@
 # Technical Specifications
 
-This directory holds in-flight design scaffolding: feature plans and execution notes for work that is underway. It is **not** the durable record and **not** authoritative. Settled decisions are written into the `## Decisions` section of the README beside the code they govern, shared vocabulary into `docs/vision.md` ("The pieces"), and current package behavior into package READMEs and the code. The dated index of every past spec, including deleted ones, lives in `docs/spec-history.md`.
+This directory holds in-flight design scaffolding: feature plans and execution notes for work that is underway. It is **not** the durable record and **not** authoritative. Settled decisions are written into the `## Decisions` section of the README beside the code they govern, shared vocabulary into `docs/vision.md` ("The pieces"), and current package behavior into package READMEs and the code. Git keeps every past spec: `git log --all --full-history --stat -- "specs/*"` lists them, and `git show <sha>:<path>` reads one.
 
 When a spec's work lands, write any durable decision into the README it governs and delete the spent spec; git keeps the body recoverable. Do not keep finished specs here as a knowledge base.
 
@@ -123,7 +123,7 @@ A spec has exactly two states, both meaning "in flight, still in the tree":
 - `Draft`: design direction exists, implementation has not started or is not committed to the exact plan.
 - `In Progress`: work is underway and checkboxes or implementation notes should stay current.
 
-There is no terminal status. A spec does not become `Implemented`, `Superseded`, or `Retrospective` and linger; when its work lands (or it is abandoned), its durable decision is written into the README it governs and the spec is deleted. "Done" has one representation: the file is gone. Git and `docs/spec-history.md` keep the history. This is why an in-tree spec is always safe to treat as live, and why a spec declaring a terminal status should be deleted.
+There is no terminal status. A spec does not become `Implemented`, `Superseded`, or `Retrospective` and linger; when its work lands (or it is abandoned), its durable decision is written into the README it governs and the spec is deleted. "Done" has one representation: the file is gone. Git keeps the history. This is why an in-tree spec is always safe to treat as live, and why a spec declaring a terminal status should be deleted.
 
 When executing a spec, update checkboxes and implementation notes in the same review unit as the code. If implementation diverges from the spec, update the spec instead of leaving stale instructions behind.
 
