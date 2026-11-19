@@ -1,9 +1,9 @@
 ---
 name: query-layer
-description: 'Compose Result-returning services into TanStack Query with Wellcrafted''s resultQueries and resultMutations, one invalidation rule per QueryClient, and composition by spread. Use when editing createQuery, createMutation, resultQueries, resultMutations, resultQueryOptions, resultMutationOptions, runQuery, runMutation, a QueryClient or MutationCache, cache keys, invalidation, or optimistic updates.'
+description: 'Compose Result-returning services into TanStack Query with Wellcrafted''s resultQueries and resultMutations, one invalidation rule per QueryClient, and composition by spread. Use when editing createQuery, createMutation, resultQueries, resultMutations, runQuery, runMutation, a QueryClient or MutationCache, cache keys, invalidation, or optimistic updates.'
 metadata:
   author: epicenter
-  version: '4.0'
+  version: '4.1'
 ---
 
 # Query layer
@@ -29,8 +29,7 @@ callback order, or adapter types, ask DeepWiki a narrow question about
 
 Wrap the reads a UI observes in `resultQueries` and the writes in
 `resultMutations`. The first argument is the namespace, which starts every key;
-the second names the service functions. The dashboard does this for billing
-(`apps/api/ui/src/lib/dashboard/runtime.ts`):
+the second names the service functions:
 
 ```ts
 const billingQueries = resultQueries(['billing'], {
@@ -78,9 +77,8 @@ topUp.mutate({ successUrl: window.location.href }, { onSuccess, onError });
 ### Group a feature's maps by resource
 
 A namespace can have more than one part. When a feature holds several kinds of
-data, give each kind its own map and keep the maps in a plain object. The property names the resource, so each method can
-be a plain verb. Whispering does this for its folder
-(`apps/whispering/src/lib/folder-query.ts`):
+data, give each kind its own map and keep the maps in a plain object. The
+property names the resource, so each method can be a plain verb:
 
 ```ts
 const folderMutations = {
@@ -98,7 +96,7 @@ const folderMutations = {
 ```
 
 `folderMutations.notes.delete` is keyed `['folder', 'notes', 'delete']`. One
-flat map is still fine when its methods read clearly together, as billing's do.
+flat map is still fine when its methods read clearly together.
 
 ### Make writes take turns
 
@@ -112,32 +110,8 @@ queryClient.setMutationDefaults(['folder'], { scope: { id: 'folder' } });
 
 Every mutation keyed under `['folder']` now waits for the one before it, and the
 services stay unchanged. The prefix decides who waits, so key a write outside
-it when it must not hold up the others. Whispering keys a transcription run
-`['runs']`, because a slow request should not delay every save.
-
-### Adapt an individual operation
-
-Use `resultQueryOptions` or `resultMutationOptions` for one function outside a
-map, a key of your own, or a query that needs TanStack's context, such as its
-abort signal. Map entries never see that context.
-
-For a Result-returning operation observed by one component, construct the
-mutation there. The adapter unwraps `Ok` and throws the original `Err` value
-into TanStack's error path. A bare `mutationFn` that fulfills with `Err`
-would run success callbacks, including a form reset.
-
-```ts
-const create = createMutation(() => resultMutationOptions({
-  mutationKey: ['items', 'create'],
-  mutationFn: createItem,
-}));
-```
-
-Share the entry when another consumer needs the same identity or behavior.
-For example, a list can observe pending additions by the form's mutation key
-before the new items appear in a query. A spinner on the form can read the
-local mutation directly. A component-local mutation still runs the
-QueryClient's invalidation rule.
+it when it must not hold up the others: a slow transcription keyed `['runs']`
+does not delay every save to the folder.
 
 ## Capture the submitted operation
 
@@ -183,22 +157,22 @@ keeps the write pending until what is on screen is fresh.
 
 So do not call `invalidateQueries` after a write in a component or a mutation
 callback. An operation that changes nothing is a read, whatever its HTTP
-method: the dashboard's plan-change preview is a POST, and it is a query keyed
-by plan, enabled while its dialog is open. Modelling it as a mutation would need
+method: a plan-change preview sent as a POST is a query keyed by plan, enabled
+while its dialog is open. Modelling it as a mutation would need
 a reset before each use, a guard that its answer is for the open plan, and an
 exception to the rule. If one write's refetches ever cost too much, Wellcrafted
 documents a `meta.invalidates` opt-in; a precise list goes stale silently when a
 new read starts depending on the write, so adopt it only for that measured cost.
 Do not work out which reads a write affects by slicing its mutation key.
 
-The rule's scope is the client. The dashboard creates one per attachment, so
-its rule never touches another attachment's cache.
+The rule covers one client. Code that creates a client per account or
+connection gets one rule per client, and none touches another client's cache.
 
 ## Compose by spread
 
-Behavior goes where its scope is:
+Put behavior where it applies:
 
-| Scope | Where | Example |
+| Applies to | Where | Example |
 | --- | --- | --- |
 | One use | Spread into the hook's options | `createQuery(() => ({ ...billingQueries.plans(), select: (p) => p.cards }))` |
 | A method or namespace | Client defaults by key prefix | `queryClient.setQueryDefaults(billingQueries.overview.key, { refetchOnWindowFocus: 'always' })` |
