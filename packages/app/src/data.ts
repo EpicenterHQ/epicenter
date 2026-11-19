@@ -21,7 +21,7 @@
 import { isAbsolute } from 'node:path';
 import type { Static, TObject } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { Exists, Misfit, Missing, PublicError } from './errors.ts';
+import type { Exists, Misfit, Missing, PublicError } from './answer.ts';
 import {
 	defaultIn,
 	type Fields,

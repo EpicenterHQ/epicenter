@@ -2,13 +2,6 @@ export { defineErrors } from 'wellcrafted/error';
 export { Err, Ok, partitionResults, type Result } from 'wellcrafted/result';
 export { type Action, defineAction, type Update } from './action.ts';
 export {
-	type DataDef,
-	type DataRecord,
-	defineData,
-	type Handle,
-} from './data.ts';
-export { type App, defineEpicenter, type Epicenter } from './epicenter.ts';
-export {
 	ActionError,
 	type Exists,
 	type Misfit,
@@ -18,6 +11,13 @@ export {
 	type PublicError,
 	type Threw,
 	type Unreachable,
-} from './errors.ts';
+} from './answer.ts';
+export {
+	type DataDef,
+	type DataRecord,
+	defineData,
+	type Handle,
+} from './data.ts';
+export { type App, defineEpicenter, type Epicenter } from './epicenter.ts';
 export { field } from './field.ts';
 export { localDay, localTime, timeId } from './time.ts';

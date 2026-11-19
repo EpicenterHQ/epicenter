@@ -16,10 +16,11 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	ActionError,
+	type Answer,
+	isResult,
 	type NotStarted,
-	type PublicError,
 	type Unreachable,
-} from './errors.ts';
+} from './answer.ts';
 import type { ObjectSchema } from './field.ts';
 import { isPlainObject, parseJson } from './json.ts';
 
@@ -53,28 +54,6 @@ export type Listing = {
 	/** Why `epicenter.ts` did not load, when it did not; then there are no apps. */
 	problem?: string;
 };
-
-/** An action's answer on every surface: what it returned, or the error itself. */
-export type Answer = Result<unknown, PublicError>;
-
-/** Whether `value` is a Result: `{ data, error }` and nothing else. */
-export function isResult(value: unknown): value is Answer {
-	if (
-		!isPlainObject(value) ||
-		Reflect.ownKeys(value).length !== 2 ||
-		!Object.hasOwn(value, 'error') ||
-		!Object.hasOwn(value, 'data')
-	)
-		return false;
-	const { error } = value;
-	if (error === null) return true;
-	return (
-		value.data === null &&
-		isPlainObject(error) &&
-		typeof error.name === 'string' &&
-		typeof error.message === 'string'
-	);
-}
 
 /** Where an action is called, from serve's root. */
 export const actionPath = (app: string, action: string) =>

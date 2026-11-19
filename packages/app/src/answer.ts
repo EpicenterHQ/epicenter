@@ -1,20 +1,44 @@
 /**
- * The failures Epicenter itself answers, and the shape every action error
- * has. Three names belong to the platform and say whether an action ran:
- * `NotStarted` (it never began), `Threw` (it began and threw) and
- * `Unreachable` (the outcome is unknown). The data handles answer `Misfit`,
- * `Exists` and `Missing`. `Refused` is a ready-made name for an action's own
- * refusal. Any other name is the action's own.
+ * An action's answer on every surface, `{ data, error }`, and the failures
+ * Epicenter itself answers. Three names belong to the platform and say
+ * whether an action ran: `NotStarted` (it never began), `Threw` (it began and
+ * threw) and `Unreachable` (the outcome is unknown). The data handles answer
+ * `Misfit`, `Exists` and `Missing`. `Refused` is a ready-made name for an
+ * action's own refusal. Any other name is the action's own. This module uses
+ * only web APIs, so a page's bundle can carry it.
  */
 import {
 	defineErrors,
 	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
-import type { JsonValue } from './json.ts';
+import type { Result } from 'wellcrafted/result';
+import { isPlainObject, type JsonValue } from './json.ts';
 
 /** What every action error is: a name and a message, plus fields of its own. */
 export type PublicError = { name: string; message: string };
+
+/** An action's answer on every surface: what it returned, or the error itself. */
+export type Answer = Result<unknown, PublicError>;
+
+/** Whether `value` is a Result: `{ data, error }` and nothing else. */
+export function isResult(value: unknown): value is Answer {
+	if (
+		!isPlainObject(value) ||
+		Reflect.ownKeys(value).length !== 2 ||
+		!Object.hasOwn(value, 'error') ||
+		!Object.hasOwn(value, 'data')
+	)
+		return false;
+	const { error } = value;
+	if (error === null) return true;
+	return (
+		value.data === null &&
+		isPlainObject(error) &&
+		typeof error.name === 'string' &&
+		typeof error.message === 'string'
+	);
+}
 
 /** A tagged error an action threw: a name and a message, plus anything else. */
 export type Thrown = PublicError & Record<string, unknown>;

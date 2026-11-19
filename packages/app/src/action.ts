@@ -29,8 +29,8 @@
 
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import { isResult } from './call.ts';
-import type { PublicError } from './errors.ts';
+import type { PublicError } from './answer.ts';
+import { isResult } from './answer.ts';
 import {
 	defaultIn,
 	type Flat,

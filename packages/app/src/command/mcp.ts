@@ -15,7 +15,8 @@ import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { Answer, Listing } from '../call.ts';
+import type { Answer } from '../answer.ts';
+import type { Listing } from '../call.ts';
 import { errorText } from './output.ts';
 import type { Program } from './program.ts';
 import { answerCall } from './run.ts';

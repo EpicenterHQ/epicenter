@@ -61,7 +61,7 @@ Rebuilt from that JSON, `meaning` is required. `packages/app/src/command/input.t
 {"data":null,"error":{"name":"Threw","message":"Unexpected end of input"}}
 ```
 
-**Three error names belong to the platform's handling of a call, and each says whether the action ran.** All three are `ActionError` variants in `packages/app/src/errors.ts`. As first decided they carried `namespace: 'epicenter/action-error'`; the amendment [The names, settled](#the-names-settled) drops it.
+**Three error names belong to the platform's handling of a call, and each says whether the action ran.** All three are `ActionError` variants in `packages/app/src/answer.ts`. As first decided they carried `namespace: 'epicenter/action-error'`; the amendment [The names, settled](#the-names-settled) drops it.
 
 | Error | Who answers it | Did the action run? |
 | --- | --- | --- |

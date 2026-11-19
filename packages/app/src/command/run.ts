@@ -14,8 +14,8 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, trySync } from 'wellcrafted/result';
-import type { Answer } from '../call.ts';
-import { ActionError, PLATFORM_NAMES, type Thrown } from '../errors.ts';
+import type { Answer } from '../answer.ts';
+import { ActionError, PLATFORM_NAMES, type Thrown } from '../answer.ts';
 import { isPlainObject } from '../json.ts';
 import { inputProblem } from './input.ts';
 import { stderrJsonLines } from './output.ts';
