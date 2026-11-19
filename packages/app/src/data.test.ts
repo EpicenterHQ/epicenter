@@ -348,13 +348,41 @@ test.each([
 	},
 );
 
-test('a backslash in an id is refused by the folder, which reads it as a Windows separator', async () => {
-	// Node on macOS and Linux calls `a\b.md` one file name, so the id rule
-	// takes it; the folder refuses any path with `\` and throws.
-	const { data } = await setup();
-	await expect(data.notes.create('a\\b', { title: 'x' })).rejects.toThrow(
-		'is not a relative path',
-	);
+test('an id with a backslash is a Misfit for every write: the folder will not write it', async () => {
+	// Windows reads `\` as a separator, so the folder refuses any path with one.
+	const id = 'a\\b';
+	const { files, data } = await setup();
+	const line = `"a\\\\b" is a file name the folder will not write: "data/notes/a\\\\b.md" is not a relative path`;
+	for (const result of [
+		await data.notes.create(id, { title: 'x' }),
+		await data.notes.patch(id, { title: 'x' }),
+		await data.notes.edit(id, () => Ok({ title: 'x' })),
+	])
+		expect(expectErr(result)).toMatchObject({
+			name: 'Misfit',
+			path: 'data/notes',
+			problems: [{ line }],
+		});
+	expect(await files('data')).toEqual([]);
+	// There is no file, so delete answers so before it asks the folder.
+	expect(expectOk(await data.notes.delete(id))).toBe(false);
+});
+
+test('a hand-made file with a backslash is listed and read, and the folder refuses to change it', async () => {
+	const id = 'a\\b';
+	const { read, data } = await setup({
+		[`data/notes/${id}.md`]: '---\ntitle: "x"\n---\n',
+	});
+	expect((await data.notes.list()).map((row) => expectOk(row).id)).toEqual([
+		id,
+	]);
+	expect(expectOk(await data.notes.get(id))?.title).toBe('x');
+	for (const result of [
+		await data.notes.patch(id, { title: 'y' }),
+		await data.notes.delete(id),
+	])
+		expect(expectErr(result).name).toBe('Misfit');
+	expect(await read(`data/notes/${id}.md`)).toBe('---\ntitle: "x"\n---\n');
 });
 
 test('an id with a newline is one file name, and its Misfit message spans lines', async () => {

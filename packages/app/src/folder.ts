@@ -82,19 +82,27 @@ export function isUnderLocal(path: string): boolean {
 	return path.startsWith('local/');
 }
 
+/** The `code` on every throw for a path the folder will not take. */
+export const PATH_REFUSED = 'ERR_FOLDER_PATH';
+
+/** The error a folder throws for a path it will not take, marked with `PATH_REFUSED`. */
+const refused = (message: string) =>
+	Object.assign(new Error(message), { code: PATH_REFUSED });
+
 /**
  * `path` as a folder takes it: `./a//b.md` is `a/b.md`. Throws for an empty,
- * absolute, or climbing path, and for one inside `.git`.
+ * absolute, or climbing path, for one inside `.git`, and for one with `\`,
+ * which Windows reads as a separator.
  */
 export function normalizePath(path: string): string {
 	const parts = path.split('/').filter((part) => part !== '' && part !== '.');
 	if (path.startsWith('/') || path.includes('\\'))
-		throw new Error(`${JSON.stringify(path)} is not a relative path`);
-	if (parts.length === 0) throw new Error('a path is needed');
+		throw refused(`${JSON.stringify(path)} is not a relative path`);
+	if (parts.length === 0) throw refused('a path is needed');
 	if (parts.includes('..'))
-		throw new Error(`${JSON.stringify(path)} climbs out of the folder`);
+		throw refused(`${JSON.stringify(path)} climbs out of the folder`);
 	if (parts[0] === '.git')
-		throw new Error(`${JSON.stringify(path)} is inside .git`);
+		throw refused(`${JSON.stringify(path)} is inside .git`);
 	return parts.join('/');
 }
 
@@ -102,7 +110,7 @@ export function normalizePath(path: string): string {
 function writable(path: string) {
 	const normal = normalizePath(path);
 	if (!normal.startsWith('data/') && !isUnderLocal(normal))
-		throw new Error(
+		throw refused(
 			`${path} is outside data/ and local/, and an action writes only there`,
 		);
 	return normal;

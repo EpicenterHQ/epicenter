@@ -48,9 +48,8 @@ export function idOf(path: string): string | undefined {
  * The file under `base` that holds `id`, or undefined when Node would name
  * that file something other than `id`: `''`, `a/b`, `../x`, `x/`, and any
  * value that is not text. So every id `create` writes, `list` reads back
- * as the same id. On Windows `\` also separates folders, so `a\b` is
- * refused there; on macOS and Linux it is one name, and the folder then
- * refuses the write by throwing, since it takes `\` for a separator too.
+ * as the same id. On Windows `\` also separates folders, so Node refuses
+ * `a\b` here; on macOS and Linux the folder refuses it when written.
  */
 export function recordPath(base: string, id: unknown): string | undefined {
 	const path = `${base}/${id}.md`;

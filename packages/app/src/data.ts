@@ -8,7 +8,7 @@ import { isName } from './app.ts';
 import { type DataActions, dataActions, type Verb } from './data-actions.ts';
 import { ActionError } from './errors.ts';
 import { defaultIn, type OptionalKeys, refKeyOf } from './field.ts';
-import { type Folder, filesIn } from './folder.ts';
+import { type Folder, filesIn, PATH_REFUSED } from './folder.ts';
 import { isFieldKey, type JsonValue } from './front-matter.ts';
 import {
 	createMarkdownRecords,
@@ -180,8 +180,9 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 	});
 	/**
 	 * `run`'s answer, or a Misfit at the key's folder when `id` cannot name
-	 * one of its files: Node gives the file another name, or the system
-	 * refuses the name. Any other throw is not about the id and escapes.
+	 * one of its files: Node gives the file another name, or the folder or
+	 * the system refuses the name. Any other throw is not about the id and
+	 * escapes.
 	 */
 	async function named<T>(id: string, run: () => Promise<T>) {
 		// The id names no file, so the problem sits at the key's folder.
@@ -197,7 +198,9 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		try {
 			return await run();
 		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code;
+			const { code, message } = error as NodeJS.ErrnoException;
+			if (code === PATH_REFUSED)
+				return unfit(`is a file name the folder will not write: ${message}`);
 			if (code !== undefined && REFUSED_NAMES.has(code))
 				return unfit(`is a file name the system refuses (${code})`);
 			throw error;
