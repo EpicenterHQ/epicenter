@@ -215,7 +215,7 @@ above replaces it.
 ## Amendment (2026-11-18): an id is Node's name for the file, and every `.md` file in a key's folder is a record
 
 This follows the rule that each thing is checked once, where it can change,
-recorded with the removal of `epicenter check`.
+recorded in [ADR 0968](0968-each-thing-is-checked-once-where-it-can-change-and-epicenter-check-is-deleted.md).
 
 **An id is the file name without `.md`, as Node reads it.** The seven checks
 above (non-empty, 200 UTF-8 bytes, no `/` or `\`, no control character, no

@@ -128,8 +128,8 @@ with a synchronous lookup, so the callback runs once (the reason "check
 references inside `update`" was removed above was an asynchronous read).
 
 A ref is checked once, when it is set, by the rule that each thing is
-checked once, where it can change, recorded with the removal of
-`epicenter check`. A delete or rename of the target, or a hand
+checked once, where it can change, recorded in
+[ADR 0968](0968-each-thing-is-checked-once-where-it-can-change-and-epicenter-check-is-deleted.md). A delete or rename of the target, or a hand
 edit, leaves it naming nothing until code that follows it reads the target;
 "`epicenter check` reports them" in the consequences above no longer holds.
 The cost is one file lookup per ref a write sets. Inside one serve, a write
