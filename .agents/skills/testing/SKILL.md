@@ -64,7 +64,7 @@ External reading:
 - Matt Pocock, ["How to test your types"](https://www.totaltypescript.com/how-to-test-your-types) : compiler-checked API contracts, equality assertions, and negative cases; use Bun’s `expectTypeOf` import here
 - Matt Pocock, [`shoehorn`](https://github.com/total-typescript/shoehorn) : partial fixtures for legacy or third-party interfaces; incomplete fixtures do not prove a complete input contract
 
-> **Related Skills**: See [services-layer](../services-layer/SKILL.md) for the service patterns being tested. See [typescript](../typescript/SKILL.md) for API design, inference, and editor behavior.
+> **Related Skills**: See [typescript](../typescript/SKILL.md) for API design, inference, and editor behavior.
 
 ## Result Assertions
 
