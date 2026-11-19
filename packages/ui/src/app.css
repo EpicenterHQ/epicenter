@@ -13,9 +13,6 @@
 @import "./styles/shadcn-base.css";
 
 @source "./**/*.{svelte,ts}";
-/* App-shell components are styled through this shared CSS entrypoint, so Tailwind
-   must scan app-shell sources or app-shell-only utilities will not be generated. */
-@source "../../app-shell/src/**/*.{svelte,ts}";
 /* And for the model administration pane in Whispering's @epicenter/transcription. */
 @source "../../../apps/whispering/packages/transcription/guest-js/**/*.{svelte,ts}";
 

@@ -33,8 +33,6 @@ import {
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { MicrophonePreferences } from './microphone-preference.js';
 
-export type MicrophoneInput = ReturnType<typeof createMicrophoneInput>;
-
 /** What is known of the inputs the recorder lists. */
 export type InputList =
 	/** Nothing has been listed yet. */

@@ -36,15 +36,6 @@ const files = [...sources(src)].map((path) => ({
 	text: readFileSync(path, 'utf8'),
 }));
 
-/** Every source under `src/`, tests and their support included. */
-function* everything(directory: string): Generator<string> {
-	for (const name of readdirSync(directory).sort()) {
-		const path = join(directory, name);
-		if (statSync(path).isDirectory()) yield* everything(path);
-		else if (/\.(ts|svelte)$/.test(name)) yield path;
-	}
-}
-
 function importers(matches: (specifier: string) => boolean) {
 	const found: string[] = [];
 	for (const file of files)
@@ -122,20 +113,24 @@ test('the capabilities are made once, in app.ts', () => {
 		expect(callers(name)).toEqual(['lib/app.ts']);
 });
 
-test('the page imports no Yjs store, sync, account, or shared folder package, and from @epicenter/app only its Markdown grammar', () => {
+/** The Epicenter packages the page may import; from @epicenter/app, only its Markdown grammar. */
+const EPICENTER_IMPORTS = [
+	'@epicenter/ai',
+	'@epicenter/app/markdown',
+	'@epicenter/recorder',
+	'@epicenter/transcription',
+	'@epicenter/ui',
+];
+
+test('the page imports only its own Epicenter packages, and from @epicenter/app only its Markdown grammar', () => {
 	expect(
 		importers(
 			(specifier) =>
-				specifier === 'yjs' ||
-				specifier.startsWith('@y/') ||
-				specifier.startsWith('@epicenter/sync') ||
-				specifier.startsWith('@epicenter/account') ||
-				specifier.startsWith('@epicenter/svelte') ||
-				specifier.startsWith('@epicenter/folder') ||
-				specifier.startsWith('@epicenter/local') ||
-				specifier === '@epicenter/app' ||
-				(specifier.startsWith('@epicenter/app/') &&
-					specifier !== '@epicenter/app/markdown'),
+				specifier.startsWith('@epicenter/') &&
+				!EPICENTER_IMPORTS.some(
+					(allowed) =>
+						specifier === allowed || specifier.startsWith(`${allowed}/`),
+				),
 		),
 	).toEqual([]);
 });

@@ -18,13 +18,11 @@
 		"@epicenter/ui": "workspace:*",
 		"@tailwindcss/vite": "catalog:",
 		"astro": "6.4.6",
-		"posthog-js": "^1.386.6",
 		"svelte": "catalog:",
 		"tailwindcss": "catalog:"
 	},
 	"devDependencies": {
 		"@lucide/astro": "^1.18.0",
-		"@tailwindcss/typography": "catalog:",
 		"svelte-check": "catalog:",
 		"typescript": "catalog:"
 	},

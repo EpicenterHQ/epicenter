@@ -288,9 +288,9 @@ Find actual usages in the codebase first. Show the verbatim "Before" with file:l
 ````markdown
 ## Call sites: before and after
 
-### Historical Honeycrisp notes migration
+### Example: a notes table migration
 
-**Before, abbreviated.** The original notes table is at `72a5f6ec37:apps/honeycrisp/src/lib/workspace.ts`, line 78. The translation below was a proposal.
+**Before, abbreviated** (in a real spec, cite the file and line):
 
 ```ts
 const notesTable = defineTable(

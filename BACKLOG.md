@@ -201,7 +201,7 @@ not create a second implementation assignment.
 - Grounding: The earlier retirement list included `@epicenter/workspace`,
   `@epicenter/filesystem`, and `@epicenter/cli`. `@epicenter/cli` was
   published again and is retired once more, folded into `@epicenter/app`;
-  `@epicenter/app` is published; `@epicenter/folder` was private and is now
+  `@epicenter/app` is not on npm yet; `@epicenter/folder` was private and is now
   deleted; whether it was ever published is unchecked. Check current registry metadata
   and intended version ranges before proposing any deprecation; preserve the
   license of each previously published version.

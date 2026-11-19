@@ -24,12 +24,10 @@ first brief. For an adversarial review, follow
 
 A brief from this repository:
 
-> `@epicenter/cli` and `@epicenter/app` are released at one version, and the
-> command checks for a second copy of the library before loading an app. Read
-> `packages/app/README.md`, `packages/cli/README.md` and the command's loader.
-> Is there still a reason for two packages, or should the command fold into
-> `@epicenter/app`? Name each thing that depends on the split. The answer
-> decides whether we retire `@epicenter/cli`.
+> `@epicenter/ai` is used only by Whispering and its transcription package.
+> Read `packages/ai/src` and its imports under `apps/whispering`. Is there
+> still a reason for a separate package, or should it fold into Whispering? Name each thing that
+> depends on the split. The answer decides whether we keep `packages/ai`.
 
 ## Send it
 

@@ -10,7 +10,7 @@
  *
  * Tracked, not `existsSync`, on both sides of the gate: a doc may only cite what
  * the repository actually ships. Resolving against the filesystem would let a
- * reference to a gitignored build artifact (`packages/workspace/dist/index.js`) or a
+ * reference to a gitignored build artifact (`apps/landing/dist/index.html`) or a
  * stray local scratch file pass on the machine that wrote it and fail on a fresh
  * clone, making the gate's verdict depend on who ran it.
  *
