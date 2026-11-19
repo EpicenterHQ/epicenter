@@ -56,41 +56,17 @@ root `data/`, each app's code is in `apps/`, and caches are in the root
 `local/`, which Git ignores. You commit code and records together when you
 choose.
 
-```ts
-// epicenter.ts
-import { defineData, defineEpicenter, field } from '@epicenter/app';
-import { notes } from './apps/notes';
+[A home](packages/app/README.md#a-home) shows the files and a complete app:
+one `epicenter.ts` that declares the records, and one function per app that
+returns its actions.
 
-export const data = defineData(import.meta.dir, {
-  notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
-});
-export type Data = typeof data;
-
-export default defineEpicenter({ apps: { notes: notes(data) } });
-```
-
-```ts
-// apps/notes/index.ts
-import { defineAction, field, timeId } from '@epicenter/app';
-import type { Data } from '../../epicenter';
-
-export function notes({ notes }: Data) {
-  const add = defineAction({
-    description: 'Save a note',
-    input: { body: field.text(), source: field.text({ optional: true }) },
-    run: ({ body, source }) => notes.create(timeId(), { body, source }),
-  });
-  return { description: 'Notes I want to keep', actions: { add } };
-}
-```
-
-`epicenter serve` imports that program once and runs every action; restart it
+`epicenter serve` imports the home's program once and runs every action; restart it
 after changing code. The `epicenter` command sends each call to it. Actions
 change files; Git records them when you commit:
 
 ```sh
 epicenter serve
-epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
+epicenter writing add '{"body":"Fares drop in late March"}'
 ```
 
 `epicenter serve` offers every app's actions over MCP on the home. It listens
