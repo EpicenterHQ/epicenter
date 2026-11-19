@@ -150,7 +150,7 @@ reads.
 ## The capabilities and the root
 
 `src/lib/app.ts` opens every capability once, for the page's life
-([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+(ADR-0766).
 Code imports what it uses from there, never through context.
 
 - `folder`: `openFolder(isTauri() ? tauriFiles(desktopFolderPath) :

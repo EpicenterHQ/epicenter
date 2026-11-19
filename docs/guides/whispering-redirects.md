@@ -75,4 +75,4 @@ On October 1, 2026, `getwhispering.com` and `whispering.studio`, including
 their `www` hosts, returned 301 to `https://epicenter.so/whispering` over both
 HTTP and HTTPS. A request to `/about?retirement_check=1` also returned that
 fixed destination, discarding the source path and query. These legacy rules
-differ from the product aliases in ADR 0472, which retain paths and queries.
+differ from the product aliases, which retain paths and queries.
