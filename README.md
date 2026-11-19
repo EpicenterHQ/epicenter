@@ -113,7 +113,7 @@ commits. App publication copies only code into a separate
 history ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and
-needs no Epicenter. The hosted API is retired
+needs no Epicenter. The hosted API is retired for now
 ([ADR-0970](docs/adr/0970-the-hosted-api-is-retired.md)).
 
 The folder sync product that came before is retired

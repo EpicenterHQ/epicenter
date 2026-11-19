@@ -22,7 +22,7 @@ of every dependency update.
 
 ## Decision
 
-The repository no longer contains or deploys the hosted API. This change
+The repository no longer contains or deploys the hosted API, for now. This change
 deletes `apps/api` (with `apps/api/ui`), `packages/server`, `packages/account`,
 the API-only provider catalog in `packages/ai`, the API deploy step, the
 PostgreSQL step in the merge gate, `check:api-paths`, the Biome rule for the
@@ -42,4 +42,6 @@ API's error bodies, and the `auth`, `autumn`, `hono`, and `drizzle-orm` skills.
   files carry the `doc-path-check: ignore-file` marker, citing this record.
 - The rule that billing stays in `apps/api/worker/billing/` no longer has a
   subject and leaves `AGENTS.md`.
-- Git keeps the code. Nothing here promises a way back.
+- The retirement is temporary. Git keeps the code: restoring it means reverting
+  the commit that deleted it and updating its dependencies, when hosted
+  services are wanted again.
