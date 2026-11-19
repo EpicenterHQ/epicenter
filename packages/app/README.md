@@ -1,22 +1,22 @@
 # @epicenter/app
 
-What a home's `epicenter.ts` imports to define its records, apps and
+What an Epicenter's `epicenter.ts` imports to define its records, apps and
 actions; the client a page calls those actions through; and the `epicenter`
 command, which serves them to the command line, agents (MCP) and pages.
-A home depends on it and runs it with Bun.
+An Epicenter depends on it and runs it with Bun.
 
-A home is one program, composed in its root `epicenter.ts`. The rules it
+An Epicenter is one program, composed in its root `epicenter.ts`. The rules it
 keeps are under [Decisions](#decisions).
 
-## A home
+## An Epicenter
 
 ```txt
 ~/Epicenter/
-  package.json     "epicenter": { "port": 4747 }; this key marks the home
+  package.json     "epicenter": { "port": 4747 }; this key marks the Epicenter
   epicenter.ts     the program serve imports
   .env             secrets and this computer's settings, read through process.env
   data/            the records, plain Markdown, one folder per key
-  apps/            code only: each app is a function of the home's data
+  apps/            code only: each app is a function of the Epicenter's data
   local/           caches an app can rebuild, ignored by Git
 ```
 
@@ -100,13 +100,13 @@ something other than a Result answers `Threw`.
 ## The command and serve
 
 ```txt
-epicenter                            every app in this home
+epicenter                            every app in this Epicenter
 epicenter <app>                      what an app can do
 epicenter <app> <action> [<input>]   run an action; the input is one JSON object
-epicenter serve                      run the home
+epicenter serve                      run the Epicenter
 ```
 
-`epicenter serve` starts in the home's folder, imports `epicenter.ts`
+`epicenter serve` starts in the Epicenter's folder, imports `epicenter.ts`
 once, and listens on 127.0.0.1 at the marker's port. Restart it after
 changing code. Every other command asks serve and runs no app code.
 
@@ -142,7 +142,7 @@ Each call resolves to a Result typed by the action. Pass
 
 ## Tests
 
-A test rebinds the home's data to a temporary folder and calls the app
+A test rebinds the Epicenter's data to a temporary folder and calls the app
 function with it:
 
 ```ts
@@ -173,22 +173,22 @@ These are the rules an agent or a contributor would most likely undo by
 mistake. Each says why, and names a tempting alternative that lost. Change
 a rule here in the same pull request as the code.
 
-### The home
+### The Epicenter
 
-- **A home is one program: `epicenter.ts` opens the data once and passes it
+- **An Epicenter is one program: `epicenter.ts` opens the data once and passes it
   to every app, and serve imports that one module.** Records belong to the
-  home, not to an app, so a file with no app or with two still has a place.
+  Epicenter, not to an app, so a file with no app or with two still has a place.
   Refused: records under each app; apps discovered from `apps/`; each app
   declaring the keys it writes and serve refusing two writers.
-- **The command finds its home by walking up to the nearest `package.json`
+- **The command finds its Epicenter by walking up to the nearest `package.json`
   with an `"epicenter"` key, and serve refuses to start outside that
-  folder.** A command run in an unrelated project must not act on a home
+  folder.** A command run in an unrelated project must not act on an Epicenter
   silently, and Bun reads `.env` from the folder serve starts in.
   Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
 - **`local/` carries its own `.gitignore`.** It stays out of Git whatever
   the root `.gitignore` says, with no Git process to check it.
   Refused: a Git check for each `local/` at start.
-- **No command makes a home or an app, or copies an app in or out, and the
+- **No command makes an Epicenter or an app, or copies an app in or out, and the
   package ships no template.** Each happens once per owner, and the owner's
   agent already knows how; a command or a template is one more thing to
   keep true.
@@ -240,14 +240,14 @@ a rule here in the same pull request as the code.
   Refused: `model(name)` over connections in `.env` (built and withdrawn in
   #2702); a `models` app or LiteLLM beside serve.
 
-### Running the home
+### Running serve
 
 - **After an action's words the command takes at most one more word, a JSON
   object. No input means `{}`.** One grammar covers every input shape.
   Refused: flags spelling the same JSON; JSON5 or `key=value`.
 - **The command exits 0 for success, 2 for `NotStarted` and 1 otherwise.**
   A script can retry what never started without guessing.
-- **One serve per home runs every action, and the port is its lock. The
+- **One serve per Epicenter runs every action, and the port is its lock. The
   command never starts serve, never runs an action itself, and loads no app
   code: it sends the input to serve, which alone reads it.** One writer
   holds while serve is up, and two loads cannot disagree.
@@ -267,8 +267,8 @@ a rule here in the same pull request as the code.
   Refused: `epicenter service` with a LaunchAgent; a parent process that
   restarts serve.
 - **MCP offers one tool per action and sends no instructions.** An agent
-  learns each tool from its action's description. A home's `AGENTS.md`
-  guides an agent working in the home's files, with steps an MCP client
+  learns each tool from its action's description. An Epicenter's `AGENTS.md`
+  guides an agent working in the Epicenter's files, with steps an MCP client
   cannot take, such as `bun install`; an agent working there reads it
   itself.
   Refused: sending `AGENTS.md` as MCP instructions.

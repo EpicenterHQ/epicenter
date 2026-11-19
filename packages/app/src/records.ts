@@ -88,7 +88,7 @@ function inDeclaredOrder(values: FieldValues, fields: Fields) {
 export function createHandle(home: string, key: string, def: DataDef) {
 	const { fields } = def;
 	const folder = `data/${key}`;
-	/** The file for `id`, from the home. */
+	/** The file for `id`, from the Epicenter. */
 	const pathOf = (id: string) => `${folder}/${id}.md`;
 
 	/** A change that does not fit the declared fields, as one problem. */

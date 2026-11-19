@@ -16,7 +16,7 @@ One command, `epicenter serve`, offers every app's actions over MCP on that
 computer; your private network brings your other devices in. Nothing syncs
 and no one signs in: your other devices are thin clients of the one copy,
 and `origin` is a push-only backup. `@epicenter/app` implements this layout;
-[its README](../packages/app/README.md#a-home) shows it.
+[its README](../packages/app/README.md#an-epicenter) shows it.
 
 This page is the front door. Its core invariants state what Epicenter
 promises and what it gives up. The package READMEs describe the code that
@@ -32,7 +32,7 @@ a private connection, to your other devices. The computer can be a laptop you
 use, an older laptop you repurpose, or a desktop.
 
 `serve` listens only on that computer and signs no one in. Your private network
-decides which other devices reach it ([serve's rules](../packages/app/README.md#running-the-home)):
+decides which other devices reach it ([serve's rules](../packages/app/README.md#running-serve)):
 
 ```text
 Your phone -------------\
@@ -171,7 +171,7 @@ or cron calls `epicenter <app> <action>`, which runs only while `serve` does.
 | something that crosses apps | an agent, then an action in a personal app |
 
 For an app's shape, start from the `writing` example in
-[`@epicenter/app`'s README](../packages/app/README.md#a-home). This
+[`@epicenter/app`'s README](../packages/app/README.md#an-epicenter). This
 repository ships no inside apps; Mail (cached) and Messages (live) are the
 author's and are not published.
 
@@ -196,7 +196,7 @@ Agents make apps: you start Claude Code on that computer, ask for an app, and it
 writes its code in `apps/`, its data keys in `epicenter.ts`, and its records.
 An app can also start as a copy of another Epicenter's `apps/<app>/` folder, taken
 with ordinary file tools and kept without a remote or later merge (no command
-copies an app: [the package's rules](../packages/app/README.md#the-home)). The
+copies an app: [the package's rules](../packages/app/README.md#the-epicenter)). The
 agent adds the data keys it reads and adapts any later source changes in
 place.
 
@@ -244,7 +244,7 @@ author's apps and do not ship here.
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
 | a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's data declares, in its own folder, and none has to |
-| your computer | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or under a job the person sets up ([serve's rules](../packages/app/README.md#running-the-home)); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
+| your computer | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or under a job the person sets up ([serve's rules](../packages/app/README.md#running-serve)); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
 | Git | one private root history of the commits you make, optional origin backup, LFS for binaries |
@@ -272,7 +272,7 @@ App code lives in `apps/`. Records belong to your Epicenter, not to an app, so a
 place. `data/` is what you would want back if this computer were lost, and
 Git keeps its history. `local/` is what this computer can rebuild or sign
 in again, such as a sign-in or a copy of a mailbox, and it never leaves
-this computer. [The package README](../packages/app/README.md#a-home) shows the layout
+this computer. [The package README](../packages/app/README.md#an-epicenter) shows the layout
 and a complete app; that README is the one place the mechanics are written
 down.
 
@@ -296,7 +296,7 @@ backup, so make a named commit before a risky change
 Code goes where what it needs is. Recording needs the microphone, so it lives
 in Whispering. Searching Gmail needs your sign-in, so it is an action that
 runs on your computer. One `serve` there runs every action
-([running `serve`](../packages/app/README.md#running-the-home)).
+([running `serve`](../packages/app/README.md#running-serve)).
 
 ## Pages
 

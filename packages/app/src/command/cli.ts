@@ -1,9 +1,9 @@
 /**
- * The `epicenter` command. It runs no app code: it finds its home by walking
- * up to the marker, and asks that home's serve, reading the listing at
+ * The `epicenter` command. It runs no app code: it finds its Epicenter by walking
+ * up to the marker, and asks that Epicenter's serve, reading the listing at
  * `GET /actions/` and calling an action as a page does, with `postAction`.
  * It never starts serve and never runs an action in its place.
- * `epicenter serve` is the process that imports the home's `epicenter.ts`.
+ * `epicenter serve` is the process that imports the Epicenter's `epicenter.ts`.
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -22,13 +22,13 @@ import { isName } from '../name.ts';
 import { findHome, type Home } from './home.ts';
 import { printAnswer, writeErr } from './output.ts';
 
-const HELP = `epicenter                          every app in this home
+const HELP = `epicenter                          every app in this Epicenter
 epicenter <app>                    what an app can do
 epicenter <app> <action> [<input>] run an action; the input is one JSON object
-epicenter serve                    run the home: import epicenter.ts and listen
+epicenter serve                    run the Epicenter: import epicenter.ts and listen
 epicenter --version
 
-The home is the nearest folder at or above this one whose package.json has
+The Epicenter is the nearest folder at or above this one whose package.json has
 an "epicenter" key, such as "epicenter": { "port": 4747 }. serve starts in
 that folder and listens on 127.0.0.1 at that port; every other command asks
 it, and runs no app code itself. Restart serve after changing code.
@@ -37,7 +37,7 @@ Exit codes: 0 done, 1 failed or may have run, 2 did not run.`;
 const usage = (message: string, next = 'epicenter --help') =>
 	ActionError.NotStarted({ message, next });
 
-/** Where the home's serve answers, and the header that names this home to it. */
+/** Where the Epicenter's serve answers, and the header that names this Epicenter to it. */
 const serveOf = (home: Home) => ({
 	url: `http://127.0.0.1:${home.port}`,
 	headers: { [HOME_HEADER]: encodeURIComponent(home.folder) },
@@ -68,7 +68,10 @@ function table(rows: [string, string][]) {
 
 /** What bare `epicenter` prints. */
 function homeText(listing: Listing, home: Home) {
-	const lines = [`Home: ${home.folder} (epicenter ${listing.version})`, ''];
+	const lines = [
+		`Epicenter: ${home.folder} (epicenter ${listing.version})`,
+		'',
+	];
 	if (listing.problem) return [...lines, listing.problem].join('\n');
 	if (!listing.apps.length)
 		return [

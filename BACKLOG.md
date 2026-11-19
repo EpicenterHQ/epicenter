@@ -94,7 +94,7 @@ not create a second implementation assignment.
 - Distribution: A person gets an app by copying its `apps/<app>/` folder into
   their Epicenter and adding the data keys it reads to their `epicenter.ts`; no
   command does it
-  ([the Epicenter's rules](packages/app/README.md#the-home)).
+  ([the Epicenter's rules](packages/app/README.md#the-epicenter)).
 - Revisit when: Chinese study becomes the next product milestone.
 
 ### Make Whispering's dictation loop clear from speech to delivered text

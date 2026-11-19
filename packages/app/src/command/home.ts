@@ -1,5 +1,5 @@
 /**
- * Find the home a command runs in. The marker is the first `package.json`,
+ * Find the Epicenter a command runs in. The marker is the first `package.json`,
  * walking up from where the command runs, with an `"epicenter"` key; its
  * `port` is where serve listens:
  *
@@ -18,7 +18,11 @@ import { ActionError, type NotStarted } from '../answer.ts';
 import { readBytes } from '../disk.ts';
 import { isPlainObject, parseJson } from '../json.ts';
 
-/** A home, found once and passed to everything that reads it. */
+/**
+ * Where an Epicenter folder was found, and the port its serve listens on.
+ * "Home" is the code name for that folder; the docs call it your Epicenter.
+ * Found once and passed to everything that reads it.
+ */
 export type Home = {
 	/** Its real path. */
 	folder: string;
@@ -36,7 +40,7 @@ function isPort(value: unknown): value is number {
 }
 
 /**
- * The home a command started in `start` acts on: the nearest folder at or
+ * The Epicenter a command started in `start` acts on: the nearest folder at or
  * above it whose `package.json` has an `"epicenter"` key, as Git finds the
  * nearest `.git`.
  */
@@ -49,7 +53,7 @@ export function findHome(start = process.cwd()): Result<Home, NotStarted> {
 		// Walking past a broken one could reach an outer home and act on it.
 		if (bytes && found === undefined)
 			return ActionError.NotStarted({
-				message: `${file} is not JSON, so it cannot say whether this is a home; fix it`,
+				message: `${file} is not JSON, so it cannot say whether this is an Epicenter; fix it`,
 			});
 		if (isPlainObject(found) && Object.hasOwn(found, 'epicenter')) {
 			const settings = found.epicenter;
@@ -64,7 +68,7 @@ export function findHome(start = process.cwd()): Result<Home, NotStarted> {
 		if (parent === folder)
 			return ActionError.NotStarted({
 				message:
-					'There is no package.json with an "epicenter" key here or above; cd into your home',
+					'There is no package.json with an "epicenter" key here or above; cd into your Epicenter folder',
 			});
 		folder = parent;
 	}

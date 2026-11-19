@@ -10,7 +10,7 @@ The apps in this folder are outside apps: each works without an Epicenter.
 Personal apps such as Capture and Tasks live in the owner's Epicenter, one
 private Git repository: each is a function in `apps/<name>/` that the Epicenter's
 `epicenter.ts` composes, and their records live in the Epicenter's `data/`
-([the Epicenter's rules](../packages/app/README.md#the-home)).
+([the Epicenter's rules](../packages/app/README.md#the-epicenter)).
 This repository ships no apps of that kind, examples included.
 [`@epicenter/app`'s README](../packages/app/README.md) says how to make one.
 

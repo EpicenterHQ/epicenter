@@ -39,7 +39,7 @@
 ## Try the CLI
 
 Epicenter needs [Bun](https://bun.sh) and Git; an AI account is not required.
-Make `~/Epicenter` as [your Epicenter](packages/app/README.md#a-home) shows: a
+Make `~/Epicenter` as [your Epicenter](packages/app/README.md#an-epicenter) shows: a
 `package.json` that names the port, an `epicenter.ts`, and one app. Then run
 `epicenter serve` there and call the app from the terminal. This repository
 ships no apps, so the first one is yours.
@@ -56,7 +56,7 @@ root `data/`, each app's code is in `apps/`, and caches are in the root
 `local/`, which Git ignores. You commit code and records together when you
 choose.
 
-[Your Epicenter](packages/app/README.md#a-home) shows the files and a complete app:
+[Your Epicenter](packages/app/README.md#an-epicenter) shows the files and a complete app:
 one `epicenter.ts` that declares the records, and one function per app that
 returns its actions.
 

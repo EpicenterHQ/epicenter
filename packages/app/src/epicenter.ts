@@ -1,5 +1,5 @@
 /**
- * A home's program: what its root `epicenter.ts` default-exports, and the
+ * An Epicenter's program: what its root `epicenter.ts` default-exports, and the
  * one module serve imports.
  *
  * ```ts
@@ -8,7 +8,7 @@
  * });
  * ```
  *
- * An app is a function of the home's `Data` that returns its description
+ * An app is a function of the Epicenter's `Data` that returns its description
  * and its actions. Its name is its key in `apps`: the command word
  * (`epicenter flights daily`), the MCP tool prefix (`flights_daily`) and the
  * route (`/actions/flights/daily`).
@@ -23,12 +23,12 @@ export type App = {
 	readonly actions: { readonly [name: string]: Action };
 };
 
-/** A home's program: its apps, by name. */
+/** An Epicenter's program: its apps, by name. */
 export type Epicenter<TApps extends Record<string, App> = Record<string, App>> =
 	{ readonly apps: TApps };
 
 /**
- * Define a home's program from its apps. Serve checks the names when it
+ * Define an Epicenter's program from its apps. Serve checks the names when it
  * loads the program; an app named `serve`, the command's own word, is
  * refused by the type.
  */

@@ -1,5 +1,5 @@
 /**
- * An action: one thing a person, an agent or a page can ask a home to do,
+ * An action: one thing a person, an agent or a page can ask an Epicenter to do,
  * with a description and the fields of its input. Every action is written
  * with `defineAction`; nothing is reachable from the command, MCP or a page
  * unless an action exposes it.
