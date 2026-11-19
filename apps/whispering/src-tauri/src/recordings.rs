@@ -2,9 +2,30 @@
 //! otherwise make one call per file, and a person can have 15,000.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use tauri::{AppHandle, Manager, Runtime};
+
+/// The `recordings/` folder in the app's local data directory.
+pub fn dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    app.path()
+        .app_local_data_dir()
+        .map(|data| data.join("recordings"))
+        .map_err(|error| {
+            format!("The system did not say where Whispering keeps its files: {error}")
+        })
+}
+
+/// Every recording in `recordings/`: its note's text and whether its audio is there.
+#[tauri::command]
+pub async fn recordings_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Listed>, String> {
+    let dir = dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || list(&dir))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
 
 /// One recording: its note's text when it has one, and whether its audio
 /// is there. A take that crashed before its note was written has audio and

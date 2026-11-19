@@ -38,7 +38,7 @@ fn main() {
         .plugin(tauri_plugin_epicenter_recorder::init())
         .setup(|app| Ok(start(app.handle())?))
         .invoke_handler(tauri::generate_handler![
-            recordings_list,
+            recordings::recordings_list,
             keys::key_set,
             keys::key_exists,
             transcribe::transcribe
@@ -51,11 +51,10 @@ fn main() {
 /// the window. The recorder records into a folder the scope allows, and the
 /// file system plugin's commands check the same scope.
 fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let data = app.path().app_local_data_dir().map_err(|error| {
-        format!("The system did not say where Whispering keeps its files: {error}")
-    })?;
-    std::fs::create_dir_all(data.join("recordings"))
-        .map_err(|error| format!("{} could not be made: {error}", data.display()))?;
+    let folder = recordings::dir(app)?;
+    std::fs::create_dir_all(&folder)
+        .map_err(|error| format!("{} could not be made: {error}", folder.display()))?;
+    let data = folder.parent().unwrap_or(&folder).to_path_buf();
     app.fs_scope()
         .allow_directory(&data, true)
         .map_err(|error| format!("{} could not be opened: {error}", data.display()))?;
@@ -82,20 +81,6 @@ fn listen_for_shortcut<R: Runtime>(app: &AppHandle<R>) {
     if let Err(error) = held {
         log::warn!("The shortcut {SHORTCUT} could not be held: {error}");
     }
-}
-
-/// Every recording in `recordings/`: its note's text and whether its audio is there.
-#[tauri::command]
-async fn recordings_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<recordings::Listed>, String> {
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("recordings");
-    tauri::async_runtime::spawn_blocking(move || recordings::list(&dir))
-        .await
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())
 }
 
 /// Bring the open window forward, for a second launch.

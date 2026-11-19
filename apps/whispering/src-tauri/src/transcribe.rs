@@ -8,9 +8,9 @@
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 
-use crate::keys;
+use crate::{keys, recordings};
 
 /// How long a transcription may take in all: a long recording on a slow
 /// server takes minutes.
@@ -55,13 +55,8 @@ pub async fn transcribe<R: Runtime>(
         });
     }
     keys::origin(&base_url).map_err(|message| TranscribeError::Unreachable { message })?;
-    let path = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| TranscribeError::NoAudio {
-            message: format!("The system did not say where Whispering keeps its files: {error}"),
-        })?
-        .join("recordings")
+    let path = recordings::dir(&app)
+        .map_err(|message| TranscribeError::NoAudio { message })?
         .join(format!("{id}.webm"));
     let endpoint = endpoint(&base_url);
     let (audio, key) = tauri::async_runtime::spawn_blocking(move || {
@@ -76,8 +71,10 @@ pub async fn transcribe<R: Runtime>(
         Ok((audio, key))
     })
     .await
+    // The read stopped without finishing (it panicked); say so rather than
+    // claim the audio is gone.
     .map_err(|error| TranscribeError::NoAudio {
-        message: error.to_string(),
+        message: format!("Reading the recording stopped: {error}"),
     })??;
     send(
         &endpoint,
