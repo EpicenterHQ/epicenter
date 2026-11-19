@@ -23,7 +23,6 @@
 	},
 	"devDependencies": {
 		"@lucide/astro": "^1.18.0",
-		"@tailwindcss/typography": "catalog:",
 		"svelte-check": "catalog:",
 		"typescript": "catalog:"
 	},
