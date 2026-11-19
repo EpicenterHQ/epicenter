@@ -40,7 +40,7 @@ Transform field schemas into format-specific representations.
 
 ```
 ┌─────────────┐     ┌──────────────┐
-│ Field Schema│────▶│  to-arktype  │────▶ Runtime validation
+│ Field Schema│────▶│  to-typebox  │────▶ Runtime validation
 └─────────────┘     ├──────────────┤
                     │  to-drizzle  │────▶ SQLite columns
                     └──────────────┘
@@ -54,7 +54,7 @@ Field schemas are pure JSON Schema objects with `x-component` hints. Each conver
 ```markdown
 # Converters
 
-- `to-arktype.ts` - Converts to ArkType
+- `to-typebox.ts` - Converts to TypeBox
 - `to-drizzle.ts` - Converts to Drizzle
 - `index.ts` - Exports
 ```

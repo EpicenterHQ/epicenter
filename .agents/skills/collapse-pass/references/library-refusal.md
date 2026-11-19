@@ -21,9 +21,8 @@ A library's public surface defines the behavior it supports, including details
 a local wrapper can silently omit. Its documentation and installed source
 establish that contract; they do not decide which model the product needs.
 
-Yjs has thought about CRDT replicas. ArkType has thought about runtime
-validation. Better Auth has thought about session lifecycle. Drizzle has
-thought about query composition. Read those decisions before building a second
+Yjs has thought about CRDT replicas. Better Auth has thought about session
+lifecycle. Drizzle has thought about query composition. Read those decisions before building a second
 version of the protocol; their authority over that protocol does not require
 the product to adopt every part of the library's model.
 
@@ -69,7 +68,6 @@ dependencies or a reason to introduce a library.
 
 | Upstream repository | Concern to investigate |
 |---|---|
-| `arktypeio/arktype` | Runtime validators, schema composition, and branded types. |
 | `yjs/yjs` | CRDT types, observer lifetimes, transactions, and subdocument identities when the affected source uses Yjs. |
 | `yjs/y-indexeddb` | Browser persistence and its lifecycle when that adapter is present. |
 | `standard-schema/standard-schema` | The shared contract between validator libraries and their consumers. |

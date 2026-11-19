@@ -17,9 +17,8 @@ autocomplete offer, what does hover explain, and where does Go to Definition
 lead?
 
 Use [query-layer](../query-layer/SKILL.md) when adapting Result-returning
-operations for caching and observable execution state. Schema libraries and tests have their own
-skills: [arktype](../arktype/SKILL.md), [typebox](../typebox/SKILL.md), and
-[testing](../testing/SKILL.md).
+operations for caching and observable execution state. Schemas and tests have their own
+skills: [typebox](../typebox/SKILL.md) and [testing](../testing/SKILL.md).
 
 ## Core rules
 
@@ -99,7 +98,6 @@ For broader public-shape decisions that affect navigation across packages, see
 - [Project conventions](references/project-conventions.md): examples for derived types, local shape copies, imports, barrels, generics, and inference.
 - [Type safety and control flow](references/type-safety-and-control-flow.md): identity brands, casts, optional properties, boolean naming, switches, record lookups, error composition, and invariants.
 - [Type organization](references/type-organization.md): type ownership, co-location, factory output aliases, and the cost of extraction.
-- [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and record ids.
 - [Type tests](../testing/references/type-testing.md): inferred types, rejected inputs, and compiler verification.
 - [Advanced TypeScript features](references/advanced-typescript-features.md): iterator helpers and const generic array inference.
 - [Readable constraint errors](references/readable-constraint-errors.md): identifying an invalid literal key or string in a compiler diagnostic.
