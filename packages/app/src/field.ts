@@ -31,35 +31,6 @@ type Options = {
 };
 
 /**
- * Throw when `options` names one `helper` does not declare, so it is never
- * dropped without a word. A `default` gets its own sentence: no field has one.
- */
-function only(
-	helper: string,
-	options: object | undefined,
-	declared: readonly string[],
-) {
-	if (
-		options !== undefined &&
-		(typeof options !== 'object' || options === null || Array.isArray(options))
-	)
-		throw new Error(
-			`field.${helper} takes its options as an object, such as { optional: true }, not ${JSON.stringify(options)}`,
-		);
-	for (const key of Object.keys(options ?? {})) {
-		if (declared.includes(key)) continue;
-		throw new Error(
-			key === 'default'
-				? `field.${helper} takes no default: no field has one, so write the default in code where the value is read, such as \`limit ?? 50\``
-				: `field.${helper} takes no option "${key}"; it takes ${declared.join(', ')}`,
-		);
-	}
-}
-
-const OPTIONS = ['description', 'optional'] as const;
-const BOUNDED = [...OPTIONS, 'min', 'max'] as const;
-
-/**
  * One object whose keys are fields, as plain JSON Schema: each field under
  * `properties`, the keys a caller must give in `required` (`[]` when none
  * is), and `additionalProperties: false`. It is also the TypeBox schema
@@ -97,17 +68,6 @@ export type OptionalKeys<F> = {
 	[K in keyof F]: F[K] extends { '~optional': true } ? K : never;
 }[keyof F];
 
-/** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a data key>" } }`. */
-const REF = 'x-epicenter-ref';
-
-/** The data key named by a ref, or undefined for another field. */
-export function refKeyOf(schema: unknown): string | undefined {
-	if (typeof schema !== 'object' || schema === null) return undefined;
-	const annotation = (schema as Record<string, unknown>)[REF];
-	const key = (annotation as { key?: unknown } | undefined)?.key;
-	return typeof key === 'string' ? key : undefined;
-}
-
 type ListOptions = Options & {
 	/** The fewest items it holds. */
 	min?: number;
@@ -144,11 +104,9 @@ export const field = {
 	/**
 	 * Text. `pattern` is a regular expression the value must contain a match
 	 * of, as JSON Schema reads it: `'\\S'` is not blank, and `'^[A-Z]{3}$'`
-	 * anchors it to the whole value. A refusal names the pattern, then the
-	 * description: `body must be text matching \S (what to save)`.
+	 * anchors it to the whole value.
 	 */
 	text: <const O extends Options & { pattern?: string }>(options?: O) => {
-		only('text', options, [...OPTIONS, 'pattern']);
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
@@ -160,7 +118,6 @@ export const field = {
 
 	/** A number, at least `min` and at most `max` when they are given. */
 	number: <const O extends Options & Bounds>(options?: O) => {
-		only('number', options, BOUNDED);
 		return maybeOptional(
 			Type.Number({ ...schemaOptions(options), ...bounds(options) }),
 			options,
@@ -169,7 +126,6 @@ export const field = {
 
 	/** A whole number, at least `min` and at most `max` when they are given. */
 	integer: <const O extends Options & Bounds>(options?: O) => {
-		only('integer', options, BOUNDED);
 		return maybeOptional(
 			Type.Integer({ ...schemaOptions(options), ...bounds(options) }),
 			options,
@@ -178,7 +134,6 @@ export const field = {
 
 	/** A moment, written RFC 3339 with an offset (`2026-11-10T22:41:05+08:00`): JSON Schema's `format: 'date-time'`. */
 	datetime: <const O extends Options>(options?: O) => {
-		only('datetime', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date-time' }),
 			options,
@@ -187,7 +142,6 @@ export const field = {
 
 	/** A day, written `2026-11-08`: JSON Schema's `format: 'date'`, which TypeBox checks, so `2026-13-45` is refused. */
 	date: <const O extends Options>(options?: O) => {
-		only('date', options, OPTIONS);
 		return maybeOptional(
 			Type.String({ ...schemaOptions(options), format: 'date' }),
 			options,
@@ -202,7 +156,6 @@ export const field = {
 		values: V,
 		options?: O,
 	) => {
-		only('select', options, OPTIONS);
 		return maybeOptional(
 			Type.Union(
 				values.map((value) => Type.Literal(value)),
@@ -214,7 +167,6 @@ export const field = {
 
 	/** True or false. */
 	boolean: <const O extends Options>(options?: O) => {
-		only('boolean', options, OPTIONS);
 		return maybeOptional(Type.Boolean(schemaOptions(options)), options);
 	},
 
@@ -226,27 +178,12 @@ export const field = {
 		item: T,
 		options?: O,
 	) => {
-		only('list', options, [...OPTIONS, 'min']);
 		const min = options?.min ?? 0;
 		return maybeOptional(
 			Type.Array(item, {
 				...schemaOptions(options),
 				...(min > 0 ? { minItems: min } : {}),
 			}),
-			options,
-		);
-	},
-
-	/**
-	 * One id in a key of the same `defineData`, which may be any of its keys:
-	 * text whose schema names that key. `defineData` refuses a key it does
-	 * not define. Nothing checks that the record is there, so an app that
-	 * needs it reads it.
-	 */
-	ref: <const O extends Options>(target: string, options?: O) => {
-		only('ref', options, OPTIONS);
-		return maybeOptional(
-			Type.String({ ...schemaOptions(options), [REF]: { key: target } }),
 			options,
 		);
 	},

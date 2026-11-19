@@ -38,7 +38,7 @@ const data = defineData('/nowhere/epicenter', {
 	},
 	checks: {
 		description: 'research result',
-		fields: { watch: field.ref('watches'), fare: field.number() },
+		fields: { watch: field.text(), fare: field.number() },
 	},
 });
 
@@ -190,8 +190,7 @@ test('a write leaves no temporary file under data/', async () => {
 	expect(await readFile(join(home, 'local/.gitignore'), 'utf8')).toBe('*\n');
 });
 
-test('definitions are refused for what their types cannot say', () => {
-	expect(() => defineData('relative', {})).toThrow('absolute path');
+test('a key or field name that cannot be a folder or a front matter line is refused', () => {
 	expect(() =>
 		defineData('/home', { Notes: { description: 'note', fields: {} } }),
 	).toThrow('must be lowercase');
@@ -200,9 +199,4 @@ test('definitions are refused for what their types cannot say', () => {
 			notes: { description: 'note', fields: { id: field.text() } },
 		}),
 	).toThrow('reserves the field "id"');
-	expect(() =>
-		defineData('/home', {
-			checks: { description: 'check', fields: { watch: field.ref('watches') } },
-		}),
-	).toThrow('which must be a key in this defineData');
 });

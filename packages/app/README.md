@@ -71,10 +71,9 @@ Wellcrafted Result:
 - A write replaces the whole file at once, changes only the lines it names,
   keeps every other line byte for byte. A link under `data/` is followed,
   for reads and writes alike.
-- `field.ref('watches')` is text that holds the id of a record in another
-  key of the same `defineData`, which refuses a key it does not define. A
-  write does not check that the record is there: deleting one can leave a
-  ref to nothing, so an app that needs the record checks for it.
+- A field that holds another record's id is `field.text()`. A write does
+  not check that the record is there: deleting one can leave an id that
+  points to nothing, so an app that needs the record checks for it.
 
 `defineData` touches no file. A handle generates no actions.
 
@@ -151,7 +150,7 @@ await app.actions.add({ body: 'hello' });
 ```
 
 `defineData(tmp, data)` takes an earlier result as its spec and returns
-the same type, with every key, so every ref still has its target.
+the same type, with every key.
 
 ## Not built yet
 
