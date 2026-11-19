@@ -2,8 +2,10 @@
  * The apps in an Epicenter (ADR-0841), each a folder in its `apps/`, loaded
  * once (ADR-0959). Every folder there is an app, named by the folder's
  * name: its `code/epicenter.ts` default-exports `defineApp(...)`, or the
- * folder is listed with why it does not. A link in `apps/` is refused, not
- * followed, so an app's code and data are always inside the Epicenter.
+ * folder is listed with why it does not. `apps/`, an app's folder, and its
+ * `code/`, `data/` and `local/` are real folders: a link at any of them is
+ * refused, not followed, so an app's code and data are always inside the
+ * Epicenter.
  * Serve loads every entry when it starts and answers from what it loaded
  * until it stops. Each entry
  * loads inside its own guard, so a broken app is listed with its problems
@@ -114,6 +116,17 @@ async function localProblem(
 	return `${named} has no .gitignore; run: echo '*' > ${named}/.gitignore`;
 }
 
+/** Why `path` under the Epicenter is a link where a real folder must be, or undefined. */
+async function linkProblem(
+	root: Pick<EpicenterRoot, 'folder'>,
+	path: string,
+): Promise<string | undefined> {
+	const entry = await lstat(join(root.folder, path)).catch(() => undefined);
+	return entry?.isSymbolicLink()
+		? `${path} is a link; apps/, an app's folder, and its code/, data/ and local/ must be real folders`
+		: undefined;
+}
+
 /** The entry `name` in `apps/`, loaded; undefined when it is not a folder or a link. */
 async function loadEntry(
 	root: Pick<EpicenterRoot, 'folder'>,
@@ -122,12 +135,17 @@ async function loadEntry(
 	const folder = appPath(root, name);
 	const listed = (problems: string[]) => ({ name, folder, problems });
 	try {
-		const entry = await lstat(folder);
-		if (entry.isSymbolicLink())
-			return listed([
-				`${appDir(name)} is a link; an app is a folder in apps/, not a link to one`,
-			]);
-		if (!entry.isDirectory()) return undefined;
+		const linked = await linkProblem(root, appDir(name));
+		if (linked) return listed([linked]);
+		if (!(await lstat(folder)).isDirectory()) return undefined;
+		const links = (
+			await Promise.all(
+				['code', 'data', 'local'].map((part) =>
+					linkProblem(root, `${appDir(name)}/${part}`),
+				),
+			)
+		).filter((problem) => problem !== undefined);
+		if (links.length) return listed(links);
 		if (!(await stat(join(folder, CODE)).catch(() => undefined))?.isFile())
 			return listed([`no ${CODE}`]);
 		const named = nameProblem(name);
@@ -156,6 +174,9 @@ async function loadEntry(
 export async function loadApps(
 	root: Pick<EpicenterRoot, 'folder'>,
 ): Promise<Apps> {
+	const linked = await linkProblem(root, 'apps');
+	// Serve refuses to start: every app would be read through the link.
+	if (linked) throw new Error(linked);
 	const names = (
 		await readdir(join(root.folder, 'apps')).catch(
 			(error: NodeJS.ErrnoException) => {

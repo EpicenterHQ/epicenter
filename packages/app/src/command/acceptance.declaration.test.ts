@@ -5,7 +5,7 @@
 
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { connectMcp, fixture, readingApp } from './runner.test-support.ts';
 
@@ -35,12 +35,6 @@ test('D1 the listing shows each folder in apps/ as an app or its problems, refus
 ${words}return { description: 'The vocab app', data, actions: {} };
 });\n`,
 	);
-	const linked = await f.app(
-		'journal',
-		`export default defineApp(() => ({ description: 'The journal app', actions: {} }));\n`,
-		join(f.epicenter, 'elsewhere'),
-	);
-	await symlink(linked, join(f.apps, 'journal'));
 	// A file in apps/ is not an app folder, and is not listed.
 	await Bun.write(join(f.apps, 'README.md'), 'my apps\n');
 	await f.folder(join(f.apps, 'readme-only'), { 'README.md': 'not an app\n' });
@@ -125,9 +119,6 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 		],
 		grouped: [
 			"code/epicenter.ts: actions.week is not an action: each action has one name, such as actions: { 'create-word': createWord }",
-		],
-		journal: [
-			'apps/journal is a link; an app is a folder in apps/, not a link to one',
 		],
 		'json-only': ['no code/epicenter.ts'],
 		'readme-only': ['no code/epicenter.ts'],

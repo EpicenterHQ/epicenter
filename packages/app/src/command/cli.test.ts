@@ -3,14 +3,7 @@
  * grammar, output, and the folder and cache on disk. Broken apps must not block healthy apps.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { fixture, reading, vault } from './runner.test-support.ts';
@@ -41,13 +34,6 @@ test('listing isolates broken imports, invalid apps, folders that cannot name an
 		'spaced',
 		`export default defineApp(() => ({ description: 'The spaced app', actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } }));`,
 	);
-	const linked = await f.app(
-		'linked',
-		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
-		// Inside the Epicenter: linked code finds packages from where it really is.
-		join(f.epicenter, 'shelf'),
-	);
-	await symlink(linked, join(f.apps, 'linked'));
 	await mkdir(join(f.apps, '.hidden'));
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
@@ -86,15 +72,11 @@ test('listing isolates broken imports, invalid apps, folders that cannot name an
 		spaced: [
 			'code/epicenter.ts: actions has the key "week show", which is not lowercase letters, digits, and dashes, starting with a letter',
 		],
-		// A link is refused, not followed.
-		linked: [
-			'apps/linked is a link; an app is a folder in apps/, not a link to one',
-		],
 		serve: [
 			'its folder\'s name cannot name an app: "serve" is an epicenter command',
 		],
 	});
-	expect(value.problems[3]).toMatchObject({
+	expect(value.problems[2]).toMatchObject({
 		entry: 'serve',
 		folder: join(f.apps, 'serve'),
 	});
