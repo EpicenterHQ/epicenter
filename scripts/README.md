@@ -18,7 +18,6 @@ here. Run everything from the repository root.
 | --- | --- |
 | `dev:*` | start an app |
 | `check:*` | validate the repository and exit non-zero on failure |
-| `gen:*` | regenerate a checked-in file |
 | `:desktop` | the native Tauri window of the same app |
 | `:remote` | wraps Infisical's `prod` environment; a production admin operation |
 

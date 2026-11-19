@@ -12,9 +12,6 @@
 # Deliberately NOT in this gate:
 #   - Formatting. ci.autofix.yml runs `bun run format` and pushes the fix, so
 #     failing here would only tell a contributor what a bot is already doing.
-#   - `bun run check:doc-hygiene`. Its ADR-staleness rule is time-based, so a
-#     PR that touched nothing can go red on a calendar day. It stays an explicit
-#     review command (see 91c4a87c1b), not a merge blocker.
 #
 # The gate's tests do need one local program, which this job installs:
 # PostgreSQL's initdb and pg_ctl. The session handoff tests in packages/server

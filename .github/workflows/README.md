@@ -44,12 +44,9 @@ not run it.
 | `ci.format.yml` | Push to `main`, pull requests | The merge gate: `bun run check`: lint, typecheck, test, and the structural checks. Cancels older runs for the same branch or PR. |
 | `ci.autofix.yml` | Push to `main`, pull requests | Runs `bun run format` and commits fixes back via autofix-ci. This is why the gate does not check formatting. Cancels older runs for the same branch or PR. |
 
-Two things stay off the gate deliberately. Formatting, because autofix owns it.
-And `bun run check:doc-hygiene`, whose ADR-staleness rule is time-based, so a
-pull request that changed nothing can go red on a calendar day; it is a review
-command, not a merge blocker. Anything needing a secret or a network endpoint
-other than GitHub's own API gets its own workflow on its own trigger, as the two
-below do.
+Formatting stays off the gate because autofix owns it. Anything needing a
+secret or a network endpoint other than GitHub's own API gets its own workflow
+on its own trigger.
 
 ## Secrets Reference
 

@@ -14,7 +14,7 @@
 > status is unreliable, so currentness is owned by `docs/adr/`. "State" is the
 > only fact shown: whether the spec is still in the working tree.
 >
-> **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
+> **Frozen.** The generator was removed; git keeps it (`git log --all -- scripts/generate-spec-history.ts`).
 
 **1492 specs ever** (2 still in tree, 1490 removed).
 
