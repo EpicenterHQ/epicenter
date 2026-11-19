@@ -1,33 +1,33 @@
 # Trust model
 
-Your Epicenter is on the home, and whoever can read the home can read it.
+Your Epicenter is on your computer, and whoever can read your computer can read it.
 Nothing is encrypted, nothing syncs, and `epicenter serve` signs no one in.
 That is the trust model, and everything below follows from it.
 
 This page describes what the code does today, in `packages/app`
-and its command, `packages/app/src/command`. [The vision](vision.md) names the pieces. The home is a computer its person
+and its command, `packages/app/src/command`. [The vision](vision.md) names the pieces. The computer is one its person
 controls, owned or rented.
 
-## The home
+## Your computer
 
-The home is the computer `~/Epicenter` is on. Its person holds root on it, and
+Your computer is the one `~/Epicenter` is on. Its person holds root on it, and
 it runs only the code they trust. An app's records are Markdown files under
-its `data/`, in a Git repository on the home, and nothing in Epicenter
+its `data/`, in a Git repository on your computer, and nothing in Epicenter
 encrypts them.
 
-| Home | Who can read your files |
+| Computer | Who can read your files |
 | --- | --- |
 | One you own, such as a Mac you keep on | You, and whatever you let in: a user account, a backup tool, an agent you give a shell. |
-| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, the home's `local/` folder included. Epicenter adds nothing against that. |
+| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, your Epicenter's `local/` folder included. Epicenter adds nothing against that. |
 
-Choosing where to rent a home is choosing who can read it, in the way choosing
+Choosing where to rent a computer is choosing who can read it, in the way choosing
 which agents get a shell is.
 
-## Reaching the home
+## Reaching your Epicenter
 
 `epicenter serve` offers every app's actions over MCP and HTTP. It signs no
 one in: anything that reaches it can call every action of every app, so who
-reaches it is the home's decision. It listens only on `127.0.0.1`. Another
+reaches it is your decision. It listens only on `127.0.0.1`. Another
 device reaches it through a private proxy on this computer, such as
 `tailscale serve`, which also adds HTTPS. Serve refuses DNS rebinding,
 requests from other sites in a browser, and the tunnels it can recognize
@@ -36,35 +36,35 @@ tunnel it cannot recognize would reach it with no sign-in, so never tunnel
 its port.
 
 Your other devices keep nothing. An agent on your phone or your laptop sees
-the files only while it reaches the home, through actions.
+the files only while it reaches your computer, through actions.
 
 `serve` also sends the Epicenter's `AGENTS.md` to every MCP client as its
 instructions, so anything written there reaches each agent that connects.
 
 ## The code you run
 
-`serve` imports the home's root `epicenter.ts`, and with it the code of every
+`serve` imports your Epicenter's root `epicenter.ts`, and with it the code of every
 app it composes, with your privileges, in one process, with no sandbox. The
 `epicenter` command runs no app code: it sends each call to `serve`.
 An action can read any file you can, and the data handles it is given are a
-convenience, not a boundary. An app you copy into your home's `apps/` runs
+convenience, not a boundary. An app you copy into your Epicenter's `apps/` runs
 its author's code. The copy has no upstream or automatic merge. Inspect
 incoming code before copying later changes. Trust it as you would any
 program you install.
 
-## Sign-ins are files that stay on the home
+## Sign-ins are files that stay on your computer
 
-An app keeps a sign-in, such as a Google token, in a file it writes under the
-home's root `local/`, which stays out of Git
-([the home's rules](../packages/app/README.md#the-home)); list `/local/` in
+An app keeps a sign-in, such as a Google token, in a file it writes under your
+Epicenter's root `local/`, which stays out of Git
+([the Epicenter's rules](../packages/app/README.md#the-home)); list `/local/` in
 the root `.gitignore` too, for an app that makes the folder itself.
 Epicenter never commits, so a file there reaches a backup or a clone only if
-someone adds it by force. It is a plain file, though: anyone who can read the
-home can read it, the provider of a rented home included.
+someone adds it by force. It is a plain file, though: anyone who can read your
+computer can read it, the provider of a rented computer included.
 
 ## Backups
 
-The home has one private root Git repository holding its `epicenter.ts`,
+Your Epicenter has one private root Git repository holding its `epicenter.ts`,
 every app's code in `apps/`, and the records in `data/`. Its `origin` is an
 optional push-only backup. Agents edit the working files; the commits you
 make record them. No command publishes or copies an app out; sharing one is
@@ -76,9 +76,9 @@ history, never a file under `local/`.
 ## Outside apps
 
 A service such as Gmail already holds its own data. An inside app brings it to
-the home only by a pull, which copies items inward and never writes the
+your Epicenter only by a pull, which copies items inward and never writes the
 source. The author's Mail app, which is not in this repository, keeps its
-mailbox as a SQLite cache under the home's `local/`. A change to the service
+mailbox as a SQLite cache under your Epicenter's `local/`. A change to the service
 is an action you run, such as Mail's `epicenter mail apply`, which changes
 Gmail through your own sign-in.
 

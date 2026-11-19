@@ -87,14 +87,14 @@ not create a second implementation assignment.
 
 - Desired result: Save Chinese words, return through review, and retain learning
   progress in an independently maintained app.
-- Grounding: Vocab, an app in the home, saves exact phrases and supports
+- Grounding: Vocab, an app in the Epicenter, saves exact phrases and supports
   generated practice; that does not establish a review-history or scheduling
   product. Settle the first retrieval interaction before choosing a scheduler or
   schema.
 - Distribution: A person gets an app by copying its `apps/<app>/` folder into
-  their home and adding the data keys it reads to their `epicenter.ts`; no
+  their Epicenter and adding the data keys it reads to their `epicenter.ts`; no
   command does it
-  ([the home's rules](packages/app/README.md#the-home)).
+  ([the Epicenter's rules](packages/app/README.md#the-home)).
 - Revisit when: Chinese study becomes the next product milestone.
 
 ### Make Whispering's dictation loop clear from speech to delivered text
@@ -125,14 +125,14 @@ not create a second implementation assignment.
   dictionary cannot provide. Text-assisted spelling and image-based questions
   are different needs; choose the one the task establishes.
 
-### Decide what sharing with another person means for a home
+### Decide what sharing with another person means for an Epicenter
 
 - Desired result: If sharing is chosen, define who can see or change which
-  records, how they are invited, and whose home owns the data.
-- Current basis: A home is one private Git repository per person.
+  records, how they are invited, and whose Epicenter owns the data.
+- Current basis: An Epicenter is one private Git repository per person.
   The Folder sync product that framed earlier collaboration plans is retired.
 - Revisit when: A real case of two people sharing data needs more than one
-  person's home.
+  person's Epicenter.
 
 ### Track photographs used in Vault publications
 
@@ -143,7 +143,7 @@ not create a second implementation assignment.
   ends with this request. The Vault repository's own ADR-0290 (not this
   repository's) records asset-use tracking as unimplemented. Keep durable use
   references in authored Vault or publication records; the ignored SQLite
-  catalog may index them, but cannot be their only home. Settle how Google
+  catalog may index them, but cannot be their only place. Settle how Google
   items, Takeout occurrences, selected downloads, and publication derivatives
   relate without assuming a filename, thumbnail, or matching bytes establishes
   one logical photo. Preserve uncertain matches.
@@ -210,9 +210,9 @@ not create a second implementation assignment.
 
 ## Repository upkeep
 
-### Bring the public pages in line with the home
+### Bring the public pages in line with the Epicenter
 
-- Desired result: Public pages describe Epicenter as the home where one
+- Desired result: Public pages describe Epicenter as where one
   person's software lives, as `README.md` and `docs/positioning.md` now do, and
   no longer promise the retired Folder sync product.
 - Grounding: On 2026-11-17, `apps/landing/src/pages/privacy.astro` and
