@@ -104,7 +104,9 @@ Another origin's `<img>`, `<script>`, `fetch()` or `<iframe>` is refused.
 can call any app's actions and MCP at `POST /`; serve does not ask which
 app's page made a call. An app whose `fetch` renders outside content, such
 as an email, escapes it, since one injected script in one app reaches every
-action. Giving each app its own origin would need a host name per app, which
+action. A `fetch` that serves a service worker with
+`Service-Worker-Allowed: /` lets it answer for every app's pages until it is
+removed, so an app does not send that header. Giving each app its own origin would need a host name per app, which
 `tailscale serve` and a bookmark on `127.0.0.1` do not give.
 
 **An OAuth callback checks `state`.** Serve allows any site's top-level

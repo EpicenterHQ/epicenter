@@ -47,7 +47,8 @@
  * It listens only on 127.0.0.1 and trusts every request it answers: another
  * device reaches it only through a proxy the owner runs on this computer,
  * such as `tailscale serve`. A browser marks where a request came from
- * (`Sec-Fetch-Site`), and serve refuses one from another site unless it opens
+ * (`Sec-Fetch-Site`), and serve refuses one from another origin, including
+ * another port of this computer, unless it opens
  * a page: a top-level `GET` navigation, such as an OAuth redirect back. It
  * answers only a `Host` that is a loopback name, an IP literal, or a
  * `*.ts.net` name, which a DNS

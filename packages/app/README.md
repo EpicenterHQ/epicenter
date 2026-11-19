@@ -692,7 +692,10 @@ Every app's pages share one origin, serve's. A page or a `fetch` answer from
 one app can call any app's actions, and MCP at `POST /`; serve does not ask
 which app's page made a call. So an app whose `fetch` shows text from
 outside, such as an email, must escape it: one injected script in one app
-reaches every action in the Epicenter.
+reaches every action in the Epicenter. A service worker an app's page
+registers answers only for that app's address, unless the app's `fetch`
+serves it with a `Service-Worker-Allowed: /` header; then it answers for
+every app's pages until it is removed, so an app should not send that header.
 
 Serve loads the app again for each request that reaches `fetch`, as it does
 for each action call, so nothing an app keeps in memory lasts from one
