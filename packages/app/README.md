@@ -5,8 +5,8 @@ actions; the client a page calls those actions through; and the `epicenter`
 command, which serves them to the command line, agents (MCP) and pages.
 A home depends on it and runs it with Bun.
 
-The design is [ADR-0971](../../docs/adr/0971-an-epicenter-is-one-program-composed-in-its-root-epicenter-ts.md):
-a home is one program, composed in its root `epicenter.ts`.
+A home is one program, composed in its root `epicenter.ts`. The rules it
+keeps are under [Decisions](#decisions).
 
 ## A home
 
@@ -150,5 +150,115 @@ the same type, with every key, so every ref still has its target.
 
 ## Not built yet
 
-Routines, an app's page (`ui`) and an app's `fetch` are designed when the
-first rebuilt app needs one (ADR-0971, "Not decided").
+Each is designed when the first rebuilt app needs it. What the earlier
+design taught each one must keep:
+
+- **Routines.** A schedule that runs an action must appear in the listing
+  and be checked when serve starts.
+- **An app's page.** Serving built files must refuse dot names and any
+  file or folder that resolves outside the app.
+- **An app's `fetch`.** A handler for OAuth, a feed or a webhook must sit
+  behind serve's guards, and must learn its public address without
+  `epicenter.ts` passing it.
+- **Files beside a record,** such as a recording's audio or a book's cover.
+
+## Decisions
+
+These are the rules an agent or a contributor would most likely undo by
+mistake. Each says why, and names a tempting alternative that lost. Change
+a rule here in the same pull request as the code.
+
+### The home
+
+- **A home is one program: `epicenter.ts` opens the data once and passes it
+  to every app, and serve imports that one module.** Records belong to the
+  home, not to an app, so a file with no app or with two still has a place.
+  Refused: records under each app; apps discovered from `apps/`; each app
+  declaring the keys it writes and serve refusing two writers.
+- **The command finds its home by walking up to the nearest `package.json`
+  with an `"epicenter"` key, and serve refuses to start outside that
+  folder.** A command run in an unrelated project must not act on a home
+  silently, and Bun reads `.env` from the folder serve starts in.
+  Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
+- **`local/` carries its own `.gitignore`.** It stays out of Git whatever
+  the root `.gitignore` says, with no Git process to check it.
+  Refused: a Git check for each `local/` at start.
+- **No command makes a home or an app, or copies an app in or out, and the
+  package ships no template.** Each happens once per owner, and the owner's
+  agent already knows how; a command or a template is one more thing to
+  keep true.
+  Refused: `init`, `new` and `export`; a starter repository.
+
+### Records
+
+- **Front matter is `key: <JSON>` lines, each read on its own, and no YAML is
+  read.** A write changes only the lines it names and keeps every other line
+  byte for byte. A YAML reader gave values the file did not hold, and
+  rewriting the block changed values.
+  Refused: reading YAML and replacing only changed keys.
+- **A record that does not fit is a `Misfit` carrying the fields that fit,
+  and nothing rewrites or drops what this release cannot read.** Another
+  program, a person or an agent may write the files, so the code must
+  tolerate a repairable state rather than prevent it.
+  Refused: preventing every inconsistent relationship.
+- **`patch` and `edit` take `null` to remove an optional field.** It is
+  RFC 7396's merge patch, with no second concept for agents to learn.
+  Refused: `--unset <field>`; an `unset` verb; `set` replacing the whole
+  file.
+- **Each thing is checked once, where it can change: code when serve
+  starts, records when they are read or written.** A sweep reads every
+  record for a question the reads already answer.
+  Refused: `epicenter check`; data problems in the listing.
+
+### Actions
+
+- **Every action's `run` returns one Wellcrafted Result, and every surface
+  answers exactly `{ data, error }`. An action's input is one JSON
+  Schema.** One shape means a business object with `data` and `error` keys
+  is never ambiguous, and the error's name is what a caller recovers by.
+  Refused: plain values beside Results; a `kind` field beside the error.
+- **An action call is a function call: serve keeps no run record, receipt
+  or replay.** What must outlast a call goes in a file, and progress goes
+  through `run`'s second argument.
+  Refused: `async function*` and `yield`; an ambient `report()`.
+- **An action writes files and makes no commit and takes no lock. No
+  command commits, stages or pushes.** Only the person or their agent knows
+  why a change was made, and a commit per action could sweep in someone
+  else's edit. Git is the owner's tool, and Epicenter does not rename its
+  commands.
+  Refused: a commit per action; holding an app lock for a call;
+  `checkpoint`; serve committing on a clock.
+- **Epicenter exports no function for calling a model.** An action imports
+  a model client and reads its key itself, so its address stays in its
+  code.
+  Refused: `model(name)` over connections in `.env` (built and withdrawn in
+  #2702); a `models` app or LiteLLM beside serve.
+
+### Running the home
+
+- **After an action's words the command takes at most one more word: a JSON
+  object, or `-` to read one from stdin. No input means `{}`.** One grammar
+  covers every input shape.
+  Refused: flags spelling the same JSON; JSON5 or `key=value`; reading stdin
+  whenever it is piped, which can hang under an agent.
+- **The command exits 0 for success, 2 for `NotStarted` and 1 otherwise.**
+  A script can retry what never started without guessing.
+- **One serve per home runs every action, and the port is its lock. The
+  command never starts serve, never runs an action itself, and loads no app
+  code: it sends the input to serve, which alone reads it.** One writer
+  holds while serve is up, and two loads cannot disagree.
+  Refused: a lock file the command tries; the command running the action
+  when serve is down.
+- **Serve imports the program once at start and never reloads.** Restart it
+  to run changed code. Reloading exposes half-written code to every caller,
+  and only the agent making edits knows when they are complete.
+  Refused: re-importing on each call; a file watcher.
+- **Serve listens only on 127.0.0.1, takes no flags and signs no one in.**
+  The owner's private network, such as Tailscale, brings other devices in.
+  Refused: `--host` limited to loopback and Tailscale addresses; a token of
+  serve's own.
+- **The command writes no service job and restarts nothing.** The owner
+  keeps serve running; an action that throws already returns a failed
+  answer, and a restart would hide the rest.
+  Refused: `epicenter service` with a LaunchAgent; a parent process that
+  restarts serve.
