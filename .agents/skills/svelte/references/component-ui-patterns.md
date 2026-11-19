@@ -10,8 +10,7 @@ For general CSS and Tailwind guidelines, see the `styling` skill.
 
 Monorepo apps use `@epicenter/ui` subpaths. Components and extras are vendored in
 `packages/ui/src`; the UI package has no `components.json`. Personal apps in an
-Epicenter own their copied `$lib/components/ui` source and theme; follow
-[epicenter-app](../../epicenter-app/SKILL.md) for that layout. Read the
+Epicenter own their copied `$lib/components/ui` source and theme. Read the
 [UI package guide](../../../../packages/ui/README.md) for imports, component
 selection, Vega styling, and the update workflow. Do not run an unpinned
 `shadcn-svelte add` or `jsrepo add` into the live package: generated files need
@@ -246,7 +245,7 @@ editing and explicit submission.
 When a record cannot be edited through its structured fields, show what failed
 and give the person a repair path that preserves their input. In a personal
 app, a `Misfit` can carry a partial record for a repair form while other rows
-remain usable. See [the app client's repair guidance](../../epicenter-app/SKILL.md#build-the-ui-as-a-client).
+remain usable.
 
 Keep unsubmitted Add, Send, or Save form input with the form. Bind shared
 `Textarea` and `Input` directly, using a function binding for a derived value,
