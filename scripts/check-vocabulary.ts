@@ -101,8 +101,6 @@ const RULES: readonly Rule[] = [
 			'apps/whispering/',
 			'.agents/skills/svelte/',
 			'.agents/skills/collapse-pass/',
-			'docs/CONTEXT.md',
-			'docs/architecture.md',
 			'README.md',
 		],
 	},

@@ -49,6 +49,7 @@ AppAi` and nothing else from the App.
   and a reader learns what it touches without reading its body.
 - "Capability" in this sense matches `SyncCapability` and
   `PersistenceCapability` in `@epicenter/data` and ADR-0366; it earns a
+  <!-- doc-path-check: ignore-next-line -->
   `docs/CONTEXT.md` entry when these records are accepted.
 
 ## Considered alternatives
