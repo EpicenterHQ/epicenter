@@ -24,9 +24,11 @@ import { tryAsync } from 'wellcrafted/result';
 import { recordedAt } from './feed';
 import { appData, writeWhole } from './files';
 
-/** A recording; its time comes from its id (`recordedAt` in `feed.ts`). */
+/** A recording. */
 export type Recording = {
 	id: string;
+	/** When it was made, read from its id, so audio with no note still has a time. */
+	at: Date | undefined;
 	durationMs: number | undefined;
 	transcript: string;
 	/** Whether `<id>.webm` is there. */
@@ -66,6 +68,7 @@ function toRecording({ id, note, audio }: Listed): Recording {
 	const { fields, body } = readMarkdown(note ?? '');
 	return {
 		id,
+		at: recordedAt(id),
 		durationMs:
 			typeof fields.durationMs === 'number' ? fields.durationMs : undefined,
 		transcript: body.trim(),

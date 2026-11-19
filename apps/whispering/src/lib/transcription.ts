@@ -21,22 +21,15 @@ export type TranscribeError =
 	| { name: 'BadResponse'; message: string }
 	| { name: 'KeyUnreadable'; message: string };
 
-const NAMES = new Set<string>([
-	'NoAudio',
-	'Unauthorized',
-	'Rejected',
-	'Unreachable',
-	'BadResponse',
-	'KeyUnreadable',
-] satisfies TranscribeError['name'][]);
-
+/**
+ * Whether `cause` is the error `transcribe` rejected with. Tauri rejects a
+ * command with the error it serialized; an IPC failure arrives as a string.
+ */
 function isTranscribeError(cause: unknown): cause is TranscribeError {
 	return (
 		typeof cause === 'object' &&
 		cause !== null &&
 		'name' in cause &&
-		typeof cause.name === 'string' &&
-		NAMES.has(cause.name) &&
 		'message' in cause
 	);
 }

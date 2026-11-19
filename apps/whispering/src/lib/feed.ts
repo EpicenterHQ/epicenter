@@ -3,6 +3,8 @@
  * heading, and whether it matches a search. Nothing here reads a file.
  */
 
+import { localDay } from '@epicenter/app/time';
+
 export type Sort = 'newest' | 'oldest';
 
 /** `timeId`'s stamp: `2026-10-30T22-41-05-123Z-k3x9a2f8`. */
@@ -29,16 +31,12 @@ export function matches(text: string, query: string): boolean {
 		.every((word) => haystack.includes(word));
 }
 
-/** The local calendar day of `at`, as a key that two moments on one day share. */
-const dayKey = (at: Date) =>
-	`${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
-
 /** "Today", "Yesterday", or the date, with the year only when it is not this year's. */
 export function dayLabel(at: Date, now = new Date()): string {
 	const yesterday = new Date(now);
 	yesterday.setDate(now.getDate() - 1);
-	if (dayKey(at) === dayKey(now)) return 'Today';
-	if (dayKey(at) === dayKey(yesterday)) return 'Yesterday';
+	if (localDay(at) === localDay(now)) return 'Today';
+	if (localDay(at) === localDay(yesterday)) return 'Yesterday';
 	return at.toLocaleDateString(undefined, {
 		weekday: 'short',
 		month: 'short',
@@ -48,15 +46,13 @@ export function dayLabel(at: Date, now = new Date()): string {
 }
 
 /** `items` in runs of one local day each, in the order given. */
-export function groupByDay<T>(
+export function groupByDay<T extends { at: Date | undefined }>(
 	items: T[],
-	dateOf: (item: T) => Date | undefined,
 	now = new Date(),
 ): { label: string; items: T[] }[] {
 	const groups: { label: string; items: T[] }[] = [];
 	for (const item of items) {
-		const at = dateOf(item);
-		const label = at ? dayLabel(at, now) : 'Unknown date';
+		const label = item.at ? dayLabel(item.at, now) : 'Unknown date';
 		const last = groups.at(-1);
 		if (last?.label === label) last.items.push(item);
 		else groups.push({ label, items: [item] });

@@ -45,7 +45,10 @@ test('groupByDay keeps runs of one day in the order given', () => {
 		new Date(2026, 10, 18, 20),
 		undefined,
 	];
-	const groups = groupByDay(items, (at) => at, now);
+	const groups = groupByDay(
+		items.map((at) => ({ at })),
+		now,
+	);
 	expect(groups.map((g) => [g.label, g.items.length])).toEqual([
 		['Today', 2],
 		['Yesterday', 1],

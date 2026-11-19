@@ -10,7 +10,7 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import { dictation } from '#lib/dictation.svelte.ts';
-	import { groupByDay, matches, recordedAt, type Sort } from '#lib/feed.ts';
+	import { groupByDay, matches, type Sort } from '#lib/feed.ts';
 	import { recordingsQueries } from '#lib/queries.ts';
 	import { settings } from '#lib/settings.svelte.ts';
 	import RecordButton from './RecordButton.svelte';
@@ -28,10 +28,12 @@
 	/** The list arrives oldest first. */
 	const found = $derived.by(() => {
 		const matching = (list.data ?? []).filter((recording) => matches(recording.transcript, search));
-		return sort === 'newest' ? matching.toReversed() : matching;
+		// `filter` made a new array, so reversing it in place is safe. (Not
+		// `toReversed`: it needs Safari 16, and the app supports macOS 10.15.)
+		return sort === 'newest' ? matching.reverse() : matching;
 	});
 	const openId = $derived(dictation.openId ?? list.data?.at(-1)?.id);
-	const groups = $derived(groupByDay(found.slice(0, shown), (recording) => recordedAt(recording.id)));
+	const groups = $derived(groupByDay(found.slice(0, shown)));
 
 	/** Show the next page once `node` comes within a screen of the bottom of the feed. */
 	function loadMoreWhenSeen(node: HTMLElement) {

@@ -19,7 +19,7 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { runMutation } from 'wellcrafted/query';
 	import { dictation } from '#lib/dictation.svelte.ts';
-	import { formatDuration, recordedAt } from '#lib/feed.ts';
+	import { formatDuration } from '#lib/feed.ts';
 	import { queryClient, recordingsMutations } from '#lib/queries.ts';
 	import type { Recording } from '#lib/recordings.ts';
 	import AudioPlayer from './AudioPlayer.svelte';
@@ -39,7 +39,7 @@
 	/** Offered only when nothing would be overwritten: no saved transcript and no draft. */
 	const canTranscribe = $derived(recording.audio && !transcribing && !transcript);
 	const time = $derived(
-		recordedAt(recording.id)?.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) ??
+		recording.at?.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) ??
 			recording.id,
 	);
 	const length = $derived(
