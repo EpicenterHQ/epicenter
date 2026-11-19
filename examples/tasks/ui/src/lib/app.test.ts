@@ -98,12 +98,10 @@ for (const loaded of [true, false])
 		try {
 			await new MutationObserver(client, writes.add).mutate({ title: confirmed.title });
 			const row = confirmed;
-			const cached = client.getQueryData(listKey);
-			expect(cached).toEqual(loaded ? [Ok(row)] : undefined);
+			expect(client.getQueryData(listKey)).toEqual(loaded ? [Ok(row)] : undefined);
 			if (view)
 				expect(view.getCurrentResult().isRefetchError).toBe(true);
-			const got = client.getQueryData(reads.get({ id }).queryKey);
-			expect(got).toEqual(confirmed);
+			expect(client.getQueryData(reads.get({ id }).queryKey)).toEqual(confirmed);
 			await client.refetchQueries();
 			expect(writesMade).toBe(1);
 		}
@@ -138,8 +136,7 @@ for (const outcome of [true, false, 'failed'] as const)
 				await expect(mutation.mutate({ id })).rejects.toBeDefined();
 			else
 				await mutation.mutate({ id });
-			const cached = client.getQueryData(listKey);
-			expect(cached).toEqual(outcome === 'failed' ? [Ok(row), Ok(unrelated)] : [Ok(unrelated)]);
+			expect(client.getQueryData(listKey)).toEqual(outcome === 'failed' ? [Ok(row), Ok(unrelated)] : [Ok(unrelated)]);
 			expect(view.getCurrentResult().isRefetchError).toBe(true);
 			expect(client.getQueryState(getKey)).toEqual(outcome === 'failed' ? expect.objectContaining({ data: confirmed }) : undefined);
 			await client.refetchQueries();
@@ -160,12 +157,10 @@ test('a confirmed repair replaces the Misfit cache row and deletion removes it',
 	try {
 		await new MutationObserver(client, writes.patch).mutate({ id, done: false });
 		const row = confirmed;
-		const repaired = client.getQueryData(listKey);
-		expect(repaired).toEqual([Ok(row)]);
+		expect(client.getQueryData(listKey)).toEqual([Ok(row)]);
 		client.setQueryData(listKey, [broken]);
 		await new MutationObserver(client, writes.delete).mutate({ id });
-		const deleted = client.getQueryData(listKey);
-		expect(deleted).toEqual([]);
+		expect(client.getQueryData(listKey)).toEqual([]);
 	}
 	finally {
 		client.clear();

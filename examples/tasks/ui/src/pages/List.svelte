@@ -18,7 +18,7 @@
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { type Task, reads, writes } from '$lib/app.js';
 	import TaskRow from '$lib/components/TaskRow.svelte';
-	import { completed, dayOf, groupOpen, splitTasks, hrefOf, misfitLabelOf } from '$lib/tasks.js';
+	import { completed, dayOf, groupOpen, splitTasks, hrefOf, misfitKeyOf, misfitLabelOf } from '$lib/tasks.js';
 
 	const tasks = createQuery(() => reads.list());
 	const addTask = createMutation(() => writes.add);
@@ -150,7 +150,7 @@
 							<li class="flex items-center gap-3 border-b border-border/60 last:border-b-0">
 								<TriangleAlertIcon class="size-5 shrink-0 text-muted-foreground" aria-label="Needs repair" />
 								<a
-									href={hrefOf(error)}
+									href={hrefOf({ id: misfitKeyOf(error) })}
 									class="flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 outline-none focus-visible:underline"
 								>
 									<span class="break-anywhere">{misfitLabelOf(error)}</span>

@@ -27,7 +27,6 @@
 			"apps/*",
 			"apps/api/ui",
 			"apps/whispering/packages/*",
-			"examples/tasks",
 			"ops",
 			"packages/*"
 		],
@@ -165,7 +164,6 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
-		"@epicenter/app": "workspace:*",
 		"@oxlint/plugins": "1.89.0",
 		"@types/bun": "catalog:",
 		"@y/y": "14.0.0-rc.26",

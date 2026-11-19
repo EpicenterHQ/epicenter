@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { Ok } from '@epicenter/app';
 import type { TaskRowResult } from './app.js';
 import type { Task } from './app.js';
-import { addDays, completed, dayOf, dueLabel, groupOpen, hrefOf, splitTasks, misfitLabelOf } from './tasks.js';
+import { addDays, completed, dayOf, dueLabel, groupOpen, hrefOf, splitTasks, misfitKeyOf, misfitLabelOf } from './tasks.js';
 const task = (id: string, fields: Partial<Task> = {}): Task => ({
 	path: `data/tasks/${id}.md`,
 	id,
@@ -69,6 +69,11 @@ test('Result rows retain unreadable tasks for repair without inventing done', ()
 	expect(oks).toEqual([task('a')]);
 	expect(errs).toEqual([broken.error!]);
 	expect(errs[0]?.record).not.toHaveProperty('done');
+});
+test('malformed task keys prefer partial id and otherwise keep the file stem', () => {
+	expect(misfitKeyOf({ path: 'data/tasks/file.md', record: { id: 'partial?key' } })).toBe('partial?key');
+	expect(misfitKeyOf({ path: 'data/tasks/a.b?c.md' })).toBe('a.b?c');
+	expect(hrefOf({ id: misfitKeyOf({ path: 'data/tasks/a?b.md' }) })).toBe('#/tasks/a%3Fb');
 });
 test('malformed task labels prefer fitting titles and otherwise keep the file name', () => {
 	expect(misfitLabelOf({ path: 'data/tasks/a.md', record: { title: 'Readable title' } })).toBe('Readable title');

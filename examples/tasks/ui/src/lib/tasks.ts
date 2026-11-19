@@ -112,8 +112,11 @@ export function splitTasks(rows: TaskRowResult[]) {
 	return { oks: oks.map((row) => row.data), errs: errs.map((row) => row.error) };
 }
 
-/** A malformed file can still carry a fitting title. */
-type MisfitRow = { path: string; record?: { title?: string } };
+/** A malformed file can still carry its key and a fitting title. */
+type MisfitRow = { path: string; record?: { id?: string; title?: string } };
+
+export const misfitKeyOf = (error: MisfitRow) =>
+	error.record?.id ?? error.path.slice(error.path.lastIndexOf('/') + 1).replace(/\.md$/, '');
 
 export const misfitLabelOf = (error: MisfitRow) =>
 	error.record?.title?.trim() ? error.record.title : error.path.slice(error.path.lastIndexOf('/') + 1);
