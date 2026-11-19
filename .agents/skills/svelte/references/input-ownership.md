@@ -88,7 +88,7 @@ bindings do not replace `bind:this` or make the DOM's `.value` reactive.
 
 Native constraint validation and submit-time validation do not require a
 reactive draft. In this example `createItem` rejects on failure. For a service
-that returns a Result, use [the Result adapter](../../query-layer/SKILL.md#compose-a-service-in-two-maps)
+that returns a Result, use [a Result map entry](../../query-layer/SKILL.md#compose-a-service-into-two-maps)
 so only a successful write resets the form.
 
 ```svelte
