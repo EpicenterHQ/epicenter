@@ -61,6 +61,31 @@ Field schemas are pure JSON Schema objects with `x-component` hints. Each conver
 
 The bad example just lists files without explaining the pattern or when to add new converters.
 
+## Decisions sections
+
+A README's `## Decisions` section holds the rules its code follows that
+someone would likely undo by mistake. Each entry is the rule, its reason, and
+the tempting alternative that lost:
+
+```markdown
+- **The rule, as one sentence in the present tense.** Why it holds, in one
+  or two sentences.
+  Refused: the tempting alternative, when there was one.
+```
+
+- Group entries by topic under `###` headings. They carry no numbers,
+  statuses, or dates.
+- Keep the section short, around 15 to 20 entries. Behavior belongs in the
+  README's other sections, code arrangement in `AGENTS.md`, and a rule about
+  one function in a comment beside it.
+- Only built rules go in. Something designed but unbuilt goes in the README's
+  "Not built yet" section, a spec, or an issue.
+- Change a rule in place, in the same pull request as the code. Put long
+  reasoning in the pull request body. When a rule is reversed, and an agent
+  might propose the old one again, propose an entry in `docs/history.md`.
+- Check each rule against the code before writing it. A rule that the code
+  does not follow is worse than none.
+
 ## JSDoc Comments
 
 JSDoc explains **when and why** to use something, not just what it does.

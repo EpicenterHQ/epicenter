@@ -57,7 +57,8 @@ Use this table to decide where new material belongs.
 |---|---|
 | Instructions that apply across tasks | AGENTS.md |
 | Guidance for a recurring kind of work | A skill |
-| Project architecture and decision history | The relevant README or ADR |
+| Project architecture and current rules | The relevant README and its `## Decisions` |
+| What was tried, kept, or turned down, and why | `docs/history.md` |
 | Supporting detail needed in particular situations | References |
 | Reusable code for repetitive or fragile steps | Scripts |
 | Advice specific to the current work | The task itself |

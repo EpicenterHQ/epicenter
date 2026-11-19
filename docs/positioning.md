@@ -5,7 +5,7 @@ rules for deriving copy from them. Finished copy belongs to the surface that
 ships it: README, landing page, GitHub About, package metadata, or launch plan.
 
 Every claim here describes what the code does today. A decided but unbuilt
-feature stays out of public copy until it ships; check the ADR's Unbuilt line.
+feature stays out of public copy until it ships; check the README's "Not built yet" section.
 [The vision](vision.md) states the direction these claims come from.
 
 ## The spine
