@@ -32,8 +32,8 @@ import type { Result } from 'wellcrafted/result';
 import type { PublicError } from './answer.ts';
 import { isResult } from './answer.ts';
 import {
-	defaultIn,
 	type Flat,
+	hasDefault,
 	type ObjectSchema,
 	objectSchema,
 } from './field.ts';
@@ -163,7 +163,7 @@ export function defineAction(
 			'An action needs a description: what it does, in a sentence',
 		);
 	for (const [key, schema] of Object.entries(def.input))
-		if (defaultIn(schema))
+		if (hasDefault(schema))
 			throw new Error(
 				`The action "${description}" has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
 			);

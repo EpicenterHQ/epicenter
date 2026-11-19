@@ -6,9 +6,9 @@
  *
  * Every field is required unless it says `optional`, and an absent optional
  * field stays absent: nothing is filled in. The code that reads a value
- * writes its default, as `({ done = false, tags = [] })`. No field carries a
- * JSON Schema `default`, and a definition that has one is refused
- * (`defaultIn`).
+ * writes its default, as `({ done = false, tags = [] })`. A field with a
+ * JSON Schema `default` of its own is refused (`hasDefault`); a `default`
+ * nested inside raw TypeBox is not looked for.
  */
 import {
 	type TLiteral,
@@ -85,31 +85,11 @@ export function objectSchema(fields: Record<string, TSchema>): ObjectSchema {
 	return schema as unknown as ObjectSchema;
 }
 
-/** Keywords whose value is data, not a schema, so a `default` key inside it is a value. */
-const DATA_KEYWORDS = new Set(['const', 'enum', 'examples']);
-
-/** Keywords whose value maps names to schemas, so a key `default` there is a name. */
-const NAMED_SCHEMAS = new Set([
-	'properties',
-	'patternProperties',
-	'$defs',
-	'definitions',
-	'dependentSchemas',
-]);
-
-/** Whether `schema` has a JSON Schema `default` at any depth. */
-export function defaultIn(schema: unknown): boolean {
-	if (Array.isArray(schema)) return schema.some(defaultIn);
-	if (typeof schema !== 'object' || schema === null) return false;
-	if (Object.hasOwn(schema, 'default')) return true;
-	return Object.entries(schema).some(([key, value]) =>
-		DATA_KEYWORDS.has(key)
-			? false
-			: NAMED_SCHEMAS.has(key) && typeof value === 'object' && value !== null
-				? Object.values(value).some(defaultIn)
-				: defaultIn(value),
-	);
-}
+/**
+ * Whether a field carries a JSON Schema `default` of its own. Every `field`
+ * helper refuses one already; this catches raw TypeBox given as a field.
+ */
+export const hasDefault = (schema: TSchema) => Object.hasOwn(schema, 'default');
 
 type Optionally<T extends TSchema, O> = O extends { optional: true }
 	? TOptional<T>

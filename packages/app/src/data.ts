@@ -23,9 +23,9 @@ import type { Static, TObject } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type { Exists, Misfit, Missing, PublicError } from './answer.ts';
 import {
-	defaultIn,
 	type Fields,
 	type Flat,
+	hasDefault,
 	type OptionalKeys,
 	refKeyOf,
 } from './field.ts';
@@ -134,7 +134,7 @@ export function defineData<const TSpec extends Spec>(
 				throw new Error(
 					`The data key ${key} has a field ${JSON.stringify(name)} a front matter line cannot name`,
 				);
-			if (defaultIn(schema))
+			if (hasDefault(schema))
 				throw new Error(
 					`The data key ${key} has a default in field "${name}"; a read gives only what the file holds`,
 				);
