@@ -14,8 +14,8 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Ok, type Result } from 'wellcrafted/result';
+import { isPlainObject } from '../answer.ts';
 import { ActionError, type NotStarted } from '../errors.ts';
-import { isPlainObject } from '../result.ts';
 
 /** A home, found once and passed to everything that reads it. */
 export type Home = {

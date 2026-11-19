@@ -5,22 +5,30 @@
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
-import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
+import { createLogger } from 'wellcrafted/logger';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Action } from '../action.ts';
-import { ActionError, type NotStarted, RESERVED_NAMES } from '../errors.ts';
-import { type Answer, isAnswer, toJsonAnswer } from '../result.ts';
+import { type Answer, isPlainObject } from '../answer.ts';
+import { ActionError, type NotStarted, type PublicError } from '../errors.ts';
+import type { JsonValue } from '../markdown.ts';
 import { checkObject, readInput } from './input.ts';
 import type { Loaded } from './load.ts';
 import { stderrJsonLines } from './output.ts';
 
 /** An action found in the program: its app's name, its own, and what runs. */
-type Found = { app: string; action: string; run: Action };
+export type Found = { app: string; action: string; run: Action };
 
 /** A call ready to run: the action and its checked input. */
 export type Call = Found & { input: Record<string, unknown> };
 
 type Thrown = { name: string; message: string } & Record<string, unknown>;
+
+/**
+ * The names only Epicenter answers: an action that returns one answers
+ * `Threw` instead, so a caller can trust what each says about whether the
+ * action ran.
+ */
+const RESERVED_NAMES = ['NotStarted', 'Threw', 'Unreachable'];
 
 /** Where serve writes one record for each run, when it ends. */
 const runLog = createLogger('epicenter/run', stderrJsonLines);
@@ -78,27 +86,21 @@ export function checkCall(
 
 /**
  * Run a checked action and answer what it did: its own Result copied to
- * JSON, or `Threw`. An error it returns named `NotStarted` or `Unreachable`
- * answers `Threw`: only Epicenter says a call never began or that its
- * outcome is unknown. When it ends, `log` gets one record: the app, the
+ * JSON, or `Threw`. An error it returns named `NotStarted`, `Threw` or
+ * `Unreachable` answers `Threw`: only Epicenter says whether a call began.
+ * When it ends, serve logs one record: the app, the
  * action, the outcome and how long it took, never the input or the result,
  * which can hold personal data.
  */
 export async function runAction(
 	{ app, action, run, input }: Call,
-	{
-		onUpdate,
-		log = runLog,
-	}: { onUpdate?: (value: unknown) => unknown; log?: Logger } = {},
+	{ onUpdate }: { onUpdate?: (value: unknown) => unknown } = {},
 ): Promise<Answer> {
 	const started = performance.now();
 	let answer: Answer;
 	try {
-		const result = await run(input, { onUpdate });
-		if (!isAnswer(result))
-			throw new TypeError(
-				`The action "${action}" must return Ok(data) or Err(error)`,
-			);
+		// defineAction checked that it returned a Result (`isAction`).
+		const result = (await run(input, { onUpdate })) as Answer;
 		const encoded = toJsonAnswer(result);
 		answer =
 			encoded.error && RESERVED_NAMES.includes(encoded.error.name)
@@ -111,7 +113,7 @@ export async function runAction(
 	}
 	const { error } = answer;
 	try {
-		log.info('action run ended', {
+		runLog.info('action run ended', {
 			app,
 			action,
 			durationMs: Math.round(performance.now() - started),
@@ -154,4 +156,38 @@ function threw(cause: unknown): { message: string; thrown?: Thrown } {
 		// Details are best effort.
 	}
 	return { message };
+}
+
+/**
+ * `answer` copied to JSON values. `undefined` becomes `null`, a property
+ * that is `undefined` is dropped, and anything else JSON would change, such
+ * as a `Date`, a `Map`, `NaN` or a cycle, throws.
+ */
+function toJsonAnswer(answer: Answer): Result<JsonValue, PublicError> {
+	const parents = new Set<object>();
+	function encode(value: unknown): JsonValue {
+		if (value === null || value === undefined) return null;
+		if (typeof value === 'string' || typeof value === 'boolean') return value;
+		if (typeof value === 'number' && Number.isFinite(value)) return value;
+		if ((!Array.isArray(value) && !isPlainObject(value)) || parents.has(value))
+			throw new TypeError('An action answer must contain only JSON values');
+		parents.add(value);
+		try {
+			if (Array.isArray(value)) return Array.from(value, encode);
+			return Object.fromEntries(
+				Object.entries(value)
+					.filter(([, item]) => item !== undefined)
+					.map(([key, item]) => [key, encode(item)]),
+			);
+		} finally {
+			parents.delete(value);
+		}
+	}
+	if (answer.error === null) return Ok(encode(answer.data));
+	const error = encode(answer.error) as Record<string, JsonValue>;
+	return Err({
+		...error,
+		name: answer.error.name,
+		message: answer.error.message,
+	});
 }

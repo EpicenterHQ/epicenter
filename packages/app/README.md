@@ -69,7 +69,8 @@ Wellcrafted Result:
 - `edit` computes a change from the record and writes it with nothing else
   in this process changing the file between the read and the write.
 - A write replaces the whole file at once, changes only the lines it names,
-  keeps every other line byte for byte, and lands only under `data/`.
+  keeps every other line byte for byte, and lands only in a real folder
+  under `data/`: a key folder that is a link is neither read nor written.
 - `field.ref('watches')` names any key of the same `defineData`; a write
   refuses an id with no record there.
 
@@ -90,8 +91,8 @@ async run({ recheck = false }, update: Update<{ checked: number }>) {
 
 An app is a function of `Data` returning `{ description, actions }`. Its
 name is its key in `defineEpicenter({ apps })`, which refuses a name that
-is not lowercase letters, digits and dashes, starting with a letter, and
-refuses `serve`.
+is not lowercase letters, digits and dashes, starting with a letter. Its
+type refuses `serve`, the command's own word.
 
 ## The command and serve
 

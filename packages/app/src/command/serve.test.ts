@@ -2,11 +2,10 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from '../action.ts';
 import { defineData } from '../data.ts';
 import { defineEpicenter } from '../epicenter.ts';
-import { ActionError } from '../errors.ts';
 import { field } from '../field.ts';
 import type { Loaded } from './load.ts';
 import { createHandler } from './serve.ts';
@@ -40,9 +39,9 @@ async function setup() {
 		},
 	});
 	const fake = defineAction({
-		description: 'Claims it never began',
-		input: {},
-		run: () => ActionError.NotStarted({ message: 'not really' }),
+		description: 'Returns a name only Epicenter answers',
+		input: { name: field.select(['NotStarted', 'Threw', 'Unreachable']) },
+		run: ({ name }) => Err({ name, message: 'not really' }),
 	});
 	const loaded: Loaded = {
 		epicenter: defineEpicenter({
@@ -127,9 +126,18 @@ test('a throw is Threw, and a reserved name an action returns is Threw too', asy
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
 	expect(threw.answer.error).toEqual({ name: 'Threw', message: 'broke' });
-	const [fake] = await lines(await request('/actions/writing/fake', post({})));
-	expect(fake.answer.error.name).toBe('Threw');
-	expect(fake.answer.error.message).toContain('a name only Epicenter answers');
+	for (const name of ['NotStarted', 'Threw', 'Unreachable']) {
+		const [fake] = await lines(
+			await request('/actions/writing/fake', post({ name })),
+		);
+		expect(fake.answer.error).toEqual({
+			name: 'Threw',
+			message:
+				'The action "fake" returned ' +
+				name +
+				', a name only Epicenter answers',
+		});
+	}
 });
 
 test('the listing has every app, action, description and input schema', async () => {

@@ -29,10 +29,14 @@
 
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { Flat } from './data.ts';
+import { isAnswer } from './answer.ts';
 import type { PublicError } from './errors.ts';
-import { defaultIn, type ObjectSchema, objectSchema } from './field.ts';
-import { isAnswer } from './result.ts';
+import {
+	defaultIn,
+	type Flat,
+	type ObjectSchema,
+	objectSchema,
+} from './field.ts';
 
 /** An action's input as an app writes it: a record of fields. */
 export type Input = Record<string, TSchema & object>;
@@ -131,14 +135,18 @@ function checked(value: unknown, description: string) {
 	return value;
 }
 
-const ACTION_KEYS = new Set(['description', 'input', 'run']);
+/**
+ * Marks what `defineAction` made, whose every answer it has checked.
+ * Registered, so serve knows it whichever copy of this package made it.
+ */
+const ACTION = Symbol.for('epicenter.action');
 
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields and every caller's `onUpdate` by `run`'s `update`. Calling the
  * action hands `run` the input as given: an absent field stays absent, and
- * `run` writes its own default. Throws when the definition is wrong in a way
- * its types cannot say, such as a field with a `default`.
+ * `run` writes its own default. Throws for an empty description or a field
+ * with a `default`, which its types cannot refuse.
  */
 export function defineAction<
 	const I extends Input,
@@ -148,17 +156,17 @@ export function defineAction<
 export function defineAction(
 	def: ActionDef<Input, RunResult, Returned>,
 ): Action {
-	const problems = actionProblems(def);
-	if (problems.length)
-		throw new Error(
-			problems
-				.map((problem) => `The action "${def.description}" ${problem}`)
-				.join('\n'),
-		);
 	const { description, run } = def;
+	if (description.trim() === '')
+		throw new Error(
+			'An action needs a description: what it does, in a sentence',
+		);
+	for (const [key, schema] of Object.entries(def.input))
+		if (defaultIn(schema))
+			throw new Error(
+				`The action "${description}" has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
+			);
 	const input = objectSchema(def.input);
-	// Fail at definition, before a schema JSON cannot carry breaks the listing.
-	JSON.stringify(input);
 	const action = (
 		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
@@ -181,37 +189,13 @@ export function defineAction(
 		close();
 		return checked(answer, description);
 	};
-	return Object.assign(action, { description, input });
+	return Object.assign(action, { description, input, [ACTION]: true });
 }
 
-/** What is wrong with `def` beyond its types, each finishing "The action … ". */
-function actionProblems(def: object): string[] {
-	const { description, input, run } = def as Record<string, unknown>;
-	const problems: string[] = [];
-	for (const key of Object.keys(def))
-		if (!ACTION_KEYS.has(key))
-			problems.push(`has "${key}", which an action does not take`);
-	if (typeof description !== 'string' || description.trim() === '')
-		problems.push('has no description');
-	if (typeof run !== 'function') problems.push('has no run');
-	if (typeof input !== 'object' || input === null)
-		return [...problems, 'has no input; write input: {} for none'];
-	for (const [key, schema] of Object.entries(input)) {
-		if (typeof schema !== 'object' || schema === null || Array.isArray(schema))
-			problems.push(`has "${key}" in its input, which is not a field`);
-		else if (defaultIn(schema))
-			problems.push(
-				`has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
-			);
-	}
-	return problems;
-}
-
-/** Whether `value` is an action: a function carrying a description and an input schema. */
+/** Whether `value` is what `defineAction` made. */
 export function isAction(value: unknown): value is Action {
 	return (
 		typeof value === 'function' &&
-		typeof (value as { description?: unknown }).description === 'string' &&
-		typeof (value as { input?: unknown }).input === 'object'
+		(value as { [ACTION]?: unknown })[ACTION] === true
 	);
 }

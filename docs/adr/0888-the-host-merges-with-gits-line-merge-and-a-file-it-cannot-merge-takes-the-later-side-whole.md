@@ -44,7 +44,7 @@ git merge-tree --write-tree -X no-renames main clone/laptop-k3x9
   sides were inside it, takes the later side whole.** Git merges two sides
   adding the same key at different lines into front matter that holds the key
   twice (measured 2026-11-13), which the reader would take as all body
-  (`packages/app/src/front-matter.ts`).
+  (`packages/app/src/markdown.ts`).
 - **An edit beats a deletion,** as in ADR-0622 and as Git already merges
   without renames.
 - **The merge commit names each whole file it replaced or restored,** one

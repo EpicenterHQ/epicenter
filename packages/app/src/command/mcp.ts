@@ -17,12 +17,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { Err } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
+import type { Answer } from '../answer.ts';
 import { ActionError } from '../errors.ts';
-import type { Answer } from '../result.ts';
-import { type Loaded, listingOf } from './load.ts';
+import type { Loaded } from './load.ts';
 import { errorText } from './output.ts';
-import { fromToolName, toolName } from './protocol.ts';
-import { checkCall, findAction, runAction } from './run.ts';
+import { checkCall, type Found, runAction } from './run.ts';
 
 /** An answer as an MCP tool result. A failure's text is what the command prints on stderr. */
 function toolResult(answer: Answer) {
@@ -39,15 +38,33 @@ function toolResult(answer: Answer) {
 	};
 }
 
-/** Answer one MCP request from what serve loaded. */
-export async function answerMcp(loaded: Loaded, request: Request) {
-	const tools = listingOf(loaded).apps.flatMap((app) =>
-		app.actions.map((action) => ({
-			name: toolName(app.name, action.name),
-			description: action.description,
-			inputSchema: action.input,
-		})),
-	);
+/**
+ * MCP for what serve loaded: the tools are made once, and each request gets
+ * its own server and transport. A tool is named `<app>_<action>`; a name has
+ * no underscore, so each tool names one action.
+ */
+export function createMcp(loaded: Loaded) {
+	const actions = new Map<string, Found>();
+	for (const [app, { actions: ofApp }] of Object.entries(
+		loaded.epicenter?.apps ?? {},
+	))
+		for (const [action, run] of Object.entries(ofApp))
+			actions.set(`${app}_${action}`, { app, action, run });
+	const tools = [...actions].map(([name, { run }]) => ({
+		name,
+		description: run.description,
+		inputSchema: run.input,
+	}));
+	return (request: Request) => answerMcp(loaded, actions, tools, request);
+}
+
+/** Answer one MCP request. */
+async function answerMcp(
+	loaded: Loaded,
+	actions: Map<string, Found>,
+	tools: { name: string; description: string; inputSchema: object }[],
+	request: Request,
+) {
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -59,15 +76,15 @@ export async function answerMcp(loaded: Loaded, request: Request) {
 	);
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
 	server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-		if (!tools.some((tool) => tool.name === params.name))
+		const found = actions.get(params.name);
+		if (!found)
 			return toolResult(
 				ActionError.NotStarted({
-					message: `No tool ${JSON.stringify(params.name)}; tools/list names them`,
+					message:
+						loaded.problem ??
+						`No tool ${JSON.stringify(params.name)}; tools/list names them`,
 				}),
 			);
-		const { app, action } = fromToolName(params.name);
-		const { data: found, error } = findAction(loaded, app, action);
-		if (error) return toolResult(Err(error));
 		const { data: call, error: misfit } = checkCall(found, {
 			value: params.arguments ?? {},
 		});

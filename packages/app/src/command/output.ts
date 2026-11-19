@@ -7,7 +7,7 @@
  */
 
 import type { LogSink } from 'wellcrafted/logger';
-import type { Answer } from '../result.ts';
+import type { Answer } from '../answer.ts';
 
 /** Write diagnostics apart from the answer. */
 export function writeErr(text: string) {

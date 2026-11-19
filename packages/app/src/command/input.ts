@@ -6,7 +6,7 @@
 
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import { type ObjectSchema, whatFits } from '../field.ts';
+import { type Described, type ObjectSchema, whatFits } from '../field.ts';
 
 /**
  * Check an input against its action's schema (ADR-0953), the one check a
@@ -51,19 +51,6 @@ function checkInput(
 	if (words) return { error: `${name} must be ${words}` };
 	return { error: `${name}: ${first?.message ?? 'is not accepted'}` };
 }
-
-type Described = {
-	type?: string;
-	format?: string;
-	minimum?: number;
-	minItems?: number;
-	items?: Described;
-	required?: string[];
-	properties?: Record<string, Described>;
-	anyOf?: Described[];
-	const?: unknown;
-	enum?: unknown[];
-};
 
 /** A value `field` takes, for an example: its first choice, a day for a date, `"text"` for other text, as many items as a list needs, an object of its required keys. */
 function exampleOf(field: Described): unknown {

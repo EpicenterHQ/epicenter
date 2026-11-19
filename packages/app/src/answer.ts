@@ -6,41 +6,46 @@
  *
  * Any status but 200 means serve did not take the call, and is
  * `Unreachable`. A 200 proves nothing more: one whose lines are not frames,
- * or whose stream ends with no answer, is `Unreachable` too. This module
+ * whose answer is not exactly `{ data, error }`, or whose stream ends with
+ * no answer, is `Unreachable` too. This module
  * uses only web APIs, so a page's bundle can carry it.
  */
-import { Ok } from 'wellcrafted/result';
-import { ActionError } from './errors.ts';
-import { type Answer, isAnswer, isPlainObject } from './result.ts';
+import type { Result } from 'wellcrafted/result';
+import { ActionError, type PublicError } from './errors.ts';
+
+/** An action's answer on every surface: what it returned, or the error itself. */
+export type Answer = Result<unknown, PublicError>;
+
+/** Whether `value` is an object made by `{}` or `Object.create(null)`. */
+export function isPlainObject(
+	value: unknown,
+): value is Record<string, unknown> {
+	if (value === null || typeof value !== 'object') return false;
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
+
+/** Whether `value` is an answer: `{ data, error }` and nothing else. */
+export function isAnswer(value: unknown): value is Answer {
+	if (
+		!isPlainObject(value) ||
+		Reflect.ownKeys(value).length !== 2 ||
+		!Object.hasOwn(value, 'error') ||
+		!Object.hasOwn(value, 'data')
+	)
+		return false;
+	const { error } = value;
+	if (error === null) return true;
+	return (
+		value.data === null &&
+		isPlainObject(error) &&
+		typeof error.name === 'string' &&
+		typeof error.message === 'string'
+	);
+}
 
 const invalid = () =>
 	ActionError.Unreachable({ message: 'serve sent an invalid answer' });
-
-/**
- * One answer as a caller reads it: exactly `data` and `error`, where `error`
- * is `null` or a tagged object. `Threw` must carry a tagged `thrown` when it
- * has one, and `NotStarted` a `next` that is text when it has one; the name alone says
- * which, since serve answers an action's own `NotStarted` or `Unreachable` as
- * `Threw`. Anything else is `Unreachable`.
- */
-export function checkAnswer(value: unknown): Answer {
-	if (!isAnswer(value)) return invalid();
-	if (value.error === null) return Ok(value.data);
-	const error = value.error as unknown as Record<string, unknown>;
-	if (error.name === 'Threw') {
-		const { thrown } = error;
-		const fits =
-			thrown === undefined ||
-			(isPlainObject(thrown) &&
-				typeof thrown.name === 'string' &&
-				typeof thrown.message === 'string');
-		return fits ? value : invalid();
-	}
-	if (error.name !== 'NotStarted') return value;
-	return error.next === undefined || typeof error.next === 'string'
-		? value
-		: invalid();
-}
 
 /**
  * Read a call's response: hand each update to `onUpdate` in order, and give
@@ -82,7 +87,8 @@ export async function readAnswer(
 					return invalid();
 				}
 				if (!isPlainObject(line)) return invalid();
-				if (Object.hasOwn(line, 'answer')) return checkAnswer(line.answer);
+				if (Object.hasOwn(line, 'answer'))
+					return isAnswer(line.answer) ? line.answer : invalid();
 				if (!Object.hasOwn(line, 'update')) return invalid();
 				onUpdate?.(line.update);
 			}

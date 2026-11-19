@@ -23,18 +23,17 @@
  */
 import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
-import { readAnswer } from './answer.ts';
-import type { App, Epicenter } from './epicenter.ts';
+import { type Answer, readAnswer } from './answer.ts';
+import type { Epicenter } from './epicenter.ts';
 import {
 	ActionError,
 	type NotStarted,
 	type Threw,
 	type Unreachable,
 } from './errors.ts';
-import type { JsonValue } from './front-matter.ts';
-import type { Answer } from './result.ts';
+import type { Flat } from './field.ts';
+import type { JsonValue } from './markdown.ts';
 
-export { partitionResults } from 'wellcrafted/result';
 export type {
 	ActionError,
 	NotStarted,
@@ -42,9 +41,6 @@ export type {
 	Unreachable,
 } from './errors.ts';
 export { timeId } from './time.ts';
-
-/** `T` flattened into one object type. */
-type Flat<T> = { [K in keyof T]: T[K] } & {};
 
 /**
  * `T` as it arrives through JSON: `undefined` is `null`, and a property that
@@ -119,13 +115,11 @@ type AppsOf<H> = H extends Epicenter<infer TApps> ? TApps : never;
 
 /** The client for the home `H`: each app, then each of its actions, by name. */
 export type Client<H> = {
-	readonly [A in keyof AppsOf<H>]: AppsOf<H>[A] extends App
-		? {
-				readonly [K in keyof AppsOf<H>[A]['actions']]: ActionCall<
-					AppsOf<H>[A]['actions'][K]
-				>;
-			}
-		: never;
+	readonly [A in keyof AppsOf<H>]: {
+		readonly [K in keyof AppsOf<H>[A]['actions']]: ActionCall<
+			AppsOf<H>[A]['actions'][K]
+		>;
+	};
 };
 
 /** Tell the page about a listener's failure without ending the call. */

@@ -7,9 +7,9 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
+import type { Answer } from '../answer.ts';
 import { ActionError } from '../errors.ts';
 import { isName } from '../name.ts';
-import type { Answer } from '../result.ts';
 import { findHome, type Home } from './home.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import type { AppListing, Listing } from './protocol.ts';
@@ -80,7 +80,7 @@ function appText({ name, description, actions }: AppListing) {
 }
 
 /** The answer for `words`, which the caller presents. */
-async function answer(words: string[]): Promise<Answer | undefined> {
+async function answer(words: string[]): Promise<Answer> {
 	const [app, action, input, ...extra] = words;
 	if (app === 'serve') {
 		if (action !== undefined) return usage('Usage: epicenter serve');
@@ -131,11 +131,11 @@ export async function runCli(argv: string[]): Promise<number> {
 		return presentAnswer(
 			usage(`${flag} is not an option; the options are --help and --version`),
 		);
-	let answered: Answer | undefined;
+	let answered: Answer;
 	try {
 		answered = await answer(argv);
 	} catch (cause) {
 		answered = ActionError.NotStarted({ message: extractErrorMessage(cause) });
 	}
-	return answered === undefined ? 0 : presentAnswer(answered);
+	return presentAnswer(answered);
 }

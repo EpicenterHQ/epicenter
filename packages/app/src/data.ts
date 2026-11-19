@@ -21,6 +21,7 @@
 import { isAbsolute } from 'node:path';
 import type { Static, TObject, TUnsafe } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
+import { deleteFile, filesIn } from './disk.ts';
 import {
 	ActionError,
 	type Exists,
@@ -28,21 +29,16 @@ import {
 	type Missing,
 	type PublicError,
 } from './errors.ts';
-import { defaultIn, type OptionalKeys, refKeyOf } from './field.ts';
-import { filesIn, openFolder } from './folder.ts';
-import { isFieldKey, type JsonValue } from './front-matter.ts';
-import { isName } from './name.ts';
 import {
-	createMarkdownRecords,
+	defaultIn,
 	type Fields,
-	idOf,
-	isId,
-	refTargets,
-} from './records.ts';
-import { isPlainObject } from './result.ts';
-
-/** `T` written out as one object type, without `readonly`, so an editor shows its keys. */
-export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
+	type Flat,
+	type OptionalKeys,
+	refKeyOf,
+} from './field.ts';
+import { isFieldKey, type JsonValue } from './markdown.ts';
+import { isName } from './name.ts';
+import { createMarkdownRecords, idOf, isId, refTargets } from './records.ts';
 
 /**
  * One data key: what one of its records is, as a noun ("trip idea"), and
@@ -68,7 +64,10 @@ export type DataRecord<TDef extends DataDef> = Flat<
 	{ path: string; id: string; body: string } & Static<TObject<TDef['fields']>>
 >;
 
-/** Marks a handle `defineData` made, so `defineData(tmp, data)` knows it was given one. */
+/**
+ * Marks a handle `defineData` made, for the types only: it is how the
+ * overload of `defineData(tmp, data)` tells a result from a spec.
+ */
 const HANDLE = Symbol('epicenter.handle');
 
 /** The calls on one data key. */
@@ -114,7 +113,7 @@ export type Data<TSpec extends Spec> = {
 };
 
 /** What `defineData` returned, for any definitions. */
-export type AnyData = Record<string, DataDef & { readonly [HANDLE]: true }>;
+type AnyData = Record<string, DataDef & { readonly [HANDLE]: true }>;
 
 /** Markdown yields JSON values, so a handle at runtime is typed by them. */
 type AnyHandle = Handle<{
@@ -138,26 +137,18 @@ export function defineData<const TSpec extends Spec>(
 	spec: TSpec,
 ): Data<TSpec>;
 export function defineData(dir: string, spec: Spec): unknown {
-	if (typeof dir !== 'string' || !isAbsolute(dir))
+	if (!isAbsolute(dir))
 		throw new Error(
 			`defineData takes the home's folder first, as an absolute path: defineData(import.meta.dir, { ... }), not ${JSON.stringify(dir)}`,
-		);
-	if (!isPlainObject(spec))
-		throw new Error(
-			'defineData takes its keys second: defineData(import.meta.dir, { notes: { description, fields } })',
 		);
 	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))
 			throw new Error(
 				`The data key ${JSON.stringify(key)} must be lowercase letters, digits and dashes, starting with a letter`,
 			);
-		if (typeof description !== 'string' || description.trim() === '')
+		if (description.trim() === '')
 			throw new Error(
 				`The data key ${key} needs a description: what one record is, such as "trip idea"`,
-			);
-		if (!isPlainObject(fields))
-			throw new Error(
-				`The data key ${key} needs fields: an object of field schemas, {} for none`,
 			);
 		for (const [name, schema] of Object.entries(fields)) {
 			// A record carries its path, id and body beside its fields.
@@ -203,13 +194,12 @@ function refsAnywhere(schema: unknown): string[] {
 
 /** The handle for one data key: its definition and its calls. */
 function createHandle(dir: string, key: string, def: DataDef) {
-	const folder = openFolder(dir);
 	const base = `data/${key}`;
 	/** The ids of the key `of`: each `.md` file directly in its folder. */
 	const idsIn = (of: string) =>
 		filesIn(dir, `data/${of}`).flatMap((name) => idOf(name) ?? []);
 	const records = createMarkdownRecords({
-		folder,
+		home: dir,
 		base,
 		fields: def.fields,
 		idsIn,
@@ -243,7 +233,7 @@ function createHandle(dir: string, key: string, def: DataDef) {
 		edit: (id: string, change: (record: unknown) => unknown) =>
 			named(id, () => records.write(id, 'either', change)),
 		delete: (id: string) =>
-			named(id, async () => Ok(await folder.delete(records.path(id)))),
+			named(id, async () => Ok(await deleteFile(dir, records.path(id)))),
 		[HANDLE]: true,
 	} as AnyHandle;
 	return { ...def, ...handle };

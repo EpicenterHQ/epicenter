@@ -2,14 +2,15 @@ import { join, parse } from 'node:path';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
+import { isAnswer, isPlainObject } from './answer.ts';
+import { editFile, readText } from './disk.ts';
 import {
 	ActionError,
 	type Misfit,
 	type Problem,
 	type PublicError,
 } from './errors.ts';
-import { isOptional, refKeyOf, whatFits } from './field.ts';
-import { type Folder, pathRefusal, readText } from './folder.ts';
+import { type Fields, isOptional, refKeyOf, whatFits } from './field.ts';
 import {
 	changeMarkdown,
 	type FieldValues,
@@ -17,11 +18,7 @@ import {
 	type MarkdownFile,
 	type NotJson,
 	readMarkdown,
-} from './front-matter.ts';
-import { isAnswer, isPlainObject } from './result.ts';
-
-/** Declared front matter fields, each a TypeBox schema. */
-export type Fields = Record<string, TSchema>;
+} from './markdown.ts';
 
 export type AnyRecord = Record<string, JsonValue> & {
 	path: string;
@@ -46,15 +43,13 @@ export function idOf(path: string): string | undefined {
 
 /**
  * Whether `id` names a record: Node gives `<id>.md` back with that id as its
- * name, and the folder will take that name. `''`, `a/b`, `../x`, `x/`, `a\b`
- * and any value that is not text do not, so every id `create` writes, `list`
+ * name, and it has no `\`, which Windows reads as a separator. `''`, `a/b`,
+ * `../x`, `x/`, `a\b` and any value that is not text do not, so every id `create` writes, `list`
  * reads back as the same id.
  */
 export function isId(id: unknown): id is string {
 	return (
-		typeof id === 'string' &&
-		idOf(`${id}.md`) === id &&
-		pathRefusal(`${id}.md`) === undefined
+		typeof id === 'string' && idOf(`${id}.md`) === id && !id.includes('\\')
 	);
 }
 
@@ -150,12 +145,13 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 
 /** Read and write records of declared Markdown fields without changing undeclared lines. */
 export function createMarkdownRecords({
-	folder,
+	home,
 	base,
 	fields,
 	idsIn,
 }: {
-	folder: Folder;
+	/** The home's folder. */
+	home: string;
 	/** The folder under the home that holds one file per id, such as `data/notes`. */
 	base: string;
 	fields: Fields;
@@ -211,7 +207,7 @@ export function createMarkdownRecords({
 	async function read(
 		id: string,
 	): Promise<Result<AnyRecord | undefined, Misfit>> {
-		const text = await readText(join(folder.path, pathOf(id)));
+		const text = await readText(join(home, pathOf(id)));
 		if (text === undefined) return Ok(undefined);
 		return project(id, readMarkdown(text)).result;
 	}
@@ -278,7 +274,7 @@ export function createMarkdownRecords({
 		change: Patch | Compute,
 	): Promise<Result<AnyRecord, PublicError>> {
 		const path = pathOf(id);
-		return folder.edit<AnyRecord, PublicError>(path, (before) => {
+		return editFile<AnyRecord, PublicError>(home, path, (before) => {
 			if (before === undefined && need === 'present')
 				return ActionError.Missing({ path });
 			if (before !== undefined && need === 'absent')

@@ -19,6 +19,12 @@ import {
 } from 'typebox';
 import { Value } from 'typebox/value';
 
+/** Declared fields, each a TypeBox schema. */
+export type Fields = Record<string, TSchema>;
+
+/** `T` written out as one object type, without `readonly`, so an editor shows its keys. */
+export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
+
 /** What every field helper takes: a description, and whether it may be absent. */
 type Options = {
 	description?: string;
@@ -276,7 +282,8 @@ export const field = {
 	},
 };
 
-type Described = {
+/** The parts of a field's JSON Schema that the words and examples for it read. */
+export type Described = {
 	type?: string;
 	format?: string;
 	pattern?: string;
@@ -285,6 +292,8 @@ type Described = {
 	maximum?: number;
 	minItems?: number;
 	items?: Described;
+	required?: string[];
+	properties?: Record<string, Described>;
 	anyOf?: Described[];
 	const?: unknown;
 	enum?: unknown[];
@@ -318,15 +327,6 @@ const SAID = new Set([
 	'maximum',
 	'minItems',
 ]);
-
-/** The schema a field takes besides `null`: `X | null`, as `set` takes a field, is `X`. */
-function withoutNull(field: TSchema): TSchema {
-	const { anyOf } = field as Described;
-	const nonNull = anyOf?.filter((choice) => choice.type !== 'null');
-	return anyOf?.length === 2 && nonNull?.length === 1 && nonNull[0]
-		? (nonNull[0] as TSchema)
-		: field;
-}
 
 /** What `schema` takes, as the end of "<value> is not …". */
 function wanted(schema: Described): string | undefined {
@@ -368,8 +368,7 @@ function wanted(schema: Described): string | undefined {
  */
 export function whatFits(field: TSchema, value: unknown): string | undefined {
 	if (Value.Check(field, value)) return undefined;
-	const schema = withoutNull(field);
-	const [error] = Value.Errors(schema, value);
+	const [error] = Value.Errors(field, value);
 	if (!error || !SAID.has(error.keyword)) return undefined;
-	return wanted(schema as Described);
+	return wanted(field as Described);
 }

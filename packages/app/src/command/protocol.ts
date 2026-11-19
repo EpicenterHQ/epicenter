@@ -1,6 +1,6 @@
 /**
  * What the command and serve agree on over HTTP: the header that names a
- * home, the MCP tool names, and the listing. Serve and the command each
+ * home, and the listing. Serve and the command each
  * import this; neither imports the other, and nothing here loads app code.
  */
 import type { ObjectSchema } from '../field.ts';
@@ -15,18 +15,6 @@ export const HOME_HEADER = 'x-epicenter-home';
 
 /** A home as the header carries it. */
 export const homeHeaderValue = (folder: string) => encodeURIComponent(folder);
-
-/**
- * The MCP tool name of `action` in `app`: the two names joined by `_`. A
- * name has no underscore, so `fromToolName` reads it back.
- */
-export const toolName = (app: string, action: string) => `${app}_${action}`;
-
-/** The app and action a tool name names; an empty action for no such name. */
-export function fromToolName(name: string) {
-	const [app = '', action = '', ...more] = name.split('_');
-	return { app, action: more.length ? '' : action };
-}
 
 /** An action as the listing shows it. */
 export type ActionListing = {

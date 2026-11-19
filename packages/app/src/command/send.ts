@@ -6,9 +6,8 @@
  * its place.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { readAnswer } from '../answer.ts';
+import { type Answer, readAnswer } from '../answer.ts';
 import { ActionError, type PublicError } from '../errors.ts';
-import type { Answer } from '../result.ts';
 import type { Home } from './home.ts';
 import { HOME_HEADER, homeHeaderValue, type Listing } from './protocol.ts';
 

@@ -36,14 +36,14 @@ import { isIP } from 'node:net';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
+import type { Answer } from '../answer.ts';
 import { ActionError, type NotStarted } from '../errors.ts';
 import { isName } from '../name.ts';
-import type { Answer } from '../result.ts';
 import type { Home } from './home.ts';
 import { type Loaded, listingOf, loadHome } from './load.ts';
-import { answerMcp } from './mcp.ts';
+import { createMcp } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
-import { HOME_HEADER, homeHeaderValue } from './protocol.ts';
+import { HOME_HEADER, homeHeaderValue, type Listing } from './protocol.ts';
 import { type Call, checkCall, findAction, runAction } from './run.ts';
 
 /** Serve listens only here. */
@@ -128,17 +128,25 @@ function stream(call: Call): Response {
 	return new Response(body, { headers: JSON_LINES });
 }
 
+/** What serve answers from, made once when the program has loaded. */
+type Ready = {
+	loaded: Loaded;
+	listing: Listing;
+	mcp: (request: Request) => Promise<Response>;
+};
+
 /** Every route, read from the path. A name is `[a-z0-9-]`, which no percent-encoding spells, so a segment is not decoded. */
-async function route(loaded: Loaded, request: Request): Promise<Response> {
+async function route(
+	{ loaded, listing, mcp }: Ready,
+	request: Request,
+): Promise<Response> {
 	const { method } = request;
 	const { pathname } = new URL(request.url);
 	if (pathname === '/')
-		return method === 'POST'
-			? answerMcp(loaded, request)
-			: methodNotAllowed('POST');
+		return method === 'POST' ? mcp(request) : methodNotAllowed('POST');
 	if (pathname === '/actions/')
 		return method === 'GET' || method === 'HEAD'
-			? Response.json(listingOf(loaded), {
+			? Response.json(listing, {
 					headers: { 'cache-control': 'no-store' },
 				})
 			: methodNotAllowed('GET, HEAD');
@@ -195,6 +203,13 @@ function fromAnotherOrigin(request: Request) {
  */
 export function createHandler(home: Home, loaded: Promise<Loaded> | Loaded) {
 	const ours = homeHeaderValue(home.folder);
+	const ready = Promise.resolve(loaded).then(
+		(loaded): Ready => ({
+			loaded,
+			listing: listingOf(loaded),
+			mcp: createMcp(loaded),
+		}),
+	);
 	return async (request: Request): Promise<Response> => {
 		const { headers } = request;
 		if (TUNNEL_HEADERS.some((name) => headers.has(name))) return forbidden();
@@ -214,16 +229,17 @@ export function createHandler(home: Home, loaded: Promise<Loaded> | Loaded) {
 		const meant = headers.get(HOME_HEADER);
 		if (meant !== null && meant !== ours)
 			return new Response('This call is for another home', { status: 409 });
-		return route(await loaded, request);
+		return route(await ready, request);
 	};
 }
 
 /**
- * Serve the home until the process receives SIGINT or SIGTERM, then exit.
+ * Serve the home until the process receives SIGINT or SIGTERM, then exit
+ * with 0; the answer is only ever why serve did not start.
  * It refuses to start outside the home's folder, since Bun reads `.env` from
  * the folder a process starts in, and when the port is taken.
  */
-export async function serveHome(home: Home): Promise<Answer | undefined> {
+export async function serveHome(home: Home): Promise<Answer> {
 	if (realpathSync(process.cwd()) !== home.folder)
 		return ActionError.NotStarted({
 			message: `serve starts in your home's folder, ${home.folder}, so Bun reads its .env`,
@@ -272,5 +288,5 @@ export async function serveHome(home: Home): Promise<Answer | undefined> {
 	});
 	// A call still running is cut; every write renamed a whole file into place.
 	await server.stop(true);
-	process.exit(0);
+	return process.exit(0);
 }

@@ -1,7 +1,7 @@
 /**
- * A data file as fields and body (ADR-0796, ADR-0924). The grammar
- * is copied from the waiting product's front matter without its merge
- * (ADR-0843: new code copies from it, never imports it).
+ * A Markdown file as front matter fields and a body, read and changed line
+ * by line. The data handles use it, and Whispering imports it as
+ * `@epicenter/app/markdown`.
  *
  * A file has front matter when its first line is `---` and a later line is
  * `---`. Each line between them is `key: <text>`, each key once: a key is a
@@ -143,7 +143,7 @@ export function readMarkdown(text: string): MarkdownFile {
 }
 
 /** What a write changes: the fields it sets, the keys it removes, and the body that replaces the file's. */
-export type MarkdownChange = {
+type MarkdownChange = {
 	set: FieldValues;
 	removed?: readonly string[];
 	body?: string;
