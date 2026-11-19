@@ -7,7 +7,6 @@
       "devDependencies": {
         "@biomejs/biome": "catalog:",
         "@types/bun": "catalog:",
-        "@y/y": "14.0.0-rc.26",
         "wrangler": "catalog:",
       },
     },
@@ -121,7 +120,6 @@
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",
         "nanoid": "catalog:",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -182,25 +180,14 @@
   },
   "overrides": {
     "@protobufjs/utf8": "^1.1.1",
-    "@y/y": "14.0.0-rc.26",
-    "axios": "^1.18.0",
-    "brace-expansion": "^5.0.6",
     "cookie": "^1.1.1",
     "esbuild": "^0.28.1",
     "fast-uri": "^3.1.2",
-    "fast-xml-builder": "^1.2.0",
-    "fast-xml-parser": "^5.8.0",
-    "follow-redirects": "^1.16.0",
-    "fx-runner": "^1.5.0",
-    "lib0": "1.0.0-rc.32",
     "postcss": "^8.5.15",
     "protobufjs": "^7.6.4",
     "qs": "^6.15.2",
-    "shell-quote": "^1.8.4",
-    "tmp": "^0.2.7",
     "uuid": "^11.1.1",
     "vite": "^8.2.2",
-    "vite-node": "^5.3.0",
     "ws": "^8.21.0",
     "yaml": "^2.9.0",
   },
@@ -752,8 +739,6 @@
 
     "@vscode/l10n": ["@vscode/l10n@0.0.18", "", {}, "sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ=="],
 
-    "@y/y": ["@y/y@14.0.0-rc.26", "", { "dependencies": { "lib0": "^1.0.0-rc.29" } }, "sha512-sJ0N5qkYFtFTIdHWV77Fx+JU7bPqNXUmoFC807FscFtsxMSXp6zjPwHQ1PdUCYv8PJlNcPjsuGGyVpOT+FF5SQ=="],
-
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
     "acorn": ["acorn@8.16.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw=="],
@@ -1089,8 +1074,6 @@
     "jsrepo": ["jsrepo@3.7.0", "", { "dependencies": { "commander": "^14.0.3", "oxc-parser": "^0.114.0", "unconfig": "^7.5.0" }, "peerDependencies": { "svelte": "^5.0.0", "vue": "^3.0.0" }, "optionalPeers": ["svelte", "vue"], "bin": { "jsrepo": "dist/bin.mjs" } }, "sha512-Ds0ItLykeFm2MD5Px7FF7UXrHGUD21gLMOxxqwqgJsnWjZ/j6i9e/cgGwv3U2ZjlgxvHbmMyP9kYOmkULa0pSw=="],
 
     "kleur": ["kleur@4.1.5", "", {}, "sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ=="],
-
-    "lib0": ["lib0@1.0.0-rc.32", "", { "bin": { "0serve": "src/bin/0serve.js", "0gentesthtml": "src/bin/gentesthtml.js", "0ecdsa-generate-keypair": "src/bin/0ecdsa-generate-keypair.js" } }, "sha512-AaFxUR1ta0Zf3LmryubLTfYWmZCDfPjy5kAkDjURszy1RYJ7Rtt07xums81FLfj9Oa/6XLx7dOypiWXcSWJWyQ=="],
 
     "lightningcss": ["lightningcss@1.33.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.33.0", "lightningcss-darwin-arm64": "1.33.0", "lightningcss-darwin-x64": "1.33.0", "lightningcss-freebsd-x64": "1.33.0", "lightningcss-linux-arm-gnueabihf": "1.33.0", "lightningcss-linux-arm64-gnu": "1.33.0", "lightningcss-linux-arm64-musl": "1.33.0", "lightningcss-linux-x64-gnu": "1.33.0", "lightningcss-linux-x64-musl": "1.33.0", "lightningcss-win32-arm64-msvc": "1.33.0", "lightningcss-win32-x64-msvc": "1.33.0" } }, "sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA=="],
 

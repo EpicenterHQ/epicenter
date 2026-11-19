@@ -66,26 +66,15 @@
 	},
 	"packageManager": "bun@1.4.2",
 	"overrides": {
-		"@y/y": "14.0.0-rc.26",
-		"lib0": "1.0.0-rc.32",
 		"@protobufjs/utf8": "^1.1.1",
-		"axios": "^1.18.0",
-		"brace-expansion": "^5.0.6",
 		"cookie": "^1.1.1",
 		"esbuild": "^0.28.1",
 		"fast-uri": "^3.1.2",
-		"fast-xml-builder": "^1.2.0",
-		"fast-xml-parser": "^5.8.0",
-		"follow-redirects": "^1.16.0",
-		"fx-runner": "^1.5.0",
 		"postcss": "^8.5.15",
 		"protobufjs": "^7.6.4",
 		"qs": "^6.15.2",
-		"shell-quote": "^1.8.4",
-		"tmp": "^0.2.7",
 		"uuid": "^11.1.1",
 		"vite": "^8.2.2",
-		"vite-node": "^5.3.0",
 		"ws": "^8.21.0",
 		"yaml": "^2.9.0"
 	},
@@ -117,7 +106,6 @@
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
 		"@types/bun": "catalog:",
-		"@y/y": "14.0.0-rc.26",
 		"wrangler": "catalog:"
 	}
 }

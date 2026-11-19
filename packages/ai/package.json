@@ -13,7 +13,6 @@
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"nanoid": "catalog:",
-		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
