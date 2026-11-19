@@ -26,13 +26,14 @@ import {
 	chmodSync,
 	lstatSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
 	statSync,
 	writeFileSync,
 } from 'node:fs';
-import { readdir, readFile, unlink } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -124,7 +125,7 @@ export async function readText(path: string) {
  * missing or any part of `relative` is a link, so a linked directory never
  * becomes app data.
  */
-export async function filesIn(root: string, relative: string) {
+export function filesIn(root: string, relative: string) {
 	let current = root;
 	for (const part of relative.split('/')) {
 		current = join(current, part);
@@ -132,7 +133,7 @@ export async function filesIn(root: string, relative: string) {
 		if (!entry?.isDirectory()) return [];
 	}
 	const names: string[] = [];
-	for (const entry of await readdir(current, { withFileTypes: true })) {
+	for (const entry of readdirSync(current, { withFileTypes: true })) {
 		if (entry.isFile()) names.push(entry.name);
 		// A broken link has no target, so it is no file.
 		else if (

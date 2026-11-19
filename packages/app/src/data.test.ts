@@ -5,7 +5,7 @@
  * between app writes and reference checks.
  */
 import { expect, test } from 'bun:test';
-import { readdir } from 'node:fs/promises';
+import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type TSchema, Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -530,6 +530,38 @@ test('a write refuses a ref that names no record, and nothing checks it again', 
 		'sfo-nyc',
 	);
 	expect(expectOk(await data.checks.get('a'))?.watch).toBe('sfo-nyc');
+	// A write that sends the same ref back, as a form does, did not change it.
+	expect(
+		expectOk(await data.checks.patch('a', { watch: 'sfo-nyc', count: 3 }))
+			.count,
+	).toBe(3);
+	expect(
+		expectOk(
+			await data.checks.edit('a', (record) =>
+				Ok({ watch: record?.watch, count: 4 }),
+			),
+		).count,
+	).toBe(4);
+	// A ref is checked against the names list reads: a folder named like a record is none.
+	await mkdir(join(folder.path, 'data/watches/dir.md'), { recursive: true });
+	expect(
+		expectErr(await data.checks.patch('a', { watch: 'dir' })),
+	).toMatchObject({ problems: [missing('watch', 'dir')] });
+});
+
+test('defineData refuses a ref in a shape a write does not check', () => {
+	for (const target of [
+		Type.Object({ shelf: field.ref('notes') }),
+		Type.Union([field.ref('notes'), Type.Number()]),
+		Type.Record(Type.String(), field.ref('notes')),
+	])
+		expect(() =>
+			defineData(unusedFolder, {
+				notes: { description: 'note', fields: { target } },
+			}),
+		).toThrow(
+			'The data key notes\'s field "target" holds a ref inside another shape; a ref is a field or the item of a list',
+		);
 });
 
 test.skipIf(!foldsCase)(
@@ -556,8 +588,11 @@ test.skipIf(!foldsCase)(
 		expect((await data.notes.list()).map((row) => expectOk(row).id)).toEqual([
 			'dune',
 		]);
-		// A ref passes the check by any case, and names nothing on a disk that keeps case.
-		expectOk(await data.links.create('l', { note: 'Dune' }));
+		// A ref is checked against the names list reads, so only the file's own name passes.
+		expect(expectErr(await data.links.create('l', { note: 'Dune' })).name).toBe(
+			'Misfit',
+		);
+		expectOk(await data.links.create('l', { note: 'dune' }));
 		expect(expectOk(await data.notes.delete('DUNE'))).toBe(true);
 		expect(await files('data/notes')).toEqual([]);
 	},

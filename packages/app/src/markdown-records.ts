@@ -8,7 +8,7 @@ import {
 	type PublicError,
 } from './action-result.ts';
 import { ActionError, type Problem } from './errors.ts';
-import { isOptional, missingRefs, whatFits } from './field.ts';
+import { isOptional, refKeyOf, whatFits } from './field.ts';
 import { type Folder, readText } from './folder.ts';
 import {
 	changeMarkdown,
@@ -45,15 +45,37 @@ export function idOf(path: string): string | undefined {
 }
 
 /**
- * The file under `base` that holds `id`, or undefined when Node would name
- * that file something other than `id`: `''`, `a/b`, `../x`, `x/`, and any
- * value that is not text. So every id `create` writes, `list` reads back
- * as the same id. On Windows `\` also separates folders, so Node refuses
- * `a\b` here; on macOS and Linux the folder refuses it when written.
+ * Whether `id` names a record: Node gives `<id>.md` back with that id as its
+ * name. `''`, `a/b`, `../x`, `x/` and any value that is not text do not, so
+ * every id `create` writes, `list` reads back as the same id.
  */
-export function recordPath(base: string, id: unknown): string | undefined {
-	const path = `${base}/${id}.md`;
-	return idOf(path) === id ? path : undefined;
+export function isId(id: unknown): id is string {
+	return typeof id === 'string' && idOf(`${id}.md`) === id;
+}
+
+/** One ref a value holds: the key it points into, the id, and where it sits. */
+type Ref = { target: string; id: string; at: string };
+
+/**
+ * The refs `value` holds, read through `schema`: the value itself when the
+ * schema is a ref, or each item when it is a list. A write checks these;
+ * `defineData` refuses a ref in any other shape (`refTargets`).
+ */
+function refsIn(schema: unknown, value: unknown, at: string): Ref[] {
+	const target = refKeyOf(schema);
+	if (target !== undefined)
+		return typeof value === 'string' ? [{ target, id: value, at }] : [];
+	const { items } = schema as { items?: unknown };
+	if (items === undefined || !Array.isArray(value)) return [];
+	return value.flatMap((item, index) => refsIn(items, item, `${at}[${index}]`));
+}
+
+/** The keys the refs in `schema` point into, walked as `refsIn` walks a value. */
+export function refTargets(schema: unknown): string[] {
+	const target = refKeyOf(schema);
+	if (target !== undefined) return [target];
+	const { items } = (schema ?? {}) as { items?: unknown };
+	return items === undefined ? [] : refTargets(items);
 }
 
 /** A problem with nothing file-specific in it, so its line is its kind. */
@@ -126,14 +148,14 @@ export function createMarkdownRecords({
 	folder,
 	base,
 	fields,
-	exists,
+	idsIn,
 }: {
 	folder: Folder;
 	/** The folder under the app's that holds one file per id, such as `data/notes`. */
 	base: string;
 	fields: Fields;
-	/** Whether the key `key` has a record named `id`, for the refs a write sets. */
-	exists: (key: string, id: string) => boolean;
+	/** The ids `list` reads in the key `key`, for the refs a write sets. */
+	idsIn: (key: string) => string[];
 }) {
 	/** The file for `id`, as given. */
 	const pathOf = (id: string) => `${base}/${id}.md`;
@@ -189,8 +211,14 @@ export function createMarkdownRecords({
 		return project(id, readMarkdown(text)).result;
 	}
 
-	/** Split a patch into fields to set and remove, and check each supplied value. */
-	function fieldsOf(id: string, given: Patch, creating: boolean) {
+	/**
+	 * Split a patch into fields to set and remove, and check each supplied
+	 * value. A ref is checked when this write changes it: one `old` already
+	 * holds in that field passes, so a caller that sends every field back can
+	 * save a record whose ref names a deleted record.
+	 */
+	function fieldsOf(id: string, given: Patch, old: FieldValues | undefined) {
+		const creating = old === undefined;
 		const removed: string[] = [];
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
@@ -204,11 +232,27 @@ export function createMarkdownRecords({
 			else set[key] = value as JsonValue;
 		}
 		const problems: Problem[] = [];
+		// One listing per target key per write, the same names `list` reads.
+		const listed = new Map<string, Set<string>>();
+		const has = ({ target, id }: Ref) => {
+			let ids = listed.get(target);
+			if (!ids) listed.set(target, (ids = new Set(idsIn(target))));
+			return ids.has(id);
+		};
+		const same = (a: Ref) => (b: Ref) => a.target === b.target && a.id === b.id;
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {
-				if (!Value.Check(schema, set[key]))
+				if (!Value.Check(schema, set[key])) {
 					problems.push(misfit(key, schema, set[key]));
-				else problems.push(...missingRefs(schema, set[key], key, exists));
+					continue;
+				}
+				const kept = old ? refsIn(schema, old[key], key) : [];
+				for (const ref of refsIn(schema, set[key], key))
+					if (!kept.some(same(ref)) && !has(ref))
+						problems.push({
+							line: `${ref.at} ${JSON.stringify(ref.id)} names no record in ${ref.target}`,
+							kind: `${ref.at} names no record in ${ref.target}`,
+						});
 			} else if (creating && !isOptional(schema))
 				problems.push(problem(`${key} is missing`));
 		}
@@ -269,7 +313,11 @@ export function createMarkdownRecords({
 				const { body, ...given } = patch;
 				if (body !== undefined && typeof body !== 'string')
 					return unfit(id, 'body must be text');
-				const checked = fieldsOf(id, given, before === undefined);
+				const checked = fieldsOf(
+					id,
+					given,
+					before === undefined ? undefined : file.fields,
+				);
 				if (checked.error !== null) return checked;
 				const { set, removed } = checked.data;
 				const after = changeMarkdown(before ?? '', { set, removed, body });

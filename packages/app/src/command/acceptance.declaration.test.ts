@@ -469,11 +469,7 @@ test("D8 an app of one data key's verbs creates, reads, changes, and deletes its
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[
-			['patch', { id: 'a\\b', kind: 'link' }],
-			1,
-			'is not a relative path',
-		],
+		[['patch', { id: 'a\\b', kind: 'link' }], 1, 'is not a relative path'],
 		[['patch', { id: 'dune', kind: null }], 2, 'kind'],
 		[['patch', { id: 'dune', added: null }], 2, 'added'],
 		[

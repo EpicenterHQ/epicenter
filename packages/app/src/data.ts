@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Static, TObject, TUnsafe } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -14,7 +13,8 @@ import {
 	createMarkdownRecords,
 	type Fields,
 	idOf,
-	recordPath,
+	isId,
+	refTargets,
 } from './markdown-records.ts';
 
 /**
@@ -144,13 +144,16 @@ export function defineData<const TSpec extends Spec>(
 		}
 	}
 	function checkRefs(schema: unknown, key: string, field: string) {
-		if (typeof schema !== 'object' || schema === null) return;
-		const target = refKeyOf(schema);
-		if (target !== undefined && !Object.hasOwn(spec, target))
+		const walked = refTargets(schema);
+		if (refsAnywhere(schema).length !== walked.length)
 			throw new Error(
-				`The data key ${key}'s field "${field}" refers to ${JSON.stringify(target)}, which must name a key in this defineData`,
+				`The data key ${key}'s field "${field}" holds a ref inside another shape; a ref is a field or the item of a list`,
 			);
-		for (const child of Object.values(schema)) checkRefs(child, key, field);
+		for (const target of walked)
+			if (!Object.hasOwn(spec, target))
+				throw new Error(
+					`The data key ${key}'s field "${field}" refers to ${JSON.stringify(target)}, which must name a key in this defineData`,
+				);
 	}
 	return Object.fromEntries(
 		Object.entries(spec).map(([key, def]) => [
@@ -160,17 +163,27 @@ export function defineData<const TSpec extends Spec>(
 	) as unknown as Data<TSpec>;
 }
 
+/** Every ref annotation anywhere in `schema`, however deep. */
+function refsAnywhere(schema: unknown): string[] {
+	if (typeof schema !== 'object' || schema === null) return [];
+	const target = refKeyOf(schema);
+	return [
+		...(target === undefined ? [] : [target]),
+		...Object.values(schema).flatMap(refsAnywhere),
+	];
+}
+
 /** The handle for one data key: its verbs, its definition, and its actions. */
 function createHandle(folder: Folder, key: string, def: DataDef) {
 	const base = `data/${key}`;
+	/** The ids of the key `of`: each `.md` file directly in its folder. */
+	const idsIn = (of: string) =>
+		filesIn(folder.path, `data/${of}`).flatMap((name) => idOf(name) ?? []);
 	const records = createMarkdownRecords({
 		folder,
 		base,
 		fields: def.fields,
-		exists: (target, id) => {
-			const path = recordPath(`data/${target}`, id);
-			return path !== undefined && existsSync(join(folder.path, path));
-		},
+		idsIn,
 	});
 	/**
 	 * `run`'s answer, or a Misfit at the key's folder when Node would give the
@@ -178,7 +191,7 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 	 * throws from `run`.
 	 */
 	async function named<T>(id: string, run: () => Promise<T>) {
-		if (recordPath(base, id) !== undefined) return run();
+		if (isId(id)) return run();
 		const why = 'is not a file name: the id is the file name without .md';
 		// The id names no file, so the problem sits at the key's folder.
 		return ActionError.Misfit({
@@ -193,9 +206,7 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		get: (id: string) => named(id, () => records.read(id)),
 		async list() {
 			const found = [];
-			for (const name of await filesIn(folder.path, base)) {
-				const id = idOf(name);
-				if (id === undefined) continue;
+			for (const id of idsIn(key)) {
 				const read = await records.read(id);
 				if (read.error || read.data) found.push(read);
 			}
