@@ -56,6 +56,8 @@ billingMutations.checkoutTopUp.mutationKey // ['billing', 'checkoutTopUp']
 The list keeps arguments apart from names, so an argument never reads as a
 method or namespace. Use `.key` for defaults that cover every call of a method;
 `.queryKey` is one cached answer, typed for `getQueryData` and `setQueryData`.
+Every entry sends `Err` to TanStack's error path, so success callbacks, such as
+a form reset, run only when the write succeeds.
 
 - A query takes its method's own arguments. A mutation's method takes no
   arguments or one input object, and only that input reaches it.
