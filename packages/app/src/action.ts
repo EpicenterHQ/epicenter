@@ -67,20 +67,19 @@ export type ActionUpdate<A> =
 	A extends Action<never, unknown, infer U> ? U : never;
 
 /**
- * What an action may return: a value that survives JSON. `undefined`
- * arrives as `null`, and a property that is `undefined` arrives absent.
+ * What an action may return or report: JSON, so a page receives the type
+ * `run` returned. A property may be `undefined`; it arrives absent, which a
+ * page reads the same way. Nothing else may be: return `null` for nothing.
  */
 type Returned =
 	| string
 	| number
 	| boolean
 	| null
-	| undefined
-	| void
 	| readonly Returned[]
-	| { readonly [key: string]: Returned };
+	| { readonly [key: string]: Returned | undefined };
 
-/** What `run` returns: a Result whose data survives JSON. */
+/** What `run` returns: a Result whose data is JSON. */
 type RunResult = Result<Returned, PublicError>;
 
 /** The value of `input`, as a caller gives it and `run` receives it. */

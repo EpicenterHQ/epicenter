@@ -69,8 +69,9 @@ test('a page calls an action by property, hearing its updates, and gets a Result
 	expect(steps).toEqual(['writing']);
 	expect(added.data?.to).toBe('Tokyo');
 	const idea = await epicenter.flights.idea({ id: 'tokyo' });
-	// The JSON form: an absent optional field is absent, not undefined.
-	expect(idea).toEqual(Ok({ to: 'Tokyo' }));
+	expect(idea).toEqual(Ok({ to: 'Tokyo', nights: undefined }));
+	// JSON drops the undefined field, which a page reads the same way.
+	expect(idea.data && Object.hasOwn(idea.data, 'nights')).toBe(false);
 	const missing = await epicenter.flights.idea({ id: 'osaka' });
 	expect(missing.error?.name).toBe('Missing');
 });
@@ -117,5 +118,17 @@ export function typed() {
 		}
 		const nights: number | undefined = data.nights;
 		return nights;
+	});
+	defineAction({
+		description: 'Returns nothing as undefined',
+		input: {},
+		// @ts-expect-error: return null for nothing; undefined would arrive as null.
+		run: () => Ok(undefined),
+	});
+	defineAction({
+		description: 'An array JSON would change',
+		input: {},
+		// @ts-expect-error: an array holds no undefined.
+		run: () => Ok([1, undefined]),
 	});
 }

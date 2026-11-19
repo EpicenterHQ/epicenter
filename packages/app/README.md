@@ -80,8 +80,10 @@ Wellcrafted Result:
 ## Actions and apps
 
 `defineAction({ description, input, run })` types `run`'s input by its
-fields. `run` returns `Ok(data)` or `Err(error)`, where `data` survives
-JSON, and may report progress through its second argument:
+fields. `run` returns `Ok(data)` or `Err(error)`, where `data` is JSON:
+`null` for nothing, never `undefined`, so a page receives the type `run`
+returned. A property may be `undefined`; it arrives absent. `run` may
+report progress through its second argument:
 
 ```ts
 async run({ recheck = false }, update: Update<{ checked: number }>) {
