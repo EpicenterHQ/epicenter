@@ -52,7 +52,7 @@ Use this header shape for new specs:
 **Status**: Draft | In Progress
 **Owner**: [Name/team responsible for decisions]
 **Branch**: [optional branch name]
-**Supersedes**: [optional: prior spec or ADR this design grows from]
+**Supersedes**: [optional: prior spec this design grows from]
 
 ## One Sentence
 
