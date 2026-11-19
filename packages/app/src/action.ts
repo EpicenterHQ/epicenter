@@ -30,7 +30,6 @@
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type { PublicError } from './answer.ts';
-import { isResult } from './answer.ts';
 import { type Flat, type ObjectSchema, objectSchema } from './field.ts';
 
 /** An action's input as an app writes it: a record of fields. */
@@ -101,26 +100,11 @@ type ActionDef<
 	run(input: InputOf<I>, update: Update<U>): Out;
 };
 
-/** `value`, or a throw when `run` returned something other than a Result. */
-function requireResult(value: unknown, description: string) {
-	if (!isResult(value))
-		throw new TypeError(
-			`The action "${description}" must return Ok(data) or Err(error)`,
-		);
-	return value;
-}
-
-/**
- * Marks what `defineAction` made, whose every answer it has checked.
- * Registered, so serve knows it whichever copy of this package made it.
- */
-const ACTION = Symbol.for('epicenter.action');
-
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields and every caller's `onUpdate` by `run`'s `update`. Calling the
  * action hands `run` the input as given: an absent field stays absent, and
- * `run` writes its own default. Throws for an empty description.
+ * `run` writes its own default.
  */
 export function defineAction<
 	const I extends Input,
@@ -131,27 +115,15 @@ export function defineAction(
 	def: ActionDef<Input, RunResult | Promise<RunResult>, Returned>,
 ): Action {
 	const { description, run } = def;
-	if (description.trim() === '')
-		throw new Error(
-			'An action needs a description: what it does, in a sentence',
-		);
-	const input = objectSchema(def.input);
 	const action = async (
 		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
-	) => {
-		const update = (value: unknown) => {
+	) =>
+		run(given as never, (value) => {
 			options?.onUpdate?.(value);
-		};
-		return requireResult(await run(given as never, update), description);
-	};
-	return Object.assign(action, { description, input, [ACTION]: true });
-}
-
-/** Whether `value` is what `defineAction` made. */
-export function isAction(value: unknown): value is Action {
-	return (
-		typeof value === 'function' &&
-		(value as { [ACTION]?: unknown })[ACTION] === true
-	);
+		});
+	return Object.assign(action, {
+		description,
+		input: objectSchema(def.input),
+	});
 }

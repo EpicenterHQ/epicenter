@@ -91,10 +91,11 @@ async run({ recheck = false }, update: Update<{ checked: number }>) {
 ```
 
 An app is a function of `Data` returning `{ description, actions }`. Its
-name is its key in `defineEpicenter({ apps })`, which refuses a name that
-is not lowercase letters, digits and dashes, starting with a letter, and
-`serve`, the command's own word. Serve runs the same checks on what
-`epicenter.ts` exports.
+name is its key in `defineEpicenter({ apps })`. Serve refuses an app or
+action name that is not lowercase letters, digits and dashes, starting
+with a letter, since an MCP tool is `<app>_<action>`; the type refuses an
+app named `serve`, the command's own word. An action whose `run` returns
+something other than a Result answers `Threw`.
 
 ## The command and serve
 

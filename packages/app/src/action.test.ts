@@ -23,50 +23,7 @@ test('a direct call hands each update to its listener', async () => {
 	expect(heard).toEqual([{ at: 1 }, { at: 2 }]);
 });
 
-test('an action that returns no Result rejects when called', async () => {
-	const bare = defineAction({
-		description: 'Forgets its Result',
-		input: {},
-		run: () => 'plain' as never,
-	});
-	await expect(bare({})).rejects.toThrow('must return Ok(data) or Err(error)');
-});
-
-test('a definition is refused for what its types cannot say', () => {
-	expect(() =>
-		defineAction({ description: ' ', input: {}, run: () => Ok(null) }),
-	).toThrow('An action needs a description');
-});
-
-test('defineEpicenter refuses names that are not names, and what defineAction did not make', () => {
-	const app = { description: 'Counts', actions: { count } };
-	expect(defineEpicenter({ apps: { counter: app } }).apps.counter).toBe(app);
-	expect(() => defineEpicenter({ apps: { Counter: app } })).toThrow(
-		'The app name "Counter" must be lowercase letters',
-	);
-	expect(() =>
-		defineEpicenter({
-			apps: {
-				counter: { description: 'Counts', actions: { Count: count } },
-			},
-		}),
-	).toThrow('has the action "Count", which must be lowercase letters');
-	expect(() =>
-		defineEpicenter({
-			apps: {
-				counter: {
-					description: 'Counts',
-					actions: { count: (() => Ok(1)) as never },
-				},
-			},
-		}),
-	).toThrow('apps.counter.actions.count is not an action');
-	expect(() => defineEpicenter({ apps: { serve: app } as never })).toThrow(
-		'and not serve',
-	);
-});
-
-test('serve checks what epicenter.ts exported as defineEpicenter would', () => {
+test('serve refuses an apps object missing, and names that are not names', () => {
 	const app = { description: 'Counts', actions: { count } };
 	expect(programProblems(defineEpicenter({ apps: { counter: app } }))).toEqual(
 		[],
@@ -74,8 +31,16 @@ test('serve checks what epicenter.ts exported as defineEpicenter would', () => {
 	expect(programProblems({ counter: app })).toEqual([
 		'epicenter.ts must default-export defineEpicenter({ apps })',
 	]);
-	expect(programProblems({ apps: { counter: { actions: {} } } })).toEqual([
-		'apps.counter needs a description',
+	expect(
+		programProblems({
+			apps: {
+				Counter: app,
+				counter: { description: 'Counts', actions: { do_it: count } },
+			},
+		}),
+	).toEqual([
+		'The app name "Counter" must be lowercase letters, digits and dashes, starting with a letter',
+		'apps.counter has the action "do_it", which must be lowercase letters, digits and dashes, starting with a letter',
 	]);
 });
 

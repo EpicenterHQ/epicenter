@@ -52,6 +52,11 @@ async function setup() {
 		input: { code: Type.String({ pattern: '[' }) },
 		run: () => Ok(null),
 	});
+	const bare = defineAction({
+		description: 'Forgets its Result',
+		input: {},
+		run: () => 'plain' as never,
+	});
 	const fake = defineAction({
 		description: 'Returns a name only Epicenter answers',
 		input: { name: field.select(['NotStarted', 'Threw', 'Unreachable']) },
@@ -62,7 +67,7 @@ async function setup() {
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, odd },
+					actions: { add, fail, fake, tag, odd, bare },
 				},
 			},
 		}).apps,
@@ -147,10 +152,15 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 	expect(odd.answer.error.message).toContain('Invalid regular expression');
 });
 
-test('a throw is Threw, and a reserved name an action returns is Threw too', async () => {
+test('a throw is Threw, and so is a value that is not a Result or a reserved name', async () => {
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
 	expect(threw.answer.error).toEqual({ name: 'Threw', message: 'broke' });
+	const [bare] = await lines(await request('/actions/writing/bare', post({})));
+	expect(bare.answer.error).toEqual({
+		name: 'Threw',
+		message: 'The action "bare" must return Ok(data) or Err(error)',
+	});
 	for (const name of ['NotStarted', 'Threw', 'Unreachable']) {
 		const [fake] = await lines(
 			await request('/actions/writing/fake', post({ name })),
@@ -210,6 +220,7 @@ test('MCP offers one tool per action and runs it', async () => {
 		'writing_fake',
 		'writing_tag',
 		'writing_odd',
+		'writing_bare',
 	]);
 	const called = await rpc('tools/call', {
 		name: 'writing_add',

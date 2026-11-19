@@ -16,7 +16,12 @@
 import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { ActionError, type Answer, PLATFORM_NAMES } from '../answer.ts';
+import {
+	ActionError,
+	type Answer,
+	isResult,
+	PLATFORM_NAMES,
+} from '../answer.ts';
 import { type ObjectSchema, whyNot } from '../field.ts';
 import { isPlainObject } from '../json.ts';
 import { stderrJsonLines } from './output.ts';
@@ -61,10 +66,13 @@ export async function answerCall(
 			next: `epicenter ${app}`,
 		});
 	const started = performance.now();
-	// defineAction checked that it returned a Result (`isAction`).
 	const answer: Answer = await run(input, { onUpdate })
 		.then((result) => {
-			const { data, error } = result as Answer;
+			if (!isResult(result))
+				return ActionError.Threw({
+					message: `The action "${action}" must return Ok(data) or Err(error)`,
+				});
+			const { data, error } = result;
 			if (error && PLATFORM_NAMES.includes(error.name))
 				return ActionError.Threw({
 					message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
