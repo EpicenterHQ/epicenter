@@ -17,10 +17,10 @@
  * audio stays a recording.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { audioMimeTypeOf } from './format/audio.js';
 import type { Entry, Files, FilesError } from './files/files.js';
+import { audioMimeTypeOf } from './format/audio.js';
 import { timeOf } from './format/ids.js';
-import type { NOTES } from './format/layout.js';
+import { audioPath, type NOTES } from './format/layout.js';
 import {
 	createNotes,
 	type NoteListing,
@@ -46,10 +46,6 @@ export type NoteRef = {
 	readonly collection: NoteName;
 	readonly id: string;
 };
-
-/** A note's file, `<collection>/<id>.md`. */
-export const notePath = ({ collection, id }: NoteRef) =>
-	`${collection}/${id}.md`;
 
 /** A title, or the id when the title is empty. */
 export function titleOf(note: { readonly id: string; readonly title: string }) {
@@ -114,9 +110,6 @@ export const newest =
 	<T extends { id: string }>(at: (item: T) => string) =>
 	(a: T, b: T) =>
 		byText(at(b), at(a)) || byText(b.id, a.id);
-
-/** The directory recordings and their audio are in. */
-const RECORDINGS = 'recordings';
 
 /** The audio file a listed file in `recordings/` is, or null for a note or anything else. */
 function audioFileOf({ name, size, modifiedMs }: Entry): AudioFile | null {
@@ -191,7 +184,7 @@ export function openFolder(files: Files) {
 	const settings = createSettings(files);
 
 	async function listAudio(): Promise<Result<AudioFile[], FilesError>> {
-		const listed = await files.list(RECORDINGS);
+		const listed = await files.list('recordings');
 		if (listed.error !== null) return Err(listed.error);
 		return Ok(listed.data.flatMap((entry) => audioFileOf(entry) ?? []));
 	}
@@ -201,7 +194,7 @@ export function openFolder(files: Files) {
 		audio: readonly AudioFile[],
 	): Promise<Result<undefined, FilesError>> {
 		for (const { id, ext } of audio) {
-			const removed = await files.remove(`${RECORDINGS}/${id}.${ext}`);
+			const removed = await files.remove(audioPath(id, ext));
 			if (removed.error !== null) return Err(removed.error);
 		}
 		return Ok(undefined);
@@ -225,7 +218,7 @@ export function openFolder(files: Files) {
 		settings,
 		/** Read every kind's notes and the audio. */
 		async read(): Promise<Result<FolderSnapshot, FilesError>> {
-			const listed = await files.list(RECORDINGS);
+			const listed = await files.list('recordings');
 			if (listed.error !== null) return Err(listed.error);
 			const [recordings, transcriptions] = await Promise.all([
 				notes.list('recordings', listed.data),
@@ -255,7 +248,7 @@ export function openFolder(files: Files) {
 				);
 			const { file } = audio;
 			const name = `${file.id}.${file.ext}`;
-			const read = await files.read(`${RECORDINGS}/${name}`);
+			const read = await files.read(audioPath(file.id, file.ext));
 			if (read.error !== null) return Err(read.error.message);
 			if (read.data === null)
 				return Err('This recording’s audio is no longer there.');
@@ -281,7 +274,7 @@ export function openFolder(files: Files) {
 			cutoff: Date;
 		}): Promise<Result<number, FilesError | NoteWriteError>> {
 			const before = cutoff.toISOString();
-			const listed = await files.list(RECORDINGS);
+			const listed = await files.list('recordings');
 			if (listed.error !== null) return Err(listed.error);
 			const noted = await notes.list('recordings', listed.data);
 			if (noted.error !== null) return Err(noted.error);

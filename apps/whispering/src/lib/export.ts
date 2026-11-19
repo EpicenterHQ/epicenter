@@ -8,16 +8,13 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Files, FilesError } from './files/files.js';
-
-/** The directories Whispering writes, and the one file at the top. */
-const DIRECTORIES = ['recordings', 'transcriptions'];
-const TOP = ['settings.md'];
+import { DIRECTORIES, SETTINGS } from './format/layout.js';
 
 /** Every file Whispering wrote, with its bytes. */
 export async function folderFiles(
 	files: Files,
 ): Promise<Result<{ path: string; bytes: Uint8Array }[], FilesError>> {
-	const paths: string[] = [...TOP];
+	const paths: string[] = [SETTINGS.path];
 	for (const dir of DIRECTORIES) {
 		const listed = await files.list(dir);
 		if (listed.error !== null) return Err(listed.error);

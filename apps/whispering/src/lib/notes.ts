@@ -32,6 +32,7 @@ import {
 	fieldNamesOf,
 	NOTES,
 	type NoteIssue,
+	notePath,
 } from './format/layout.js';
 import { changeNote, newNote, parseNote } from './format/note.js';
 
@@ -58,8 +59,8 @@ type Collections = typeof NOTES;
 /** The kinds of note with an id, by name. */
 export type NoteName = keyof Collections;
 
-/** A kind of note with an id: its notes are `<dir>/<id>.md`, with `fields`. */
-export type IdCollection = { readonly dir: string; readonly fields: TObject };
+/** A kind of note with an id: its notes are `<collection>/<id>.md`, with `fields`. */
+export type IdCollection = { readonly fields: TObject };
 
 /** One object type from an intersection, so a hover shows its keys. */
 type Flat<T> = { [K in keyof T]: T[K] } & {};
@@ -141,10 +142,6 @@ export const fieldNamesFor = (collection: NoteName) =>
 /** The id a listed name in a kind's directory is the note of, or null. A listing holds only plain names, so the stem is one. */
 const idOf = (name: string) =>
 	name.endsWith('.md') ? name.slice(0, -'.md'.length) : null;
-
-/** A note's path: `<dir>/<id>.md`. */
-const pathOf = (collection: NoteName, id: string) =>
-	`${NOTES[collection].dir}/${id}.md`;
 
 /** What one note's file holds now: nothing, a note that reads, or one that does not. */
 type NoteFile<F> =
@@ -242,19 +239,19 @@ export function createNotes(files: Files) {
 		): Promise<Result<NoteListing<Collections[K]>, FilesError>> {
 			let entries = listed;
 			if (entries === undefined) {
-				const list = await files.list(NOTES[collection].dir);
+				const list = await files.list(collection);
 				if (list.error !== null) return Err(list.error);
 				entries = list.data;
 			}
 			const ids = entries.flatMap((entry) => idOf(entry.name) ?? []);
 			const read = await files.readMany(
-				ids.map((id) => pathOf(collection, id)),
+				ids.map((id) => notePath({ collection, id })),
 			);
 			if (read.error !== null) return Err(read.error);
 			const items: NoteOf<Collections[K]>[] = [];
 			const invalid: InvalidNote[] = [];
 			for (const id of ids) {
-				const path = pathOf(collection, id);
+				const path = notePath({ collection, id });
 				const bytes = read.data.get(path);
 				// Removed between the listing and the read.
 				if (bytes === undefined) continue;
@@ -286,7 +283,7 @@ export function createNotes(files: Files) {
 		}): Promise<Result<undefined, NoteWriteError>> {
 			return noteAt(
 				files,
-				pathOf(collection, id),
+				notePath({ collection, id }),
 				NOTES[collection].fields,
 			).set({
 				fields: fields as Partial<Static<TObject>>,
@@ -310,7 +307,7 @@ export function createNotes(files: Files) {
 			seen: string | null;
 			text: string;
 		}): Promise<Result<undefined, NoteWriteError>> {
-			const path = pathOf(collection, id);
+			const path = notePath({ collection, id });
 			const read = await files.read(path);
 			if (read.error !== null) return Err(read.error);
 			if (read.data === null || textOf(read.data) !== seen)
@@ -325,7 +322,7 @@ export function createNotes(files: Files) {
 			collection: NoteName;
 			id: string;
 		}): Promise<Result<undefined, FilesError>> {
-			return files.remove(pathOf(collection, id));
+			return files.remove(notePath({ collection, id }));
 		},
 	};
 }

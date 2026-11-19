@@ -20,12 +20,12 @@ import { RecorderError } from '@epicenter/recorder';
 import { QueryObserver } from '@tanstack/query-core';
 import { runMutation, runQuery } from 'wellcrafted/query';
 import { Ok, type Result } from 'wellcrafted/result';
-import { extensionOf } from './format/audio.js';
 import type { CaptureDevice } from './capture.js';
 import { encode, type Files, failed } from './files/files.js';
 import { memoryFiles } from './files/memory.js';
 import { openFolder } from './folder.js';
 import { createFolderQuery } from './folder-query.js';
+import { extensionOf } from './format/audio.js';
 import type { WhisperingCapabilities } from './whispering.svelte.js';
 
 type FixtureAudio = {

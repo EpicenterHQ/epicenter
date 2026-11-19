@@ -174,8 +174,8 @@ test('every note and settings.md Whispering writes reads back with no issue', as
 		const fields =
 			path === SETTINGS.path
 				? SETTINGS.fields
-				: Object.values(NOTES).find(({ dir }) => path.startsWith(`${dir}/`))
-						?.fields;
+				: Object.entries(NOTES).find(([dir]) => path.startsWith(`${dir}/`))?.[1]
+						.fields;
 		expect(fields).toBeDefined();
 		const text = (await outside.read(path)) ?? '';
 		expect(checkNote(fields!, text).error).toBeNull();

@@ -12,11 +12,11 @@ import {
 	describeIssues,
 	type FolderSnapshot,
 	type NoteRef,
-	notePath,
 	type RecordingAudio,
 	titleOf,
 	unnotedOf,
 } from './folder.js';
+import { audioPath, notePath } from './format/layout.js';
 
 /** What a confirmed deletion removes, captured when the person was asked. */
 export type Deletion =
@@ -58,11 +58,11 @@ export const deletedNote = (deletion: Deletion): NoteRef =>
 		: deletion.note;
 
 /** Where a recording's audio file is, as the person is told it. */
-function audioPath(id: string, audio: RecordingAudio) {
+function audioFilesOf(id: string, audio: RecordingAudio) {
 	return audio.kind === 'here'
-		? `recordings/${id}.${audio.file.ext}`
+		? audioPath(id, audio.file.ext)
 		: audio.kind === 'ambiguous'
-			? audio.exts.map((ext) => `recordings/${id}.${ext}`).join(', ')
+			? audio.exts.map((ext) => audioPath(id, ext)).join(', ')
 			: undefined;
 }
 
@@ -134,7 +134,7 @@ export function captureDeletion(
 				id: note.id,
 				title: titleOf(recording),
 				noted: noted !== undefined,
-				audio: audioPath(note.id, audioOf(snapshot, note.id)),
+				audio: audioFilesOf(note.id, audioOf(snapshot, note.id)),
 				transcripts,
 			});
 		}
