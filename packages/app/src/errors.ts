@@ -28,9 +28,11 @@ const CHANGED = {
 
 export const ActionError = defineErrors({
 	/**
-	 * A file, or a change to one, does not fit its declared fields. `id` is the
-	 * id the caller gave, or the file's name for a read; for an id that cannot
-	 * name a file, `path` is the key's folder. A read carries the partial `record` for repair, unless the file is unreadable; a
+	 * A file, or a change to one, does not fit its declared fields. A data
+	 * handle always sets `id`: the id the caller gave, or the file's name for a
+	 * read; for an id that cannot name a file, `path` is the key's folder. An
+	 * app's own file that is not a record, such as a settings file in
+	 * `local/`, leaves `id` out. A read carries the partial `record` for repair, unless the file is unreadable; a
 	 * refused change carries none.
 	 */
 	Misfit: ({
@@ -40,7 +42,7 @@ export const ActionError = defineErrors({
 		record,
 	}: {
 		path: string;
-		id: string;
+		id?: string;
 		problems: Problem[];
 		record?: Record<string, JsonValue>;
 	}) => ({
@@ -49,7 +51,7 @@ export const ActionError = defineErrors({
 			...problems.map((problem) => `${path}: ${problem.line}`),
 		].join('\n'),
 		path,
-		id,
+		...(id === undefined ? {} : { id }),
 		problems,
 		...(record === undefined ? {} : { record }),
 	}),

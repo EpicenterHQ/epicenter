@@ -72,11 +72,11 @@ test('record and method types retain the exact declared fields', () => {
 	assertType<Equal<Check['maybe'], string | undefined>>();
 });
 
-test("every verb's Misfit has its id", () => {
+test("a verb's Misfit types its id as optional, as an app's own Misfit may leave it out", () => {
 	type Row = Awaited<ReturnType<typeof data.notes.list>>[number];
-	assertType<Equal<NonNullable<Row['error']>['id'], string>>();
+	assertType<Equal<NonNullable<Row['error']>['id'], string | undefined>>();
 	type Got = Awaited<ReturnType<typeof data.notes.get>>;
-	assertType<Equal<NonNullable<Got['error']>['id'], string>>();
+	assertType<Equal<NonNullable<Got['error']>['id'], string | undefined>>();
 });
 
 test('computed changes retain field types and callback errors', async () => {
