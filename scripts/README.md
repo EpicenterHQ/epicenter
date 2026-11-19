@@ -19,8 +19,7 @@ here. Run everything from the repository root.
 | `dev:*` | start an app |
 | `check:*` | validate the repository and exit non-zero on failure |
 | `gen:*` | regenerate a checked-in file |
-| `:ui`, `:desktop` | a narrower target of the same app |
-| `:local` | works on a fresh clone, no Infisical login |
+| `:desktop` | the native Tauri window of the same app |
 | `:remote` | wraps Infisical's `prod` environment; a production admin operation |
 
 `check` is the local merge gate and the one step CI runs. It is a script here

@@ -410,8 +410,7 @@ Run from the repository root:
 ```sh
 bun dev:whispering
 WHISPERING_DATA_ROOT=/tmp/whispering-demo bun dev:whispering
-bun dev:whispering:ui
-bun build:whispering
+bun build:whispering:desktop
 
 bun test --isolate apps/whispering
 bun run --cwd apps/whispering typecheck

@@ -32,9 +32,8 @@ Prefer `bun` over npm, yarn, pnpm, and node. Use `bun run`, `bun test`, `bun ins
 
 Start apps from the repo root with `bun dev:<app>`. Do not cd into an app to start it.
 
-- `bun dev:<app>` runs every process the app needs, including the hosted API on `localhost:8787` for apps that talk to it.
-- `bun dev:<app>:ui` is the frontend alone, where that split exists.
-- `bun dev:api` is the backend alone.
+- `bun dev:<app>` runs the app's dev server: Whispering's Vite server, the landing site, or the hosted API worker (`bun dev:api`).
+- `bun dev:whispering:desktop` runs Whispering in its native Tauri window.
 - `scripts/README.md` explains the root scripts and their names.
 
 ## Script suffix convention
