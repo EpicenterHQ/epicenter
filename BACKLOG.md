@@ -91,8 +91,9 @@ not create a second implementation assignment.
   generated practice; that does not establish a review-history or scheduling
   product. Settle the first retrieval interaction before choosing a scheduler or
   schema.
-- Distribution: A person gets an app by copying its `code/` folder into their
-  home; no command does it
+- Distribution: A person gets an app by copying its `apps/<app>/` folder into
+  their home and adding the data keys it reads to their `epicenter.ts`; no
+  command does it
   ([the home's rules](packages/app/README.md#the-home)).
 - Revisit when: Chinese study becomes the next product milestone.
 
