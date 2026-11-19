@@ -1,8 +1,7 @@
 # Factory function composition
 
 Read this when implementing a factory, binding its inputs, or exposing its
-methods and public type. Use [services-layer](../../services-layer/SKILL.md)
-when deciding which operations belong together or whether they need an instance.
+methods and public type.
 
 ## The universal factory signature
 

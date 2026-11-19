@@ -1,6 +1,6 @@
 # Error variants with defineErrors
 
-The [error-handling skill](../SKILL.md) owns Result composition and boundary decisions. This reference covers variant construction, fields, and types. See `services-layer` for service architecture and namespace exports.
+The [error-handling skill](../SKILL.md) owns Result composition and boundary decisions. This reference covers variant construction, fields, and types.
 
 Ground API claims in the official `wellcrafted-dev/wellcrafted` source and
 tests for Epicenter's installed version. `logging` owns diagnostic severity
