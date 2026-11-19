@@ -25,22 +25,15 @@ which agents get a shell is.
 
 ## Reaching the home
 
-`epicenter serve` offers every app's actions over MCP at `/` and over HTTP at
-`/actions/<app>/<action>` (`packages/app/src/command/serve.ts`). It signs no one in: it trusts
-this computer and the tailnet, and who reaches it is the home's decision.
-Anything that reaches it can call every action of every app.
-
-- It listens only on `127.0.0.1`, and it has no flag to listen anywhere else.
-  Another device reaches it through a private proxy on this computer, such as
-  `tailscale serve`, which also adds HTTPS
-  ([serve's rules](../packages/app/README.md#running-the-home)).
-- It answers only a `Host` that is a loopback name, an IP address, or a
-  `*.ts.net` name, so a DNS rebinding name gets 403. An `Origin`, when sent,
-  must match the `Host`, and a browser request whose `Sec-Fetch-Site` says
-  another origin made it is refused.
-- It refuses, with 403, any request carrying the header a Tailscale Funnel or
-  Cloudflare Tunnel adds. Another tunnel that adds no such header would reach
-  `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` offers every app's actions over MCP and HTTP. It signs no
+one in: anything that reaches it can call every action of every app, so who
+reaches it is the home's decision. It listens only on `127.0.0.1`. Another
+device reaches it through a private proxy on this computer, such as
+`tailscale serve`, which also adds HTTPS. Serve refuses DNS rebinding,
+requests from other sites in a browser, and the tunnels it can recognize
+([serve's guards](../packages/app/README.md#the-command-and-serve)), but a
+tunnel it cannot recognize would reach it with no sign-in, so never tunnel
+its port.
 
 Your other devices keep nothing. An agent on your phone or your laptop sees
 the files only while it reaches the home, through actions.
@@ -62,17 +55,12 @@ program you install.
 ## Sign-ins are files that stay on the home
 
 An app keeps a sign-in, such as a Google token, in a file it writes under the
-home's root `local/`. When a record write first makes `local/`,
-`@epicenter/app` also writes `local/.gitignore` holding `*`, so the folder
-stays out of Git whatever the root `.gitignore` says
-([the home's rules](../packages/app/README.md#the-home)). An app that makes
-`local/` itself, before any record write, gets no such file, so list
-`/local/` in the root `.gitignore` too. Epicenter has no command that commits
-([actions' rules](../packages/app/README.md#actions)), so a file there reaches
-a backup or a clone only if those ignore rules are removed or the file is
-added by force. The app that writes the sign-in chooses its file mode. It is a
-plain file, though: anyone who can read the home can read it, the provider of
-a rented home included.
+home's root `local/`, which stays out of Git
+([the home's rules](../packages/app/README.md#the-home)); list `/local/` in
+the root `.gitignore` too, for an app that makes the folder itself.
+Epicenter never commits, so a file there reaches a backup or a clone only if
+someone adds it by force. It is a plain file, though: anyone who can read the
+home can read it, the provider of a rented home included.
 
 ## Backups
 
