@@ -90,20 +90,20 @@ export async function fetchListing(
 }
 
 /**
- * Call the action `key` of `app` with `input`, its JSON text as typed, and
+ * Call the action `action` of `app` with `input`, its JSON text as typed, and
  * give serve's answer. Serve reads and checks the input (ADR-0961). Each
  * update goes to `onUpdate` as it arrives.
  */
 export async function callAction(
 	root: EpicenterRoot,
 	app: string,
-	key: string,
+	action: string,
 	input: string,
 	onUpdate: (value: unknown) => void,
 ): Promise<Answer> {
 	const { data: response, error } = await reach(
 		root,
-		`/actions/${encodeURIComponent(app)}/${encodeURIComponent(key)}`,
+		`/actions/${encodeURIComponent(app)}/${encodeURIComponent(action)}`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },

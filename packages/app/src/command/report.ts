@@ -122,46 +122,50 @@ function withFolder(
 }
 
 /**
- * The app `name` in the listing. A name it has no app for answers
+ * The app `app` in the listing. A name it has no app for answers
  * `NotStarted`: its problems when it did not load, else that there is no
  * such app.
  */
 function listedApp(
 	listing: Listing,
-	name: string,
+	app: string,
 ): Result<AppListing, NotStarted> {
-	const app = listing.apps.find((each) => each.name === name);
-	if (app) return Ok(app);
-	const broken = listing.problems.find(({ entry }) => entry === name);
-	return broken ? appProblems(name, broken.problems) : unknownApp(name);
+	const listed = listing.apps.find((each) => each.name === app);
+	if (listed) return Ok(listed);
+	const broken = listing.problems.find(({ entry }) => entry === app);
+	return broken ? appProblems(app, broken.problems) : unknownApp(app);
 }
+
+/** The name of each action `listed` has, read from its tools. */
+const actionNames = (listed: AppListing) =>
+	listed.actions.map((tool) => fromToolName(tool.name).action);
 
 /** What `epicenter <app>` prints: the app's data keys and actions and its folder. */
 export function appReport(
 	listing: Listing,
 	root: Pick<EpicenterRoot, 'folder'>,
-	name: string,
+	app: string,
 	json: boolean,
 ): Answer {
-	const { data: app, error } = listedApp(listing, name);
+	const { data: listed, error } = listedApp(listing, app);
 	if (error) return Err(error);
-	if (json) return Ok(withFolder(app, root));
+	if (json) return Ok(withFolder(listed, root));
 	return Ok(
 		[
-			`${app.name}  ${app.description}`,
-			`folder: ${appPath(root, app.name)}`,
+			`${app}  ${listed.description}`,
+			`folder: ${appPath(root, app)}`,
 			'',
-			...Object.entries(app.data ?? {}).flatMap(([key, each]) => [
+			...Object.entries(listed.data ?? {}).flatMap(([key, each]) => [
 				`  ${key}  ${each.path}`,
-				...(each.description ? [`    ${each.description}`] : []),
+				`    ${each.description}`,
 				`    ${JSON.stringify(each.fields)}`,
 			]),
-			...app.actions.flatMap((tool) => [
-				`  ${usageLine(app.name, fromToolName(tool.name).action, tool.inputSchema)}`,
+			...listed.actions.flatMap((tool) => [
+				`  ${usageLine(app, fromToolName(tool.name).action, tool.inputSchema)}`,
 				`    ${tool.description}${readOnly(tool)}${notOffered(tool)}`,
 			]),
 			'',
-			`Run: epicenter ${app.name} <action> --help`,
+			`Run: epicenter ${app} <action> --help`,
 		].join('\n'),
 	);
 }
@@ -173,38 +177,37 @@ export function appReport(
  */
 export function helpReport(
 	listing: Listing,
-	name: string,
-	key: string,
+	app: string,
+	action: string,
 	json: boolean,
 ): Answer {
-	const { data: app, error } = listedApp(listing, name);
+	const { data: listed, error } = listedApp(listing, app);
 	if (error) return Err(error);
-	const tool = app.actions.find((each) => each.name === toolName(name, key));
-	if (!tool) return missingAction(listing, name, key);
+	const tool = listed.actions.find(
+		(each) => each.name === toolName(app, action),
+	);
+	if (!tool) return missingAction(app, action, actionNames(listed));
 	return Ok(json ? tool : actionHelp(tool));
 }
 
 /**
- * The command's answer for an action `name` does not have: serve's
- * refusal, then the app's actions from the listing, one line each, so a
+ * The command's answer for an action `app` does not have: serve's refusal,
+ * then each action it has, given as `actions`, one command a line, so a
  * person sees what to type.
  */
 export function missingAction(
-	listing: Listing,
-	name: string,
-	key: string,
+	app: string,
+	action: string,
+	actions: string[],
 ): Answer {
-	const { data: app, error } = listedApp(listing, name);
-	if (error) return Err(error);
 	return ActionError.NotStarted({
 		cause: 'usage',
 		message: [
-			`${noSuchAction(name, key)}. Its actions:`,
-			...app.actions.map((tool) =>
-				usageLine(name, fromToolName(tool.name).action, tool.inputSchema),
-			),
+			`${noSuchAction(app, action)}. Its actions:`,
+			...actions.map((each) => `epicenter ${app} ${each}`),
 		].join('\n'),
-		next: `epicenter ${name}`,
+		next: `epicenter ${app}`,
+		actions,
 	});
 }
 
@@ -213,9 +216,9 @@ export function missingAction(
  * what it takes, and its description, then one command to copy.
  */
 export function actionHelp(tool: ActionTool): string {
-	const { app, action: key } = fromToolName(tool.name);
+	const { app, action } = fromToolName(tool.name);
 	const input = tool.inputSchema;
-	const usage = [usageLine(app, key, input), tool.description];
+	const usage = [usageLine(app, action, input), tool.description];
 	const { properties, required } = input;
 	const keys = Object.keys(properties);
 	if (!keys.length) return usage.join('\n');
@@ -237,7 +240,7 @@ export function actionHelp(tool: ActionTool): string {
 		),
 		'',
 		'Example:',
-		...exampleCommand(app, key, input)
+		...exampleCommand(app, action, input)
 			.split('\n')
 			.map((line) => `  ${line}`),
 	].join('\n');

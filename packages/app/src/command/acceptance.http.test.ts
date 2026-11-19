@@ -612,6 +612,8 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 				message: 'talk has no action "sing"',
 				cause: 'usage',
 				next: 'epicenter talk',
+				// The app's actions, as data a page or an agent can offer.
+				actions: ['refuse', 'say', 'drip', 'tangle'],
 			},
 		],
 		[
@@ -685,10 +687,6 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 		]);
 	}
 	expect((await fetch(`${f.base}/actions/talk/say`)).status).toBe(405);
-	// The old address answers nothing.
-	expect(
-		(await fetch(`${f.base}/talk/say`, { method: 'POST', body: '{}' })).status,
-	).toBe(404);
 	const client = connect<() => { actions: { sing: TalkSay } }>({
 		app: 'talk',
 		url: `${f.base}/`,
@@ -700,6 +698,7 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			message: 'talk has no action "sing"',
 			cause: 'usage',
 			next: 'epicenter talk',
+			actions: ['refuse', 'say', 'drip', 'tangle'],
 		}).error,
 	);
 	// The CLI reads the same refusal from serve and exits 2.

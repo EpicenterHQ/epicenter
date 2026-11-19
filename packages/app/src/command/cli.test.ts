@@ -144,7 +144,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'nope'], 'reading has no action "nope". Its actions:'],
 		[
 			['reading', 'lgo', '{"minutes":3}'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week-summary\n',
+			'reading has no action "lgo". Its actions:\nepicenter reading log\nepicenter reading week-summary\n',
 		],
 		[['reading', 'log', '{"minutes":3,"nope":1}'], '"nope" is not a key'],
 		[['reading', 'log'], 'minutes is needed'],
@@ -161,7 +161,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		// --help answers a mistyped action as a call does.
 		[
 			['reading', 'lgo', '--help'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week-summary\n',
+			'reading has no action "lgo". Its actions:\nepicenter reading log\nepicenter reading week-summary\n',
 		],
 		// Not names: sent as they are, they would reach / or the root.
 		[['..', 'add'], 'Unknown app ".."'],
@@ -182,6 +182,10 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 				message: expect.stringContaining(message),
 				cause: 'usage',
 				next: expect.any(String),
+				// A missing action carries the app's actions, by name.
+				...(message.includes('Its actions')
+					? { actions: expect.arrayContaining(['log', 'week-summary']) }
+					: {}),
 			},
 		});
 	}

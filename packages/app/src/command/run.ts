@@ -144,7 +144,13 @@ export function findAction(
 	if (!entry.app) return appProblems(app, entry.problems);
 	const { actions } = entry.app;
 	const run = Object.hasOwn(actions, action) ? actions[action] : undefined;
-	if (!run) return usage(noSuchAction(app, action), `epicenter ${app}`);
+	if (!run)
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: noSuchAction(app, action),
+			next: `epicenter ${app}`,
+			actions: Object.keys(actions),
+		});
 	return Ok({ app, action, run });
 }
 

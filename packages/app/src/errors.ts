@@ -19,9 +19,11 @@ export type Problem = { line: string; kind: string };
  * input or target do not fit (`usage`), its app cannot load
  * (`app-problems`), Epicenter failed before it ran (`internal`), or no serve
  * for this Epicenter answers (`unavailable`). `next` is the command that helps.
+ * A call naming an action its app does not have carries the app's
+ * `actions`, by name, so a caller can offer them.
  */
 type NotStartedBody =
-	| { cause: 'usage'; message: string; next?: string }
+	| { cause: 'usage'; message: string; next?: string; actions?: string[] }
 	| { cause: 'app-problems'; message: string; app: string; problems: string[] }
 	| { cause: 'internal'; message: string }
 	| { cause: 'unavailable'; message: string; next?: string };

@@ -13,7 +13,6 @@ import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
-import { noSuchAction } from './input.ts';
 import { presentAnswer, writeErr } from './output.ts';
 import { unknownApp } from './protocol.ts';
 import { appReport, helpReport, missingAction, rootReport } from './report.ts';
@@ -89,20 +88,20 @@ export async function runCli(argv: string[]): Promise<number> {
 	let begun = false;
 	let sent = false;
 	async function answer(): Promise<Answer | undefined> {
-		const [name, ...rest] = words;
+		const [app, ...rest] = words;
 		// No word starts with -: names are lowercase and an input is {...}, or - alone for stdin.
 		const flag = words.find((word) => word.startsWith('-') && word !== '-');
-		if (version && name !== undefined)
+		if (version && app !== undefined)
 			return usage('--version stands alone', 'epicenter --help');
-		if (name === 'check' || name === 'serve') {
-			const command = name === 'check' ? CHECK : SERVE;
+		if (app === 'check' || app === 'serve') {
+			const command = app === 'check' ? CHECK : SERVE;
 			if (help) return Ok(`${command.usage}\n${command.help}`);
 			const misused = usage(
 				`Usage: ${command.usage}`,
-				`epicenter ${name} --help`,
+				`epicenter ${app} --help`,
 			);
-			if (flag || rest.length > (name === 'check' ? 1 : 0)) return misused;
-			if (name === 'serve' && json)
+			if (flag || rest.length > (app === 'check' ? 1 : 0)) return misused;
+			if (app === 'serve' && json)
 				return usage(
 					'serve prints no answer; --json does not apply',
 					'epicenter serve --help',
@@ -112,7 +111,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				`${flag} is not an option; the options are --json, --help and --version`,
 				'epicenter --help',
 			);
-		if (name === undefined) {
+		if (app === undefined) {
 			if (version)
 				return Ok(
 					json
@@ -124,12 +123,12 @@ export async function runCli(argv: string[]): Promise<number> {
 		const { data: root, error: noRoot } = epicenterRoot();
 		if (noRoot) return Err(noRoot);
 		// check and serve load what the other commands do not, so only they import it.
-		if (name === 'check') {
+		if (app === 'check') {
 			const { checkCommand } = await import('./check.ts');
 			begun = true;
 			return checkCommand(root, rest[0], json);
 		}
-		if (name === 'serve') {
+		if (app === 'serve') {
 			// Bun reads .env from the folder a process starts in, so serve starts in the root's (ADR-0965).
 			if (realpathSync(process.cwd()) !== root.folder)
 				return usage(
@@ -141,30 +140,30 @@ export async function runCli(argv: string[]): Promise<number> {
 			return serveHttp(root);
 		}
 		// A word that is no name names no app, and would not reach POST /actions/<app>/<action>: `..` is `/`.
-		if (name !== undefined && !isName(name)) return unknownApp(name);
-		if (name === undefined || !rest.length) {
+		if (app !== undefined && !isName(app)) return unknownApp(app);
+		if (app === undefined || !rest.length) {
 			const { data: listing, error } = await fetchListing(root);
 			if (error) return Err(error);
-			return name === undefined
+			return app === undefined
 				? Ok(rootReport(listing, root, json))
-				: appReport(listing, root, name, json);
+				: appReport(listing, root, app, json);
 		}
 		// The action is one name; the input after it is {...} or -, never one.
-		const [key = '', ...after] = rest;
-		if (!isName(key))
+		const [action = '', ...after] = rest;
+		if (!isName(action))
 			return usage(
-				`Name an action of ${name} before its input`,
-				`epicenter ${name}`,
+				`Name an action of ${app} before its input`,
+				`epicenter ${app}`,
 			);
 		if (help) {
 			const { data: listing, error } = await fetchListing(root);
 			if (error) return Err(error);
-			return helpReport(listing, name, key, json);
+			return helpReport(listing, app, action, json);
 		}
 		if (after.length > 1)
 			return usage(
 				'The input is one argument, a JSON object; quote it whole',
-				`epicenter ${name} ${key} --help`,
+				`epicenter ${app} ${action} --help`,
 			);
 		// Only this process can read its stdin, so it reads `-` and sends the text.
 		const [typed = '{}'] = after;
@@ -173,11 +172,10 @@ export async function runCli(argv: string[]): Promise<number> {
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve reads the input and runs the action; this process only sends the call.
 		sent = true;
-		const answered = await callAction(root, name, key, input, onUpdate);
-		// Serve states that the action is missing; the command lists what to type instead.
-		if (answered.error?.message !== noSuchAction(name, key)) return answered;
-		const { data: listing } = await fetchListing(root);
-		return listing ? missingAction(listing, name, key) : answered;
+		const answered = await callAction(root, app, action, input, onUpdate);
+		// Serve's refusal of a missing action carries the app's actions; the command lists them as commands.
+		const actions = (answered.error as { actions?: string[] } | null)?.actions;
+		return actions ? missingAction(app, action, actions) : answered;
 	}
 	let answered: Answer | undefined;
 	try {
