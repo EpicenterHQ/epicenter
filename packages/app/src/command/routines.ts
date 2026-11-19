@@ -26,7 +26,7 @@ import { isName } from '../app.ts';
 import { readMarkdown } from '../front-matter.ts';
 import type { Apps } from './apps.ts';
 import type { RoutineRow } from './protocol.ts';
-import type { EpicenterRoot } from './root.ts';
+import { type EpicenterRoot, fromRoot } from './root.ts';
 import { type Call, checkCall, findAction, runAction } from './run.ts';
 
 /** A routine as serve read it at start: the call it makes, or why its file is refused. */
@@ -100,7 +100,7 @@ export async function readRoutines(
 				const text = await readFile(join(directory, `${name}.md`), 'utf8');
 				return readRoutine(apps, name, text);
 			} catch (error) {
-				return { name, problem: extractErrorMessage(error) };
+				return { name, problem: fromRoot(root, extractErrorMessage(error)) };
 			}
 		}),
 	);

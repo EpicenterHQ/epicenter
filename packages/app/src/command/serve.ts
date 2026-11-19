@@ -75,7 +75,6 @@ import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
 import { type Apps, loadApps } from './apps.ts';
-import { hidePaths } from './hide-paths.ts';
 import { listApps } from './listing.ts';
 import { createMcpServer, type McpOffer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
@@ -223,19 +222,16 @@ type Served = {
 	routines: Routine[];
 	listing: Omit<Listing, 'routines'>;
 	mcp: McpOffer;
-	hide: ReturnType<typeof hidePaths>;
 };
 
 /** Load the apps, read the routines and `AGENTS.md`, once, for serve's lifetime. */
 async function load(root: EpicenterRoot): Promise<Served> {
-	const hide = hidePaths(root);
 	const [apps, instructions] = await Promise.all([
 		loadApps(root),
 		rootInstructions(root),
 	]);
-	const routines = hide.value(await readRoutines(root, apps));
-	const listed = listApps(apps);
-	const listing = { ...listed, problems: hide.value(listed.problems) };
+	const routines = await readRoutines(root, apps);
+	const listing = listApps(apps);
 	const tools = listing.apps.flatMap(({ actions }) =>
 		actions.filter((tool) => tool.mcp !== false),
 	);
@@ -244,8 +240,7 @@ async function load(root: EpicenterRoot): Promise<Served> {
 		apps,
 		routines,
 		listing,
-		mcp: { apps, tools, instructions, hide },
-		hide,
+		mcp: { apps, tools, instructions },
 	};
 }
 
@@ -305,7 +300,7 @@ async function launcher({ root, apps, listing }: Served) {
  * the loader refused, such as `check`, serves nothing.
  */
 async function appRequest(
-	{ apps, hide }: Served,
+	{ apps }: Served,
 	request: Request,
 	name: string,
 	path: string,
@@ -313,7 +308,7 @@ async function appRequest(
 	const entry = apps.get(name);
 	if (!entry) return notFound();
 	if (!entry.app)
-		return new Response(hide.text(`${name}: ${entry.problems.join('; ')}`), {
+		return new Response(`${name}: ${entry.problems.join('; ')}`, {
 			status: 500,
 		});
 	if (request.method === 'GET' || request.method === 'HEAD') {
@@ -354,7 +349,7 @@ const refused = (error: NotStarted) =>
  * Updates wait in order for a slow caller, because one can be a piece of
  * text the next extends, and are dropped once it is gone.
  */
-function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
+function stream(call: Call): Response {
 	const { app, action } = call;
 	const encoder = new TextEncoder();
 	let listening = true;
@@ -382,7 +377,7 @@ function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
 				// JSON has no undefined, and a line with no update is not one.
 				onUpdate: (update) => send({ update: update ?? null }),
 			}).then((answer) => {
-				send({ answer: hide.answer(answer) });
+				send({ answer });
 				if (listening) controller.close();
 			});
 		},
@@ -395,17 +390,17 @@ function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
 
 /** `POST /actions/<app>/<action>`: a call from a page or the command, its input the body. */
 async function call(
-	{ apps, hide }: Served,
+	{ apps }: Served,
 	request: Request,
 	app: string,
 	action: string,
 ) {
 	const text = new TextDecoder().decode(await request.arrayBuffer());
 	const { data: found, error } = findAction(apps, app, action);
-	if (error) return refused(hide.value(error));
+	if (error) return refused(error);
 	const { data: checked, error: misfit } = checkCall(found, { text });
-	if (misfit) return refused(hide.value(misfit));
-	return stream(checked, hide);
+	if (misfit) return refused(misfit);
+	return stream(checked);
 }
 
 /**

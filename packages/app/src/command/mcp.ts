@@ -28,7 +28,6 @@ import { Err } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer } from '../index.ts';
 import type { Apps } from './apps.ts';
-import type { hidePaths } from './hide-paths.ts';
 import { outcome } from './output.ts';
 import { type ActionTool, fromToolName } from './protocol.ts';
 import { checkCall, findAction, runAction } from './run.ts';
@@ -60,12 +59,10 @@ export type McpOffer = {
 	tools: ActionTool[];
 	/** The Epicenter's `AGENTS.md`, sent at initialize (ADR-0878). */
 	instructions: string | undefined;
-	hide: ReturnType<typeof hidePaths>;
 };
 
 /** An MCP server for one request, answering from what serve loaded. */
-export function createMcpServer({ apps, tools, instructions, hide }: McpOffer) {
-	const answered = (answer: Answer) => toolResult(hide.answer(answer));
+export function createMcpServer({ apps, tools, instructions }: McpOffer) {
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -78,9 +75,9 @@ export function createMcpServer({ apps, tools, instructions, hide }: McpOffer) {
 		const { name, arguments: args } = request.params;
 		const { app, action } = fromToolName(name);
 		const { data: found, error } = findAction(apps, app, action);
-		if (error) return answered(Err(error));
+		if (error) return toolResult(Err(error));
 		if (found.run.mcp === false)
-			return answered(
+			return toolResult(
 				ActionError.NotStarted({
 					cause: 'usage',
 					message: `${app} ${action} is not offered over MCP`,
@@ -89,8 +86,8 @@ export function createMcpServer({ apps, tools, instructions, hide }: McpOffer) {
 		const { data: call, error: misfit } = checkCall(found, {
 			value: args ?? {},
 		});
-		if (misfit) return answered(Err(misfit));
-		return answered(await runAction(call));
+		if (misfit) return toolResult(Err(misfit));
+		return toolResult(await runAction(call));
 	});
 	return server;
 }

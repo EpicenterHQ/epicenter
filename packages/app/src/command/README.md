@@ -325,14 +325,14 @@ accepts, its `500` included, carries `x-epicenter: 1` and no path; a
 tunnelled request's `403` and Bun's own `413` carry nothing
 ([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
 
-What serve sends hides this computer's folders in its messages: the error
-of every HTTP and MCP answer, a refusal before a call, and the problems and
-routines in the listing. The Epicenter's real path reads `.` and the home
-folder reads `~`, whether written as a path or a `file://` URL, so
-`EACCES: permission denied, stat '/Users/ada/Epicenter/apps/notes'` reads
-`stat './apps/notes'`. A path outside both is left as it is, and so is what
-an action returns as data or sends as an update. Serve's own log on stderr
-keeps the full paths.
+An app's and a routine's problems are made once, when serve starts, and a
+path inside the Epicenter in them is written from its folder, so
+`Cannot find module './missing.ts' imported from apps/notes/code/epicenter.ts`
+names no folder above the Epicenter. Nothing else is rewritten. What an
+action returns, sends as an update, or says in an error it throws reaches
+its caller as the action wrote it, so a message such as
+`EACCES: permission denied, open '/Users/ada/Epicenter/apps/notes/data/a.md'`
+can show a path of this computer to your own devices.
 
 A command whose port answers for something else runs nothing, and a second
 serve does not start; both say the same:

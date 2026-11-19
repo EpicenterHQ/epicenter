@@ -136,10 +136,11 @@ test('GET /actions/ answers the one listing as JSON, naming no path, and tools/l
 	const text = await response.text();
 	expect(text).not.toContain(f.userDir);
 	const listing = JSON.parse(text);
+	// A path inside the Epicenter is written from its folder, once, at start.
 	expect(listing.problems[0].problems[0]).toContain(
-		'imported from ./apps/broken/code/epicenter.ts',
+		'imported from apps/broken/code/epicenter.ts',
 	);
-	expect(listing.routines[0].problem).toContain("'./routines/locked.md'");
+	expect(listing.routines[0].problem).toContain("'routines/locked.md'");
 	// A call to the app answers the same problems, also without a path.
 	const refused = await fetch(`${f.base}/actions/broken/go`, {
 		method: 'POST',
@@ -167,29 +168,6 @@ test('GET /actions/ answers the one listing as JSON, naming no path, and tools/l
 		headers: { accept: 'application/json' },
 	});
 	expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
-});
-
-test("an error serve sends names the Epicenter's folder as . and the home folder as ~", async () => {
-	const f = await setup((f) =>
-		f.app(
-			'leak',
-			`import { homedir } from 'node:os';
-export default defineApp(() => ({ description: 'Leak', actions: { tell: defineAction({ description: 'Tell', input: {}, run: () => { throw new Error(\`at \${import.meta.url} in \${homedir()}/notes\`); } }) } }));`,
-		),
-	);
-	const shown = 'at ./apps/leak/code/epicenter.ts in ~/notes';
-	const call = await fetch(`${f.base}/actions/leak/tell`, {
-		method: 'POST',
-		body: '{}',
-	});
-	const lines = (await call.text()).trim().split('\n');
-	expect(JSON.parse(lines.at(-1) ?? '').answer.error.message).toBe(shown);
-	const tool = (await (
-		await mcp(f.base, 'tools/call', { name: 'leak_tell', arguments: {} })
-	).json()) as {
-		result: { structuredContent: { error: { message: string } } };
-	};
-	expect(tool.result.structuredContent.error.message).toBe(shown);
 });
 
 test('a crafted tool name cannot run an app outside the Epicenter', async () => {

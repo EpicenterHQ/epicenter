@@ -20,7 +20,7 @@ import {
 	folderOnDisk,
 	isName,
 } from '../index.ts';
-import { appDir, appPath, type EpicenterRoot } from './root.ts';
+import { appDir, appPath, type EpicenterRoot, fromRoot } from './root.ts';
 
 /** The words the `epicenter` command keeps for itself, which no app may be named. */
 export const COMMAND_WORDS = ['check', 'serve'] as const;
@@ -130,10 +130,13 @@ async function loadEntry(
 			name,
 			folder,
 			...loaded,
-			problems: [...loaded.problems, ...(local ? [local] : [])],
+			problems: [
+				...loaded.problems.map((problem) => fromRoot(root, problem)),
+				...(local ? [local] : []),
+			],
 		};
 	} catch (error) {
-		return listed([extractErrorMessage(error)]);
+		return listed([fromRoot(root, extractErrorMessage(error))]);
 	}
 }
 

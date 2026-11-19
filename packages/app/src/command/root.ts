@@ -13,7 +13,7 @@
  */
 import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { Ok, type Result } from 'wellcrafted/result';
 import { type MarkdownFile, readMarkdown } from '../front-matter.ts';
 import { ActionError, type NotStarted } from '../index.ts';
@@ -136,6 +136,17 @@ export async function rootInstructions({
 		throw error;
 	}
 }
+
+/**
+ * `message` with every path inside the Epicenter written from its folder,
+ * as `apps/notes/code/x.ts`. A problem serve lists is made once, at start,
+ * through this, so a device that reads the listing sees no folder of this
+ * computer's above the Epicenter. A path outside it is left as written.
+ */
+export const fromRoot = (
+	{ folder }: Pick<EpicenterRoot, 'folder'>,
+	message: string,
+) => message.replaceAll(`${folder}${sep}`, '');
 
 /** The app `name`'s folder from the Epicenter's, as messages name it. */
 export const appDir = (name: string) => `apps/${name}`;

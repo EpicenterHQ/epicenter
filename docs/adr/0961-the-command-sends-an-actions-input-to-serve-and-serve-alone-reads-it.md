@@ -93,11 +93,12 @@ none.**
   is stopped and started again; the owner restarts serve after upgrading
   (ADR-0953). An earlier version of this record recognized the old
   `x-epicenter-home` header for one release; the owner chose a clean break.
-- What serve sends hides this computer's folders in its messages: the
-  error of every HTTP and MCP answer, a refusal before a call, and the
-  listing's problems and routines read the Epicenter's real path as `.` and
-  the home folder as `~`. A path outside both, and what an action returns
-  as data, are left as they are.
+- An app's and a routine's problems are made once, when serve starts, and
+  a path inside the Epicenter in them is written from its folder, such as
+  `apps/notes/code/x.ts`. Nothing else is rewritten: an action's own error
+  message reaches its caller as the action wrote it, absolute paths
+  included. The owner accepted that a message can show a path of this
+  computer to the owner's own devices (ADR-0959).
 
 ## Consequences
 
