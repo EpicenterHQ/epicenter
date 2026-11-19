@@ -8,7 +8,7 @@
  * outside this repository; this script refuses a tarball where one is left.
  *
  * Bun caches a tarball by its path, so an Epicenter that installed
- * `epicenter-app-0.7.0.tgz` from one path keeps that content however the
+ * `epicenter-app-0.8.0.tgz` from one path keeps that content however the
  * file changes. The tarball therefore lands in a folder named for its
  * content, `<outdir>/<hash>/`, which is a new path whenever it changes.
  *

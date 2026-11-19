@@ -35,7 +35,7 @@ repositories.
   "private": true,
   "workspaces": ["apps/*/code"],
   "scripts": { "build": "bun run --filter '*' --if-present build" },
-  "dependencies": { "@epicenter/app": "0.7.0" }
+  "dependencies": { "@epicenter/app": "0.8.0" }
 }
 ```
 
@@ -130,8 +130,8 @@ Publish from that folder, with `--dry-run` before the real publish:
 
 ```sh
 cd packages/app/dist/pack/<hash>
-bun publish epicenter-app-0.7.0.tgz --dry-run
-bun publish epicenter-app-0.7.0.tgz
+bun publish epicenter-app-0.8.0.tgz --dry-run
+bun publish epicenter-app-0.8.0.tgz
 ```
 
 ### Try an unreleased change
@@ -142,7 +142,7 @@ its `package.json`. `pack` prints these lines with their path:
 ```json
 {
   "overrides": {
-    "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.7.0.tgz"
+    "@epicenter/app": "file:/path/to/pack/<hash>/epicenter-app-0.8.0.tgz"
   }
 }
 ```
