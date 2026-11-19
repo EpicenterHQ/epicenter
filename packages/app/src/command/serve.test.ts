@@ -48,6 +48,17 @@ async function setup() {
 		},
 		run: () => Ok(null),
 	});
+	const sly = defineAction({
+		description: 'Returns an error whose name throws when read',
+		input: {},
+		run: () =>
+			Err({
+				get name(): string {
+					throw new Error('no name');
+				},
+				message: 'sly',
+			}) as never,
+	});
 	const hostile = defineAction({
 		description: 'Throws a value nothing can describe',
 		input: {},
@@ -82,7 +93,7 @@ async function setup() {
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, big, hostile, bare, send },
+					actions: { add, fail, fake, tag, big, sly, hostile, bare, send },
 				},
 			},
 		}),
@@ -165,6 +176,8 @@ test('a throw is Threw, and so is a value that is not a Result or a reserved nam
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
 	expect(threw.answer.error).toEqual({ name: 'Threw', message: 'broke' });
+	const [sly] = await lines(await request('/actions/writing/sly', post({})));
+	expect(sly.answer.error).toEqual({ name: 'Threw', message: 'no name' });
 	const [big] = await lines(await request('/actions/writing/big', post({})));
 	expect(big.answer.error.name).toBe('Threw');
 	expect(big.answer.error.message).toContain(
@@ -234,6 +247,7 @@ test('MCP offers one tool per action and runs it', async () => {
 		'writing_fake',
 		'writing_tag',
 		'writing_big',
+		'writing_sly',
 		'writing_hostile',
 		'writing_bare',
 	]);

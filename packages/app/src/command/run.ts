@@ -71,12 +71,14 @@ export async function answerCall(
 			next: `epicenter ${app}`,
 		});
 	const started = performance.now();
+	// A throw while running or while reading what the run returned, such as a
+	// getter on its error, means it ran and broke.
 	const ran = await tryAsync({
-		try: () => run(input, { onUpdate }),
+		try: async () => answerOf(action, await run(input, { onUpdate })),
 		catch: (cause) =>
 			ActionError.Threw({ message: extractErrorMessage(cause) }),
 	});
-	const answer = ran.error === null ? answerOf(action, ran.data) : ran;
+	const answer = ran.error === null ? ran.data : ran;
 	// The logger catches a sink that throws, so the record cannot change the answer.
 	runLog.info('action run ended', {
 		app,
