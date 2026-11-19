@@ -158,4 +158,4 @@ needed. Do not introduce a factory solely to satisfy a naming convention.
 Follow [TypeScript guidance](../typescript/SKILL.md) for factory signatures,
 internal functions, returned methods, and public types.
 
-For Whispering's browser and desktop implementations, see [platform seams](../platform-seams/SKILL.md).
+For Whispering's browser and desktop implementations, see [Whispering's AGENTS.md](../../../apps/whispering/AGENTS.md).

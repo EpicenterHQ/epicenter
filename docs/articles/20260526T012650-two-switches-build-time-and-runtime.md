@@ -1,6 +1,6 @@
 # Two Switches: When the Build Picks, When the User Does
 
-> **Editor's note (superseded for the build-time switch).** The build-time switch in this article is shown with Vite `resolve.extensions` filename-suffix selection (`index.tauri.ts` before `index.ts`). That mechanism has since been replaced by Node-standard `#platform/*` subpath imports declared in each app's `package.json` `imports` map, which scopes the swap to one import path instead of making every bare import magic. For the current build-time pattern see the `platform-seams` skill. The runtime-switch half of this article is unaffected; the rest is kept as a record of the earlier build-time approach.
+> **Editor's note (superseded for the build-time switch).** The build-time switch in this article is shown with Vite `resolve.extensions` filename-suffix selection (`index.tauri.ts` before `index.ts`). That mechanism was replaced by Node-standard `#platform/*` subpath imports declared in each app's `package.json` `imports` map, which scoped the swap to one import path instead of making every bare import magic. Those were later replaced too: under [ADR-0781](../adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md), one build serves every surface, and each capability branches on `isTauri()` when it runs. The runtime-switch half of this article is unaffected; the rest is kept as a record of the earlier build-time approach.
 
 A cross-platform app has two completely different "which one do I use" questions. They look the same at the call site:
 

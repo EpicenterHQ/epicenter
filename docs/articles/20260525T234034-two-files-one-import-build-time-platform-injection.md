@@ -1,6 +1,6 @@
 # Two files, one import: how Whispering picks a platform at build time
 
-> **Editor's note (superseded).** The `resolve.extensions` plus tsconfig `moduleSuffixes` mechanism narrated below has since been replaced by Node-standard `#platform/*` subpath imports declared in each app's `package.json` `imports` map, which scopes the platform swap to a single seam instead of making every bare import magic. For the current pattern see the `platform-seams` skill. The rest of this article is kept as a record of the earlier approach.
+> **Editor's note (superseded).** The `resolve.extensions` plus tsconfig `moduleSuffixes` mechanism narrated below was replaced by Node-standard `#platform/*` subpath imports declared in each app's `package.json` `imports` map, which scoped the platform swap to a single seam instead of making every bare import magic. Those were later replaced too: under [ADR-0781](../adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md), one build serves every surface, and each capability branches on `isTauri()` when it runs. The rest of this article is kept as a record of the earlier approach.
 
 One of the more interesting systems in Epicenter is how Whispering picks which implementation of a service runs. The desktop version uses Rust over Tauri for the clipboard. The web version uses `navigator.clipboard`. The consumer code in `+page.svelte` doesn't know or care. Both builds get a different file behind the same import path, and the wrong one never enters the bundle.
 
