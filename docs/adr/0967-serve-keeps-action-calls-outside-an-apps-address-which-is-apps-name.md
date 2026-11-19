@@ -46,7 +46,7 @@ GET  /apps/<app>                308 to /apps/<app>/
   Groups are gone: `actions` is `{ [name]: Action }`, and `defineApp` refuses
   a nested object. `epicenter vocab create-word` is
   `POST /actions/vocab/create-word`, and its MCP tool is `vocab_create-word`.
-  A name (`isName` in `packages/app/src/app.ts`) never holds `/` or `.`.
+  A name (`isName` in `app-before-0971:packages/app/src/app.ts`) never holds `/` or `.`.
 - **Every 200 ends in one answer line, and any other status means serve did
   not take the call.** A call refused before it runs (an unknown app or
   action, an address that is not `/actions/<app>/<action>`, an app that does

@@ -3,11 +3,11 @@ import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
-	isActionResult,
-	isPlainObject,
+	ActionError,
+	type Misfit,
+	type Problem,
 	type PublicError,
-} from './action-result.ts';
-import { ActionError, type Misfit, type Problem } from './errors.ts';
+} from './errors.ts';
 import { isOptional, refKeyOf, whatFits } from './field.ts';
 import { type Folder, pathRefusal, readText } from './folder.ts';
 import {
@@ -18,6 +18,7 @@ import {
 	type NotJson,
 	readMarkdown,
 } from './front-matter.ts';
+import { isAnswer, isPlainObject } from './result.ts';
 
 /** Declared front matter fields, each a TypeBox schema. */
 export type Fields = Record<string, TSchema>;
@@ -155,7 +156,7 @@ export function createMarkdownRecords({
 	idsIn,
 }: {
 	folder: Folder;
-	/** The folder under the app's that holds one file per id, such as `data/notes`. */
+	/** The folder under the home that holds one file per id, such as `data/notes`. */
 	base: string;
 	fields: Fields;
 	/** The ids `list` reads in the key `key`, for the refs a write sets. */
@@ -266,9 +267,9 @@ export function createMarkdownRecords({
 	}
 
 	/**
-	 * Decide a record and its replacement together, once per attempt at the
+	 * Decide a record and its replacement together, in one `edit` of the
 	 * current file. `need` refuses an absent file with Missing and a present
-	 * one with Changed (there). A patch may repair a record with problems; a
+	 * one with Exists. A patch may repair a record with problems; a
 	 * computed change sees only a record that fits.
 	 */
 	async function write(
@@ -277,70 +278,65 @@ export function createMarkdownRecords({
 		change: Patch | Compute,
 	): Promise<Result<AnyRecord, PublicError>> {
 		const path = pathOf(id);
-		const written = await folder.edit<AnyRecord, PublicError>(
-			path,
-			(before) => {
-				if (before === undefined && need === 'present')
-					return ActionError.Missing({ path });
-				if (before !== undefined && need === 'absent')
-					return ActionError.Changed({ path, cause: 'there' });
+		return folder.edit<AnyRecord, PublicError>(path, (before) => {
+			if (before === undefined && need === 'present')
+				return ActionError.Missing({ path });
+			if (before !== undefined && need === 'absent')
+				return ActionError.Exists({ path });
 
-				const file = readMarkdown(before ?? '');
-				const current = before === undefined ? undefined : project(id, file);
-				const computed = typeof change === 'function';
-				if (current?.result.error && (computed || !file.readable))
-					return current.result;
+			const file = readMarkdown(before ?? '');
+			const current = before === undefined ? undefined : project(id, file);
+			const computed = typeof change === 'function';
+			if (current?.result.error && (computed || !file.readable))
+				return current.result;
 
-				let patch = change as Patch;
-				if (computed) {
-					const result = change(structuredClone(current?.record));
-					if (!isActionResult(result))
-						throw new Error(
-							'The change given to edit must return a Result: Ok(change) or Err(error)',
-						);
-					if (result.error !== null) return result;
-					if (!isPlainObject(result.data))
-						throw new Error(
-							'The change given to edit must return a record patch inside Ok',
-						);
-					patch = result.data;
-				}
-				// A spread of the record carries its path and id, which name it and are not fields.
-				const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
-				if (named.length)
-					return unfit(
-						id,
-						`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
-						'the change names the record, not only the fields that change',
+			let patch = change as Patch;
+			if (computed) {
+				const result = change(structuredClone(current?.record));
+				if (!isAnswer(result))
+					throw new Error(
+						'The change given to edit must return a Result: Ok(change) or Err(error)',
 					);
-
-				const { body, ...given } = patch;
-				if (body !== undefined && typeof body !== 'string')
-					return unfit(id, 'body must be text');
-				const checked = fieldsOf(
+				if (result.error !== null) return result;
+				if (!isPlainObject(result.data))
+					throw new Error(
+						'The change given to edit must return a record patch inside Ok',
+					);
+				patch = result.data;
+			}
+			// A spread of the record carries its path and id, which name it and are not fields.
+			const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
+			if (named.length)
+				return unfit(
 					id,
-					given,
-					before === undefined ? undefined : file.fields,
+					`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
+					'the change names the record, not only the fields that change',
 				);
-				if (checked.error !== null) return checked;
-				const { set, removed } = checked.data;
-				const after = changeMarkdown(before ?? '', { set, removed, body });
-				// A file without front matter gains fences on any write, so an
-				// empty change is caught before its text is compared.
-				const empty =
-					!Object.keys(set).length && !removed.length && body === undefined;
-				if (current && (empty || after === before))
-					return current.result.error
-						? current.result
-						: Ok({ value: current.record });
-				const next = project(id, readMarkdown(after)).result;
-				if (next.error !== null)
-					return current?.result.error ? current.result : next;
-				return Ok({ value: next.data, text: after });
-			},
-		);
-		// Every Ok above carries the record as its value.
-		return written as Result<AnyRecord, PublicError>;
+
+			const { body, ...given } = patch;
+			if (body !== undefined && typeof body !== 'string')
+				return unfit(id, 'body must be text');
+			const checked = fieldsOf(
+				id,
+				given,
+				before === undefined ? undefined : file.fields,
+			);
+			if (checked.error !== null) return checked;
+			const { set, removed } = checked.data;
+			const after = changeMarkdown(before ?? '', { set, removed, body });
+			// A file without front matter gains fences on any write, so an
+			// empty change is caught before its text is compared.
+			const empty =
+				!Object.keys(set).length && !removed.length && body === undefined;
+			if (current && (empty || after === before))
+				return current.result.error
+					? current.result
+					: Ok({ value: current.record });
+			const next = project(id, readMarkdown(after)).result;
+			if (next.error !== null)
+				return current?.result.error ? current.result : next;
+			return Ok({ value: next.data, text: after });
+		});
 	}
 
 	return { path: pathOf, read, write };

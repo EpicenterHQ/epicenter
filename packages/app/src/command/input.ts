@@ -1,11 +1,7 @@
 /**
- * An action's input, and the words that describe it (ADR-0925, ADR-0961). A
- * page and the command send the input as JSON text, which `readInput`
- * reads; an agent sends it as an object. `checkInput` checks it for all
- * three, in serve.
- *
- * What an input takes is plain JSON Schema, so help and examples are written
- * from the schema alone, by serve or by a command that loaded no app.
+ * Check an action's input, in serve. A page and the command send it as JSON
+ * text, which `readInput` reads; an agent sends it as an object, which
+ * `checkObject` checks. Both refuse in the same words.
  */
 
 import type { TSchema } from 'typebox';
@@ -15,8 +11,7 @@ import { type ObjectSchema, whatFits } from '../field.ts';
 /**
  * Check an input against its action's schema (ADR-0953), the one check a
  * page, an agent, and the command line share. Nothing is filled: an absent
- * key stays absent, an action's `run` writes its own default, and a data
- * verb writes only what it was given. A key the action does not
+ * key stays absent, and an action's `run` writes its own default. A key the action does not
  * take is refused, naming the keys it does.
  */
 function checkInput(
@@ -55,20 +50,6 @@ function checkInput(
 		field && fieldSchema && given && whatFits(fieldSchema, given[field]);
 	if (words) return { error: `${name} must be ${words}` };
 	return { error: `${name}: ${first?.message ?? 'is not accepted'}` };
-}
-
-/**
- * The command an action is called with: `<input>`, or
- * `[<input>]` when no key is required, and nothing for an action with no input.
- */
-export function usageLine(
-	app: string,
-	action: string,
-	input: ObjectSchema,
-): string {
-	const command = `epicenter ${app} ${action}`;
-	if (!Object.keys(input.properties).length) return command;
-	return input.required.length ? `${command} <input>` : `${command} [<input>]`;
 }
 
 type Described = {
@@ -130,21 +111,6 @@ function exampleInput({ properties, required }: ObjectSchema): string {
 			]),
 		),
 	);
-}
-
-/** `text` in single quotes for a POSIX shell. */
-function quoted(text: string): string {
-	return `'${text.replaceAll("'", `'\\''`)}'`;
-}
-
-/** The command to copy for an action, its example input written as the shell takes it. */
-export function exampleCommand(
-	app: string,
-	action: string,
-	input: ObjectSchema,
-): string {
-	const command = `epicenter ${app} ${action}`;
-	return `${command} ${quoted(exampleInput(input))}`;
 }
 
 /**

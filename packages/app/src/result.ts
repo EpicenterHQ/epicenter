@@ -1,7 +1,15 @@
+/**
+ * What an action returns, checked where it crosses into JSON. An answer is
+ * exactly `{ data, error }`, where `error` is `null` or an object with a
+ * `name` and a `message`; serve copies it to JSON once, refusing what JSON
+ * would silently change.
+ */
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { PublicError } from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
 
-export type PublicError = { name: string; message: string };
+/** An action's answer on every surface: what it returned, or the error itself. */
+export type Answer = Result<unknown, PublicError>;
 
 /** Whether `value` is an object made by `{}` or `Object.create(null)`. */
 export function isPlainObject(
@@ -12,10 +20,8 @@ export function isPlainObject(
 	return prototype === Object.prototype || prototype === null;
 }
 
-/** Every action returns one Result. Its app owns the success data and extra error fields. */
-export function isActionResult(
-	value: unknown,
-): value is Result<unknown, PublicError> {
+/** Whether `value` is an answer: `{ data, error }` and nothing else. */
+export function isAnswer(value: unknown): value is Answer {
 	if (
 		!isPlainObject(value) ||
 		Reflect.ownKeys(value).length !== 2 ||
@@ -23,7 +29,7 @@ export function isActionResult(
 		!Object.hasOwn(value, 'data')
 	)
 		return false;
-	const error = value.error;
+	const { error } = value;
 	if (error === null) return true;
 	return (
 		value.data === null &&
@@ -33,10 +39,12 @@ export function isActionResult(
 	);
 }
 
-/** Copy an action answer to JSON once, rejecting fields JSON would silently corrupt. */
-export function encodeActionResult(
-	result: Result<unknown, PublicError>,
-): Result<JsonValue, PublicError> {
+/**
+ * `answer` copied to JSON values. `undefined` becomes `null`, a property
+ * that is `undefined` is dropped, and anything else JSON would change, such
+ * as a `Date`, a `Map`, `NaN` or a cycle, throws.
+ */
+export function toJsonAnswer(answer: Answer): Result<JsonValue, PublicError> {
 	const parents = new Set<object>();
 	function encode(value: unknown): JsonValue {
 		if (value === null || value === undefined) return null;
@@ -49,20 +57,18 @@ export function encodeActionResult(
 			if (Array.isArray(value)) return Array.from(value, encode);
 			return Object.fromEntries(
 				Object.entries(value)
-					.filter(([, field]) => field !== undefined)
-					.map(([key, field]) => [key, encode(field)]),
+					.filter(([, item]) => item !== undefined)
+					.map(([key, item]) => [key, encode(item)]),
 			);
 		} finally {
 			parents.delete(value);
 		}
 	}
-	if (result.error === null) return Ok(encode(result.data));
-	const error = encode(result.error);
-	if (
-		!isPlainObject(error) ||
-		typeof error.name !== 'string' ||
-		typeof error.message !== 'string'
-	)
-		throw new TypeError('Invalid encoded action error');
-	return Err({ ...error, name: error.name, message: error.message });
+	if (answer.error === null) return Ok(encode(answer.data));
+	const error = encode(answer.error) as Record<string, JsonValue>;
+	return Err({
+		...error,
+		name: answer.error.name,
+		message: answer.error.message,
+	});
 }

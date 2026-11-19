@@ -2,8 +2,7 @@
 
 This reference owns the smell and ownership decisions that collapse app-local
 UI into the product's component system. Monorepo apps use `@epicenter/ui`;
-personal apps own copied components under
-[epicenter-app](../../epicenter-app/SKILL.md). For the exact monorepo catalog, import
+personal apps own copied components. For the exact monorepo catalog, import
 boundary, loading and empty-state guidance, tooltip API, composition ladder,
 vendored-fork differences, and update workflow, read the authoritative
 [`packages/ui/README.md`](../../../../packages/ui/README.md). Do not copy that

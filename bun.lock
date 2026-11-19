@@ -130,7 +130,7 @@
     },
     "packages/app": {
       "name": "@epicenter/app",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "bin": {
         "epicenter": "./src/command/bin.ts",
       },

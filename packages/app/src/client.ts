@@ -1,46 +1,30 @@
 /**
- * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
- * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
- * and served at `/apps/<app>/`. A call is `POST /actions/<app>/<action>`
- * with the input as JSON (ADR-0967); the answer is JSON lines,
- * `{"update": value}` for each update the action sends and then
- * `{"answer": {data, error}}` (ADR-0930, ADR-0953).
- *
- * The client calls an action by its name in the app: `app.call('add', input)`
- * runs it now, and `app.action('add')` is the same call as a function, for a
- * query or a mutation to hold. Each call types its input and what it returns
- * in its JSON form, and resolves to
- * a Result: what the action returned, the action's own error, or one of the
- * platform's: `NotStarted` (it never began), `Threw` (it began and threw), or
- * `Unreachable` (the outcome is unknown). Error names do not say what
- * persisted.
- * A UI lists the actions it watches and makes with Wellcrafted (ADR-0661),
- * and the QueryClient its layout makes refreshes what it shows:
+ * How a page calls a home's actions through serve:
  *
  * ```ts
  * import { connect } from '@epicenter/app/client';
- * import { resultMutations, resultQueries } from 'wellcrafted/query';
- * import type tasks from '../../../epicenter.ts';
+ * import type home from '../../../../epicenter.ts';
  *
- * const app = connect<typeof tasks>();
- * export const taskReads = resultQueries(['tasks'], {
- *   list: app.action('list'),
- *   get: app.action('get'),
- * });
- * export const taskWrites = resultMutations(['tasks'], { patch: app.action('patch') });
- *
- * const list = createQuery(() => taskReads.list());
- * const patchTask = createMutation(() => taskWrites.patch);
- * patchTask.mutate({ id, done: true });
- * await app.call('add', { title: 'Call the bank' });
+ * const epicenter = connect<typeof home>();
+ * const idea = await epicenter.flights.idea({ id: 'tokyo-spring' });
+ * await epicenter.flights.daily({}, { onUpdate: (update) => show(update) });
  * ```
  *
- * The app is imported as a type, so the UI's bundle carries no app code.
- * `connect` reads the actions from what the app's function returns.
+ * The home is imported as a type, so the page's bundle carries no app code.
+ * Each call posts its input to `/actions/<app>/<action>` and resolves to a
+ * Result: what the action returned in its JSON form, the action's own error,
+ * or one of the platform's: `NotStarted` (it never began), `Threw` (it began
+ * and threw) or `Unreachable` (the outcome is unknown). An error does not
+ * say what persisted; a page rereads its records to learn that.
+ *
+ * The client is a Proxy, and neither it nor an app on it answers `then`, so
+ * `await connect()` is the client itself and never a call. An app or action
+ * named `then` cannot be reached this way.
  */
 import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
-import { type Answer, readAnswer } from './answer.ts';
+import { readAnswer } from './answer.ts';
+import type { App, Epicenter } from './epicenter.ts';
 import {
 	ActionError,
 	type NotStarted,
@@ -48,6 +32,7 @@ import {
 	type Unreachable,
 } from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
+import type { Answer } from './result.ts';
 
 export { partitionResults } from 'wellcrafted/result';
 export type {
@@ -63,8 +48,7 @@ type Flat<T> = { [K in keyof T]: T[K] } & {};
 
 /**
  * `T` as it arrives through JSON: `undefined` is `null`, and a property that
- * may be `undefined` may be absent. `defineAction` refuses any other value
- * JSON does not carry, such as a `Date`.
+ * may be `undefined` may be absent.
  */
 type JsonOf<T> = unknown extends T
 	? T
@@ -88,45 +72,40 @@ type JsonOf<T> = unknown extends T
 							}
 						>;
 
-/** What action `A` takes from a caller: `ActionInput<Actions['patch']>`, where `Actions` is `ReturnType<typeof app>['actions']`. */
+/** What action `A` takes from a caller. */
 export type ActionInput<A> = A extends (input: infer In) => unknown
 	? In
 	: never;
 
-/** What action `A` returns to a client, in its JSON form: `ActionOutput<Actions['get']>`. */
 type ReturnedBy<A> = A extends (input: never) => infer Out
 	? Awaited<Out>
 	: never;
+
+/** What action `A` returns to a page, in its JSON form. */
 export type ActionOutput<A> = JsonOf<
 	Extract<Exclude<ReturnedBy<A>, Err<never>>, Ok<unknown>>['data']
 >;
+
 type ReturnedError<A> = JsonOf<
 	Exclude<Extract<ReturnedBy<A>, Err<unknown>>['error'], null>
 >;
 
-/** How a page listens to an action that sends updates. */
+/** What a call of action `A` resolves to. */
+type Answered<A> = Promise<
+	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
+>;
+
+/** How a page listens to an action's updates. */
 type CallOptions<A> = {
 	onUpdate?: (value: JsonOf<ActionUpdate<A>>) => unknown;
 };
 
 /**
- * One action of an app, as a page calls it: a function of its input. An
- * action that sends updates also takes `{ onUpdate }`, which receives each one
- * in order. One that sends none takes its input alone, unlike the library's
- * `Action`, which takes options on every action: a page hands a call to
- * helpers such as wellcrafted's `resultMutations`, which take a function of
- * one argument. The call resolves to what
- * the action returned, or exactly the errors it can: the ones the action
- * returns, and `NotStarted`, `Threw` and `Unreachable`, which only Epicenter
- * answers. A name the action cannot return is not in the union, so a page
- * that compares it gets a compile error. An update reports and is never the
- * answer; what `onUpdate` returns is not awaited, and what it throws is
- * reported to the page and does not end the call. The action runs to its end
- * on serve whether or not the page stays to hear it.
- *
- * Each case is a whole function type. A rest of spread conditional tuples
- * says the same, but `resultMutations` refused a map that held
- * `app.action('x')` written inline beside any other entry.
+ * One action as a page calls it: a function of its input, and of
+ * `{ onUpdate }` when the action sends updates. An action whose every key is
+ * optional may be called with no input. Each case is a whole function type,
+ * so a helper that takes a function of one argument, such as Wellcrafted's
+ * `resultMutations`, accepts one that sends no updates.
  */
 export type ActionCall<A> = [ActionUpdate<A>] extends [never]
 	? Record<string, never> extends ActionInput<A>
@@ -136,20 +115,17 @@ export type ActionCall<A> = [ActionUpdate<A>] extends [never]
 		? (input?: ActionInput<A>, options?: CallOptions<A>) => Answered<A>
 		: (input: ActionInput<A>, options?: CallOptions<A>) => Answered<A>;
 
-/** What a call of action `A` resolves to. */
-type Answered<A> = Promise<
-	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
->;
+type AppsOf<H> = H extends Epicenter<infer TApps> ? TApps : never;
 
-/** The client for actions `A`, an app's `actions`, each called by its name. */
-export type AppClient<A> = {
-	/** Call the action `name` now: `app.call('add', { title })`. */
-	call<K extends keyof A & string>(
-		name: K,
-		...args: Parameters<ActionCall<A[K]>>
-	): Answered<A[K]>;
-	/** The action `name` as a function, the same call each time: `app.action('add')`. */
-	action<K extends keyof A & string>(name: K): ActionCall<A[K]>;
+/** The client for the home `H`: each app, then each of its actions, by name. */
+export type Client<H> = {
+	readonly [A in keyof AppsOf<H>]: AppsOf<H>[A] extends App
+		? {
+				readonly [K in keyof AppsOf<H>[A]['actions']]: ActionCall<
+					AppsOf<H>[A]['actions'][K]
+				>;
+			}
+		: never;
 };
 
 /** Tell the page about a listener's failure without ending the call. */
@@ -159,11 +135,7 @@ function report(cause: unknown) {
 	else queueMicrotask(() => Promise.reject(cause));
 }
 
-/**
- * Call one action and read its answer (`answer.ts`). A call that reaches no
- * answer is `Unreachable`: the action may still be running or may have
- * finished, so the page rereads its records.
- */
+/** Call one action and read its answer. A call that reaches no answer is `Unreachable`. */
 async function post(
 	url: string,
 	input: unknown,
@@ -181,7 +153,7 @@ async function post(
 		// connection dropped after serve took it, so the outcome is unknown.
 		return ActionError.Unreachable({
 			message:
-				'Epicenter could not be reached, or the connection dropped; the action may have run',
+				'serve could not be reached, or the connection dropped; the action may have run',
 		});
 	}
 	return readAnswer(response, (update) => {
@@ -195,46 +167,43 @@ async function post(
 }
 
 /**
- * A client for the app whose page this is. A page under `/apps/<app>/` uses
- * `app` without repeating its name; pass `{ app }` when the page does not
- * identify it. Without either name, `connect` throws. `url` defaults to this
- * origin's `/`, where `epicenter serve` answers the pages it serves: an
- * action is `POST <url>actions/<app>/<action>`.
+ * A Proxy whose every string key but `then` is `make(key)`, made once per
+ * key so the same name is the same value, and which has nothing else.
  */
-export function connect<App extends (given: never) => { actions: object }>({
-	app,
-	url = '/',
-}: {
-	app?: string;
-	url?: string;
-} = {}): AppClient<ReturnType<App>['actions']> {
-	const name = app ?? appOfPage();
-	const base = `${url.endsWith('/') ? url : `${url}/`}actions/${encodeURIComponent(name)}/`;
-	const call = (
-		action: string,
-		input?: unknown,
-		options?: { onUpdate?: (value: unknown) => unknown },
-	) => post(`${base}${encodeURIComponent(action)}`, input, options?.onUpdate);
-	// Each action's input and answer are typed by the app; on the wire every
-	// call is the same request, so these untyped functions stand in for them.
-	return {
-		call,
-		action: (action: string) => (input?: unknown, options?: object) =>
-			call(action, input, options),
-	} as unknown as AppClient<ReturnType<App>['actions']>;
+function namesOf<T>(make: (name: string) => T) {
+	const made = new Map<string, T>();
+	return new Proxy(Object.create(null) as Record<string, T>, {
+		get(_target, key) {
+			if (typeof key !== 'string' || key === 'then') return undefined;
+			if (!made.has(key)) made.set(key, make(key));
+			return made.get(key);
+		},
+	});
 }
 
-/** The app whose `/apps/<app>/` serves this page. */
-function appOfPage(): string {
-	const page = globalThis as {
-		document?: { baseURI: string };
-		location?: { href: string };
-	};
-	const href = page.document?.baseURI ?? page.location?.href;
-	const [, apps, segment] = href ? new URL(href).pathname.split('/') : [];
-	if (apps !== 'apps' || !segment)
-		throw new Error(
-			'connect() needs a page served under /apps/<app>/ or an explicit { app }',
-		);
-	return decodeURIComponent(segment);
+/**
+ * A client for the home whose `epicenter.ts` default export is `H`. `url` is
+ * where serve answers, this origin's `/` by default: an action is
+ * `POST <url>actions/<app>/<action>`.
+ */
+export function connect<H extends Epicenter>({
+	url = '/',
+}: {
+	url?: string;
+} = {}): Client<H> {
+	const base = url.endsWith('/') ? url : `${url}/`;
+	return namesOf((app) =>
+		namesOf(
+			(action) =>
+				(
+					input?: unknown,
+					options?: { onUpdate?: (value: unknown) => unknown },
+				) =>
+					post(
+						`${base}actions/${encodeURIComponent(app)}/${encodeURIComponent(action)}`,
+						input,
+						options?.onUpdate,
+					),
+		),
+	) as unknown as Client<H>;
 }

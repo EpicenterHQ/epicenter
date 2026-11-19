@@ -52,7 +52,7 @@ export default defineApp(({ folder }) => {
 - **`fetch` is `(request: Request) => Response | Promise<Response>`.** The web
   standard shape, so a Hono or Elysia app's `fetch` passes as it is. It
   reaches the folder by closing over `folder`; the library exports nothing
-  for it to import. `appProblems` in `packages/app/src/app.ts` refuses a
+  for it to import. `appProblems` in `app-before-0971:packages/app/src/app.ts` refuses a
   `fetch` that is not a function.
 - **Files first, then `fetch`, then 404.** For a `GET` or `HEAD`, serve
   answers a file in `code/ui/dist/` when there is one (ADR-0944). Any other

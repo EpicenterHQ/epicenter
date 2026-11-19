@@ -1,25 +1,17 @@
 /**
- * How a caller reads serve's answer to an action call, for a page and for the
- * CLI alike (ADR-0930, ADR-0953). A call's response is JSON lines:
- * `{"update": value}` for each update, then `{"answer": {data, error}}`. A call
- * serve refused before it began is a 200 with one line, its `NotStarted`
- * answer (ADR-0967).
+ * How a caller reads serve's answer to an action call, for a page and for
+ * the command alike. A call's response is JSON lines: `{"update": value}` for
+ * each update, then `{"answer": {data, error}}`. A call serve refused before
+ * it began is a 200 with one line, its `NotStarted` answer.
  *
  * Any status but 200 means serve did not take the call, and is
  * `Unreachable`. A 200 proves nothing more: one whose lines are not frames,
- * or whose stream ends with no answer, is `Unreachable` too. This module uses only web APIs, so a
- * page's bundle can carry it.
+ * or whose stream ends with no answer, is `Unreachable` too. This module
+ * uses only web APIs, so a page's bundle can carry it.
  */
-import { Ok, type Result } from 'wellcrafted/result';
-import {
-	isActionResult,
-	isPlainObject,
-	type PublicError,
-} from './action-result.ts';
+import { Ok } from 'wellcrafted/result';
 import { ActionError } from './errors.ts';
-
-/** An action's answer on every surface: what it returned, or the error itself. */
-export type Answer = Result<unknown, PublicError>;
+import { type Answer, isAnswer, isPlainObject } from './result.ts';
 
 const invalid = () =>
 	ActionError.Unreachable({ message: 'serve sent an invalid answer' });
@@ -32,7 +24,7 @@ const invalid = () =>
  * `Threw`. Anything else is `Unreachable`.
  */
 export function checkAnswer(value: unknown): Answer {
-	if (!isActionResult(value)) return invalid();
+	if (!isAnswer(value)) return invalid();
 	if (value.error === null) return Ok(value.data);
 	const error = value.error as unknown as Record<string, unknown>;
 	if (error.name === 'Threw') {

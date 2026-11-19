@@ -16,8 +16,7 @@ app-specific behavior or a load-bearing interaction earns the custom shape.
 
 The existing screen is evidence, not a structure to reproduce. Monorepo apps
 use public `@epicenter/ui` imports. Personal apps in an Epicenter own copied
-components and theme CSS, and can use the home palette or their own colors;
-follow [epicenter-app](../epicenter-app/SKILL.md) for their paths. Treat
+components and theme CSS, and can use the home palette or their own colors. Treat
 shadcn-svelte as the upstream component and pattern source.
 
 ## Canonical Path

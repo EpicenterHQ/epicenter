@@ -20,9 +20,7 @@ count.
 
 If an editor already owns unfinished input, bind its controls to that editor.
 Use a codec when a control displays a different representation of the same
-content. For a new personal app whose edits stay local until Save, see how a
-[draft over query data](../../epicenter-app/SKILL.md#a-draft-over-query-data)
-preserves typing through a refresh.
+content.
 
 ## Explicit submission
 
