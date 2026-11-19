@@ -21,6 +21,7 @@ import {
 import { join } from 'node:path';
 import {
 	connectMcp,
+	bareApp,
 	fixture,
 	header,
 	startServe,
@@ -407,6 +408,63 @@ test('serve answers 409 to a request for another root, and a body past its limit
 			body: 'x'.repeat(25 * 1024 * 1024 + 1),
 		});
 		expect(large.status).toBe(413);
+	} finally {
+		await served.stop();
+	}
+});
+
+test('serve exits on SIGTERM while a call is still streaming and an app holds a timer', async () => {
+	const f = await fixture();
+	roots.push(f.userDir);
+	await f.app(
+		'slow',
+		`${header}
+setInterval(() => {}, 1000);
+export default defineApp(() => ({ description: 'Slow', actions: {
+	wait: defineAction({ description: 'Never ends', input: {}, run: async (_, update) => {
+		update('started');
+		await new Promise(() => {});
+		return Ok(null);
+	} }),
+} }));`,
+	);
+	const served = await startServe(f);
+	const call = await fetch(`${served.base}/actions/slow/wait`, {
+		method: 'POST',
+		body: '{}',
+	});
+	const reader = (call.body as ReadableStream<Uint8Array>).getReader();
+	expect(new TextDecoder().decode((await reader.read()).value)).toContain(
+		'started',
+	);
+	const code = await Promise.race([
+		served.stop(),
+		Bun.sleep(5000).then(() => 'still running'),
+	]);
+	expect(code).toBe(0);
+	await reader.cancel().catch(() => {});
+});
+
+test('an async app function that throws is a problem line, and the other apps still answer', async () => {
+	const f = await fixture();
+	roots.push(f.userDir);
+	await f.app('fine', bareApp('fine'));
+	await f.app(
+		'eager',
+		`${header}export default defineApp(async () => { throw new Error('too eager'); });`,
+	);
+	const served = await startServe(f);
+	try {
+		await Bun.sleep(100);
+		expect(served.stderr()).toContain(
+			"\neager: code/epicenter.ts: An app's function is not async",
+		);
+		const listed = await fetch(`${served.base}/actions/`);
+		expect(
+			((await listed.json()) as { apps: { name: string }[] }).apps.map(
+				(app) => app.name,
+			),
+		).toEqual(['fine']);
 	} finally {
 		await served.stop();
 	}

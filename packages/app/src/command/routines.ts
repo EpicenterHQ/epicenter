@@ -143,7 +143,12 @@ export function startRoutines(
 		for (const routine of routines) {
 			if ('problem' in routine) continue;
 			const next = Bun.cron.parse(routine.cron, from);
-			if (next && next <= now) void runAction(routine.call, { log });
+			// Each run gets its own input, so an action that changes it changes no later run.
+			const call = {
+				...routine.call,
+				input: structuredClone(routine.call.input),
+			};
+			if (next && next <= now) void runAction(call, { log });
 		}
 	};
 	const clock = setInterval(check, 60_000);

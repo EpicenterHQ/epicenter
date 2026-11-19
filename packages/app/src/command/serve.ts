@@ -117,6 +117,9 @@ const ServeError = defineErrors({
 		message: `${app} fetch: ${extractErrorMessage(cause)}`,
 		app,
 	}),
+	Unhandled: ({ cause }: { cause: unknown }) => ({
+		message: `A promise no app awaited rejected: ${extractErrorMessage(cause)}`,
+	}),
 });
 
 /** Serve's record of what it could not do, beside its run records. */
@@ -557,8 +560,8 @@ async function dotenvProblem(root: string) {
 }
 
 /**
- * Serve until the process receives SIGINT or SIGTERM, then answer nothing:
- * serve prints no answer. It never starts when a `.env` at the root would
+ * Serve until the process receives SIGINT or SIGTERM, then cut what is
+ * running and exit the process: serve prints no answer. It never starts when a `.env` at the root would
  * reach Git, saying why, or when the port is in use. Once listening it
  * prints each app and routine with a problem.
  */
@@ -580,6 +583,11 @@ export async function serveHttp(
 			message: `Port ${port} is in use. If that is not this Epicenter's serve, set another \`port\` in ${join(root.folder, MARKER)}.`,
 		});
 	}
+	// Bun ends the process on a rejection nothing handles; one app's stray
+	// promise would then stop every app, so serve logs it and keeps serving.
+	process.on('unhandledRejection', (cause) =>
+		serveLog.error(ServeError.Unhandled({ cause }).error),
+	);
 	let served: Served;
 	try {
 		served = await load(root);
@@ -599,8 +607,11 @@ export async function serveHttp(
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	// A call or routine still running is cut when serve exits.
+	// A call or routine still running is cut: its connection closes, and the
+	// process exits even while an app's timer or a running action would hold it,
+	// so a restarted serve never runs beside this one. A write cut off leaves
+	// its target whole, since the folder writes a temporary file and renames it.
 	routines.stop();
-	void server.stop();
-	return undefined;
+	await server.stop(true);
+	process.exit(0);
 }

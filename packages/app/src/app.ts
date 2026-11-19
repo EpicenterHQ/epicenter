@@ -86,10 +86,17 @@ export function defineApp<const TApp extends App>(
 			'An app is a function of its folder: defineApp(({ folder }) => ({ description, data, actions }))',
 		);
 	return (given) => {
-		const made = app(given);
+		const made: unknown = app(given);
+		if (made instanceof Promise) {
+			// Caught here, so a rejection of what is refused cannot end the process.
+			made.catch(() => {});
+			throw new Error(
+				"An app's function is not async: defineApp(({ folder }) => ({ description, data, actions }))",
+			);
+		}
 		const problems = appProblems(made);
 		if (problems.length) throw new Error(problems.join('\n'));
-		return made;
+		return made as TApp;
 	};
 }
 
