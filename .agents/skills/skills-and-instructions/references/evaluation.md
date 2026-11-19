@@ -64,19 +64,9 @@ for options.
 ## Historical records
 
 The default corpus is `evals/routing.json`; `evals/always-on-gate.json` covers an
-older always-on routing experiment. The [recorded runs](../evals/runs/README.md)
-retain its results but not complete arm snapshots. Narrowing the gate reportedly
-weakened other routes, so that arm was not adopted. This motivated diagnostic
-work; it does not establish a general routing law or require measuring every
-instruction edit. Its rates are not current evidence.
-
-```bash
-bun run .agents/skills/skills-and-instructions/scripts/run-trigger-eval.ts --verify-runs .agents/skills/skills-and-instructions/evals/runs
-```
-
-This compares AGENTS.md and CLAUDE.md fingerprints only. A comparable verdict
-does not check whether skill descriptions, bodies, the corpus, model, or runtime
-still match. Verify those separately before interpreting an old result.
+older always-on routing experiment. Its recorded results were removed. Narrowing
+the gate reportedly weakened other routes, so that arm was not adopted; its
+rates are not current evidence.
 
 Keep comparison inputs stable during a run. For worktree comparisons, place
 worktrees outside the repository so inherited parent instructions do not

@@ -13,14 +13,12 @@
 
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	buildLiveArgs,
-	compareStoredRun,
 	type EvalCase,
 	fingerprintInstructions,
 	judge,
@@ -41,7 +39,6 @@ const corpusPath = fileURLToPath(
 const gateCorpusPath = fileURLToPath(
 	new URL('../evals/always-on-gate.json', import.meta.url),
 );
-const runsDir = fileURLToPath(new URL('../evals/runs', import.meta.url));
 const scriptPath = fileURLToPath(
 	new URL('./run-trigger-eval.ts', import.meta.url),
 );
@@ -500,48 +497,6 @@ describe('fingerprintInstructions', () => {
 
 		expect(after.digest).not.toBe(before.digest);
 	});
-});
-
-describe('compareStoredRun', () => {
-	const current = {
-		files: [{ path: 'AGENTS.md', bytes: 4, sha256: 'aa' }],
-		digest: 'now',
-	};
-
-	test('a run produced under the same instructions is comparable', () => {
-		expect(compareStoredRun({ instructions: { ...current } }, current)).toBe(
-			'comparable',
-		);
-	});
-
-	test('a run produced under different instructions is superseded', () => {
-		const stored = { instructions: { ...current, digest: 'then' } };
-
-		expect(compareStoredRun(stored, current)).toBe('superseded');
-	});
-
-	// A run recorded before the digest existed is not a failed run. It simply
-	// cannot say which AGENTS.md produced its numbers, and reporting that as an
-	// absence keeps it from being quoted as if it could.
-	test('a run recorded before the digest existed is undigested', () => {
-		expect(compareStoredRun({}, current)).toBe('undigested');
-	});
-});
-
-test('--verify-runs reports every stored run against the working tree', () => {
-	const result = spawnSync(
-		'bun',
-		['run', scriptPath, '--verify-runs', runsDir],
-		{ encoding: 'utf8' },
-	);
-
-	// Every shipped run is listed exactly once, with a verdict and no numbers:
-	// this flag answers whether a rate may be quoted, never what the rate was.
-	const lines = result.stdout.trim().split('\n');
-	const stored = readdirSync(runsDir).filter((n) => n.endsWith('.json'));
-	expect(lines.length).toBe(stored.length);
-	for (const line of lines)
-		expect(line).toMatch(/^(comparable|superseded|undigested)\t.+\.json$/);
 });
 
 test('the shipped corpus covers both boundaries and both directions', async () => {
