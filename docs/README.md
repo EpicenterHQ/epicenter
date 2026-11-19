@@ -19,7 +19,7 @@ This directory holds the vision, the decision records, and a few operating guide
 Architecture Decision Records: the authoritative, immutable record of durable decisions. See [adr/README.md](adr/README.md) for the template and rules.
 
 ### `/guides`
-Two operating guides for live systems: [Whispering redirects](guides/whispering-redirects.md) (linked from [ops](../ops/README.md)) and [billing and the Autumn boundary](guides/billing-autumn-boundary.md).
+Two operating guides for live systems: [Whispering redirects](guides/whispering-redirects.md) (the legacy domains and where they point) and [billing and the Autumn boundary](guides/billing-autumn-boundary.md).
 
 ### `/licensing`
 [Licensing strategy](licensing/licensing-strategy.md): the license, the threat model, and "If MIT returns".
