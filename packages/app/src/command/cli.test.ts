@@ -101,7 +101,7 @@ test('listing isolates broken imports, invalid apps, folders that cannot name an
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toEndWith(
-		'\nNo routines. Add routines/<name>.md with cron and run.\n',
+		'\nNo routines. Add routines/<name>.md with cron and action.\n',
 	);
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).not.toContain('epicenter reading');
@@ -220,12 +220,17 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 	}
 });
 
-test('bare epicenter reports routines after the apps, and changes nothing', async () => {
+test('bare epicenter reports routines after the apps, each checked when serve started, and changes nothing', async () => {
 	const f = await setup();
 	await f.folder(f.epicenter, {
 		'routines/review.md':
-			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week-summary", {"note": "it\'s here"}, "two words"]\n---\n',
-		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
+			'---\ncron: "0 8 * * *"\naction: "reading log"\ninput: {"minutes": 30, "book": "it\'s here"}\n---\n',
+		'routines/broken.md':
+			'---\ncron: "61 * * * *"\naction: "reading log"\n---\n',
+		'routines/old.md': '---\ncron: "0 8 * * *"\nrun: ["true"]\n---\n',
+		'routines/sing.md': '---\ncron: "0 8 * * *"\naction: "reading sing"\n---\n',
+		'routines/unfit.md':
+			'---\ncron: "0 8 * * *"\naction: "reading log"\ninput: {"minutes": "many"}\n---\n',
 	});
 	// Every file in the Epicenter outside its install, with its text.
 	const state = async () => {
@@ -253,14 +258,23 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 		{
 			name: 'broken',
 			problem:
-				'broken.md cron must be a five-field cron expression such as "0 8 * * *" with a future occurrence',
+				'cron must be a five-field cron expression such as "0 8 * * *" with a future occurrence',
+		},
+		{
+			name: 'old',
+			problem:
+				'needs exactly cron: "<minute hour day month weekday>" and action: "<app> <action>", and may have input: {...}',
 		},
 		{
 			name: 'review',
 			cron: '0 8 * * *',
 			next: expect.any(String),
-			command: `epicenter reading week-summary '{"note":"it'\\''s here"}' 'two words'`,
+			app: 'reading',
+			action: 'log',
+			input: { minutes: 30, book: "it's here" },
 		},
+		{ name: 'sing', problem: 'reading has no action "sing"' },
+		{ name: 'unfit', problem: 'input: minutes must be a number' },
 	]);
 	// The version the Epicenter has installed, read from its node_modules.
 	expect(value.version).toBe(packageJson.version);
@@ -271,7 +285,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 		'problems',
 		'routines',
 	]);
-	expect(Date.parse(value.routines[1].next)).toBeGreaterThan(Date.now());
+	expect(Date.parse(value.routines[2].next)).toBeGreaterThan(Date.now());
 
 	const human = await f.run();
 	expect(human.code).toBe(0);
@@ -284,8 +298,11 @@ Run: epicenter <app>
 
 Routines:
   broken: ${value.routines[0].problem}
-  review: cron 0 8 * * *, next ${value.routines[1].next}
-    ${value.routines[1].command}
+  old: ${value.routines[1].problem}
+  review: cron 0 8 * * *, next ${value.routines[2].next}
+    reading log {"minutes":30,"book":"it's here"}
+  sing: reading has no action "sing"
+  unfit: input: minutes must be a number
 `,
 	);
 	expect(await state()).toEqual(before);

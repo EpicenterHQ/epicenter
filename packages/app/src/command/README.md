@@ -265,7 +265,7 @@ from that container. Replacing `code/` leaves record paths intact.
 
 An action's input is one argument after its name, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
-stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
+stdin. No input is `{}`. Stdin is read only for `-`, so a script with stdin
 closed and an agent whose shell holds it open both run. An action has one
 name, so the command takes the word after the app as the action and the
 word after that as the input; more than one word after the action is refused
@@ -390,9 +390,7 @@ A page calls actions through `@epicenter/app/client`, at
 
 Serve commits nothing. Git stores the Epicenter, and its owner commits and pushes
 it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
-serve exits. Its routine commands share its process group, so Ctrl-C in its
-terminal, or a service manager that stops the group, stops them too; a
-signal sent to serve's process alone leaves them running.
+serve exits, and a call or routine still running is cut.
 
 ## Keep serve running
 
@@ -410,18 +408,16 @@ including its `PATH` ([ADR-0941](../../../../docs/adr/0941-epicenter-serve-is-a-
 ## Routines
 
 The Epicenter opts into recurring work with `routines/<name>.md`, outside `apps/`.
-A routine is an instruction to this computer, so sharing an app schedules
-nothing. Once a minute, `serve` reads `routines/` and starts each routine
-whose schedule had an occurrence since its last check. It keeps that one
-moment in memory, starting from when serve started, so nothing runs at
-startup:
+A routine runs one action of one of its apps on a schedule. It is an
+instruction to this computer, so sharing an app schedules nothing:
 
 ```yaml
 ---
 cron: "0 8 * * *"
-run: ["epicenter", "my-app", "review"]
+action: "flights daily"
+input: {"recheck": false}
 ---
-Prepare my morning review.
+Check my flights each morning.
 ```
 
 `cron` is a five-field expression or nickname such as `@hourly`, read in the
@@ -429,40 +425,35 @@ computer's local time by `Bun.cron.parse`. A skipped clock time moves forward
 through the gap. Occurrences missed while the computer sleeps run once on
 wake. An occurrence that passes while `serve` is not running does not run; a
 routine that must not miss a day uses a wider schedule, such as
-`0 8-22 * * *`, and a command that exits when today's work is done.
+`0 8-22 * * *`, and an action that returns early when today's work is done.
 
-`run` is a program and its arguments, with no shell. The program is text. An
-argument is text or any other JSON value, which reaches the command as one
-word of JSON text, so an action's input needs no escaping:
+`action` is an app's name and one of its action's names, separated by a
+space. `input` is one JSON object, the action's input; with none it is `{}`.
+Each value on a front-matter line is JSON, so `action` is quoted.
 
-```yaml
-run: ["epicenter", "flights", "daily", "run", {"recheck": false}]
-```
+Serve reads `routines/` once, when it starts, as it loads apps, and checks
+each file against the apps it loaded. A file with another field, an unknown
+app or action, or an input that does not fit is refused: serve prints
+`routines/<name>.md: <why>` when it starts, and bare `epicenter` lists the
+same reason. To change a routine, edit its file and restart serve; to stop
+one, remove its file. The Epicenter's history keeps it.
 
-The working directory is the Epicenter folder. A routine finds its program the
-way a terminal in the Epicenter would after `bun install`: its `PATH` is serve's,
-with the Epicenter's `node_modules/.bin` and the folder of the Bun running serve in
-front. So `epicenter` and `bun` work in `run` and in any script a routine
-starts. Unknown fields and malformed declarations are refused. To stop a
-routine, remove its file; the Epicenter's history keeps it.
+Once a minute serve runs each routine whose schedule had an occurrence since
+its last check, keeping that one moment in memory from when it started, so
+nothing runs at startup. A routine runs in serve as a call does, through the
+same `runAction`, so its run writes the same record to serve's stderr: the
+app, the action, the outcome and how long it took. Its result is what the
+action leaves in the Epicenter. Runs may overlap; an action that must not
+overlap itself, or needs a deadline, keeps its own. Actions must tolerate
+repetition; there is no exactly-once guarantee.
 
 `epicenter` on its own lists each routine's schedule, next occurrence, and
-command as one shell-quoted line to copy into a terminal, or why its file is
-refused. It asks `serve`, like every command but `check`.
+action with its input, or why its file is refused.
 
-A person or their agent writes the file. Installing or importing an app
-schedules nothing.
-
-`serve` records nothing about a routine. It starts the command and does not
-wait for it, time it, stop it, or note how it ended. Runs may overlap. A
-command that needs a deadline sets its own; one that must not overlap itself
-takes a lock, for example with `/usr/bin/lockf -t 0 <file> <command>`. A
-command's output goes where `serve`'s does, and its result is whatever it
-leaves in the Epicenter. `serve` writes to its stderr only a routine file it cannot
-read and a command it cannot start. Commands share `serve`'s process group, so
-stopping that group (Ctrl-C in a terminal, or the job that runs serve) stops
-them. Commands must tolerate repetition;
-there is no exactly-once guarantee.
+A routine runs an action, nothing else. A script or any other program on a
+schedule is cron's or launchd's job, or an action in a personal app that
+runs it. A person or their agent writes the file. Installing or importing an
+app schedules nothing.
 
 See [ADR-0908](../../../../docs/adr/0908-serve-runs-the-homes-daily-routines.md) and
 [ADR-0937](../../../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md).
@@ -665,7 +656,7 @@ one its `packages/app/package.json` states. `--json` answers the report as
 apps serve loaded and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
 refused. `--json` adds them as
-`routines: [{ name, cron, next } | { name, problem }]`, and the Epicenter's
+`routines: [{ name, cron, next, app, action, input } | { name, problem }]`, and the Epicenter's
 folder and each app's, which the command adds. The report reads only and
 starts nothing; while serve is stopped it is refused as a call is. It exits
 0 when it could report, even when an app or a routine file has a problem.
@@ -680,13 +671,14 @@ git log -1 --format=%cr      # how long ago the last commit was
 ```
 
 A commit that is days old, or files that stay uncommitted, mean whatever
-commits the Epicenter stopped. A routine's error is in serve's output.
+commits the Epicenter stopped. A routine's outcome is in serve's output, one
+record per run.
 
 ## Git stores the Epicenter
 
 Epicenter runs actions and serves pages. Git stores the Epicenter, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. Commit and push
-with Git, by hand or from a [routine](#routines) that runs a script of your
+with Git, by hand or from a cron or launchd job that runs a script of your
 own. A commit made while serve runs samples files, not intent: it can hold a
 partial edit or part of a running action's writes. Keep origin private: it
 receives every app's records. Git's ignore rules alone decide what is

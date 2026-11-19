@@ -59,11 +59,11 @@
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
  * mistake reaches only refusals.
  *
- * Calls leave their writes pending (`run.ts`). Serve keeps one clock: once a
- * minute it starts each routine whose schedule had an occurrence since its
- * last check, a moment it keeps in memory (ADR-0908, ADR-0937). It commits
- * nothing: Git stores the Epicenter, and its owner commits it, by hand or from a
- * routine that runs their own script.
+ * Calls leave their writes pending (`run.ts`). Serve reads `routines/` once,
+ * when it starts, and keeps one clock: once a minute it runs each routine
+ * whose schedule had an occurrence since its last check, as an action call
+ * (`routines.ts`, ADR-0937). It commits nothing: Git stores the Epicenter,
+ * and its owner commits it, by hand or with cron or launchd.
  */
 
 import { realpath, stat } from 'node:fs/promises';
@@ -90,7 +90,12 @@ import {
 	SERVE_HEADER,
 } from './protocol.ts';
 import { type EpicenterRoot, rootInstructions } from './root.ts';
-import { createRoutines } from './routines.ts';
+import {
+	type Routine,
+	readRoutines,
+	routineRows,
+	startRoutines,
+} from './routines.ts';
 import { type Call, checkCall, findAction, runAction } from './run.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
@@ -113,9 +118,6 @@ const ServeError = defineErrors({
 		message: `${app} ${action}: dropped a line that is not JSON: ${extractErrorMessage(cause)}`,
 		app,
 		action,
-	}),
-	RoutinesUnchecked: ({ cause }: { cause: unknown }) => ({
-		message: `Checking routines failed: ${extractErrorMessage(cause)}`,
 	}),
 	Unanswered: ({ cause }: { cause: unknown }) => ({
 		message: `A request threw before its answer: ${extractErrorMessage(cause)}`,
@@ -218,18 +220,20 @@ async function uiFile(folder: string, path: string) {
 type Served = {
 	root: EpicenterRoot;
 	apps: Apps;
+	routines: Routine[];
 	listing: Omit<Listing, 'routines'>;
 	mcp: McpOffer;
 	hide: ReturnType<typeof hidePaths>;
 };
 
-/** Load the apps and read `AGENTS.md`, once, for serve's lifetime. */
+/** Load the apps, read the routines and `AGENTS.md`, once, for serve's lifetime. */
 async function load(root: EpicenterRoot): Promise<Served> {
 	const hide = hidePaths(root);
 	const [apps, instructions] = await Promise.all([
 		loadApps(root),
 		rootInstructions(root),
 	]);
+	const routines = hide.value(await readRoutines(root, apps));
 	const listed = listApps(apps);
 	const listing = { ...listed, problems: hide.value(listed.problems) };
 	const tools = listing.apps.flatMap(({ actions }) =>
@@ -238,6 +242,7 @@ async function load(root: EpicenterRoot): Promise<Served> {
 	return {
 		root,
 		apps,
+		routines,
 		listing,
 		mcp: { apps, tools, instructions, hide },
 		hide,
@@ -258,13 +263,10 @@ async function mcp({ mcp }: Served, request: Request) {
 	}
 }
 
-/** `GET /actions/`: the listing, with this computer's folders hidden. */
-async function listing({ root, listing, hide }: Served) {
+/** `GET /actions/`: the listing, each routine's next occurrence counted now. */
+function listing({ listing, routines }: Served) {
 	return Response.json(
-		{
-			...listing,
-			routines: hide.value(await createRoutines(root).list()),
-		},
+		{ ...listing, routines: routineRows(routines) },
 		{ headers: { 'cache-control': 'no-store' } },
 	);
 }
@@ -561,26 +563,11 @@ function startHttpServer(served: Served) {
 			return stamped(new Response('serve could not answer', { status: 500 }));
 		},
 	});
-	const routines = createRoutines(root);
-	const checkRoutines = () =>
-		routines
-			.check()
-			.catch((cause) =>
-				serveLog.warn(ServeError.RoutinesUnchecked({ cause }).error),
-			);
-	// Routines start without being awaited, so a long one never delays a check.
-	const routineClock = setInterval(() => {
-		void checkRoutines();
-	}, 60_000);
-	routineClock.unref();
+	const routines = startRoutines(served.routines);
 	return {
-		/**
-		 * Stop listening and checking routines. Routine commands share serve's
-		 * process group, so whatever stops the group (Ctrl-C, systemd, launchd)
-		 * stops them.
-		 */
+		/** Stop listening and running routines. A call or routine still running is cut when serve exits. */
 		stop() {
-			clearInterval(routineClock);
+			routines.stop();
 			void server.stop();
 		},
 	};
@@ -668,6 +655,9 @@ export async function serveHttp(
 	writeErr(`Serving your apps at http://${LOOPBACK}:${port}.`);
 	for (const { entry, problems } of served.listing.problems)
 		writeErr(`${entry}: ${problems.join('; ')}`);
+	for (const routine of served.routines)
+		if ('problem' in routine)
+			writeErr(`routines/${routine.name}.md: ${routine.problem}`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);

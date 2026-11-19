@@ -97,7 +97,7 @@ export function rootReport(
 	if (problems.length) lines.push('', ...problemLines(root, problems));
 	lines.push('');
 	if (!routines.length)
-		lines.push('No routines. Add routines/<name>.md with cron and run.');
+		lines.push('No routines. Add routines/<name>.md with cron and action.');
 	else
 		lines.push(
 			'Routines:',
@@ -106,7 +106,7 @@ export function rootReport(
 					? [`  ${row.name}: ${row.problem}`]
 					: [
 							`  ${row.name}: cron ${row.cron}, next ${row.next ?? 'never'}`,
-							`    ${row.command}`,
+							`    ${[row.app, row.action, ...(Object.keys(row.input).length ? [JSON.stringify(row.input)] : [])].join(' ')}`,
 						],
 			),
 		);

@@ -44,9 +44,10 @@ from the app's code as it is on disk then, to its end, and serve keeps
 nothing about it. An app whose code threw while loading, or imported a file
 that was missing, keeps that failure until serve restarts, even once fixed;
 epicenter check tries the fixed code. It runs the Epicenter's routines: a routines/<name>.md
-declares cron: "0 8 * * *" and run: [executable, ...arguments], and once a
-minute serve starts each routine whose schedule had an occurrence since its
-last check. It records nothing about them, and epicenter on its own lists
+declares cron: "0 8 * * *", action: "<app> <action>" and an optional
+input: {...}. Serve reads them when it starts, refuses one whose action or
+input does not fit, and once a minute runs each routine whose schedule had
+an occurrence since its last check, as a call. epicenter on its own lists
 them. Serve commits nothing: Git stores the Epicenter, and its owner commits
 it. It has no sign-in and answers only this computer. To reach it from your
 other devices, run a private proxy such as:

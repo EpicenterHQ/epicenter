@@ -125,9 +125,16 @@ export type AppListing = {
 /** An entry in `apps/` with problems: one that did not load, or a `local/` that could reach Git. */
 export type AppProblems = { entry: string; problems: string[] };
 
-/** A routine as the listing shows it: its schedule, next occurrence, and command to copy into a terminal, or why its file is refused. */
+/** A routine as the listing shows it: its schedule, next occurrence, and the action it runs with its input, or why its file is refused. */
 export type RoutineRow =
-	| { name: string; cron: string; next: string | undefined; command: string }
+	| {
+			name: string;
+			cron: string;
+			next: string | undefined;
+			app: string;
+			action: string;
+			input: Record<string, unknown>;
+	  }
 	| { name: string; problem: string };
 
 /** Everything serve offers, as `GET /actions/` answers it. */
