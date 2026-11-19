@@ -157,4 +157,3 @@ export function createClient({ fetch }: { fetch: EndpointFetch }) {
 		},
 	};
 }
-export type Client = ReturnType<typeof createClient>;
