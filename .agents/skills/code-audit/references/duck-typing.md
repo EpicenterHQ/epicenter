@@ -65,7 +65,7 @@ A capability says it changed through one `subscribe(listener)` that
 returns the unsubscribe
 ([ADR-0769](../../../../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)).
 The dashboard's Svelte adapter,
-[reactive.ts](../../../../apps/api/ui/src/lib/reactive.ts), adapts any
+reactive.ts, adapts any
 member that holds its own `subscribe` as a capability of its own and passes
 other values through.
 

@@ -52,7 +52,7 @@ tagged variant when the layer owns a stable failure vocabulary.
 
 ## Level is a call-site decision, not a variant property
 
-The [billing client](../../../apps/api/worker/billing/autumn.ts) logs a rejected provider request at `error` when the provider reports a client-side failure. A transient provider or transport failure goes to `warn`. Both paths return `BillingError.ProviderRequestFailed()` to the caller.
+The billing client logs a rejected provider request at `error` when the provider reports a client-side failure. A transient provider or transport failure goes to `warn`. Both paths return `BillingError.ProviderRequestFailed()` to the caller.
 
 Do NOT attach a `severity` to `defineErrors` variants. That's `miette`'s pattern; `tracing`, `log`, and every production Rust logger put level on the call. Context-dependent data belongs at the context.
 

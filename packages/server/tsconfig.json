@@ -1,9 +1,0 @@
-{
-	"extends": "../../tsconfig.base.json",
-	"compilerOptions": {
-		"jsx": "react-jsx",
-		"jsxImportSource": "hono/jsx",
-		"types": ["bun", "@cloudflare/workers-types"]
-	},
-	"include": ["src"]
-}

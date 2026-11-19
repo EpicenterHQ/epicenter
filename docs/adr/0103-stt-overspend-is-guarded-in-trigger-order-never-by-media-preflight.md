@@ -6,6 +6,8 @@
 
 > **Correction (2026-07-05):** Whispering now has a live hosted STT producer through the `epicenter` transcription provider. That removes the "producerless path" fact from the original investigation, but not the decision: the first revisit triggers remain a loose-capped hosted backend, observed abuse, or material overspend. While the hosted backend remains pinned to `whisper-1`, the single-call term is still provider-capped.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 ADR-0100 settled that STT gates on a usable wallet and meters per transcribed minute after success, deliberately refusing a reservation lock. It named one deferred remedy for the bounded overspend, "an input duration/size ceiling," and left the trigger and the mechanism loose. A follow-up investigation (2026-07-03: primary-source research across OpenAI, Deepgram, AssemblyAI, Rev AI, Google Cloud STT, Groq, and ElevenLabs, plus a map of the local STT path) asked the sharper question: if we *can* make audio duration known before provider spend, *should* we, and does that collapse STT into chat's exact-reservation mechanic? The evidence refined the deferred remedy enough to record on its own: the single-call bound 0100 worried about is already capped by the provider, the only *live* overspend vector is concurrency (which a size ceiling does not touch), and the cheapest first guard is operational, not a billing control.

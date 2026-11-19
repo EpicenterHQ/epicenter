@@ -178,6 +178,7 @@ The task changes these boundaries; each commit's file list is the complete manif
 - `909a9cf4d9:apps/whispering/src/lib/data.ts`, `vite.config.ts`, `scripts/` and documentation:
   relationship removal, root worker packaging and isolated product verification.
 - `packages/app/`: public identity removal, runtime/type regressions and README.
+<!-- doc-path-check: ignore-next-line -->
 - `packages/server/src/middleware/cors.ts`: expose store-download protocol headers
   to trusted browser origins, committed separately from the product clean break.
 - ADR-0428 and ADR-0429: implemented ownership and private-account contracts.

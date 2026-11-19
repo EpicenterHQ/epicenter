@@ -1,6 +1,5 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-	"plugins": ["./scripts/biome/c-json-errors.grit"],
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -118,16 +117,6 @@
 						"useMediaCaption": "off"
 					}
 				}
-			}
-		},
-		{
-			// `wrangler types` output. Its empty interfaces (`Env`, `GlobalProps`,
-			// `Disposable`, ...) exist so other declarations can merge into them;
-			// the `type X = {}` rewrite this rule suggests cannot merge and
-			// collides with the generated `interface Env` in the same namespace.
-			"includes": ["**/worker-configuration.d.ts"],
-			"linter": {
-				"rules": { "suspicious": { "noEmptyInterface": "off" } }
 			}
 		},
 		{
