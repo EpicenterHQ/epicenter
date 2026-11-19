@@ -2,15 +2,15 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-22
-- **Relates:** ADR-0050 (the OpenAI-compatible wire this seam is built on), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (hosted-vs-custom backend, the seam this generalizes from chat to voice), [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the audience-scoped bearer that makes a base-URL swap safe), ADR-0049 (inference is its own swappable box)
+- **Relates:** ADR-0050 (the OpenAI-compatible wire this seam is built on), ADR-0054 (hosted-vs-custom backend, the seam this generalizes from chat to voice), [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the audience-scoped bearer that makes a base-URL swap safe), ADR-0049 (inference is its own swappable box)
 
 ## Context
 
-[ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) made a chat app's inference backend a user setting: hosted (the metered Epicenter gateway) or custom (any OpenAI-compatible base URL). The custom arm already lets a user point at a local Ollama, a self-hosted gateway, or OpenRouter. Two questions were left open: which local runtime we bless and document, and whether the same pattern covers Whispering's transcription and the language apps' speech, not just chat. "Local models" is not one surface: chat is an LLM, transcription is speech-to-text, pronunciation is text-to-speech, and each is a different model class served by a different engine.
+ADR-0054 made a chat app's inference backend a user setting: hosted (the metered Epicenter gateway) or custom (any OpenAI-compatible base URL). The custom arm already lets a user point at a local Ollama, a self-hosted gateway, or OpenRouter. Two questions were left open: which local runtime we bless and document, and whether the same pattern covers Whispering's transcription and the language apps' speech, not just chat. "Local models" is not one surface: chat is an LLM, transcription is speech-to-text, pronunciation is text-to-speech, and each is a different model class served by a different engine.
 
 ## Decision
 
-Local inference is a delegated engine reached over the OpenAI-compatible wire. We do not build an inference engine, and we do not bundle one by default. A runtime swap is a base-URL change and nothing more: if the URL is the Epicenter origin, the audience-scoped bearer ([ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md)) attaches the login; any other URL is a plain fetch with an optional user key ([ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md)), and the Epicenter token is structurally withheld.
+Local inference is a delegated engine reached over the OpenAI-compatible wire. We do not build an inference engine, and we do not bundle one by default. A runtime swap is a base-URL change and nothing more: if the URL is the Epicenter origin, the audience-scoped bearer ([ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md)) attaches the login; any other URL is a plain fetch with an optional user key (ADR-0054), and the Epicenter token is structurally withheld.
 
 The seam is identical across the three model classes; only the OpenAI route differs:
 
@@ -33,4 +33,4 @@ The runtime behind "custom" is an implementation detail: a user's own Ollama, a 
 - **Build our own inference engine.** Rejected: it is an enormous undertaking, and the OpenAI-compatible seam already makes any engine swappable, so there is nothing to gain.
 - **Bundle a runtime by default.** Rejected: gigabyte models, GPU drivers, and crash handling are a real distribution and support burden; detect-or-launch the user's engine is the floor, and bundling is earned later.
 - **Pick one runtime for all model classes.** Rejected: no engine serves chat, STT, and TTS well. Speaches is the closest single OpenAI-compatible voice server (STT plus TTS) and is named as that option, but on desktop an in-process Whisper often beats running a Python server, so the seam stays the commitment, not the runtime.
-- **Treat "local" as a separate code path from cloud.** Rejected: it is the same OpenAI wire on a different base URL; a separate path would duplicate the resolver and the bearer rule that [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) and [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) already settled.
+- **Treat "local" as a separate code path from cloud.** Rejected: it is the same OpenAI wire on a different base URL; a separate path would duplicate the resolver and the bearer rule that [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) and ADR-0054 already settled.

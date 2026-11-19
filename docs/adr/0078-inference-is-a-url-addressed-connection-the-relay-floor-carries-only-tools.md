@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (historical relay-floor tool carrier superseded by ADR-0079/ADR-0086; inference remains URL-addressed)
 - **Date:** 2026-06-29
-- **Relates:** [ADR-0073](0073-tools-speak-mcp-natively-epicenter-owns-only-the-transport-mcp-lacks.md) (the relay floor is the one cross-device transport, carrying MCP tool routes), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (an inference backend is the metered gateway or a custom OpenAI-compatible server), ADR-0050 (the model boundary is OpenAI-compatible), [ADR-0068](0068-privacy-is-a-deployment-not-a-product-feature.md) (privacy is which relay you run), ADR-0075 (the operator bearer)
+- **Relates:** [ADR-0073](0073-tools-speak-mcp-natively-epicenter-owns-only-the-transport-mcp-lacks.md) (the relay floor is the one cross-device transport, carrying MCP tool routes), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), ADR-0054 (an inference backend is the metered gateway or a custom OpenAI-compatible server), ADR-0050 (the model boundary is OpenAI-compatible), [ADR-0068](0068-privacy-is-a-deployment-not-a-product-feature.md) (privacy is which relay you run), ADR-0075 (the operator bearer)
 
 ## Context
 

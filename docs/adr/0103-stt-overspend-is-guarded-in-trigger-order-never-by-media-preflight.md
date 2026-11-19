@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-03
-- **Relates:** [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (the STT gate-and-meter policy this refines; 0100 deferred overspend control to "an input duration/size ceiling if abuse or material overspend appears"), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the metered house-key-only gateway)
+- **Relates:** ADR-0100 (the STT gate-and-meter policy this refines; 0100 deferred overspend control to "an input duration/size ceiling if abuse or material overspend appears"), ADR-0054 (the metered house-key-only gateway)
 
 > **Correction (2026-07-05):** Whispering now has a live hosted STT producer through the `epicenter` transcription provider. That removes the "producerless path" fact from the original investigation, but not the decision: the first revisit triggers remain a loose-capped hosted backend, observed abuse, or material overspend. While the hosted backend remains pinned to `whisper-1`, the single-call term is still provider-capped.
 

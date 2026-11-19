@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Amends:** [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) at model fallback: a saved model the destination cannot serve is refused; nothing substitutes a default.
+- **Amends:** ADR-0054 at model fallback: a saved model the destination cannot serve is refused; nothing substitutes a default.
 - **Unbuilt:** Complete Result propagation through recording, upload, and transcription callers; presentation of partial success and targeted recovery.
 
 ## Context
