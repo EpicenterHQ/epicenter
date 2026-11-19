@@ -123,5 +123,24 @@ comprehension, accessibility, trust, brand, or a regression-sensitive
 state. Do not ship drift under "good enough", and do not count a deletion
 that only moves complexity somewhere harder to see.
 
+Complexity is evidence, not a verdict: a feature can own a large code
+family and still be worth keeping. Establish the valuable workflow before
+ranking deletion prizes, and treat a change to the product's purpose as its
+own product decision. In architecture the expensive promise is often
+keeping both mental models alive; a half-old, half-new system is the
+usual cost.
+
+Write the decision in the spec, for example:
+
+```txt
+Product sentence: All social sign-in routes through the API-hosted page
+  via OAuth 2.1 PKCE.
+Candidate refusal: browser SPAs use Google GIS for a one-second sign-in.
+Deletion prize: signInWithIdToken, OIDC provider narrowing, per-app GIS
+  helpers, a blocked-browser UI state, two docs branches, two test paths.
+User loss: Google sign-in is a few seconds slower in browser SPAs.
+Decision: Refuse it. The loss is small; the second auth shape is permanent.
+```
+
 Use the [clean-breaks reference](../rethink/references/clean-breaks.md) to
 carry out the replacement and delete the old path.

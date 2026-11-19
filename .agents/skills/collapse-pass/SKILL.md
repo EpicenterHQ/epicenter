@@ -156,7 +156,28 @@ the asymmetric wins section of [product-collapse](../product-collapse/SKILL.md).
 ```
 
 Stopping at step 1 sounds useful until the defaults neuter the feature.
-Paraphrasing the JSDoc is a summary of the claim, not a reduction.
+Paraphrasing the JSDoc is a summary of the claim, not a reduction. Defending
+a wrapper with features the caller's defaults disable is the same mistake.
+
+Watch for the usual reveals: inert knobs, singleton wrappers around a
+dedup or cache, "lifecycle management" that reduces to "call close when
+done", docs that describe what the code could do under other configs,
+surfaces that map to no verb in the thesis, and a thesis you cannot finish
+without contradicting yourself.
+
+A worked cohesion audit. A notification API has `send`, `schedule`,
+`batch`, `digest`, `preferences`, `channels.register`, and `history`.
+"A notification system" is too vague. "Send messages to users across
+channels" misses `preferences` and `history`. "Deliver a message to a user
+on their preferred channel, honoring their quiet hours, and remember we
+sent it" fits five of them. `schedule`, `batch`, and `digest` are not in
+the sentence: they are a sibling product. A good sentence is concrete
+enough to make a surface worth questioning; "a CLI for managing your
+workspace" audits nothing.
+
+The test passes when you can say what the subject is, or what it buys this
+caller, in one concrete sentence. If the honest sentence is "nothing,
+really", it does not earn its keep.
 
 ## Carry the change through
 
