@@ -17,12 +17,6 @@ app. These paths are starting points to verify against exports and callers:
 
 - Local apps: [app contracts](../../../../packages/app/README.md) and
   [CLI commands and storage](../../../../packages/app/src/command/README.md).
-- Hosted API access: [server routes](../../../../packages/server/src/routes).
-  Trace durable authority names and how a request resolves whose data it may
-  reach.
-- Account identity: [auth schemas](../../../../packages/account/src/auth-types.ts)
-  and [principal types](../../../../packages/account/src/principal.ts). Trace
-  persisted values, wire schemas, and consumers before changing fields or brands.
 
 ## Trace what must survive
 

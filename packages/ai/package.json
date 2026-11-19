@@ -6,8 +6,7 @@
 	"license": "AGPL-3.0-or-later",
 	"exports": {
 		".": "./src/index.ts",
-		"./picker": "./src/picker/index.ts",
-		"./providers": "./src/providers.ts"
+		"./picker": "./src/picker/index.ts"
 	},
 	"dependencies": {
 		"@epicenter/ui": "workspace:*",

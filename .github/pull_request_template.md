@@ -19,6 +19,4 @@ Omit Changelog for chore:, refactor:, docs:, test:, build:, and ci: PRs.
 Use Closes #123 only when the PR fully resolves an issue.
 
 Paste screenshots or recordings for UI changes.
-
-PRs touching apps/api/ or packages/server/ require @braden-w review per CODEOWNERS.
 -->
