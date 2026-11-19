@@ -116,11 +116,10 @@ export async function fetchServe(
 }
 
 /** Tell the page about a listener's failure without ending the call. */
-function report(cause: unknown) {
-	const page = globalThis as { reportError?: (cause: unknown) => void };
-	if (page.reportError) page.reportError(cause);
-	else queueMicrotask(() => Promise.reject(cause));
-}
+const report = (cause: unknown) =>
+	queueMicrotask(() => {
+		throw cause;
+	});
 
 /** Hand `value` to `onUpdate`, reporting its failure instead of ending the call. */
 function hear(
