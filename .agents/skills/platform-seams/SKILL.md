@@ -40,7 +40,7 @@ to get a test to pass.
 
 ## How Whispering uses a capability
 
-[Whispering’s app module](../../../apps/whispering/src/lib/app.ts) opens its capabilities once, and is the one place that picks a `Files`. The [settings form](../../../apps/whispering/src/routes/components/SettingsForm.svelte) renders the controls each capability supplies.
+[Whispering’s app module](../../../apps/whispering/src/lib/app.ts) opens its capabilities once, and is the one place that picks a `Files`. The [settings form](../../../apps/whispering/src/routes/components/settings/SettingsForm.svelte) renders the controls each capability supplies.
 
 ```svelte
 {#if speech}<SpeechSettings {speech} /><Separator />{/if}

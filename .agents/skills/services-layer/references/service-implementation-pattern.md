@@ -30,36 +30,43 @@ imports no app settings or reporting.
 ## Factory with inputs or a lifecycle
 
 Use a factory when it owns construction inputs or state whose lifetime
-matters. Whispering passes `folder.audio` and the platform recorder to
-[`createMicrophoneDevice`](../../../../apps/whispering/src/lib/microphone.ts). Each successful `start` returns a session whose `stop` closes over that recording. If the platform recorder supports recovering a take after a quit or crash, the device also exposes `recover`.
+matters. Whispering's desktop `Files` is
+[`tauriFiles`](../../../../apps/whispering/src/lib/files/tauri.ts): it takes
+the folder, or a function that finds it, and the shell's `invoke`, which a
+test replaces. The folder is asked for once, on the first operation, and every
+method after that reuses the answer.
 
-The complete `start` method shows the lifetime boundary. The factory's other members are omitted:
+The construction and one method show the lifetime boundary. The factory's
+other members are omitted:
 
 ```typescript
-async start({ id, input, signal }) {
-	const { data: recording, error } = await recorder.start({
-		files,
-		path: `${DIRECTORY}/${id}`,
-		input,
-		signal,
-	});
-	if (error !== null) return Err(error);
-	const startedAt = performance.now();
-	return Ok({
-		startedAt,
-		onEnded: recording.onEnded,
-		async stop() {
-			const { data, error: stopError } = await recording.stop();
-			if (stopError !== null) return Err(stopError);
-			return Ok({ durationMs: data.durationMs });
+export function tauriFiles(
+	dir: string | (() => Promise<string>),
+	invoke: Invoke = tauriInvoke,
+): Files {
+	let root: Promise<string> | undefined;
+	const folder = () =>
+		(root ??= typeof dir === 'string' ? Promise.resolve(dir) : dir());
+
+	return {
+		async read(path) {
+			const checked = checkPath(path);
+			if (checked.error !== null) return checked;
+			const answer = await call<unknown>('files_read', {
+				folder: await folder(),
+				path,
+			});
+			if (answer.error?.name === 'NotFound') return Ok(null);
+			if (answer.error !== null) return answer;
+			return Ok(bytesOf(answer.data));
 		},
-	});
-},
+		// ...
+	};
+}
 ```
 
-`files` and `recorder` belong to the device instance. Each call to `start`
-captures a different `recording`, and the returned session's `stop` method
-closes over that recording.
+`dir`, `invoke` and `root` belong to the instance. Two instances over two
+folders never share an answer, and a test makes as many as it needs.
 
 ## Decision
 
