@@ -668,8 +668,22 @@ In the monorepo, the source CLI is `bun <repo>/packages/app/src/command/bin.ts`.
 The temporary Git configuration isolates identity and signing settings.
 Run `bun run typecheck` and action tests from code/, where package.json lives.
 An action test calls the app with a folder on a temporary directory and calls
-an action on the result: `app({ folder: folderOnDisk(dir) }).actions.add(input)`,
-as `examples/tasks/epicenter.test.ts` does. It never needs serve.
+an action on the result. It never needs serve:
+
+```ts
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { folderOnDisk } from '@epicenter/app';
+import { expectOk } from 'wellcrafted/testing';
+import app from './epicenter.ts';
+
+test('add saves a note', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'notes-'));
+  const { actions } = app({ folder: folderOnDisk(dir) });
+  expect(expectOk(await actions.add({ body: 'Call the bank' })).body).toBe('Call the bank');
+});
+```
 Run tests one file or package at a time.
 
 ## Put an app in the person's Epicenter

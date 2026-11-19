@@ -76,42 +76,64 @@ folders. A link at any of them is refused, not followed: the listing names it
 as a problem and that app does not load, and a linked `apps/` stops serve
 before it loads any app.
 
-## Install and try a writing inbox
-
-Writing is an ordinary app. Save thoughts, quotes, and links with their
-sources and projects, then search them from the browser, terminal, or an
-assistant. It needs no AI account or provider
-key. Taking it copies ordinary app files from GitHub into your Epicenter.
+## Install and try an app
 
 You need Bun and Git, with Git's `user.name` and `user.email` configured.
-Make `~/Epicenter` as [Make an Epicenter](#make-an-epicenter) says, then:
+Make `~/Epicenter` as [Make an Epicenter](#make-an-epicenter) says. This
+repository ships no apps, so write a small one there:
 
 ```sh
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
-mkdir -p apps/writing/code
-curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
-bun install && bun run build
+```
+
+```sh
+mkdir -p apps/notes/code
+cat > apps/notes/code/package.json <<'EOF'
+{ "name": "notes", "private": true, "type": "module" }
+EOF
+cat > apps/notes/code/epicenter.ts <<'EOF'
+import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
+
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, {
+    notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
+  });
+  const add = defineAction({
+    description: 'Save a note',
+    input: { body: field.text(), source: field.text({ optional: true }) },
+    run: ({ body, source }) => data.notes.create(timeId(), { body, source }),
+  });
+  return {
+    description: 'Notes I want to keep',
+    data,
+    actions: { ...data.notes.actions('list', 'get'), add },
+  };
+});
+EOF
+```
+
+Then install and start serve:
+
+```sh
+bun install
 epicenter serve
 ```
 
 In another terminal:
 
 ```sh
-epicenter writing add '{"body":"An observation I want to return to","source":"My notebook","project":"Essay"}'
-epicenter writing search '{"query":"observation"}'
+epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
+epicenter notes list
 ```
 
-Open `http://127.0.0.1:4747/apps/writing/`. Save a real note, search for it, and open
-it to edit. Your notes are in `apps/writing/data/notes/`. Closing the terminal
-stops the server; the files remain. Keep unsubmitted text open until saved.
+Each note is a Markdown file in `apps/notes/data/notes/`. Closing the
+terminal stops the server; the files remain.
 
 To connect an assistant on this computer, add a Streamable HTTP MCP server at
-`http://127.0.0.1:4747/`. Ask it to find saved notes with their sources. You can
-also run a coding agent from this Epicenter and ask it to adapt
-`apps/writing/code/`. The [writing app README](../../../../examples/writing/README.md)
-explains one first change. Copied code belongs to you; later shared code
-does not replace it.
+`http://127.0.0.1:4747/`, and ask it to list your notes. A coding agent with
+the `epicenter-app` skill can build more in `apps/notes/code/`, such as a
+page or another action.
 
 Start on localhost. Add a private connection when another device needs access.
 To keep the server running after you close the terminal, see

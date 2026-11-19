@@ -48,9 +48,9 @@ Arktype-validated IDs (auth user IDs, persisted-state schemas, HTTP route
 inputs) use type-first + validator + `as*` helper. The branded type and the
 arktype `Type` share one PascalCase name.
 
-Inside an Epicenter, a `defineData` folder key names each record by its id, the file's name. For example, the [writing app](../../../../examples/writing/epicenter.ts) declares a `notes` key, so a note lives at `data/notes/<id>.md` and its actions use `id` to identify it.
+Inside an Epicenter, a `defineData` folder key names each record by its id, the file's name. For example, a writing app that declares a `notes` key keeps a note at `data/notes/<id>.md`, and its actions use `id` to identify it.
 
-Here is the writing app's data declaration, made inside its `defineApp` function, which is given the app's `folder`:
+Here is that data declaration, made inside the app's `defineApp` function, which is given the app's `folder`:
 
 ```typescript
 import { defineData, field } from '@epicenter/app';

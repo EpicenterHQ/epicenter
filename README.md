@@ -41,31 +41,57 @@
 A home is a folder that depends on Epicenter, as any Bun project depends on a
 package. It requires [Bun](https://bun.sh) and Git. An AI account is not
 required. Make `~/Epicenter` from the files
-[the CLI README](packages/app/src/command/README.md#make-an-epicenter) lists, then copy
-the Writing app:
+[the CLI README](packages/app/src/command/README.md#make-an-epicenter) lists.
+This repository ships no apps, so write a small one there:
 
 ```sh
 export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
 cd ~/Epicenter
-mkdir -p apps/writing/code
-curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/writing/code --strip-components=3 epicenter-main/examples/writing
-bun install && bun run build
+```
+
+```sh
+mkdir -p apps/notes/code
+cat > apps/notes/code/package.json <<'EOF'
+{ "name": "notes", "private": true, "type": "module" }
+EOF
+cat > apps/notes/code/epicenter.ts <<'EOF'
+import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
+
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, {
+    notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
+  });
+  const add = defineAction({
+    description: 'Save a note',
+    input: { body: field.text(), source: field.text({ optional: true }) },
+    run: ({ body, source }) => data.notes.create(timeId(), { body, source }),
+  });
+  return {
+    description: 'Notes I want to keep',
+    data,
+    actions: { ...data.notes.actions('list', 'get'), add },
+  };
+});
+EOF
+```
+
+Then install and start serve:
+
+```sh
+bun install
 epicenter serve
 ```
 
-Open `http://127.0.0.1:4747/apps/writing/` to save a thought, quote, or link with its
-source, then find and edit it. Keep the terminal open while the server runs.
-Your notes are Markdown files in `apps/writing/data/notes/`. You own the app's
-copy in `apps/writing/code/` and can change it with your editor or coding agent.
-
-To add
-[Tasks](examples/tasks/README.md) to your home, run
+In another terminal, call the app:
 
 ```sh
-mkdir -p apps/tasks/code
-curl -L https://github.com/EpicenterHQ/epicenter/archive/main.tar.gz | tar -xz -C apps/tasks/code --strip-components=3 epicenter-main/examples/tasks
-bun install && bun run build
+epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
+epicenter notes list
 ```
+
+Each note is a Markdown file in `apps/notes/data/notes/`. The app's code is
+yours to change. A coding agent with the `epicenter-app` skill can build
+more, such as a page or another action.
 
 For CLI commands, MCP setup, and keeping `serve` running in the background, see
 [the CLI guide](packages/app/src/command/README.md).
