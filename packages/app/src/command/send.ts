@@ -14,7 +14,7 @@ import {
 	type PublicError,
 	readAnswer,
 } from '../index.ts';
-import type { Listing } from './listing.ts';
+import type { Listing } from './protocol.ts';
 import {
 	answeredBy,
 	portHeld,

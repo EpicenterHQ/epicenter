@@ -108,6 +108,8 @@ function needsServe(args: string[]) {
  *
  * Only serve loads app code, so a `run` of any command that asks it starts
  * `epicenter serve` for this Epicenter unless one is running, and it is stopped when the test ends.
+ * Serve loads the apps once, when it starts: a test that changes an app
+ * after a `run` calls `restartServe` before the next.
  * `serve` starts it without a `run`, for a test that spawns the command
  * itself. While a serve from `startServe` runs, the fixture starts none, and
  * after `stopServe` it starts none again.
@@ -171,6 +173,15 @@ export async function fixture() {
 		// A serve that does not start leaves the command to say why.
 		await serving.own.catch(() => undefined);
 	}
+	/**
+	 * Stop the serve the fixture started, so the next command that asks serve
+	 * starts one that loads the apps as they are now (ADR-0959).
+	 */
+	async function restartServe() {
+		const own = serving.own;
+		serving.own = undefined;
+		await (await own?.catch(() => undefined))?.kill();
+	}
 	/** Stop the serve the fixture started, and start no other. */
 	async function stopServe() {
 		serving.off = true;
@@ -208,6 +219,7 @@ export async function fixture() {
 		run,
 		runIn,
 		serve,
+		restartServe,
 		stopServe,
 		serving,
 	};

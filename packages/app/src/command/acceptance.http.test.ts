@@ -80,7 +80,7 @@ function mcp(base: string, method: string, params: object = {}) {
 	});
 }
 
-test('HTTP initialize sends the Epicenter AGENTS.md as it reads now', async () => {
+test('HTTP initialize sends the Epicenter AGENTS.md as serve read it when it started', async () => {
 	const f = await setup(undefined, 'Use these apps through their actions.\n');
 	const initialize = async () => {
 		const response = await mcp(f.base, 'initialize', {
@@ -96,7 +96,7 @@ test('HTTP initialize sends the Epicenter AGENTS.md as it reads now', async () =
 	};
 	expect(await initialize()).toBe('Use these apps through their actions.\n');
 	await writeFile(join(f.epicenter, 'AGENTS.md'), 'Ask before deleting.\n');
-	expect(await initialize()).toBe('Ask before deleting.\n');
+	expect(await initialize()).toBe('Use these apps through their actions.\n');
 });
 
 test('HTTP tools/list offers app actions', async () => {
@@ -190,21 +190,6 @@ export default defineApp(() => ({ description: 'Leak', actions: { tell: defineAc
 		result: { structuredContent: { error: { message: string } } };
 	};
 	expect(tool.result.structuredContent.error.message).toBe(shown);
-	// A refusal before the call is hidden the same way: an app folder serve
-	// cannot read fails with Bun's message, which names its path.
-	await chmod(join(f.apps, 'leak'), 0);
-	try {
-		const refused = await fetch(`${f.base}/actions/leak/tell`, {
-			method: 'POST',
-			body: '{}',
-		});
-		expect(refused.status).toBe(200);
-		const text = await refused.text();
-		expect(text).toContain("'./apps/leak");
-		expect(text).not.toContain(f.userDir);
-	} finally {
-		await chmod(join(f.apps, 'leak'), 0o755);
-	}
 });
 
 test('a crafted tool name cannot run an app outside the Epicenter', async () => {
@@ -1019,7 +1004,7 @@ test('serve keeps nothing about a call: a second call runs the action again', as
 	expect((await fetch(`${f.base}/.runs/counter/bump/x`)).status).toBe(404);
 });
 
-test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
+test('an edit to epicenter.ts, or to a file it imports, reaches no call until serve restarts', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'echo'), {
 			'code/word.ts': "export const word = 'one';\n",
@@ -1030,13 +1015,15 @@ export default defineApp(() => ({ description: 'Echo', actions: {
 `,
 		}),
 	);
-	const client = connect<() => { actions: { hello: () => Ok<string> } }>({
-		app: 'echo',
-		url: `${f.base}/`,
-	});
-	expect(expectOk(await client.call('hello'))).toBe('one');
+	const hello = async (base: string) =>
+		expectOk(
+			await connect<() => { actions: { hello: () => Ok<string> } }>({
+				app: 'echo',
+				url: `${base}/`,
+			}).call('hello'),
+		);
+	expect(await hello(f.base)).toBe('one');
 	await writeFile(join(f.made, 'code/word.ts'), "export const word = 'two';\n");
-	expect(expectOk(await client.call('hello'))).toBe('two');
 	await writeFile(
 		join(f.made, 'code/epicenter.ts'),
 		`${header}export default defineApp(() => ({ description: 'Echo', actions: {
@@ -1044,7 +1031,14 @@ export default defineApp(() => ({ description: 'Echo', actions: {
 } }));
 `,
 	);
-	expect(expectOk(await client.call('hello'))).toBe('three');
+	// Serve answers from what it loaded when it started: a half-finished edit reaches no caller.
+	expect(await hello(f.base)).toBe('one');
+	await f.stop();
+	const restarted = await startServe(f);
+	cleanups.push(async () => {
+		await restarted.stop();
+	});
+	expect(await hello(restarted.base)).toBe('three');
 });
 
 test('mismatched Origin is forbidden, and / refuses an event stream and other methods', async () => {

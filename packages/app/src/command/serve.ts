@@ -20,8 +20,11 @@
  * "no such action" or "this input does not fit" itself. The listing at
  * `GET /actions/` feeds every view of the apps (`listing.ts`).
  *
- * `serve` runs every call itself, from the app's code as it is on disk when
- * the call arrives (`apps.ts`, `run.ts`), and stores nothing about it. When a
+ * Serve loads every app once, when it starts (ADR-0959): each entry in
+ * `apps/` is either the app its code defines or its problems (`apps.ts`),
+ * and every route, MCP and the launcher answer from that one object until
+ * serve stops. To run changed code, restart serve. Serve runs every call
+ * itself (`run.ts`) and stores nothing about it. When a
  * run ends, serve writes one JSON line to stderr naming the app, the action,
  * the outcome and how long it took, never the input or the result.
  *
@@ -71,27 +74,22 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
 import { ActionError, type Answer, isName, type NotStarted } from '../index.ts';
-import {
-	type AppEntry,
-	appEntries,
-	findEntry,
-	loadEntry,
-	localProblem,
-} from './apps.ts';
+import { type Apps, loadApps } from './apps.ts';
 import { hidePaths } from './hide-paths.ts';
 import { listApps } from './listing.ts';
-import { createMcpServer } from './mcp.ts';
+import { createMcpServer, type McpOffer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import {
 	answeredBy,
 	type Holder,
+	type Listing,
 	MAX_INPUT_BYTES,
 	portHeld,
 	ROOT_HEADER,
 	rootHeaderValue,
 	SERVE_HEADER,
 } from './protocol.ts';
-import type { EpicenterRoot } from './root.ts';
+import { type EpicenterRoot, rootInstructions } from './root.ts';
 import { createRoutines } from './routines.ts';
 import { type Call, checkCall, findAction, runAction } from './run.ts';
 
@@ -105,16 +103,16 @@ const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
 const ServeError = defineErrors({
 	DroppedLine: ({
 		app,
-		key,
+		action,
 		cause,
 	}: {
 		app: string;
-		key: string;
+		action: string;
 		cause: unknown;
 	}) => ({
-		message: `${app} ${key}: dropped a line that is not JSON: ${extractErrorMessage(cause)}`,
+		message: `${app} ${action}: dropped a line that is not JSON: ${extractErrorMessage(cause)}`,
 		app,
-		key,
+		action,
 	}),
 	RoutinesUnchecked: ({ cause }: { cause: unknown }) => ({
 		message: `Checking routines failed: ${extractErrorMessage(cause)}`,
@@ -173,9 +171,8 @@ const notFound = () => new Response('Not found', { status: 404 });
 /** Where an app's built UI lives, relative to its code folder. Its own build writes it; `serve` never builds. */
 const UI_DIST = join('ui', 'dist');
 
-/** A file of the app's built UI at `path`, or 404. */
-async function uiFile(entry: AppEntry, path: string) {
-	if (entry.problem) return notFound();
+/** A file of the built UI of the app in `folder` at `path`, or 404. */
+async function uiFile(folder: string, path: string) {
 	let decoded: string;
 	try {
 		decoded = decodeURIComponent(path);
@@ -191,8 +188,9 @@ async function uiFile(entry: AppEntry, path: string) {
 		return notFound();
 	try {
 		// The UI in ui/dist/ is the only thing served (ADR-0860).
-		const dist = await realpath(join(entry.codePath, UI_DIST));
-		if (!dist.startsWith(`${entry.codePath}${sep}`)) return notFound();
+		const code = await realpath(join(folder, 'code'));
+		const dist = await realpath(join(code, UI_DIST));
+		if (!dist.startsWith(`${code}${sep}`)) return notFound();
 		const candidate = join(dist, decoded || 'index.html');
 		const file = await realpath(
 			(await stat(candidate)).isDirectory()
@@ -213,9 +211,42 @@ async function uiFile(entry: AppEntry, path: string) {
 	}
 }
 
+/**
+ * What serve loaded when it started and answers every request from until it
+ * stops (ADR-0959): the apps, their listing, and what MCP offers.
+ */
+type Served = {
+	root: EpicenterRoot;
+	apps: Apps;
+	listing: Omit<Listing, 'routines'>;
+	mcp: McpOffer;
+	hide: ReturnType<typeof hidePaths>;
+};
+
+/** Load the apps and read `AGENTS.md`, once, for serve's lifetime. */
+async function load(root: EpicenterRoot): Promise<Served> {
+	const hide = hidePaths(root);
+	const [apps, instructions] = await Promise.all([
+		loadApps(root),
+		rootInstructions(root),
+	]);
+	const listed = listApps(apps);
+	const listing = { ...listed, problems: hide.value(listed.problems) };
+	const tools = listing.apps.flatMap(({ actions }) =>
+		actions.filter((tool) => tool.mcp !== false),
+	);
+	return {
+		root,
+		apps,
+		listing,
+		mcp: { apps, tools, instructions, hide },
+		hide,
+	};
+}
+
 /** `POST /`: one MCP request, answered by a server made for it alone. */
-async function mcp(root: EpicenterRoot, request: Request) {
-	const server = await createMcpServer(root);
+async function mcp({ mcp }: Served, request: Request) {
+	const server = createMcpServer(mcp);
 	const transport = new WebStandardStreamableHTTPServerTransport({
 		enableJsonResponse: true,
 	});
@@ -228,46 +259,33 @@ async function mcp(root: EpicenterRoot, request: Request) {
 }
 
 /** `GET /actions/`: the listing, with this computer's folders hidden. */
-async function listing(root: EpicenterRoot) {
-	const listed = await listApps(root);
-	const hide = hidePaths(root);
+async function listing({ root, listing, hide }: Served) {
 	return Response.json(
 		{
-			...listed,
-			problems: hide.value(listed.problems),
-			routines: hide.value(listed.routines),
+			...listing,
+			routines: hide.value(await createRoutines(root).list()),
 		},
 		{ headers: { 'cache-control': 'no-store' } },
 	);
 }
 
-/**
- * `GET /`: the launcher, a link to each app with a built page;
- * 405 when MCP asks for an event stream.
- */
-async function launcher(root: EpicenterRoot, request: Request) {
-	// MCP's GET for a server-sent stream: stateless, so there is none.
-	if (
-		(request.method !== 'GET' && request.method !== 'HEAD') ||
-		(request.headers.get('accept') ?? '').includes('text/event-stream')
-	)
-		return methodNotAllowed('GET, HEAD, POST');
-	const listed = await listApps(root);
-	const apps = await Promise.all(
-		listed.apps.map(async ({ name, description }) => {
-			const entry = await findEntry(root, name);
-			if (!entry || !(await uiFile(entry, 'index.html')).ok) return undefined;
+/** `GET /`: the launcher, a link to each app with a built page. */
+async function launcher({ root, apps, listing }: Served) {
+	const shown = await Promise.all(
+		listing.apps.map(async ({ name, description }) => {
+			const { folder } = apps.get(name) as { folder: string };
+			if (!(await uiFile(folder, 'index.html')).ok) return undefined;
 			return {
 				name,
 				description,
-				icon: (await uiFile(entry, 'icon.png')).ok,
+				icon: (await uiFile(folder, 'icon.png')).ok,
 			};
 		}),
 	);
 	return new Response(
 		launcherPage(
 			basename(root.folder),
-			apps.filter((app) => app !== undefined),
+			shown.filter((app) => app !== undefined),
 		),
 		{
 			headers: {
@@ -279,48 +297,29 @@ async function launcher(root: EpicenterRoot, request: Request) {
 }
 
 /**
- * A request under `/apps/<app>`: a file from the app's build for a `GET` or
- * `HEAD` that names one, else the app's `fetch`, else 404. `/apps/<app>`
- * alone redirects to `/apps/<app>/`.
+ * A request under `/apps/<app>/`: a file from the app's build for a `GET` or
+ * `HEAD` that names one, else the app's `fetch`, else 404. An entry that
+ * did not load answers 500 with its problems, whatever the path, so a name
+ * the loader refused, such as `check`, serves nothing.
  */
-async function app(
-	root: EpicenterRoot,
+async function appRequest(
+	{ apps, hide }: Served,
 	request: Request,
 	name: string,
-	path: string | undefined,
-) {
-	const entry = await findEntry(root, name);
-	// No code/epicenter.ts is no app to answer for: 404, as for no folder.
-	if (!entry || entry.problem) return notFound();
-	if (path === undefined)
-		// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
-		return new Response(null, {
-			status: 308,
-			headers: { location: `/apps/${encodeURIComponent(name)}/` },
-		});
-	if (request.method === 'GET' || request.method === 'HEAD') {
-		const file = await uiFile(entry, path);
-		if (file.ok) return file;
-	}
-	return appFetch(root, request, entry);
-}
-
-/**
- * Hand a request no file answered to the app's `fetch`, unchanged: the app
- * knows its address, `/apps/<app>/`, from its folder's name. An app without
- * `fetch` answers 404; one that does not load answers 500 with its problems.
- */
-async function appFetch(
-	root: EpicenterRoot,
-	request: Request,
-	entry: AppEntry,
+	path: string,
 ): Promise<Response> {
-	const { data: loaded, error: notLoaded } = await loadEntry(entry);
-	if (notLoaded)
-		return new Response(hidePaths(root).text(notLoaded.message), {
+	const entry = apps.get(name);
+	if (!entry) return notFound();
+	if (!entry.app)
+		return new Response(hide.text(`${name}: ${entry.problems.join('; ')}`), {
 			status: 500,
 		});
-	const handler = loaded.app.fetch;
+	if (request.method === 'GET' || request.method === 'HEAD') {
+		const file = await uiFile(entry.folder, path);
+		if (file.ok) return file;
+	}
+	// The app gets the request unchanged: it knows its address from its folder's name.
+	const handler = entry.app.fetch;
 	if (!handler) return notFound();
 	try {
 		const response = await handler(request);
@@ -329,7 +328,7 @@ async function appFetch(
 			`answered ${response === null ? 'null' : typeof response}, not a Response`,
 		);
 	} catch (cause) {
-		serveLog.error(ServeError.FetchFailed({ app: entry.name, cause }).error);
+		serveLog.error(ServeError.FetchFailed({ app: name, cause }).error);
 		return new Response('Internal server error', { status: 500 });
 	}
 }
@@ -354,7 +353,7 @@ const refused = (error: NotStarted) =>
  * text the next extends, and are dropped once it is gone.
  */
 function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
-	const { app, key } = call;
+	const { app, action } = call;
 	const encoder = new TextEncoder();
 	let listening = true;
 	const body = new ReadableStream<Uint8Array>({
@@ -367,9 +366,7 @@ function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
 				} catch (cause) {
 					// A line that is not JSON, such as a cyclic update, is dropped
 					// alone: the call goes on and its answer still arrives.
-					serveLog.warn(
-						ServeError.DroppedLine({ app: app.name, key, cause }).error,
-					);
+					serveLog.warn(ServeError.DroppedLine({ app, action, cause }).error);
 					return;
 				}
 				try {
@@ -395,33 +392,62 @@ function stream(call: Call, hide: ReturnType<typeof hidePaths>): Response {
 }
 
 /** `POST /actions/<app>/<action>`: a call from a page or the command, its input the body. */
-async function call(root: EpicenterRoot, request: Request) {
-	const { pathname } = new URL(request.url);
-	let names: string[];
-	try {
-		names = pathname
-			.slice(ACTIONS.length)
-			.split('/')
-			.map((segment) => decodeURIComponent(segment));
-	} catch {
-		names = [];
-	}
-	const [app = '', key = '', ...more] = names;
-	if (more.length || !isName(app) || !isName(key))
-		return refused(
-			ActionError.NotStarted({
-				cause: 'usage',
-				message: `${pathname} is not an action's address: /actions/<app>/<action>`,
-				next: 'epicenter',
-			}).error,
-		);
+async function call(
+	{ apps, hide }: Served,
+	request: Request,
+	app: string,
+	action: string,
+) {
 	const text = new TextDecoder().decode(await request.arrayBuffer());
-	const hide = hidePaths(root);
-	const { data: found, error } = await findAction(root, app, key);
+	const { data: found, error } = findAction(apps, app, action);
 	if (error) return refused(hide.value(error));
 	const { data: checked, error: misfit } = checkCall(found, { text });
 	if (misfit) return refused(hide.value(misfit));
 	return stream(checked, hide);
+}
+
+/**
+ * Every route serve answers, read from the path once. A name in a path is
+ * matched as it is sent: a name is `[a-z0-9-]`, which no percent-encoding
+ * spells, so a segment is not decoded.
+ */
+function route(served: Served, request: Request) {
+	const { method } = request;
+	const { pathname } = new URL(request.url);
+	const reads = method === 'GET' || method === 'HEAD';
+	if (pathname === '/') {
+		if (method === 'POST') return mcp(served, request);
+		// MCP's GET for a server-sent stream: stateless, so there is none.
+		const stream = (request.headers.get('accept') ?? '').includes(
+			'text/event-stream',
+		);
+		return reads && !stream
+			? launcher(served)
+			: methodNotAllowed('GET, HEAD, POST');
+	}
+	if (pathname === ACTIONS)
+		return reads ? listing(served) : methodNotAllowed('GET, HEAD');
+	const [first, app, action, ...rest] = pathname.slice(1).split('/');
+	if (first === 'actions' && app !== undefined) {
+		if (method !== 'POST') return methodNotAllowed('POST');
+		if (rest.length || !isName(app) || !isName(action))
+			return refused(
+				ActionError.NotStarted({
+					cause: 'usage',
+					message: `${pathname} is not an action's address: /actions/<app>/<action>`,
+					next: 'epicenter',
+				}).error,
+			);
+		return call(served, request, app, action);
+	}
+	if (first !== 'apps' || !isName(app)) return notFound();
+	// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
+	if (action === undefined)
+		return new Response(null, {
+			status: 308,
+			headers: { location: `/apps/${app}/` },
+		});
+	return appRequest(served, request, app, [action, ...rest].join('/'));
 }
 
 /**
@@ -446,7 +472,7 @@ function isPrivateHost(host: string | null) {
 
 const forbidden = () => new Response('Forbidden', { status: 403 });
 
-/** The first segment of serve's action routes: the listing and each call. */
+/** The listing's address. */
 const ACTIONS = '/actions/';
 
 /**
@@ -472,7 +498,8 @@ function fromAnotherSite(request: Request) {
  * its own host. The caller owns its lifetime and ends it with `stop`. A port
  * something else holds throws before the clock starts.
  */
-function startHttpServer(root: EpicenterRoot) {
+function startHttpServer(served: Served) {
+	const { root } = served;
 	const ours = rootHeaderValue(root);
 	const answer = async (request: Request): Promise<Response> => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
@@ -492,7 +519,7 @@ function startHttpServer(root: EpicenterRoot) {
 				return forbidden();
 		}
 		if (fromAnotherSite(request)) return forbidden();
-		return stamped(await route(request));
+		return stamped(await meantHere(request));
 	};
 	// Every answer to a request serve accepts says it is an Epicenter's serve,
 	// and no more, so a command or a second serve can tell who holds the port.
@@ -507,37 +534,16 @@ function startHttpServer(root: EpicenterRoot) {
 			return copy;
 		}
 	};
-	const route = async (request: Request) => {
+	const meantHere = async (request: Request) => {
 		// A request meant for another Epicenter is refused without naming this one,
 		// so a command in a second Epicenter cannot read or write here (ADR-0936,
 		// ADR-0961). A page or an MCP client names none and is not compared.
 		const meant = request.headers.get(ROOT_HEADER);
-		const { pathname } = new URL(request.url);
 		if (meant !== null && meant !== ours)
 			return new Response('This call is for another Epicenter', {
 				status: 409,
 			});
-		if (pathname === '/')
-			return request.method === 'POST'
-				? mcp(root, request)
-				: launcher(root, request);
-		if (pathname === ACTIONS)
-			return request.method === 'GET' || request.method === 'HEAD'
-				? listing(root)
-				: methodNotAllowed('GET, HEAD');
-		if (pathname.startsWith(ACTIONS))
-			return request.method === 'POST'
-				? call(root, request)
-				: methodNotAllowed('POST');
-		const under = /^\/apps\/([^/]+)(?:\/(.*))?$/.exec(pathname);
-		if (!under) return notFound();
-		let name: string;
-		try {
-			name = decodeURIComponent(under[1] as string);
-		} catch {
-			return notFound();
-		}
-		return app(root, request, name, under[2]);
+		return route(served, request);
 	};
 	const server = Bun.serve({
 		hostname: LOOPBACK,
@@ -650,19 +656,18 @@ export async function serveHttp(
 			: portHeld(root, holder);
 	const holder = await whoAnswers(root);
 	if (holder) return portTaken(holder);
+	const served = await load(root);
 	let server: ReturnType<typeof startHttpServer>;
 	try {
-		server = startHttpServer(root);
+		server = startHttpServer(served);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
 		// The port was taken since it was asked, or its holder does not speak HTTP.
 		return portTaken((await whoAnswers(root)) ?? 'another program');
 	}
 	writeErr(`Serving your apps at http://${LOOPBACK}:${port}.`);
-	for (const entry of await appEntries(root)) {
-		const local = await localProblem(entry);
-		if (local) writeErr(local);
-	}
+	for (const { entry, problems } of served.listing.problems)
+		writeErr(`${entry}: ${problems.join('; ')}`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);

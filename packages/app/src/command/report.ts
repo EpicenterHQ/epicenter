@@ -16,9 +16,14 @@ import {
 	type NotStarted,
 	Ok,
 } from '../index.ts';
-import type { AppProblems } from './apps.ts';
+
 import { exampleCommand, noSuchAction, usageLine } from './input.ts';
-import type { ActionTool, AppListing, Listing } from './listing.ts';
+import type {
+	ActionTool,
+	AppListing,
+	AppProblems,
+	Listing,
+} from './protocol.ts';
 import { appProblems, fromToolName, toolName, unknownApp } from './protocol.ts';
 import { appPath, type EpicenterRoot } from './root.ts';
 
@@ -152,7 +157,7 @@ export function appReport(
 				`    ${JSON.stringify(each.fields)}`,
 			]),
 			...app.actions.flatMap((tool) => [
-				`  ${usageLine(app.name, fromToolName(tool.name).key, tool.inputSchema)}`,
+				`  ${usageLine(app.name, fromToolName(tool.name).action, tool.inputSchema)}`,
 				`    ${tool.description}${readOnly(tool)}${notOffered(tool)}`,
 			]),
 			'',
@@ -196,7 +201,7 @@ export function missingAction(
 		message: [
 			`${noSuchAction(name, key)}. Its actions:`,
 			...app.actions.map((tool) =>
-				usageLine(name, fromToolName(tool.name).key, tool.inputSchema),
+				usageLine(name, fromToolName(tool.name).action, tool.inputSchema),
 			),
 		].join('\n'),
 		next: `epicenter ${name}`,
@@ -208,7 +213,7 @@ export function missingAction(
  * what it takes, and its description, then one command to copy.
  */
 export function actionHelp(tool: ActionTool): string {
-	const { app, key } = fromToolName(tool.name);
+	const { app, action: key } = fromToolName(tool.name);
 	const input = tool.inputSchema;
 	const usage = [usageLine(app, key, input), tool.description];
 	const { properties, required } = input;

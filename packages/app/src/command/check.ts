@@ -9,21 +9,11 @@
 
 import { extractErrorMessage } from 'wellcrafted/error';
 import { type CheckedKey, checkData, strayData } from '../data-check.ts';
-import { ActionError, type Answer, Err, Ok } from '../index.ts';
-import {
-	type AppProblems,
-	discoverAll,
-	type LoadedApp,
-	loadApp,
-	localProblem,
-} from './apps.ts';
+import { ActionError, type Answer, isName, Ok } from '../index.ts';
+import { loadApps } from './apps.ts';
+import { type AppProblems, appProblems, unknownApp } from './protocol.ts';
 import { problemLines, withFolders } from './report.ts';
 import type { EpicenterRoot } from './root.ts';
-
-/** Every data key of `loaded`, read from its folder; nothing is written. */
-async function checkApp({ app, realPath }: LoadedApp) {
-	return app.data ? checkData(realPath, app.data) : {};
-}
 
 /** The report as a person reads it: each app, then each data key. */
 function render(
@@ -66,37 +56,26 @@ export async function checkCommand(
 	name: string | undefined,
 	json: boolean,
 ): Promise<Answer> {
-	let loaded: LoadedApp[];
-	const unchecked: AppProblems[] = [];
-	if (name === undefined) {
-		const found = await discoverAll(root);
-		loaded = found.apps;
-		unchecked.push(...found.problems);
-	} else {
-		const { data: one, error } = await loadApp(root, name);
-		if (error) return Err(error);
-		loaded = [one];
-		const local = await localProblem(one);
-		if (local) unchecked.push({ entry: name, problems: [local] });
+	const entries = [...(await loadApps(root)).values()].filter(
+		(entry) => name === undefined || entry.name === name,
+	);
+	if (name !== undefined) {
+		const [one] = entries;
+		if (!one || !isName(name)) return unknownApp(name);
+		if (!one.app) return appProblems(name, one.problems);
 	}
 	const apps: Record<string, Record<string, CheckedKey>> = {};
-	for (const each of loaded) {
-		try {
-			apps[each.name] = await checkApp(each);
-			const stray = await strayData(
-				each.realPath,
-				Object.keys(each.app.data ?? {}),
-			);
-			const listed = unchecked.find(({ entry }) => entry === each.name);
-			if (listed) listed.problems.push(...stray);
-			else if (stray.length)
-				unchecked.push({ entry: each.name, problems: stray });
-		} catch (error) {
-			unchecked.push({
-				entry: each.name,
-				problems: [extractErrorMessage(error)],
-			});
-		}
+	const unchecked: AppProblems[] = [];
+	for (const { name, folder, app, problems } of entries) {
+		const found = [...problems];
+		if (app)
+			try {
+				apps[name] = app.data ? await checkData(folder, app.data) : {};
+				found.push(...(await strayData(folder, Object.keys(app.data ?? {}))));
+			} catch (error) {
+				found.push(extractErrorMessage(error));
+			}
+		if (found.length) unchecked.push({ entry: name, problems: found });
 	}
 	const report = json
 		? { apps, problems: withFolders(root, unchecked) }

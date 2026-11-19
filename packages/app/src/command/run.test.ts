@@ -16,26 +16,22 @@ import { expect, test } from 'bun:test';
 import { createLogger, type Logger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineAction, Err, field, Ok } from '../index.ts';
-import type { LoadedApp } from './apps.ts';
 import { runAction } from './run.ts';
 
 const SECRET = 'diary entry 4417';
 
-// The record names the app, which is all a run reads of it.
-const notes = { name: 'notes' } as LoadedApp;
-
 function run(
-	key: string,
-	run: (input: { text: string }) => unknown,
+	action: string,
+	body: (input: { text: string }) => unknown,
 	log: Logger,
 ) {
-	const action = defineAction({
-		description: key,
+	const defined = defineAction({
+		description: action,
 		input: { text: field.text() },
-		run: run as never,
+		run: body as never,
 	});
 	return runAction(
-		{ app: notes, key, action, input: { text: SECRET } },
+		{ app: 'notes', action, run: defined, input: { text: SECRET } },
 		{ log },
 	);
 }

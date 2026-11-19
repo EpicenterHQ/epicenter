@@ -14,7 +14,6 @@ import {
 	mkdir,
 	readdir,
 	readFile,
-	rename,
 	rm,
 	stat,
 	writeFile,
@@ -452,19 +451,6 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 			body: 'x'.repeat(25 * 1024 * 1024 + 1),
 		});
 		expect(large.status).toBe(413);
-		// A handler that throws answers a plain 500 that names no path: with
-		// apps/ a file, reading it throws ENOTDIR.
-		await rename(f.apps, `${f.apps}.moved`);
-		await writeFile(f.apps, '');
-		try {
-			const threw = await fetch(`${served.base}/actions/`);
-			expect(threw.status).toBe(500);
-			expect(threw.headers.get('x-epicenter')).toBe('1');
-			expect(await threw.text()).toBe('serve could not answer');
-		} finally {
-			await rm(f.apps);
-			await rename(`${f.apps}.moved`, f.apps);
-		}
 	} finally {
 		await served.stop();
 	}

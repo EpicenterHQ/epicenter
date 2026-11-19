@@ -17,7 +17,6 @@ import {
 	field,
 	Ok,
 } from '../index.ts';
-import type { LoadedApp } from './apps.ts';
 import { appListing } from './listing.ts';
 
 test("a reference's schema names its target key in the listing", () => {
@@ -38,13 +37,7 @@ test("a reference's schema names its target key in the listing", () => {
 		data,
 		actions: { shelve },
 	}))({ folder: {} as Folder });
-	const loaded: LoadedApp = {
-		name: 'books',
-		realPath: '/tmp/books',
-		codePath: '/tmp/books/code',
-		app,
-	};
-	const listed = appListing(loaded);
+	const listed = appListing('books', app);
 	const ref = {
 		type: 'string',
 		'x-epicenter-ref': { key: 'shelves' },

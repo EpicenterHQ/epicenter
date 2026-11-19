@@ -5,7 +5,8 @@
  * and the sender each import this; neither imports the other.
  */
 import { join } from 'node:path';
-import { ActionError } from '../index.ts';
+import type { ObjectSchema } from '../field.ts';
+import { type Action, ActionError } from '../index.ts';
 import { type EpicenterRoot, MARKER } from './root.ts';
 
 /**
@@ -70,15 +71,15 @@ export function portHeld(
 }
 
 /**
- * The MCP tool name of the action `key` in `app`: the two names joined by
+ * The MCP tool name of the action `action` in `app`: the two names joined by
  * `_`. Names have no underscores, so `fromToolName` reads it back.
  */
-export const toolName = (app: string, key: string) => `${app}_${key}`;
+export const toolName = (app: string, action: string) => `${app}_${action}`;
 
-/** The app and action key a tool name names; an empty key for no such name. */
+/** The app and action a tool name names; an empty action for no such name. */
 export function fromToolName(name: string) {
-	const [app = '', key = '', ...more] = name.split('_');
-	return { app, key: more.length ? '' : key };
+	const [app = '', action = '', ...more] = name.split('_');
+	return { app, action: more.length ? '' : action };
 }
 
 /** A name that finds no app in the Epicenter: serve's answer, and the command's from the listing. */
@@ -97,3 +98,43 @@ export const appProblems = (name: string, problems: string[]) =>
 		app: name,
 		problems,
 	});
+
+/**
+ * An action as an MCP tool definition: its name, input schema, and the hints
+ * it states. `mcp: false` marks one a listing shows and serve does not offer.
+ */
+export type ActionTool = {
+	name: string;
+	description: string;
+	inputSchema: ObjectSchema;
+	annotations?: Action['annotations'];
+	mcp?: false;
+};
+
+/** An app as the listing carries it: its description, each data key's path and fields as JSON Schema, and its actions as tools. */
+export type AppListing = {
+	name: string;
+	description: string;
+	data?: Record<
+		string,
+		{ path: string; description: string; fields: ObjectSchema }
+	>;
+	actions: ActionTool[];
+};
+
+/** An entry in `apps/` with problems: one that did not load, or a `local/` that could reach Git. */
+export type AppProblems = { entry: string; problems: string[] };
+
+/** A routine as the listing shows it: its schedule, next occurrence, and command to copy into a terminal, or why its file is refused. */
+export type RoutineRow =
+	| { name: string; cron: string; next: string | undefined; command: string }
+	| { name: string; problem: string };
+
+/** Everything serve offers, as `GET /actions/` answers it. */
+export type Listing = {
+	/** The version of `@epicenter/app` serve runs. */
+	version: string;
+	apps: AppListing[];
+	problems: AppProblems[];
+	routines: RoutineRow[];
+};

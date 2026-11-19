@@ -100,6 +100,7 @@ test('W5 a symlinked entry loads an app where it lives, when its code is inside 
 		'code/epicenter.ts': bareApp('outside'),
 	});
 	await symlink(outside, join(f.apps, 'outside'));
+	await f.restartServe();
 	expect(JSON.parse((await f.run('--json')).stdout).data.problems).toEqual([
 		{
 			entry: 'outside',

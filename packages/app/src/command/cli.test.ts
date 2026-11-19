@@ -403,6 +403,7 @@ test('a run uses its own app folder and local files, and a linked app loads from
 		join(f.epicenter, 'shelf'),
 	);
 	await symlink(target, join(f.apps, 'linked'));
+	await f.restartServe();
 	// A link is a folder: the app runs from where it really is.
 	expect((await f.run('linked', '--json')).code).toBe(0);
 });

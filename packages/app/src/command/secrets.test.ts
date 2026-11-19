@@ -77,7 +77,7 @@ test('an app whose local/ has no .gitignore runs, and the listing, check and ser
 	try {
 		for (let tries = 0; !served.stderr().includes(fix) && tries < 50; tries++)
 			await Bun.sleep(20);
-		expect(served.stderr()).toContain(`\n${fix}\n`);
+		expect(served.stderr()).toContain(`\nnotes: ${fix}\n`);
 	} finally {
 		await served.stop();
 	}
