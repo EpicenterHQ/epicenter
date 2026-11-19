@@ -35,6 +35,7 @@ import { realpathSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
+import { trySync } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { Answer } from '../answer.ts';
 import { ActionError } from '../answer.ts';
@@ -99,12 +100,13 @@ function streamCall(
 		start(controller) {
 			const send = (line: object) => {
 				if (!listening) return;
-				let text: string;
-				try {
-					text = JSON.stringify(line);
-				} catch (cause) {
-					// An update that is not JSON is dropped alone; the answer still comes.
-					serveLog.warn(ServeError.DroppedLine({ cause }).error);
+				// An update that is not JSON is dropped alone; the answer still comes.
+				const { data: text, error } = trySync({
+					try: () => JSON.stringify(line),
+					catch: (cause) => ServeError.DroppedLine({ cause }),
+				});
+				if (error !== null) {
+					serveLog.warn(error);
 					return;
 				}
 				try {
