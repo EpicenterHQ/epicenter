@@ -123,15 +123,21 @@ type CallOptions<A> = {
  * answer; what `onUpdate` returns is not awaited, and what it throws is
  * reported to the page and does not end the call. The action runs to its end
  * on serve whether or not the page stays to hear it.
+ *
+ * Each case is a whole function type. A rest of spread conditional tuples
+ * says the same, but `resultMutations` refused a map that held
+ * `app.action('x')` written inline beside any other entry.
  */
-export type ActionCall<A> = (
-	...args: [
-		...(Record<string, never> extends ActionInput<A>
-			? [input?: ActionInput<A>]
-			: [input: ActionInput<A>]),
-		...([ActionUpdate<A>] extends [never] ? [] : [options?: CallOptions<A>]),
-	]
-) => Promise<
+export type ActionCall<A> = [ActionUpdate<A>] extends [never]
+	? Record<string, never> extends ActionInput<A>
+		? (input?: ActionInput<A>) => Answered<A>
+		: (input: ActionInput<A>) => Answered<A>
+	: Record<string, never> extends ActionInput<A>
+		? (input?: ActionInput<A>, options?: CallOptions<A>) => Answered<A>
+		: (input: ActionInput<A>, options?: CallOptions<A>) => Answered<A>;
+
+/** What a call of action `A` resolves to. */
+type Answered<A> = Promise<
 	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
 >;
 
@@ -141,7 +147,7 @@ export type AppClient<A> = {
 	call<K extends keyof A & string>(
 		name: K,
 		...args: Parameters<ActionCall<A[K]>>
-	): ReturnType<ActionCall<A[K]>>;
+	): Answered<A[K]>;
 	/** The action `name` as a function, the same call each time: `app.action('add')`. */
 	action<K extends keyof A & string>(name: K): ActionCall<A[K]>;
 };

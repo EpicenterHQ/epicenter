@@ -3,9 +3,14 @@ import { expect, test } from 'bun:test';
 import { resultMutations } from 'wellcrafted/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
-import { connect } from './client.ts';
+import { type ActionOutput, connect } from './client.ts';
+import { defineData } from './data.ts';
 import { field } from './field.ts';
-import { assertType, type Equal } from './library.test-support.ts';
+import {
+	assertType,
+	type Equal,
+	unusedFolder,
+} from './library.test-support.ts';
 
 const count = defineAction({
 	description: 'Count',
@@ -117,6 +122,21 @@ function clientUsage() {
 		classify: app.action('classify'),
 		'start-day': app.action('start-day'),
 	});
+	// A held action written inline mixes with a plain function in one map.
+	void resultMutations(['types'], {
+		classify: app.action('classify'),
+		retry: (input: { yes?: boolean }) => app.call('classify', input),
+	});
 }
+// A page reads a list row's id from its Misfit as it does from its record.
+const { notes } = defineData(unusedFolder, {
+	notes: { description: 'note', fields: { title: field.text() } },
+});
+type Row = ActionOutput<
+	ReturnType<typeof notes.actions<'list'>>['list']
+>[number];
+assertType<Equal<NonNullable<Row['error']>['id'], string>>();
+assertType<Equal<NonNullable<Row['data']>['id'], string>>();
+
 test('client type assertions compile', () =>
 	expect(clientUsage).toBeFunction());
