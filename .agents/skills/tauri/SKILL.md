@@ -79,7 +79,7 @@ pub enum RecordingError {
 }
 ```
 
-- Never write a TypeScript union or ArkType schema for a generated Rust error. Import the type from `bindings.gen.ts` with `import type`, which does not load the Tauri runtime.
+- Never write a TypeScript union or runtime schema for a generated Rust error. Import the type from `bindings.gen.ts` with `import type`, which does not load the Tauri runtime.
 - Keep the error type non-nullable. Specta's `DataError` mode reads `null` as success and fails binding export on a nullable error. A success value may be nullable.
 - The plugins' Specta builders set `ErrorHandlingMode::DataError`, so a fallible command returns `{ data: T, error: null } | { data: null, error: E }`, which matches Wellcrafted's `Result<T, E>`. Do not reshape it again in the consumer's command wrapper. Infallible commands keep their plain return type.
 - Tauri still rejects the IPC call on a Rust `Err`. The generated helper casts a non-`Error` rejection to `E` and rethrows a JavaScript `Error`, so the types are a compile-time contract, not runtime validation. Do not present an unexpected thrown failure as a known variant.
