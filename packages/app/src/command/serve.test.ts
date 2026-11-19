@@ -62,12 +62,18 @@ async function setup() {
 		input: { name: field.select(['NotStarted', 'Threw', 'Unreachable']) },
 		run: ({ name }) => Err({ name, message: 'not really' }),
 	});
+	const send = defineAction({
+		description: 'Sends as the owner',
+		input: {},
+		mcp: false,
+		run: () => Ok('sent'),
+	});
 	const program: Program = {
 		apps: defineEpicenter({
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, odd, bare },
+					actions: { add, fail, fake, tag, odd, bare, send },
 				},
 			},
 		}).apps,
@@ -233,6 +239,24 @@ test('MCP offers one tool per action and runs it', async () => {
 	});
 	expect(refused.result.isError).toBe(true);
 	expect(refused.result.content[0].text).toContain('body is needed');
+	const hidden = await rpc('tools/call', {
+		name: 'writing_send',
+		arguments: {},
+	});
+	expect(hidden.error.message).toContain('There is no tool "writing_send"');
+});
+
+test('an action marked mcp: false is listed and called outside MCP', async () => {
+	const { request } = await setup();
+	const listing: Json = await (await request('/actions/')).json();
+	expect(listing.apps[0].actions.at(-1)).toMatchObject({
+		name: 'send',
+		mcp: false,
+	});
+	const [answer] = await lines(
+		await request('/actions/writing/send', post({})),
+	);
+	expect(answer).toEqual({ answer: { data: 'sent', error: null } });
 });
 
 test('the guards refuse tunnels, foreign hosts and origins, and another home', async () => {

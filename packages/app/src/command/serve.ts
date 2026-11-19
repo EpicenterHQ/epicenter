@@ -145,6 +145,7 @@ function listingOf({ apps, problem }: Program): Listing {
 				name: action,
 				description: run.description,
 				input: run.input,
+				...(run.mcp === false ? { mcp: false as const } : {}),
 			})),
 		})),
 	};
