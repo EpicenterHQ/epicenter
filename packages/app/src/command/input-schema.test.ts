@@ -23,47 +23,33 @@ import { connectMcp, fixture } from './runner.test-support.ts';
 // The public-surface test runs the real serve and command.
 setDefaultTimeout(30_000);
 
-/** Hand-written actions beside generated ones: a pattern, a select, optional and all-optional inputs. */
-const written = `export default defineApp(({ folder }) => {
-const data = defineData(folder, {
-	notes: {
-		description: 'writing note',
-		fields: {
-			kind: field.select(['thought', 'quote', 'link']),
-			source: field.text({ optional: true }),
-		},
-	},
-});
+/** Hand-written actions: a required text with a pattern, an optional select, and an all-optional input. */
+const written = `export default defineApp(() => {
 const add = defineAction({
 	description: 'Save a note',
 	input: {
 		body: field.text({ pattern: '\\\\S' }),
-		kind: field.select(['thought', 'quote', 'link'], { optional: true }),
-		source: field.text({ optional: true }),
+		kind: field.select(['thought', 'quote'], { optional: true }),
 	},
 	run: () => Ok(undefined),
 });
 const search = defineAction({
 	description: 'Find notes',
-	input: { query: field.text({ optional: true }), source: field.text({ optional: true }) },
+	input: { query: field.text({ optional: true }) },
 	run: () => Ok([]),
 });
-return { description: 'Hand-written actions', data, actions: {
-	...data.notes.actions('list', 'get'),
-	add,
-	search,
-} };
+return { description: 'Hand-written actions', actions: { add, search } };
 });
 `;
 
-/** Generated data actions for a key and a fixed-id settings key, with a field of each kind. */
+/** Generated data actions for a key and a fixed-id settings key, with a field of each kind; `title`'s pattern reaches create and patch. */
 const generated = `export default defineApp(({ folder }) => {
 const data = defineData(folder, {
 	shelves: { description: 'shelf', fields: {} },
 	notes: {
 		description: 'note',
 		fields: {
-			title: field.text(),
+			title: field.text({ pattern: '\\\\S' }),
 			subtitle: field.text({ optional: true }),
 			pinned: field.boolean({ optional: true }),
 			tags: field.list(field.text(), { optional: true }),
@@ -92,8 +78,6 @@ return { description: 'Generated data actions', data, actions: {
 /** The keys each action requires, written out so a lost `required` cannot agree with itself. */
 const REQUIRED: Record<string, Record<string, string[]>> = {
 	written: {
-		list: [],
-		get: ['id'],
 		add: ['body'],
 		search: [],
 	},
@@ -138,6 +122,11 @@ function exampleOf(name: string, key: string, action: Action) {
 test('every action input survives JSON whole, names its required keys, and validates alike', async () => {
 	const { f, apps } = await epicenterOfApps();
 	try {
+		// A data field's pattern reaches the generated inputs that take it.
+		for (const verb of ['create', 'patch'])
+			expect(
+				apps.data?.find(([key]) => key === verb)?.[1].input.properties.title,
+			).toMatchObject({ pattern: '\\S' });
 		for (const [name, actions] of Object.entries(apps)) {
 			expect(actions.map(([key]) => key)).toEqual(
 				Object.keys(REQUIRED[name] ?? {}),

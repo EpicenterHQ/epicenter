@@ -59,15 +59,7 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {
 const trackedPaths = new Set(tracked);
 
 const EXCLUDED_DOC_DIRS = ['specs', 'docs/articles', '.agents', '.claude'];
-const REPO_ROOT_DIRS = [
-	'apps',
-	'packages',
-	'docs',
-	'specs',
-	'scripts',
-	'examples',
-	'playground',
-];
+const REPO_ROOT_DIRS = ['apps', 'packages', 'docs', 'specs', 'scripts'];
 
 const isExcludedDoc = (file: string) =>
 	EXCLUDED_DOC_DIRS.some(
