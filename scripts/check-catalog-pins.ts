@@ -19,7 +19,7 @@
  * non-frozen install and commits the result.
  *
  * Covers both the default `catalog` and any named `catalogs` (bun supports
- * both). See .github/workflows/ci.format.yml for the CI step that runs this.
+ * both). `bun run check` runs it, locally and in CI.
  */
 
 import { execFileSync } from 'node:child_process';
