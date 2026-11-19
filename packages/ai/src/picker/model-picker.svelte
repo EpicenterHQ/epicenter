@@ -27,13 +27,12 @@
 	import { unwrap } from 'wellcrafted/result';
 	import { type AiError, createClient } from '../client.js';
 	import { custom } from '../custom.js';
-	import type { Capability, Endpoint } from '../endpoint.js';
+	import type { Endpoint } from '../endpoint.js';
 	import type { Ai, ModelChoice } from '../open-ai.js';
 	import { CONNECTION_PRESETS, type PresetId } from './presets.js';
 
 	let {
 		ai,
-		can = 'chat',
 		value,
 		onSelect,
 		disabled = false,
@@ -41,11 +40,9 @@
 	}: {
 		/** The app's `openAi`, as `reactive` adapts it. */
 		ai: Ai;
-		/** What a listed model must be able to do. */
-		can?: Capability;
 		value: ModelChoice | null;
 		onSelect: (choice: ModelChoice) => void;
-		/** Disable while a turn generates, so a transcript never spans backends. */
+		/** Disable choosing, such as while the app cannot take a new choice. */
 		disabled?: boolean;
 		placeholder?: string;
 	} = $props();
@@ -69,7 +66,7 @@
 			endpoint,
 			record: records.find((record) => record.id === endpoint.id),
 			models: ai.models().filter(
-				(model) => model.endpoint === endpoint.id && model.can.includes(can),
+				(model) => model.endpoint === endpoint.id && model.can.includes('transcribe'),
 			),
 		})),
 	);

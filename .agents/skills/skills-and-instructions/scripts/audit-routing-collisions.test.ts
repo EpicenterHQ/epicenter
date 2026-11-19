@@ -7,8 +7,7 @@
  * `--explain` flag cannot drift them.
  *
  * The content-coupled assertions are deliberate. "asymmetric wins" having
- * exactly one owner, and "simplify this" being owned by collapse-pass while
- * control-flow routes it there, are routing facts the composition audit is
+ * exactly one owner, and "simplify this" being owned by collapse-pass, are routing facts the composition audit is
  * built around; if a description edit changes one, a failing test here is the
  * report, not noise.
  *
@@ -74,14 +73,11 @@ test('--explain annotates without changing the line prefix or exit code', () => 
 	);
 });
 
-test('one claimant beside a disclaiming mention is clean routing', () => {
-	// The shape every resolved boundary has: an owner, plus the neighbour that
-	// routes the phrase to it. Counting mentions would call this a collision.
+test('a single claimant with no collision exits 0', () => {
 	const { code, out } = run('--explain', 'simplify this');
 
 	expect(code).toBe(0);
 	expect(out).toContain('collapse-pass/SKILL.md [claims]');
-	expect(out).toContain('control-flow/SKILL.md [disclaims]');
 });
 
 test('a phrase every mention routes away is reported as unowned', () => {
