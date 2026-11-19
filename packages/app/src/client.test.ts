@@ -6,6 +6,7 @@ import { Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
 import { ActionError } from './answer.ts';
 import { connect } from './client.ts';
+import { programOf } from './command/program.ts';
 import { createHandler } from './command/serve.ts';
 import { defineData } from './data.ts';
 import { defineEpicenter } from './epicenter.ts';
@@ -51,7 +52,7 @@ const home = defineEpicenter({ apps: { flights: flights(data) } });
 const server = Bun.serve({
 	hostname: '127.0.0.1',
 	port: 0,
-	fetch: createHandler({ folder, port: 0 }, { apps: home.apps }),
+	fetch: createHandler({ folder, port: 0 }, programOf(home)),
 });
 afterAll(async () => {
 	await server.stop(true);
@@ -80,6 +81,12 @@ test('serve refusing the input reaches the page as NotStarted', async () => {
 	// @ts-expect-error: idea needs an id.
 	const refused = await epicenter.flights.idea({});
 	expect(refused.error?.name).toBe('NotStarted');
+});
+
+test('an input JSON cannot carry is NotStarted, and the call does not throw', async () => {
+	const answer = await epicenter.flights.idea({ id: 1n } as never);
+	expect(answer.error?.name).toBe('NotStarted');
+	expect(answer.error?.message).toStartWith('The input is not JSON');
 });
 
 test('the client and its apps are never thenable, so awaiting them is safe', async () => {

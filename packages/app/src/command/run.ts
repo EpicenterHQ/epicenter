@@ -14,10 +14,11 @@
  * hold personal data.
  */
 
+import type { Validator } from 'typebox/compile';
 import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, trySync } from 'wellcrafted/result';
+import { Err, tryAsync, trySync } from 'wellcrafted/result';
 import {
 	ActionError,
 	type Answer,
@@ -54,52 +55,30 @@ export async function answerCall(
 	const run = Object.hasOwn(found.actions, action)
 		? found.actions[action]
 		: undefined;
-	if (!run) {
+	// A program from programOf has a compiled check for every action.
+	const check = run && program.inputChecks.get(run);
+	if (!run || !check) {
 		const names = Object.keys(found.actions);
 		return ActionError.NotStarted({
 			message: `${app} has no action ${JSON.stringify(action)}; ${names.length ? `its actions: ${names.join(', ')}` : 'it has none'}`,
 			next: `epicenter ${app}`,
 		});
 	}
-	const { data: problem, error: unchecked } = trySync({
-		try: () => inputProblem(run.input, input),
-		catch: (cause) =>
-			Err(`The input could not be checked: ${extractErrorMessage(cause)}`),
-	});
-	const refusal = unchecked ?? problem;
-	if (refusal !== undefined)
+	const problem = inputProblem(check, run.input, input);
+	if (problem !== undefined)
 		return ActionError.NotStarted({
-			message: refusal,
+			message: problem,
 			next: `epicenter ${app}`,
 		});
 	const started = performance.now();
-	const answer: Answer = await Promise.resolve()
-		.then(() => run(input, { onUpdate }))
-		.then((result) => {
-			if (!isResult(result))
-				return ActionError.Threw({
-					message: `The action "${action}" must return Ok(data) or Err(error)`,
-				});
-			const { data, error } = result;
-			if (error && PLATFORM_NAMES.includes(error.name))
-				return ActionError.Threw({
-					message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
-				});
-			// JSON's own copy, so every surface sends the same answer: undefined
-			// is null, and a cycle or a BigInt is Threw.
-			const { data: copy, error: notJson } = trySync({
-				try: () =>
-					JSON.parse(JSON.stringify({ data: data ?? null, error })) as Answer,
-				catch: (cause) =>
-					Err(
-						`The action "${action}" returned what JSON cannot carry: ${extractErrorMessage(cause)}`,
-					),
-			});
-			return notJson === null ? copy : ActionError.Threw({ message: notJson });
-		})
-		.catch((cause) =>
+	// A throw while running or while reading what the run returned, such as a
+	// getter on its error, means it ran and broke.
+	const ran = await tryAsync({
+		try: async () => answerOf(action, await run(input, { onUpdate })),
+		catch: (cause) =>
 			ActionError.Threw({ message: extractErrorMessage(cause) }),
-		);
+	});
+	const answer = ran.error === null ? ran.data : ran;
 	// The logger catches a sink that throws, so the record cannot change the answer.
 	runLog.info('action run ended', {
 		app,
@@ -113,12 +92,40 @@ export async function answerCall(
 }
 
 /**
- * Why `value` is not an input `schema` takes, in words a caller reads, or
- * undefined when it is one. A key the action does not take is refused,
- * naming the keys it does.
+ * What `run` returned, as the answer every surface sends: JSON's own copy,
+ * so undefined is null. A value that is not a Result, a name only Epicenter
+ * answers, or data JSON cannot carry, such as a cycle or a BigInt, is Threw.
  */
-function inputProblem(schema: ObjectSchema, value: unknown) {
-	if (Value.Check(schema, value)) return undefined;
+function answerOf(action: string, returned: unknown): Answer {
+	if (!isResult(returned))
+		return ActionError.Threw({
+			message: `The action "${action}" must return Ok(data) or Err(error)`,
+		});
+	const { data, error } = returned;
+	if (error && PLATFORM_NAMES.includes(error.name))
+		return ActionError.Threw({
+			message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
+		});
+	const { data: copy, error: notJson } = trySync({
+		try: () =>
+			JSON.parse(JSON.stringify({ data: data ?? null, error })) as Answer,
+		catch: (cause) =>
+			ActionError.Threw({
+				message: `The action "${action}" returned what JSON cannot carry: ${extractErrorMessage(cause)}`,
+			}),
+	});
+	return notJson === null ? copy : Err(notJson);
+}
+
+/**
+ * Why `value` is not an input `schema` takes, in words a caller reads, or
+ * undefined when it is one. `check` is `schema` as serve compiled it at
+ * load, so no check here can throw: each field's own check, run only to
+ * name the one at fault, is part of a schema that compiled. A key the
+ * action does not take is refused, naming the keys it does.
+ */
+function inputProblem(check: Validator, schema: ObjectSchema, value: unknown) {
+	if (check.Check(value)) return undefined;
 	if (!isPlainObject(value)) return 'The input is not one JSON object';
 	const keys = Object.keys(schema.properties);
 	const unknown = Object.keys(value).find((key) => !keys.includes(key));

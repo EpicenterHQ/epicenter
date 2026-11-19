@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { realpathSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,8 +9,8 @@ import { defineAction, type Update } from '../action.ts';
 import { defineData } from '../data.ts';
 import { defineEpicenter } from '../epicenter.ts';
 import { field } from '../field.ts';
-import type { Program } from './program.ts';
-import { createHandler } from './serve.ts';
+import { programOf } from './program.ts';
+import { createHandler, serveHome } from './serve.ts';
 
 const homes: string[] = [];
 afterEach(async () => {
@@ -47,10 +48,16 @@ async function setup() {
 		},
 		run: () => Ok(null),
 	});
-	const odd = defineAction({
-		description: 'Has a raw pattern that is not a regular expression',
-		input: { code: Type.String({ pattern: '[' }) },
-		run: () => Ok(null),
+	const sly = defineAction({
+		description: 'Returns an error whose name throws when read',
+		input: {},
+		run: () =>
+			Err({
+				get name(): string {
+					throw new Error('no name');
+				},
+				message: 'sly',
+			}) as never,
 	});
 	const hostile = defineAction({
 		description: 'Throws a value nothing can describe',
@@ -81,16 +88,16 @@ async function setup() {
 		mcp: false,
 		run: () => Ok('sent'),
 	});
-	const program: Program = {
-		apps: defineEpicenter({
+	const program = programOf(
+		defineEpicenter({
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, odd, big, hostile, bare, send },
+					actions: { add, fail, fake, tag, big, sly, hostile, bare, send },
 				},
 			},
-		}).apps,
-	};
+		}),
+	);
 	const answer = createHandler({ folder, port: 4747 }, program);
 	const request = (path: string, init: RequestInit = {}) =>
 		answer(
@@ -163,20 +170,14 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 		expect(line.answer.error.message).toContain(message);
 	}
 	expect(await readdir(folder)).toEqual([]);
-	// A check that throws is NotStarted too: nothing ran.
-	const [odd] = await lines(
-		await request('/actions/writing/odd', post('{"code":"x"}')),
-	);
-	expect(odd.answer.error.name).toBe('NotStarted');
-	expect(odd.answer.error.message).toContain(
-		'The input could not be checked: Invalid regular expression',
-	);
 });
 
 test('a throw is Threw, and so is a value that is not a Result or a reserved name', async () => {
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
 	expect(threw.answer.error).toEqual({ name: 'Threw', message: 'broke' });
+	const [sly] = await lines(await request('/actions/writing/sly', post({})));
+	expect(sly.answer.error).toEqual({ name: 'Threw', message: 'no name' });
 	const [big] = await lines(await request('/actions/writing/big', post({})));
 	expect(big.answer.error.name).toBe('Threw');
 	expect(big.answer.error.message).toContain(
@@ -245,8 +246,8 @@ test('MCP offers one tool per action and runs it', async () => {
 		'writing_fail',
 		'writing_fake',
 		'writing_tag',
-		'writing_odd',
 		'writing_big',
+		'writing_sly',
 		'writing_hostile',
 		'writing_bare',
 	]);
@@ -267,12 +268,6 @@ test('MCP offers one tool per action and runs it', async () => {
 	});
 	expect(hidden.result.isError).toBe(true);
 	expect(hidden.result.content[0].text).toContain('has no action "send"');
-	// A check that throws is an answer over MCP as over the route.
-	const odd = await rpc('tools/call', {
-		name: 'writing_odd',
-		arguments: { code: 'x' },
-	});
-	expect(odd.result.structuredContent.error.name).toBe('NotStarted');
 	// A throw nothing can describe is Threw on both, never a protocol error.
 	const hostile = await rpc('tools/call', {
 		name: 'writing_hostile',
@@ -313,7 +308,11 @@ test('the guards refuse tunnels, foreign hosts and origins, and another home', a
 test('a home whose program did not load answers that one problem', async () => {
 	const answer = createHandler(
 		{ folder: '/home', port: 4747 },
-		{ apps: {}, problem: 'epicenter.ts did not load: boom' },
+		{
+			apps: {},
+			inputChecks: new Map(),
+			problem: 'epicenter.ts did not load: boom',
+		},
 	);
 	const request = (path: string, init?: RequestInit) =>
 		answer(
@@ -340,4 +339,26 @@ test('a home whose program did not load answers that one problem', async () => {
 		})
 	).json()) as { error: { message: string } };
 	expect(listed.error.message).toContain('boom');
+});
+
+test('serve that cannot listen answers NotStarted, never a throw', async () => {
+	const folder = realpathSync(process.cwd());
+	// A port this test holds, so serve finds it taken.
+	const holder = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		fetch: () => new Response(),
+	});
+	const port = holder.port as number;
+	try {
+		const taken = await serveHome({ folder, port });
+		expect(taken.error?.name).toBe('NotStarted');
+		expect(taken.error?.message).toContain(`Port ${port} is in use`);
+	} finally {
+		await holder.stop(true);
+	}
+	// A port no socket can have fails another way, and is NotStarted too.
+	const refused = await serveHome({ folder, port: 70000 });
+	expect(refused.error?.name).toBe('NotStarted');
+	expect(refused.error?.message).toContain('serve could not listen');
 });

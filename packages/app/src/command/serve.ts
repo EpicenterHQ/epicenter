@@ -35,6 +35,7 @@ import { realpathSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
+import { Err, trySync } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { Answer } from '../answer.ts';
 import { ActionError } from '../answer.ts';
@@ -99,12 +100,13 @@ function streamCall(
 		start(controller) {
 			const send = (line: object) => {
 				if (!listening) return;
-				let text: string;
-				try {
-					text = JSON.stringify(line);
-				} catch (cause) {
-					// An update that is not JSON is dropped alone; the answer still comes.
-					serveLog.warn(ServeError.DroppedLine({ cause }).error);
+				// An update that is not JSON is dropped alone; the answer still comes.
+				const { data: text, error } = trySync({
+					try: () => JSON.stringify(line),
+					catch: (cause) => ServeError.DroppedLine({ cause }),
+				});
+				if (error !== null) {
+					serveLog.warn(error);
 					return;
 				}
 				try {
@@ -263,41 +265,53 @@ export function createHandler(home: Home, program: Promise<Program> | Program) {
 
 /**
  * Serve the home until the process receives SIGINT or SIGTERM, then exit
- * with 0; the answer is only ever why serve did not start.
+ * with 0; the answer is only ever why serve did not start, a `NotStarted`.
  * It refuses to start outside the home's folder, since Bun reads `.env` from
- * the folder a process starts in, and when the port is taken.
+ * the folder a process starts in, and when it cannot listen, such as when
+ * the port is taken.
  */
 export async function serveHome(home: Home): Promise<Answer> {
-	if (realpathSync(process.cwd()) !== home.folder)
+	const { data: folder, error: unread } = trySync({
+		try: () => realpathSync(process.cwd()),
+		catch: (cause) =>
+			ActionError.NotStarted({
+				message: `serve cannot read the folder it started in: ${extractErrorMessage(cause)}`,
+			}),
+	});
+	if (unread !== null) return Err(unread);
+	if (folder !== home.folder)
 		return ActionError.NotStarted({
 			message: `serve starts in your home's folder, ${home.folder}, so Bun reads its .env`,
 			next: `cd ${home.folder} && epicenter serve`,
 		});
 	const loading = Promise.withResolvers<Program>();
-	let server: ReturnType<typeof Bun.serve>;
-	try {
-		// Listen before loading, so a second serve fails here and runs no app code.
-		server = Bun.serve({
-			hostname: LOOPBACK,
-			port: home.port,
-			idleTimeout: 0,
-			maxRequestBodySize: MAX_BODY_BYTES,
-			// Bun's development mode answers a throw with its stack.
-			development: false,
-			// The port is serve's lock, so a second serve must not share it.
-			reusePort: false,
-			fetch: createHandler(home, loading.promise),
-			error: (error) => {
-				serveLog.error(ServeError.Unanswered({ cause: error }).error);
-				return new Response('serve could not answer', { status: 500 });
-			},
-		});
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
-		return ActionError.NotStarted({
-			message: `Port ${home.port} is in use. If that is not this home's serve, set another port in ${home.folder}/package.json.`,
-		});
-	}
+	// Listen before loading, so a second serve fails here and runs no app code.
+	const { data: server, error: unheard } = trySync({
+		try: () =>
+			Bun.serve({
+				hostname: LOOPBACK,
+				port: home.port,
+				idleTimeout: 0,
+				maxRequestBodySize: MAX_BODY_BYTES,
+				// Bun's development mode answers a throw with its stack.
+				development: false,
+				// The port is serve's lock, so a second serve must not share it.
+				reusePort: false,
+				fetch: createHandler(home, loading.promise),
+				error: (error) => {
+					serveLog.error(ServeError.Unanswered({ cause: error }).error);
+					return new Response('serve could not answer', { status: 500 });
+				},
+			}),
+		catch: (cause) =>
+			ActionError.NotStarted({
+				message:
+					(cause as NodeJS.ErrnoException | undefined)?.code === 'EADDRINUSE'
+						? `Port ${home.port} is in use. If that is not this home's serve, set another port in ${home.folder}/package.json.`
+						: `serve could not listen on ${LOOPBACK}:${home.port}: ${extractErrorMessage(cause)}`,
+			}),
+	});
+	if (unheard !== null) return Err(unheard);
 	// One app's stray timer or late rejection must not stop every app.
 	process.on('unhandledRejection', (cause) =>
 		serveLog.error(ServeError.Unhandled({ cause }).error),

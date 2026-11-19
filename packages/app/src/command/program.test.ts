@@ -4,7 +4,11 @@ import { Ok } from 'wellcrafted/result';
 import { defineAction } from '../action.ts';
 import { defineEpicenter } from '../epicenter.ts';
 import { field } from '../field.ts';
-import { programProblems } from './program.ts';
+import { programOf } from './program.ts';
+
+/** What serve refuses in `exported`, one sentence each. */
+const problemsOf = (exported: unknown) =>
+	programOf(exported).problem?.split('\n') ?? [];
 
 const count = defineAction({
 	description: 'Count to a number',
@@ -14,14 +18,12 @@ const count = defineAction({
 
 test('serve refuses an apps object missing, and names that are not names', () => {
 	const app = { description: 'Counts', actions: { count } };
-	expect(programProblems(defineEpicenter({ apps: { counter: app } }))).toEqual(
-		[],
-	);
-	expect(programProblems({ counter: app })).toEqual([
+	expect(problemsOf(defineEpicenter({ apps: { counter: app } }))).toEqual([]);
+	expect(problemsOf({ counter: app })).toEqual([
 		'epicenter.ts must default-export defineEpicenter({ apps })',
 	]);
 	expect(
-		programProblems({
+		problemsOf({
 			apps: {
 				Counter: app,
 				counter: { description: 'Counts', actions: { do_it: count } },
@@ -39,7 +41,7 @@ test('serve refuses an app that is not one, an action not made by defineAction, 
 		input: { code: Type.String({ pattern: '[' }) },
 		run: () => Ok(null),
 	});
-	const problems = programProblems({
+	const problems = problemsOf({
 		apps: {
 			// The app function, not what it returns: a common slip.
 			flights: () => ({ description: 'Flights', actions: {} }),
