@@ -472,7 +472,7 @@ test("D8 an app of one data key's verbs creates, reads, changes, and deletes its
 		[
 			['patch', { id: 'a\\b', kind: 'link' }],
 			1,
-			'is a file name the folder will not write',
+			'is not a relative path',
 		],
 		[['patch', { id: 'dune', kind: null }], 2, 'kind'],
 		[['patch', { id: 'dune', added: null }], 2, 'added'],

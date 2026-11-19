@@ -317,72 +317,18 @@ test.each([
 );
 
 test.each([
-	['too long', 'x'.repeat(300), 'ENAMETOOLONG'],
-	['with a NUL byte', 'a\u0000b', 'ERR_INVALID_ARG_VALUE'],
-])(
-	'an id %s is a name the system refuses: every write answers Misfit and writes nothing',
-	async (_, id, code) => {
-		const { files, data } = await setup();
-		for (const result of [
-			await data.notes.create(id, { title: 'x' }),
-			await data.notes.patch(id, { title: 'x' }),
-			await data.notes.edit(id, () => Ok({ title: 'x' })),
-		])
-			expect(expectErr(result)).toMatchObject({
-				name: 'Misfit',
-				path: 'data/notes',
-				problems: [
-					{
-						line: `${JSON.stringify(id)} is a file name the system refuses (${code})`,
-						kind: `the id is a file name the system refuses (${code})`,
-					},
-				],
-			});
-		// A read never throws for the name. A too-long one reads as no file when
-		// the key's folder is missing, and as the Misfit once the folder exists.
-		for (const read of [await data.notes.get(id), await data.notes.delete(id)])
-			expect([undefined, false, 'Misfit']).toContain(
-				(read.error === null ? read.data : read.error.name) as string,
-			);
-		expect(await files('data')).toEqual([]);
-	},
-);
-
-test('an id with a backslash is a Misfit for every write: the folder will not write it', async () => {
-	// Windows reads `\` as a separator, so the folder refuses any path with one.
-	const id = 'a\\b';
+	['with a backslash', 'a\\b'],
+	['with a NUL byte', 'a\u0000b'],
+	['longer than the system allows', 'x'.repeat(300)],
+])('an id %s makes every write throw and writes no file', async (_, id) => {
 	const { files, data } = await setup();
-	const line = `"a\\\\b" is a file name the folder will not write: "data/notes/a\\\\b.md" is not a relative path`;
-	for (const result of [
-		await data.notes.create(id, { title: 'x' }),
-		await data.notes.patch(id, { title: 'x' }),
-		await data.notes.edit(id, () => Ok({ title: 'x' })),
+	for (const write of [
+		() => data.notes.create(id, { title: 'x' }),
+		() => data.notes.patch(id, { title: 'x' }),
+		() => data.notes.edit(id, () => Ok({ title: 'x' })),
 	])
-		expect(expectErr(result)).toMatchObject({
-			name: 'Misfit',
-			path: 'data/notes',
-			problems: [{ line }],
-		});
+		await expect(write()).rejects.toThrow();
 	expect(await files('data')).toEqual([]);
-	// There is no file, so delete answers so before it asks the folder.
-	expect(expectOk(await data.notes.delete(id))).toBe(false);
-});
-
-test('a hand-made file with a backslash is listed and read, and the folder refuses to change it', async () => {
-	const id = 'a\\b';
-	const { read, data } = await setup({
-		[`data/notes/${id}.md`]: '---\ntitle: "x"\n---\n',
-	});
-	expect((await data.notes.list()).map((row) => expectOk(row).id)).toEqual([
-		id,
-	]);
-	expect(expectOk(await data.notes.get(id))?.title).toBe('x');
-	for (const result of [
-		await data.notes.patch(id, { title: 'y' }),
-		await data.notes.delete(id),
-	])
-		expect(expectErr(result).name).toBe('Misfit');
-	expect(await read(`data/notes/${id}.md`)).toBe('---\ntitle: "x"\n---\n');
 });
 
 test('an id with a newline is one file name, and its Misfit message spans lines', async () => {

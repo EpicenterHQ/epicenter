@@ -8,7 +8,7 @@ import { isName } from './app.ts';
 import { type DataActions, dataActions, type Verb } from './data-actions.ts';
 import { ActionError } from './errors.ts';
 import { defaultIn, type OptionalKeys, refKeyOf } from './field.ts';
-import { type Folder, filesIn, PATH_REFUSED } from './folder.ts';
+import { type Folder, filesIn } from './folder.ts';
 import { isFieldKey, type JsonValue } from './front-matter.ts';
 import {
 	createMarkdownRecords,
@@ -160,12 +160,6 @@ export function defineData<const TSpec extends Spec>(
 	) as unknown as Data<TSpec>;
 }
 
-/**
- * What the system answers for a name it refuses: one too long, or one with
- * a NUL byte, which `node:fs` throws for before it reaches the disk.
- */
-const REFUSED_NAMES = new Set(['ENAMETOOLONG', 'ERR_INVALID_ARG_VALUE']);
-
 /** The handle for one data key: its verbs, its definition, and its actions. */
 function createHandle(folder: Folder, key: string, def: DataDef) {
 	const base = `data/${key}`;
@@ -179,32 +173,20 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		},
 	});
 	/**
-	 * `run`'s answer, or a Misfit at the key's folder when `id` cannot name
-	 * one of its files: Node gives the file another name, or the folder or
-	 * the system refuses the name. Any other throw is not about the id and
-	 * escapes.
+	 * `run`'s answer, or a Misfit at the key's folder when Node would give the
+	 * file for `id` another name. A name the folder or the system refuses
+	 * throws from `run`.
 	 */
 	async function named<T>(id: string, run: () => Promise<T>) {
+		if (recordPath(base, id) !== undefined) return run();
+		const why = 'is not a file name: the id is the file name without .md';
 		// The id names no file, so the problem sits at the key's folder.
-		const unfit = (why: string) =>
-			ActionError.Misfit({
-				path: base,
-				problems: [
-					{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
-				],
-			});
-		if (recordPath(base, id) === undefined)
-			return unfit('is not a file name: the id is the file name without .md');
-		try {
-			return await run();
-		} catch (error) {
-			const { code, message } = error as NodeJS.ErrnoException;
-			if (code === PATH_REFUSED)
-				return unfit(`is a file name the folder will not write: ${message}`);
-			if (code !== undefined && REFUSED_NAMES.has(code))
-				return unfit(`is a file name the system refuses (${code})`);
-			throw error;
-		}
+		return ActionError.Misfit({
+			path: base,
+			problems: [
+				{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
+			],
+		});
 	}
 	const handle = {
 		path: records.path,
