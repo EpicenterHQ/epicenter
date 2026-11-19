@@ -6,11 +6,8 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 
 | Prefix | Purpose | Scope |
 |---|---|---|
-| `release.{app}` | Tag-triggered builds + GitHub Release draft | Desktop apps, each with its own tag prefix |
-| `pr-preview.{app}` | PR preview desktop builds | Per Tauri app (expensive 3-platform matrix) |
 | `deploy.{target}` | Web app deployment | Deployed web targets |
 | `ci.{name}` | Code quality checks | Whole repo |
-| `meta.{name}` | Repo housekeeping | Whole repo |
 
 Web apps (Cloudflare Workers) deploy **together in one workflow** because deploys are fast (~2 min on a single runner) and share the same runtime setup. Each worker's build lives in its own `wrangler.jsonc` `build.command`, which Wrangler runs for both `deploy` and `versions upload`, so production, previews, and local `wrangler deploy` build through one definition. Repo-wide lint, typecheck, and unrelated package builds belong to CI.
 
@@ -54,12 +51,6 @@ command, not a merge blocker. Anything needing a secret or a network endpoint
 other than GitHub's own API gets its own workflow on its own trigger, as the two
 below do.
 
-### Meta
-
-| File | Trigger | What it does |
-|---|---|---|
-| `meta.sponsors-readme.yml` | Daily schedule, manual | Updates README sponsors section. |
-
 ## Secrets Reference
 
 | Secret | Used by | Description |
@@ -68,7 +59,6 @@ below do.
 | `CLOUDFLARE_PREVIEW_API_TOKEN` | `deploy.cloudflare-preview` | Least-privilege Cloudflare API token for PR previews. Custom token, **Account › Workers Scripts › Edit** only (covers Static Assets; no zone/routes/KV/R2/D1), scoped to the one account. Separate from the prod token so a leak from the PR-triggered preview path cannot reach production. |
 | `CLOUDFLARE_ACCOUNT_ID` | `deploy.cloudflare`, `deploy.cloudflare-preview` | Cloudflare account ID |
 | `DISCORD_WEBHOOK_URL` | `deploy.cloudflare` | Discord webhook for deployment notifications (optional) |
-| `GH_ACTIONS_PAT` | `meta.sponsors-readme` | PAT with repo + read:org scope for pushing commits |
 
 ## Rollback
 

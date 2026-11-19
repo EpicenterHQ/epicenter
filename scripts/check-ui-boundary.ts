@@ -14,11 +14,10 @@ const boundaryConfigFilePatterns = [
 	/^package\.json$/,
 	/^svelte\.config\.[cm]?[jt]s$/,
 	/^vite\.config\.[cm]?[jt]s$/,
-	/^wxt\.config\.[cm]?[jt]s$/,
 	/^tsconfig(?:\.[\w-]+)?\.json$/,
 ];
 const sourceExtensions = ['.ts', '.js', '.svelte'];
-const ignoredDirectories = new Set(['node_modules', '.svelte-kit', '.wxt']);
+const ignoredDirectories = new Set(['node_modules', '.svelte-kit']);
 const uiPrivateImportPattern =
 	/^\s*import(?:\s+type)?(?:\s+[^'"]*\s+from)?\s+['"]#(?:['"]|\/|ui|utils|hooks|lib)|\bimport\s*\(\s*['"]#(?:['"]|\/|ui|utils|hooks|lib)/;
 const uiSelfPackageImportPattern =

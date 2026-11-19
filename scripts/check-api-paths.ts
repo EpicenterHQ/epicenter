@@ -11,8 +11,7 @@
  *   - *.test.ts / *.test.tsx (mock URL matchers may reference paths verbatim).
  *   - JSDoc/comment lines (descriptive prose, not constructions).
  *
- * A straight port of the grep pipeline that used to live inline in
- * .github/workflows/ci.format.yml, so the rule is locally runnable:
+ * `bun run check` runs it, locally and in CI; run it alone with
  * bun run check:api-paths
  */
 
