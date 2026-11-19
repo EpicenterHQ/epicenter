@@ -116,7 +116,7 @@ The first commit tells future developers WHY the code exists. The second makes t
 
 ### Other Best Practices
 
-- NEVER include Claude Code or opencode watermarks or attribution
+- NEVER include Claude Code watermarks or attribution
 - Each commit should represent a single, atomic change
 - Keep skill and agent-instruction changes in dedicated commits, separate from app and package changes, so they can be cherry-picked onto local `main`.
 - Write commits for future developers (including yourself)
@@ -127,6 +127,4 @@ The first commit tells future developers WHY the code exists. The second makes t
 - `Generated with [Claude Code](https://claude.ai/code)`
 - `Co-Authored-By: Claude <noreply@anthropic.com>`
 - Any references to AI assistance
-- `Generated with [opencode](https://opencode.ai)`
-- `Co-Authored-By: opencode <noreply@opencode.ai>`
 - Tool attribution or watermarks
