@@ -6,7 +6,7 @@
 >
 > - For **current decisions and why**, read `docs/adr/`.
 > - For **how package-owned systems work now**, read the package README and code.
-> - For **shared vocabulary**, read `docs/CONTEXT.md`.
+> - For **shared vocabulary**, read `docs/vision.md` ("The pieces").
 > - To **read a removed spec's body**: `git log --all --full-history -- "<path>"` then `git show <sha>:<path>`.
 >
 > A row records that a design was explored on that date. It does not mean the

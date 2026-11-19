@@ -64,6 +64,7 @@ checkout. No branch keeps it alive, because a branch asks to be maintained.
    the old product, `packages/folder`, `server`, `definition`, `local`, and the
    two native packages are deleted.
 
+<!-- doc-path-check: ignore-next-line -->
 **Docs follow the code.** `docs/architecture.md`, `docs/CONTEXT.md`, and a
 package's README are rewritten when the code they describe is deleted, not
 before.

@@ -105,8 +105,6 @@ const RULES: readonly Rule[] = [
 			'.agents/skills/yjs/',
 			'.agents/skills/svelte/',
 			'.agents/skills/collapse-pass/',
-			'docs/CONTEXT.md',
-			'docs/architecture.md',
 			'README.md',
 		],
 	},

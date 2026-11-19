@@ -89,7 +89,7 @@ READMEs and decision records, where they can be checked with the implementation.
 
 ## Planning docs and decisions
 
-`docs/adr/`, `docs/CONTEXT.md`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
+`docs/adr/`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
 Check changes to apps, the CLI, or storage against [the vision](docs/vision.md)
 and [the home layout](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md).

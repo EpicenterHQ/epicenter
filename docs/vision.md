@@ -20,9 +20,8 @@ and live Epicenter.
 This page is the front door. [ADR-0943] records Epicenter's core invariants
 and their tradeoffs. [ADR-0896] and [ADR-0898] describe how collections meet;
 [ADR-0840] records why the direction changed from the folder sync product, and
-[ADR-0897] why hosted Notes waits. [Architecture](architecture.md),
-[CONTEXT](CONTEXT.md), and the package READMEs describe the code that exists,
-which is mostly the earlier product described at the end.
+[ADR-0897] why hosted Notes waits. The package READMEs describe the code that
+exists.
 
 ## A computer that stays on
 
