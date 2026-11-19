@@ -52,7 +52,6 @@ async function setup() {
 				},
 			},
 		}).apps,
-		instructions: 'Be kind to the notes.',
 	};
 	const answer = createHandler({ folder, port: 4747 }, program);
 	const request = (path: string, init: RequestInit = {}) =>
@@ -174,7 +173,8 @@ test('MCP offers one tool per action and runs it', async () => {
 		capabilities: {},
 		clientInfo: { name: 'test', version: '1' },
 	});
-	expect(initialized.result.instructions).toBe('Be kind to the notes.');
+	expect(initialized.result.serverInfo.name).toBe('epicenter');
+	expect(initialized.result.instructions).toBeUndefined();
 	const listed = await rpc('tools/list', {});
 	expect(
 		listed.result.tools.map((tool: { name: string }) => tool.name),

@@ -143,7 +143,10 @@ export function flights({ watches, checks }: Data) {
   - `POST /actions/<app>/<action>` checks the input, runs the action, and
     answers JSON lines: `{"update": ...}` for each update, then
     `{"answer": {data, error}}`.
-  - `POST /` is MCP, with one tool per action.
+  - `POST /` is MCP, with one tool per action. An agent learns each tool
+    from its action's description; serve sends no MCP instructions. The
+    home's `AGENTS.md` is for an agent working in the home's files, and
+    names steps an MCP client cannot take, such as `bun install`.
   - `GET /actions/` lists every app, action, description and input schema.
 
   A module that throws, or a `defineEpicenter` that refuses what it was

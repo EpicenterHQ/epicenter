@@ -53,12 +53,7 @@ export function createMcp(program: Program, listing: Listing) {
 	return async (request: Request) => {
 		const server = new Server(
 			{ name: 'epicenter', version: listing.version },
-			{
-				capabilities: { tools: {} },
-				...(program.instructions === undefined
-					? {}
-					: { instructions: program.instructions }),
-			},
+			{ capabilities: { tools: {} } },
 		);
 		server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
 		server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
