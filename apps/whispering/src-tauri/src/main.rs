@@ -26,6 +26,7 @@ fn main() {
         // First, so a second launch stops before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| focus(app)))
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_epicenter_recorder::init())
         .setup(|app| Ok(start(app.handle())?))
         .invoke_handler(tauri::generate_handler![

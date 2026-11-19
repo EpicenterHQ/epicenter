@@ -39,6 +39,7 @@
 		"@epicenter/recorder": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-clipboard-manager": "2.5.0",
 		"@tauri-apps/plugin-fs": "2.7.1",
 		"wellcrafted": "catalog:"
 	}

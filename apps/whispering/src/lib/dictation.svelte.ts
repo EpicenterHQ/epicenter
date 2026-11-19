@@ -1,14 +1,22 @@
 /**
- * What is happening right now: whether a recording is running, and which
- * recording the feed shows open. This is the one place the record, stop,
- * save sequence is written.
+ * What is happening right now: whether a recording is running, which
+ * recordings are being transcribed, and which recording the feed shows open.
+ * This is the one place the record, stop, save, transcribe, copy sequence is
+ * written.
  */
 import { timeId } from '@epicenter/app/time';
 import { toastOnError } from '@epicenter/ui/toast-on-error';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { SvelteSet } from 'svelte/reactivity';
 import { toast } from 'svelte-sonner';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { runMutation } from 'wellcrafted/query';
+import { tryAsync } from 'wellcrafted/result';
+import { goto } from '$app/navigation';
 import { queryClient, recordingsMutations } from './queries';
 import { type EndedReason, recorder } from './recorder';
+import { settings } from './settings.svelte';
+import { transcription } from './transcription';
 
 type Status =
 	| { kind: 'idle' }
@@ -23,6 +31,18 @@ const ENDED: Record<EndedReason, string> = {
 	storageFailed: 'The disk could not take any more audio.',
 };
 
+const DictationError = defineErrors({
+	CopyFailed: ({ cause }: { cause: unknown }) => ({
+		message: `The transcript is saved, but it could not be copied: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+});
+
+const openSettings = {
+	label: 'Open settings',
+	onClick: () => goto('/settings'),
+};
+
 function createDictation() {
 	let status = $state<Status>({ kind: 'idle' });
 	/**
@@ -31,6 +51,13 @@ function createDictation() {
 	 * either happens, when the feed opens the newest.
 	 */
 	let openId = $state<string>();
+	/**
+	 * The recordings whose audio is with the server now. It is apart from
+	 * `status`, so the next take can start while the last one transcribes.
+	 * Deleting a recording takes it out, and a transcript that arrives for
+	 * an id no longer here is dropped.
+	 */
+	const transcribing = new SvelteSet<string>();
 
 	async function start() {
 		status = { kind: 'starting' };
@@ -59,7 +86,60 @@ function createDictation() {
 			recordingsMutations.addNote,
 			data,
 		);
-		toastOnError(saved, 'Could not save the recording');
+		if (saved.error) return toastOnError(saved, 'Could not save the recording');
+		await transcribe(data.id);
+	}
+
+	/**
+	 * Send the recording `id` to the server, save its transcript and copy
+	 * it. With no server set, say the recording is kept and where to set one.
+	 */
+	async function transcribe(id: string) {
+		const server = settings.server;
+		if (!server) {
+			toast.info('Recording kept', {
+				description:
+					'Add a transcription server to get text after each recording.',
+				action: openSettings,
+			});
+			return;
+		}
+		if (transcribing.has(id)) return;
+		transcribing.add(id);
+		const { data: text, error } = await transcription.transcribe(id, server);
+		// The id is gone from the set only if the recording was deleted while
+		// the server had it. A delete confirmed after this line queues behind
+		// the save below: both run in the one recordings mutation scope.
+		const deleted = !transcribing.delete(id);
+		if (deleted) return;
+		if (error) {
+			toast.error('Could not transcribe', {
+				description: error.message,
+				action: error.name === 'Unauthorized' ? openSettings : undefined,
+			});
+			return;
+		}
+		if (!text) {
+			toast.info('No speech was heard');
+			return;
+		}
+		const saved = await runMutation(
+			queryClient,
+			recordingsMutations.setTranscript,
+			{
+				id,
+				transcript: text,
+			},
+		);
+		if (saved.error)
+			return toastOnError(saved, 'Could not save the transcript');
+		const copied = await tryAsync({
+			try: () => writeText(text),
+			catch: (cause) => DictationError.CopyFailed({ cause }),
+		});
+		if (copied.error)
+			return toastOnError(copied, 'Could not copy the transcript');
+		toast.success('Copied');
 	}
 
 	return {
@@ -79,6 +159,22 @@ function createDictation() {
 		/** Show the recording `id` open in the feed. */
 		open(id: string) {
 			openId = id;
+		},
+
+		/** Whether the recording `id` is with the server now. */
+		isTranscribing(id: string) {
+			return transcribing.has(id);
+		},
+
+		/** Transcribe the recording `id`, then save and copy its text. */
+		transcribe,
+
+		/**
+		 * Drop the transcription of `id` under way, if any, so its text is
+		 * not written after the recording is deleted. Call it before the delete.
+		 */
+		forget(id: string) {
+			transcribing.delete(id);
 		},
 	};
 }
