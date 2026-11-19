@@ -87,52 +87,55 @@ keyword or a required number of alternatives.
 
 ## Asymmetric wins
 
-An asymmetric win is a refusal that returns more complexity than it costs
-in capability: refuse 10 to 20 percent of the functionality to collapse 80
-to 90 percent of the complexity. The spine:
+Sometimes giving up a small promise removes a lot of code. Refusing 10 to
+20 percent of the features can remove 80 to 90 percent of the complexity.
+The pattern:
 
 ```txt
-Preserve the product sentence.
+Keep the product sentence.
 Refuse the small promise.
-Delete the code family.
+Delete the code that existed only for it.
 ```
 
-The ratio is a way to spot the opportunity, not arithmetic and not a
-quota. Do not remove arbitrary features. Find the one small promise (a fast
-path, old shape, rare mode, compatibility alias, fallback parser, exact
-reproduction) that owns a disproportionate code family, then decide whether
-refusing exactly that leaves the product sentence intact. A second path
-feels cheap to add, but it is a permanent invariant.
+The percentages help you spot a candidate. They are not a target, and you
+should not cut features just to hit them. Look for one small promise, such
+as a fast path, an old format, a rare mode, a compatibility alias, a
+fallback parser, or exact reproduction, that drags a large family of code
+along with it. Then ask whether the product still does what its sentence
+says without it. A second path always looks cheap to add, and then it has
+to be kept working forever.
 
-1. Name the product sentence and the workflow that must stay true.
-2. List the candidate refusals and circle the one that forces the most
-   extra surface area.
-3. For each, name the capability lost and the machinery that disappears:
-   methods, adapters, error variants, tests, docs branches, UI states,
-   fixtures.
-4. Separate refusals that change the product's purpose from those that
-   drop a convenience inside the same workflow.
-5. Prefer the smallest loss that removes the second shape, not the largest
-   deletion.
-6. Remove it from the sentence. If the sentence still describes a useful
-   product, refuse the promise and write the refusal into the spec.
-   Otherwise keep the feature and say why.
+1. Write the product sentence and the workflow that must keep working.
+2. List the promises you could refuse. Pick the one that forces the most
+   extra code.
+3. For that one, write down what users lose and what code goes away:
+   methods, adapters, error cases, tests, docs, UI states, fixtures.
+4. Check whether refusing it changes what the product is for, or only drops
+   a convenience.
+5. Choose the smallest loss that removes the second way of doing things,
+   not simply the biggest deletion.
+6. If the sentence still describes something useful, refuse the promise and
+   write that down in the spec. If not, keep the feature and say why.
 
-Keep it when the loss is load-bearing: exact detail that carries
-comprehension, accessibility, trust, brand, or a regression-sensitive
-state. Do not ship drift under "good enough", and do not count a deletion
-that only moves complexity somewhere harder to see.
+Keep the feature when the loss really matters: when the exact detail helps
+people understand, access, or trust the product, or protects something that
+has broken before. Don't call something "good enough" and ship a
+half-working version. Make sure the code actually goes away instead of
+moving somewhere harder to see.
 
-Write the decision in the spec, for example:
+Write the decision down, for example:
 
 ```txt
-Product sentence: All social sign-in routes through the API-hosted page
-  via OAuth 2.1 PKCE.
-Candidate refusal: browser SPAs use Google GIS for a one-second sign-in.
-Deletion prize: signInWithIdToken, OIDC provider narrowing, per-app GIS
-  helpers, a blocked-browser UI state, two docs branches, two test paths.
-User loss: Google sign-in is a few seconds slower in browser SPAs.
-Decision: Refuse it. The loss is small; the second auth shape is permanent.
+Product sentence: all social sign-in goes through the API-hosted page
+  using OAuth 2.1 PKCE.
+Promise to refuse: browser apps can use Google's one-tap sign-in for a
+  one-second login.
+Code that goes away: signInWithIdToken, OIDC provider narrowing, per-app
+  Google helpers, a blocked-browser UI state, two docs branches, two test
+  paths.
+What users lose: Google sign-in takes a few seconds longer in browser apps.
+Decision: refuse it. The loss is small and a second way to sign in would
+  have to be kept working forever.
 ```
 
 Use the [clean-breaks reference](../rethink/references/clean-breaks.md) to

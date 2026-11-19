@@ -125,57 +125,53 @@ a file does not simplify the system if its job is now spread across
 callers. Name what becomes easier to understand or maintain, and account
 for any new work the replacement introduces.
 
-## State it in one sentence
+## Say it in one sentence
 
-To audit a design, surface, or abstraction, write one concrete sentence
-about it in your response: objects, verbs, and scope, with no "flexibly
-handles" or "unified experience". The value is the visible gap between what
-the prose claims and what the code does. If the sentence keeps drifting,
-the design is not coherent yet; name that before continuing.
+To check whether something earns its place, write one plain sentence about
+what it does, in your reply where the reader can see it. Name the things
+and the verbs. If you can't finish the sentence without contradicting
+yourself, the design isn't clear yet. Say so before going on.
 
-**A design or set of surfaces** (commands, endpoints, options). The
-sentence is the thesis. Ask of each surface: does it serve the sentence,
-would the sentence survive its removal, is there a verb with no surface,
-do two surfaces serve one verb? A convenience feature that forces a second
-sentence belongs to another product. This is also where an asymmetric win
-shows up: remove the feature that forces the most extra surface from the
-sentence, and if the sentence still describes a useful product, take it to
-the asymmetric wins section of [product-collapse](../product-collapse/SKILL.md).
+**For a set of commands, endpoints, or options,** the sentence says what
+the whole thing is for. Check each item against it:
 
-**A wrapper, flag, or utility.** Reduce it three times, in order:
+- Does this item serve the sentence?
+- Would the sentence still be true without it?
+- Does the sentence name something no item does?
+- Do two items do the same job?
+
+An item that needs a second sentence to explain it probably belongs to a
+different product. If dropping it leaves a sentence that still describes
+something useful, look at the asymmetric wins section of
+[product-collapse](../product-collapse/SKILL.md).
+
+For example, a notification API has `send`, `schedule`, `batch`, `digest`,
+`preferences`, `channels.register`, and `history`. "A notification system"
+says nothing. "Send messages to users across channels" ignores
+`preferences` and `history`. "Deliver a message to a user on their
+preferred channel, honoring quiet hours, and remember we sent it" covers
+five of them. `schedule`, `batch`, and `digest` don't fit: they are a
+separate product.
+
+**For a wrapper, flag, or helper,** describe what it does three times:
 
 ```txt
-1. Strip the docs. Ignore the name and JSDoc, read the body:
-   "This function dedups by id, refcounts open/close, and destroys on
-   idle timeout."
-2. Specialize to the defaults in use:
-   "With gcTime: Infinity, it dedups by id. Docs live forever." The
-   refcount is inert.
-3. Ask what the caller needs. A singleton caller has one id and one
-   lifetime, so dedup is a no-op: the wrapper adds nothing. Delete it.
+1. From the code, ignoring the name and docs:
+   "Looks up by id, counts opens and closes, and destroys the object
+   after an idle timeout."
+2. With the settings actually in use (gcTime: Infinity):
+   "Looks up by id. Nothing is ever destroyed." The counting does nothing.
+3. For what the caller needs: the caller has one id and one lifetime, so
+   the lookup does nothing either. The wrapper adds nothing. Delete it.
 ```
 
-Stopping at step 1 sounds useful until the defaults turn the feature off.
+Stopping at step 1 can make a wrapper look useful when the settings in use
+turn its main feature off. Common finds: settings that switch off the
+advertised feature, wrappers around something with only one instance,
+"lifecycle management" that amounts to "call close when done", and docs
+describing what the code could do rather than what it does here.
 
-Watch for the usual reveals: inert knobs, singleton wrappers around a
-dedup or cache, "lifecycle management" that reduces to "call close when
-done", docs that describe what the code could do under other configs,
-surfaces that map to no verb in the thesis, and a thesis you cannot finish
-without contradicting yourself.
-
-A worked cohesion audit. A notification API has `send`, `schedule`,
-`batch`, `digest`, `preferences`, `channels.register`, and `history`.
-"A notification system" is too vague. "Send messages to users across
-channels" misses `preferences` and `history`. "Deliver a message to a user
-on their preferred channel, honoring their quiet hours, and remember we
-sent it" fits five of them. `schedule`, `batch`, and `digest` are not in
-the sentence: they are a sibling product. A good sentence is concrete
-enough to make a surface worth questioning; "a CLI for managing your
-workspace" audits nothing.
-
-The test passes when you can say what the subject is, or what it buys this
-caller, in one concrete sentence. If the honest sentence is "nothing,
-really", it does not earn its keep.
+If the honest sentence is "it does nothing," delete it.
 
 ## Carry the change through
 
