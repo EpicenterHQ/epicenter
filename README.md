@@ -155,7 +155,7 @@ Applications under `apps/` are outside apps
 | --- | --- |
 | [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports (`defineApp`, `defineData`, `defineAction`, fields, `folderOnDisk`), the client a UI calls actions with, and the `epicenter` command, which runs each app's actions as commands and MCP tools and serves UIs. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
-| [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |
+| [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 
 Whispering's own packages, and the folder sync product's code it still imports
 (`@epicenter/folder`, `@epicenter/definition`, `@epicenter/local`), are under
