@@ -33,7 +33,7 @@ function anotherEpicenter({ folder, port }: EpicenterRoot) {
 
 /**
  * Send one request to this Epicenter's serve and give its response. With no serve
- * of this Epicenter to take it, the answer is `NotStarted` (`unavailable`); a
+ * of this Epicenter to take it, the answer is `NotStarted`; a
  * connection that ends after it was taken is `Unreachable`, saying `ended`.
  * The command sets no time limit: an action owns its own, and a serve that
  * stops answering is the caller's to give up on.
