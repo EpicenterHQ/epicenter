@@ -20,8 +20,8 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-	connectMcp,
 	bareApp,
+	connectMcp,
 	fixture,
 	header,
 	startServe,
