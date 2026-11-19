@@ -245,7 +245,7 @@ test('a home whose program did not load answers that one problem', async () => {
 		answer(
 			new Request(`http://127.0.0.1:4747${path}`, {
 				...init,
-				headers: { host: '127.0.0.1:4747' },
+				headers: { host: '127.0.0.1:4747', ...init?.headers },
 			}),
 		);
 	expect(await (await request('/actions/')).json()).toEqual({
@@ -255,4 +255,15 @@ test('a home whose program did not load answers that one problem', async () => {
 	});
 	const [line] = await lines(await request('/actions/a/b', post({})));
 	expect(line.answer.error.message).toContain('boom');
+	const listed = (await (
+		await request('/', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				accept: 'application/json, text/event-stream',
+			},
+			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+		})
+	).json()) as { error: { message: string } };
+	expect(listed.error.message).toContain('boom');
 });
