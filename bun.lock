@@ -145,20 +145,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/app-old": {
-      "name": "@epicenter/app-old",
-      "version": "0.8.0",
-      "dependencies": {
-        "@modelcontextprotocol/sdk": "catalog:",
-        "nanoid": "catalog:",
-        "typebox": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/ui": {
       "name": "@epicenter/ui",
       "version": "0.4.0",
@@ -340,8 +326,6 @@
     "@epicenter/ai": ["@epicenter/ai@workspace:packages/ai"],
 
     "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
-
-    "@epicenter/app-old": ["@epicenter/app-old@workspace:packages/app-old"],
 
     "@epicenter/landing": ["@epicenter/landing@workspace:apps/landing"],
 

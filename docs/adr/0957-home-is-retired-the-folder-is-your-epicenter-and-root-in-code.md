@@ -26,7 +26,7 @@ only it.**
 | The computer it runs on | the computer | not named |
 | One app's folder, `apps/<app>/` | the app | the app folder; `folder.path` |
 
-- `epicenterDir()` in `packages/app-old/src/command/root.ts` is removed.
+- `epicenterDir()` in `app-before-0971:packages/app/src/command/root.ts` is removed.
   `epicenterRoot()` already exists there and returns `{ folder, port }`, an
   `EpicenterRoot`; it keeps its name, and the command's entry point calls it
   once and passes the root on, so no function returns the folder alone.
@@ -36,7 +36,7 @@ only it.**
   `homeEntries` is `appEntries`, `installHome` is `installRoot`,
   `homeName` is `rootHeaderValue`, since it returns the header's encoded
   path and not a name.
-- In tests, `fixture()` in `packages/app-old/src/command/runner.test-support.ts` returns
+- In tests, `fixture()` in `app-before-0971:packages/app/src/command/runner.test-support.ts` returns
   `root`, the temporary folder `$HOME` points to, and `home`, the Epicenter
   inside it. They become `userDir` and `epicenter`, so `root` names no test
   value while code still uses it for the Epicenter.
@@ -48,7 +48,7 @@ only it.**
 - Once "Epicenter" names the folder, a message about the program names
   serve as its subject: `serve is not running` and `start it with epicenter
   serve`, not `Epicenter is not running for this home`
-  (`reach` in `packages/app-old/src/command/send.ts`).
+  (`reach` in `packages/app/src/command/send.ts`).
 - The root `package.json` needs no name. It is private and never published,
   so the unrelated public `epicenter` package on npm does not matter.
 - App, action, record, routine, `serve`, `apps/`, `code/`, `data/`, `local/`,

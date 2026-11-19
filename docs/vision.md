@@ -48,7 +48,7 @@ for it. Never expose the port publicly; `serve` refuses Tailscale Funnel.
 Agents can run on the home itself or reach its actions from another
 connected computer. If the home sleeps or goes offline, your other devices
 cannot reach it. For the listener and service setup, see
-[the epicenter command](../packages/app-old/src/command/README.md#one-serve-runs-every-action).
+[the epicenter command](../packages/app/README.md#the-command-and-serve).
 
 ## Core invariants
 

@@ -4,13 +4,13 @@
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) at three points. The refusal of an app that resolves a second copy of `@epicenter/app` goes, and so does the alternative it kept, "the context stays". "Two packages are published, at one version" becomes one package: the command folds into `@epicenter/app`, and `@epicenter/cli` is retired. This reverses the two packages at one version from PR #2660. One install and one version line are unchanged.
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (the first shape, `run(input, { folder })`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (the hidden run, which goes), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (no `env` or `model` function: an action reads `process.env`, so nothing but the folder reads the hidden run), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when the function is called), [ADR-0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md) (what the folder is, and the one a test passes).
-- **Unbuilt:** All of it. `defineApp` takes an object, `folder` is an import that reads the run, and the copy check runs before every load. `@epicenter/cli` is still published beside `@epicenter/app`. `connect` in `packages/app-old/src/client.ts` does not yet accept a function app's type. The first thing to exist is a `defineApp` whose argument is a function of `{ folder }`.
+- **Unbuilt:** All of it. `defineApp` takes an object, `folder` is an import that reads the run, and the copy check runs before every load. `@epicenter/cli` is still published beside `@epicenter/app`. `connect` in `packages/app/src/client.ts` does not yet accept a function app's type. The first thing to exist is a `defineApp` whose argument is a function of `{ folder }`.
 
 ## Context
 
 An action reaches its app's folder through a value it never receives. The
 <!-- doc-path-check: ignore-next-line (deleted when an app became a function of its folder, ADR-0960) -->
-library keeps one `AsyncLocalStorage` in `packages/app-old/src/context.ts`. The
+library keeps one `AsyncLocalStorage` in `packages/app/src/context.ts`. The
 runner fills it with `inRun(context, work)`, and the imported `folder` and
 every data handle read it. Outside a run they throw.
 
@@ -19,8 +19,8 @@ needed the context passed on, and data defined at the top of the file could
 not use it.
 
 The value in that store never changes between calls. `load` in
-`packages/app-old/src/command/apps.ts` builds one context for an app, and `settle` in
-`packages/app-old/src/command/run.ts` copies it for each call. A store made for values
+`app-before-0971:packages/app/src/command/apps.ts` builds one context for an app, and `settle` in
+`packages/app/src/command/run.ts` copies it for each call. A store made for values
 that differ by request carries a value that is fixed for each app.
 
 Keeping it has a price:
@@ -100,11 +100,11 @@ export default defineApp(({ folder }) => {
   live records only by passing the live folder.
 - **No copy check.** Nothing is shared in memory between the loader and the
   app, and the loader recognizes an action by its shape. `library.ts` and its
-  call in `packages/app-old/src/command/apps.ts` are deleted.
+  call in `app-before-0971:packages/app/src/command/apps.ts` are deleted.
 
 **The command and the library are one package, `@epicenter/app`, and
 `@epicenter/cli` is retired.** The command's source moves from
-`packages/cli/src/` into `packages/app-old/`, and `packages/app-old/package.json`
+`packages/cli/src/` into `packages/app/`, and `packages/app/package.json`
 gains the bin:
 
 ```json
@@ -126,14 +126,14 @@ gains the bin:
   `package.json` and its place in `check:structure`; the version comparison
   in `library.ts`; the second tarball and the version check in `pack.ts`;
   and the upgrade step "edit both versions" in the command's README.
-- **The release steps.** Set `version` in `packages/app-old/package.json`. Run
+- **The release steps.** Set `version` in `packages/app/package.json`. Run
   `bun run --cwd packages/app pack`, which writes one tarball into a folder
   named for its content, because Bun caches a tarball by its path. Publish
   that one tarball, `--dry-run` first. An Epicenter upgrades by changing one
   version, then `bun install && bun run build` and a restart of serve.
 - **The command's packages move with it.** `@modelcontextprotocol/sdk` joins
   `nanoid`, `typebox` and `wellcrafted` in the dependencies of
-  `@epicenter/app`. `packages/app-old/src/client.ts` imports only `answer.ts`,
+  `@epicenter/app`. `packages/app/src/client.ts` imports only `answer.ts`,
   `errors.ts`, `time.ts` and types from `action.ts` and `front-matter.ts`, so
   a UI bundle built from `@epicenter/app/client` holds no command or server
   code.

@@ -6,7 +6,7 @@ This directory holds the vision, the decision records, and a few operating guide
 
 - [Vision](vision.md): what Epicenter is and the rules it keeps: your apps and files on a computer you control and keep on.
 - [Decisions (ADRs)](adr/README.md): the record of durable decisions and why, each with its status and what is not built yet. Trust this over any spec.
-- [The `epicenter` command](../packages/app-old/src/command/README.md) and [what an app imports](../packages/app/README.md): how the current product works in code.
+- [What a home imports, and the `epicenter` command](../packages/app/README.md): how the current product works in code.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
 - [Trust model](trust-model.md): who can read your files, decided by who can read the home.
 - [Spec history](spec-history.md): a dated index of every spec ever written (history, not current truth).

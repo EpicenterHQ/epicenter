@@ -2,7 +2,7 @@
 
 When several tests need the same starting conditions, let each call a plain `setup()` function. Keep shared stateless declarations at module scope. Give each test fresh mutable state, and return the values it needs by name so it can destructure them. Adding a second fixture then leaves existing callers alone.
 
-This example, shaped like the [data handle tests](../../../../packages/app-old/src/data.test.ts), uses the named-object form. The data declaration is made in `setup()`, because it takes the folder, and the temporary folder's files belong to one test.
+This example, shaped like the [data handle tests](../../../../packages/app/src/data.test.ts), uses the named-object form. The data declaration is made in `setup()`, because it takes the folder, and the temporary folder's files belong to one test.
 
 ```typescript
 import { afterEach, expect, test } from 'bun:test';
@@ -38,7 +38,7 @@ test('a missing optional list stays absent', async () => {
 });
 ```
 
-- **Compose fixtures when the extra setup matters.** The [CLI install tests](../../../../packages/app-old/src/command/install.test.ts) start with `fixture()`, add a Notes app with its own `package.json`, and return its folder. Tests that only need an empty Epicenter can use the base fixture.
+- **Compose fixtures when the extra setup matters.** The [CLI install tests](https://github.com/EpicenterHQ/epicenter/blob/app-before-0971/packages/app/src/command/install.test.ts) start with `fixture()`, add a Notes app with its own `package.json`, and return its folder. Tests that only need an empty Epicenter can use the base fixture.
 - **Keep setup visible and cleanup reliable.** Create the fixture in the test. Register cleanup that must run after a failure in `afterEach`, as the install tests do for temporary roots.
 - **Keep the return value small.** Include values a test or its cleanup needs. Keep intermediate construction details inside the helper.
 - **Skip shared setup** for pure functions, type-only tests, and cases whose starting conditions have little in common.

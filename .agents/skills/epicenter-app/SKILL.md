@@ -663,7 +663,7 @@ command inside the temporary Epicenter: a command acts on the nearest
 `EPICENTER.md` at or above where it runs. Give the temporary Epicenter a port
 the real one does not use.
 
-In the monorepo, the source CLI is `bun <repo>/packages/app-old/src/command/bin.ts`.
+In the monorepo, the source CLI is `bun <repo>/packages/app/src/command/bin.ts`.
 The temporary Git configuration isolates identity and signing settings.
 Run `bun run typecheck` and action tests from code/, where package.json lives.
 An action test calls the app with a folder on a temporary directory and calls

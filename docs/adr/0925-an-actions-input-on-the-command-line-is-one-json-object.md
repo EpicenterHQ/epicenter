@@ -119,7 +119,7 @@ stores its command as the action's words followed by the JSON.
   that pass no input do not.
 - `inputFromArgs`, `flagOf`, `takesNull`, `choicesOf`, and the flag half of
   `usageLine` are deleted, with the checks on `positional` in
-  `packages/app-old/src/action.ts`.
+  `packages/app/src/action.ts`.
 - JSON `null` and the text `"null"` are different values, so removing a field
   and storing the word need no special rule.
 - A routine file written before this stores `--input`, which is then refused.

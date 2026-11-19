@@ -9,7 +9,7 @@
 ## Context
 
 `epicenter serve` answered five routes
-(`packages/app-old/src/command/serve.ts`):
+(`packages/app/src/command/serve.ts`):
 
 ```txt
 POST /                MCP
@@ -46,7 +46,7 @@ GET  /apps/<app>                308 to /apps/<app>/
   Groups are gone: `actions` is `{ [name]: Action }`, and `defineApp` refuses
   a nested object. `epicenter vocab create-word` is
   `POST /actions/vocab/create-word`, and its MCP tool is `vocab_create-word`.
-  A name (`isName` in `packages/app-old/src/app.ts`) never holds `/` or `.`.
+  A name (`isName` in `app-before-0971:packages/app/src/app.ts`) never holds `/` or `.`.
 - **Every 200 ends in one answer line, and any other status means serve did
   not take the call.** A call refused before it runs (an unknown app or
   action, an address that is not `/actions/<app>/<action>`, an app that does
@@ -61,12 +61,12 @@ GET  /apps/<app>                308 to /apps/<app>/
   period and no name the app cannot use. ADR-0945 says what serve does with
   a path under it that is not a file.
 - **A page calls an action by its name.** `connect` in
-  `packages/app-old/src/client.ts` reads its app from the second segment of a page
+  `packages/app/src/client.ts` reads its app from the second segment of a page
   at `/apps/<app>/` and returns `{ call, action }`: `app.call('add', input)`
   posts to `<url>actions/<app>/add`, and `app.action('add')` is that call as a
   function, for a query or a mutation. The name is typed as one of the app's
   action names. The client has no Proxy, so an action may be named `then`.
-  `callAction` in `packages/app-old/src/command/send.ts` posts to the same route.
+  `callAction` in `packages/app/src/command/send.ts` posts to the same route.
 - **No old address is answered.** `/<app>/` and `POST /<app>/<action>`
   answer 404. Nothing redirects.
 - **A folder in `apps/` that did not load answers 500 with its problems

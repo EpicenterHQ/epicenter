@@ -4,7 +4,7 @@ Identify the system being changed and its current contract owners before
 simplifying storage, sync, auth, or public schemas. Start with its README,
 exports, callers, and tests. For local Epicenter apps, follow
 [@epicenter/app](../../../../packages/app/README.md) and
-[the CLI](../../../../packages/app-old/src/command/README.md); hosted services have their
+[the CLI](../../../../packages/app/README.md#the-command-and-serve); hosted services have their
 own contract owners.
 
 Exact names and layouts belong in source and subsystem READMEs. A copied
@@ -16,7 +16,7 @@ Use the current subsystem's owner rather than apply one folder model to every
 app. These paths are starting points to verify against exports and callers:
 
 - Local apps: [app contracts](../../../../packages/app/README.md) and
-  [CLI commands and storage](../../../../packages/app-old/src/command/README.md).
+  [CLI commands and storage](../../../../packages/app/README.md#the-command-and-serve).
 
 ## Trace what must survive
 

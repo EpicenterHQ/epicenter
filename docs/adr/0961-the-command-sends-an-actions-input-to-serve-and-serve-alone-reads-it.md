@@ -4,7 +4,7 @@
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at what the command does before it sends a call, and at how a call names its Epicenter. The command no longer loads the app or checks the input; it names the action by its words and sends the input as typed, and serve reads it. Serve no longer stamps its root's path on every answer; the command sends its path on the request. That an action runs only in serve, and that serve refuses a call meant for another Epicenter, are unchanged.
 - **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
-- **Built:** `send.ts`, `serve.ts` and `cli.ts` in `packages/app-old/src/command`.
+- **Built:** `send.ts`, `serve.ts` and `cli.ts` in `packages/app/src/command`.
 - **Amends:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) and [ADR-0927](0927-serve-listens-only-on-this-computer.md) at the port: `EPICENTER.md` must name `port`, and no port is assumed. See "The port is required" below.
 - **Amended:** 2026-11-18: serve has no page at `/`, and `NotStarted` is `{ message, next? }`. See the two amendments below.
 - **Amends:** [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) at `NotStarted`'s causes.
@@ -61,7 +61,7 @@ the input.**
 **Serve answers one JSON listing, and every view of the apps prints from
 it.** `GET /actions/` (ADR-0967) answers each app's
 description, its data keys, its problems and each action as the MCP tool
-`serve` offers (`appListing` in `packages/app-old/src/command/apps.ts`).
+`serve` offers (`appListing` in `app-before-0971:packages/app/src/command/apps.ts`).
 
 | Reader | What it prints from the listing |
 | --- | --- |
