@@ -44,7 +44,7 @@ skill: [testing](../testing/SKILL.md).
 ### Modules and names
 
 - Treat acronyms as normal words in camelCase: `parseUrl`, `defineKv`, `readJson`, `customerId`.
-- Give relative imports an explicit extension, the one the package already uses: for example, `.ts` in `packages/app` and `.js` in `packages/account`.
+- Give relative imports an explicit extension, the one the package already uses: for example, `.ts` in `packages/app` and `.js` in `packages/ai`.
 - Export symbols at their declarations. Reserve `export { ... } from ...` for barrel files.
 - In React/TSX, prefer named function components with explicit props parameters over `React.FC`/`FunctionComponent`; only type component values when you are storing them in a registry or passing them as data.
 - Use `is`, `has`, or `can` prefixes for booleans that answer a question.
