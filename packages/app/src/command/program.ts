@@ -8,7 +8,7 @@ import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, tryAsync } from 'wellcrafted/result';
-import { type App, isEpicenter } from '../epicenter.ts';
+import { type App, type Epicenter, programProblems } from '../epicenter.ts';
 
 /** The home's program as serve answers from it. */
 export type Program = {
@@ -29,11 +29,7 @@ export async function loadProgram(folder: string): Promise<Program> {
 			Err(`epicenter.ts did not load: ${fromHome(extractErrorMessage(cause))}`),
 	});
 	if (error !== null) return { apps: {}, problem: error };
-	if (!isEpicenter(module.default))
-		return {
-			apps: {},
-			problem:
-				'epicenter.ts must default-export defineEpicenter({ apps }), and it exports something else',
-		};
-	return { apps: module.default.apps };
+	const problems = programProblems(module.default);
+	if (problems.length) return { apps: {}, problem: problems.join('\n') };
+	return { apps: (module.default as Epicenter).apps };
 }

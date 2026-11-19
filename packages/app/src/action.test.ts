@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
-import { defineEpicenter } from './epicenter.ts';
+import { defineEpicenter, programProblems } from './epicenter.ts';
 import { field } from './field.ts';
 
 const count = defineAction({
@@ -76,6 +76,22 @@ test('defineEpicenter refuses names that are not names, and what defineAction di
 			},
 		}),
 	).toThrow('apps.counter.actions.count is not an action');
+	expect(() => defineEpicenter({ apps: { serve: app } as never })).toThrow(
+		'and not serve',
+	);
+});
+
+test('serve checks what epicenter.ts exported as defineEpicenter would', () => {
+	const app = { description: 'Counts', actions: { count } };
+	expect(programProblems(defineEpicenter({ apps: { counter: app } }))).toEqual(
+		[],
+	);
+	expect(programProblems({ counter: app })).toEqual([
+		'epicenter.ts must default-export defineEpicenter({ apps })',
+	]);
+	expect(programProblems({ apps: { counter: { actions: {} } } })).toEqual([
+		'apps.counter needs a description',
+	]);
 });
 
 /** Types only: checked, never run. */

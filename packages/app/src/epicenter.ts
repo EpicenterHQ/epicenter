@@ -14,6 +14,7 @@
  * route (`/actions/flights/daily`).
  */
 import { type Action, isAction } from './action.ts';
+import { isPlainObject } from './json.ts';
 import { isName, NAME_RULE } from './name.ts';
 
 /** An app as its function returns it: what it is for, and each action under its name. */
@@ -22,50 +23,46 @@ export type App = {
 	readonly actions: { readonly [name: string]: Action };
 };
 
-/** Marks what `defineEpicenter` made. Registered, so serve knows it whichever copy of this package made it. */
-const EPICENTER: unique symbol = Symbol.for('epicenter.home');
-
 /** A home's program: its apps, by name. */
 export type Epicenter<TApps extends Record<string, App> = Record<string, App>> =
-	{
-		readonly apps: TApps;
-		readonly [EPICENTER]: true;
-	};
-
-/** Whether `value` is what `defineEpicenter` returned. */
-export function isEpicenter(value: unknown): value is Epicenter {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		(value as { [EPICENTER]?: unknown })[EPICENTER] === true
-	);
-}
+	{ readonly apps: TApps };
 
 /**
  * Define a home's program from its apps. Throws, naming each problem, for a
- * name that is not lowercase letters, digits and dashes, an app with no
- * description, and an action `defineAction` did not make. Its type refuses
- * an app named `serve`, which is the command's own word.
+ * name that is not lowercase letters, digits and dashes, an app named
+ * `serve` (the command's own word, which its type refuses too), an app with
+ * no description, and an action `defineAction` did not make.
  */
 export function defineEpicenter<
 	const TApps extends Record<string, App> & { serve?: never },
 >({ apps }: { apps: TApps }): Epicenter<TApps> {
-	const problems = appsProblems(apps);
+	const problems = programProblems({ apps });
 	if (problems.length) throw new Error(problems.join('\n'));
-	return Object.freeze({ apps, [EPICENTER]: true as const });
+	return Object.freeze({ apps });
 }
 
-/** What is wrong with `apps` beyond its types, one sentence each. */
-function appsProblems(apps: Record<string, App>) {
+/**
+ * What is wrong with `program` as a home's program, one sentence each:
+ * `defineEpicenter` throws them, and serve checks what it imported with
+ * them, so a program serve runs is one `defineEpicenter` would accept.
+ */
+export function programProblems(program: unknown): string[] {
+	const apps = isPlainObject(program) ? program.apps : undefined;
+	if (!isPlainObject(apps))
+		return ['epicenter.ts must default-export defineEpicenter({ apps })'];
 	const problems: string[] = [];
-	for (const [name, { description, actions }] of Object.entries(apps)) {
-		if (!isName(name))
+	for (const [name, app] of Object.entries(apps)) {
+		if (!isName(name) || name === 'serve')
 			problems.push(
-				`The app name ${JSON.stringify(name)} must be ${NAME_RULE}`,
+				`The app name ${JSON.stringify(name)} must be ${NAME_RULE}, and not serve`,
 			);
-		if (description.trim() === '')
+		if (!isPlainObject(app) || !isPlainObject(app.actions)) {
+			problems.push(`apps.${name} must be { description, actions }`);
+			continue;
+		}
+		if (typeof app.description !== 'string' || app.description.trim() === '')
 			problems.push(`apps.${name} needs a description`);
-		for (const [action, value] of Object.entries(actions)) {
+		for (const [action, value] of Object.entries(app.actions)) {
 			if (!isName(action))
 				problems.push(
 					`apps.${name} has the action ${JSON.stringify(action)}, which must be ${NAME_RULE}`,
