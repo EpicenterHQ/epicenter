@@ -4,14 +4,16 @@ import { type Action, defineAction, type Flat } from './action.ts';
 import type {
 	AnyHandle,
 	Change,
-	Changed,
 	DataDef,
 	DataRecord,
-	Misfit,
-	Missing,
 	NewRecord,
 } from './data.ts';
-import { ActionError } from './errors.ts';
+import {
+	ActionError,
+	type Changed,
+	type Misfit,
+	type Missing,
+} from './errors.ts';
 import { field, isOptional } from './field.ts';
 
 export type Verb = 'list' | 'get' | 'create' | 'patch' | 'edit' | 'delete';

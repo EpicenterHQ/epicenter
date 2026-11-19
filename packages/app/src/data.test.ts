@@ -382,28 +382,6 @@ test.each(['path', 'body', 'id'])('definitions reserve the field %s', (key) => {
 	).toThrow(`"${key}"`);
 });
 
-test('a field may be named edit, old, or new, since no verb folds a passage beside fields', () => {
-	expect(() =>
-		defineData(unusedFolder, {
-			notes: {
-				description: 'note',
-				fields: { edit: field.text(), old: field.text(), new: field.text() },
-			},
-		}),
-	).not.toThrow();
-});
-
-test.each([
-	['fields', { title: 'x' }],
-	['a passage', { old: 'x', new: 'y' }],
-	['null', null],
-])('edit throws for %s: it takes only a function', async (_, change) => {
-	const { data } = await setup();
-	expect(() => data.notes.edit('a', change as never)).toThrow(
-		'edit takes a function of the record',
-	);
-});
-
 test('list reads every file directly in the folder whose extension is .md, sorted by path', async () => {
 	const text = '---\ntitle: "valid"\n---\n';
 	const files = [

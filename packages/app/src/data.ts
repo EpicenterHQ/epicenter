@@ -5,7 +5,12 @@ import type { Flat } from './action.ts';
 import { isPlainObject, type PublicError } from './action-result.ts';
 import { isName } from './app.ts';
 import { type DataActions, dataActions, type Verb } from './data-actions.ts';
-import { ActionError } from './errors.ts';
+import {
+	ActionError,
+	type Changed,
+	type Misfit,
+	type Missing,
+} from './errors.ts';
 import { defaultIn, type OptionalKeys, refKeyOf } from './field.ts';
 import { type Folder, filesIn } from './folder.ts';
 import { isFieldKey, type JsonValue } from './front-matter.ts';
@@ -39,16 +44,13 @@ export type NewRecord<TFields extends Fields> = Flat<
 export type DataRecord<TDef extends DataDef> = Flat<
 	{ path: string; id: string; body: string } & Static<TObject<TDef['fields']>>
 >;
-/** A file or change that does not fit; a read's carries the fields that do as `record`. */
-export type Misfit = Extract<ActionError, { name: 'Misfit' }>;
-export type Changed = Extract<ActionError, { name: 'Changed' }>;
-export type Missing = Extract<ActionError, { name: 'Missing' }>;
 
 type Handle<TDef extends DataDef> = {
 	/**
 	 * Read one id, or undefined when absent. The id is the file name without
-	 * `.md`; every method that takes one refuses an id Node would not give
-	 * back as that file's name, and one the system refuses as a name.
+	 * `.md`; every method that takes one refuses with Misfit an id Node would
+	 * not give back as that file's name. A name the folder or the system
+	 * refuses, such as one with `\\`, throws.
 	 */
 	get(id: string): Promise<Result<DataRecord<TDef> | undefined, Misfit>>;
 	/** One Result per `.md` file directly in the key's folder, sorted by path. */
@@ -216,13 +218,8 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 			named(id, () => records.write(id, 'absent', input)),
 		patch: (id: string, change: Record<string, unknown>) =>
 			named(id, () => records.write(id, 'present', change)),
-		edit(id: string, change: (record: unknown) => unknown) {
-			if (typeof change !== 'function')
-				throw new Error(
-					'edit takes a function of the record; to replace a passage of the body, call the generated edit action',
-				);
-			return named(id, () => records.write(id, 'either', change));
-		},
+		edit: (id: string, change: (record: unknown) => unknown) =>
+			named(id, () => records.write(id, 'either', change)),
 		delete: (id: string) =>
 			named(id, async () => {
 				const path = records.path(id);

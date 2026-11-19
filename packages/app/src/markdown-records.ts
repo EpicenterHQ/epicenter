@@ -7,7 +7,7 @@ import {
 	isPlainObject,
 	type PublicError,
 } from './action-result.ts';
-import { ActionError, type Problem } from './errors.ts';
+import { ActionError, type Misfit, type Problem } from './errors.ts';
 import { isOptional, refKeyOf, whatFits } from './field.ts';
 import { type Folder, readText } from './folder.ts';
 import {
@@ -31,7 +31,6 @@ export type AnyRecord = Record<string, JsonValue> & {
 type Patch = Record<string, unknown>;
 /** A change computed from the record: it returns `Ok(patch)` or `Err(error)`. */
 type Compute = (record: AnyRecord | undefined) => unknown;
-type Misfit = Extract<ActionError, { name: 'Misfit' }>;
 type Need = 'absent' | 'present' | 'either';
 
 /**
