@@ -1,34 +1,91 @@
 /**
- * Copy the writing app into an Epicenter and use it through real CLI and MCP calls. Captures retain sources,
+ * Put a small writing app into an Epicenter and use it through real CLI and MCP calls. Captures retain sources,
  * search reads bodies, and a stale edit cannot replace a note changed by another caller.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { cp, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { connectMcp, fixture } from './runner.test-support.ts';
-import { writingSource } from './writing.test-support.ts';
 
 setDefaultTimeout(30_000);
 
-/**
- * Take the writing app as `name`: its folder copied into apps/<name>/code,
- * and its package named for the app.
- */
-async function take(f: Awaited<ReturnType<typeof fixture>>, name: string) {
-	const code = join(f.apps, name, 'code');
-	await cp(join(await writingSource(f), 'writing'), code, {
-		recursive: true,
-		verbatimSymlinks: true,
+/** A writing inbox: notes with a kind, a source and a project, and a search across them. */
+const writingApp = `import { defineAction, defineApp, defineData, field, Ok, timeId } from '@epicenter/app';
+
+const kinds = ['thought', 'quote', 'link'] as const;
+
+export default defineApp(({ folder }) => {
+	const data = defineData(folder, {
+		notes: {
+			description: 'writing note',
+			fields: {
+				kind: field.select(kinds),
+				source: field.text({ optional: true }),
+				project: field.text({ optional: true }),
+			},
+		},
 	});
-	const file = join(code, 'package.json');
-	await writeFile(
-		file,
-		`${JSON.stringify({ ...(await Bun.file(file).json()), name }, null, 2)}\n`,
-	);
+	const add = defineAction({
+		description: 'Save a thought, quote, or link',
+		input: {
+			body: field.text({ pattern: '\\\\S', description: 'not blank' }),
+			kind: field.select(kinds, { optional: true }),
+			source: field.text({ optional: true }),
+			project: field.text({ optional: true }),
+		},
+		run: ({ body, kind = 'thought', source, project }) =>
+			data.notes.create(timeId(), { body, kind, source, project }),
+	});
+	const search = defineAction({
+		description: 'Find notes by their text, source, or project',
+		input: {
+			query: field.text({ optional: true }),
+			project: field.text({ optional: true }),
+		},
+		annotations: { readOnlyHint: true },
+		run: async ({ query = '', project }) => {
+			const notes = (await data.notes.list()).flatMap((row) => (row.data ? [row.data] : []));
+			return Ok(
+				notes.filter(
+					(note) =>
+						(project === undefined || note.project === project) &&
+						[note.body, note.source, note.project]
+							.join('\\n')
+							.toLowerCase()
+							.includes(query.toLowerCase()),
+				),
+			);
+		},
+	});
+	return {
+		description: 'A writing inbox',
+		data,
+		actions: { ...data.notes.actions('edit'), add, search },
+	};
+});
+`;
+
+/** Put the writing app in the Epicenter as `name`, with a page its own build makes. */
+async function take(f: Awaited<ReturnType<typeof fixture>>, name: string) {
+	await f.folder(join(f.apps, name, 'code'), {
+		'epicenter.ts': writingApp,
+		'package.json': `${JSON.stringify(
+			{
+				name,
+				private: true,
+				type: 'module',
+				scripts: { build: 'bun build ui/index.html --outdir ui/dist' },
+			},
+			null,
+			2,
+		)}\n`,
+		'ui/index.html':
+			'<!doctype html>\n<title>Writing</title>\n<p>Writing</p>\n',
+	});
 }
 
-test('the writing app copied as journal captures and finds text, sources, and projects', async () => {
+test('the writing app as journal captures and finds text, sources, and projects', async () => {
 	const f = await fixture();
 	try {
 		await take(f, 'journal');
