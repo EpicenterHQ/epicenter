@@ -139,9 +139,9 @@ elsewhere: recordings, arrivals in an inbox, received mail.
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
 in a personal app. Scheduling belongs to the home: a routine in `routines/`
-runs a command on a cron schedule while `serve` runs, and runs once to catch up
-after the home was off ([ADR-0908], [ADR-0937]). launchd or cron can call
-`epicenter <app> <action>` too.
+runs an action on a cron schedule while `serve` runs. A scheduled time that
+passes while `serve` is stopped does not run ([ADR-0908], [ADR-0937]). launchd
+or cron can call `epicenter <app> <action>` too.
 
 | You want | Reach for |
 | --- | --- |
@@ -381,7 +381,7 @@ Whispering is whole at rung 1.
 | Back up the home | Git and an optional private origin | never |
 | Reach | MCP | never |
 | An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
-| Run something later | a routine runs a command on a cron schedule | never |
+| Run something later | a routine runs an action on a cron schedule | never |
 
 ## Next, not yet, and never
 
