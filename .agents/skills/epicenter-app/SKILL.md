@@ -103,10 +103,10 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   things made in passing (Tasks and Writing name each new record with it). An
   id the caller gives suits things named by what they are (`data/words/<id>.md`
   for Vocab). An id is the file name without `.md`, as Node reads it: `''`,
-  `a/b`, `../x` and `x/` are refused with `Misfit`, quoting the id, since
-  Node would name the file something else. An id with `\`, a NUL byte, or
-  more characters than the system allows makes a write throw, and the action
-  answers `Threw`. Nothing else is refused: spaces, a leading dot, and
+  `a/b`, `../x`, `x/` and `a\b` are refused with `Misfit`, quoting the id,
+  since Node would name the file something else or the folder will not write
+  it. An id the system cannot store, one with a NUL byte or one too long,
+  makes a write throw, and the action answers `Threw`. Nothing else is refused: spaces, a leading dot, and
   control characters are part of the name, and no method or generated verb
   changes an id, so trim what a person typed before passing it. On a Mac's
   disk, case and Unicode form are not part of the name: `Dune` and `dune`

@@ -225,8 +225,9 @@ and `list` takes each file whose extension `parse` calls `.md`, with its name
 as the id. The two sides are one function, so every id `create` writes,
 `list` reads back. `''`, `a/b`, `../x`, and `x/` are refused, since Node would
 name the file otherwise; `.foo`, `..`, ` Dune`, and a decomposed `café` are
-ids. An id with `\`, which the folder refuses since Windows reads it as a
-separator, a NUL byte, or more than the system allows makes a write throw.
+ids. An id with `\` is refused the same way, by the folder's own path rule,
+since Windows reads `\` as a separator. An id with a NUL byte or more than
+the system allows makes a write throw.
 The `Misfit` no longer suggests a tidied id.
 
 **Every file directly in a key's folder whose extension is `.md` is a

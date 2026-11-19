@@ -137,13 +137,14 @@ reading, `list` takes each file whose extension `parse` calls `.md` and uses
 its name. So whatever `create` writes, `list` reads back as the same id.
 `2026-06-26-messi`, `.foo`, `..`, `café`, and `Dune ` with its trailing
 space are ids; `''`, `a/b`, `../x`, and `x/` are not, since Node would name
-the file something else. No method changes an id: one that names no file
-returns `Misfit` at the key's folder, quoting the id.
+the file something else, and neither is `a\b`, since the folder will not
+write a name with `\`, which Windows reads as a separator. No method changes
+an id: one that names no file returns `Misfit` at the key's folder, quoting
+the id, from every verb and in a ref.
 
-Three kinds of id make a write throw, and the action answers `Threw` with
-the folder's or Node's own message: an id with `\`, which Windows reads as a
-separator and the folder refuses; an id with a NUL byte; and an id longer
-than the system allows for a file name. None of them writes a file.
+An id the operating system cannot store as a file name, one with a NUL byte
+or one longer than the system allows, makes a write throw, and the action
+answers `Threw` with Node's own message. Neither writes a file.
 
 Spaces are part of the name, so an app trims what a person typed before it
 passes it on: `" Dune"` and `"Dune"` are two records. Case and Unicode form
@@ -826,9 +827,11 @@ cannot see are in the next section.
   send. A page that showed "send \"Dune\"" from it has nothing to show, and
   an agent that sends `"Dune\n"` or `" Dune"` now creates a second record
   beside `"Dune"` where 0.7.0 refused it with that hint.
-- An id with `\`, with a NUL byte, or longer than the system allows was a
-  `Misfit`; a write of one now throws, and the action answers `Threw` with
-  the folder's or Node's message.
+- An id with `\` is still refused with `Misfit`, now as "is not a file
+  name", the same as `a/b`.
+- An id with a NUL byte, or longer than the system allows, was a `Misfit`;
+  a write of one now throws, and the action answers `Threw` with Node's
+  message.
 - `list` returns every `.md` file directly in the key's folder, including
   names that start with a dot, such as `.draft.md`, which 0.7.0 skipped.
   On a USB or network drive a Mac may write `._name.md` beside each file;
