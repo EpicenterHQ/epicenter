@@ -1,7 +1,0 @@
-[install]
-# Pin the dependency linker so every machine and CI produce the same
-# node_modules layout, instead of leaving it to bun's default (which varies by
-# bun version, workspace setup, and lockfile configVersion). "isolated" is the
-# strict pnpm-style layout: a package can only import what it declares, so
-# phantom dependencies fail loudly instead of riding on accidental hoisting.
-linker = "isolated"

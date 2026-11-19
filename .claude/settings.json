@@ -1,4 +1,9 @@
 {
+	"attribution": {
+		"commit": "",
+		"pr": "",
+		"sessionUrl": false
+	},
 	"permissions": {
 		"deny": [
 			"Bash(git add -A*)",

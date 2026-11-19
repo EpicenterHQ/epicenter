@@ -20,7 +20,6 @@
 		"ignoreUnknown": true,
 		"includes": [
 			"**",
-			"!.conductor",
 			"!**/.svelte-kit",
 			"!**/.astro",
 			"!**/.plasmo",
@@ -29,9 +28,6 @@
 			"!**/dist",
 			// Generated benchmark browser bundles are evidence, not lintable source.
 			"!packages/app/evidence/data/browser/**/*.html",
-			"!package-lock.json",
-			"!pnpm-lock.yaml",
-			"!yarn.lock",
 			// Written by `tauri_specta` on every `cargo test`, which has no
 			// formatter hook. Formatting them made every Rust test run dirty
 			// two files it did not change, so the generator's output is the

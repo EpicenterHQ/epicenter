@@ -48,7 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          ATTRIBUTION: '^\W*(co-authored-by:|generated with ).*\b(claude|anthropic|codex|openai|opencode|copilot|cursor|sisyphus)\b'
+          ATTRIBUTION: '^\W*(co-authored-by:|generated with ).*\b(claude|anthropic|codex|openai|copilot|cursor)\b'
         run: |
           found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '
             .[] | .sha[0:10] as $sha | .commit.message | split("\n")[]

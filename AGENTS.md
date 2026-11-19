@@ -49,8 +49,6 @@ The suffix tells you whether a script touches production.
 
 Stage specific files only.
 
-Do not include AI or tool attribution in commits.
-
 ## Destructive actions need approval
 
 Force pushes, hard resets (`--hard`), branch deletions.
