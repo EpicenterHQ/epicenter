@@ -93,8 +93,9 @@ async run({ recheck = false }, update: Update<{ checked: number }>) {
 
 An app is a function of `Data` returning `{ description, actions }`. Its
 name is its key in `defineEpicenter({ apps })`, which refuses a name that
-is not lowercase letters, digits and dashes, starting with a letter. Its
-type refuses `serve`, the command's own word.
+is not lowercase letters, digits and dashes, starting with a letter, and
+`serve`, the command's own word. Serve runs the same checks on what
+`epicenter.ts` exports.
 
 ## The command and serve
 
@@ -264,3 +265,9 @@ a rule here in the same pull request as the code.
   answer, and a restart would hide the rest.
   Refused: `epicenter service` with a LaunchAgent; a parent process that
   restarts serve.
+- **MCP offers one tool per action and sends no instructions.** An agent
+  learns each tool from its action's description. A home's `AGENTS.md`
+  guides an agent working in the home's files, with steps an MCP client
+  cannot take, such as `bun install`; an agent working there reads it
+  itself.
+  Refused: sending `AGENTS.md` as MCP instructions.
