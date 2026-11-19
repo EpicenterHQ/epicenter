@@ -1,10 +1,9 @@
 # 0957. "Home" is retired: the folder is your Epicenter, and `root` in code
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** the vocabulary of [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md), [ADR-0936](0936-one-serve-per-home-runs-every-action.md), [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) and [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md). Their decisions stand; their titles keep the word they were written with.
 - **Relates:** [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md) (what the root header carries, and which way it travels).
-- **Unbuilt:** all of it. Identifiers, docs and the `x-epicenter-home` header still say "home".
 
 ## Context
 
@@ -49,10 +48,9 @@ only it.**
 - Once "Epicenter" names the folder, a message about the program names
   serve as its subject: `serve is not running` and `start it with epicenter
   serve`, not `Epicenter is not running for this home`
-  (`sendToServe` in `packages/app/src/command/send.ts`).
-- The root `package.json` is named `epicenter`. It is
-  private and never published, so the unrelated public `epicenter` package on
-  npm does not matter.
+  (`reach` in `packages/app/src/command/send.ts`).
+- The root `package.json` needs no name. It is private and never published,
+  so the unrelated public `epicenter` package on npm does not matter.
 - App, action, record, routine, `serve`, `apps/`, `code/`, `data/`, `local/`,
   `epicenter.ts`, `EPICENTER.md` and both package names are unchanged.
 

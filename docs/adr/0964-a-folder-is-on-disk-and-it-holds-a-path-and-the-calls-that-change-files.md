@@ -1,11 +1,10 @@
 # 0964. A folder is on disk, and it holds a path and the calls that change files
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at what `folder` is: it no longer has `read`, `list`, `update` or the bytes forms, and a test no longer gets one held in memory. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at the test host: its folder is on disk, as serve's is.
 - **Relates:** [ADR-0943](0943-epicenters-core-invariants.md) (rule 6: Epicenter does only what needs an app's declaration or the running serve; and the file change that needs no lock), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (an action may read any file with `node:fs`), [ADR-0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) (a data handle's `edit`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is handed its folder).
 <!-- doc-path-check: ignore-next-line (deleted when an app became a function of its folder, ADR-0960; deleted with the memory folder, ADR-0964; moved into packages/app/src/folder.ts, ADR-0964) -->
-- **Unbuilt:** All of it. `Folder` has `read`, `readBytes`, `list`, `update` and `writeBytes`; `edit`'s function must return a `value` (`EditFile` in `packages/app/src/context.ts`); `packages/app/src/memory.ts` exists and `createMemoryContext` is exported; `folderOnDisk` lives in `packages/cli/src/disk.ts`; `Folder.path` is optional.
 
 ## Context
 

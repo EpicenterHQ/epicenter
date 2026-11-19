@@ -1,9 +1,8 @@
 # 0965. The command finds its Epicenter by walking up, and serve starts in its folder
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
-- **Relates:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (the three-step lookup, edited to match), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (Bun loads `.env` from the folder a process starts in), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the owner's job starts serve), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (`epicenterDir()` becomes `rootFolder()`), [ADR-0943](0943-epicenters-core-invariants.md) (rule 1: your Epicenter is a folder).
-- **Unbuilt:** All of it. `epicenterDir` in `packages/app/src/command/root.ts` still falls back to `EPICENTER_ROOT` and then `~/Epicenter`, the help text in `packages/app/src/command/cli.ts` says so, and serve starts from any folder inside the Epicenter. The first thing to exist is an `epicenterDir` that returns the nearest folder at or above the working directory holding `EPICENTER.md`, or refuses.
+- **Relates:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (the three-step lookup, edited to match), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (Bun loads `.env` from the folder a process starts in), [ADR-0941](0941-epicenter-serve-is-a-program-you-keep-running.md) (the owner's job starts serve), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the function is `epicenterRoot()`), [ADR-0943](0943-epicenters-core-invariants.md) (rule 1: your Epicenter is a folder).
 
 ## Context
 
@@ -29,8 +28,7 @@ choose one.**
 - `EPICENTER_ROOT` and the `~/Epicenter` default go.
 - Outside any Epicenter the command refuses:
   `There is no EPICENTER.md here or above; cd into your Epicenter`.
-- Routine commands already start with the Epicenter's folder as their
-  working directory (`routines.ts`), so they find it the same way.
+- Routines are actions that serve runs, so they need no lookup of their own.
 
 **Serve starts in the Epicenter's folder.** `epicenter serve` run from a
 folder below the root, such as `apps/reading/`, refuses with

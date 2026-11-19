@@ -1,6 +1,6 @@
 # 0961. The command sends an action's input to serve, and serve alone reads it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at what the command does before it sends a call, and at how a call names its Epicenter. The command no longer loads the app or checks the input; it names the action by its words and sends the input as typed, and serve reads it. Serve no longer stamps its root's path on every answer; the command sends its path on the request. That an action runs only in serve, and that serve refuses a call meant for another Epicenter, are unchanged.
 - **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
@@ -48,9 +48,9 @@ the input.**
   makes, with the input's text as the body: the typed text, stdin's text for `-`, or `{}`
   when there is none. Serve finds the action, reads and checks the input,
   runs it, and answers. "No such action" and "this input does not fit" are
-  answers from serve, the same to a page, an agent and the command, and
-  they state the fact with no command line in them. The command adds the
-  terminal help: under "no such action" it lists the app's actions from the
+  answers from serve, the same to a page, an agent and the command. They
+  state the fact, and `next` may name a command to run, such as
+  `epicenter <app>`. The command adds the terminal help: under "no such action" it lists the app's actions from the
   listing.
 - **Help and listings.** `epicenter <app>`, `--help` on an action, and bare
   `epicenter` print from serve's listing. `--help` on an action the listing

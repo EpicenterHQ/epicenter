@@ -1,6 +1,6 @@
 # 0967. Serve keeps action calls outside an app's address, which is `/apps/<app>/`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "One route per action": the route is `POST /actions/<app>/<action>`, and the UI is at `/apps/<app>/`; its considered alternative "Move the UI and calls under `/apps/<app>/`" is taken. [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at the route the command posts to. [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) at the HTTP row of its answer table: a refusal is a 200 with one answer line. [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md) at the listing's address, now `GET /actions/`. ADR-0860, ADR-0864, ADR-0880 and ADR-0945 are Proposed and were edited in place.
 - **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md): `GET /` is no page; `/` answers only MCP's `POST`, and any other method 405.
@@ -54,7 +54,7 @@ GET  /apps/<app>                308 to /apps/<app>/
   `{"answer": {"data": null, "error": {"name": "NotStarted", ...}}}`. A
   reader no longer parses an error body: `readAnswer` reads any status but
   200 as `Unreachable`. A method other than `POST` under `/actions/<app>/`
-  answers 405, and so does one other than `GET` at `/actions/`.
+  answers 405, and so does one other than `GET` or `HEAD` at `/actions/`.
 - **The listing is `GET /actions/`.** `/` answers only MCP, so no `Accept`
   header decides what `/` answers.
 - **`/apps/<app>/` matches the folder `apps/<app>/`.** The address has no

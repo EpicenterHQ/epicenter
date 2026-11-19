@@ -1,7 +1,8 @@
 # 0969. The repository ships no apps
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
+- **Supersedes:** [ADR-0912](0912-shared-app-code-comes-from-the-app-we-maintain.md).
 - **Relates:** [ADR-0912](0912-shared-app-code-comes-from-the-app-we-maintain.md) and [ADR-0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md), which name `examples/writing/` as where shared app code is exported to and copied from; that folder no longer exists.
 
 ## Context

@@ -1,6 +1,6 @@
 # 0956. Bare `epicenter` reports apps and routines, and Git reports the repository
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 - **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) at "Bare `epicenter` reports" ("and one line from Git: how long ago the last commit was, how many files are uncommitted, how many commits are not on origin, and any Git repository nested under `apps/`"), and at the consequences "bare `epicenter` is where that shows" and "Bare `epicenter` names it": the report has no Git line, and `git status -sb` shows the same facts.
 

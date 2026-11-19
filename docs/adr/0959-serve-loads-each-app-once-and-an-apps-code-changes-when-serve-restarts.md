@@ -1,6 +1,6 @@
 # 0959. Serve loads each app once, and an app's code changes when serve restarts
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
 - **Amended:** 2026-11-18: built without the changed-code line in the listing, by the owner's choice; his `AGENTS.md` carries his restart command instead. Routines became actions run inside serve ([ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md)), so there is no routine command, process group or wait on stop. A stop cuts what is running.
 - **Amends:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) at one consequence: an edit to an app's own code no longer shows on the next call. It shows after serve restarts, as a changed package already does.

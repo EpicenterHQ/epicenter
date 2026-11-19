@@ -1,8 +1,8 @@
 # 0945. An app may answer web requests at its address with `fetch`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
-- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md): the launcher is deleted, so nothing lists apps with a built page.
+- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md): the launcher is deleted; serve's start message names each app with a built page.
 - **Relates:** [ADR-0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (an app's address is `/apps/<app>/`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is a function of its folder), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when an app is loaded), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a page calls actions).
 
 ## Context
@@ -81,10 +81,10 @@ agent should be able to do is an action.** The command line and MCP do not
 list `fetch` routes, their input is not checked, and their answers are not
 Results, and the listing does not say which apps have `fetch`.
 
-**Serve does not guess which apps have a page.** An app with no build step
-can still answer its page from `fetch` at `/apps/<app>/`. (The launcher that
-listed only apps with a built `code/ui/dist/index.html` is deleted, per
-ADR-0961.)
+**Serve names only apps with a built page.** Its start message lists each app
+with a `code/ui/dist/index.html`. An app with no build step can still answer
+its page from `fetch` at `/apps/<app>/`; serve does not guess that it does.
+(The launcher is deleted, per ADR-0961.)
 
 **Serve refuses a request from another origin unless it opens a page.**
 Before any route, serve reads the `Sec-Fetch-*` headers a browser sends
@@ -114,7 +114,7 @@ removed, so an app does not send that header. Giving each app its own origin wou
 **An OAuth callback checks `state`.** Serve allows any site's top-level
 `GET`, so another site can send the browser to a callback with its own
 `code`. The app writes `state` to a file when it starts the sign-in and
-compares it in the callback; memory does not last between requests.
+compares it in the callback; memory does not last past a restart of serve.
 
 ## Consequences
 
@@ -123,13 +123,8 @@ compares it in the callback; memory does not last between requests.
 - Live updates are a response that streams, such as server-sent events from a
   `fetch` that watches the app's `data/` folder. That sees every writer,
   including a person, an editor and Git, which `publish` did not.
-- Loading per request costs an import of the app's files and a call of its
-  function, about 0.2 ms for the Tasks example, plus whatever `fetch` builds,
-  such as a Hono router. Each load also leaves memory behind, about 15 KB for
-  Tasks (ADR-0880 measured 8 MB over 300 reloads of a larger app). A page of
-  fifty images is fifty loads. An app that serves many requests, such as
-  media, waits for ADR-0959. Nothing an app keeps in memory survives from one
-  request to the next until then.
+- Serve loads each app once, when it starts (ADR-0959), so `fetch` is the
+  loaded app's and what an app keeps in memory lasts until serve stops.
 - A cross-site `POST` navigation is refused, by the `Origin` check as before.
   An OAuth provider that answers with `response_mode=form_post` cannot reach
   an app.
