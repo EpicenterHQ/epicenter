@@ -21,6 +21,50 @@ prefix_rule(
     not_match = ["git add scripts/clean.ts", "git add -- .gitignore"],
 )
 
+# `-u` and `-a` stage every tracked change, with the same effect as `git add -A`.
+prefix_rule(
+    pattern = ["git", "add", ["-u", "--update"]],
+    decision = "forbidden",
+    justification = "Stage files by name. `git add -u` takes every tracked change in the checkout.",
+    match = ["git add -u", "git add --update"],
+    not_match = ["git add scripts/clean.ts"],
+)
+
+prefix_rule(
+    pattern = ["git", "commit", ["-a", "-am", "--all"]],
+    decision = "forbidden",
+    justification = "Stage files by name. `git commit -a` commits every tracked change in the checkout.",
+    match = ["git commit -a", "git commit -am msg", "git commit --all"],
+    not_match = ["git commit -m msg", "git commit --amend"],
+)
+
+# The stash is shared across worktrees, so a push, pop or apply can take
+# another session's entry. A bare `git stash` cannot be matched here: a prefix
+# rule would also catch `git stash list`.
+prefix_rule(
+    pattern = ["git", "stash", ["push", "pop", "apply"]],
+    decision = "prompt",
+    justification = "The stash is shared across worktrees; commit to a branch instead.",
+    match = ["git stash push -m tag", "git stash pop", "git stash apply stash@{1}"],
+    not_match = ["git stash list", "git stash show"],
+)
+
+prefix_rule(
+    pattern = ["git", "restore"],
+    decision = "prompt",
+    justification = "Restoring files discards uncommitted work.",
+    match = ["git restore file.ts", "git restore --staged file.ts"],
+    not_match = ["git status"],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "merge", "--admin"],
+    decision = "prompt",
+    justification = "Bypassing branch protection is the person's decision.",
+    match = ["gh pr merge --admin"],
+    not_match = ["gh pr merge --merge"],
+)
+
 # History and branches other people may depend on.
 prefix_rule(
     pattern = ["git", "push", ["--force", "-f", "--force-with-lease", "--delete", "-d"]],
