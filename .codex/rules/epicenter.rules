@@ -38,33 +38,6 @@ prefix_rule(
     not_match = ["git commit -m msg", "git commit --amend"],
 )
 
-# The stash is shared across worktrees, so a push, pop or apply can take
-# another session's entry. A bare `git stash` cannot be matched here: a prefix
-# rule would also catch `git stash list`.
-prefix_rule(
-    pattern = ["git", "stash", ["push", "pop", "apply"]],
-    decision = "prompt",
-    justification = "The stash is shared across worktrees; commit to a branch instead.",
-    match = ["git stash push -m tag", "git stash pop", "git stash apply stash@{1}"],
-    not_match = ["git stash list", "git stash show"],
-)
-
-prefix_rule(
-    pattern = ["git", "restore"],
-    decision = "prompt",
-    justification = "Restoring files discards uncommitted work.",
-    match = ["git restore file.ts", "git restore --staged file.ts"],
-    not_match = ["git status"],
-)
-
-prefix_rule(
-    pattern = ["gh", "pr", "merge", "--admin"],
-    decision = "prompt",
-    justification = "Bypassing branch protection is the person's decision.",
-    match = ["gh pr merge --admin"],
-    not_match = ["gh pr merge --merge"],
-)
-
 # History and branches other people may depend on.
 prefix_rule(
     pattern = ["git", "push", ["--force", "-f", "--force-with-lease", "--delete", "-d"]],
@@ -107,11 +80,11 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["git", "stash", ["drop", "clear"]],
+    pattern = ["git", "stash", ["pop", "drop", "clear"]],
     decision = "prompt",
-    justification = "The stash is shared across worktrees; dropping from it needs the person's approval.",
-    match = ["git stash drop", "git stash clear", "git stash drop stash@{1}"],
-    not_match = ["git stash list", "git stash push -m tag"],
+    justification = "The stash is shared across worktrees; popping or dropping from it needs the person's approval.",
+    match = ["git stash pop", "git stash drop", "git stash clear", "git stash drop stash@{1}"],
+    not_match = ["git stash list", "git stash show"],
 )
 
 prefix_rule(

@@ -48,17 +48,9 @@ The suffix tells you whether a script touches production.
 ## Git hygiene
 
 Stage specific files by name, never `git add -A` or `git commit -a`: other
-sessions share the checkout. Commits use Conventional Commits and the body says
-why; `standalone-commits` shapes them. Instruction and skill changes get their
-own commits, so they can be cherry-picked onto local `main`.
-
-Several agent harnesses keep worktrees of this repository at once:
-
-- Verify `HEAD` (`git rev-parse --abbrev-ref HEAD`) before committing; a handoff
-  may name a branch that does not exist.
-- `git stash` is shared across worktrees. Commit to a branch instead.
-- Before opening a PR, run `git diff --stat origin/main...HEAD` and confirm the
-  scope: a branch cut from whatever was checked out carries unmerged work.
+sessions share the checkout. `git stash` is shared across worktrees, so commit to
+a branch instead. Instruction and skill changes get their own commits, so they
+can be cherry-picked onto local `main`.
 
 ## Destructive actions need approval
 

@@ -13,7 +13,7 @@ A pull request body explains why the change should exist and why it takes this s
 
 Name what the change removes or costs, and why that is acceptable. Write in the first person, as the author explaining the change.
 
-Build a readable rhythm of explanation and concrete things the reader can inspect. Use code to show behavior, diagrams to expose relationships, and tables to make comparisons visible. Let these carry part of the explanation so the reader has less to hold in their head. Give each visual enough context to read it, then explain what follows from it.
+Build a readable rhythm of explanation and concrete things the reader can inspect. Use code to show behavior, diagrams to expose relationships, and tables to make comparisons visible. Let these carry part of the explanation so the reader has less to hold in their head. Pick the lightest form that carries the relationship (a before and after block, an indented tree, a small table); reserve boxes for genuine multi-box architecture. Give each visual enough context to read it, then explain what follows from it.
 
 Let the change determine the body’s shape and length. A small fix may need two sentences. An ownership change may need a diagram and its rationale. A breaking API change needs old and new usage with migration guidance. End when the reader has enough context to understand and judge the change.
 
