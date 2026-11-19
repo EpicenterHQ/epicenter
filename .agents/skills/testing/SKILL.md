@@ -96,7 +96,7 @@ Two distinct file extensions, two distinct purposes:
   tests such as `*.types.test.ts` need no runtime assertion; include them in
   the package's typecheck. Passing runtime tests do not verify type assertions.
 - **`*.bench.ts`** : measures and reports. Prints tables, timings, or
-  storage sizes. Runs under `bun bench` only. No assertions required
+  storage sizes. Run it directly with `bun <file>`; no root script runs benchmarks. No assertions required
   (perf thresholds on shared hardware flake; prefer visual trends).
 
 A single file is one or the other, never both. Benchmarks live under

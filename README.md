@@ -191,14 +191,13 @@ cd epicenter
 bun install
 ```
 
-Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is `bun dev:whispering`, and `bun run` with no arguments lists every target.
+Every app starts from the repo root. `bun dev:<app>` runs that app's dev server, and `bun run` with no arguments lists every target.
 
 | Command | Starts | App port |
 | --- | --- | --- |
-| `bun dev:api` | Hosted API worker alone | 8787 |
-| `bun dev:landing` | Landing site, standalone | 4321 |
-
-`bun dev:whispering` runs Whispering in a browser tab.
+| `bun dev:whispering` | Whispering in a browser tab | 1420 |
+| `bun dev:api` | Hosted API worker | 8787 |
+| `bun dev:landing` | Landing site | 4321 |
 
 The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Whispering's desktop build.
 
