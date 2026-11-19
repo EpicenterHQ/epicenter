@@ -1,8 +1,8 @@
 /**
  * What serve loads when it starts, once: the home's `epicenter.ts`. The
- * whole program loads or none of it does: a module that throws, or a
- * name serve refuses (`programProblems`), leaves serve with no
- * apps and that one problem. To run changed code, restart serve.
+ * whole program loads or none of it does: a module that throws, or
+ * anything serve refuses (`programProblems`), leaves serve with no apps and
+ * that one problem. To run changed code, restart serve.
  */
 import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';

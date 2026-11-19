@@ -96,8 +96,11 @@ An app is a function of `Data` returning `{ description, actions }`. Its
 name is its key in `defineEpicenter({ apps })`. Serve refuses an app or
 action name that is not lowercase letters, digits and dashes, starting
 with a letter, since an MCP tool is `<app>_<action>`; the type refuses an
-app named `serve`, the command's own word. An action whose `run` returns
-something other than a Result answers `Threw`. Add `mcp: false` to an
+app named `serve`, the command's own word. Serve also refuses an input
+schema that does not compile, such as a raw `pattern` that is not a regular
+expression, so the input check cannot fail a call. An action whose `run`
+returns something other than a Result, or data JSON cannot carry, answers
+`Threw`. Add `mcp: false` to an
 action an agent must not call through MCP, such as one that sends as you.
 
 ## The command and serve
@@ -127,7 +130,9 @@ throws on import leaves serve answering that one problem with no apps.
 An answer's error names whether the action ran: `NotStarted` (it never
 began), `Threw` (it began and threw), `Unreachable` (the outcome is
 unknown), or the action's own error. A request serve refuses, and a
-serve that is not running, is `NotStarted`. The command exits 0 for success, 2
+serve that is not running, is `NotStarted`. Every call over the route and
+MCP ends in one answer; a command that fails where it cannot tell whether
+serve ran the action answers `Unreachable`. The command exits 0 for success, 2
 for `NotStarted` and 1 otherwise.
 
 ## A page's client
