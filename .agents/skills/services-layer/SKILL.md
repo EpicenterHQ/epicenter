@@ -156,27 +156,6 @@ Use ordinary functions or a plain object when no instance construction is
 needed. Do not introduce a factory solely to satisfy a naming convention.
 
 Follow [TypeScript guidance](../typescript/SKILL.md) for factory signatures,
-internal functions, returned methods, and public types. See
-[service implementation patterns](references/service-implementation-pattern.md)
-for the plain-object and lifecycle examples.
+internal functions, returned methods, and public types.
 
-## Example: recording into an app's audio store
-
-Whispering composes a recording service from the audio store its pages use
-and a recorder implementation:
-
-```typescript
-const recorder = createMicrophoneDevice({
-	files: folder.audio,
-	recorder: microphone,
-});
-```
-
-The caller supplies the resources. The service starts recordings and returns
-sessions whose `stop` operation finishes that specific recording. Its expected
-failures return Results. The UI decides how to display recording state and
-respond to a failure.
-
-See [Whispering's platform services](references/service-organization-platforms.md)
-when changing its browser or desktop implementations, and
-[platform seams](../platform-seams/SKILL.md) for implementation selection.
+For Whispering's browser and desktop implementations, see [platform seams](../platform-seams/SKILL.md).
