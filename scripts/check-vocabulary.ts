@@ -100,7 +100,7 @@ const RULES: readonly Rule[] = [
 		scope: [
 			'apps/whispering/',
 			'.agents/skills/svelte/',
-			'.agents/skills/collapse-pass/',
+			'.agents/skills/code-collapse/',
 			'docs/CONTEXT.md',
 			'docs/architecture.md',
 			'README.md',

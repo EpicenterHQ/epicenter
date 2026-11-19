@@ -8,7 +8,7 @@
 			"anchors": ["clean up", "ship it"],
 			"expect": "post-implementation-review",
 			"forbid": [],
-			"why": "Historical expectation before code simplification moved to collapse-pass: no description claims 'clean up' or 'ship it'. AGENTS.md routes a user request to clean up into post-implementation-review, so the gate is the only signal pointing anywhere. Passing means an always-on sentence can route a phrase the description layer left orphaned; failing means it cannot."
+			"why": "Historical expectation before code simplification moved to code-collapse: no description claims 'clean up' or 'ship it'. AGENTS.md routes a user request to clean up into post-implementation-review, so the gate is the only signal pointing anywhere. Passing means an always-on sentence can route a phrase the description layer left orphaned; failing means it cannot."
 		},
 		{
 			"id": "gate-orphan-challenge",
@@ -52,7 +52,7 @@
 			"prompt": "Clean up the stale temp files in my downloads folder.",
 			"anchors": ["clean up"],
 			"expect": null,
-			"forbid": ["post-implementation-review", "collapse-pass"],
+			"forbid": ["post-implementation-review", "code-collapse"],
 			"why": "The cost side of an always-on gate. 'clean up' is ordinary English, and a gate that routes it unconditionally over-triggers on a request that touches no code. A gate strong enough to pass gate-orphan-clean-up and weak enough to pass this one is the only version worth keeping."
 		},
 		{
