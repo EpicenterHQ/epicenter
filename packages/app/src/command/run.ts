@@ -17,7 +17,7 @@
 import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, trySync } from 'wellcrafted/result';
+import { Err, tryAsync, trySync } from 'wellcrafted/result';
 import {
 	ActionError,
 	type Answer,
@@ -73,33 +73,12 @@ export async function answerCall(
 			next: `epicenter ${app}`,
 		});
 	const started = performance.now();
-	const answer: Answer = await Promise.resolve()
-		.then(() => run(input, { onUpdate }))
-		.then((result) => {
-			if (!isResult(result))
-				return ActionError.Threw({
-					message: `The action "${action}" must return Ok(data) or Err(error)`,
-				});
-			const { data, error } = result;
-			if (error && PLATFORM_NAMES.includes(error.name))
-				return ActionError.Threw({
-					message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
-				});
-			// JSON's own copy, so every surface sends the same answer: undefined
-			// is null, and a cycle or a BigInt is Threw.
-			const { data: copy, error: notJson } = trySync({
-				try: () =>
-					JSON.parse(JSON.stringify({ data: data ?? null, error })) as Answer,
-				catch: (cause) =>
-					Err(
-						`The action "${action}" returned what JSON cannot carry: ${extractErrorMessage(cause)}`,
-					),
-			});
-			return notJson === null ? copy : ActionError.Threw({ message: notJson });
-		})
-		.catch((cause) =>
+	const ran = await tryAsync({
+		try: () => run(input, { onUpdate }),
+		catch: (cause) =>
 			ActionError.Threw({ message: extractErrorMessage(cause) }),
-		);
+	});
+	const answer = ran.error === null ? answerOf(action, ran.data) : ran;
 	// The logger catches a sink that throws, so the record cannot change the answer.
 	runLog.info('action run ended', {
 		app,
@@ -110,6 +89,32 @@ export async function answerCall(
 			: { outcome: 'error', error: answer.error.name }),
 	});
 	return answer;
+}
+
+/**
+ * What `run` returned, as the answer every surface sends: JSON's own copy,
+ * so undefined is null. A value that is not a Result, a name only Epicenter
+ * answers, or data JSON cannot carry, such as a cycle or a BigInt, is Threw.
+ */
+function answerOf(action: string, returned: unknown): Answer {
+	if (!isResult(returned))
+		return ActionError.Threw({
+			message: `The action "${action}" must return Ok(data) or Err(error)`,
+		});
+	const { data, error } = returned;
+	if (error && PLATFORM_NAMES.includes(error.name))
+		return ActionError.Threw({
+			message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
+		});
+	const { data: copy, error: notJson } = trySync({
+		try: () =>
+			JSON.parse(JSON.stringify({ data: data ?? null, error })) as Answer,
+		catch: (cause) =>
+			ActionError.Threw({
+				message: `The action "${action}" returned what JSON cannot carry: ${extractErrorMessage(cause)}`,
+			}),
+	});
+	return notJson === null ? copy : Err(notJson);
 }
 
 /**
