@@ -31,28 +31,16 @@ takes almost none, because startup already knows how.
   let startup make a new one.
 
 Restart only where shutdown can finish pending work and startup can recover
-what must survive. When it changes what the person experiences, such as an
-editor window that can no longer switch folders, develop the choice with
-them in
-[product-collapse](../product-collapse/SKILL.md) unless it is already
-settled.
-
-## Understand the work
-
-Start from what the person or caller needs to accomplish. Read the
-relevant code and the code that uses it. Build on what the user has
-already decided. Ask when an unresolved purpose or tradeoff would
-change the work.
-
-Follow connected evidence when it points to a shared cause. Explain the
-connection before editing beyond the starting area.
+what must survive.
 
 ## Find what makes the work necessary
 
 Look for information kept in several places, repeated decisions,
 forwarding layers, and rules that need another exception for each new
 case. Include the fixes already made, including your own. A workaround
-may reveal a better design even before the same problem recurs.
+may reveal a better design even before the same problem recurs. Follow
+evidence that points to a shared cause, and explain the connection before
+editing beyond the starting area.
 
 Searches for maps, registries, flags, caches, retries, adapters, and
 compatibility paths can help you find these places. Use the
@@ -71,11 +59,8 @@ today. Look beyond making the existing pieces tidier:
   same information through several layers?
 - Could a different workflow make an entire subsystem unnecessary?
 
-Develop the alternative far enough to show how it works. Use realistic
-caller code, an interaction, or a data flow. Try it on the awkward cases
-as well as the ordinary ones. Use the
-[concept inventory](references/concept-inventory.md) when showing the
-current and proposed parts would help someone judge the change.
+Use the [concept inventory](references/concept-inventory.md) when showing
+the current and proposed parts would help someone judge the change.
 
 If the alternative keeps needing exceptions, reconsider how you have
 divided the work. Keep the current design when it handles real needs
@@ -144,9 +129,6 @@ have checked what it still protects (see the section above).
 
 ## Carry the change through
 
-Establish the starting state so your changes remain distinguishable from
-existing edits.
-
 An implementation pass authorizes routine simplifications within its
 scope. Make those changes without asking about each one. Give short
 updates explaining meaningful findings and changes in direction.
@@ -156,10 +138,9 @@ When a simpler design would change a product promise, use
 with the user; its asymmetric wins section covers judging whether giving
 up one small promise would remove much larger complexity.
 
-Carry settled decisions forward. Bring back consequential choices that
-exceed existing authorization, including changes to stored formats or
-externally consumed contracts. Do not ask again merely because files
-merge or an internal signature changes.
+Bring back choices that exceed existing authorization, including changes
+to stored formats or externally consumed contracts. Do not ask again merely
+because files merge or an internal signature changes.
 
 Implement the connected change through its affected callers. Moving a
 guarantee must not leave an old path that silently loses it. Use
@@ -174,9 +155,7 @@ contracts. Applied migrations are durable history. Read
 [durable contracts](references/durable-contracts.md) when changing storage,
 sync, auth, or public contracts.
 
-Verify external library behavior against official documentation or
-installed types when correctness depends on it. Read
-[library refusal](references/library-refusal.md) before reshaping or
+Read [library refusal](references/library-refusal.md) before reshaping or
 reimplementing a library's public surface.
 
 Use [refactoring methods](references/refactoring-methods.md) for local
@@ -184,32 +163,18 @@ techniques and leftover-reference cleanup. Remove obsolete exports,
 comments, tests, and documentation with the replacement. Preserve
 coverage for behavior that remains.
 
-Run checks appropriate to the changed behavior. Resolve failures or
-report them with evidence; do not blame the baseline without checking.
-Fix regressions introduced by the pass before moving to unrelated work.
 Review the cumulative result with
 [post-implementation-review](../post-implementation-review/SKILL.md).
-
-If a change no longer earns its place when reread, undo only that change
-while preserving unrelated and unsaved work.
 
 ## Look again, then stop
 
 After a fix works, consider the whole again. Knowing what you know now,
-would you choose these parts and this division of work?
-
-“Another pass” starts from that reassessment. The user's settled intent
-carries forward; earlier implementation choices remain open to question.
-Use previous findings and rejected ideas to choose new places to look.
-Revisit a rejected idea when new evidence changes its justification.
-
-Continue through the relevant subsystem while convincing opportunities
-remain. A few unproductive files are a reason to change the search, not
-an automatic stopping rule.
-
-Stop when further investigation yields no convincing simplification,
-the remaining work needs a consequential decision, or an explicit budget
-is reached. Do not manufacture changes to make a pass look productive.
+would you choose these parts and this division of work? "Another pass"
+starts from that question: the user's settled intent carries forward, and
+earlier implementation choices stay open. Keep going while convincing
+opportunities remain. Stop when there are none, when the remaining work
+needs a consequential decision, or when a budget is reached. Do not
+manufacture changes to make a pass look productive.
 
 Report what caused the extra work, what replaced it, what disappeared,
 what was verified, and any remaining decisions. Use
