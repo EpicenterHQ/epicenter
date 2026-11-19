@@ -10,7 +10,8 @@
 	import * as Select from '@epicenter/ui/select';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { dictation } from '#lib/dictation.svelte.ts';
-	import { HEARD, type Input, recorder } from '#lib/recorder.ts';
+	import { recorder } from '#lib/platform.ts';
+	import { HEARD, type Input } from '#lib/recorder/recorder.ts';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
 	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';

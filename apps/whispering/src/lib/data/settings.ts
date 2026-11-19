@@ -12,7 +12,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
-import { files } from '../files';
+import { files } from '../platform';
 import { readServer, type Server } from '../transcription-server';
 
 const PATH = 'settings.json';

@@ -6,16 +6,15 @@
  */
 import { timeId } from '@epicenter/app/time';
 import { toastOnError } from '@epicenter/ui/toast-on-error';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { SvelteSet } from 'svelte/reactivity';
 import { toast } from 'svelte-sonner';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { runMutation, runQuery } from 'wellcrafted/query';
 import { tryAsync } from 'wellcrafted/result';
 import { goto } from '$app/navigation';
+import { copyText, recorder, transcription } from './platform';
 import { queryClient, recordingsMutations, settingsQueries } from './queries';
-import { type EndedReason, HEARD, recorder } from './recorder';
-import { transcription } from './transcription';
+import { type EndedReason, HEARD } from './recorder/recorder';
 
 type Status =
 	| { kind: 'idle' }
@@ -156,7 +155,7 @@ function createDictation() {
 		if (saved.error)
 			return toastOnError(saved, 'Could not save the transcript');
 		const copied = await tryAsync({
-			try: () => writeText(text),
+			try: () => copyText(text),
 			catch: (cause) => DictationError.CopyFailed({ cause }),
 		});
 		if (copied.error)

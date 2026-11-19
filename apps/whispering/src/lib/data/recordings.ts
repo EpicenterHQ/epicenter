@@ -17,7 +17,7 @@ import {
 } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import { recordedAt } from '../feed';
-import { files } from '../files';
+import { files } from '../platform';
 
 const DIR = 'recordings';
 /** The extensions a recording's audio may have. */

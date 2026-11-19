@@ -1,12 +1,8 @@
 /**
- * The native recorder (`tauri-plugin-epicenter-recorder`). It writes
- * `recordings/<id>.webm` in the app's local data directory a second at a
- * time, so a crash keeps the audio up to the cut. It also lists the
- * microphones and opens a meter on one, for choosing one in settings.
- *
- * A microphone is named by the id `inputs` lists it under; `null` is the
- * system default. A microphone that is not connected is refused, never
- * swapped for another.
+ * The recorder in the desktop app: the native recorder plugin
+ * (`tauri-plugin-epicenter-recorder`). It writes `recordings/<id>.webm` in
+ * the app's local data directory a second at a time, so a crash keeps the
+ * audio up to the cut.
  */
 import {
 	commands,
@@ -15,15 +11,7 @@ import {
 } from '@epicenter/recorder/native';
 import { Channel } from '@tauri-apps/api/core';
 import { appLocalDataDir } from '@tauri-apps/api/path';
-
-export type { EndedReason, Input } from '@epicenter/recorder/native';
-
-/**
- * A level above this is sound. A microphone that sends nothing louder (a
- * muted one, or one that sends digital silence, about -91 dB) is worth
- * pointing out.
- */
-export const HEARD = 0.0005;
+import type { Recorder } from './recorder';
 
 /** A channel that hands each level the recorder sends to `onLevel`, and anything else to `onOther`. */
 function levelChannel(
@@ -40,7 +28,7 @@ function levelChannel(
 	return channel;
 }
 
-export const recorder = {
+export const nativeRecorder: Recorder = {
 	/**
 	 * Start recording `id` from `device`. `onLevel` hears its level, from 0 to
 	 * 1, about twenty times a second while it captures. `onEnded` hears a

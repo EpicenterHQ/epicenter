@@ -2,7 +2,8 @@
 	The transcription server: one form, one Save. A preset only fills the
 	fields. There is no Test button: the next recording is the test.
 
-	The API key goes to the Keychain through Rust and is never read back; when
+	The API key is kept where `transcription` keeps it (the Keychain on the
+	desktop, the browser's storage in a browser) and is never read back; when
 	one is kept for the address's server, the field says so instead.
 -->
 <script lang="ts">
@@ -17,7 +18,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
 	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
-	import { transcription } from '#lib/transcription.ts';
+	import { transcription } from '#lib/platform.ts';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import RecordingBar from '../RecordingBar.svelte';
 	import MicrophoneSettings from './MicrophoneSettings.svelte';
@@ -40,7 +41,7 @@
 		triedToSave && !model.trim() ? 'Enter the model the server should use.' : undefined,
 	);
 
-	/** Whether the Keychain holds a key for `origin`'s server; asked again when the origin changes. */
+	/** Whether a key is kept for `origin`'s server; asked again when the origin changes. */
 	let keySaved = $state(false);
 	$effect(() => {
 		const asked = origin;
@@ -159,7 +160,7 @@
 							bind:value={key}
 						/>
 						<Field.Description>
-							Kept in the macOS Keychain for this server.
+							Kept in {transcription.keyKeptIn} for this server.
 							{#if keySaved}
 								<Button variant="link" size="sm" class="h-auto p-0" onclick={forgetKey}>
 									Remove the saved key
