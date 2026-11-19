@@ -70,7 +70,7 @@ async function reach(
 	if (response.status === 413)
 		return ActionError.NotStarted({
 			cause: 'usage',
-			message: 'The input is larger than serve takes',
+			message: 'The input is larger than 25 MiB, the most serve takes',
 		});
 	// No probe: what answered may be an older serve or another program.
 	return ActionError.Unreachable({

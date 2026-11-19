@@ -388,7 +388,7 @@ test('a command naming another Epicenter gets 409, runs nothing, and names the f
 		status = 413;
 		expect(await f.run('notes', 'write', '{"page":"monday"}')).toMatchObject({
 			code: 2,
-			stderr: 'The input is larger than serve takes\n',
+			stderr: 'The input is larger than 25 MiB, the most serve takes\n',
 		});
 	} finally {
 		await other.stop(true);
