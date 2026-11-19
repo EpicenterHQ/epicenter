@@ -156,15 +156,6 @@ export const field = {
 	 */
 	text: <const O extends Options & { pattern?: string }>(options?: O) => {
 		only('text', options, [...OPTIONS, 'pattern']);
-		// TypeBox compiles a pattern with the `u` flag on every check.
-		if (options?.pattern !== undefined)
-			try {
-				new RegExp(options.pattern, 'u');
-			} catch {
-				throw new Error(
-					`field.text's pattern ${JSON.stringify(options.pattern)} is not a regular expression`,
-				);
-			}
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),

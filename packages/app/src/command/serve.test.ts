@@ -133,13 +133,18 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 			'word must be text matching \\S (not blank)',
 		],
 		['/actions/writing/tag', '{"word":"a","meta":{"n":"x"}}', 'meta: '],
-		['/actions/writing/odd', '{"code":"x"}', 'could not be checked'],
 	] as const) {
 		const [line] = await lines(await request(path, post(body)));
 		expect(line.answer.error.name).toBe('NotStarted');
 		expect(line.answer.error.message).toContain(message);
 	}
 	expect(await readdir(folder)).toEqual([]);
+	// A throw before the answer still ends the stream with one.
+	const [odd] = await lines(
+		await request('/actions/writing/odd', post('{"code":"x"}')),
+	);
+	expect(odd.answer.error.name).toBe('Threw');
+	expect(odd.answer.error.message).toContain('Invalid regular expression');
 });
 
 test('a throw is Threw, and a reserved name an action returns is Threw too', async () => {

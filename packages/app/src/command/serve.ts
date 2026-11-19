@@ -86,7 +86,8 @@ const methodNotAllowed = (allow: string) =>
 
 /**
  * A call's response: each update `answering` sends, then its answer, as JSON
- * lines. A call refused before it began is the answer line alone. Updates
+ * lines, and always the answer. A call refused before it began is the answer
+ * line alone. Updates
  * wait in order for a slow caller, and are dropped once it is gone.
  */
 function streamCall(
@@ -112,12 +113,18 @@ function streamCall(
 					listening = false;
 				}
 			};
-			void answering((update) => send({ update: update ?? null })).then(
-				(answer) => {
+			// Every stream ends with an answer: a throw anywhere before it is
+			// Threw, since serve cannot say how far the call got.
+			void Promise.resolve()
+				.then(() => answering((update) => send({ update: update ?? null })))
+				.catch((cause: unknown) => {
+					serveLog.error(ServeError.Unanswered({ cause }).error);
+					return ActionError.Threw({ message: extractErrorMessage(cause) });
+				})
+				.then((answer) => {
 					send({ answer });
 					if (listening) controller.close();
-				},
-			);
+				});
 		},
 		cancel() {
 			listening = false;

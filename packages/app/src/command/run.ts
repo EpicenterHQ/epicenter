@@ -16,7 +16,7 @@
 import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, trySync } from 'wellcrafted/result';
+import { Ok, trySync } from 'wellcrafted/result';
 import {
 	ActionError,
 	type Answer,
@@ -60,16 +60,7 @@ export async function answerCall(
 			next: `epicenter ${app}`,
 		});
 	}
-	// A schema can throw while checking, such as a raw TypeBox pattern that is
-	// not a regular expression; the action has not begun, so that is NotStarted.
-	const { data: problem, error: unchecked } = trySync({
-		try: () => inputProblem(run.input, input),
-		catch: (cause) => Err(extractErrorMessage(cause)),
-	});
-	if (unchecked !== null)
-		return ActionError.NotStarted({
-			message: `The input of ${app} ${action} could not be checked: ${unchecked}`,
-		});
+	const problem = inputProblem(run.input, input);
 	if (problem !== undefined)
 		return ActionError.NotStarted({
 			message: problem,
