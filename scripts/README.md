@@ -29,8 +29,8 @@ checks. Both are scripts here that call other root scripts in order.
 ## Adding a script
 
 1. Write `scripts/<name>.ts` with a `#!/usr/bin/env bun` line and a one-line
-   comment saying what it does. Chain other commands with `runSteps` from
-   `run-steps.ts`.
+   comment saying what it does. Chain commands with Bun's shell
+   (`await $\`bun run thing\``), which stops the script at the first failure.
 2. Add one root entry that runs it: `"check:thing": "bun run scripts/check-thing.ts"`.
 3. Put a `*.test.ts` beside it if it has logic worth testing. The root `test`
    script picks up `scripts/*.test.ts`.
