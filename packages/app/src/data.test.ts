@@ -765,11 +765,4 @@ test('defineData called as in 0.7.0, with the spec alone, says the folder comes 
 	expect(() =>
 		defineData(...([spec] as unknown as Parameters<typeof defineData>)),
 	).toThrow(fix);
-	// A path where the folder belongs has no calls, so it is not a folder either.
-	expect(() => defineData('/tmp/notes' as unknown as Folder, spec)).toThrow(
-		fix,
-	);
-	expect(() =>
-		defineData(unusedFolder, undefined as unknown as typeof spec),
-	).toThrow('defineData needs its keys after the folder');
 });

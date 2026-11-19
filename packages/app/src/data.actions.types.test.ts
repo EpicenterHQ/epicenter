@@ -128,7 +128,6 @@ test('action answers retain precise record, absence, and error types', () => {
 	type Listed = NonNullable<Answer<typeof actions.list>['data']>[number];
 	assertType<Equal<Listed['data'], Word | null>>();
 	assertType<Equal<NonNullable<Listed['error']>['name'], 'Misfit'>>();
-	assertType<Equal<NonNullable<Listed['error']>['id'], string>>();
 	assertType<
 		Equal<
 			NonNullable<

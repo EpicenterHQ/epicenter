@@ -11,7 +11,6 @@ import type {
 import {
 	ActionError,
 	type Changed,
-	type ListedMisfit,
 	type Misfit,
 	type Missing,
 } from './errors.ts';
@@ -27,7 +26,7 @@ type ActionInput<TDef extends DataDef, TVerb extends Verb> = {
 	delete: { id: string };
 }[TVerb];
 type ActionOutput<TDef extends DataDef, TVerb extends Verb> = {
-	list: Result<Result<DataRecord<TDef>, ListedMisfit>[], never>;
+	list: Result<Result<DataRecord<TDef>, Misfit>[], never>;
 	get: Result<DataRecord<TDef>, Misfit | Missing>;
 	create: Result<DataRecord<TDef>, Misfit | Changed>;
 	patch: Result<DataRecord<TDef>, Misfit | Changed | Missing>;

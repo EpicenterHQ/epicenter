@@ -29,9 +29,8 @@ const CHANGED = {
 export const ActionError = defineErrors({
 	/**
 	 * A file, or a change to one, does not fit its declared fields. `id` is the
-	 * file's name; an id that cannot name a file has none, and its `path` is
-	 * the key's folder. A read
-	 * carries the partial `record` for repair, unless the file is unreadable; a
+	 * id the caller gave, or the file's name for a read; for an id that cannot
+	 * name a file, `path` is the key's folder. A read carries the partial `record` for repair, unless the file is unreadable; a
 	 * refused change carries none.
 	 */
 	Misfit: ({
@@ -41,7 +40,7 @@ export const ActionError = defineErrors({
 		record,
 	}: {
 		path: string;
-		id?: string;
+		id: string;
 		problems: Problem[];
 		record?: Record<string, JsonValue>;
 	}) => ({
@@ -50,7 +49,7 @@ export const ActionError = defineErrors({
 			...problems.map((problem) => `${path}: ${problem.line}`),
 		].join('\n'),
 		path,
-		...(id === undefined ? {} : { id }),
+		id,
 		problems,
 		...(record === undefined ? {} : { record }),
 	}),
@@ -105,8 +104,6 @@ export type Threw = InferError<typeof ActionError.Threw>;
 export type Unreachable = InferError<typeof ActionError.Unreachable>;
 /** A file or change that does not fit; a read's carries the fields that do as `record`. */
 export type Misfit = InferError<typeof ActionError.Misfit>;
-/** A file `list` read that does not fit: it is a file, so its name always gives `id`. */
-export type ListedMisfit = Misfit & { id: string };
 /** The file is not as the write needed it. */
 export type Changed = InferError<typeof ActionError.Changed>;
 /** There is no file for the id. */

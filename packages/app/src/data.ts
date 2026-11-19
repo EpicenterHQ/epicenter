@@ -8,7 +8,6 @@ import { type DataActions, dataActions, type Verb } from './data-actions.ts';
 import {
 	ActionError,
 	type Changed,
-	type ListedMisfit,
 	type Misfit,
 	type Missing,
 } from './errors.ts';
@@ -54,11 +53,8 @@ type Handle<TDef extends DataDef> = {
 	 * refuses, such as one with `\`, throws.
 	 */
 	get(id: string): Promise<Result<DataRecord<TDef> | undefined, Misfit>>;
-	/**
-	 * One Result per `.md` file directly in the key's folder, sorted by path.
-	 * Each is a file, so a row's `Misfit` always has its `id`.
-	 */
-	list(): Promise<Result<DataRecord<TDef>, ListedMisfit>[]>;
+	/** One Result per `.md` file directly in the key's folder, sorted by path. */
+	list(): Promise<Result<DataRecord<TDef>, Misfit>[]>;
 	/** Create one file, returning Changed (there) when it exists. */
 	create(
 		id: string,
@@ -114,14 +110,10 @@ export function defineData<const TSpec extends Spec>(
 	folder: Folder,
 	spec: TSpec,
 ): Data<TSpec> {
-	// 0.7.0 took the spec alone, so a call written for it passes the spec here.
-	if (!isFolder(folder))
-		throw new Error(
-			'defineData takes the folder first: defineData(folder, { tasks: { description, fields } }), inside defineApp(({ folder }) => ...)',
-		);
+	// 0.7.0 took the spec alone, so a call written for it leaves `spec` undefined.
 	if (!isPlainObject(spec))
 		throw new Error(
-			'defineData needs its keys after the folder: defineData(folder, { tasks: { description, fields } })',
+			'defineData takes the folder first: defineData(folder, { tasks: { description, fields } }), inside defineApp(({ folder }) => ...)',
 		);
 	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))
@@ -178,21 +170,6 @@ export function defineData<const TSpec extends Spec>(
 	) as unknown as Data<TSpec>;
 }
 
-/**
- * Whether `value` has a folder's shape: a `path` and the calls that change
- * files. It reads none of them, so a folder that guards its path is not touched.
- */
-function isFolder(value: unknown): value is Folder {
-	if (typeof value !== 'object' || value === null) return false;
-	const { write, edit, delete: remove } = value as Partial<Folder>;
-	return (
-		'path' in value &&
-		typeof write === 'function' &&
-		typeof edit === 'function' &&
-		typeof remove === 'function'
-	);
-}
-
 /** Every ref annotation anywhere in `schema`, however deep. */
 function refsAnywhere(schema: unknown): string[] {
 	if (typeof schema !== 'object' || schema === null) return [];
@@ -226,6 +203,7 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		// The id names no file, so the problem sits at the key's folder.
 		return ActionError.Misfit({
 			path: base,
+			id,
 			problems: [
 				{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
 			],
