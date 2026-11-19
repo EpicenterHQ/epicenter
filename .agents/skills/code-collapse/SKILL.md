@@ -1,6 +1,6 @@
 ---
 name: code-collapse
-description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Also use for the one-sentence test: stating in one sentence what a surface or abstraction actually does, to find orphaned surfaces, duplicate verbs, and inert abstractions. Answer a plain code-comprehension question directly instead.
+description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Also use for a periodic code audit or smell search in TypeScript and Rust, and for the one-sentence test: stating in one sentence what a surface or abstraction actually does, to find orphaned surfaces, duplicate verbs, and inert abstractions. Answer a plain code-comprehension question directly instead.
 metadata:
   author: epicenter
   version: '2.0'
@@ -55,9 +55,9 @@ case. Include the fixes already made, including your own. A workaround
 may reveal a better design even before the same problem recurs.
 
 Searches for maps, registries, flags, caches, retries, adapters, and
-compatibility paths can help you find these places. Use
-[code-audit](../code-audit/SKILL.md) when one of its searches fits.
-Treat matches as clues, not instructions to delete something.
+compatibility paths can help you find these places. Use the
+[smell searches](references/smell-searches.md) for TypeScript and Rust when
+one fits. Treat matches as clues, not instructions to delete something.
 
 Use [rethink](../rethink/SKILL.md) to consider how you would build this
 today. Look beyond making the existing pieces tidier:
