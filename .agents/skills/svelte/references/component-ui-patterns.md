@@ -817,19 +817,22 @@ ownership. Spinner choice and layout do not change who owns request state.
 
 ## Complete readiness gate
 
-For monorepo apps, a routine page or panel pending state uses `Loading`.
+For monorepo apps, a routine page or panel pending state centers a `Spinner`
+in a status region, as Whispering does while it opens.
 This example assumes `resource.whenReady` is stable and this block owns its
 failure presentation. Personal apps use their copied component imports.
 
 ```svelte
 <script lang="ts">
-  import { Loading } from '@epicenter/ui/loading';
+  import { Spinner } from '@epicenter/ui/spinner';
   import * as Empty from '@epicenter/ui/empty';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 </script>
 
 {#await resource.whenReady}
-  <Loading class="flex-1" label="Loading tabs..." />
+  <div class="flex flex-1 items-center justify-center" role="status" aria-label="Loading tabs">
+    <Spinner class="size-5" />
+  </div>
 {:then}
   <MainContent />
 {:catch}

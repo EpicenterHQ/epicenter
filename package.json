@@ -96,6 +96,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
 		"@types/bun": "catalog:",
+		"knip": "6.46.1",
 		"wrangler": "catalog:"
 	}
 }

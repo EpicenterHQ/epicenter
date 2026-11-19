@@ -265,6 +265,8 @@ export const filesChecks: readonly FilesCheck[] = [
  * Run every check, each over a fresh `Files` from `make`, and answer each
  * one's name with why it failed (null when it passed). For a browser, where
  * no test runner is.
+ *
+ * @public The browser console imports it by URL; see the header.
  */
 export async function runFilesChecks(
 	make: () => Files | Promise<Files>,

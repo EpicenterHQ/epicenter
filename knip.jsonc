@@ -1,0 +1,24 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	// A type exported beside the function that takes or returns it names part of
+	// that function's contract, so a caller can spell it.
+	"ignoreExportsUsedInFile": { "interface": true, "type": true },
+	// scripts/cf-audit.ts runs under `infisical run`; see the cf:audit:remote script.
+	"ignoreBinaries": ["infisical"],
+	"workspaces": {
+		".": {
+			"entry": ["scripts/*.ts", ".agents/skills/*/scripts/*.ts"],
+			"project": ["scripts/**/*.ts", ".agents/skills/**/*.ts"]
+		},
+		"apps/whispering": {
+			"entry": ["scripts/*.ts", "src/**/*.test.ts"],
+			// svelte-dom.test-support.ts loads jsdom with require(Bun.resolveSync(...)).
+			"ignoreDependencies": ["jsdom"]
+		},
+		"packages/ui": {
+			"entry": ["scripts/*.ts"],
+			// Reference snapshots of upstream components; nothing imports them.
+			"ignore": ["upstream/**"]
+		}
+	}
+}
