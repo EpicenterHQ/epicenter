@@ -273,74 +273,15 @@ Gmail. "Local-first" is only for a product whose devices sync.
 
 ## An app
 
-A home is one program. Its records sit beside the code that reads them, in
-one repository:
-
-```txt
-~/Epicenter/
-  package.json          names the @epicenter/app version; its "epicenter" key marks the home
-  epicenter.ts          the data keys, and the apps composed from them
-  data/                 records
-    tasks/<id>.md       path: data/tasks/<id>.md
-    words/你好.md
-  apps/                 code only
-    tasks/index.ts      the tasks app: a function of the home's data
-  local/                this computer's own; never committed
-```
-
-`data/` is what you would want back if this computer were lost, and Git
-keeps its history. `local/` is what this computer can rebuild or sign in
-again, such as a sign-in or a copy of a mailbox, and it never leaves this
-computer.
-
-Records belong to the home, not to an app, so a record any app or no app
-writes still has a place. A record's address is its path from the home, with
-`data/` included, in an action and in the files an agent opens.
-
-```ts
-// epicenter.ts
-import { defineData, defineEpicenter, field } from '@epicenter/app';
-import { tasks } from './apps/tasks';
-
-export const data = defineData(import.meta.dir, {
-  tasks: {
-    description: 'task',
-    fields: { title: field.text(), done: field.boolean({ optional: true }) },
-  },
-});
-export type Data = typeof data;
-
-export default defineEpicenter({ apps: { tasks: tasks(data) } });
-```
-
-```ts
-// apps/tasks/index.ts
-import { defineAction, field, timeId } from '@epicenter/app';
-import type { Data } from '../../epicenter';
-
-export function tasks({ tasks }: Data) {
-  const add = defineAction({
-    description: 'Add a task to do',
-    input: { title: field.text({ description: 'What to do' }) },
-    run: ({ title }) => tasks.create(timeId(), { title }),
-  });
-  const done = defineAction({
-    description: 'Mark a task done',
-    input: { id: field.text() },
-    run: ({ id }) => tasks.patch(id, { done: true }),
-  });
-  return { description: 'Things I mean to do', actions: { add, done } };
-}
-```
-
-Tasks' actions are the `add` and `done` written here; a data key gives none
-of its own. An action names a record by its id, the file's name:
-`epicenter tasks done '{"id":"2026-11-10T09-30-00-000Z-k3x9a2f8"}'`.
-On the command line an action's input is one JSON object, as an agent gives
-it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action
-reads and writes through the data handles its app is given. The home's
-`package.json` depends on `@epicenter/app` and any other package an app
-imports, and Bun installs them.
+A home is one program: its root `epicenter.ts` declares the records and
+composes the apps, and app code lives in `apps/`. Records belong to the
+home, not to an app, so a record any app or no app writes still has a
+place. `data/` is what you would want back if this computer were lost, and
+Git keeps its history. `local/` is what this computer can rebuild or sign
+in again, such as a sign-in or a copy of a mailbox, and it never leaves
+this computer. [A home](../packages/app/README.md#a-home) shows the layout
+and a complete app; that README is the one place the mechanics are written
+down.
 
 ## How a write happens
 
@@ -352,42 +293,23 @@ Claude Code on the home, and for a program writing there.
 action.** That is true for Claude Desktop, an agent on another computer, and,
 once it is built, an app's page.
 
-**History comes from Git, which you run.** Actions make no
-commits, nothing takes a lock, and one serve runs every action
-([serve's rules](../packages/app/README.md#running-the-home)). Nothing in Epicenter commits or pushes, on a command or on a
-schedule: you commit and push the home as you would any repository
-([the rules for actions](../packages/app/README.md#actions)). What you have not committed is in neither
-its history nor its backup. Make a named commit before a risky change.
-Exit codes say what happened: 0 returned, 1 threw, 2 did not run ([serve's rules](../packages/app/README.md#running-the-home)).
+**History comes from Git, which you run.** Nothing in Epicenter commits or
+pushes. What you have not committed is in neither its history nor its
+backup, so make a named commit before a risky change
+([the rules for actions](../packages/app/README.md#actions)).
 
 ## Where code runs
 
 Code goes where what it needs is. Recording needs the microphone, so it lives
 in Whispering. Searching Gmail needs your sign-in, so it is an action that
-runs on the home.
-
-```txt
-ssh studio                                   you, then `epicenter …` there
-ssh studio epicenter <app> <action>           an action from a remote shell
-epicenter serve, through tailscale serve     your devices: MCP
-```
-
-A command selects a home on the computer it is typed on and sends its action
-to that home's running `serve`. If serve is stopped, the action does not run.
-Serve imports the home's program once when it starts, so restart it to run
-code you just changed. It signs no one in and listens only on the home; your private network decides
-which other devices reach it, for the author the tailnet ([serve's rules](../packages/app/README.md#running-the-home)).
+runs on the home, where one `serve` runs every action
+([running the home](../packages/app/README.md#running-the-home)).
 
 ## Pages
 
-An app's page is [not built yet](../packages/app/README.md#not-built-yet).
-When it is, it will be a web page that reads and changes the app only by
-calling its actions, through the typed client `@epicenter/app/client`
-already exports. It never knows where they run and keeps nothing of its
-own. An app may also come to answer web requests with its own `fetch`, for
-protocols someone else defined, such as an OAuth redirect or a download;
-that is not built either. What a person or an agent does is still an
-action.
+An app's page, a web page that reads and changes the app only by calling its
+actions, is [not built yet](../packages/app/README.md#not-built-yet). What a
+person or an agent does is still an action.
 
 ## One ladder
 
