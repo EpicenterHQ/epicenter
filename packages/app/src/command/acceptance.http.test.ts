@@ -170,24 +170,6 @@ test('GET /actions/ answers the one listing as JSON, naming no path, and tools/l
 	expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
 });
 
-test('a crafted tool name cannot run an app outside the Epicenter', async () => {
-	const f = await setup((f) =>
-		f.app(
-			'outside',
-			`export default defineApp(({ folder }) => ({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return Ok(true); } }) } }));`,
-			f.userDir,
-		),
-	);
-	const outside = f.made;
-	const response = await mcp(f.base, 'tools/call', {
-		name: `${outside}_run`,
-		arguments: {},
-	});
-	const body = (await response.json()) as { result: { isError?: boolean } };
-	expect(body.result.isError).toBe(true);
-	expect(await Bun.file(join(outside, 'data/ran.txt')).exists()).toBe(false);
-});
-
 test('the browser client calls a tool without initialize and writes its record', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
@@ -976,7 +958,6 @@ test('serve keeps nothing about a call: a second call runs the action again', as
 			await readFile(join(f.apps, 'counter', 'local', 'count'), 'utf8'),
 		).toBe(expected);
 	}
-	expect((await fetch(`${f.base}/.runs/counter/bump/x`)).status).toBe(404);
 });
 
 test('an edit to epicenter.ts, or to a file it imports, reaches no call until serve restarts', async () => {

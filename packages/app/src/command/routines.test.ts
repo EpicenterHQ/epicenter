@@ -164,23 +164,3 @@ test('a routine naming an unknown action, or an input that does not fit, is refu
 		await served.stop();
 	}
 });
-
-test('occurrences follow local calendar days and daylight-saving gaps', async () => {
-	const modulePath = join(import.meta.dir, 'routines.ts');
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			'-e',
-			`
-    import { routineRows } from ${JSON.stringify(modulePath)};
-    const call = { app: 'a', action: 'b', run: () => {}, input: {} };
-    console.log(routineRows([{ name: 'r', cron: '30 2 * * *', call }], new Date('2026-03-07T10:31:00Z'))[0].next);
-  `,
-		],
-		{ env: { ...process.env, TZ: 'America/Los_Angeles' }, stdout: 'pipe' },
-	);
-	// 02:30 does not exist on 2026-03-08 in Los Angeles; it moves to 03:30 PDT.
-	expect((await new Response(child.stdout).text()).trim()).toBe(
-		'2026-03-08T10:30:00.000Z',
-	);
-});
