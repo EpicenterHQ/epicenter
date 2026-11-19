@@ -50,7 +50,7 @@ type Handle<TDef extends DataDef> = {
 	 * Read one id, or undefined when absent. The id is the file name without
 	 * `.md`; every method that takes one refuses with Misfit an id Node would
 	 * not give back as that file's name. A name the folder or the system
-	 * refuses, such as one with `\\`, throws.
+	 * refuses, such as one with `\`, throws.
 	 */
 	get(id: string): Promise<Result<DataRecord<TDef> | undefined, Misfit>>;
 	/** One Result per `.md` file directly in the key's folder, sorted by path. */

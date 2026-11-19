@@ -37,7 +37,13 @@ no re-check and no probe.**
 - **A record** is checked when it is read or written. A read of a file that
   does not fit is a `Misfit`; a key's `list` action answers one Result per
   file, so the files that do not fit show as refusals there.
-- **A ref** is text, checked when an action follows it.
+- **A ref** is checked when a write changes it: `create`, `patch` and
+  `edit` refuse a ref that names no record in the target key's folder, as
+  that key's `list` reads it. A ref the record already holds is not checked
+  again.
+- **An id** is checked when a method takes it: one Node would give another
+  name is a `Misfit`, and every `.md` file directly in a key's folder is a
+  record, so `list` skips no record file.
 - **An old `data/<key>.md`** is moved by the 0.8.0 migration, not found by a
   standing check.
 
@@ -49,10 +55,9 @@ app may be named `check`.
 
 - These problems are reported by nothing until something reads the file:
   - a record that does not fit its fields, until a `get` or `list` of it;
-  - a file in a key's folder whose name is not an id, which `list` skips
-    without a word;
   - two names that are one file on a disk that ignores case;
-  - a ref that names no file, until an action follows it;
+  - a ref whose target was deleted, renamed or edited by hand after the
+    write that set it, until an action follows it;
   - a `data/<key>.md` left from before keys were folders, which nothing
     reads.
 - A person or agent asking "is my data sound?" calls each key's `list`

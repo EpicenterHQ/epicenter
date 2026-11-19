@@ -102,14 +102,23 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
 - Choose the id by how people and agents will name a file. `timeId()` suits
   things made in passing (Tasks and Writing name each new record with it). An
   id the caller gives suits things named by what they are (`data/words/<id>.md`
-  for Vocab). An id is non-empty NFC text of at most 200 bytes, without `/`,
-  `\`, control characters, a leading dot, or whitespace at either end. An id
-  is the file name exactly: no method or generated verb changes it, and one
-  that does not fit is `Misfit` with the reason, so trim what a person typed
-  before passing it. `create` always takes an id, `create({ id: timeId(), ... })`
-  for a record named by the moment, so a retry answers `Changed` (`there`)
-  instead of making a second. An action takes an id as `field.text()`;
-  the handle refuses a bad one, quoting it, with the name to send instead.
+  for Vocab). An id is the file name without `.md`, as Node reads it: `''`,
+  `a/b`, `../x` and `x/` are refused with `Misfit`, quoting the id, since
+  Node would name the file something else. An id with `\`, a NUL byte, or
+  more characters than the system allows makes a write throw, and the action
+  answers `Threw`. Nothing else is refused: spaces, a leading dot, and
+  control characters are part of the name, and no method or generated verb
+  changes an id, so trim what a person typed before passing it. On a Mac's
+  disk, case and Unicode form are not part of the name: `Dune` and `dune`
+  are one file, and `list()` gives the file's real name. `create` always
+  takes an id, `create({ id: timeId(), ... })` for a record named by the
+  moment, so a retry answers `Changed` (`there`) instead of making a second.
+  An action takes an id as `field.text()`.
+- A write that changes a `field.ref` to name a record that is not in the
+  target key's folder is refused with `Misfit`, and nothing is written. A
+  ref the record already holds is not checked again. Create a target before
+  the record that names it; a ref to the key's own records, or two records
+  that name each other, needs the field optional and set by a later `patch`.
 - Write a day or a moment with `localDay()` or `localTime()` from
   `@epicenter/app`, in the time zone of the computer that runs the action,
   as `field.date` and `field.datetime` hold them; `toISOString()` gives UTC's
@@ -154,9 +163,9 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   gone or appears twice, it is refused with `Changed` (`cause` is `quote` or
   `twice`) and nothing is written. It answers `Missing` for an absent record.
   `edit` is not safe to repeat, so a page that changes
-  fields and notes sends a `patch` and an `edit`. In code,
-  `edit(id, { old, new })` is the same replacement, and `edit(id, fn)`
-  computes a change from the record and returns only the fields that change:
+  fields and notes sends a `patch` and an `edit`. In code, `edit(id, fn)`
+  takes only a function: it computes a change from the record, a passage
+  replacement included, and returns only the fields that change:
   `Ok({ done: true })`, never a spread of the record, which carries `path`
   and `id` and is refused.
 - An app is `code/`, `data/` and `local/`. Put a file in `data/` when the
