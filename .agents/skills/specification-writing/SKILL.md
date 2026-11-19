@@ -288,9 +288,9 @@ Find actual usages in the codebase first. Show the verbatim "Before" with file:l
 ````markdown
 ## Call sites: before and after
 
-### Notes table migration
+### Example: a notes table migration
 
-**Before, abbreviated** (`src/lib/notes.ts:78`):
+**Before, abbreviated** (in a real spec, cite the file and line):
 
 ```ts
 const notesTable = defineTable(

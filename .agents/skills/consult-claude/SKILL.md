@@ -24,9 +24,9 @@ first brief. For an adversarial review, follow
 
 A brief from this repository:
 
-> `@epicenter/ai` has one consumer, Whispering. Read `packages/ai/src` and
-> its imports under `apps/whispering/src`. Is there still a reason for a
-> separate package, or should it fold into Whispering? Name each thing that
+> `@epicenter/ai` is used only by Whispering and its transcription package.
+> Read `packages/ai/src` and its imports under `apps/whispering`. Is there
+> still a reason for a separate package, or should it fold into Whispering? Name each thing that
 > depends on the split. The answer decides whether we keep `packages/ai`.
 
 ## Send it
