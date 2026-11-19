@@ -163,8 +163,7 @@ test("serve listens at the marker's port", async () => {
 				const { value, done } = await reader.read();
 				if (done) throw new Error(output || 'serve exited before listening');
 				output += new TextDecoder().decode(value);
-				if (output.includes(`Listening on http://127.0.0.1:${port}.`))
-					return;
+				if (output.includes(`Listening on http://127.0.0.1:${port}.`)) return;
 			}
 		})();
 		await Promise.race([
