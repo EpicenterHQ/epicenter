@@ -32,11 +32,30 @@
  *
  * For a single deliberately illustrative path inside a scanned doc, put
  * `<!-- doc-path-check: ignore-next-line -->` on the line above it.
+ *
+ * The same gate also checks relative Markdown links, `[text](path#anchor)`:
+ *   - the target must be a tracked file (or a directory holding tracked files),
+ *     resolved against the linking file's directory;
+ *   - a `#anchor` into a `.md` target must match one of its headings, using
+ *     GitHub's slugs (`-1`, `-2` for repeated headings); a bare `#anchor`
+ *     checks the linking file itself.
+ *   - Link scope is wider than the backtick scope: `.agents/` and `.claude/`
+ *     docs are scanned too, since their links are real. Only `specs/`,
+ *     `docs/history.md` and `ignore-file` docs are skipped.
+ *   - Fenced code and inline code are ignored, as are `http(s):`/`mailto:`
+ *     targets and placeholders that are not path-shaped.
  */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
+import {
+	collectHeadingSlugs,
+	EXTERNAL,
+	isFileClaim,
+	LINK,
+	stripCode,
+} from '../.agents/skills/skills-and-instructions/scripts/audit-skill-links.ts';
 
 // Resolve the repo root so paths resolve regardless of the invoking cwd.
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -79,6 +98,95 @@ const docs = tracked.filter((file) => {
 });
 const violations: { file: string; line: number; path: string }[] = [];
 
+// Link scan: every tracked Markdown doc except frozen records.
+const linkDocs = tracked.filter(
+	(file) =>
+		file.endsWith('.md') &&
+		file !== 'docs/history.md' &&
+		!(file.startsWith('specs/') || file.includes('/specs/')) &&
+		existsSync(join(root, file)),
+);
+const trackedDirs = new Set<string>();
+for (const file of tracked) {
+	for (let dir = posix.dirname(file); dir !== '.'; dir = posix.dirname(dir)) {
+		trackedDirs.add(dir);
+	}
+}
+const slugCache = new Map<string, Set<string>>();
+const slugsFor = (file: string) => {
+	let slugs = slugCache.get(file);
+	if (!slugs) {
+		slugs = collectHeadingSlugs(readFileSync(join(root, file), 'utf8'));
+		slugCache.set(file, slugs);
+	}
+	return slugs;
+};
+const decode = (s: string) => {
+	try {
+		return decodeURIComponent(s);
+	} catch {
+		return s;
+	}
+};
+
+const linkViolations: {
+	file: string;
+	line: number;
+	target: string;
+	reason: string;
+}[] = [];
+
+for (const file of linkDocs) {
+	const raw = readFileSync(join(root, file), 'utf8');
+	if (IGNORE_FILE.test(raw)) continue;
+	const rawLines = raw.split('\n');
+	const lines = stripCode(raw).split('\n');
+	lines.forEach((line, i) => {
+		const prev = rawLines[i - 1];
+		if (prev !== undefined && IGNORE_NEXT_LINE.test(prev)) return;
+		for (const match of line.matchAll(LINK)) {
+			const target = match[1];
+			if (target === undefined || EXTERNAL.test(target)) continue;
+			const hash = target.indexOf('#');
+			const pathPart = hash === -1 ? target : target.slice(0, hash);
+			const anchor = hash === -1 ? undefined : decode(target.slice(hash + 1));
+			let resolved = file;
+			if (pathPart) {
+				if (!isFileClaim(pathPart)) continue;
+				const decoded = decode(pathPart);
+				resolved = decoded.startsWith('/')
+					? posix.normalize(decoded.slice(1))
+					: posix.normalize(posix.join(dirname(file), decoded));
+				const bare = resolved.replace(/\/$/, '');
+				if (
+					bare.startsWith('..') ||
+					!(trackedPaths.has(bare) || trackedDirs.has(bare))
+				) {
+					linkViolations.push({
+						file,
+						line: i + 1,
+						target,
+						reason: 'no such file',
+					});
+					continue;
+				}
+				resolved = bare;
+			}
+			if (!anchor || !resolved.endsWith('.md') || !trackedPaths.has(resolved)) {
+				continue;
+			}
+			if (!slugsFor(resolved).has(anchor.toLowerCase())) {
+				linkViolations.push({
+					file,
+					line: i + 1,
+					target,
+					reason: `no heading for #${anchor}`,
+				});
+			}
+		}
+	});
+}
+
 for (const file of docs) {
 	const text = readFileSync(join(root, file), 'utf8');
 	if (IGNORE_FILE.test(text)) continue;
@@ -103,21 +211,32 @@ for (const file of docs) {
 	});
 }
 
-if (violations.length === 0) {
+if (violations.length === 0 && linkViolations.length === 0) {
 	console.log(
-		`check:doc-paths: ${docs.length} docs scanned, all paths resolve.`,
+		`check:doc-paths: ${docs.length} docs scanned, all paths resolve; ${linkDocs.length} docs scanned, all links resolve.`,
 	);
 	process.exit(0);
 }
 
-console.error(
-	`check:doc-paths: ${violations.length} dead file reference(s):\n`,
-);
-for (const { file, line, path } of violations) {
-	console.error(`  ${file}:${line}  ${path}`);
+if (violations.length > 0) {
+	console.error(
+		`check:doc-paths: ${violations.length} dead file reference(s):\n`,
+	);
+	for (const { file, line, path } of violations) {
+		console.error(`  ${file}:${line}  ${path}`);
+	}
+	console.error(
+		'\nRepoint each to the real path. If a path is intentionally illustrative,\n' +
+			'mark the line above it with `<!-- doc-path-check: ignore-next-line -->`.',
+	);
 }
-console.error(
-	'\nRepoint each to the real path. If a path is intentionally illustrative,\n' +
-		'mark the line above it with `<!-- doc-path-check: ignore-next-line -->`.',
-);
+if (linkViolations.length > 0) {
+	console.error(
+		`check:doc-paths: ${linkViolations.length} dead Markdown link(s):\n`,
+	);
+	for (const { file, line, target, reason } of linkViolations) {
+		console.error(`  ${file}:${line}  (${target})  ${reason}`);
+	}
+	console.error('\nRepoint each link, or remove it if the target is gone.');
+}
 process.exit(1);
