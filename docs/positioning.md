@@ -96,7 +96,7 @@ Not yet true, so not yet in public copy: installing `@epicenter/app` or the
 the registry), an app's page in a browser, scheduled routines,
 Epicenter for Mac, and anything that keeps `serve` running for a person
 without their own systemd unit or LaunchAgent
-([serve's rules](../packages/app/README.md#running-the-home)).
+([serve's rules](../packages/app/README.md#running-serve)).
 
 ## Vocabulary
 

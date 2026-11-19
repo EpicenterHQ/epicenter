@@ -56,7 +56,7 @@ program you install.
 
 An app keeps a sign-in, such as a Google token, in a file it writes under your
 Epicenter's root `local/`, which stays out of Git
-([the Epicenter's rules](../packages/app/README.md#the-home)); list `/local/` in
+([the Epicenter's rules](../packages/app/README.md#the-epicenter)); list `/local/` in
 the root `.gitignore` too, for an app that makes the folder itself.
 Epicenter never commits, so a file there reaches a backup or a clone only if
 someone adds it by force. It is a plain file, though: anyone who can read your
