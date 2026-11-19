@@ -2,7 +2,7 @@
 	"extends": ["../../tsconfig.base.json", "$app/tsconfig"],
 	"compilerOptions": {
 		"checkJs": true,
-		"types": ["bun"]
+		"types": ["bun", "$app/types"]
 	},
 	"include": ["src", "*.ts"]
 }
