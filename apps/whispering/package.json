@@ -1,54 +1,46 @@
 {
 	"name": "@epicenter/whispering",
 	"private": true,
-	"version": "7.11.1",
-	"description": "Voice notes: recordings, transcripts, and transformations are files, kept in your Epicenter repository on the web or, in the desktop app, in a folder on this computer",
+	"version": "8.0.0",
+	"description": "Dictation: press a shortcut, speak, and copy the text",
 	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"imports": {
+		"#lib/*": "./src/lib/*"
+	},
 	"scripts": {
 		"dev": "vite dev",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte src && bun test ./scripts",
-		"build": "NODE_ENV=production vite build",
+		"build": "vite build",
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"build:desktop": "tauri build --bundles app",
-		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
+		"test": "bun test src",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
-	"license": "AGPL-3.0-or-later",
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
-		"@epicenter/vite-config": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"@sveltejs/adapter-static": "catalog:",
-		"@sveltejs/kit": "catalog:",
+		"@sveltejs/adapter-static": "4.0.1",
+		"@sveltejs/kit": "3.4.0",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
-		"jsdom": "26.1.0",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"svelte-sonner": "catalog:",
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
-		"vite": "catalog:",
-		"vite-plugin-devtools-json": "^1.0.0"
+		"vite": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/ai": "workspace:*",
 		"@epicenter/app": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
-		"@epicenter/transcription": "workspace:*",
-		"@tanstack/query-core": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"@tauri-apps/plugin-dialog": "catalog:",
-		"@tauri-apps/plugin-http": "catalog:",
-		"@tauri-apps/plugin-opener": "catalog:",
-		"nanoid": "catalog:",
-		"runed": "catalog:",
-		"typebox": "catalog:",
+		"@tauri-apps/plugin-clipboard-manager": "2.5.0",
+		"@tauri-apps/plugin-fs": "2.7.1",
 		"wellcrafted": "catalog:"
 	}
 }

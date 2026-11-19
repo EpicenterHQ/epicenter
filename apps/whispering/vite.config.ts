@@ -1,14 +1,28 @@
-import { workspaceAppViteConfig } from '@epicenter/vite-config';
-import { defineConfig, mergeConfig } from 'vite';
-import devtoolsJson from 'vite-plugin-devtools-json';
+import adapter from '@sveltejs/adapter-static';
+import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
+import { defineConfig, searchForWorkspaceRoot } from 'vite';
 
-/** Whispering's dev port, which `src-tauri/tauri.dev.conf.json` loads. */
+/** The dev port `src-tauri/tauri.dev.conf.json` loads. */
 const PORT = 1420;
 
-export default defineConfig(
-	mergeConfig(workspaceAppViteConfig({ port: PORT }), {
-		plugins: [devtoolsJson()],
-		server: { host: 'localhost' },
-		preview: { port: PORT, strictPort: true, host: 'localhost' },
-	}),
-);
+export default defineConfig({
+	plugins: [
+		sveltekit({
+			compilerOptions: { runes: true },
+			// A single-page app: every route renders in the browser from `index.html`.
+			adapter: adapter({ fallback: 'index.html' }),
+		}),
+		tailwindcss(),
+	],
+	server: {
+		port: PORT,
+		strictPort: true,
+		host: 'localhost',
+		// SvelteKit allows only the app's own folders; `@epicenter/ui` and
+		// `@epicenter/app` are source in sibling workspace packages.
+		fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
+	},
+	// Tauri prints its own errors; keep Vite from clearing them.
+	clearScreen: false,
+});

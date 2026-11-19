@@ -1,27 +1,34 @@
-<!--
-	Every page of Whispering: the chrome. The app is the `(app)` group at `/`,
-	whose layout reads the folder (`folder` from `src/lib/app.ts`: the data
-	folder in a Tauri window, this site's storage in a browser) before it
-	renders.
--->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import { ModeWatcher } from 'mode-watcher';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
+	import { listen } from '@tauri-apps/api/event';
 	import '@epicenter/ui/app.css';
-	// Whispering's brand overrides, layered after the shared theme so they win.
-	import '../app.css';
+	import { dictation } from '#lib/dictation.svelte.ts';
+	import { queryClient } from '#lib/queries.ts';
+	import { settings } from '#lib/settings.svelte.ts';
 
-	let props = $props();
+	let { children } = $props();
+
+	// The global shortcut (⌘⇧;) is held in Rust (`main.rs`), which sends each
+	// press here; it does what the Record button does.
+	$effect(() => {
+		const unlisten = listen('toggle-recording', () => dictation.toggle());
+		return () => {
+			void unlisten.then((stop) => stop());
+		};
+	});
 </script>
 
-<svelte:head><title>Whispering</title></svelte:head>
-
-<Tooltip.Provider>
-	{@render props.children?.()}
-</Tooltip.Provider>
+<QueryClientProvider client={queryClient}>
+	<Tooltip.Provider>
+		<!-- Settings are read once, before the first screen, so it never shows the wrong server. -->
+		{#await settings.loaded then}
+			{@render children()}
+		{/await}
+	</Tooltip.Provider>
+</QueryClientProvider>
 
 <ConfirmationDialog />
 <Toaster offset={16} closeButton />
-<ModeWatcher defaultMode="dark" track={false} />

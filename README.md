@@ -139,7 +139,7 @@ Applications under `apps/` are outside apps
 | [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 
 Whispering's own packages are under
-[apps/whispering/packages/](apps/whispering/packages).
+[apps/whispering-old/packages/](apps/whispering-old/packages).
 
 ## Architecture
 

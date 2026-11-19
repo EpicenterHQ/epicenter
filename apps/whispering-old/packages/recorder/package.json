@@ -16,7 +16,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
-		"./vad-assets": "./src/vad-assets.ts"
+		"./vad-assets": "./src/vad-assets.ts",
+		"./native": "./src/native/bindings.gen.ts"
 	},
 	"dependencies": {
 		"@ricky0123/vad-web": "catalog:",

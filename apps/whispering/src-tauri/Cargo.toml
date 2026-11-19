@@ -1,7 +1,7 @@
 [package]
 name = "whispering"
-version = "7.11.1"
-description = "Whispering as a desktop window over the folder it keeps its recordings in, recorded into from the first sample"
+version = "8.0.0"
+description = "Whispering's desktop window: records into the app's data directory from the first second"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -12,34 +12,21 @@ publish = false
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-# The facade the crates log through; `main.rs` writes its records to stderr.
-log = "0.4"
-# Provider API keys, as Keychain items (`secrets.rs`).
+# The transcription server's API key, as a Keychain item per server (`keys.rs`).
 keyring = "4.2"
-# Decodes the folder and path a raw write carries in its headers (`files.rs`).
-percent-encoding = "2.3"
-# `generate_context!` writes the configuration's `plugins` block as
-# `serde_json` values in the app's own crate, and the tests read the
-# configuration with it.
+log = "0.4"
+# Sends a recording to the transcription server (`transcribe.rs`).
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.12", features = [] }
-tauri-plugin-dialog = "2.7"
-tauri-plugin-epicenter-recorder = { path = "../packages/tauri-plugin-epicenter-recorder" }
-tauri-plugin-epicenter-transcription = { path = "../packages/transcription" }
-tauri-plugin-fs = "2.4"
-tauri-plugin-global-shortcut = "2.3"
-tauri-plugin-http = "2.5"
-tauri-plugin-opener = "2.5"
-tauri-plugin-persisted-scope = "2.3"
-tauri-plugin-single-instance = "2.3"
-# The path rule the file commands and the recorder share, and the write
-# beside a target the file commands make.
-whispering-files = { path = "../packages/whispering-files" }
-# A direct dependency gives this final app's build script the
-# DEP_TRANSCRIBE_CPP_* metadata `build.rs` reads.
-transcribe-cpp = { version = "0.1.0", default-features = false }
+# Copies a transcript the moment it arrives, with no click to allow it.
+tauri-plugin-clipboard-manager = "2.5"
+tauri-plugin-epicenter-recorder = { path = "../../whispering-old/packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-fs = "2.7"
+# Holds ⌘⇧; from any app to start and stop a recording (`main.rs`).
+tauri-plugin-global-shortcut = "2.4"
+tauri-plugin-single-instance = "2.5"
 
 [dev-dependencies]
 tempfile = "3.8"
-# The mock runtime drives the real commands in tests.
-tauri = { version = "2.12", features = ["test"] }

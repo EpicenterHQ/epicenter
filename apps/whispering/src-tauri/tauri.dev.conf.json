@@ -5,10 +5,5 @@
 	"build": {
 		"devUrl": "http://localhost:1420",
 		"beforeDevCommand": "bun run dev"
-	},
-	"app": {
-		"security": {
-			"capabilities": ["whispering"]
-		}
 	}
 }

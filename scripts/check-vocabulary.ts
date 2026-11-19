@@ -98,7 +98,7 @@ const RULES: readonly Rule[] = [
 		adr: 'ADR-0309',
 		excludes: [],
 		scope: [
-			'apps/whispering/',
+			'apps/whispering-old/',
 			'.agents/skills/svelte/',
 			'.agents/skills/code-collapse/',
 			'README.md',
