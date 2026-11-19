@@ -6,10 +6,9 @@
 - **Supersedes:** [ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md): a data key generates no actions; every action is written with `defineAction`.
 - **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) at its layout: `apps/<app>/code/`, `apps/<app>/data/` and `apps/<app>/local/` become `apps/<app>/`, the home's `data/` and the home's `local/`. One private repository, checkpoints and recovery stay.
 - **Amends:** [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) and [ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md) at whose `data/`: records live under the home's `data/`. A write outside `data/` is still refused.
-- **Amends:** [ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) at "a file in `routines/`": when routines return, a routine is an entry in `epicenter.ts` naming an action and its input.
 - **Amends:** [ADR-0942](0942-a-home-is-one-bun-workspace-and-epicenter-is-a-dependency-of-it.md) at `"workspaces": ["apps/*/code"]`: the home's `package.json` names every app's dependencies, and only a package that needs isolated dependencies keeps a workspace.
 - **Amends:** [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) at "each app inside its own guard": serve imports one module, and the whole program loads or none of it does.
-- **Relates:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md), [ADR-0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md), [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) and [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (Proposed; each is edited to match when 0971 is accepted), [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (`fetch` returns later), [ADR-0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (the action route stays), [ADR-0968](0968-each-thing-is-checked-once-where-it-can-change-and-epicenter-check-is-deleted.md) (no `epicenter check` returns).
+- **Relates:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md), [ADR-0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md), [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) and [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (Proposed; each is edited to match when 0971 is accepted), [ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md) (routines are not decided here), [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (`fetch` is not decided here), [ADR-0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (the action route stays), [ADR-0968](0968-each-thing-is-checked-once-where-it-can-change-and-epicenter-check-is-deleted.md) (no `epicenter check` returns).
 - **Unbuilt:** all of it. `@epicenter/app` exports no `defineEpicenter`, `defineData` takes a `Folder` rather than a path, and serve discovers `apps/*/code/epicenter.ts` in `packages/app/src/command/apps.ts`.
 
 ## Context
@@ -165,24 +164,66 @@ export function flights({ watches, checks }: Data) {
   include every key its refs name. A test calls the app function with the
   rebound handles.
 
-### Later additions
+### Calling it
 
-Each is added when the first app needs it, in this shape:
+The command, an agent and a page reach the same action through serve:
 
-| Field | Shape | Added when |
-| --- | --- | --- |
-| `routines` on `defineEpicenter` | `{ '<name>': { cron, action, input } }`; serve checks once a minute and runs a due routine through the action route's runner, so it is logged and listed | flights' daily research moves over |
-| `ui` on an app | a folder path; serve answers a `GET` under `/apps/<app>/` with a file from it, refusing dot names and anything that resolves outside it | the first rebuilt app has a page |
-| `fetch` on an app | a web-standard `(Request) => Response`; serve strips `/apps/<app>`, replaces `X-Forwarded-Prefix`, and calls it for what `ui` does not answer | an app needs OAuth, a feed or a webhook |
+```ts
+// ~/Epicenter/apps/writing/index.ts
+import { defineAction, field, timeId } from '@epicenter/app';
+import type { Data } from '../../epicenter';
+
+export function writing({ notes }: Data) {
+  const add = defineAction({
+    description: 'Save a thought, quote or link, named by the time',
+    input: {
+      body: field.text({ pattern: '\\S' }),
+      kind: field.select(['thought', 'quote', 'link'], { optional: true }),
+    },
+    run: ({ body, kind = 'thought' }) => notes.create(timeId(), { body, kind }),
+  });
+  return { description: 'Notes for later writing', actions: { add } };
+}
+```
+
+```txt
+epicenter writing add '{"body":"Fares to Tokyo drop in late March"}'   the command
+writing_add                                                            the MCP tool
+POST /actions/writing/add                                              the route both use
+```
+
+```ts
+// a page's client
+import { connect } from '@epicenter/app/client';
+import type home from '../../../../epicenter.ts';
+
+const epicenter = connect<typeof home>();
+const idea = await epicenter.flights.idea({ id: 'tokyo-spring' });
+await epicenter.writing.add({ body: 'Fares to Tokyo drop in late March' });
+```
+
+### Not decided
+
+Each is designed when the first rebuilt app needs it. What the earlier
+design taught each one must keep:
+
+- **Routines.** A schedule that runs an action must leave the same run
+  record as a call, appear in the listing, and be checked when serve
+  starts. `routines/*.md` is not carried into the new home.
+- **An app's page.** Serving built files must keep `uiFile`'s refusals:
+  dot names, and a file or folder that resolves outside the app.
+- **An app's `fetch`.** A handler for OAuth, a feed or a webhook must sit
+  behind serve's guards, and must learn its public address without
+  `epicenter.ts` passing it.
 
 ## Consequences
 
 - Deleted from `@epicenter/app`: app discovery and the per-app load guard
   in `command/apps.ts`, `defineApp`, a key's generated actions
   (`data-actions.ts` and `actions(...)` on a handle), routine files in
-  `command/routines.ts`, reading `EPICENTER.md` in `command/root.ts`, and
-  `uiFile` in `command/serve.ts` until `ui` returns. `folderOnDisk` stays
-  internal to `defineData`.
+  `command/routines.ts`, and reading `EPICENTER.md` in `command/root.ts`.
+  `folderOnDisk` stays internal to `defineData`. Until pages, routines and
+  `fetch` are designed, the first version serves none of them.
 - Added: `defineEpicenter`, `defineData` taking a path, and `connect`
   typed by the home with property access.
 - A file with no app is a folder in `data/`, reachable by an agent on the
@@ -224,13 +265,9 @@ Each is added when the first app needs it, in this shape:
   rule, and a direct action call skips the input check serve makes.
 - **The port in `epicenter.ts`.** Every command would import every app to
   find serve.
-- **A routine as a closure.** Serve could not name its action, log its
-  run, or list it.
 - **The data definitions written as JSON.** An imported JSON file widens
   `select` values to `string` and loses optional fields, so the handles
   lose their types.
 - **Hono RPC or Elysia Eden as the page client.** Their types come from a
   route chain, and actions are one generic route; both answer a
   `Response`, losing the Result and the update stream.
-- **Routines as crontab or launchd jobs.** The schedule leaves the home's
-  history and needs setting up on each computer.
