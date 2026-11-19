@@ -9,11 +9,13 @@
  * - Ticking a page leaves the other pages' ticks alone; selecting every row
  *   the search keeps reaches past the page.
  * - A shift-click ticks a range on one page.
+ * - A delete confirmation names a few recordings and counts the rest.
  */
 import { expect, test } from 'bun:test';
 import type { RecordingNote } from './folder.js';
 import {
 	DEFAULT_SORT,
+	describeDeletions,
 	PAGE_SIZE,
 	pageOf,
 	selectionIn,
@@ -189,5 +191,90 @@ test('a shift-click with no earlier click on the page changes that row alone', (
 	expect(selectRange([], first, anchor, id, true, library)).toEqual([id]);
 	expect(selectRange([], first, undefined, id, true, library)).toEqual(
 		toggleSelected([], id, true, library),
+	);
+});
+
+/** A recording deletion as `captureDeletions` captures it. */
+const deletionOf = (i: number, audio?: string, transcripts = 0) => ({
+	kind: 'recording' as const,
+	id: `r${i}`,
+	title: `Note ${i}`,
+	noted: true,
+	audio,
+	transcripts: Array.from({ length: transcripts }, (_, t) => ({
+		collection: 'transcriptions' as const,
+		id: `t${i}-${t}`,
+	})),
+});
+
+const refusal = (transcribing: boolean) => ({
+	title: 'Busy',
+	reason: 'reason',
+	transcribing,
+});
+
+test('more than three recordings are counted in the title, not named', () => {
+	const deletions = Array.from({ length: 15_000 }, (_, i) =>
+		deletionOf(i, `recordings/r${i}.wav`, 1),
+	);
+	const { title, description } = describeDeletions({ deletions, refused: [] });
+	expect(title).toBe(`Delete ${(15_000).toLocaleString()} recordings?`);
+	expect(description).toContain(
+		`Their audio and ${(15_000).toLocaleString()} transcripts`,
+	);
+	expect(description).not.toContain('Note');
+});
+
+test('three or fewer recordings are named in the title', () => {
+	const { title } = describeDeletions({
+		deletions: [deletionOf(0), deletionOf(1), deletionOf(2)],
+		refused: [],
+	});
+	expect(title).toBe('Delete “Note 0”, “Note 1” and “Note 2”?');
+});
+
+test('without audio or transcripts, it only says it cannot be undone', () => {
+	const { description } = describeDeletions({
+		deletions: [deletionOf(0)],
+		refused: [],
+	});
+	expect(description).toBe('This can’t be undone.');
+});
+
+test('audio alone, or one transcript alone, is deleted too', () => {
+	const audioOnly = describeDeletions({
+		deletions: [deletionOf(0, 'recordings/r0.wav')],
+		refused: [],
+	});
+	expect(audioOnly.description).toBe(
+		'Its audio is deleted too. This can’t be undone.',
+	);
+	const oneTranscript = describeDeletions({
+		deletions: [deletionOf(0, undefined, 1)],
+		refused: [],
+	});
+	expect(oneTranscript.description).toBe(
+		'1 transcript is deleted too. This can’t be undone.',
+	);
+});
+
+test('recordings being transcribed are said to be kept for that reason', () => {
+	const { description } = describeDeletions({
+		deletions: [deletionOf(0, 'recordings/r0.wav')],
+		refused: [refusal(true), refusal(true)],
+	});
+	expect(description).toContain('This can’t be undone.');
+	expect(description).toContain(
+		'2 selected recordings are being transcribed and are kept.',
+	);
+});
+
+test('recordings kept for mixed reasons are said to be kept, without a reason', () => {
+	const { description } = describeDeletions({
+		deletions: [deletionOf(0)],
+		refused: [refusal(true), refusal(false)],
+	});
+	expect(description).toContain(
+		'2 selected recordings can’t be deleted right now and are kept.',
 	);
 });
