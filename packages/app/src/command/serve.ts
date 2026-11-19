@@ -36,7 +36,7 @@ import { isIP } from 'node:net';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import packageJson from '../../package.json' with { type: 'json' };
-import type { Answer } from '../call.ts';
+import { type Answer, HOME_HEADER, type Listing } from '../call.ts';
 import { ActionError } from '../errors.ts';
 import { parseJson } from '../json.ts';
 import { isName } from '../name.ts';
@@ -44,7 +44,6 @@ import type { Home } from './home.ts';
 import { createMcp } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import { loadProgram, type Program } from './program.ts';
-import { HOME_HEADER, type Listing } from './protocol.ts';
 import { answerCall } from './run.ts';
 
 /** Serve listens only here. */

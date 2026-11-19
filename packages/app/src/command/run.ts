@@ -15,14 +15,11 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, trySync } from 'wellcrafted/result';
 import type { Answer } from '../call.ts';
-import { ActionError, type Thrown } from '../errors.ts';
+import { ActionError, PLATFORM_NAMES, type Thrown } from '../errors.ts';
 import { isPlainObject } from '../json.ts';
 import { inputProblem } from './input.ts';
 import { stderrJsonLines } from './output.ts';
 import type { Program } from './program.ts';
-
-/** The names only Epicenter answers. */
-const RESERVED_NAMES = ['NotStarted', 'Threw', 'Unreachable'];
 
 /** Where serve writes one record for each run, when it ends. */
 const runLog = createLogger('epicenter/run', stderrJsonLines);
@@ -67,7 +64,7 @@ export async function answerCall(
 	const answer: Answer = await run(input, { onUpdate })
 		.then((result) => {
 			const { data, error } = result as Answer;
-			if (error && RESERVED_NAMES.includes(error.name))
+			if (error && PLATFORM_NAMES.includes(error.name))
 				return ActionError.Threw({
 					message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
 				});

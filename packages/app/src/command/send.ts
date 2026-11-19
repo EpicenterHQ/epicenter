@@ -4,11 +4,16 @@
  * page does, with `postAction`. It never starts serve and never runs an
  * action in its place.
  */
-import { Err, Ok, tryAsync } from 'wellcrafted/result';
-import { actionPath, fetchFailed, postAction, statusFailed } from '../call.ts';
+import { Err, Ok } from 'wellcrafted/result';
+import {
+	actionPath,
+	fetchServe,
+	HOME_HEADER,
+	type Listing,
+	postAction,
+} from '../call.ts';
 import { ActionError } from '../errors.ts';
 import type { Home } from './home.ts';
-import { HOME_HEADER, type Listing } from './protocol.ts';
 
 /** Where the home's serve answers, and the header that names this home to it. */
 const serveOf = (home: Home) => ({
@@ -19,16 +24,12 @@ const serveOf = (home: Home) => ({
 /** The listing serve answers at `GET /actions/`. */
 export async function fetchListing(home: Home) {
 	const { url, headers } = serveOf(home);
-	const { data: response, error } = await tryAsync({
-		try: () => fetch(`${url}/actions/`, { headers }),
-		catch: (cause) =>
-			fetchFailed(cause, 'The connection to serve ended before its listing'),
-	});
-	if (error) return Err(error);
-	if (response.status !== 200) {
-		void response.body?.cancel().catch(() => undefined);
-		return statusFailed(response);
-	}
+	const { data: response, error } = await fetchServe(
+		`${url}/actions/`,
+		{ headers },
+		'The connection to serve ended before its listing',
+	);
+	if (error !== null) return Err(error);
 	// Not JSON is the same as JSON that is no listing.
 	const listing = (await response.json().catch(() => undefined)) as
 		| Listing

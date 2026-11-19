@@ -123,25 +123,6 @@ export type Client<H> = {
 	};
 };
 
-/** Tell the page about a listener's failure without ending the call. */
-function report(cause: unknown) {
-	const page = globalThis as { reportError?: (cause: unknown) => void };
-	if (page.reportError) page.reportError(cause);
-	else queueMicrotask(() => Promise.reject(cause));
-}
-
-/** `onUpdate`, with its failures reported to the page instead of ending the call. */
-function guarded(onUpdate: ((value: unknown) => unknown) | undefined) {
-	return (update: unknown) => {
-		try {
-			const heard = onUpdate?.(update);
-			if (heard instanceof Promise) heard.catch(report);
-		} catch (cause) {
-			report(cause);
-		}
-	};
-}
-
 /**
  * A Proxy whose every string key but `then` is `make(key)`, made once per
  * key so the same name is the same value, and which has nothing else.
@@ -178,7 +159,7 @@ export function connect<H extends Epicenter>({
 					postAction(
 						`${base}${actionPath(app, action)}`,
 						JSON.stringify(input ?? {}),
-						{ onUpdate: guarded(options?.onUpdate) },
+						{ onUpdate: options?.onUpdate },
 					),
 		),
 	) as unknown as Client<H>;

@@ -1,7 +1,8 @@
 /**
- * One action call as a caller makes it, for a page and for the command
- * alike: `POST /actions/<app>/<action>` with the input as JSON, answered by
- * JSON lines, `{"update": value}` for each update, then
+ * The HTTP contract between serve and its callers, a page and the command
+ * alike: the listing, the header that names a home, and one action call.
+ * A call is `POST /actions/<app>/<action>` with the input as JSON, answered
+ * by JSON lines, `{"update": value}` for each update, then
  * `{"answer": {data, error}}`. A call serve refused before it began is a 200
  * with one line, its `NotStarted` answer.
  *
@@ -12,9 +13,46 @@
  * `Unreachable` too. This module uses only web APIs, so a page's bundle can
  * carry it.
  */
-import type { Result } from 'wellcrafted/result';
-import { ActionError, type PublicError } from './errors.ts';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import {
+	ActionError,
+	type NotStarted,
+	type PublicError,
+	type Unreachable,
+} from './errors.ts';
+import type { ObjectSchema } from './field.ts';
 import { isPlainObject, parseJson } from './json.ts';
+
+/**
+ * The header a request from the command names its home in: the home's real
+ * path, percent-encoded. The command sends it only to 127.0.0.1, so the path
+ * never leaves this computer, and serve refuses a request for another home
+ * with 409, so a command in a second home on the same port reaches nothing.
+ */
+export const HOME_HEADER = 'x-epicenter-home';
+
+/** An action as the listing shows it. */
+export type ActionListing = {
+	name: string;
+	description: string;
+	input: ObjectSchema;
+};
+
+/** An app as the listing shows it. */
+export type AppListing = {
+	name: string;
+	description: string;
+	actions: ActionListing[];
+};
+
+/** Everything serve offers, as `GET /actions/` answers it. */
+export type Listing = {
+	/** The version of `@epicenter/app` serve runs. */
+	version: string;
+	apps: AppListing[];
+	/** Why `epicenter.ts` did not load, when it did not; then there are no apps. */
+	problem?: string;
+};
 
 /** An action's answer on every surface: what it returned, or the error itself. */
 export type Answer = Result<unknown, PublicError>;
@@ -54,7 +92,7 @@ const REFUSED: Record<number, string> = {
  * other failure is `Unreachable`, saying `ended`, since the request may have
  * reached serve before the connection dropped.
  */
-export function fetchFailed(cause: unknown, ended: string) {
+function fetchFailed(cause: unknown, ended: string) {
 	const { code } = (cause ?? {}) as { code?: string };
 	return code === 'ECONNREFUSED' || code === 'ConnectionRefused'
 		? ActionError.NotStarted({
@@ -65,7 +103,7 @@ export function fetchFailed(cause: unknown, ended: string) {
 }
 
 /** A response that is not 200, as the error it means. */
-export function statusFailed({ status, statusText }: Response) {
+function statusFailed({ status, statusText }: Response) {
 	const message =
 		REFUSED[status] ?? `serve answered ${status} ${statusText}`.trim();
 	return status >= 400 && status < 500
@@ -76,17 +114,53 @@ export function statusFailed({ status, statusText }: Response) {
 const invalid = () =>
 	ActionError.Unreachable({ message: 'serve sent an invalid answer' });
 
-const cut = () =>
-	ActionError.Unreachable({
-		message:
-			'The connection ended before the answer; the action may still be running, or may have finished',
-	});
+const CUT =
+	'The connection ended before the answer; the action may still be running, or may have finished';
+
+/**
+ * Fetch `url` from serve and give the response when it is a 200, or the
+ * error a failed fetch or another status means. `ended` says what was lost
+ * when the connection dropped.
+ */
+export async function fetchServe(
+	url: string,
+	init: RequestInit,
+	ended: string,
+): Promise<Result<Response, NotStarted | Unreachable>> {
+	const response = await fetch(url, init).catch((cause: unknown) =>
+		fetchFailed(cause, ended),
+	);
+	if (!(response instanceof Response)) return response;
+	if (response.status === 200) return Ok(response);
+	void response.body?.cancel().catch(() => undefined);
+	return statusFailed(response);
+}
+
+/** Tell the page about a listener's failure without ending the call. */
+function report(cause: unknown) {
+	const page = globalThis as { reportError?: (cause: unknown) => void };
+	if (page.reportError) page.reportError(cause);
+	else queueMicrotask(() => Promise.reject(cause));
+}
+
+/** Hand `value` to `onUpdate`, reporting its failure instead of ending the call. */
+function hear(
+	onUpdate: ((value: unknown) => unknown) | undefined,
+	value: unknown,
+) {
+	try {
+		const heard = onUpdate?.(value);
+		if (heard instanceof Promise) heard.catch(report);
+	} catch (cause) {
+		report(cause);
+	}
+}
 
 /**
  * Post `body`, an action's input as JSON text, to `url`, hand each update to
- * `onUpdate` in order, and give the answer. A stream that ends before its
- * answer was cut off, and the action may still be running or may have
- * finished.
+ * `onUpdate` in order, and give the answer. A listener that throws is
+ * reported and the call goes on. A stream that ends before its answer was
+ * cut off, and the action may still be running or may have finished.
  */
 export async function postAction(
 	url: string,
@@ -99,16 +173,17 @@ export async function postAction(
 		onUpdate?: (value: unknown) => unknown;
 	} = {},
 ): Promise<Answer> {
-	const response = await fetch(url, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json', ...headers },
-		body,
-	}).catch((cause: unknown) => fetchFailed(cause, cut().error.message));
-	if (!(response instanceof Response)) return response;
-	if (response.status !== 200) {
-		void response.body?.cancel().catch(() => undefined);
-		return statusFailed(response);
-	}
+	const cut = () => ActionError.Unreachable({ message: CUT });
+	const { data: response, error } = await fetchServe(
+		url,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json', ...headers },
+			body,
+		},
+		CUT,
+	);
+	if (error !== null) return Err(error);
 	if (!response.body) return cut();
 	const lines = response.body.pipeThrough(new TextDecoderStream()).getReader();
 	let pending = '';
@@ -126,7 +201,7 @@ export async function postAction(
 				if (Object.hasOwn(line, 'answer'))
 					return isResult(line.answer) ? line.answer : invalid();
 				if (!Object.hasOwn(line, 'update')) return invalid();
-				onUpdate?.(line.update);
+				hear(onUpdate, line.update);
 			}
 			if (done) return cut();
 		}

@@ -15,10 +15,9 @@ import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { Answer } from '../call.ts';
+import type { Answer, Listing } from '../call.ts';
 import { errorText } from './output.ts';
 import type { Program } from './program.ts';
-import type { Listing } from './protocol.ts';
 import { answerCall } from './run.ts';
 
 /** An answer as an MCP tool result. A failure's text is what the command prints on stderr. */

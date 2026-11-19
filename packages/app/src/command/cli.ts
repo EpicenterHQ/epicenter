@@ -7,12 +7,11 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
-import type { Answer } from '../call.ts';
+import type { Answer, AppListing, Listing } from '../call.ts';
 import { ActionError } from '../errors.ts';
 import { isName } from '../name.ts';
 import { findHome, type Home } from './home.ts';
 import { printAnswer, writeErr } from './output.ts';
-import type { AppListing, Listing } from './protocol.ts';
 import { callServe, fetchListing } from './send.ts';
 
 const HELP = `epicenter                          every app in this home

@@ -76,6 +76,13 @@ export const ActionError = defineErrors({
 	 */
 	NotStarted: (body: { message: string; next?: string }) => body,
 });
+/** The names only Epicenter answers: they say whether an action ran. */
+export const PLATFORM_NAMES: readonly string[] = [
+	'NotStarted',
+	'Threw',
+	'Unreachable',
+] satisfies (keyof typeof ActionError)[];
+
 export type ActionError = InferErrors<typeof ActionError>;
 export type Misfit = InferError<typeof ActionError.Misfit>;
 export type Exists = InferError<typeof ActionError.Exists>;
