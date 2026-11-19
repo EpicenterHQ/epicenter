@@ -21,6 +21,23 @@ prefix_rule(
     not_match = ["git add scripts/clean.ts", "git add -- .gitignore"],
 )
 
+# `-u` and `-a` stage every tracked change, with the same effect as `git add -A`.
+prefix_rule(
+    pattern = ["git", "add", ["-u", "--update"]],
+    decision = "forbidden",
+    justification = "Stage files by name. `git add -u` takes every tracked change in the checkout.",
+    match = ["git add -u", "git add --update"],
+    not_match = ["git add scripts/clean.ts"],
+)
+
+prefix_rule(
+    pattern = ["git", "commit", ["-a", "-am", "--all"]],
+    decision = "forbidden",
+    justification = "Stage files by name. `git commit -a` commits every tracked change in the checkout.",
+    match = ["git commit -a", "git commit -am msg", "git commit --all"],
+    not_match = ["git commit -m msg", "git commit --amend"],
+)
+
 # History and branches other people may depend on.
 prefix_rule(
     pattern = ["git", "push", ["--force", "-f", "--force-with-lease", "--delete", "-d"]],
@@ -63,11 +80,11 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["git", "stash", ["drop", "clear"]],
+    pattern = ["git", "stash", ["pop", "drop", "clear"]],
     decision = "prompt",
-    justification = "The stash is shared across worktrees; dropping from it needs the person's approval.",
-    match = ["git stash drop", "git stash clear", "git stash drop stash@{1}"],
-    not_match = ["git stash list", "git stash push -m tag"],
+    justification = "The stash is shared across worktrees; popping or dropping from it needs the person's approval.",
+    match = ["git stash pop", "git stash drop", "git stash clear", "git stash drop stash@{1}"],
+    not_match = ["git stash list", "git stash show"],
 )
 
 prefix_rule(

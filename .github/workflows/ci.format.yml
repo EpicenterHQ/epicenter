@@ -36,7 +36,7 @@ jobs:
       pull-requests: read
     steps:
       - name: No AI or tool attribution in commit messages
-        # AGENTS.md, "Git hygiene". Matches a trailer or footer that credits a
+        # Matches a trailer or footer that credits a
         # tool, not a mention of one: `chore(claude): ...` passes. The API lists
         # at most 250 commits per pull request.
         if: github.event_name == 'pull_request'

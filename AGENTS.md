@@ -43,11 +43,14 @@ A script name ending in `:remote` runs with production secrets through
 
 ## Git hygiene
 
-Stage specific files only.
+Stage specific files by name, never `git add -A` or `git commit -a`: other
+sessions share the checkout. `git stash` is shared across worktrees, so commit to
+a branch instead. Instruction and skill changes get their own commits, so they
+can be cherry-picked onto local `main`.
 
 ## Destructive actions need approval
 
-Force pushes, hard resets (`--hard`), branch deletions.
+Force pushes, hard resets (`--hard`), branch deletions, and `gh pr merge --admin`.
 
 ## External grounding
 
