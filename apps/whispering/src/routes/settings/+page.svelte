@@ -20,11 +20,17 @@
 	let baseUrl = $state(settings.server?.baseUrl ?? '');
 	let model = $state(settings.server?.model ?? '');
 	let key = $state('');
-	let urlError = $state<string>();
-	let modelError = $state<string>();
 	let saving = $state(false);
+	/** Errors show once Save was pressed, and each clears as its field is fixed. */
+	let triedToSave = $state(false);
 
 	const origin = $derived(originOf(baseUrl));
+	const urlError = $derived(
+		triedToSave && !origin ? 'Enter an address that starts with http:// or https://.' : undefined,
+	);
+	const modelError = $derived(
+		triedToSave && !model.trim() ? 'Enter the model the server should use.' : undefined,
+	);
 
 	/** Whether the Keychain holds a key for `origin`'s server; asked again when the origin changes. */
 	let keySaved = $state(false);
@@ -43,8 +49,7 @@
 
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
-		urlError = origin ? undefined : 'Enter an address that starts with http:// or https://.';
-		modelError = model.trim() ? undefined : 'Enter the model the server should use.';
+		triedToSave = true;
 		if (urlError || modelError) return;
 		const server = { baseUrl: baseUrl.trim(), model: model.trim() };
 		saving = true;
@@ -97,7 +102,6 @@
 								onclick={() => {
 									baseUrl = preset.baseUrl;
 									model = preset.model ?? model;
-									urlError = undefined;
 								}}
 							>
 								{preset.label}
