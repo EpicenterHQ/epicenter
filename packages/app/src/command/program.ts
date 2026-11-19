@@ -1,5 +1,5 @@
 /**
- * What serve loads when it starts, once: the home's `epicenter.ts`. The
+ * What serve loads when it starts, once: the Epicenter's `epicenter.ts`. The
  * whole program loads or none of it does: a module that throws, or a
  * name serve refuses (`programProblems`), leaves serve with no
  * apps and that one problem. To run changed code, restart serve.
@@ -10,7 +10,7 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, tryAsync } from 'wellcrafted/result';
 import { type App, type Epicenter, programProblems } from '../epicenter.ts';
 
-/** The home's program as serve answers from it. */
+/** The Epicenter's program as serve answers from it. */
 export type Program = {
 	apps: Record<string, App>;
 	/** Why `epicenter.ts` did not load; then there are no apps. */
@@ -19,7 +19,7 @@ export type Program = {
 
 /** Import `<folder>/epicenter.ts`. Never throws. */
 export async function loadProgram(folder: string): Promise<Program> {
-	// Paths inside the home read the same on every computer.
+	// Paths inside the Epicenter read the same on every computer.
 	const fromHome = (message: string) =>
 		message.replaceAll(`${folder}${sep}`, '');
 	const { data: module, error } = await tryAsync({

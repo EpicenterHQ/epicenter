@@ -1,6 +1,6 @@
 /**
  * The HTTP contract between serve and its callers, a page and the command
- * alike: the listing, the header that names a home, and one action call.
+ * alike: the listing, the header that names an Epicenter, and one action call.
  * A call is `POST /actions/<app>/<action>` with the input as JSON, answered
  * by JSON lines, `{"update": value}` for each update, then
  * `{"answer": {data, error}}`. A call serve refused before it began is a 200
@@ -25,9 +25,9 @@ import type { ObjectSchema } from './field.ts';
 import { isPlainObject, parseJson } from './json.ts';
 
 /**
- * The header a request from the command names its home in: the home's real
+ * The header a request from the command names its Epicenter in: the Epicenter's real
  * path, percent-encoded. The command sends it only to 127.0.0.1, so the path
- * never leaves this computer, and serve refuses a request for another home
+ * never leaves this computer, and serve refuses a request for another Epicenter
  * with 409, so a command in a second home on the same port reaches nothing.
  */
 export const HOME_HEADER = 'x-epicenter-home';
@@ -62,7 +62,7 @@ export const actionPath = (app: string, action: string) =>
 /** What a refusal status says, where serve's reason is known. */
 const REFUSED: Record<number, string> = {
 	403: 'serve refused the request: it came through a tunnel, or from another host or site',
-	409: "The serve on this port is another home's; give this home another port in its package.json",
+	409: "The serve on this port is another Epicenter's; give this Epicenter another port in its package.json",
 	413: 'The input is larger than 25 MiB, the most serve takes',
 };
 

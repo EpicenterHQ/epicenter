@@ -1,5 +1,5 @@
 /**
- * How a page calls a home's actions through serve:
+ * How a page calls an Epicenter's actions through serve:
  *
  * ```ts
  * import { connect } from '@epicenter/app/client';
@@ -10,7 +10,7 @@
  * await epicenter.flights.daily({}, { onUpdate: (update) => show(update) });
  * ```
  *
- * The home is imported as a type, so the page's bundle carries no app code.
+ * The Epicenter is imported as a type, so the page's bundle carries no app code.
  * Each call posts its input to `/actions/<app>/<action>` and resolves to a
  * Result: what the action returned in its JSON form, the action's own error,
  * or one of the platform's: `NotStarted` (it never began), `Threw` (it began
@@ -114,7 +114,7 @@ export type ActionCall<A> = (
 
 type AppsOf<H> = H extends Epicenter<infer TApps> ? TApps : never;
 
-/** The client for the home `H`: each app, then each of its actions, by name. */
+/** The client for the Epicenter `H`: each app, then each of its actions, by name. */
 export type Client<H> = {
 	readonly [A in keyof AppsOf<H>]: {
 		readonly [K in keyof AppsOf<H>[A]['actions']]: ActionCall<
@@ -139,7 +139,7 @@ function lazyKeys<T>(make: (name: string) => T) {
 }
 
 /**
- * A client for the home whose `epicenter.ts` default export is `H`. `url` is
+ * A client for the Epicenter whose `epicenter.ts` default export is `H`. `url` is
  * where serve answers, this origin's `/` by default: an action is
  * `POST <url>actions/<app>/<action>`.
  */

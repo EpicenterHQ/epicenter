@@ -1,5 +1,5 @@
 /**
- * A home's records, opened once by its `epicenter.ts` and passed to every
+ * An Epicenter's records, opened once by its `epicenter.ts` and passed to every
  * app:
  *
  * ```ts
@@ -10,7 +10,7 @@
  * export type Data = typeof data;
  * ```
  *
- * Each key is a folder of Markdown records under the home's `data/`, one
+ * Each key is a folder of Markdown records under the Epicenter's `data/`, one
  * file per id: `data.watches` reads and writes `data/watches/<id>.md`. A
  * handle has `list`, `get`, `create`, `patch`, `edit` and `delete`, and
  * generates no actions: an app writes each action it offers.
@@ -45,7 +45,7 @@ export type Change<TFields extends Fields> = Flat<
 export type NewRecord<TFields extends Fields> = Flat<
 	Static<TObject<TFields>> & { body?: string }
 >;
-/** A record: its path from the home, its id, its fields and its body. */
+/** A record: its path from the Epicenter, its id, its fields and its body. */
 export type DataRecord<TDef extends DataDef> = Flat<
 	{ path: string; id: string; body: string } & Static<TObject<TDef['fields']>>
 >;
@@ -97,9 +97,9 @@ export type Data<TSpec extends Spec> = {
 
 /**
  * The records under `<dir>/data/`, one handle per key of `spec`. `dir` is
- * the home's folder, `import.meta.dir` in its `epicenter.ts`. Given what an
+ * the Epicenter's folder, `import.meta.dir` in its `epicenter.ts`. Given what an
  * earlier call returned, it opens the same definitions under `dir`, which is
- * how a test points a home's data at a temporary folder. Throws for a key
+ * how a test points an Epicenter's data at a temporary folder. Throws for a key
  * or field name that cannot be a folder or a front matter line.
  */
 export function defineData<const TSpec extends Spec>(

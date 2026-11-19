@@ -7,7 +7,7 @@
  * POST /actions/<app>/<action>  run one action; the body is its input as JSON
  * ```
  *
- * Serve imports the home's `epicenter.ts` once, when it starts, and answers
+ * Serve imports the Epicenter's `epicenter.ts` once, when it starts, and answers
  * every request from that one program until it stops (`program.ts`). A call's
  * answer is JSON lines: `{"update": value}` for each update the action
  * sends, then `{"answer": {data, error}}`. A call refused before it begins
@@ -27,8 +27,8 @@
  * - An `Origin`, when there is one, must be that same host.
  * - A browser's `Sec-Fetch-Site` must not say another origin made it.
  *
- * A request from the command also names its home, and serve refuses one for
- * another home with 409.
+ * A request from the command also names its Epicenter, and serve refuses one for
+ * another Epicenter with 409.
  */
 
 import { realpathSync } from 'node:fs';
@@ -225,7 +225,7 @@ function guard(request: Request, home: Home) {
 	if (fromAnotherOrigin(request)) return forbidden();
 	const meant = headers.get(HOME_HEADER);
 	if (meant !== null && meant !== encodeURIComponent(home.folder))
-		return new Response('This call is for another home', { status: 409 });
+		return new Response('This call is for another Epicenter', { status: 409 });
 	return undefined;
 }
 
@@ -241,15 +241,15 @@ export function createHandler(home: Home, program: Promise<Program> | Program) {
 }
 
 /**
- * Serve the home until the process receives SIGINT or SIGTERM, then exit
+ * Serve the Epicenter until the process receives SIGINT or SIGTERM, then exit
  * with 0; the answer is only ever why serve did not start.
- * It refuses to start outside the home's folder, since Bun reads `.env` from
+ * It refuses to start outside the Epicenter's folder, since Bun reads `.env` from
  * the folder a process starts in, and when the port is taken.
  */
 export async function serveHome(home: Home): Promise<Answer> {
 	if (realpathSync(process.cwd()) !== home.folder)
 		return ActionError.NotStarted({
-			message: `serve starts in your home's folder, ${home.folder}, so Bun reads its .env`,
+			message: `serve starts in your Epicenter folder, ${home.folder}, so Bun reads its .env`,
 			next: `cd ${home.folder} && epicenter serve`,
 		});
 	const loading = Promise.withResolvers<Program>();
@@ -274,7 +274,7 @@ export async function serveHome(home: Home): Promise<Answer> {
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
 		return ActionError.NotStarted({
-			message: `Port ${home.port} is in use. If that is not this home's serve, set another port in ${home.folder}/package.json.`,
+			message: `Port ${home.port} is in use. If that is not this Epicenter's serve, set another port in ${home.folder}/package.json.`,
 		});
 	}
 	// One app's stray timer or late rejection must not stop every app.
