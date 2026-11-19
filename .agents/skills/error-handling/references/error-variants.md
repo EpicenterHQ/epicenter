@@ -198,7 +198,7 @@ Two shapes are legitimate and should stay as an `if` or a plain expression:
   // every other variant flows to the shared handling below
   ```
 
-The smell is specifically the **total fold**: every branch consumes the union into a different output, with no compiler pin. If you are translating the whole union, switch on it. This is not error-specific: the same rule applies to any closed discriminated union (state enums keyed by `kind`, `phase`, or `state`). See `code-audit` category 7 for the detection grep recipe.
+The smell is specifically the **total fold**: every branch consumes the union into a different output, with no compiler pin. If you are translating the whole union, switch on it. This is not error-specific: the same rule applies to any closed discriminated union (state enums keyed by `kind`, `phase`, or `state`). See the [smell searches](../../code-collapse/references/smell-searches.md) for the detection recipe.
 
 ## Avoid Parallel Error Envelopes
 
