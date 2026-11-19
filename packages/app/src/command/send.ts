@@ -5,7 +5,7 @@
  * the same `readAnswer`. It never starts serve and never runs an action in
  * its place.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { type Answer, readAnswer } from '../answer.ts';
 import { ActionError, type PublicError } from '../errors.ts';
 import type { Home } from './home.ts';
@@ -22,24 +22,26 @@ async function reach(
 	init: RequestInit & { headers?: Record<string, string> },
 	ended: string,
 ): Promise<Result<Response, PublicError>> {
-	let response: Response;
-	try {
-		response = await fetch(`http://127.0.0.1:${home.port}${path}`, {
-			...init,
-			headers: {
-				...init.headers,
-				[HOME_HEADER]: encodeURIComponent(home.folder),
-			},
-		});
-	} catch (error) {
-		const { code } = error as { code?: string };
-		if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
-			return ActionError.NotStarted({
-				message: 'serve is not running; if it stopped, its output says why',
-				next: 'epicenter serve',
-			});
-		return ActionError.Unreachable({ message: ended });
-	}
+	const { data: response, error } = await tryAsync({
+		try: () =>
+			fetch(`http://127.0.0.1:${home.port}${path}`, {
+				...init,
+				headers: {
+					...init.headers,
+					[HOME_HEADER]: encodeURIComponent(home.folder),
+				},
+			}),
+		catch: (cause) => {
+			const { code } = cause as { code?: string };
+			return code === 'ECONNREFUSED' || code === 'ConnectionRefused'
+				? ActionError.NotStarted({
+						message: 'serve is not running; if it stopped, its output says why',
+						next: 'epicenter serve',
+					})
+				: ActionError.Unreachable({ message: ended });
+		},
+	});
+	if (error) return Err(error);
 	if (response.status === 200) return Ok(response);
 	await response.body?.cancel().catch(() => undefined);
 	if (response.status === 409)

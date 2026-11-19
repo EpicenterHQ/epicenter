@@ -12,6 +12,7 @@
  */
 import type { Result } from 'wellcrafted/result';
 import { ActionError, type PublicError } from './errors.ts';
+import { parseJson } from './markdown.ts';
 
 /** An action's answer on every surface: what it returned, or the error itself. */
 export type Answer = Result<unknown, PublicError>;
@@ -80,12 +81,7 @@ export async function readAnswer(
 			pending = whole.pop() ?? '';
 			for (const text of whole) {
 				if (text === '') continue;
-				let line: unknown;
-				try {
-					line = JSON.parse(text);
-				} catch {
-					return invalid();
-				}
+				const line = parseJson(text);
 				if (!isPlainObject(line)) return invalid();
 				if (Object.hasOwn(line, 'answer'))
 					return isAnswer(line.answer) ? line.answer : invalid();

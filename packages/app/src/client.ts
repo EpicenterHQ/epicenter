@@ -96,20 +96,26 @@ type CallOptions<A> = {
 	onUpdate?: (value: JsonOf<ActionUpdate<A>>) => unknown;
 };
 
+/** An action's input argument, which may be left out when every key is optional. */
+type InputArg<A> =
+	Record<string, never> extends ActionInput<A>
+		? [input?: ActionInput<A>]
+		: [input: ActionInput<A>];
+
+/** `{ onUpdate }`, for an action that sends updates. */
+type OptionsArg<A> = [ActionUpdate<A>] extends [never]
+	? []
+	: [options?: CallOptions<A>];
+
 /**
  * One action as a page calls it: a function of its input, and of
- * `{ onUpdate }` when the action sends updates. An action whose every key is
- * optional may be called with no input. Each case is a whole function type,
- * so a helper that takes a function of one argument, such as Wellcrafted's
- * `resultMutations`, accepts one that sends no updates.
+ * `{ onUpdate }` when the action sends updates. One that sends none takes
+ * one argument, so a helper that takes a function of one argument, such as
+ * Wellcrafted's `resultMutations`, accepts it.
  */
-export type ActionCall<A> = [ActionUpdate<A>] extends [never]
-	? Record<string, never> extends ActionInput<A>
-		? (input?: ActionInput<A>) => Answered<A>
-		: (input: ActionInput<A>) => Answered<A>
-	: Record<string, never> extends ActionInput<A>
-		? (input?: ActionInput<A>, options?: CallOptions<A>) => Answered<A>
-		: (input: ActionInput<A>, options?: CallOptions<A>) => Answered<A>;
+export type ActionCall<A> = (
+	...args: [...InputArg<A>, ...OptionsArg<A>]
+) => Answered<A>;
 
 type AppsOf<H> = H extends Epicenter<infer TApps> ? TApps : never;
 

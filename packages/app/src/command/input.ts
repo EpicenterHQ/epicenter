@@ -7,6 +7,7 @@
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { type Described, type ObjectSchema, whatFits } from '../field.ts';
+import { parseJson } from '../markdown.ts';
 
 /** A checked input, or why it was refused, in words a caller reads. */
 type Checked = { input: Record<string, unknown> } | { error: string };
@@ -105,14 +106,11 @@ function exampleInput({ properties, required }: ObjectSchema) {
  * check it. Text that is not one JSON object is refused with an example.
  */
 export function readInput(schema: ObjectSchema, text: string): Checked {
-	let raw: unknown;
-	try {
-		raw = JSON.parse(text);
-	} catch {
+	const raw = parseJson(text);
+	if (raw === undefined)
 		return {
 			error: `The input is not JSON; give one JSON object, such as ${exampleInput(schema)}`,
 		};
-	}
 	return checkObject(schema, raw);
 }
 

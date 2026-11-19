@@ -59,7 +59,7 @@ type Parts = { open: string; fields: Field[]; close: string; body: string };
 const endingOf = (line: string) => (line.endsWith('\r\n') ? '\r\n' : '\n');
 
 /** `text` as JSON, or undefined when it is not JSON. */
-function parseJson(text: string) {
+export function parseJson(text: string) {
 	try {
 		return JSON.parse(text) as JsonValue;
 	} catch {

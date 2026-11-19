@@ -72,17 +72,8 @@ test('a rebound handle writes a record as Markdown under data/<key>/<id>.md', as
 	);
 	expect((await watches.get('tokyo')).data).toEqual(created.data ?? null);
 	expect(await watches.get('osaka')).toEqual(Ok(undefined));
-});
-
-test('create refuses a record already there, and patch one that is missing', async () => {
-	const { watches } = defineData(await tempHome(), data);
-	await watches.create('tokyo', { to: 'Tokyo' });
-	expect((await watches.create('tokyo', { to: 'Kyoto' })).error?.name).toBe(
-		'Exists',
-	);
-	expect((await watches.patch('osaka', { to: 'Osaka' })).error?.name).toBe(
-		'Missing',
-	);
+	expect(await watches.delete('tokyo')).toEqual(Ok(true));
+	expect(await watches.delete('tokyo')).toEqual(Ok(false));
 });
 
 test('patch changes only the lines it names, and null removes an optional field', async () => {
@@ -120,15 +111,27 @@ test('a read reports each line that does not fit, and the record for repair', as
 	]);
 });
 
-test('a write refuses a value that does not fit and writes nothing', async () => {
+test('a write it refuses writes nothing: a value that does not fit, a record already there, or one missing', async () => {
 	const home = await tempHome();
 	const { watches } = defineData(home, data);
-	const refused = await watches.create('tokyo', {
+	const misfit = await watches.create('tokyo', {
 		to: 'Tokyo',
 		nights: 'five' as unknown as number,
 	});
-	expect(refused.error?.name).toBe('Misfit');
+	expect(misfit.error?.name).toBe('Misfit');
 	expect(existsSync(join(home, 'data/watches/tokyo.md'))).toBe(false);
+	await watches.create('tokyo', { to: 'Tokyo' });
+	const before = await readFile(join(home, 'data/watches/tokyo.md'), 'utf8');
+	expect((await watches.create('tokyo', { to: 'Kyoto' })).error?.name).toBe(
+		'Exists',
+	);
+	expect((await watches.patch('osaka', { to: 'Osaka' })).error?.name).toBe(
+		'Missing',
+	);
+	expect(await readdir(join(home, 'data/watches'))).toEqual(['tokyo.md']);
+	expect(await readFile(join(home, 'data/watches/tokyo.md'), 'utf8')).toBe(
+		before,
+	);
 });
 
 test('a ref must name a record in its key', async () => {
@@ -158,13 +161,6 @@ test('edit computes a change from the record, or creates one, and its own Err wr
 	);
 	expect(refused).toEqual(Err({ name: 'Refused', message: 'not today' }));
 	expect((await watches.get('tokyo')).data?.nights).toBe(2);
-});
-
-test('delete answers whether there was a record', async () => {
-	const { watches } = defineData(await tempHome(), data);
-	await watches.create('tokyo', { to: 'Tokyo' });
-	expect(await watches.delete('tokyo')).toEqual(Ok(true));
-	expect(await watches.delete('tokyo')).toEqual(Ok(false));
 });
 
 test('an id that cannot be a file name is refused before any file is touched', async () => {

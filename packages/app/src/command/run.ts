@@ -6,7 +6,7 @@
 
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import type { Action } from '../action.ts';
 import { type Answer, isPlainObject } from '../answer.ts';
 import { ActionError, type NotStarted, type PublicError } from '../errors.ts';
@@ -130,12 +130,11 @@ export async function runAction(
  * Reading a hostile value never stops the answer.
  */
 function threw(cause: unknown): { message: string; thrown?: Thrown } {
-	let message = 'The action threw a value that could not be read';
-	try {
-		message = extractErrorMessage(cause).slice(0, 4096);
-	} catch {
-		// Even extracting a message can fail, for a cyclic array or a getter.
-	}
+	// Even extracting a message can fail, for a cyclic array or a getter.
+	const { data: message } = trySync({
+		try: () => extractErrorMessage(cause).slice(0, 4096),
+		catch: () => Ok('The action threw a value that could not be read'),
+	});
 	try {
 		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
 			return { message };
