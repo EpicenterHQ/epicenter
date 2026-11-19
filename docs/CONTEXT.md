@@ -259,5 +259,5 @@ where Git repositories, commits, and `origin` are the current words.
 | a Git remote or `origin` as the sync destination, GitHub and GitLab sync | the Epicenter server; Git is an export and an import | [ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) |
 | folder declaration, `epicenter.synced` | a folder's `epicenter.json`; every directory in the Epicenter folder is a folder | [ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md), [ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md) |
 
-For the full dated inventory and the review's accepted and rejected collapses,
-see the [October vocabulary audit](vocabulary-audit-2026-10-19.md).
+The October 2026 vocabulary audit that produced these rows is no longer in this
+repository; git history has it.
