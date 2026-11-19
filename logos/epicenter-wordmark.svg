@@ -2,7 +2,7 @@
 	<title>Epicenter</title>
 	<!-- Epicenter wordmark: the mark above the name. Designed for dark surfaces. -->
 	<!-- Manrope loads via @import in browsers; outline the text before -->
-	<!-- rasterizing on a machine without the font (see README). -->
+	<!-- rasterizing on a machine without the font. -->
 	<defs>
 		<style>
 			@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@700&amp;display=swap");
