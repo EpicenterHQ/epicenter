@@ -83,6 +83,12 @@ test('serve refusing the input reaches the page as NotStarted', async () => {
 	expect(refused.error?.name).toBe('NotStarted');
 });
 
+test('an input JSON cannot carry is NotStarted, and the call does not throw', async () => {
+	const answer = await epicenter.flights.idea({ id: 1n } as never);
+	expect(answer.error?.name).toBe('NotStarted');
+	expect(answer.error?.message).toStartWith('The input is not JSON');
+});
+
 test('the client and its apps are never thenable, so awaiting them is safe', async () => {
 	expect((epicenter as unknown as { then?: unknown }).then).toBeUndefined();
 	expect(

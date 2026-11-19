@@ -14,16 +14,24 @@
  * Each call posts its input to `/actions/<app>/<action>` and resolves to a
  * Result: what the action returned, the action's own error,
  * or one of the platform's: `NotStarted` (it never began), `Threw` (it began
- * and threw) or `Unreachable` (the outcome is unknown). An error does not
- * say what persisted; a page rereads its records to learn that.
+ * and threw) or `Unreachable` (the outcome is unknown). A call never throws:
+ * an input JSON cannot carry, such as a BigInt, is `NotStarted`, since
+ * nothing was sent. An error does not say what persisted; a page rereads
+ * its records to learn that.
  *
  * The client is a Proxy, and neither it nor an app on it answers `then`, so
  * `await connect()` is the client itself and never a call. An app or action
  * named `then` cannot be reached this way.
  */
-import type { Err, Ok, Result } from 'wellcrafted/result';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Err, type Ok, type Result, trySync } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
-import type { NotStarted, Threw, Unreachable } from './answer.ts';
+import {
+	ActionError,
+	type NotStarted,
+	type Threw,
+	type Unreachable,
+} from './answer.ts';
 import { actionPath, postAction } from './call.ts';
 import type { Epicenter } from './epicenter.ts';
 
@@ -126,15 +134,22 @@ export function connect<H extends Epicenter>({
 	return lazyKeys((app) =>
 		lazyKeys(
 			(action) =>
-				(
+				async (
 					input?: unknown,
 					options?: { onUpdate?: (value: unknown) => unknown },
-				) =>
-					postAction(
-						`${base}${actionPath(app, action)}`,
-						JSON.stringify(input ?? {}),
-						{ onUpdate: options?.onUpdate },
-					),
+				) => {
+					const { data: body, error } = trySync({
+						try: () => JSON.stringify(input ?? {}),
+						catch: (cause) =>
+							ActionError.NotStarted({
+								message: `The input is not JSON: ${extractErrorMessage(cause)}`,
+							}),
+					});
+					if (error !== null) return Err(error);
+					return postAction(`${base}${actionPath(app, action)}`, body, {
+						onUpdate: options?.onUpdate,
+					});
+				},
 		),
 	) as unknown as Client<H>;
 }
