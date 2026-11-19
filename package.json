@@ -27,7 +27,6 @@
 			"apps/*",
 			"apps/api/ui",
 			"apps/whispering/packages/*",
-			"ops",
 			"packages/*"
 		],
 		"catalog": {
@@ -160,7 +159,7 @@
 		"bump-version": "bun run scripts/bump-version.ts",
 		"clean": "bun run scripts/clean.ts",
 		"nuke": "bun run scripts/clean.ts --nuke",
-		"cf:audit:remote": "bun run --cwd ops cf:audit:remote"
+		"cf:audit:remote": "infisical run --env=prod --path=/ops --projectId=d5ce3d3d-7db2-4a7f-bf98-fb9d0fdb7b89 -- bun run scripts/cf-audit.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",

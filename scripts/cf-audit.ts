@@ -1,11 +1,19 @@
 #!/usr/bin/env bun
-/** Read-only checks for the declared Epicenter zones. See ops/README.md. */
+/**
+ * Read-only audit of our Cloudflare zones: HTTPS, TLS, DNSSEC, and SPF/DMARC.
+ * Never writes. Run when adding a domain or changing domain settings:
+ *
+ *   bun run cf:audit:remote   (production; Infisical supplies CLOUDFLARE_ZONE_TOKEN)
+ *
+ * New zone? Add it to ZONES with a mail policy: 'none' (must be spoof-proof),
+ * 'external' (provider-managed mail, leave alone), or 'review' (undecided).
+ */
 import { resolveTxt } from 'node:dns/promises';
 
 const ZONES = [
 	{ name: 'epicenter.so', mail: 'external' },
 	{ name: 'epicenter.sh', mail: 'review' },
-	{ name: 'epicenter.audio', mail: 'none' },
+	{ name: 'epicenter.audio', mail: 'none' }, // keep while the registration is active
 	{ name: 'epicenter.build', mail: 'none' },
 	{ name: 'epicenter.chat', mail: 'none' },
 	{ name: 'epicenter.email', mail: 'none' },
@@ -26,7 +34,9 @@ const WEB_BASELINE = {
 
 const token = process.env.CLOUDFLARE_ZONE_TOKEN;
 if (!token)
-	throw new Error('CLOUDFLARE_ZONE_TOKEN is not set. See ops/README.md.');
+	throw new Error(
+		'CLOUDFLARE_ZONE_TOKEN is not set. Run `bun run cf:audit:remote`.',
+	);
 if (process.argv.length > 2)
 	throw new Error('This audit accepts no arguments.');
 
@@ -44,11 +54,7 @@ for (const zone of ZONES) {
 			throw new Error(`Expected one visible zone; found ${matches.length}`);
 		}
 		const zoneId = match.id;
-		const settingIds = [
-			...Object.keys(WEB_BASELINE),
-			'min_tls_version',
-			'security_header',
-		];
+		const settingIds = [...Object.keys(WEB_BASELINE), 'min_tls_version'];
 		const [settings, dnssec, rootTxt, dmarcTxt] = await Promise.all([
 			Promise.all(
 				settingIds.map(async (id) => {
@@ -58,9 +64,7 @@ for (const zone of ZONES) {
 					return [id, setting.value] as const;
 				}),
 			),
-			readCloudflare<{ status: string; ds?: string }>(
-				`/zones/${zoneId}/dnssec`,
-			),
+			readCloudflare<{ status: string }>(`/zones/${zoneId}/dnssec`),
 			readTxt(zone.name),
 			readTxt(`_dmarc.${zone.name}`),
 		]);
@@ -76,12 +80,10 @@ for (const zone of ZONES) {
 			Number.isFinite(tls) && tls >= 1.2,
 			`minimum TLS: ${values.min_tls_version}; expected at least 1.2`,
 		);
-		console.log(`  observe HSTS: ${JSON.stringify(values.security_header)}`);
 		check(
 			dnssec.status === 'active',
 			`Cloudflare DNSSEC status: ${dnssec.status}`,
 		);
-		if (dnssec.ds) console.log(`  observe DS: ${dnssec.ds}`);
 
 		const spf = rootTxt.filter((record) => /^v=spf1(?:\s|$)/i.test(record));
 		const dmarc = dmarcTxt.filter((record) =>
@@ -117,7 +119,7 @@ for (const zone of ZONES) {
 }
 
 console.log(
-	`\n${issues} issue(s). HSTS observations and DNSSEC delegation require separate review.`,
+	`\n${issues} issue(s). DNSSEC delegation (the registrar's DS record) needs separate review.`,
 );
 process.exitCode = issues > 0 ? 1 : 0;
 
