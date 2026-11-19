@@ -65,7 +65,7 @@ When two things overlap, ask whether they can be built from the same pieces.
 Use [radical options](references/radical-options.md) when the current framing
 makes alternatives hard to see.
 
-Use the [concept inventory](../collapse-pass/references/concept-inventory.md)
+Use the [concept inventory](../code-collapse/references/concept-inventory.md)
 when deciding which concepts a workflow or API needs.
 
 Keep what we're trying to accomplish separate from how we propose to do it.

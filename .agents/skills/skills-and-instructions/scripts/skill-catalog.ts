@@ -14,7 +14,7 @@
  *
  * `classifyClaim` exists because substring matching over-reports. Descriptions
  * in this repository carry near-miss clauses ("For a broad \"simplify this\"
- * pass over a diff or package, use collapse-pass instead."), so a description
+ * pass over a diff or package, use code-collapse instead."), so a description
  * that mentions a phrase is as likely to be *routing it away* as claiming it.
  * Splitting the description into sentences and reading the sentence that
  * carries the phrase separates the two cases. This is still lexical: it reports

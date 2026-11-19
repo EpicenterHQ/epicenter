@@ -76,13 +76,13 @@ their responsibilities visible. Keep a boundary when it names non-obvious
 work, enforces a shared rule, owns a lifecycle, isolates unsafe input,
 preserves a consumer contract, or explains a long phase. Caller count and
 line count alone do not decide. Use
-[refactoring methods](../collapse-pass/references/refactoring-methods.md)
+[refactoring methods](../code-collapse/references/refactoring-methods.md)
 for caller evidence and safe inlining.
 
 When an ownership, lifecycle, API, or package-boundary question remains
 unresolved, or several repairs look like patches on one underlying problem,
 reason through it with [rethink](../rethink/SKILL.md). Use the
-[concept inventory](../collapse-pass/references/concept-inventory.md) when
+[concept inventory](../code-collapse/references/concept-inventory.md) when
 listing the current and proposed concepts would help judge the structure.
 A question the implementation already settles soundly needs no separate pass.
 

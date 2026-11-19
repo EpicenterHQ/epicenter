@@ -48,7 +48,7 @@ existing functions, state, effects, ownership, and component boundaries as
 choices you can reconsider. Repeated decisions, mirrored state, and
 compensating effects are clues to examine: they can reveal a missing owner, or
 they can carry a real distinction. When the arrangement itself is in question,
-borrow the reasoning in [collapse-pass](../collapse-pass/SKILL.md) and
+borrow the reasoning in [code-collapse](../code-collapse/SKILL.md) and
 [rethink](../rethink/SKILL.md) to find one that can make several local fixes
 unnecessary; that reasoning serves this task without starting a separate
 workflow. Let that understanding determine the edits. Scale investigation to

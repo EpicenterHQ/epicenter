@@ -8,7 +8,7 @@
  *
  * It counts claimants rather than mentions because resolving a contested
  * phrase *creates* a second mention. The fix for two skills claiming
- * "simplify this" is for one of them to say "use collapse-pass instead", and a
+ * "simplify this" is for one of them to say "use code-collapse instead", and a
  * detector counting mentions would call that resolved state a collision, which
  * teaches the reader to ignore its exit code. Every mention is still listed:
  * knowing who routes a phrase away is most of why you ran this.

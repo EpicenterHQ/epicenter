@@ -5,7 +5,7 @@ caller evidence, typed access boundaries, duplicate branches, derivable state,
 file shape, straggler cleanup, or definition navigation. These methods also
 support focused reviews without starting an exploratory pass.
 
-[collapse-pass](../SKILL.md) owns execution, scope, authorization, and reporting.
+[code-collapse](../SKILL.md) owns execution, scope, authorization, and reporting.
 Use [factory composition](../../typescript/references/factory-function-composition.md) for factory
 shape, [method documentation](../../typescript/references/method-documentation-and-sibling-calls.md),
 <!-- vocab-check: ignore-next-line (the code-prose skill name) -->

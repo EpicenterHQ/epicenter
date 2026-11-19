@@ -7,15 +7,15 @@
 			"prompt": "I just finished wiring the new blob store across four files. Do a second pass over what you changed before you reply.",
 			"anchors": ["second pass"],
 			"expect": "post-implementation-review",
-			"forbid": ["collapse-pass"],
+			"forbid": ["code-collapse"],
 			"why": "The hub owns the after-implementation sweep. A collapse pass is a different job with a different cadence."
 		},
 		{
-			"id": "review-collapse-pass",
+			"id": "review-code-collapse",
 			"cluster": "review",
 			"prompt": "Run a collapse pass over packages/workspace and tell me which indirection can go.",
 			"anchors": ["collapse pass"],
-			"expect": "collapse-pass",
+			"expect": "code-collapse",
 			"forbid": ["post-implementation-review"],
 			"why": "Named phrase with a single owner. If the hub answers this, the hub's description is too broad."
 		},
@@ -24,7 +24,7 @@
 			"cluster": "review",
 			"prompt": "Take a look at packages/data and simplify this. There is a lot of indirection nobody needs.",
 			"anchors": ["simplify this"],
-			"expect": "collapse-pass",
+			"expect": "code-collapse",
 			"forbid": [],
 			"why": "A bare 'simplify this' aimed at a package is the collapse pass."
 		},
@@ -60,7 +60,7 @@
 			"cluster": "review",
 			"prompt": "What does the mount surface actually do? Give it to me in one sentence.",
 			"anchors": ["in one sentence", "actually do"],
-			"expect": "collapse-pass",
+			"expect": "code-collapse",
 			"forbid": ["post-implementation-review"],
 			"why": "The move owns both phrases and should win over the broad second-read hub."
 		},
@@ -70,8 +70,8 @@
 			"prompt": "What does this regex actually do? Just explain it, no audit needed.",
 			"anchors": ["actually do"],
 			"expect": null,
-			"forbid": ["collapse-pass"],
-			"why": "Near miss. collapse-pass's one-sentence near-miss clause says to answer a plain comprehension question directly, but that clause is prose the lexical layer cannot weigh, so this case is expected to look like an over-claim on the deterministic pass and resolve only under --live."
+			"forbid": ["code-collapse"],
+			"why": "Near miss. code-collapse's one-sentence near-miss clause says to answer a plain comprehension question directly, but that clause is prose the lexical layer cannot weigh, so this case is expected to look like an over-claim on the deterministic pass and resolve only under --live."
 		},
 		{
 			"id": "review-authored-opening-near-miss",
@@ -80,8 +80,8 @@
 			"anchors": ["sounds like me"],
 			"distractors": ["in one sentence"],
 			"expect": null,
-			"forbid": ["collapse-pass"],
-			"why": "Near miss for collapse-pass's one-sentence test. 'sounds like me' asks for prose in the author's own voice, which is outside the project-local skill catalog; the author may use a personal skill when one is installed, but no project skill owns it. 'in one sentence' is the distractor and stays unresolved on the offline pass by design, because collapse-pass must keep claiming it for review-one-sentence. The object decides: authored prose is not a technical surface to audit, so collapse-pass must not claim it for this, and only --live can weigh that."
+			"forbid": ["code-collapse"],
+			"why": "Near miss for code-collapse's one-sentence test. 'sounds like me' asks for prose in the author's own voice, which is outside the project-local skill catalog; the author may use a personal skill when one is installed, but no project skill owns it. 'in one sentence' is the distractor and stays unresolved on the offline pass by design, because code-collapse must keep claiming it for review-one-sentence. The object decides: authored prose is not a technical surface to audit, so code-collapse must not claim it for this, and only --live can weigh that."
 		},
 		{
 			"id": "consult-independent-investigation",
@@ -145,7 +145,7 @@
 			"cluster": "review",
 			"prompt": "Another refactoring pass on the importer. Follow related callers for fresh opportunities.",
 			"anchors": ["refactoring pass"],
-			"expect": "collapse-pass",
+			"expect": "code-collapse",
 			"forbid": [],
 			"why": "A repeated broad pass owns exploration; methods are references, not a competing entrypoint."
 		},
@@ -154,7 +154,7 @@
 			"cluster": "review",
 			"prompt": "Plan a collapse pass on these files, only these files. Do not edit yet.",
 			"anchors": ["collapse pass"],
-			"expect": "collapse-pass",
+			"expect": "code-collapse",
 			"forbid": [],
 			"why": "The simplification capability owns plans too; selection alone does not verify action or scope limits."
 		},
@@ -163,7 +163,7 @@
 			"cluster": "review",
 			"prompt": "Can you clean up this module a bit before we ship it?",
 			"anchors": ["clean up"],
-			"expect": "collapse-pass",
+			"expect": "code-collapse",
 			"forbid": [],
 			"why": "Code cleanup starts with the simplification capability. Everyday cleanup remains outside its scope."
 		}
