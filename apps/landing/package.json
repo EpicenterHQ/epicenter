@@ -18,7 +18,6 @@
 		"@epicenter/ui": "workspace:*",
 		"@tailwindcss/vite": "catalog:",
 		"astro": "6.4.6",
-		"posthog-js": "^1.386.6",
 		"svelte": "catalog:",
 		"tailwindcss": "catalog:"
 	},

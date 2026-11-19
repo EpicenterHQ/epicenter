@@ -22,7 +22,6 @@
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
-		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"jsdom": "26.1.0",
@@ -47,7 +46,6 @@
 		"@tauri-apps/plugin-http": "catalog:",
 		"@tauri-apps/plugin-opener": "catalog:",
 		"nanoid": "catalog:",
-		"runed": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	}

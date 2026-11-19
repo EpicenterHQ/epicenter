@@ -53,7 +53,6 @@
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
-		"jsrepo": "catalog:",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
