@@ -33,6 +33,7 @@
 	},
 	"dependencies": {
 		"@epicenter/app": "workspace:*",
+		"@epicenter/recorder": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"@tauri-apps/plugin-fs": "2.7.1",
