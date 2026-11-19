@@ -7,9 +7,9 @@ This directory holds the vision, the history of what Epicenter tried and turned 
 - [Vision](vision.md): what Epicenter is and the rules it keeps: your apps and files on a computer you control and keep on.
 - [History](history.md): what Epicenter tried, kept, and turned down, oldest first, and why. Background, not rules.
 - Each area's current rules are in a `## Decisions` section of its README, beside its code.
-- [What a home imports, and the `epicenter` command](../packages/app/README.md): how the current product works in code.
+- [What your Epicenter imports, and the `epicenter` command](../packages/app/README.md): how the current product works in code.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
-- [Trust model](trust-model.md): who can read your files, decided by who can read the home.
+- [Trust model](trust-model.md): who can read your files, decided by who can read your computer.
 - [Spec history](spec-history.md): a dated index of every spec ever written (history, not current truth).
 
 ## Directory structure
