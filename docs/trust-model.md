@@ -18,63 +18,58 @@ encrypts them.
 | Home | Who can read your files |
 | --- | --- |
 | One you own, such as a Mac you keep on | You, and whatever you let in: a user account, a backup tool, an agent you give a shell. |
-| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, each app's `local/` folder included. Epicenter adds nothing against that. |
+| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, the home's `local/` folder included. Epicenter adds nothing against that. |
 
 Choosing where to rent a home is choosing who can read it, in the way choosing
 which agents get a shell is.
 
 ## Reaching the home
 
-`epicenter serve` offers every app's actions over MCP at `/`, and each app's
-UI at `/apps/<app>/` (`packages/app/src/command/serve.ts`). It signs no one in: it trusts
-this computer and the tailnet, and who reaches it is the home's decision.
-Anything that reaches it can call every action of every app.
+`epicenter serve` offers every app's actions over MCP and HTTP. It signs no
+one in: anything that reaches it can call every action of every app, so who
+reaches it is the home's decision. It listens only on `127.0.0.1`. Another
+device reaches it through a private proxy on this computer, such as
+`tailscale serve`, which also adds HTTPS. Serve refuses DNS rebinding,
+requests from other sites in a browser, and the tunnels it can recognize
+([serve's guards](../packages/app/README.md#the-command-and-serve)), but a
+tunnel it cannot recognize would reach it with no sign-in, so never tunnel
+its port.
 
-- It listens only on `127.0.0.1`, and it has no flag to listen anywhere else.
-  Another device reaches it through a private proxy on this computer, such as
-  `tailscale serve`, which also adds HTTPS
-  ([serve's rules](../packages/app/README.md#running-the-home)).
-- It answers only a `Host` that is `localhost`, an IP address, or a `*.ts.net`
-  name, so a DNS rebinding name gets 403, and an `Origin`, when sent, must
-  match the `Host`.
-- It refuses, with 403, any request carrying the header a Tailscale Funnel or
-  Cloudflare Tunnel adds. Another tunnel that adds no such header would reach
-  `serve` with no sign-in, so never tunnel its port.
-
-Your other devices keep nothing. A UI on your phone, or an agent on your
-laptop, sees the files only while it reaches the home, through actions.
+Your other devices keep nothing. An agent on your phone or your laptop sees
+the files only while it reaches the home, through actions.
 
 `serve` also sends the Epicenter's `AGENTS.md` to every MCP client as its
 instructions, so anything written there reaches each agent that connects.
 
 ## The code you run
 
-`serve` and `epicenter` run each app's `code/epicenter.ts` with your privileges,
-in one process, with no sandbox.
-An action can read any file you can, and `folder` is a convenience, not a
-boundary. An app you copy into your home runs its author's code. The copy
-has no upstream or automatic merge. Inspect incoming code before copying later changes. Trust it as you
-would any program you install.
+`serve` imports the home's root `epicenter.ts`, and with it the code of every
+app it composes, with your privileges, in one process, with no sandbox. The
+`epicenter` command runs no app code: it sends each call to `serve`.
+An action can read any file you can, and the data handles it is given are a
+convenience, not a boundary. An app you copy into your home's `apps/` runs
+its author's code. The copy has no upstream or automatic merge. Inspect
+incoming code before copying later changes. Trust it as you would any
+program you install.
 
 ## Sign-ins are files that stay on the home
 
-An app keeps a sign-in, such as Mail's Google token, in a file in its `local/`
-folder, such as `apps/mail/local/`.
-The home's root `.gitignore` keeps every app's `local/` folder out of every
-commit with one line, `/apps/*/local/`. That line is the only guard:
-Epicenter has no command that commits
-([actions' rules](../packages/app/README.md#actions)). A new file written under
-`local/` through `folder` is `0600`. So a file there reaches a backup or a clone
-only if that ignore line is removed or the file is added by force. It is a plain
-file, though: anyone who can read the home can read it, the provider of a
-rented home included.
+An app keeps a sign-in, such as a Google token, in a file it writes under the
+home's root `local/`, which stays out of Git
+([the home's rules](../packages/app/README.md#the-home)); list `/local/` in
+the root `.gitignore` too, for an app that makes the folder itself.
+Epicenter never commits, so a file there reaches a backup or a clone only if
+someone adds it by force. It is a plain file, though: anyone who can read the
+home can read it, the provider of a rented home included.
 
 ## Backups
 
-The home has one private root Git repository holding every app's code and
-included records. Its `origin` is an optional push-only backup.
-Agents edit the working files; the commits you make record them. Publishing an app copies only its code into a separate history.
-Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
+The home has one private root Git repository holding its `epicenter.ts`,
+every app's code in `apps/`, and the records in `data/`. Its `origin` is an
+optional push-only backup. Agents edit the working files; the commits you
+make record them. No command publishes or copies an app out; sharing one is
+copying its `apps/<app>/` folder with ordinary tools, which carries none of
+the records. Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
 your own Git server, can read what is pushed: every committed file and its
 history, never a file under `local/`.
 
@@ -82,9 +77,10 @@ history, never a file under `local/`.
 
 A service such as Gmail already holds its own data. An inside app brings it to
 the home only by a pull, which copies items inward and never writes the
-source; Mail keeps its mailbox as a SQLite cache in its `local/` folder on the home. A change
-to the service is an action you run, such as `epicenter mail apply`, which
-changes Gmail through your own sign-in.
+source. The author's Mail app, which is not in this repository, keeps its
+mailbox as a SQLite cache under the home's `local/`. A change to the service
+is an action you run, such as Mail's `epicenter mail apply`, which changes
+Gmail through your own sign-in.
 
 ## A model sees what you send it
 

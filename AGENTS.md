@@ -13,8 +13,9 @@ READMEs describe their contracts. Load only the context needed for the task.
 ## License
 
 Everything under `packages/` and `apps/` is AGPL-3.0-or-later. `@epicenter/app`,
-which holds the library and the `epicenter` command, is published so a home
-can depend on it; every other package is private. `@epicenter/cli` is retired
+which holds the library and the `epicenter` command, is the one package meant
+to be published, so a home can depend on it; it is not on npm yet. Every other
+package is private. `@epicenter/cli` is retired
 at its last published version.
 Previously published MIT versions remain MIT for those versions. Before adding
 an MIT package, read "If MIT returns" in
