@@ -31,12 +31,7 @@ import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type { PublicError } from './answer.ts';
 import { isResult } from './answer.ts';
-import {
-	type Flat,
-	hasDefault,
-	type ObjectSchema,
-	objectSchema,
-} from './field.ts';
+import { type Flat, type ObjectSchema, objectSchema } from './field.ts';
 
 /** An action's input as an app writes it: a record of fields. */
 export type Input = Record<string, TSchema>;
@@ -125,8 +120,7 @@ const ACTION = Symbol.for('epicenter.action');
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields and every caller's `onUpdate` by `run`'s `update`. Calling the
  * action hands `run` the input as given: an absent field stays absent, and
- * `run` writes its own default. Throws for an empty description or a field
- * with a `default`, which its types cannot refuse.
+ * `run` writes its own default. Throws for an empty description.
  */
 export function defineAction<
 	const I extends Input,
@@ -141,11 +135,6 @@ export function defineAction(
 		throw new Error(
 			'An action needs a description: what it does, in a sentence',
 		);
-	for (const [key, schema] of Object.entries(def.input))
-		if (hasDefault(schema))
-			throw new Error(
-				`The action "${description}" has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
-			);
 	const input = objectSchema(def.input);
 	const action = async (
 		given: unknown,

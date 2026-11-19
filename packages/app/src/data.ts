@@ -25,7 +25,6 @@ import type { Exists, Misfit, Missing, PublicError } from './answer.ts';
 import {
 	type Fields,
 	type Flat,
-	hasDefault,
 	type OptionalKeys,
 	refKeyOf,
 } from './field.ts';
@@ -133,10 +132,6 @@ export function defineData<const TSpec extends Spec>(
 			if (!isFieldKey(name))
 				throw new Error(
 					`The data key ${key} has a field ${JSON.stringify(name)} a front matter line cannot name`,
-				);
-			if (hasDefault(schema))
-				throw new Error(
-					`The data key ${key} has a default in field "${name}"; a read gives only what the file holds`,
 				);
 			for (const target of refsIn(schema))
 				if (!Object.hasOwn(spec, target))

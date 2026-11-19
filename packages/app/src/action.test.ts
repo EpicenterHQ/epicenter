@@ -34,13 +34,6 @@ test('an action that returns no Result rejects when called', async () => {
 
 test('a definition is refused for what its types cannot say', () => {
 	expect(() =>
-		defineAction({
-			description: 'Has a default',
-			input: { limit: { type: 'number', default: 5 } as never },
-			run: () => Ok(null),
-		}),
-	).toThrow('has a default in "limit"');
-	expect(() =>
 		defineAction({ description: ' ', input: {}, run: () => Ok(null) }),
 	).toThrow('An action needs a description');
 });

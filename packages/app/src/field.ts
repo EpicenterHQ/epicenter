@@ -6,9 +6,8 @@
  *
  * Every field is required unless it says `optional`, and an absent optional
  * field stays absent: nothing is filled in. The code that reads a value
- * writes its default, as `({ done = false, tags = [] })`. A field with a
- * JSON Schema `default` of its own is refused (`hasDefault`); a `default`
- * nested inside raw TypeBox is not looked for.
+ * writes its default, as `({ done = false, tags = [] })`. No helper takes a
+ * JSON Schema `default`, and nothing applies one given in raw TypeBox.
  */
 import {
 	type TLiteral,
@@ -84,12 +83,6 @@ export function objectSchema(fields: Record<string, TSchema>): ObjectSchema {
 	(schema as { required?: string[] }).required ??= [];
 	return schema as unknown as ObjectSchema;
 }
-
-/**
- * Whether a field carries a JSON Schema `default` of its own. Every `field`
- * helper refuses one already; this catches raw TypeBox given as a field.
- */
-export const hasDefault = (schema: TSchema) => Object.hasOwn(schema, 'default');
 
 type Optionally<T extends TSchema, O> = O extends { optional: true }
 	? TOptional<T>
@@ -235,10 +228,6 @@ export const field = {
 	) => {
 		only('list', options, [...OPTIONS, 'min']);
 		const min = options?.min ?? 0;
-		if (!Number.isInteger(min) || min < 0)
-			throw new Error(
-				`field.list's min must be a whole number of at least 0, not ${min}`,
-			);
 		return maybeOptional(
 			Type.Array(item, {
 				...schemaOptions(options),
