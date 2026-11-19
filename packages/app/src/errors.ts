@@ -19,11 +19,8 @@ export type PublicError = { name: string; message: string };
 /** A tagged error an action threw: a name and a message, plus anything else. */
 export type Thrown = PublicError & Record<string, unknown>;
 
-/**
- * One reason a file or a change does not fit its fields. `line` names the
- * value; `kind` leaves it out, so many files can share one.
- */
-export type Problem = { line: string; kind: string };
+/** One reason a file or a change does not fit its fields, naming the value. */
+export type Problem = { line: string };
 
 export const ActionError = defineErrors({
 	/**

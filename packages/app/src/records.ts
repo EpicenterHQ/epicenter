@@ -61,51 +61,37 @@ export function isId(id: unknown): id is string {
 	);
 }
 
-/** A problem with nothing file-specific in it, so its line is its kind. */
-const problem = (line: string): Problem => ({ line, kind: line });
+const UNREADABLE: Problem = {
+	line: 'its front matter is not key: value lines between two --- lines, each key once',
+};
 
-const UNREADABLE = problem(
-	'its front matter is not key: value lines between two --- lines, each key once',
-);
-
-/**
- * Why a supplied field value does not fit its schema. The problem's `kind`
- * leaves the value out, so many files can share it.
- */
+/** Why a supplied field value does not fit its schema. */
 function valueProblem(key: string, schema: TSchema, value: unknown): Problem {
 	const words = whatFits(schema, value);
 	const why = words
 		? `is not ${words}`
 		: (Value.Errors(schema, value)[0]?.message ?? 'does not fit');
-	return {
-		line: `${key}: ${JSON.stringify(value)} ${why}`,
-		kind: `${key} ${why}`,
-	};
+	return { line: `${key}: ${JSON.stringify(value)} ${why}` };
 }
 
 /**
- * What to write for a declared key whose line is not JSON. The problem's
- * `line` names the line number and the exact line to write; its `kind`
- * leaves both out.
+ * What to write for a declared key whose line is not JSON: the line number
+ * and, when its text fits as a string, the exact line to write.
  */
 function notJsonProblem(
 	key: string,
 	schema: TSchema,
 	{ lineNumber, text }: NotJson,
 ): Problem {
-	const notJson = (fix: string, kindFix = fix) => ({
+	const notJson = (fix: string) => ({
 		line: `${key} on line ${lineNumber} is not JSON${fix}`,
-		kind: `${key} is not JSON${kindFix}`,
 	});
 	if (text.trim() === '')
 		return notJson(
 			': it has no value; give it one as JSON, or remove the line',
 		);
 	if (Value.Check(schema, text))
-		return notJson(
-			`; write ${key}: ${JSON.stringify(text)}`,
-			'; write its text in double quotes',
-		);
+		return notJson(`; write ${key}: ${JSON.stringify(text)}`);
 	const words = whatFits(schema, text);
 	return notJson(
 		words
@@ -146,12 +132,8 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	/** A change that does not fit the declared fields, as one problem. */
-	function misfitFor(id: string, line: string, kind = line) {
-		return ActionError.Misfit({
-			path: pathOf(id),
-			id,
-			problems: [{ line, kind }],
-		});
+	function misfitFor(id: string, line: string) {
+		return ActionError.Misfit({ path: pathOf(id), id, problems: [{ line }] });
 	}
 
 	/**
@@ -171,7 +153,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			if (bare) problems.push(notJsonProblem(key, schema, bare));
 			else if (!Object.hasOwn(file.fields, key)) {
 				if (file.readable && !isOptional(schema))
-					problems.push(problem(`${key} is missing`));
+					problems.push({ line: `${key} is missing` });
 			} else if (Value.Check(schema, value)) values[key] = value as JsonValue;
 			else problems.push(valueProblem(key, schema, value));
 		}
@@ -206,7 +188,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
 			if (!Object.hasOwn(fields, key))
-				return misfitFor(id, `has no field "${key}"`, 'has no such field');
+				return misfitFor(id, `has no field "${key}"`);
 			const schema = fields[key] as TSchema;
 			if (value === undefined) continue;
 			if (value === null && isOptional(schema)) removed.push(key);
@@ -220,7 +202,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 				if (!Value.Check(schema, set[key]))
 					problems.push(valueProblem(key, schema, set[key]));
 			} else if (creating && !isOptional(schema))
-				problems.push(problem(`${key} is missing`));
+				problems.push({ line: `${key} is missing` });
 		}
 		if (problems.length)
 			return ActionError.Misfit({ path: pathOf(id), id, problems });
@@ -271,7 +253,6 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			return misfitFor(
 				id,
 				`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
-				'the change names the record, not only the fields that change',
 			);
 
 		const { body, ...given } = patch;
@@ -321,12 +302,13 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	/** `run`'s answer, or a Misfit at the key's folder for an id that cannot be a file name. */
 	async function withValidId<T>(id: string, run: () => T) {
 		if (isId(id)) return run();
-		const why = 'is not a file name: the id is the file name without .md';
 		return ActionError.Misfit({
 			path: folder,
 			id,
 			problems: [
-				{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
+				{
+					line: `${JSON.stringify(id)} is not a file name: the id is the file name without .md`,
+				},
 			],
 		});
 	}
