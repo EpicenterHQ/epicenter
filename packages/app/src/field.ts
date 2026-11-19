@@ -39,7 +39,7 @@ function only(
 	helper: string,
 	options: object | undefined,
 	declared: readonly string[],
-): void {
+) {
 	if (
 		options !== undefined &&
 		(typeof options !== 'object' || options === null || Array.isArray(options))
@@ -366,7 +366,7 @@ function wanted(schema: Described): string | undefined {
  * long). Serve says it of an input's key and a data read of a front matter
  * line, so both say it alike.
  */
-export function whatFits(field: TSchema, value: unknown): string | undefined {
+export function whatFits(field: TSchema, value: unknown) {
 	if (Value.Check(field, value)) return undefined;
 	const [error] = Value.Errors(field, value);
 	if (!error || !SAID.has(error.keyword)) return undefined;

@@ -38,7 +38,7 @@ export function errorText(error: { message: string; next?: unknown }) {
 }
 
 /** Print an answer and return its exit code. */
-export function presentAnswer(answer: Answer): number {
+export function presentAnswer(answer: Answer) {
 	const { data, error } = answer;
 	if (error !== null) {
 		writeErr(errorText(error));

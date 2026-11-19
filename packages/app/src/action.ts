@@ -23,8 +23,8 @@
  * ```
  *
  * An update reports and is never the answer: a caller that does not listen
- * loses nothing. An action is also a function, so a test calls it directly;
- * a direct call skips the input check serve makes.
+ * loses nothing. An action is also an async function, so a test awaits it
+ * directly; a direct call skips the input check serve makes.
  */
 
 import type { Static, TObject, TSchema } from 'typebox';
@@ -57,7 +57,7 @@ export type Update<U> = (value: U) => void;
 export type Action<In = any, Out = unknown, U = any> = ((
 	input: In,
 	options?: { onUpdate?: (value: U) => unknown },
-) => Out) & {
+) => Promise<Awaited<Out>>) & {
 	readonly description: string;
 	/**
 	 * Every field as one JSON Schema object: `required` lists the keys a
@@ -127,6 +127,7 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
 	};
 }
 
+/** `value`, or a throw when `run` returned something other than a Result. */
 function checked(value: unknown, description: string) {
 	if (!isAnswer(value))
 		throw new TypeError(
@@ -154,7 +155,7 @@ export function defineAction<
 	U extends Returned = never,
 >(def: ActionDef<I, Out, U>): Action<InputOf<I>, Out, U>;
 export function defineAction(
-	def: ActionDef<Input, RunResult, Returned>,
+	def: ActionDef<Input, RunResult | Promise<RunResult>, Returned>,
 ): Action {
 	const { description, run } = def;
 	if (description.trim() === '')
@@ -167,27 +168,16 @@ export function defineAction(
 				`The action "${description}" has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
 			);
 	const input = objectSchema(def.input);
-	const action = (
+	const action = async (
 		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
 	) => {
 		const { update, close } = reporting(options?.onUpdate);
-		let answer: unknown;
 		try {
-			answer = (run as (input: unknown, update: Update<unknown>) => unknown)(
-				given,
-				update,
-			);
-		} catch (cause) {
+			return checked(await run(given as never, update), description);
+		} finally {
 			close();
-			throw cause;
 		}
-		if (answer instanceof Promise)
-			return answer
-				.then((settled) => checked(settled, description))
-				.finally(close);
-		close();
-		return checked(answer, description);
 	};
 	return Object.assign(action, { description, input, [ACTION]: true });
 }

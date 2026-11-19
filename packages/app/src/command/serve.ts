@@ -36,14 +36,15 @@ import { isIP } from 'node:net';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
+import packageJson from '../../package.json' with { type: 'json' };
 import type { Answer } from '../answer.ts';
 import { ActionError, type NotStarted } from '../errors.ts';
 import { isName } from '../name.ts';
 import type { Home } from './home.ts';
-import { type Loaded, listingOf, loadHome } from './load.ts';
+import { type Loaded, loadHome } from './load.ts';
 import { createMcp } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
-import { HOME_HEADER, homeHeaderValue, type Listing } from './protocol.ts';
+import { HOME_HEADER, type Listing } from './protocol.ts';
 import { type Call, checkCall, findAction, runAction } from './run.ts';
 
 /** Serve listens only here. */
@@ -93,7 +94,7 @@ const refused = (error: NotStarted) =>
  * Run `call`, answering its updates and then its answer as JSON lines.
  * Updates wait in order for a slow caller, and are dropped once it is gone.
  */
-function stream(call: Call): Response {
+function stream(call: Call) {
 	const encoder = new TextEncoder();
 	let listening = true;
 	const body = new ReadableStream<Uint8Array>({
@@ -128,6 +129,24 @@ function stream(call: Call): Response {
 	return new Response(body, { headers: JSON_LINES });
 }
 
+/** Every app and action serve offers, as `GET /actions/` answers it. */
+function listingOf(loaded: Loaded): Listing {
+	const { version } = packageJson;
+	if (!loaded.epicenter) return { version, apps: [], problem: loaded.problem };
+	return {
+		version,
+		apps: Object.entries(loaded.epicenter.apps).map(([name, app]) => ({
+			name,
+			description: app.description,
+			actions: Object.entries(app.actions).map(([action, run]) => ({
+				name: action,
+				description: run.description,
+				input: run.input,
+			})),
+		})),
+	};
+}
+
 /** What serve answers from, made once when the program has loaded. */
 type Ready = {
 	loaded: Loaded;
@@ -136,10 +155,7 @@ type Ready = {
 };
 
 /** Every route, read from the path. A name is `[a-z0-9-]`, which no percent-encoding spells, so a segment is not decoded. */
-async function route(
-	{ loaded, listing, mcp }: Ready,
-	request: Request,
-): Promise<Response> {
+async function route({ loaded, listing, mcp }: Ready, request: Request) {
 	const { method } = request;
 	const { pathname } = new URL(request.url);
 	if (pathname === '/')
@@ -170,13 +186,8 @@ async function route(
 
 /** Whether a `Host` header names this computer or the tailnet. */
 function isPrivateHost(host: string | null) {
-	if (!host) return false;
-	let hostname: string;
-	try {
-		hostname = new URL(`http://${host}`).hostname.toLowerCase();
-	} catch {
-		return false;
-	}
+	const hostname = URL.parse(`http://${host}`)?.hostname.toLowerCase();
+	if (!hostname) return false;
 	return (
 		hostname === 'localhost' ||
 		hostname.endsWith('.localhost') ||
@@ -202,7 +213,7 @@ function fromAnotherOrigin(request: Request) {
  * has loaded: a request that arrives while serve loads waits for it.
  */
 export function createHandler(home: Home, loaded: Promise<Loaded> | Loaded) {
-	const ours = homeHeaderValue(home.folder);
+	const ours = encodeURIComponent(home.folder);
 	const ready = Promise.resolve(loaded).then(
 		(loaded): Ready => ({
 			loaded,
@@ -216,15 +227,11 @@ export function createHandler(home: Home, loaded: Promise<Loaded> | Loaded) {
 		const host = headers.get('host');
 		if (!isPrivateHost(host)) return forbidden();
 		const origin = headers.get('origin');
-		if (origin !== null) {
-			let originHost: string;
-			try {
-				originHost = new URL(origin).host.toLowerCase();
-			} catch {
-				return forbidden();
-			}
-			if (originHost !== host?.toLowerCase()) return forbidden();
-		}
+		if (
+			origin !== null &&
+			URL.parse(origin)?.host.toLowerCase() !== host?.toLowerCase()
+		)
+			return forbidden();
 		if (fromAnotherOrigin(request)) return forbidden();
 		const meant = headers.get(HOME_HEADER);
 		if (meant !== null && meant !== ours)

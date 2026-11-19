@@ -43,12 +43,8 @@ const data = defineData('/nowhere/epicenter', {
 	},
 });
 
-test('defining data touches no file, so a home that does not exist yet is fine', () => {
+test('defining touches no file, and rebinding keeps the type, so an app function takes the rebound data', async () => {
 	expect(existsSync('/nowhere/epicenter')).toBe(false);
-	expect(data.watches.description).toBe('trip idea');
-});
-
-test('rebinding keeps the type, so an app function takes the rebound data', async () => {
 	const rebound: typeof data = defineData(await tempHome(), data);
 	expect(Object.keys(rebound)).toEqual(['watches', 'checks']);
 	expect(rebound.checks.fields).toBe(data.checks.fields);

@@ -58,7 +58,7 @@ export function defineEpicenter<
 const NAMED = 'lowercase letters, digits and dashes, starting with a letter';
 
 /** What is wrong with `apps` beyond its types, one sentence each. */
-function appsProblems(apps: Record<string, App>): string[] {
+function appsProblems(apps: Record<string, App>) {
 	const problems: string[] = [];
 	for (const [name, { description, actions }] of Object.entries(apps)) {
 		if (!isName(name))

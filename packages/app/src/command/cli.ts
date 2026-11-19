@@ -121,7 +121,7 @@ async function answer(words: string[]): Promise<Answer> {
 }
 
 /** Run the command and return its exit code, so the entry point lets stdout drain. */
-export async function runCli(argv: string[]): Promise<number> {
+export async function runCli(argv: string[]) {
 	if (argv.includes('--help') || argv.includes('-h'))
 		return presentAnswer(Ok(HELP));
 	if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V'))
@@ -131,11 +131,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		return presentAnswer(
 			usage(`${flag} is not an option; the options are --help and --version`),
 		);
-	let answered: Answer;
-	try {
-		answered = await answer(argv);
-	} catch (cause) {
-		answered = ActionError.NotStarted({ message: extractErrorMessage(cause) });
-	}
-	return presentAnswer(answered);
+	return presentAnswer(
+		await answer(argv).catch((cause) =>
+			ActionError.NotStarted({ message: extractErrorMessage(cause) }),
+		),
+	);
 }

@@ -55,49 +55,41 @@ export function createMcp(loaded: Loaded) {
 		description: run.description,
 		inputSchema: run.input,
 	}));
-	return (request: Request) => answerMcp(loaded, actions, tools, request);
-}
-
-/** Answer one MCP request. */
-async function answerMcp(
-	loaded: Loaded,
-	actions: Map<string, Found>,
-	tools: { name: string; description: string; inputSchema: object }[],
-	request: Request,
-) {
-	const server = new Server(
-		{ name: 'epicenter', version: packageJson.version },
-		{
-			capabilities: { tools: {} },
-			...(loaded.instructions === undefined
-				? {}
-				: { instructions: loaded.instructions }),
-		},
-	);
-	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
-	server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-		const found = actions.get(params.name);
-		if (!found)
-			return toolResult(
-				ActionError.NotStarted({
-					message:
-						loaded.problem ??
-						`No tool ${JSON.stringify(params.name)}; tools/list names them`,
-				}),
-			);
-		const { data: call, error: misfit } = checkCall(found, {
-			value: params.arguments ?? {},
+	return async (request: Request) => {
+		const server = new Server(
+			{ name: 'epicenter', version: packageJson.version },
+			{
+				capabilities: { tools: {} },
+				...(loaded.instructions === undefined
+					? {}
+					: { instructions: loaded.instructions }),
+			},
+		);
+		server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
+		server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+			const found = actions.get(params.name);
+			if (!found)
+				return toolResult(
+					ActionError.NotStarted({
+						message:
+							loaded.problem ??
+							`No tool ${JSON.stringify(params.name)}; tools/list names them`,
+					}),
+				);
+			const { data: call, error: misfit } = checkCall(found, {
+				value: params.arguments ?? {},
+			});
+			if (misfit) return toolResult(Err(misfit));
+			return toolResult(await runAction(call));
 		});
-		if (misfit) return toolResult(Err(misfit));
-		return toolResult(await runAction(call));
-	});
-	const transport = new WebStandardStreamableHTTPServerTransport({
-		enableJsonResponse: true,
-	});
-	try {
-		await server.connect(transport);
-		return await transport.handleRequest(request);
-	} finally {
-		await server.close();
-	}
+		const transport = new WebStandardStreamableHTTPServerTransport({
+			enableJsonResponse: true,
+		});
+		try {
+			await server.connect(transport);
+			return await transport.handleRequest(request);
+		} finally {
+			await server.close();
+		}
+	};
 }

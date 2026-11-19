@@ -36,7 +36,7 @@ type Need = 'absent' | 'present' | 'either';
  * extension `.md`, else undefined. `notes/.foo.md` is `.foo` and
  * `notes/...md` is `..`; `notes/.md` and `notes/x.md.bak` are no record.
  */
-export function idOf(path: string): string | undefined {
+export function idOf(path: string) {
 	const { ext, name } = parse(path);
 	return ext === '.md' ? name : undefined;
 }
@@ -90,13 +90,10 @@ const UNREADABLE = problem(
  * leaves the value out, so many files can share it.
  */
 function misfit(key: string, schema: TSchema, value: unknown): Problem {
-	let why = 'does not fit';
 	const words = whatFits(schema, value);
-	if (words) why = `is not ${words}`;
-	else {
-		const [error] = Value.Errors(schema, value);
-		if (error) why = error.message;
-	}
+	const why = words
+		? `is not ${words}`
+		: (Value.Errors(schema, value)[0]?.message ?? 'does not fit');
 	return {
 		line: `${key}: ${JSON.stringify(value)} ${why}`,
 		kind: `${key} ${why}`,
@@ -135,7 +132,7 @@ function notJsonProblem(
 }
 
 /** `values` in the order the data key declares its fields, then the rest. */
-function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
+function inDeclaredOrder(values: FieldValues, fields: Fields) {
 	const order = Object.keys(fields);
 	const rank = (key: string) => order.indexOf(key) + 1 || order.length + 1;
 	return Object.fromEntries(
@@ -233,13 +230,8 @@ export function createMarkdownRecords({
 			else set[key] = value as JsonValue;
 		}
 		const problems: Problem[] = [];
-		// One listing per target key per write, the same names `list` reads.
-		const listed = new Map<string, Set<string>>();
-		const has = ({ target, id }: Ref) => {
-			if (!isId(id)) return false;
-			if (!listed.has(target)) listed.set(target, new Set(idsIn(target)));
-			return listed.get(target)?.has(id) === true;
-		};
+		// The same names `list` reads.
+		const has = ({ target, id }: Ref) => isId(id) && idsIn(target).includes(id);
 		const same = (a: Ref) => (b: Ref) => a.target === b.target && a.id === b.id;
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {

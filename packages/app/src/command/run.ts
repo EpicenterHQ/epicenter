@@ -97,20 +97,17 @@ export async function runAction(
 	{ onUpdate }: { onUpdate?: (value: unknown) => unknown } = {},
 ): Promise<Answer> {
 	const started = performance.now();
-	let answer: Answer;
-	try {
-		// defineAction checked that it returned a Result (`isAction`).
-		const result = (await run(input, { onUpdate })) as Answer;
-		const encoded = toJsonAnswer(result);
-		answer =
-			encoded.error && RESERVED_NAMES.includes(encoded.error.name)
+	// defineAction checked that it returned a Result (`isAction`).
+	const answer: Answer = await run(input, { onUpdate })
+		.then((result) => {
+			const encoded = toJsonAnswer(result as Answer);
+			return encoded.error && RESERVED_NAMES.includes(encoded.error.name)
 				? ActionError.Threw({
 						message: `The action "${action}" returned ${encoded.error.name}, a name only Epicenter answers`,
 					})
 				: encoded;
-	} catch (cause) {
-		answer = ActionError.Threw(threw(cause));
-	}
+		})
+		.catch((cause) => ActionError.Threw(threw(cause)));
 	const { error } = answer;
 	try {
 		runLog.info('action run ended', {

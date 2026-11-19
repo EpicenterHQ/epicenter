@@ -9,9 +9,7 @@ import { readFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractErrorMessage } from 'wellcrafted/error';
-import packageJson from '../../package.json' with { type: 'json' };
 import { type Epicenter, isEpicenter } from '../epicenter.ts';
-import type { Listing } from './protocol.ts';
 
 /** The home's program, or why it did not load, and its agent guidance. */
 export type Loaded = (
@@ -47,22 +45,4 @@ export async function loadHome(folder: string): Promise<Loaded> {
 			instructions,
 		};
 	return { epicenter: module.default, instructions };
-}
-
-/** Every app and action serve offers, as `GET /actions/` answers it. */
-export function listingOf(loaded: Loaded): Listing {
-	const { version } = packageJson;
-	if (!loaded.epicenter) return { version, apps: [], problem: loaded.problem };
-	return {
-		version,
-		apps: Object.entries(loaded.epicenter.apps).map(([name, app]) => ({
-			name,
-			description: app.description,
-			actions: Object.entries(app.actions).map(([action, run]) => ({
-				name: action,
-				description: run.description,
-				input: run.input,
-			})),
-		})),
-	};
 }

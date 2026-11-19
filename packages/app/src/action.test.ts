@@ -28,13 +28,13 @@ test('a listener that throws does not stop the action', async () => {
 	expect(answer).toEqual(Ok('n=2'));
 });
 
-test('an action that returns no Result throws when called', () => {
+test('an action that returns no Result rejects when called', async () => {
 	const bare = defineAction({
 		description: 'Forgets its Result',
 		input: {},
 		run: () => 'plain' as never,
 	});
-	expect(() => bare({})).toThrow('must return Ok(data) or Err(error)');
+	await expect(bare({})).rejects.toThrow('must return Ok(data) or Err(error)');
 });
 
 test('a definition is refused for what its types cannot say', () => {

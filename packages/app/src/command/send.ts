@@ -9,7 +9,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type Answer, readAnswer } from '../answer.ts';
 import { ActionError, type PublicError } from '../errors.ts';
 import type { Home } from './home.ts';
-import { HOME_HEADER, homeHeaderValue, type Listing } from './protocol.ts';
+import { HOME_HEADER, type Listing } from './protocol.ts';
 
 /**
  * Send one request to the home's serve. With nothing listening the answer is
@@ -28,7 +28,7 @@ async function reach(
 			...init,
 			headers: {
 				...init.headers,
-				[HOME_HEADER]: homeHeaderValue(home.folder),
+				[HOME_HEADER]: encodeURIComponent(home.folder),
 			},
 		});
 	} catch (error) {
@@ -66,12 +66,11 @@ export async function fetchListing(
 		'The connection to serve ended before its listing',
 	);
 	if (error) return Err(error);
-	try {
-		const listing = (await response.json()) as Listing;
-		if (Array.isArray(listing?.apps)) return Ok(listing);
-	} catch {
-		// Not JSON: the same as JSON that is no listing.
-	}
+	// Not JSON is the same as JSON that is no listing.
+	const listing = (await response.json().catch(() => undefined)) as
+		| Listing
+		| undefined;
+	if (Array.isArray(listing?.apps)) return Ok(listing);
 	return ActionError.Unreachable({ message: 'serve sent an invalid listing' });
 }
 

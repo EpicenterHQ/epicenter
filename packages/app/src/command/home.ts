@@ -27,14 +27,8 @@ export type Home = {
 
 /** The parsed `package.json` in `folder`, or undefined when there is none or it is not JSON. */
 function packageIn(folder: string): unknown {
-	let text: string;
 	try {
-		text = readFileSync(join(folder, 'package.json'), 'utf8');
-	} catch {
-		return undefined;
-	}
-	try {
-		return JSON.parse(text);
+		return JSON.parse(readFileSync(join(folder, 'package.json'), 'utf8'));
 	} catch {
 		return undefined;
 	}

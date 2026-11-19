@@ -13,9 +13,6 @@ import type { ObjectSchema } from '../field.ts';
  */
 export const HOME_HEADER = 'x-epicenter-home';
 
-/** A home as the header carries it. */
-export const homeHeaderValue = (folder: string) => encodeURIComponent(folder);
-
 /** An action as the listing shows it. */
 export type ActionListing = {
 	name: string;

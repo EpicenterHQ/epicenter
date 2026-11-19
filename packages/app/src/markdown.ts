@@ -59,7 +59,7 @@ type Parts = { open: string; fields: Field[]; close: string; body: string };
 const endingOf = (line: string) => (line.endsWith('\r\n') ? '\r\n' : '\n');
 
 /** `text` as JSON, or undefined when it is not JSON. */
-function parseJson(text: string): JsonValue | undefined {
+function parseJson(text: string) {
 	try {
 		return JSON.parse(text) as JsonValue;
 	} catch {
@@ -166,14 +166,13 @@ export function changeMarkdown(
 		throw new TypeError('Front matter that cannot be read is not rewritten');
 	const lineOf = (key: string, ending: string) =>
 		`${key}: ${stringifyValue(set[key] as JsonValue)}${ending}`;
-	const present = new Set(parts.fields.map((field) => field.key));
 	const lines = [
 		...parts.fields.flatMap(({ key, line }) => {
 			if (Object.hasOwn(set, key)) return [lineOf(key, endingOf(line))];
 			return removed.includes(key) ? [] : [line];
 		}),
 		...Object.keys(set)
-			.filter((key) => !present.has(key))
+			.filter((key) => !parts.fields.some((field) => field.key === key))
 			.map((key) => lineOf(key, endingOf(parts.open))),
 	];
 	return parts.open + lines.join('') + parts.close + (body ?? parts.body);

@@ -8,16 +8,16 @@ import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { type Described, type ObjectSchema, whatFits } from '../field.ts';
 
+/** A checked input, or why it was refused, in words a caller reads. */
+type Checked = { input: Record<string, unknown> } | { error: string };
+
 /**
  * Check an input against its action's schema (ADR-0953), the one check a
  * page, an agent, and the command line share. Nothing is filled: an absent
  * key stays absent, and an action's `run` writes its own default. A key the action does not
  * take is refused, naming the keys it does.
  */
-function checkInput(
-	schema: ObjectSchema,
-	value: unknown,
-): { input: Record<string, unknown> } | { error: string } {
+function checkInput(schema: ObjectSchema, value: unknown): Checked {
 	if (Value.Check(schema, value))
 		return { input: value as Record<string, unknown> };
 	const given =
@@ -86,7 +86,7 @@ function exampleOf(field: Described): unknown {
  * An input to show: each required key with a value it takes, or the first key
  * when none is required, so the example always shows the object's shape.
  */
-function exampleInput({ properties, required }: ObjectSchema): string {
+function exampleInput({ properties, required }: ObjectSchema) {
 	const shown = required.length
 		? required
 		: Object.keys(properties).slice(0, 1);
@@ -104,10 +104,7 @@ function exampleInput({ properties, required }: ObjectSchema): string {
  * Read an action's input from the JSON text a page or the command sent, and
  * check it. Text that is not one JSON object is refused with an example.
  */
-export function readInput(
-	schema: ObjectSchema,
-	text: string,
-): { input: Record<string, unknown> } | { error: string } {
+export function readInput(schema: ObjectSchema, text: string): Checked {
 	let raw: unknown;
 	try {
 		raw = JSON.parse(text);
@@ -120,10 +117,7 @@ export function readInput(
 }
 
 /** Check a value that should be the input object, refusing one that is no object with an example. */
-export function checkObject(
-	schema: ObjectSchema,
-	raw: unknown,
-): { input: Record<string, unknown> } | { error: string } {
+export function checkObject(schema: ObjectSchema, raw: unknown): Checked {
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 		return {
 			error: `The input is not a JSON object; give one, such as ${exampleInput(schema)}`,

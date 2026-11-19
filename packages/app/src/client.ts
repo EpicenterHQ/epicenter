@@ -23,7 +23,7 @@
  */
 import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
-import { type Answer, readAnswer } from './answer.ts';
+import { readAnswer } from './answer.ts';
 import type { Epicenter } from './epicenter.ts';
 import {
 	ActionError,
@@ -134,22 +134,19 @@ async function post(
 	url: string,
 	input: unknown,
 	onUpdate?: (value: unknown) => unknown,
-): Promise<Answer> {
-	let response: Response;
-	try {
-		response = await fetch(url, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(input ?? {}),
-		});
-	} catch {
-		// A failed fetch looks the same whether the request never left or the
-		// connection dropped after serve took it, so the outcome is unknown.
+) {
+	const response = await fetch(url, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(input ?? {}),
+	}).catch(() => undefined);
+	// A failed fetch looks the same whether the request never left or the
+	// connection dropped after serve took it, so the outcome is unknown.
+	if (!response)
 		return ActionError.Unreachable({
 			message:
 				'serve could not be reached, or the connection dropped; the action may have run',
 		});
-	}
 	return readAnswer(response, (update) => {
 		try {
 			const heard = onUpdate?.(update);
