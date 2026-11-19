@@ -20,14 +20,9 @@
  * closing fence, and removes a deleted key's line. Every other line stays
  * byte for byte, a line whose text is not JSON included.
  */
-/** A JSON value. */
-export type JsonValue =
-	| string
-	| number
-	| boolean
-	| null
-	| JsonValue[]
-	| { [key: string]: JsonValue };
+import { type JsonValue, parseJson } from './json.ts';
+
+export type { JsonValue };
 
 export type FieldValues = Record<string, JsonValue>;
 
@@ -57,15 +52,6 @@ type Parts = { open: string; fields: Field[]; close: string; body: string };
 
 /** The line ending `line` ends with. */
 const endingOf = (line: string) => (line.endsWith('\r\n') ? '\r\n' : '\n');
-
-/** `text` as JSON, or undefined when it is not JSON. */
-export function parseJson(text: string) {
-	try {
-		return JSON.parse(text) as JsonValue;
-	} catch {
-		return undefined;
-	}
-}
 
 /** The file's pieces, or `'unreadable'` when its front matter cannot be read. */
 function split(text: string): Parts | 'unreadable' {

@@ -122,7 +122,8 @@ throws on import leaves serve answering that one problem with no apps.
 
 An answer's error names whether the action ran: `NotStarted` (it never
 began), `Threw` (it began and threw), `Unreachable` (the outcome is
-unknown), or the action's own error. The command exits 0 for success, 2
+unknown), or the action's own error. A request serve refuses, and a
+serve that is not running, is `NotStarted`. The command exits 0 for success, 2
 for `NotStarted` and 1 otherwise.
 
 ## A page's client

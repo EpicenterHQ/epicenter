@@ -30,7 +30,7 @@ import {
 	refKeyOf,
 } from './field.ts';
 import { isFieldKey } from './markdown.ts';
-import { isName } from './name.ts';
+import { isName, NAME_RULE } from './name.ts';
 import { createHandle } from './records.ts';
 
 /**
@@ -120,7 +120,7 @@ export function defineData<const TSpec extends Spec>(
 	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))
 			throw new Error(
-				`The data key ${JSON.stringify(key)} must be lowercase letters, digits and dashes, starting with a letter`,
+				`The data key ${JSON.stringify(key)} must be ${NAME_RULE}`,
 			);
 		if (description.trim() === '')
 			throw new Error(

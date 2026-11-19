@@ -29,7 +29,7 @@
 
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import { isAnswer } from './answer.ts';
+import { isResult } from './call.ts';
 import type { PublicError } from './errors.ts';
 import {
 	defaultIn,
@@ -109,7 +109,7 @@ type ActionDef<
  * `update` for one call: it hands each value to `listener`, which cannot
  * reach the action. After `close`, a late update goes nowhere.
  */
-function reporting(listener: ((value: unknown) => unknown) | undefined) {
+function updateChannel(listener: ((value: unknown) => unknown) | undefined) {
 	let open = listener !== undefined;
 	return {
 		update(value: unknown) {
@@ -128,8 +128,8 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
 }
 
 /** `value`, or a throw when `run` returned something other than a Result. */
-function checked(value: unknown, description: string) {
-	if (!isAnswer(value))
+function requireResult(value: unknown, description: string) {
+	if (!isResult(value))
 		throw new TypeError(
 			`The action "${description}" must return Ok(data) or Err(error)`,
 		);
@@ -172,9 +172,9 @@ export function defineAction(
 		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
 	) => {
-		const { update, close } = reporting(options?.onUpdate);
+		const { update, close } = updateChannel(options?.onUpdate);
 		try {
-			return checked(await run(given as never, update), description);
+			return requireResult(await run(given as never, update), description);
 		} finally {
 			close();
 		}

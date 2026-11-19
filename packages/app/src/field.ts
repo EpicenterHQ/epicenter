@@ -268,10 +268,10 @@ export const field = {
 	},
 
 	/**
-	 * One id in a key of the same `defineData`, which may be any of its keys.
-	 * A write that sets it refuses an id with no record there; nothing checks
-	 * it again, so a later delete can leave it naming nothing. Reads open no
-	 * other file. `defineData` refuses a target that is not one of its keys.
+	 * One id in a key of the same `defineData`, which may be any of its keys:
+	 * text whose schema names that key. `defineData` refuses a key it does
+	 * not define. Nothing checks that the record is there, so an app that
+	 * needs it reads it.
 	 */
 	ref: <const O extends Options>(target: string, options?: O) => {
 		only('ref', options, OPTIONS);
@@ -282,8 +282,8 @@ export const field = {
 	},
 };
 
-/** The parts of a field's JSON Schema that the words and examples for it read. */
-export type Described = {
+/** The parts of a field's JSON Schema that the words for it read. */
+type Described = {
 	type?: string;
 	format?: string;
 	pattern?: string;
@@ -292,8 +292,6 @@ export type Described = {
 	maximum?: number;
 	minItems?: number;
 	items?: Described;
-	required?: string[];
-	properties?: Record<string, Described>;
 	anyOf?: Described[];
 	const?: unknown;
 	enum?: unknown[];

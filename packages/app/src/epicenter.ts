@@ -14,7 +14,7 @@
  * route (`/actions/flights/daily`).
  */
 import { type Action, isAction } from './action.ts';
-import { isName } from './name.ts';
+import { isName, NAME_RULE } from './name.ts';
 
 /** An app as its function returns it: what it is for, and each action under its name. */
 export type App = {
@@ -55,20 +55,20 @@ export function defineEpicenter<
 	return Object.freeze({ apps, [EPICENTER]: true as const });
 }
 
-const NAMED = 'lowercase letters, digits and dashes, starting with a letter';
-
 /** What is wrong with `apps` beyond its types, one sentence each. */
 function appsProblems(apps: Record<string, App>) {
 	const problems: string[] = [];
 	for (const [name, { description, actions }] of Object.entries(apps)) {
 		if (!isName(name))
-			problems.push(`The app name ${JSON.stringify(name)} must be ${NAMED}`);
+			problems.push(
+				`The app name ${JSON.stringify(name)} must be ${NAME_RULE}`,
+			);
 		if (description.trim() === '')
 			problems.push(`apps.${name} needs a description`);
 		for (const [action, value] of Object.entries(actions)) {
 			if (!isName(action))
 				problems.push(
-					`apps.${name} has the action ${JSON.stringify(action)}, which must be ${NAMED}`,
+					`apps.${name} has the action ${JSON.stringify(action)}, which must be ${NAME_RULE}`,
 				);
 			else if (!isAction(value))
 				problems.push(

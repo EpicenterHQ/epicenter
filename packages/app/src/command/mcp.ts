@@ -15,13 +15,11 @@ import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { Err } from 'wellcrafted/result';
-import packageJson from '../../package.json' with { type: 'json' };
-import type { Answer } from '../answer.ts';
-import { ActionError } from '../errors.ts';
-import type { Loaded } from './load.ts';
+import type { Answer } from '../call.ts';
 import { errorText } from './output.ts';
-import { checkCall, type Found, runAction } from './run.ts';
+import type { Program } from './program.ts';
+import type { Listing } from './protocol.ts';
+import { answerCall } from './run.ts';
 
 /** An answer as an MCP tool result. A failure's text is what the command prints on stderr. */
 function toolResult(answer: Answer) {
@@ -39,48 +37,40 @@ function toolResult(answer: Answer) {
 }
 
 /**
- * MCP for what serve loaded: the tools are made once, and each request gets
- * its own server and transport. A tool is named `<app>_<action>`; a name has
- * no underscore, so each tool names one action.
+ * MCP for the program serve loaded, from its listing: the tools are made
+ * once, and each request gets its own server and transport. A tool is named
+ * `<app>_<action>`; a name has no underscore, so an app's name is the
+ * part before the first one.
  */
-export function createMcp(loaded: Loaded) {
-	const actions = new Map<string, Found>();
-	for (const [app, { actions: ofApp }] of Object.entries(
-		loaded.epicenter?.apps ?? {},
-	))
-		for (const [action, run] of Object.entries(ofApp))
-			actions.set(`${app}_${action}`, { app, action, run });
-	const tools = [...actions].map(([name, { run }]) => ({
-		name,
-		description: run.description,
-		inputSchema: run.input,
-	}));
+export function createMcp(program: Program, listing: Listing) {
+	const tools = listing.apps.flatMap((app) =>
+		app.actions.map((action) => ({
+			name: `${app.name}_${action.name}`,
+			description: action.description,
+			inputSchema: action.input,
+		})),
+	);
 	return async (request: Request) => {
 		const server = new Server(
-			{ name: 'epicenter', version: packageJson.version },
+			{ name: 'epicenter', version: listing.version },
 			{
 				capabilities: { tools: {} },
-				...(loaded.instructions === undefined
+				...(program.instructions === undefined
 					? {}
-					: { instructions: loaded.instructions }),
+					: { instructions: program.instructions }),
 			},
 		);
 		server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
 		server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-			const found = actions.get(params.name);
-			if (!found)
-				return toolResult(
-					ActionError.NotStarted({
-						message:
-							loaded.problem ??
-							`No tool ${JSON.stringify(params.name)}; tools/list names them`,
-					}),
-				);
-			const { data: call, error: misfit } = checkCall(found, {
-				value: params.arguments ?? {},
-			});
-			if (misfit) return toolResult(Err(misfit));
-			return toolResult(await runAction(call));
+			const [app = '', ...action] = params.name.split('_');
+			return toolResult(
+				await answerCall(
+					program,
+					app,
+					action.join('_'),
+					params.arguments ?? {},
+				),
+			);
 		});
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			enableJsonResponse: true,

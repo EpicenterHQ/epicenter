@@ -7,7 +7,7 @@
  */
 
 import type { LogSink } from 'wellcrafted/logger';
-import type { Answer } from '../answer.ts';
+import type { Answer } from '../call.ts';
 
 /** Write diagnostics apart from the answer. */
 export function writeErr(text: string) {
@@ -38,7 +38,7 @@ export function errorText(error: { message: string; next?: unknown }) {
 }
 
 /** Print an answer and return its exit code. */
-export function presentAnswer(answer: Answer) {
+export function printAnswer(answer: Answer) {
 	const { data, error } = answer;
 	if (error !== null) {
 		writeErr(errorText(error));

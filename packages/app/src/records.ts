@@ -2,11 +2,11 @@ import { join, parse } from 'node:path';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
-import { isAnswer, isPlainObject } from './answer.ts';
+import { isResult } from './call.ts';
 import type { DataDef } from './data.ts';
 import {
 	filesIn,
-	notAFolder,
+	firstNonFolder,
 	readBytes,
 	removeFile,
 	replaceFile,
@@ -18,6 +18,7 @@ import {
 	type PublicError,
 } from './errors.ts';
 import { type Fields, isOptional, whatFits } from './field.ts';
+import { isPlainObject } from './json.ts';
 import {
 	changeMarkdown,
 	type FieldValues,
@@ -71,7 +72,7 @@ const UNREADABLE = problem(
  * Why a supplied field value does not fit its schema. The problem's `kind`
  * leaves the value out, so many files can share it.
  */
-function misfit(key: string, schema: TSchema, value: unknown): Problem {
+function valueProblem(key: string, schema: TSchema, value: unknown): Problem {
 	const words = whatFits(schema, value);
 	const why = words
 		? `is not ${words}`
@@ -134,10 +135,10 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	/** The file for `id`, from the home. */
 	const pathOf = (id: string) => `${folder}/${id}.md`;
 	/** The folder or link on the way to this key's records that is not a real folder. */
-	const linked = () => notAFolder(home, folder);
+	const nonFolder = () => firstNonFolder(home, folder);
 	/** Throw unless the key's folder is real, before a write or a delete. */
 	function refuseLinked() {
-		const refused = linked();
+		const refused = nonFolder();
 		if (refused !== undefined)
 			throw new Error(
 				`${refused} is a link or a file, not a folder; records are written and deleted only in real folders under data/`,
@@ -145,7 +146,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	/** A change that does not fit the declared fields, as one problem. */
-	function unfit(id: string, line: string, kind = line) {
+	function misfitFor(id: string, line: string, kind = line) {
 		return ActionError.Misfit({
 			path: pathOf(id),
 			id,
@@ -160,7 +161,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	 * absent. `path`, `id`,
 	 * and `body` come from the file, and no field can be named as one of them.
 	 */
-	function project(id: string, file: MarkdownFile) {
+	function recordFrom(id: string, file: MarkdownFile) {
 		const path = pathOf(id);
 		const values: FieldValues = {};
 		const problems: Problem[] = file.readable ? [] : [UNREADABLE];
@@ -172,7 +173,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 				if (file.readable && !isOptional(schema))
 					problems.push(problem(`${key} is missing`));
 			} else if (Value.Check(schema, value)) values[key] = value as JsonValue;
-			else problems.push(misfit(key, schema, value));
+			else problems.push(valueProblem(key, schema, value));
 		}
 		const record: AnyRecord = { path, id, ...values, body: file.body };
 		const result: Result<AnyRecord, Misfit> = problems.length
@@ -188,7 +189,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 
 	/** The text of `id`'s file, or undefined when there is none or its folder is a link. */
 	function textOf(id: string) {
-		const bytes = linked() ? undefined : readBytes(join(home, pathOf(id)));
+		const bytes = nonFolder() ? undefined : readBytes(join(home, pathOf(id)));
 		return bytes && new TextDecoder().decode(bytes);
 	}
 
@@ -196,28 +197,28 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	function read(id: string): Result<AnyRecord | undefined, Misfit> {
 		const text = textOf(id);
 		if (text === undefined) return Ok(undefined);
-		return project(id, readMarkdown(text)).result;
+		return recordFrom(id, readMarkdown(text)).result;
 	}
 
 	/** Split a patch into fields to set and remove, and check each supplied value. */
-	function fieldsOf(id: string, given: Patch, creating: boolean) {
+	function splitPatch(id: string, given: Patch, creating: boolean) {
 		const removed: string[] = [];
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
 			if (!Object.hasOwn(fields, key))
-				return unfit(id, `has no field "${key}"`, 'has no such field');
+				return misfitFor(id, `has no field "${key}"`, 'has no such field');
 			const schema = fields[key] as TSchema;
 			if (value === undefined) continue;
 			if (value === null && isOptional(schema)) removed.push(key);
 			else if (value === null && !creating)
-				return unfit(id, `${key} is required, so it cannot be removed`);
+				return misfitFor(id, `${key} is required, so it cannot be removed`);
 			else set[key] = value as JsonValue;
 		}
 		const problems: Problem[] = [];
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {
 				if (!Value.Check(schema, set[key]))
-					problems.push(misfit(key, schema, set[key]));
+					problems.push(valueProblem(key, schema, set[key]));
 			} else if (creating && !isOptional(schema))
 				problems.push(problem(`${key} is missing`));
 		}
@@ -232,7 +233,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	 * one with Exists. A patch may repair a record with problems; a
 	 * computed change sees only a record that fits.
 	 */
-	function decide(
+	function planWrite(
 		id: string,
 		need: Need,
 		change: Patch | Compute,
@@ -245,7 +246,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			return ActionError.Exists({ path });
 
 		const file = readMarkdown(before ?? '');
-		const current = before === undefined ? undefined : project(id, file);
+		const current = before === undefined ? undefined : recordFrom(id, file);
 		const computed = typeof change === 'function';
 		if (current?.result.error && (computed || !file.readable))
 			return current.result;
@@ -253,7 +254,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		let patch = change as Patch;
 		if (computed) {
 			const result = change(structuredClone(current?.record));
-			if (!isAnswer(result))
+			if (!isResult(result))
 				throw new Error(
 					'The change given to edit must return a Result: Ok(change) or Err(error)',
 				);
@@ -267,7 +268,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		// A spread of the record carries its path and id, which name it and are not fields.
 		const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
 		if (named.length)
-			return unfit(
+			return misfitFor(
 				id,
 				`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
 				'the change names the record, not only the fields that change',
@@ -275,8 +276,8 @@ export function createHandle(home: string, key: string, def: DataDef) {
 
 		const { body, ...given } = patch;
 		if (body !== undefined && typeof body !== 'string')
-			return unfit(id, 'body must be text');
-		const checked = fieldsOf(id, given, before === undefined);
+			return misfitFor(id, 'body must be text');
+		const checked = splitPatch(id, given, before === undefined);
 		if (checked.error !== null) return checked;
 		const { set, removed } = checked.data;
 		const after = changeMarkdown(before ?? '', { set, removed, body });
@@ -288,20 +289,20 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			return current.result.error
 				? current.result
 				: Ok({ value: current.record });
-		const next = project(id, readMarkdown(after)).result;
+		const next = recordFrom(id, readMarkdown(after)).result;
 		if (next.error !== null)
 			return current?.result.error ? current.result : next;
 		return Ok({ value: next.data, text: after });
 	}
 
 	/**
-	 * Write `id` as `decide` says, from its file now. The bytes are compared,
+	 * Write `id` as `planWrite` says, from its file now. The bytes are compared,
 	 * not the text, since decoding drops a byte order mark.
 	 */
 	function write(id: string, need: Need, change: Patch | Compute) {
 		refuseLinked();
 		const before = readBytes(join(home, pathOf(id)));
-		const result = decide(
+		const result = planWrite(
 			id,
 			need,
 			change,
@@ -318,7 +319,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	/** `run`'s answer, or a Misfit at the key's folder for an id that cannot be a file name. */
-	async function named<T>(id: string, run: () => T) {
+	async function withValidId<T>(id: string, run: () => T) {
 		if (isId(id)) return run();
 		const why = 'is not a file name: the id is the file name without .md';
 		return ActionError.Misfit({
@@ -331,22 +332,22 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	const handle = {
-		get: (id: string) => named(id, () => read(id)),
+		get: (id: string) => withValidId(id, () => read(id)),
 		async list() {
-			const names = linked() ? [] : filesIn(join(home, folder));
+			const names = nonFolder() ? [] : filesIn(join(home, folder));
 			return names
 				.flatMap((name) => idOf(name) ?? [])
 				.map(read)
 				.filter((each) => each.error || each.data);
 		},
 		create: (id: string, input: Record<string, unknown>) =>
-			named(id, () => write(id, 'absent', input)),
+			withValidId(id, () => write(id, 'absent', input)),
 		patch: (id: string, change: Record<string, unknown>) =>
-			named(id, () => write(id, 'present', change)),
+			withValidId(id, () => write(id, 'present', change)),
 		edit: (id: string, change: (record: unknown) => unknown) =>
-			named(id, () => write(id, 'either', change)),
+			withValidId(id, () => write(id, 'either', change)),
 		delete: (id: string) =>
-			named(id, () => {
+			withValidId(id, () => {
 				refuseLinked();
 				return Ok(removeFile(join(home, pathOf(id))));
 			}),

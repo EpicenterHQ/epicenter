@@ -38,7 +38,7 @@ function unlessMissing<T>(run: () => T) {
  * not a real folder, such as a link; undefined when every part present is
  * one. A missing part is fine: a write makes it.
  */
-export function notAFolder(home: string, relative: string) {
+export function firstNonFolder(home: string, relative: string) {
 	const parts = relative.split('/');
 	for (let end = 1; end <= parts.length; end++) {
 		const part = parts.slice(0, end).join('/');

@@ -23,16 +23,11 @@
  */
 import type { Err, Ok, Result } from 'wellcrafted/result';
 import type { ActionUpdate } from './action.ts';
-import { readAnswer } from './answer.ts';
+import { actionPath, postAction } from './call.ts';
 import type { Epicenter } from './epicenter.ts';
-import {
-	ActionError,
-	type NotStarted,
-	type Threw,
-	type Unreachable,
-} from './errors.ts';
+import type { NotStarted, Threw, Unreachable } from './errors.ts';
 import type { Flat } from './field.ts';
-import type { JsonValue } from './markdown.ts';
+import type { JsonValue } from './json.ts';
 
 export type {
 	ActionError,
@@ -135,39 +130,23 @@ function report(cause: unknown) {
 	else queueMicrotask(() => Promise.reject(cause));
 }
 
-/** Call one action and read its answer. A call that reaches no answer is `Unreachable`. */
-async function post(
-	url: string,
-	input: unknown,
-	onUpdate?: (value: unknown) => unknown,
-) {
-	const response = await fetch(url, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(input ?? {}),
-	}).catch(() => undefined);
-	// A failed fetch looks the same whether the request never left or the
-	// connection dropped after serve took it, so the outcome is unknown.
-	if (!response)
-		return ActionError.Unreachable({
-			message:
-				'serve could not be reached, or the connection dropped; the action may have run',
-		});
-	return readAnswer(response, (update) => {
+/** `onUpdate`, with its failures reported to the page instead of ending the call. */
+function guarded(onUpdate: ((value: unknown) => unknown) | undefined) {
+	return (update: unknown) => {
 		try {
 			const heard = onUpdate?.(update);
 			if (heard instanceof Promise) heard.catch(report);
 		} catch (cause) {
 			report(cause);
 		}
-	});
+	};
 }
 
 /**
  * A Proxy whose every string key but `then` is `make(key)`, made once per
  * key so the same name is the same value, and which has nothing else.
  */
-function namesOf<T>(make: (name: string) => T) {
+function lazyKeys<T>(make: (name: string) => T) {
 	const made = new Map<string, T>();
 	return new Proxy(Object.create(null) as Record<string, T>, {
 		get(_target, key) {
@@ -188,18 +167,18 @@ export function connect<H extends Epicenter>({
 }: {
 	url?: string;
 } = {}): Client<H> {
-	const base = url.endsWith('/') ? url : `${url}/`;
-	return namesOf((app) =>
-		namesOf(
+	const base = url.replace(/\/$/, '');
+	return lazyKeys((app) =>
+		lazyKeys(
 			(action) =>
 				(
 					input?: unknown,
 					options?: { onUpdate?: (value: unknown) => unknown },
 				) =>
-					post(
-						`${base}actions/${encodeURIComponent(app)}/${encodeURIComponent(action)}`,
-						input,
-						options?.onUpdate,
+					postAction(
+						`${base}${actionPath(app, action)}`,
+						JSON.stringify(input ?? {}),
+						{ onUpdate: guarded(options?.onUpdate) },
 					),
 		),
 	) as unknown as Client<H>;

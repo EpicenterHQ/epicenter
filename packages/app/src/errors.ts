@@ -11,7 +11,7 @@ import {
 	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
-import type { JsonValue } from './markdown.ts';
+import type { JsonValue } from './json.ts';
 
 /** What every action error is: a name and a message, plus fields of its own. */
 export type PublicError = { name: string; message: string };
@@ -24,9 +24,6 @@ export type Thrown = PublicError & Record<string, unknown>;
  * value; `kind` leaves it out, so many files can share one.
  */
 export type Problem = { line: string; kind: string };
-
-/** The names only Epicenter answers. An action that returns one answers `Threw` instead. */
-export const RESERVED_NAMES: readonly string[] = ['NotStarted', 'Unreachable'];
 
 export const ActionError = defineErrors({
 	/**
