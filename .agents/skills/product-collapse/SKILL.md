@@ -98,13 +98,9 @@ its sentence says. A second way of doing something looks cheap to add, but
 it has to be kept working forever.
 
 Choose the smallest loss that removes the second way, not simply the
-biggest deletion. Keep the feature when people really need it, and say why.
-Check that the code disappears instead of moving somewhere harder to see.
+biggest deletion.
 
 For example, letting browser apps sign in with Google's one-tap costs a
 second of speed, but it forces a separate sign-in path, helpers, an error
 state, and two sets of docs and tests. Refusing it makes Google sign-in a
 few seconds slower and leaves one path for every provider.
-
-Use the [clean-breaks reference](../rethink/references/clean-breaks.md) to
-carry out the replacement and delete the old path.

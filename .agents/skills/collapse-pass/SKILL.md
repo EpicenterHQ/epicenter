@@ -132,18 +132,9 @@ what it does, in your reply where the reader can see it. Name the things
 and the verbs. If you can't finish the sentence without contradicting
 yourself, the design isn't clear yet. Say so before going on.
 
-**For a set of commands, endpoints, or options,** the sentence says what
-the whole thing is for. Check each item against it:
-
-- Does this item serve the sentence?
-- Would the sentence still be true without it?
-- Does the sentence name something no item does?
-- Do two items do the same job?
-
-An item that needs a second sentence to explain it probably belongs to a
-different product. If dropping it leaves a sentence that still describes
-something useful, look at the asymmetric wins section of
-[product-collapse](../product-collapse/SKILL.md).
+**For a set of commands, endpoints, or options,** check each one against the
+sentence. If dropping one leaves a sentence that still describes something
+useful, see asymmetric wins in [product-collapse](../product-collapse/SKILL.md).
 
 For example, a notification API has `send`, `schedule`, `batch`, `digest`,
 `preferences`, `channels.register`, and `history`. "A notification system"
@@ -164,12 +155,6 @@ separate product.
 3. For what the caller needs: the caller has one id and one lifetime, so
    the lookup does nothing either. The wrapper adds nothing. Delete it.
 ```
-
-Stopping at step 1 can make a wrapper look useful when the settings in use
-turn its main feature off. Common finds: settings that switch off the
-advertised feature, wrappers around something with only one instance,
-"lifecycle management" that amounts to "call close when done", and docs
-describing what the code could do rather than what it does here.
 
 If the honest sentence is "it does nothing," delete it.
 
