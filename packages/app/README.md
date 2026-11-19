@@ -230,6 +230,17 @@ a rule here in the same pull request as the code.
   Schema.** One shape means a business object with `data` and `error` keys
   is never ambiguous, and the error's name is what a caller recovers by.
   Refused: plain values beside Results; a `kind` field beside the error.
+- **An action names each of its errors with fixed text, and an error's
+  fields are JSON; any error may carry `next`, a command that helps.** A
+  name that is any string turns every name a page sees into `string`, so
+  `defineAction` refuses it, and a `cause` that is an `Error` arrives as
+  `{}`, so it stays inside the action. Epicenter names no refusal for an
+  app: a check the input schema can make belongs there, and answers
+  `NotStarted`.
+  Refused: a ready-made `Refused` name (removed: a caller could not tell
+  one refusal from another, and catch-alls hid crashes behind it); an
+  `errors` list on each action (a page already infers the names from
+  `run`, and an agent reads the description).
 - **An action call is a function call: serve keeps no run history, receipt
   or replay, only one line on stderr when a run ends (app, action, outcome,
   duration; never the input or the result).** What must outlast a call goes

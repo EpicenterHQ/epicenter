@@ -11,7 +11,6 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Err, Ok } from 'wellcrafted/result';
-import { ActionError } from './answer.ts';
 import { defineData } from './data.ts';
 import { field } from './field.ts';
 
@@ -155,9 +154,9 @@ test('edit computes a change from the record, or creates one, and its own Err wr
 	);
 	expect(again.data?.nights).toBe(2);
 	const refused = await watches.edit('tokyo', () =>
-		ActionError.Refused({ message: 'not today' }),
+		Err({ name: 'NotToday' as const, message: 'not today' }),
 	);
-	expect(refused).toEqual(Err({ name: 'Refused', message: 'not today' }));
+	expect(refused).toEqual(Err({ name: 'NotToday', message: 'not today' }));
 	expect((await watches.get('tokyo')).data?.nights).toBe(2);
 });
 
