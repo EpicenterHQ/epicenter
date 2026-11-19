@@ -667,7 +667,7 @@ exhaustive, and comparing a name the action cannot return is a compile error.
 Producers import the shared `ActionError` factories from `@epicenter/app`:
 
 - `Changed` (`{ path, cause }`): a quoted passage changed or is there twice, or a new record's file is already there.
-- `Misfit` (`{ path, id, problems, record? }`): a file, or a change to one, does not fit the declared fields. Each problem has its `line` and its `kind`; a read carries the partial `record`. The library answers it for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments.
+- `Misfit` (`{ path, id?, problems, record? }`): a file, or a change to one, does not fit the declared fields. A data handle always sets `id`; an app's own file that is not a record, such as a settings file in `local/`, leaves it out. Each problem has its `line` and its `kind`; a read carries the partial `record`. The library answers it for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments.
 - `Missing` (`{ path }`): the file is not there.
 - `Refused` (`{ message, next? }`): the app said no. The library never answers it; it is a ready-made name for an app's own refusal.
 
@@ -978,6 +978,11 @@ const files = (
   same as `a/b`. An id with a NUL byte, or longer than the system allows,
   was a `Misfit`; a write of one now throws, and the action answers `Threw`
   with Node's message.
+- Every `Misfit` from a data handle carries `id`, including one for an id
+  that names no file, which 0.7.0 left without. Code that read a missing
+  `id` as "the id was bad" reads `path` instead: a bad id's `path` is the
+  key's folder, such as `data/notes`, and a file's is `data/notes/<id>.md`.
+  Not flagged.
 - `list` returns every `.md` file directly in the key's folder, including
   names that start with a dot, such as `.draft.md`, which 0.7.0 skipped.
 - A write that changes a `field.ref` to name a record that is not there is a

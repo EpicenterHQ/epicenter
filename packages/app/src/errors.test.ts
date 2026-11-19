@@ -16,6 +16,10 @@ test('every shared factory is its name, message and fields, unchanged through JS
 			problems: [{ line: 'title is missing', kind: 'title is missing' }],
 		}),
 		ActionError.Misfit({
+			path: 'local/settings.md',
+			problems: [{ line: 'token is missing', kind: 'token is missing' }],
+		}),
+		ActionError.Misfit({
 			path: 'data/notes/a.md',
 			id: 'a',
 			problems: [],

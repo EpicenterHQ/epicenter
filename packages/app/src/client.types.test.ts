@@ -128,14 +128,15 @@ function clientUsage() {
 		retry: (input: { yes?: boolean }) => app.call('classify', input),
 	});
 }
-// A page reads a list row's id from its Misfit as it does from its record.
+// A list row's Misfit types its id as optional, since an app's own Misfit may
+// leave it out; the handle always sets it.
 const { notes } = defineData(unusedFolder, {
 	notes: { description: 'note', fields: { title: field.text() } },
 });
 type Row = ActionOutput<
 	ReturnType<typeof notes.actions<'list'>>['list']
 >[number];
-assertType<Equal<NonNullable<Row['error']>['id'], string>>();
+assertType<Equal<NonNullable<Row['error']>['id'], string | undefined>>();
 assertType<Equal<NonNullable<Row['data']>['id'], string>>();
 
 test('client type assertions compile', () =>
