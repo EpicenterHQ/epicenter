@@ -142,7 +142,7 @@ Audience decides vocabulary: what a person reads uses the word they already have
 - Formatting tells: sentence-case headings, no decorative emoji, no bold-label-colon bullets that restate the line, no chatbot phrases ("I hope this helps!", "Great question!").
 
 These conventions are the project's prose standard. Destination skills such as
-`documentation`, `specification-writing`, `technical-articles`, `pull-request`,
+`documentation`, `specification-writing`, `pull-request`,
 `github-issues`, `social-media`, and `ui-design` build on them and own the shape
 and register of their surfaces. A personal author-voice skill applies only when
 someone explicitly asks for prose in their own voice; project guidance must
