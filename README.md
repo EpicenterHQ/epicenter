@@ -109,14 +109,12 @@ run on their home, outside this runtime source repository. Each app has
 `apps/<app>/code/` and sibling `data/` in the home's one private Git
 repository. Its owner commits code and records together; actions make no
 commits. App publication copies only code into a separate
-history ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
+history.
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and
-needs no Epicenter. The hosted API is retired for now
-([ADR-0970](docs/adr/0970-the-hosted-api-is-retired.md)).
+needs no Epicenter. The hosted API is retired for now.
 
-The folder sync product that came before is retired
-([ADR-0899](docs/adr/0899-the-folder-sync-product-is-retired.md)). Some of its
+The folder sync product that came before is retired. Some of its
 code stays here while Whispering imports it.
 
 ## Trust boundaries

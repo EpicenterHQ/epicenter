@@ -55,33 +55,25 @@ Roadmap language stays out of heroes.
 
 ## What Epicenter is
 
-- A folder on the home, `~/Epicenter`, holding a folder per app in `apps/`
-  ([ADR-0868](adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md),
-  [ADR-0885](adr/0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md)).
-  The home is a computer its person controls, owned or rented
-  ([ADR-0903](adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)).
+- A folder on the home, `~/Epicenter`, holding a folder per app in `apps/`.
+  The home is a computer its person controls, owned or rented.
 - An app is one `epicenter.ts` declaring its data and actions, an optional
   UI, and a `data/` folder of Markdown files; one private Git repository holds
-  every app's code and data
-  ([ADR-0857](adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md),
-  [ADR-0910](adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
+  every app's code and data.
 - A command, `epicenter`, that runs an app's actions and commits nothing, and
   `epicenter serve`, which offers every app's actions over MCP and each app's
   UI in a browser to the person's devices and agents
-  ([ADR-0940](adr/0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md),
-  [ADR-0860](adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)).
+  ([actions' rules](../packages/app/README.md#actions)).
 
 ## What Epicenter is not
 
 - Not a hosted product: your Epicenter runs on your home. A service the company
-  might host is an outside app like Gmail
-  ([ADR-0901](adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md)).
+  might host is an outside app like Gmail.
 - Not sync: the person's other devices keep no copy and reach the one on the
   home. Epicenter never reconciles two writable copies
-  ([ADR-0896](adr/0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md)).
+  ([the vision's core invariants](vision.md#core-invariants)).
 - Not a sandbox: `serve` runs every app's code in its one process, with no
-  sandbox, and signs no one in; who reaches it is the tailnet's decision
-  ([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
+  sandbox, and signs no one in; who reaches it is the tailnet's decision.
 - Not encrypted: whoever can read the home's disk can read the files, and a
   rented home's provider can. See the [trust model](trust-model.md).
 
@@ -92,15 +84,16 @@ Every public claim must be provable by inspecting the repository:
 | Claim | Proof |
 | --- | --- |
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Plain files" | An app's records are Markdown files under its `data/`, one folder or file per data key (`packages/app/src/data.ts`), and Git stores them: no `epicenter` command commits, so the owner's own Git commits do (ADR-0940). |
-| "On one computer you control" | A command runs on the computer it is typed on, and `serve` listens on `127.0.0.1` unless told otherwise (`packages/app/src/command/serve.ts`). Nothing in this repository runs a person's Epicenter for them (ADR-0903). |
+| "Plain files" | An app's records are Markdown files under its `data/`, one folder or file per data key (`packages/app/src/data.ts`), and Git stores them: no `epicenter` command commits, so the owner's own Git commits do ([actions' rules](../packages/app/README.md#actions)). |
+| "On one computer you control" | A command runs on the computer it is typed on, and `serve` listens on `127.0.0.1` unless told otherwise (`packages/app/src/command/serve.ts`). Nothing in this repository runs a person's Epicenter for them. |
 | "Every device you own, and your agents, reach them" | `serve` answers MCP at `/` and each app's UI at `/apps/<app>/` (`packages/app/src/command/serve.ts`, `mcp.ts`); a reverse proxy such as `tailscale serve` puts it on the tailnet. |
-| "Any tool can edit them" | Direct edits and action writes are ordinary file changes, which stay pending until the owner commits them with Git (ADR-0940). |
+| "Any tool can edit them" | Direct edits and action writes are ordinary file changes, which stay pending until the owner commits them with Git ([actions' rules](../packages/app/README.md#actions)). |
 | "Bring your own model" | AI features accept user-provided API keys. |
 
-Not yet true, so not yet in public copy: installing `epicenter` from npm
-(ADR-0892), Epicenter for Mac (ADR-0865), and anything that keeps `serve`
-running for a person without their own systemd unit or LaunchAgent (ADR-0941).
+Not yet true, so not yet in public copy: installing `epicenter` from npm,
+Epicenter for Mac, and anything that keeps `serve` running for a person
+without their own systemd unit or LaunchAgent
+([serve's rules](../packages/app/README.md#running-the-home)).
 
 ## Vocabulary
 
@@ -113,8 +106,7 @@ outside app, a program, a service ([vision](vision.md), "The pieces").
 - "Local-first" is only for a product whose devices sync. Epicenter's devices
   do not, so it is not local-first.
 - Do not say Epicenter syncs, or name a hosted, cloud, or self-hosted
-  Epicenter. The folder sync product that did is retired
-  ([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)).
+  Epicenter. The folder sync product that did is retired.
 
 Do not use hype words: `AI-native`, `agentic`, `next-gen`, `revolutionary`,
 `redefine`, `game changer`, `Web3`, `metaverse`. Do not describe Epicenter's

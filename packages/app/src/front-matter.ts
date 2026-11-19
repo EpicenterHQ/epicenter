@@ -1,7 +1,6 @@
 /**
- * A data file as fields and body (ADR-0796, ADR-0924). The grammar
- * is copied from the waiting product's front matter without its merge
- * (ADR-0843: new code copies from it, never imports it).
+ * A data file as fields and body (ADR-0796). The grammar
+ * is copied from the waiting product's front matter without its merge.
  *
  * A file has front matter when its first line is `---` and a later line is
  * `---`. Each line between them is `key: <text>`, each key once: a key is a

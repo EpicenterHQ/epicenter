@@ -13,8 +13,8 @@ the earlier implementation waves and rollout notes.
 
 ## Decisions still proposed
 
-- [ADR-0919](../docs/adr/0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) proposes named file slots owned by a collection record.
-- [ADR-0930](../docs/adr/0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) proposes sending a file as base64 text in JSON input, with no file inputs or uploads.
+- ADR-0919 proposes named file slots owned by a collection record.
+- ADR-0930 proposes sending a file as base64 text in JSON input, with no file inputs or uploads.
 
 Both records remain Proposed. The current temporary upload API is
 `field.file()`; it does not implement collection-owned files.

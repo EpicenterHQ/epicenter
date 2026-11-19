@@ -113,8 +113,7 @@ for known content shapes rather than rebuilding them in an app.
 A stock component is what the shadcn-svelte CLI installs for the `vega` style,
 plus at most one patch that says why it differs. [`upstream/README.md`](upstream/README.md)
 explains the snapshots, the check, and the differences not yet recorded as
-patches. The source ownership decision is in
-[ADR-0455](../../docs/adr/0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
+patches.
 
 1. Run `bun scripts/upstream.ts refresh` and read `git diff upstream/` for what
    upstream changed and which dependency versions it now expects.

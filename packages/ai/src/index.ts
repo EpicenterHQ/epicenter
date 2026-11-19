@@ -1,6 +1,6 @@
 /**
  * `@epicenter/ai`: every source of models is an endpoint, and `openAi`
- * merges the endpoints an app passes (ADR-0757). Requests use the
+ * merges the endpoints an app passes. Requests use the
  * OpenAI-compatible vocabulary for audio transcriptions.
  */
 

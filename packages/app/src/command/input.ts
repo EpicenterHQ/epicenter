@@ -9,7 +9,7 @@ import { Value } from 'typebox/value';
 import { type ObjectSchema, whatFits } from '../field.ts';
 
 /**
- * Check an input against its action's schema (ADR-0953), the one check a
+ * Check an input against its action's schema, the one check a
  * page, an agent, and the command line share. Nothing is filled: an absent
  * key stays absent, and an action's `run` writes its own default. A key the action does not
  * take is refused, naming the keys it does.

@@ -35,8 +35,9 @@ Read when building:
   the first or is refused.
 - An app offers only actions. ADR-0945 (Proposed, unbuilt) adds `fetch`,
   `websocket` and `publish`.
-- ADR-0943 allows a CRDT to own live edits with one exporter writing a saved
-  copy into the home, and refuses a CRDT built into the platform.
+- [The vision](../docs/vision.md#core-invariants) allows a CRDT to own live
+  edits with one exporter writing a saved copy into the home, and refuses a
+  CRDT built into the platform.
 
 ## Sketch
 

@@ -2,8 +2,7 @@
  * An endpoint is a place that answers OpenAI-compatible requests: a provider
  * the person holds a key for, a server on this computer, or an engine inside
  * the app. It is a value, not a connection: an
- * id, a `fetch` rooted at the endpoint, and the models it offers now
- * (ADR-0757).
+ * id, a `fetch` rooted at the endpoint, and the models it offers now.
  *
  * Every HTTP endpoint is one implementation, `openAiCompatible`, configured by
  * a base URL, an optional key, and the `fetch` that sends it. `custom` and
