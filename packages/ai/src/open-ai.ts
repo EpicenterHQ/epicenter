@@ -42,8 +42,8 @@ const isLive = (entry: Endpoint | LiveEndpoints): entry is LiveEndpoints =>
  * endpoint alone; nothing falls back to another.
  *
  * An entry may be a live list (`customEndpoints()`, or another `openAi`),
- * read again at every use, so a key added or a sign-in reaches the merge
- * without a new one. An app makes its `openAi` once.
+ * read again at every use, so a key added reaches the merge without a new
+ * one. An app makes its `openAi` once.
  *
  * ```ts
  * export const ai = openAi([customEndpoints({ store, keys }), localServers()]);
