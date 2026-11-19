@@ -165,9 +165,12 @@ export async function runCli(argv: string[]) {
 		return printAnswer(
 			usage(`${flag} is not an option; the options are --help and --version`),
 		);
+	// A throw may come after serve was asked, so the command cannot say
+	// whether the action ran: Unreachable, never NotStarted, which a script
+	// may retry.
 	return printAnswer(
 		await runCommand(argv).catch((cause) =>
-			ActionError.NotStarted({ message: extractErrorMessage(cause) }),
+			ActionError.Unreachable({ message: extractErrorMessage(cause) }),
 		),
 	);
 }

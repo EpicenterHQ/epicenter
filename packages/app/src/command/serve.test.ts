@@ -52,6 +52,19 @@ async function setup() {
 		input: { code: Type.String({ pattern: '[' }) },
 		run: () => Ok(null),
 	});
+	const hostile = defineAction({
+		description: 'Throws a value nothing can describe',
+		input: {},
+		run: () => {
+			throw Object.assign(Object.create(null), { n: 1n });
+		},
+	});
+	const big = defineAction({
+		description: 'Returns what JSON cannot carry',
+		input: {},
+		// The type refuses a BigInt; plain JavaScript can still return one.
+		run: () => Ok(1n) as never,
+	});
 	const bare = defineAction({
 		description: 'Forgets its Result',
 		input: {},
@@ -73,7 +86,7 @@ async function setup() {
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, odd, bare, send },
+					actions: { add, fail, fake, tag, odd, big, hostile, bare, send },
 				},
 			},
 		}).apps,
@@ -150,18 +163,25 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 		expect(line.answer.error.message).toContain(message);
 	}
 	expect(await readdir(folder)).toEqual([]);
-	// A throw before the answer still ends the stream with one.
+	// A check that throws is NotStarted too: nothing ran.
 	const [odd] = await lines(
 		await request('/actions/writing/odd', post('{"code":"x"}')),
 	);
-	expect(odd.answer.error.name).toBe('Threw');
-	expect(odd.answer.error.message).toContain('Invalid regular expression');
+	expect(odd.answer.error.name).toBe('NotStarted');
+	expect(odd.answer.error.message).toContain(
+		'The input could not be checked: Invalid regular expression',
+	);
 });
 
 test('a throw is Threw, and so is a value that is not a Result or a reserved name', async () => {
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
 	expect(threw.answer.error).toEqual({ name: 'Threw', message: 'broke' });
+	const [big] = await lines(await request('/actions/writing/big', post({})));
+	expect(big.answer.error.name).toBe('Threw');
+	expect(big.answer.error.message).toContain(
+		'The action "big" returned what JSON cannot carry',
+	);
 	const [bare] = await lines(await request('/actions/writing/bare', post({})));
 	expect(bare.answer.error).toEqual({
 		name: 'Threw',
@@ -226,6 +246,8 @@ test('MCP offers one tool per action and runs it', async () => {
 		'writing_fake',
 		'writing_tag',
 		'writing_odd',
+		'writing_big',
+		'writing_hostile',
 		'writing_bare',
 	]);
 	const called = await rpc('tools/call', {
@@ -245,6 +267,22 @@ test('MCP offers one tool per action and runs it', async () => {
 	});
 	expect(hidden.result.isError).toBe(true);
 	expect(hidden.result.content[0].text).toContain('has no action "send"');
+	// A check that throws is an answer over MCP as over the route.
+	const odd = await rpc('tools/call', {
+		name: 'writing_odd',
+		arguments: { code: 'x' },
+	});
+	expect(odd.result.structuredContent.error.name).toBe('NotStarted');
+	// A throw nothing can describe is Threw on both, never a protocol error.
+	const hostile = await rpc('tools/call', {
+		name: 'writing_hostile',
+		arguments: {},
+	});
+	expect(hostile.result.structuredContent.error.name).toBe('Threw');
+	const [routed] = await lines(
+		await request('/actions/writing/hostile', post({})),
+	);
+	expect(routed.answer.error.name).toBe('Threw');
 });
 
 test('an action marked mcp: false is still called outside MCP', async () => {

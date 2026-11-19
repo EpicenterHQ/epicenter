@@ -8,14 +8,16 @@
  * A call that cannot begin is `NotStarted`. A run answers its own Result as
  * JSON, or `Threw` when it throws, returns what JSON cannot carry, or returns
  * an error named `NotStarted`, `Threw` or `Unreachable`: only Epicenter says
- * whether a call began. When a run ends, serve logs one record: the app, the
- * action, the outcome and how long it took, never the input or the result,
- * which can hold personal data.
+ * whether a call began. Every call ends in one answer, so the route and MCP
+ * answer alike. When a run ends, serve logs one record: the app, the action,
+ * the outcome and how long it took, never the input or the result, which can
+ * hold personal data.
  */
 
 import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
+import { Err, trySync } from 'wellcrafted/result';
 import {
 	ActionError,
 	type Answer,
@@ -59,14 +61,20 @@ export async function answerCall(
 			next: `epicenter ${app}`,
 		});
 	}
-	const problem = inputProblem(run.input, input);
-	if (problem !== undefined)
+	const { data: problem, error: unchecked } = trySync({
+		try: () => inputProblem(run.input, input),
+		catch: (cause) =>
+			Err(`The input could not be checked: ${extractErrorMessage(cause)}`),
+	});
+	const refusal = unchecked ?? problem;
+	if (refusal !== undefined)
 		return ActionError.NotStarted({
-			message: problem,
+			message: refusal,
 			next: `epicenter ${app}`,
 		});
 	const started = performance.now();
-	const answer: Answer = await run(input, { onUpdate })
+	const answer: Answer = await Promise.resolve()
+		.then(() => run(input, { onUpdate }))
 		.then((result) => {
 			if (!isResult(result))
 				return ActionError.Threw({
@@ -77,26 +85,30 @@ export async function answerCall(
 				return ActionError.Threw({
 					message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
 				});
-			// JSON's own copy: undefined is null, and a cycle or a BigInt throws.
-			return JSON.parse(
-				JSON.stringify({ data: data ?? null, error }),
-			) as Answer;
+			// JSON's own copy, so every surface sends the same answer: undefined
+			// is null, and a cycle or a BigInt is Threw.
+			const { data: copy, error: notJson } = trySync({
+				try: () =>
+					JSON.parse(JSON.stringify({ data: data ?? null, error })) as Answer,
+				catch: (cause) =>
+					Err(
+						`The action "${action}" returned what JSON cannot carry: ${extractErrorMessage(cause)}`,
+					),
+			});
+			return notJson === null ? copy : ActionError.Threw({ message: notJson });
 		})
 		.catch((cause) =>
 			ActionError.Threw({ message: extractErrorMessage(cause) }),
 		);
-	try {
-		runLog.info('action run ended', {
-			app,
-			action,
-			durationMs: Math.round(performance.now() - started),
-			...(answer.error === null
-				? { outcome: 'ok' }
-				: { outcome: 'error', error: answer.error.name }),
-		});
-	} catch {
-		// The record is for the owner; it must not change the caller's answer.
-	}
+	// The logger catches a sink that throws, so the record cannot change the answer.
+	runLog.info('action run ended', {
+		app,
+		action,
+		durationMs: Math.round(performance.now() - started),
+		...(answer.error === null
+			? { outcome: 'ok' }
+			: { outcome: 'error', error: answer.error.name }),
+	});
 	return answer;
 }
 
