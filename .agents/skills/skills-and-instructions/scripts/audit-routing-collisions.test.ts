@@ -60,7 +60,7 @@ test('a single owner exits 0 in the documented line format', () => {
 	const { code, out } = run('asymmetric wins');
 
 	expect(code).toBe(0);
-	expect(out).toBe('asymmetric wins -> asymmetric-wins/SKILL.md\n');
+	expect(out).toBe('asymmetric wins -> product-collapse/SKILL.md\n');
 });
 
 test('--explain annotates without changing the line prefix or exit code', () => {
@@ -69,7 +69,7 @@ test('--explain annotates without changing the line prefix or exit code', () => 
 
 	expect(explained.code).toBe(plain.code);
 	expect(explained.out).toBe(
-		'asymmetric wins -> asymmetric-wins/SKILL.md [claims]\n',
+		'asymmetric wins -> product-collapse/SKILL.md [claims]\n',
 	);
 });
 
@@ -81,7 +81,7 @@ test('a single claimant with no collision exits 0', () => {
 });
 
 test('a phrase every mention routes away is reported as unowned', () => {
-	// one-sentence-test sends this back to the agent and nobody accepts it,
+	// collapse-pass sends this back to the agent and nobody accepts it,
 	// which is the intended routing. The script reports unowned; whether unowned
 	// is correct stays the reader's call.
 	const { code, out, err } = run(
@@ -90,7 +90,7 @@ test('a phrase every mention routes away is reported as unowned', () => {
 	);
 
 	expect(code).toBe(1);
-	expect(out).toContain('one-sentence-test/SKILL.md [disclaims]');
+	expect(out).toContain('collapse-pass/SKILL.md [disclaims]');
 	expect(err).toContain('No skill description claims');
 	expect(err).toContain('route it elsewhere');
 });

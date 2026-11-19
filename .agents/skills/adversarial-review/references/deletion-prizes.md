@@ -46,7 +46,7 @@ and state the obligation precisely enough for the human to judge it.
 ## Carry the question beyond these examples
 
 For limiting shared premises, use [rethink](../../rethink/SKILL.md); for the bargain
-of refusing a promise, use [asymmetric-wins](../../asymmetric-wins/SKILL.md).
+of refusing a promise, use the asymmetric wins section of [product-collapse](../../product-collapse/SKILL.md).
 
 Ask which ongoing coordination problem disappears if a lifetime ends earlier,
 a promise narrows, or a person takes responsibility for an explicit operation.

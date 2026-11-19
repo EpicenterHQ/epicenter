@@ -33,7 +33,7 @@
 			"cluster": "review",
 			"prompt": "Does the migration UI need to be pixel perfect, or is there an asymmetric win in dropping that promise?",
 			"anchors": ["asymmetric win", "pixel perfect"],
-			"expect": "asymmetric-wins",
+			"expect": "product-collapse",
 			"forbid": ["rethink"],
 			"why": "The move owns its phrase. rethink mentions asymmetric deletions in its body, which is the kind of near-neighbour that over-triggers."
 		},
@@ -42,9 +42,9 @@
 			"cluster": "review",
 			"prompt": "Find the one change here that would delete disproportionate complexity for a small refusal.",
 			"anchors": ["delete disproportionate complexity"],
-			"expect": "asymmetric-wins",
+			"expect": "product-collapse",
 			"forbid": [],
-			"why": "asymmetric-wins owns the phrase outright. rethink covers the whole design, while one named promise to refuse belongs to asymmetric-wins."
+			"why": "product-collapse owns the phrase outright. rethink covers the whole design, while one named promise to refuse belongs to product-collapse."
 		},
 		{
 			"id": "review-rethink-clean-break",
@@ -52,7 +52,7 @@
 			"prompt": "Nothing ships against this yet and we have no users. Take a clean break: what does the design look like if the old path never existed?",
 			"anchors": ["clean break", "no users"],
 			"expect": "rethink",
-			"forbid": ["asymmetric-wins"],
+			"forbid": ["product-collapse"],
 			"why": "A clean break across the whole design belongs to rethink."
 		},
 		{
@@ -60,7 +60,7 @@
 			"cluster": "review",
 			"prompt": "What does the mount surface actually do? Give it to me in one sentence.",
 			"anchors": ["in one sentence", "actually do"],
-			"expect": "one-sentence-test",
+			"expect": "collapse-pass",
 			"forbid": ["post-implementation-review"],
 			"why": "The move owns both phrases and should win over the broad second-read hub."
 		},
@@ -70,8 +70,8 @@
 			"prompt": "What does this regex actually do? Just explain it, no audit needed.",
 			"anchors": ["actually do"],
 			"expect": null,
-			"forbid": ["one-sentence-test"],
-			"why": "Near miss. one-sentence-test's near-miss clause says to answer a plain comprehension question directly, but that clause is prose the lexical layer cannot weigh, so this case is expected to look like an over-claim on the deterministic pass and resolve only under --live."
+			"forbid": ["collapse-pass"],
+			"why": "Near miss. collapse-pass's one-sentence near-miss clause says to answer a plain comprehension question directly, but that clause is prose the lexical layer cannot weigh, so this case is expected to look like an over-claim on the deterministic pass and resolve only under --live."
 		},
 		{
 			"id": "review-authored-opening-near-miss",
@@ -80,8 +80,8 @@
 			"anchors": ["sounds like me"],
 			"distractors": ["in one sentence"],
 			"expect": null,
-			"forbid": ["one-sentence-test"],
-			"why": "Near miss for one-sentence-test. 'sounds like me' asks for prose in the author's own voice, which is outside the project-local skill catalog; the author may use a personal skill when one is installed, but no project skill owns it. 'in one sentence' is the distractor and stays unresolved on the offline pass by design, because one-sentence-test must keep claiming it for review-one-sentence. The object decides: authored prose is not a technical surface to audit, so one-sentence-test must not claim it, and only --live can weigh that."
+			"forbid": ["collapse-pass"],
+			"why": "Near miss for collapse-pass's one-sentence test. 'sounds like me' asks for prose in the author's own voice, which is outside the project-local skill catalog; the author may use a personal skill when one is installed, but no project skill owns it. 'in one sentence' is the distractor and stays unresolved on the offline pass by design, because collapse-pass must keep claiming it for review-one-sentence. The object decides: authored prose is not a technical surface to audit, so collapse-pass must not claim it for this, and only --live can weigh that."
 		},
 		{
 			"id": "consult-independent-investigation",
