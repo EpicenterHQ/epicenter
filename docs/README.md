@@ -1,11 +1,13 @@
 # Documentation
 
-This directory holds the vision, the decision records, and a few operating guides for Epicenter.
+This directory holds the vision, the history of Epicenter's big decisions, the older decision records, and a few operating guides.
 
 ## Start here
 
 - [Vision](vision.md): what Epicenter is and the rules it keeps: your apps and files on a computer you control and keep on.
-- [Decisions (ADRs)](adr/README.md): the record of durable decisions and why, each with its status and what is not built yet. Trust this over any spec.
+- [History](history.md): the big turns in Epicenter's direction, oldest first, and why each was made. Background, not rules.
+- Each area's current rules are in a `## Decisions` section of its README, beside its code.
+- [Decision records (ADRs)](adr/README.md): older records, retired one area at a time as their rules move into READMEs.
 - [The `epicenter` command](../packages/app/src/command/README.md) and [what an app imports](../packages/app/README.md): how the current product works in code.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
 - [Trust model](trust-model.md): who can read your files, decided by who can read the home.
@@ -14,7 +16,7 @@ This directory holds the vision, the decision records, and a few operating guide
 ## Directory structure
 
 ### `/adr`
-Architecture Decision Records: the authoritative, immutable record of durable decisions. See [adr/README.md](adr/README.md) for the template and rules.
+Architecture Decision Records from before decisions moved into READMEs. Each area's records leave once its README carries its rules; removed records stay readable from the `adr-archive` Git tag. See [adr/README.md](adr/README.md).
 
 ### `/guides`
 One operating guide for a live system: [Whispering redirects](guides/whispering-redirects.md) (the legacy domains and where they point).
@@ -26,6 +28,6 @@ Older writing (launch plans, blog drafts, patterns, release notes, images, and d
 
 ## Authority and specs
 
-Durable decisions live in [`adr/`](adr/README.md), today's vocabulary in [the vision](vision.md) under "The pieces", and current state in the code and package READMEs. These are authoritative.
+Current rules live in each README's `## Decisions` section (or, until an area moves, its records in [`adr/`](adr/README.md)), today's vocabulary in [the vision](vision.md) under "The pieces", and current state in the code and package READMEs. These are authoritative.
 
-Specs at `/specs` (repo root) are in-flight scaffolding, not current truth: they plan work that is underway and are deleted once their decision is harvested into an ADR. See the [specs README](/specs/README.md) for the workflow, and [`spec-history.md`](spec-history.md) for the dated index of past specs. When a spec disagrees with an ADR or the code, the ADR and code win.
+Specs at `/specs` (repo root) are in-flight scaffolding, not current truth: they plan work that is underway and are deleted once their decision is written into the README it governs. See the [specs README](/specs/README.md) for the workflow, and [`spec-history.md`](spec-history.md) for the dated index of past specs. When a spec disagrees with a README's decisions or the code, the README and code win.

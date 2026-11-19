@@ -215,7 +215,7 @@ bun run check          # the whole merge gate: the above plus doc paths, catalog
 
 ## Design notes
 
-Durable decisions and their reasoning live in [docs/adr/](docs/adr). Specs in [specs/](specs) are in-flight design scaffolding rather than current truth; when a spec and an ADR disagree, the ADR wins. Start with [docs/README.md](docs/README.md).
+Each area's rules live in a `## Decisions` section of its README, beside the code they govern. [docs/history.md](docs/history.md) tells how Epicenter got its current shape, one big decision at a time. Older decision records are in [docs/adr/](docs/adr) while it is retired area by area. Specs in [specs/](specs) are in-flight design scaffolding rather than current truth. Start with [docs/README.md](docs/README.md).
 
 ## Contributing
 

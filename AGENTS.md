@@ -73,7 +73,7 @@ of an authorized redesign. See the `typescript` and `svelte` skills.
 `AGENTS.md` is the canonical shared instructions file. Keep it to constraints
 that apply across tasks and routing to specialized guidance. Current
 architecture, API examples, migration status, and decision history belong in
-READMEs and decision records, where they can be checked with the implementation.
+READMEs and `docs/history.md`, where they can be checked with the implementation.
 
 - `CLAUDE.md` files are compatibility shims for Claude Code. They should only import a sibling `AGENTS.md` with `@AGENTS.md`, plus rare Claude-specific notes.
 - Add a nested `AGENTS.md` only for a local constraint that must apply to every edit beneath it. Never use one as an index or README substitute; subsystem orientation belongs in that subsystem's README.
@@ -82,27 +82,35 @@ READMEs and decision records, where they can be checked with the implementation.
 
 ## Planning docs and decisions
 
-`docs/adr/`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
+Package READMEs, `docs/adr/`, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
 Check changes to apps, the CLI, or storage against [the vision](docs/vision.md)
-and [the home layout](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md).
-For changes to the old sync code, start with its current callers and
-[the retirement decision](docs/adr/0899-the-folder-sync-product-is-retired.md).
+and [the history](docs/history.md) of how Epicenter got its current shape.
 
 Verify API names, exports, and file layouts against current source and callers,
-not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
-its rationale and may also name rejected alternatives.
+not just `docs/` or `specs/`. READMEs explain the current surface.
 
-ADRs record decisions in context. Check their status and the implementation;
-explain conflicts with the requested outcome rather than silently inheriting an
-old decision. Treat conflicts among records, code, and user intent as judgment
-points, not an automatic precedence hierarchy. Amend the record when a new
-decision settles.
+**Decisions.** A rule the code follows lives in a `## Decisions` section of the
+README beside that code: the rule, why it holds, and the alternative that lost.
+Change the rule in the same pull request as the code, and delete it when it
+stops being true. Where an area has no Decisions section yet, its ADRs in
+`docs/adr/` still explain its rules; that directory is being retired one area
+at a time, so write no new records there.
+
+**History.** [docs/history.md](docs/history.md) holds the big turns in
+Epicenter's direction, oldest first. It is background, never instructions. An
+entry is for a decision that changes what Epicenter is or reverses a
+direction, where the losing option would take weeks to return to. Do not add
+one unprompted; propose the entry and let the owner decide.
+
+Treat conflicts among READMEs, records, code, and user intent as judgment
+points, not an automatic precedence hierarchy. Explain a conflict with the
+requested outcome rather than silently inheriting an old decision.
 
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
 - Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented` or `Superseded` should be deleted.
-- When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
+- When a design pass settles a durable decision, write the rule into the `## Decisions` section of the README it governs, propose a history entry if it changes Epicenter's direction, and delete the now-spent spec. Git keeps the body recoverable.
 - `docs/spec-history.md` is a frozen, dated index of past specs. It is history, not truth.
 
 ## Writing conventions

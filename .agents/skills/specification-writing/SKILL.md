@@ -204,7 +204,7 @@ Include:
 
 Use a table for traceability. Every material decision should have a class and rationale.
 
-A load-bearing decision (a Class 2 coherence or Class 3 taste choice about architecture, ownership, an API shape, or a rejected alternative worth not re-litigating) belongs in an ADR, not only in this table. Write it as a `Proposed` ADR in `docs/adr/` as soon as it crystallizes and reference the ADR number in the table's rationale. The table then traces the spec's decisions to their durable home; the ADR survives after the spec is deleted.
+A load-bearing decision (a Class 2 coherence or Class 3 taste choice about architecture, ownership, an API shape, or a rejected alternative worth not re-litigating) needs a durable home, not only this table. Once it is built, its rule goes in the `## Decisions` section of the README beside the code it governs. A decision that changes Epicenter's direction also gets a proposed entry in `docs/history.md`, for the owner to accept. The table then traces the spec's decisions to their durable home, which survives after the spec is deleted.
 
 ```markdown
 ## Design Decisions
