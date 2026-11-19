@@ -1,41 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Read-only audit of the declared Epicenter Cloudflare zones. Operators change
- * DNS, security settings, and redirect rules in the Cloudflare dashboard; this
- * script never writes.
+ * Read-only audit of our Cloudflare zones: HTTPS, TLS, DNSSEC, and SPF/DMARC.
+ * Never writes. Run when adding a domain or changing domain settings:
  *
- * Run from the repository root (production admin operation, needs Infisical):
+ *   bun run cf:audit:remote   (production; Infisical supplies CLOUDFLARE_ZONE_TOKEN)
  *
- *   bun run cf:audit:remote
- *
- * Infisical's production `/ops` path supplies `CLOUDFLARE_ZONE_TOKEN`, which
- * needs only `Zone:Read`, `Zone Settings:Read`, and `DNS:Read` on these zones.
- *
- * Checks per zone: Always Use HTTPS and Automatic HTTPS Rewrites on, strict
- * origin TLS, minimum TLS 1.2 or higher, and Cloudflare's DNSSEC status. HSTS
- * and the DS record are printed as observations, not asserted, because HSTS
- * is a per-hostname commitment (review every subdomain before enabling
- * `includeSubDomains`) and the DS record must be compared with the registrar
- * (`dig +short DS <zone>`). Public SPF and DMARC come from the system resolver
- * with TXT chunks joined; duplicates are issues. `mail: 'none'` zones must have
- * SPF `v=spf1 -all` and DMARC `p=reject`. `external` zones keep provider-managed
- * mail, so do not add a no-mail SPF there. `review` zones have no settled mail
- * policy yet and are observed only.
- *
- * A new zone needs an entry and mail classification below; the list does not
- * discover zones. Keep `epicenter.audio` while its registration is active.
- * Exit 0 means these checks passed; exit 1 means an issue or incomplete read
- * needs review. It does not certify mail delivery, redirects, or the DNSSEC
- * chain. Nothing schedules it: run it when commissioning a domain or after
- * changing domain settings. Redirect rules live on the source zone with
- * proxied DNS (docs/adr/0472, docs/guides/whispering-redirects.md).
+ * New zone? Add it to ZONES with a mail policy: 'none' (must be spoof-proof),
+ * 'external' (provider-managed mail, leave alone), or 'review' (undecided).
  */
 import { resolveTxt } from 'node:dns/promises';
 
 const ZONES = [
 	{ name: 'epicenter.so', mail: 'external' },
 	{ name: 'epicenter.sh', mail: 'review' },
-	{ name: 'epicenter.audio', mail: 'none' },
+	{ name: 'epicenter.audio', mail: 'none' }, // keep while the registration is active
 	{ name: 'epicenter.build', mail: 'none' },
 	{ name: 'epicenter.chat', mail: 'none' },
 	{ name: 'epicenter.email', mail: 'none' },
@@ -76,11 +54,7 @@ for (const zone of ZONES) {
 			throw new Error(`Expected one visible zone; found ${matches.length}`);
 		}
 		const zoneId = match.id;
-		const settingIds = [
-			...Object.keys(WEB_BASELINE),
-			'min_tls_version',
-			'security_header',
-		];
+		const settingIds = [...Object.keys(WEB_BASELINE), 'min_tls_version'];
 		const [settings, dnssec, rootTxt, dmarcTxt] = await Promise.all([
 			Promise.all(
 				settingIds.map(async (id) => {
@@ -90,9 +64,7 @@ for (const zone of ZONES) {
 					return [id, setting.value] as const;
 				}),
 			),
-			readCloudflare<{ status: string; ds?: string }>(
-				`/zones/${zoneId}/dnssec`,
-			),
+			readCloudflare<{ status: string }>(`/zones/${zoneId}/dnssec`),
 			readTxt(zone.name),
 			readTxt(`_dmarc.${zone.name}`),
 		]);
@@ -108,12 +80,10 @@ for (const zone of ZONES) {
 			Number.isFinite(tls) && tls >= 1.2,
 			`minimum TLS: ${values.min_tls_version}; expected at least 1.2`,
 		);
-		console.log(`  observe HSTS: ${JSON.stringify(values.security_header)}`);
 		check(
 			dnssec.status === 'active',
 			`Cloudflare DNSSEC status: ${dnssec.status}`,
 		);
-		if (dnssec.ds) console.log(`  observe DS: ${dnssec.ds}`);
 
 		const spf = rootTxt.filter((record) => /^v=spf1(?:\s|$)/i.test(record));
 		const dmarc = dmarcTxt.filter((record) =>
@@ -149,7 +119,7 @@ for (const zone of ZONES) {
 }
 
 console.log(
-	`\n${issues} issue(s). HSTS observations and DNSSEC delegation require separate review.`,
+	`\n${issues} issue(s). DNSSEC delegation (the registrar's DS record) needs separate review.`,
 );
 process.exitCode = issues > 0 ? 1 : 0;
 
