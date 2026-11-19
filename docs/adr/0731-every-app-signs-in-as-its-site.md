@@ -8,6 +8,8 @@
 - **Relates:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (an app is identified by its origin), [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) (a grant names an account, an origin, and a repository), [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (local data first), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names from the host), [ADR-0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) (five stored kinds).
 - **Unbuilt:** all of it: origin client ids for desktop apps; the account's per-origin grant and its derived reach; the computer's name on a native grant and "Sign out this Mac"; the desktop refresh token as a file in AppData; the site supplied by the runtime; `connectAccount()` without identity options; removing `so.epicenter.whispering.native`, `so.epicenter.vocab.native` and `so.epicenter.cli` (`apps/api/worker/oauth-registrations.ts`) and the `keyring` use in `packages/tauri-epicenter-account`.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 ADR-0720 gave a machine one sign-in: a keychain item `so.epicenter.session`

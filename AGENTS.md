@@ -4,14 +4,11 @@ Epicenter runs personal apps on a computer their owner controls. Each app
 keeps its code and records together in the home's private Git repository.
 The CLI runs app actions, and `epicenter serve` makes them available to
 the owner's devices and agents. The earlier folder sync product is retired.
-Some of its packages still have callers in Whispering and the hosted API.
+Some of its packages still have callers in Whispering. The hosted API is retired for now (ADR-0970).
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` lists the apps in this repository; package
 READMEs describe their contracts. Load only the context needed for the task.
-
-Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
-it into a shared package or the self-hosted deployment.
 
 ## License
 
@@ -32,7 +29,7 @@ Prefer `bun` over npm, yarn, pnpm, and node. Use `bun run`, `bun test`, `bun ins
 
 Start apps from the repo root with `bun dev:<app>`. Do not cd into an app to start it.
 
-- `bun dev:<app>` runs the app's dev server: Whispering's Vite server, the landing site, or the hosted API worker (`bun dev:api`).
+- `bun dev:<app>` runs the app's dev server: Whispering's Vite server or the landing site.
 - `bun dev:whispering:desktop` runs Whispering in its native Tauri window.
 - `scripts/README.md` explains the root scripts and their names.
 
