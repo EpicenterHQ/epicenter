@@ -45,10 +45,7 @@ test('a command acts on the nearest Epicenter at or above it, and refuses outsid
 	expect(fromInside.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
 	]);
-	for (const words of [
-		['--json'],
-		['reading', '--json'],
-	]) {
+	for (const words of [['--json'], ['reading', '--json']]) {
 		const outside = await f.runIn(f.userDir, ...words);
 		expect(outside.code).toBe(2);
 		expect(JSON.parse(outside.stdout).error).toEqual({
