@@ -87,56 +87,24 @@ keyword or a required number of alternatives.
 
 ## Asymmetric wins
 
-Sometimes giving up a small promise removes a lot of code. Refusing 10 to
-20 percent of the features can remove 80 to 90 percent of the complexity.
-The pattern:
+Ask: what could we refuse? Could giving up 10 to 20 percent of the
+features remove 80 to 90 percent of the complexity?
 
-```txt
-Keep the product sentence.
-Refuse the small promise.
-Delete the code that existed only for it.
-```
+Look for one small promise that drags a lot of code along with it: a fast
+path, an old format, a rare mode, a compatibility alias, a fallback parser,
+exact reproduction. Write down what people lose and the deletion prize, the
+code that goes away with it. Then check that the product still does what
+its sentence says. A second way of doing something looks cheap to add, but
+it has to be kept working forever.
 
-The percentages help you spot a candidate. They are not a target, and you
-should not cut features just to hit them. Look for one small promise, such
-as a fast path, an old format, a rare mode, a compatibility alias, a
-fallback parser, or exact reproduction, that drags a large family of code
-along with it. Then ask whether the product still does what its sentence
-says without it. A second path always looks cheap to add, and then it has
-to be kept working forever.
+Choose the smallest loss that removes the second way, not simply the
+biggest deletion. Keep the feature when people really need it, and say why.
+Check that the code disappears instead of moving somewhere harder to see.
 
-1. Write the product sentence and the workflow that must keep working.
-2. List the promises you could refuse. Pick the one that forces the most
-   extra code.
-3. For that one, write down what users lose and what code goes away:
-   methods, adapters, error cases, tests, docs, UI states, fixtures.
-4. Check whether refusing it changes what the product is for, or only drops
-   a convenience.
-5. Choose the smallest loss that removes the second way of doing things,
-   not simply the biggest deletion.
-6. If the sentence still describes something useful, refuse the promise and
-   write that down in the spec. If not, keep the feature and say why.
-
-Keep the feature when the loss really matters: when the exact detail helps
-people understand, access, or trust the product, or protects something that
-has broken before. Don't call something "good enough" and ship a
-half-working version. Make sure the code actually goes away instead of
-moving somewhere harder to see.
-
-Write the decision down, for example:
-
-```txt
-Product sentence: all social sign-in goes through the API-hosted page
-  using OAuth 2.1 PKCE.
-Promise to refuse: browser apps can use Google's one-tap sign-in for a
-  one-second login.
-Code that goes away: signInWithIdToken, OIDC provider narrowing, per-app
-  Google helpers, a blocked-browser UI state, two docs branches, two test
-  paths.
-What users lose: Google sign-in takes a few seconds longer in browser apps.
-Decision: refuse it. The loss is small and a second way to sign in would
-  have to be kept working forever.
-```
+For example, letting browser apps sign in with Google's one-tap costs a
+second of speed, but it forces a separate sign-in path, helpers, an error
+state, and two sets of docs and tests. Refusing it makes Google sign-in a
+few seconds slower and leaves one path for every provider.
 
 Use the [clean-breaks reference](../rethink/references/clean-breaks.md) to
 carry out the replacement and delete the old path.
