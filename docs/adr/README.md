@@ -1,5 +1,38 @@
 # Architecture Decision Records
 
+## This directory is being retired
+
+Decisions now live in a `## Decisions` section in the README of the code
+they govern. [Whispering's](../../apps/whispering/README.md#decisions) is
+the first; the others follow one area at a time, and this directory goes
+when the last one lands. Write no new records here.
+
+Each entry is a rule, its reason, and the choices that lost:
+
+```markdown
+- **The rule, as one sentence in the present tense.** Why it holds, in one
+  or two sentences.
+  Refused: the alternatives that lost, when there were real ones.
+```
+
+Entries are grouped by topic and carry no numbers, statuses, or history. A
+rule that is decided but not built starts with "Not built yet:". When a rule
+changes, edit it in place in the same pull request as the code, and put long
+reasoning in the pull request body; merging is the approval, and git keeps
+the history.
+
+A removed record is still readable from the `adr-archive` tag, as
+`git show adr-archive:docs/adr/NNNN-<title>.md`. Git does not expand a `*`
+in that path, so to look one up by number alone:
+
+```sh
+git show "adr-archive:$(git ls-tree --name-only adr-archive docs/adr/ | grep /NNNN-)"
+```
+
+The rest of this file describes the records that remain.
+
+## What an ADR is
+
 An ADR captures one durable decision: the forces that made it necessary, what we
 decided, and what that costs. ADRs are the authoritative record of _why_ the
 system is shaped the way it is. Specs explore options; an ADR records the one
