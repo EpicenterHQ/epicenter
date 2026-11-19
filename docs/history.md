@@ -616,6 +616,14 @@ Reopen if: the owner regularly edits one app's records on two computers that can
 
 See: c5df3d2da7, ADR-0851.
 
+## 2026-11-09 · action-commit · dropped · An action stops being a Git commit, and whoever knows the intent commits
+
+Two days earlier each action call had become its own commit, and the runner was built to commit exactly the paths a call wrote, with a lock per app so calls took turns. The owner's most used personal repository showed who actually knows a change's intent: 479 commits since October, each written by the agent that made the change and named for what it meant, while an action knows only its own effect. We made an action write files and nothing else, with no commit, no undo, and no lock, and left committing to the person or their agent. We gave up an automatic history entry for every call.
+
+Reopen if: actions run where no person or agent is around to commit, and their changes need to be recorded one by one.
+
+See: c144c898ff, 55aec2de3c, ADR-0850.
+
 ## 2026-11-10 · git-lfs · dropped · New apps stop routing binaries through Git LFS
 
 Git LFS had been the plan for audio and images since the folder sync product (ADR-0640, ADR-0734), and on 2026-11-09 `epicenter new` wrote a `.gitattributes` that sent audio, images, and PDFs through LFS and refused a write to such a path without the LFS filter installed. A day later we removed those rules: they applied to apps that hold only text and made every commit fail on a computer without LFS. An app that holds binaries now adds its own rules. Today Whispering only reports whether its folder's repository has an LFS rule for `.webm`.
