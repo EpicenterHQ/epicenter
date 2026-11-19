@@ -13,7 +13,7 @@
 		{
 			"id": "review-code-collapse",
 			"cluster": "review",
-			"prompt": "Run a collapse pass over packages/workspace and tell me which indirection can go.",
+			"prompt": "Run a collapse pass over packages/ui and tell me which indirection can go.",
 			"anchors": ["collapse pass"],
 			"expect": "code-collapse",
 			"forbid": ["post-implementation-review"],
