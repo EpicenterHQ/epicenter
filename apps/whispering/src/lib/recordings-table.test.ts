@@ -241,6 +241,23 @@ test('without audio or transcripts, it only says it cannot be undone', () => {
 	expect(description).toBe('This can’t be undone.');
 });
 
+test('audio alone, or one transcript alone, is deleted too', () => {
+	const audioOnly = describeDeletions({
+		deletions: [deletionOf(0, 'recordings/r0.wav')],
+		refused: [],
+	});
+	expect(audioOnly.description).toBe(
+		'Its audio is deleted too. This can’t be undone.',
+	);
+	const oneTranscript = describeDeletions({
+		deletions: [deletionOf(0, undefined, 1)],
+		refused: [],
+	});
+	expect(oneTranscript.description).toBe(
+		'1 transcript is deleted too. This can’t be undone.',
+	);
+});
+
 test('recordings being transcribed are said to be kept for that reason', () => {
 	const { description } = describeDeletions({
 		deletions: [deletionOf(0, 'recordings/r0.wav')],

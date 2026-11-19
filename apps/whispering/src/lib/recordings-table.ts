@@ -513,7 +513,11 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 	if (transcripts > 0)
 		also.push(count(transcripts, 'transcript', 'transcripts'));
 	let description = '';
-	if (also.length > 0) description += `${also.join(' and ')} are deleted too. `;
+	// One item, audio or one transcript, is singular; anything joined by "and" is plural.
+	const verb =
+		also.length === 1 && (hasAudio || transcripts === 1) ? 'is' : 'are';
+	if (also.length > 0)
+		description += `${also.join(' and ')} ${verb} deleted too. `;
 	description += 'This can’t be undone.';
 	if (refused.length > 0) {
 		const kept = count(
