@@ -16,8 +16,8 @@ const config = {
 			fallback: 'index.html',
 			...(out && { pages: out, assets: out }),
 		}),
-		// No `csp` block: adapter-static only emits an enforcing meta tag. The
-		// web deploy sends the policy as a header from `static/_headers`.
+		// No `csp` block: the desktop app sets its policy in
+		// `src-tauri/tauri.conf.json`, and the web build is not hosted.
 	},
 	preprocess: vitePreprocess(),
 	// Async Svelte, as the component tests compile it

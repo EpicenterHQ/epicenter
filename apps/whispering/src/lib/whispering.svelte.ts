@@ -94,7 +94,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 	// --- models, microphone -------------------------------------------------
 
-	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
+	/** Every model this page can reach, in the picker's order; a saved connection reaches it as it happens. */
 	const ai = reactive(capabilities.ai);
 	/** `settings.md` as its query last read it: the model chosen for each job. */
 	const settingsRead = createQuery(

@@ -23,12 +23,10 @@ import {
  */
 const NOT_YET_REBASED = new Set([
 	'command',
-	'context-menu',
 	'dialog',
 	'popover',
 	'select',
 	'sidebar',
-	'tabs',
 ]);
 
 const stock = stockNames();
