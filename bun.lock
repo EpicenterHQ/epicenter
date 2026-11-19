@@ -128,6 +128,23 @@
         "typescript": "catalog:",
       },
     },
+    "packages/app": {
+      "name": "@epicenter/app",
+      "version": "0.9.0",
+      "bin": {
+        "epicenter": "./src/command/bin.ts",
+      },
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "catalog:",
+        "nanoid": "catalog:",
+        "typebox": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/app-old": {
       "name": "@epicenter/app-old",
       "version": "0.8.0",
@@ -321,6 +338,8 @@
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
 
     "@epicenter/ai": ["@epicenter/ai@workspace:packages/ai"],
+
+    "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
 
     "@epicenter/app-old": ["@epicenter/app-old@workspace:packages/app-old"],
 
