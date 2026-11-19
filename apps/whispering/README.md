@@ -346,10 +346,10 @@ code is arranged.
 
 ### Web and desktop
 
-- **Whispering branches on what a capability offers, never on the
-  platform, and one build serves the browser and the Tauri window.** A fix
-  tried on one is the fix shipped to the other. A capability a place lacks
-  is `null` there.
+- **One build serves the browser and the Tauri window. Only the module
+  that makes a capability asks `isTauri()`; everything else uses what the
+  capability offers.** A fix tried on one is the fix shipped to the other.
+  A capability a place lacks is `null` there.
   Refused: a second desktop build; `#platform/*` files per surface.
 - **The web app and the desktop app each use what their platform gives,
   and parity is not a goal.** Keeping a take through a crash, the global
