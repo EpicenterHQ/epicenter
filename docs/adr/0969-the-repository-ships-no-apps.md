@@ -12,11 +12,21 @@ front doors told a new owner to install one with `curl`, and ADR-0912 and
 ADR-0929 described `examples/writing/` as the folder app code is exported to
 and copied from.
 
-An example in this repository has to be typechecked, installed, linted and
-kept true by the monorepo. Each of those bent the monorepo around it: a
-workspace entry to install it, `biome.jsonc` exclusions to lint it, and tests
-that read its files. A real app lives in an Epicenter, next to
-its records, and is maintained there.
+Nothing checked them. They were not workspace members, no typecheck reached
+them, and `biome.jsonc` excluded both from lint. Unchecked, they drifted: when
+PR #2728 first typechecked the Tasks example, it had type errors against the
+current library.
+
+Checking them meant bending the monorepo around them. PR #2728 added
+`examples/tasks` to the workspace, which needed a root dependency on
+`@epicenter/app`, because the isolated linker in `bunfig.toml` lets a package
+import only what it declares, and an app never declares `@epicenter/app`. Its
+`bun-plugin-tailwind` brought a second copy of bun into every install. The PR
+took all of it back out. Two test files in `packages/app` read the examples'
+files from disk.
+
+A real app lives in an Epicenter, next to its records, and is maintained
+there.
 
 ## Decision
 
@@ -24,9 +34,11 @@ its records, and is maintained there.
 
 ```txt
 examples/                          deleted
-README.md, command/README.md       write a small notes app inline; no curl install
-apps/landing                       links to that inline app
-packages/app writing test          builds its app inside the test
+packages/app writing test          deleted; its behaviors have tests elsewhere
+packages/app input-schema test     writes its apps inline
+command/README.md                  one walkthrough: a one-file notes app, after "Make an Epicenter"
+README.md                          links to that walkthrough; no curl install
+apps/landing                       shows the notes app
 biome.jsonc                        no examples exclusions
 ```
 
@@ -37,12 +49,12 @@ commands that copied and exported app code.
 
 ## Consequences
 
-A new owner writes their first app from the front door's inline `epicenter.ts`,
-or asks a coding agent with the `epicenter-app` skill. The deleted examples stay
-recoverable from Git history.
+A new owner writes their first app from the walkthrough's inline
+`epicenter.ts`, or points a coding agent at the
+[`epicenter-app` skill](../../.agents/skills/epicenter-app/), a file of
+instructions an agent reads.
 
-The monorepo no longer typechecks, installs or lints any app. The library's
-own tests cover what the examples exercised.
-
-Examples may return later as their own thing, outside this repository's
-workspace and checks.
+No whole app with a page, no Svelte build plugin and no UI test remains
+anywhere in this repository. They are in Git history before this record's
+commit and in the owner's own Epicenter. Nothing replaces them until examples
+return, as their own thing outside this repository's workspace and checks.

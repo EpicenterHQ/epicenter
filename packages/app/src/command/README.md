@@ -50,9 +50,10 @@ version an Epicenter runs is one line in a file in Git
   separate program to download.
 - Run the Epicenter's own command. Put `<folder>/node_modules/.bin` on `PATH`, or
   run `bun x epicenter` from inside the Epicenter.
-- An app's `code/package.json` is named for the app and lists only what the
-  app itself imports. It never lists `@epicenter/app`, which comes from the
-  Epicenter. Add a package with `bun add <package>` in `code/`.
+- An app needs a `code/package.json` only when it imports packages of its
+  own. It is named for the app and lists only those. It never lists
+  `@epicenter/app`, which comes from the Epicenter. Add a package with
+  `bun add <package>` in `code/`.
 - `bun install` at the top of the Epicenter installs every app's packages and
   Epicenter. Epicenter has no install command, and calls and listings never
   install.
@@ -75,69 +76,6 @@ version an Epicenter runs is one line in a file in Git
 folders. A link at any of them is refused, not followed: the listing names it
 as a problem and that app does not load, and a linked `apps/` stops serve
 before it loads any app.
-
-## Install and try an app
-
-You need Bun and Git, with Git's `user.name` and `user.email` configured.
-Make `~/Epicenter` as [Make an Epicenter](#make-an-epicenter) says. This
-repository ships no apps, so write a small one there:
-
-```sh
-export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
-cd ~/Epicenter
-```
-
-```sh
-mkdir -p apps/notes/code
-cat > apps/notes/code/package.json <<'EOF'
-{ "name": "notes", "private": true, "type": "module" }
-EOF
-cat > apps/notes/code/epicenter.ts <<'EOF'
-import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
-
-export default defineApp(({ folder }) => {
-  const data = defineData(folder, {
-    notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
-  });
-  const add = defineAction({
-    description: 'Save a note',
-    input: { body: field.text(), source: field.text({ optional: true }) },
-    run: ({ body, source }) => data.notes.create(timeId(), { body, source }),
-  });
-  return {
-    description: 'Notes I want to keep',
-    data,
-    actions: { ...data.notes.actions('list', 'get'), add },
-  };
-});
-EOF
-```
-
-Then install and start serve:
-
-```sh
-bun install
-epicenter serve
-```
-
-In another terminal:
-
-```sh
-epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
-epicenter notes list
-```
-
-Each note is a Markdown file in `apps/notes/data/notes/`. Closing the
-terminal stops the server; the files remain.
-
-To connect an assistant on this computer, add a Streamable HTTP MCP server at
-`http://127.0.0.1:4747/`, and ask it to list your notes. A coding agent with
-the `epicenter-app` skill can build more in `apps/notes/code/`, such as a
-page or another action.
-
-Start on localhost. Add a private connection when another device needs access.
-To keep the server running after you close the terminal, see
-[Keep serve running](#keep-serve-running).
 
 ### When to ship a runtime version
 
@@ -699,6 +637,65 @@ names. Then start `epicenter serve` however this computer keeps it
 running. What
 each app kept in `local/` is on no remote, so recreate it, for example by
 signing in again.
+
+## Try an app
+
+With `~/Epicenter` made, write a first app in it. An app starts as one file:
+`apps/<app>/code/epicenter.ts` says what the app keeps and what it does. This
+repository ships no apps, so write a small notes app and start serve:
+
+```sh
+export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
+cd ~/Epicenter
+mkdir -p apps/notes/code
+cat > apps/notes/code/epicenter.ts <<'EOF'
+import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
+
+export default defineApp(({ folder }) => {
+  const data = defineData(folder, {
+    notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
+  });
+  const add = defineAction({
+    description: 'Save a note',
+    input: { body: field.text(), source: field.text({ optional: true }) },
+    run: ({ body, source }) => data.notes.create(timeId(), { body, source }),
+  });
+  return {
+    description: 'Notes I want to keep',
+    data,
+    actions: { ...data.notes.actions('list'), add },
+  };
+});
+EOF
+epicenter serve
+```
+
+The `export` line runs this Epicenter's own `epicenter`, which `bun install`
+put in `node_modules/.bin`. In another terminal, run the same two lines, then
+call the app:
+
+```sh
+export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
+cd ~/Epicenter
+epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
+epicenter notes list
+```
+
+Each note is a Markdown file in `apps/notes/data/notes/`. Closing the first
+terminal stops the server; the files remain. An app that imports packages of
+its own also needs a `code/package.json`, as
+[An Epicenter is a Bun workspace](#an-epicenter-is-a-bun-workspace) says.
+
+To connect an assistant on this computer, add a Streamable HTTP MCP server at
+`http://127.0.0.1:4747/`, the port in `EPICENTER.md`, and ask it to list your
+notes. To build more in `apps/notes/code/`, such as a page or another action,
+point a coding agent at the
+[`epicenter-app` skill](../../../../.agents/skills/epicenter-app/), a file of
+instructions an agent reads, kept in this repository.
+
+Start on localhost. Add a private connection when another device needs access.
+To keep the server running after you close the terminal, see
+[Keep serve running](#keep-serve-running).
 
 ## What an app holds
 

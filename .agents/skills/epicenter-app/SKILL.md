@@ -57,8 +57,8 @@ refuses two workspace packages with one name. A link that leads outside
 as files in `code/`. Later source changes are work for the app's owner; there
 is no merge-based updater.
 
-Read `packages/app/README.md` and one existing app before starting. Tasks is
-the smallest whole example. Keep private records out of anything shared:
+Read `packages/app/README.md` and one existing app in the person's Epicenter
+before starting. This repository ships no apps. Keep private records out of anything shared:
 only `code/` travels, and `data/`, `local/` and the root history stay
 private. A private origin can still back up the root, including all apps'
 records.
@@ -447,12 +447,11 @@ risky work so the original files remain recoverable.
 
 Add `code/ui/` when the app needs a browser view. The app owns its colors:
 keep them in a `theme.css` under `ui/`, copied from a sibling app rather than
-linked, and change the copy freely. Tasks maps its palette to Tailwind
-utilities. Fonts, layout, and components
+linked, and change the copy freely. Fonts, layout, and components
 belong to the app.
 
-For a Svelte UI like Tasks, copy its `ui/build.ts`, `ui/svelte-plugin.ts`, and
-the components the view uses. Do not add a `bunfig.toml`: an Epicenter installs
+For a Svelte UI, copy the UI build files and the components the view uses
+from a sibling app in the person's Epicenter that has a page. Do not add a `bunfig.toml`: an Epicenter installs
 once at its root, which never reads one in `code/`, and `peer = false` there
 would install a second `@epicenter/app`. Keep component source editable in
 `src/lib/components/ui/` alongside `components.json` in `ui/` and `src/lib/utils.ts`.
@@ -671,17 +670,21 @@ An action test calls the app with a folder on a temporary directory and calls
 an action on the result. It never needs serve:
 
 ```ts
-import { mkdtempSync } from 'node:fs';
+import { expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { folderOnDisk } from '@epicenter/app';
-import { expectOk } from 'wellcrafted/testing';
 import app from './epicenter.ts';
 
-test('add saves a note', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'notes-'));
+test('list reads a word from its file', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'words-'));
+  mkdirSync(join(dir, 'data/words'), { recursive: true });
+  writeFileSync(join(dir, 'data/words/ni-hao.md'), '---\nmeaning: "hello"\n---\n');
   const { actions } = app({ folder: folderOnDisk(dir) });
-  expect(expectOk(await actions.add({ body: 'Call the bank' })).body).toBe('Call the bank');
+  const { data, error } = await actions.list({});
+  expect(error).toBeNull();
+  expect(data?.[0]?.data).toMatchObject({ id: 'ni-hao', meaning: 'hello' });
 });
 ```
 Run tests one file or package at a time.

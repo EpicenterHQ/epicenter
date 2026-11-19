@@ -38,60 +38,12 @@
 
 ## Try the CLI
 
-A home is a folder that depends on Epicenter, as any Bun project depends on a
-package. It requires [Bun](https://bun.sh) and Git. An AI account is not
-required. Make `~/Epicenter` from the files
-[the CLI README](packages/app/src/command/README.md#make-an-epicenter) lists.
-This repository ships no apps, so write a small one there:
-
-```sh
-export PATH="$HOME/Epicenter/node_modules/.bin:$PATH"
-cd ~/Epicenter
-```
-
-```sh
-mkdir -p apps/notes/code
-cat > apps/notes/code/package.json <<'EOF'
-{ "name": "notes", "private": true, "type": "module" }
-EOF
-cat > apps/notes/code/epicenter.ts <<'EOF'
-import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
-
-export default defineApp(({ folder }) => {
-  const data = defineData(folder, {
-    notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
-  });
-  const add = defineAction({
-    description: 'Save a note',
-    input: { body: field.text(), source: field.text({ optional: true }) },
-    run: ({ body, source }) => data.notes.create(timeId(), { body, source }),
-  });
-  return {
-    description: 'Notes I want to keep',
-    data,
-    actions: { ...data.notes.actions('list', 'get'), add },
-  };
-});
-EOF
-```
-
-Then install and start serve:
-
-```sh
-bun install
-epicenter serve
-```
-
-In another terminal, call the app:
-
-```sh
-epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
-epicenter notes list
-```
-
-Each note is a Markdown file in `apps/notes/data/notes/`. The app's code is
-yours to change. A coding agent with the `epicenter-app` skill can build
-more, such as a page or another action.
+Epicenter needs [Bun](https://bun.sh) and Git; an AI account is not required.
+Make `~/Epicenter` as
+[Make an Epicenter](packages/app/src/command/README.md#make-an-epicenter)
+says, then write a one-file notes app and call it from the terminal, as
+[Try an app](packages/app/src/command/README.md#try-an-app) shows. This
+repository ships no apps, so the first one is yours.
 
 For CLI commands, MCP setup, and keeping `serve` running in the background, see
 [the CLI guide](packages/app/src/command/README.md).
@@ -109,22 +61,17 @@ import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/a
 
 export default defineApp(({ folder }) => {
   const data = defineData(folder, {
-    tasks: {
-      description: 'task',
-      fields: { title: field.text(), done: field.boolean() },
-    },
+    notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
   });
-
   const add = defineAction({
-    description: 'Add a task to do',
-    input: { title: field.text() },
-    run: ({ title }) => data.tasks.create(timeId(), { title }),
+    description: 'Save a note',
+    input: { body: field.text(), source: field.text({ optional: true }) },
+    run: ({ body, source }) => data.notes.create(timeId(), { body, source }),
   });
-
   return {
-    description: 'Things I mean to do',
+    description: 'Notes I want to keep',
     data,
-    actions: { ...data.tasks.actions('list', 'get', 'patch'), add },
+    actions: { ...data.notes.actions('list'), add },
   };
 });
 ```
@@ -133,8 +80,8 @@ The `epicenter` command runs an app's actions on the home. Actions change files;
 Git records them when you commit:
 
 ```sh
-epicenter tasks add '{"title":"Call the bank"}'
-epicenter tasks list --json
+epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
+epicenter notes list --json
 epicenter serve
 ```
 
@@ -155,8 +102,7 @@ you apply.
 
 The CLI developer preview is one package, `@epicenter/app`, which a home
 depends on: a home is one Bun workspace, and its `package.json` names the
-version it runs. Writing is an example app
-copied separately from GitHub. Each app is ordinary editable source.
+version it runs. Each app is ordinary editable source.
 `serve` is one process; keep it running as you would any program.
 
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Zhongwen)
