@@ -120,8 +120,9 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 }
 
 /// Start recording the take `id` for the folder `folder` (`allowed_folder`),
-/// from the microphone whose id is `device` or the system default. An
-/// ending nobody asked for arrives on `signals`.
+/// from the microphone whose id is `device` or the system default. Its level
+/// arrives on `signals` while it captures, and so does an ending nobody asked
+/// for.
 ///
 /// `id` must be one plain name, with nothing at `recordings/<id>.webm` in
 /// the folder. The take is recorded there, written a second at a time;

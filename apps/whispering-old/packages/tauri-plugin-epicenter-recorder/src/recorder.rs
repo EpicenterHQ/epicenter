@@ -535,6 +535,7 @@ impl Recorder {
         };
         let on_error = capture_error_handler(Arc::clone(&on_ended), serial.clone());
         let worker_id = serial.clone();
+        let worker_signals = signals.clone();
 
         let worker = thread::spawn(move || {
             let stream = match build_input_stream(
@@ -584,6 +585,7 @@ impl Recorder {
                     id: &worker_id,
                     dropped_chunks: &dropped_chunks,
                     on_ended,
+                    levels: worker_signals,
                 },
             );
             if let CaptureOutcome::Unclaimed(capture) = outcome {
@@ -825,6 +827,9 @@ struct CaptureContext<'a> {
     id: &'a str,
     dropped_chunks: &'a AtomicU32,
     on_ended: OnEnded,
+    /// Where the recording's level goes, so the page can show the microphone
+    /// working without opening a meter beside the recording.
+    levels: Channel<RecordingSignal>,
 }
 
 /// What the capture phase left behind.
@@ -860,9 +865,11 @@ fn run_capture<S>(
         id,
         dropped_chunks,
         on_ended,
+        levels,
     } = context;
 
     let mut last_drop_report = Instant::now();
+    let mut level = crate::meter::Level::new();
 
     loop {
         // Command channel has priority. Stop should respond fast even
@@ -901,6 +908,12 @@ fn run_capture<S>(
 
         match sample_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(samples) => {
+                level.add(&samples);
+                if let Some(level) = level.take(Instant::now()) {
+                    // A page that cannot hear the level changes nothing:
+                    // the recording goes on.
+                    let _ = levels.send(RecordingSignal::Level { level });
+                }
                 if let Err(error) = capture.write(&samples) {
                     // A write that fails is terminal: the disk is full, or the
                     // volume vanished. Neither gets better by trying again, so

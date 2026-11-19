@@ -20,8 +20,9 @@ export const commands = {
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
 	 *  Start recording the take `id` for the folder `folder` (`allowed_folder`),
-	 *  from the microphone whose id is `device` or the system default. An
-	 *  ending nobody asked for arrives on `signals`.
+	 *  from the microphone whose id is `device` or the system default. Its level
+	 *  arrives on `signals` while it captures, and so does an ending nobody asked
+	 *  for.
 	 *
 	 *  `id` must be one plain name, with nothing at `recordings/<id>.webm` in
 	 *  the folder. The take is recorded there, written a second at a time;
@@ -144,9 +145,10 @@ export type RecorderError =
 { name: "Failed"; message: string };
 
 /**
- *  What the recorder tells a page over the channel it passed: a meter's level
- *  while it is open (`open_meter`), and once, if it happens, that a recording's
- *  or a meter's capture ended without being asked.
+ *  What the recorder tells a page over the channel it passed: the level of a
+ *  meter while it is open (`open_meter`) or of a recording while it captures,
+ *  and once, if it happens, that a recording's or a meter's capture ended
+ *  without being asked.
  *
  *  The channel belongs to that page alone, so nothing here names the window.
  *  Both are signals, never results: an ending carries no audio, because the

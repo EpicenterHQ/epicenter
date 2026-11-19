@@ -43,9 +43,8 @@ tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_recorder::init())
 ```
 
-Give the recording window `epicenter-recorder:default`. It needs no event permission: a meter's levels
-and an ending arrive on the channel the page passes to `open_meter` or
-`start`.
+Give the recording window `epicenter-recorder:default`. It needs no event permission: levels and an
+ending arrive on the channel the page passes to `open_meter` or `start`.
 
 ## Commands
 
@@ -60,7 +59,7 @@ the file system scope does not allow is refused.
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(dir, id, device, signals)` | Records `recordings/<id>.webm` in the folder `dir`, from the microphone with id `device` or the system default. Answers nothing. |
+| `start(dir, id, device, signals)` | Records `recordings/<id>.webm` in the folder `dir`, from the microphone with id `device` or the system default, and sends its level on `signals` while it captures. Answers nothing. |
 | `stop()` | Finishes the recording this window started at its path and answers `{ id, durationMs }`. It takes the same few milliseconds for a recording of any length. When what was captured cannot be finished, it says so, and what reached the disk stays at its path as it is. Only the window that started it may stop it. |
 
 `start` refuses before it opens anything:
