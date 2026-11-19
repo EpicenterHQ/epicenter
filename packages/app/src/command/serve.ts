@@ -347,7 +347,6 @@ function route(served: Served, request: Request) {
 		if (rest.length || !isName(app) || !isName(action))
 			return refused(
 				ActionError.NotStarted({
-					cause: 'usage',
 					message: `${pathname} is not an action's address: /actions/<app>/<action>`,
 					next: 'epicenter',
 				}).error,
@@ -503,8 +502,7 @@ export async function serveHttp(
 ): Promise<Answer | undefined> {
 	const { port } = root;
 	const dotenv = await dotenvProblem(root.folder);
-	if (dotenv)
-		return ActionError.NotStarted({ cause: 'unavailable', message: dotenv });
+	if (dotenv) return ActionError.NotStarted({ message: dotenv });
 	const loaded = Promise.withResolvers<Served>();
 	let server: ReturnType<typeof listen>;
 	try {
@@ -512,7 +510,6 @@ export async function serveHttp(
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
 		return ActionError.NotStarted({
-			cause: 'unavailable',
 			message: `Port ${port} is in use. If that is not this Epicenter's serve, set another \`port\` in ${join(root.folder, MARKER)}.`,
 		});
 	}

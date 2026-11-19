@@ -550,27 +550,22 @@ the action ran:
 
 | Error | Did the action run? |
 | --- | --- |
-| `NotStarted` (`{ message, cause, ... }`, fields by `cause`) | no: serve or the CLI refused it before it began |
+| `NotStarted` (`{ message, next? }`) | no: serve or the CLI refused it before it began |
 | any other error, the action's own | yes |
 | `Threw` (`{ message, thrown? }`) | yes, and it threw; a tagged value that survives JSON is kept as `thrown` |
 | `Unreachable` (`{ message }`) | unknown: the connection dropped, a line was not a frame, or no answer came |
 
-`NotStarted` is one name whose fields depend on its `cause`, so narrowing on
-`cause` types them:
-
-| `cause` | Why it never began | Its fields |
-| --- | --- | --- |
-| `usage` | the words, input or target do not fit | `next?` |
-| `app-problems` | the app cannot load | `app`, `problems` |
-| `internal` | Epicenter failed before it ran | none |
-| `unavailable` | no serve for this Epicenter answers | `next?` |
+`NotStarted`'s message says why the call never began: the input or target
+does not fit, the app does not load (its name, then each problem on its own
+line), Epicenter failed before it ran, or no serve for this Epicenter
+answers. `next` is the command that helps, when there is one.
 
 An action cannot answer `NotStarted` or
 `Unreachable`: serve turns an action's own into `Threw`, by its name alone. An action may still return `Threw`.
 
 An error is its name, its message and its own fields, with no marker of who
-made it: the name says. The client checks the fields of `Threw` and of each
-`NotStarted` cause, and returns every error whole, preserving its message
+made it: the name says. The client checks the fields of `Threw` and that
+`NotStarted`'s `next` is text, and returns every error whole, preserving its message
 and extra fields. App-defined errors keep their names and public
 fields. `readAnswer` and `checkAnswer`, exported from `@epicenter/app`, are
 the one reader of serve's answer the client and the CLI share; anything that
@@ -864,6 +859,11 @@ The compiler flags none of these.
 - **Opening the root address shows no page.** The launcher at `/` is gone;
   `/` answers MCP only, and a browser gets 405. Bookmark an app at
   `/apps/<app>/`, run `epicenter` for the list, or read `GET /actions/`.
+- **`NotStarted` is `{ message, next? }`.** Its `cause`, and the `app` and
+  `problems` of an app that does not load, are gone. A page or script that
+  read them reads `message`; an app's problems are its lines after the
+  first. Whether a call began is still `error.name === 'NotStarted'`, and
+  the command still exits 2 for it.
 - **Stopping serve cuts what runs.** On SIGINT or SIGTERM serve closes every
   connection and exits, so a call or routine still running is cut. A write
   cut off leaves its target whole: the folder writes a temporary file and

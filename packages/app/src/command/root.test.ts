@@ -50,7 +50,6 @@ test('a command acts on the nearest Epicenter at or above it, and refuses outsid
 		expect(outside.code).toBe(2);
 		expect(JSON.parse(outside.stdout).error).toEqual({
 			name: 'NotStarted',
-			cause: 'usage',
 			message: 'There is no EPICENTER.md here or above; cd into your Epicenter',
 		});
 	}

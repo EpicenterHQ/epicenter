@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "One route per action": the route is `POST /actions/<app>/<action>`, and the UI is at `/apps/<app>/`; its considered alternative "Move the UI and calls under `/apps/<app>/`" is taken. [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at the route the command posts to. [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) at the HTTP row of its answer table: a refusal is a 200 with one answer line. [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md) at the listing's address, now `GET /actions/`. ADR-0860, ADR-0864, ADR-0880 and ADR-0945 are Proposed and were edited in place.
-- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md#amendment-serve-has-no-page-at-): `GET /` is no page; `/` answers only MCP's `POST`, and any other method 405.
+- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md): `GET /` is no page; `/` answers only MCP's `POST`, and any other method 405.
 - **Relates:** [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (an app's `fetch` answers under its address), [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) (serve serves `code/ui/dist/` as built), [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) (an app is the folder `apps/<app>/`).
 
 ## Context

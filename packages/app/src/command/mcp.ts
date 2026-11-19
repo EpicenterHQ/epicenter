@@ -80,7 +80,6 @@ export function createMcpServer({
 		if (!tools.some((tool) => tool.name === name))
 			return toolResult(
 				ActionError.NotStarted({
-					cause: 'usage',
 					message: `No tool ${JSON.stringify(name)}; tools/list names them`,
 				}),
 			);

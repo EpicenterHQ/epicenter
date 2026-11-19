@@ -202,7 +202,7 @@ test('C7 exit codes: 0 Ok, 2 NotStarted, 1 any other error; an action that exits
 	expect(unknown.code).toBe(2);
 	expect(unknown.answer).toMatchObject({
 		data: null,
-		error: { name: 'NotStarted', cause: 'usage', next: 'epicenter notes' },
+		error: { name: 'NotStarted', next: 'epicenter notes' },
 	});
 	const human = await f.run('notes', 'write', '{"page":"monday"}');
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
@@ -310,7 +310,6 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 		error: {
 			name: 'NotStarted',
 			message,
-			cause: 'unavailable',
 			next: 'epicenter serve',
 		},
 	});
@@ -318,7 +317,6 @@ export default defineApp(({ folder }) => ({ description: 'Where', actions: {
 	// Listings and help come from serve too, so each is refused alike.
 	for (const words of [[], ['where'], ['where', 'am', '--help']])
 		expect((await f.json(...words)).answer.error).toMatchObject({
-			cause: 'unavailable',
 			message,
 		});
 });

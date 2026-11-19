@@ -27,7 +27,7 @@ const invalid = () =>
 /**
  * One answer as a caller reads it: exactly `data` and `error`, where `error`
  * is `null` or a tagged object. `Threw` must carry a tagged `thrown` when it
- * has one, and `NotStarted` the fields its `cause` does; the name alone says
+ * has one, and `NotStarted` a `next` that is text when it has one; the name alone says
  * which, since serve answers an action's own `NotStarted` or `Unreachable` as
  * `Threw`. Anything else is `Unreachable`.
  */
@@ -45,23 +45,9 @@ export function checkAnswer(value: unknown): Answer {
 		return fits ? value : invalid();
 	}
 	if (error.name !== 'NotStarted') return value;
-	switch (error.cause) {
-		case 'usage':
-		case 'unavailable':
-			return error.next === undefined || typeof error.next === 'string'
-				? value
-				: invalid();
-		case 'app-problems':
-			return typeof error.app === 'string' &&
-				Array.isArray(error.problems) &&
-				error.problems.every((problem) => typeof problem === 'string')
-				? value
-				: invalid();
-		case 'internal':
-			return value;
-		default:
-			return invalid();
-	}
+	return error.next === undefined || typeof error.next === 'string'
+		? value
+		: invalid();
 }
 
 /**

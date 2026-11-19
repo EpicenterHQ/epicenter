@@ -131,7 +131,7 @@ type Following = {
 };
 
 const usage = (message: string, next?: string) =>
-	ActionError.NotStarted({ cause: 'usage', message, next });
+	ActionError.NotStarted({ message, next });
 
 /** The action `action` of the app `app` among those serve loaded, running nothing. */
 export function findAction(

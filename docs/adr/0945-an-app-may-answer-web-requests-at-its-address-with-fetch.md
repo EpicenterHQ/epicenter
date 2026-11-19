@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
-- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md#amendment-serve-has-no-page-at-): the launcher is deleted, so nothing lists apps with a built page.
+- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md): the launcher is deleted, so nothing lists apps with a built page.
 - **Relates:** [ADR-0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (an app's address is `/apps/<app>/`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is a function of its folder), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when an app is loaded), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a page calls actions).
 
 ## Context

@@ -56,7 +56,7 @@ and --help (-h) explains anything; both go anywhere.
 Exit codes: 0 done, 1 failed, ran in part or may have run, 2 did not run.`;
 
 const usage = (message: string, next: string) =>
-	ActionError.NotStarted({ cause: 'usage', message, next });
+	ActionError.NotStarted({ message, next });
 
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
@@ -158,7 +158,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			answered = ActionError.Unreachable({
 				message: `serve took the action, but its outcome could not be reported: ${message}`,
 			});
-		else answered = ActionError.NotStarted({ cause: 'internal', message });
+		else answered = ActionError.NotStarted({ message });
 	}
 	if (answered === undefined) return 0;
 	try {

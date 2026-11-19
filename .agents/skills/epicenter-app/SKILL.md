@@ -493,7 +493,7 @@ route.
 On the wire, every surface answers exactly `{ data, error }`, where `error`
 is `null` or the error object itself (ADR-0953). The name says whether the
 action ran: `NotStarted` means serve or the CLI refused it before it began,
-so it is safe to call again once its `cause` is fixed; `Threw` means it began
+so it is safe to call again once what its `message` names is fixed; `Threw` means it began
 and threw, with a tagged exception in `thrown`; `Unreachable` means the
 outcome is unknown; any other name is the action's own error, so it ran.
 Actions use the shared `ActionError` factories from `@epicenter/app`. The

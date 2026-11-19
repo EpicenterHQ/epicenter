@@ -151,7 +151,6 @@ test('GET /actions/ answers the one listing as JSON, naming no path, and tools/l
 	expect(refusal).not.toContain(f.userDir);
 	expect(JSON.parse(refusal).answer.error).toMatchObject({
 		name: 'NotStarted',
-		cause: 'app-problems',
 	});
 	expect(Object.keys(listing)).toEqual([
 		'version',
@@ -581,21 +580,19 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			{
 				message:
 					'talk has no action "sing"; its actions: refuse, say, drip, tangle',
-				cause: 'usage',
 				next: 'epicenter talk',
 			},
 		],
 		[
 			'absent/say',
 			'{}',
-			{ message: 'Unknown app "absent"', cause: 'usage', next: 'epicenter' },
+			{ message: 'Unknown app "absent"', next: 'epicenter' },
 		],
 		[
 			'talk/say',
 			'{"words":1}',
 			{
 				message: 'words must be text',
-				cause: 'usage',
 				next: 'epicenter talk say --help',
 			},
 		],
@@ -604,7 +601,6 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			'[]',
 			{
 				message: `The input is not a JSON object; give one, such as {"words":"text"}`,
-				cause: 'usage',
 				next: 'epicenter talk say --help',
 			},
 		],
@@ -613,7 +609,6 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			'words',
 			{
 				message: `The input is not JSON; give one JSON object, such as {"words":"text"}`,
-				cause: 'usage',
 				next: 'epicenter talk say --help',
 			},
 		],
@@ -621,10 +616,7 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			'broken/x',
 			'{}',
 			{
-				message: expect.stringMatching(/^broken: /),
-				cause: 'app-problems',
-				app: 'broken',
-				problems: [expect.any(String)],
+				message: expect.stringMatching(/^broken:\n {2}code\/epicenter\.ts: /),
 			},
 		],
 	] as const) {
@@ -649,7 +641,6 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			{
 				answer: notStarted({
 					message: `/actions/${path} is not an action's address: /actions/<app>/<action>`,
-					cause: 'usage',
 					next: 'epicenter',
 				}),
 			},
@@ -666,7 +657,6 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 		notStarted({
 			message:
 				'talk has no action "sing"; its actions: refuse, say, drip, tangle',
-			cause: 'usage',
 			next: 'epicenter talk',
 		}).error,
 	);
@@ -675,10 +665,7 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 	expect(broken.code).toBe(2);
 	expect(JSON.parse(broken.stdout)).toEqual(
 		notStarted({
-			message: expect.stringMatching(/^broken: /),
-			cause: 'app-problems',
-			app: 'broken',
-			problems: [expect.any(String)],
+			message: expect.stringMatching(/^broken:\n {2}code\/epicenter\.ts: /),
 		}),
 	);
 });
@@ -827,8 +814,8 @@ export default defineApp(({ folder }) => ({ description: 'Shared failures', acti
 				Threw: ActionError.Threw({ message: custom.message, thrown: custom }).error,
 				Refused: ActionError.Refused({ message: 'Dependency declined', next: 'Inspect dependency' }).error,
 				Unreachable: ActionError.Unreachable({ message: 'The model did not answer' }).error,
-				NotStarted: ActionError.NotStarted({ message: 'Never began', cause: 'usage' }).error,
-				PlainNotStarted: { name: 'NotStarted', message: 'Never began', cause: 'usage' },
+				NotStarted: ActionError.NotStarted({ message: 'Never began' }).error,
+				PlainNotStarted: { name: 'NotStarted', message: 'Never began' },
 				PlainUnreachable: { name: 'Unreachable', message: 'Lost' },
 				Custom: custom,
 			};

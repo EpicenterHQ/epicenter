@@ -60,7 +60,7 @@ function clientUsage() {
 			case 'NoRoute':
 				return error.airport;
 			case 'NotStarted':
-				return error.cause;
+				return error.next;
 			case 'Threw':
 			case 'Unreachable':
 				return error.message;

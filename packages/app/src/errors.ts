@@ -14,20 +14,6 @@ import {
 
 export type Problem = { line: string; kind: string };
 
-/**
- * Why a call never began, with the fields each reason carries: its words,
- * input or target do not fit (`usage`), its app cannot load
- * (`app-problems`), Epicenter failed before it ran (`internal`), or no serve
- * for this Epicenter answers (`unavailable`). `next` is the command that helps.
- */
-type NotStartedBody =
-	| { cause: 'usage'; message: string; next?: string }
-	| { cause: 'app-problems'; message: string; app: string; problems: string[] }
-	| { cause: 'internal'; message: string }
-	| { cause: 'unavailable'; message: string; next?: string };
-
-export type NotStartedCause = NotStartedBody['cause'];
-
 /** The names only Epicenter answers. An action that returns one answers `Threw` instead. */
 export const RESERVED_NAMES: readonly string[] = ['NotStarted', 'Unreachable'];
 
@@ -102,12 +88,12 @@ export const ActionError = defineErrors({
 	 */
 	Unreachable: (body: { message: string }) => body,
 	/**
-	 * The action never began, so it is safe to call again once `cause` is
-	 * fixed. Each cause carries its own fields, so narrowing on `cause` types
-	 * them. Only serve and the CLI answer it; serve turns an action's own into
+	 * The action never began, so it is safe to call again once what `message`
+	 * names is fixed. `next` is the command that helps, when there is one.
+	 * Only serve and the CLI answer it; serve turns an action's own into
 	 * `Threw`.
 	 */
-	NotStarted: (body: NotStartedBody) => body,
+	NotStarted: (body: { message: string; next?: string }) => body,
 });
 export type ActionError = InferErrors<typeof ActionError>;
 /** The action never began. */

@@ -61,7 +61,6 @@ test('tools list plain schemas and annotations and return structured answers or 
 			error: {
 				name: 'NotStarted',
 				message: 'day is needed',
-				cause: 'usage',
 				next: 'epicenter vault show-day --help',
 			},
 		});

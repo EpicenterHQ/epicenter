@@ -142,7 +142,6 @@ export default defineApp(({ folder }) => ({description: 'Staged drafts', actions
 				error: {
 					name: 'NotStarted',
 					...said,
-					cause: 'usage',
 				},
 			};
 			const returned = { data: null, error: { name: 'Usage', ...said } };

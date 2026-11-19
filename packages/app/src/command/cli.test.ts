@@ -161,7 +161,6 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 			error: {
 				name: 'NotStarted',
 				message: expect.stringContaining(message),
-				cause: 'usage',
 				next: expect.any(String),
 			},
 		});
@@ -300,7 +299,6 @@ test('a misused command answers its usage line, with its help as the next step',
 			data: null,
 			error: {
 				name: 'NotStarted',
-				cause: 'usage',
 				message: 'Usage: epicenter serve',
 				next: 'epicenter serve --help',
 			},
@@ -308,7 +306,7 @@ test('a misused command answers its usage line, with its help as the next step',
 	}
 	expect(JSON.parse((await f.run('serve', '--json')).stdout)).toMatchObject({
 		data: null,
-		error: { name: 'NotStarted', cause: 'usage' },
+		error: { name: 'NotStarted' },
 	});
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /actions/<app>/<action>',

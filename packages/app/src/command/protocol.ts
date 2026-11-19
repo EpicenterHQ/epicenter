@@ -38,7 +38,6 @@ export function fromToolName(name: string) {
 /** A name that finds no app in the Epicenter: serve's answer, and the command's from the listing. */
 export const unknownApp = (name: string) =>
 	ActionError.NotStarted({
-		cause: 'usage',
 		message: `Unknown app "${name}"`,
 		next: 'epicenter',
 	});
@@ -46,18 +45,16 @@ export const unknownApp = (name: string) =>
 /** An action `app` does not have, naming the actions it has: serve's answer, and the command's from the listing. */
 export const noSuchAction = (app: string, action: string, actions: string[]) =>
 	ActionError.NotStarted({
-		cause: 'usage',
 		message: `${app} has no action ${JSON.stringify(action)}; ${actions.length ? `its actions: ${actions.join(', ')}` : 'it has none'}`,
 		next: `epicenter ${app}`,
 	});
 
-/** An app that does not load, refusing a call or a listing's view of it. */
+/** An app that does not load, refusing a call or a listing's view of it: its name, then each problem on its own line. */
 export const appProblems = (name: string, problems: string[]) =>
 	ActionError.NotStarted({
-		cause: 'app-problems',
-		message: `${name}: ${problems.join('; ')}`,
-		app: name,
-		problems,
+		message: [`${name}:`, ...problems.map((problem) => `  ${problem}`)].join(
+			'\n',
+		),
 	});
 
 /**

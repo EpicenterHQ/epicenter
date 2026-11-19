@@ -25,7 +25,6 @@ export {
 export {
 	ActionError,
 	type NotStarted,
-	type NotStartedCause,
 	type Problem,
 	type Threw,
 	type Unreachable,

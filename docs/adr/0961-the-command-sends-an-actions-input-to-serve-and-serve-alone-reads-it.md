@@ -6,7 +6,8 @@
 - **Relates:** [ADR-0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) (the input is one JSON object), [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) (an input is one JSON Schema), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (serve listens only on this computer), [ADR-0943](0943-epicenters-core-invariants.md) (rule 3: an action is described in plain JSON), [ADR-0956](0956-bare-epicenter-reports-apps-and-routines-and-git-reports-the-repository.md) (bare `epicenter` reads the apps itself), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (serve loads each app once), [ADR-0957](0957-home-is-retired-the-folder-is-your-epicenter-and-root-in-code.md) (the header is named `x-epicenter-root`).
 - **Built:** `send.ts`, `serve.ts` and `cli.ts` in `packages/app/src/command`.
 - **Amends:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) and [ADR-0927](0927-serve-listens-only-on-this-computer.md) at the port: `EPICENTER.md` must name `port`, and no port is assumed. See "The port is required" below.
-- **Amended:** 2026-11-18: serve has no page at `/`. See "Serve has no page at `/`" below.
+- **Amended:** 2026-11-18: serve has no page at `/`, and `NotStarted` is `{ message, next? }`. See the two amendments below.
+- **Amends:** [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) at `NotStarted`'s causes.
 
 ## Context
 
@@ -181,4 +182,27 @@ places already say what an Epicenter has.
 keeps no MCP session. Nothing redirects from `/`, and no page replaces it.
 A bookmark of the root address now gets 405; bookmark an app's
 `/apps/<app>/` instead. The launcher can be re-added from the listing.
+
+## Amendment: `NotStarted` is `{ message, next? }`
+
+ADR-0953 gave `NotStarted` four causes, `usage`, `app-problems`,
+`internal` and `unavailable`, each with its own fields: `next` for `usage`
+and `unavailable`, `app` and `problems` for `app-problems`. With the
+command reading serve's answer instead of building its own, nothing read
+them. The exit code reads only the name. The command and pages print
+`message` and `next`. The only reader of `cause` was `checkAnswer`, which
+checked each cause's fields and nothing else. The owner removed them.
+
+- `ActionError.NotStarted` takes `{ message, next? }`. `NotStartedCause`
+  is deleted.
+- An app that does not load is refused with its name, then each problem on
+  its own line, in `message`.
+- `checkAnswer` checks that `next`, when present, is text.
+
+"Did it begin?" is still one comparison, `name === 'NotStarted'`, and a
+retry still waits on what the message names. A caller that must tell one
+kind from another reads what it already has: a refused connection is the
+command's own failed request, and a call to serve gets the same message a
+person reads. A cause can be re-added when a reader branches on one.
+`ActionError.Changed` keeps its own `cause`; it is a different error.
 

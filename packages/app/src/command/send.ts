@@ -27,7 +27,6 @@ import { type EpicenterRoot, MARKER } from './root.ts';
 function anotherEpicenter({ folder, port }: EpicenterRoot) {
 	const marker = join(folder, MARKER);
 	return ActionError.NotStarted({
-		cause: 'unavailable',
 		message: `The serve on port ${port} is another Epicenter's. This command took ${folder} for its Epicenter, from ${marker}: if that is not your Epicenter, remove that file; if it is, set a different \`port\` in it.`,
 	});
 }
@@ -57,7 +56,6 @@ async function reach(
 		const { code } = error as { code?: string };
 		if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
 			return ActionError.NotStarted({
-				cause: 'unavailable',
 				message: 'serve is not running; if it stopped, its output says why',
 				next: 'epicenter serve',
 			});
@@ -69,7 +67,6 @@ async function reach(
 	// Serve refuses a body past its limit before reading it, so nothing ran.
 	if (response.status === 413)
 		return ActionError.NotStarted({
-			cause: 'usage',
 			message: 'The input is larger than 25 MiB, the most serve takes',
 		});
 	// No probe: what answered may be an older serve or another program.

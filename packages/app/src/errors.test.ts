@@ -27,10 +27,7 @@ test('every shared factory is its name, message and fields, unchanged through JS
 		ActionError.Refused({ message: 'declined', next: 'Try another input' }),
 		ActionError.Unreachable({ message: 'The connection dropped' }),
 		ActionError.NotStarted({
-			message: 'notes: epicenter.ts does not load',
-			cause: 'app-problems',
-			app: 'notes',
-			problems: ['epicenter.ts does not load'],
+			message: 'notes:\n  epicenter.ts does not load',
 		}),
 	]) {
 		expect(error).not.toHaveProperty('namespace');

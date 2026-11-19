@@ -98,7 +98,6 @@ function readRoot(folder: string): Result<EpicenterRoot, NotStarted> {
 			];
 	if (problems.length)
 		return ActionError.NotStarted({
-			cause: 'usage',
 			message: problems.map((problem) => `${marker}: ${problem}`).join('\n'),
 		});
 	const { port } = read.fields as { port: number };
@@ -117,7 +116,6 @@ export function epicenterRoot(
 	const folder = ancestorWithMarker(start);
 	if (folder === undefined)
 		return ActionError.NotStarted({
-			cause: 'usage',
 			message: `There is no ${MARKER} here or above; cd into your Epicenter`,
 		});
 	return readRoot(realpathSync(folder));

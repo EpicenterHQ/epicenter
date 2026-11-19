@@ -303,7 +303,7 @@ command prints the updates and the answer it reads back. Bare `epicenter`,
 disagree about one.
 
 While serve is stopped, an action is refused with exit 2 and nothing runs. Its
-answer is `NotStarted` with cause `unavailable`:
+answer is `NotStarted`:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
@@ -561,12 +561,10 @@ The error's name says whether the action ran:
 | `Threw` | yes, partly |
 | `Unreachable` | unknown; reread the records before calling again |
 
-`NotStarted` carries `cause`: `usage` (the words or input do not fit),
-`app-problems` (the app
-cannot load, with its `app` and `problems`), `internal` (Epicenter failed
-before it began), or `unavailable` (no serve for this Epicenter answers, or
-another program holds its port). `usage` and `unavailable` have a `next` step
-when there is one. `Threw` carries the thrown tagged value as `thrown` when
+`NotStarted` carries a `message` that says why: the words or input do not
+fit, the app cannot load (its name, then each problem on its own line),
+Epicenter failed before it began, or no serve for this Epicenter answers.
+It has a `next` step when there is one. `Threw` carries the thrown tagged value as `thrown` when
 it survives JSON. An error carries no marker of who made it: the name says.
 
 An action cannot answer `NotStarted` or `Unreachable`. One that returns
