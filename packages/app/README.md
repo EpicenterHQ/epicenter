@@ -221,9 +221,10 @@ a rule here in the same pull request as the code.
   Schema.** One shape means a business object with `data` and `error` keys
   is never ambiguous, and the error's name is what a caller recovers by.
   Refused: plain values beside Results; a `kind` field beside the error.
-- **An action call is a function call: serve keeps no run record, receipt
-  or replay.** What must outlast a call goes in a file, and progress goes
-  through `run`'s second argument.
+- **An action call is a function call: serve keeps no run history, receipt
+  or replay, only one line on stderr when a run ends (app, action, outcome,
+  duration; never the input or the result).** What must outlast a call goes
+  in a file, and progress goes through `run`'s second argument.
   Refused: `async function*` and `yield`; an ambient `report()`.
 - **An action writes files and makes no commit and takes no lock. No
   command commits, stages or pushes.** Only the person or their agent knows
