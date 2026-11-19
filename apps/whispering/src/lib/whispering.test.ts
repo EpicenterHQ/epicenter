@@ -379,9 +379,9 @@ test('an answer that arrives after the pages closed is still kept', async () => 
 	expect(await test.outside.read(kept!)).toContain('late but kept\n');
 });
 
-test('deleting a recording deletes its transcripts and its audio', async () => {
+test('deleting a recording deletes its transcripts and its audio in one write', async () => {
 	const opened = await fixture();
-	const { test, library } = opened;
+	const { test, query, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	await library.transcribe(recording.id);
@@ -396,7 +396,10 @@ test('deleting a recording deletes its transcripts and its audio', async () => {
 		audio: `recordings/${recording.id}.wav`,
 	});
 	expect(deletion.kind === 'recording' && deletion.transcripts).toHaveLength(2);
+	const mutations = query.queryClient.getMutationCache();
+	const before = mutations.getAll().length;
 	expect(await library.delete(deletion)).toBeUndefined();
+	expect(mutations.getAll().length - before).toBe(1);
 
 	await eventually(() => library.entries.length === 0);
 	expect(test.outside.paths()).toEqual(['settings.md']);
@@ -404,7 +407,7 @@ test('deleting a recording deletes its transcripts and its audio', async () => {
 
 test('a recording is kept when a transcript for it was saved after the person was asked', async () => {
 	const opened = await fixture();
-	const { test, query, library } = opened;
+	const { test, library } = opened;
 	const recording = await record(opened);
 	const deletion = expectOk(
 		library.deletionFor({ collection: 'recordings', id: recording.id }),
@@ -415,9 +418,7 @@ test('a recording is kept when a transcript for it was saved after the person wa
 		'transcriptions/2026-10-31T09-31-00-000Z-latecomer.md',
 		`---\nrecordingId: "${recording.id}"\ncreatedAt: "2026-10-31T09:31:00.000Z"\nmodel: "whisper-1"\nendpoint: "https://api.openai.com/v1"\n---\nlate\n`,
 	);
-	await query.reread();
-	await eventually(() => library.transcriptsFor(recording.id).length === 1);
-
+	// The lists have not read it yet; the deletion reads the folder itself.
 	expect(await library.delete(deletion)).toContain(
 		'A new transcript was saved for this recording after you were asked.',
 	);

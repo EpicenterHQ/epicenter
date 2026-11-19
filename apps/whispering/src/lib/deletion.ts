@@ -1,6 +1,7 @@
 /**
- * Deleting: capture what a deletion removes from what the lists show, tell
- * the person exactly that, and delete those files.
+ * Deleting: capture what a deletion removes from what the lists show, and
+ * tell the person exactly that. The library deletes it, a recording with
+ * `folder.deleteRecording`, which checks its transcripts again on disk.
  *
  * Deleting a recording removes its note, its audio, and its transcripts, in
  * Whispering's files. It is refused while it is being transcribed, and
@@ -9,6 +10,7 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	audioOf,
+	DeleteError,
 	describeIssues,
 	type FolderSnapshot,
 	type NoteRef,
@@ -74,11 +76,9 @@ function transcriptsOf(
 	snapshot: FolderSnapshot,
 	id: string,
 ): Result<NoteRef[], string> {
-	const unknown = snapshot.transcriptions.invalid.map((note) => note.path);
-	if (unknown.length > 0)
-		return Err(
-			`Some transcripts cannot be told apart from this recording’s, because they do not read: ${unknown.join(', ')}. Repair or delete them first, so none is left naming a recording that is gone.`,
-		);
+	const paths = snapshot.transcriptions.invalid.map((note) => note.path);
+	if (paths.length > 0)
+		return Err(DeleteError.UnreadTranscripts({ paths }).error.message);
 	return Ok(
 		snapshot.transcriptions.items
 			.filter((note) => note.recordingId === id)
@@ -145,43 +145,6 @@ export function captureDeletion(
 			return Ok({ kind: 'transcript', note });
 		}
 	}
-}
-
-/**
- * Delete what was confirmed, checking a recording's transcripts against
- * `snapshot`, the folder as the lists show it now: one saved since the
- * person was asked keeps it. The files go in order (transcripts, the note, then
- * the audio), and the first that cannot be deleted stops the rest, so no
- * transcript ever names a recording that is gone. Answers why it stopped, or
- * undefined.
- */
-export async function runDeletion(
-	writes: {
-		/** Delete one note. */
-		deleteNote(note: NoteRef): Promise<Result<unknown, { message: string }>>;
-		/** Delete recording `id`'s audio. */
-		deleteAudio(id: string): Promise<Result<unknown, { message: string }>>;
-	},
-	snapshot: FolderSnapshot,
-	deletion: Deletion,
-): Promise<string | undefined> {
-	const remove = async (note: NoteRef) =>
-		(await writes.deleteNote(note)).error?.message;
-	if (deletion.kind !== 'recording') return remove(deletedNote(deletion));
-	const { id } = deletion;
-	const { data: now, error } = transcriptsOf(snapshot, id);
-	if (error !== null) return error;
-	const confirmed = new Set(deletion.transcripts.map(notePath));
-	if (now.some((transcript) => !confirmed.has(notePath(transcript))))
-		return 'A new transcript was saved for this recording after you were asked. Check it, then delete the recording again.';
-	// Transcripts first, so none is ever left naming a recording that is gone.
-	for (const transcript of deletion.transcripts) {
-		const problem = await remove(transcript);
-		if (problem !== undefined) return problem;
-	}
-	const problem = await remove({ collection: 'recordings', id });
-	if (problem !== undefined) return problem;
-	return (await writes.deleteAudio(id)).error?.message;
 }
 
 const count = (n: number, one: string, many: string) =>

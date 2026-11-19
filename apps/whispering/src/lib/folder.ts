@@ -16,6 +16,7 @@
  * note lists as an untitled recording dated from its id, and a note with no
  * audio stays a recording.
  */
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Entry, Files, FilesError } from './files/files.js';
 import { audioMimeTypeOf } from './format/audio.js';
@@ -103,6 +104,21 @@ export const EMPTY_FOLDER: FolderSnapshot = {
 	transcriptions: NO_NOTES,
 	audio: [],
 };
+
+/** Why a recording was kept when the person asked to delete it. */
+export const DeleteError = defineErrors({
+	/** A transcript that does not read might be this recording's, so deleting it could leave one naming a recording that is gone. */
+	UnreadTranscripts: ({ paths }: { paths: string[] }) => ({
+		message: `Some transcripts cannot be told apart from this recording’s, because they do not read: ${paths.join(', ')}. Repair or delete them first, so none is left naming a recording that is gone.`,
+		paths,
+	}),
+	/** A transcript the person was not told about names the recording. */
+	NewTranscript: () => ({
+		message:
+			'A new transcript was saved for this recording after you were asked. Check it, then delete the recording again.',
+	}),
+});
+export type DeleteError = InferErrors<typeof DeleteError>;
 
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 /** Newest first by `at`, then by id (ids sort by when they were made). */
@@ -200,17 +216,6 @@ export function openFolder(files: Files) {
 		return Ok(undefined);
 	}
 
-	/** Delete recording `id`'s audio files, as listed now. */
-	async function deleteAudio({
-		id,
-	}: {
-		id: string;
-	}): Promise<Result<undefined, FilesError>> {
-		const audio = await listAudio();
-		if (audio.error !== null) return audio;
-		return removeAudio(audio.data.filter((file) => file.id === id));
-	}
-
 	return {
 		/** Every kind's notes. */
 		notes,
@@ -260,7 +265,44 @@ export function openFolder(files: Files) {
 					audioMimeTypeOf(`x.${file.ext}`) ?? 'application/octet-stream',
 			});
 		},
-		deleteAudio,
+		/**
+		 * Delete recording `id`: its transcripts, its note, then its audio,
+		 * as the folder holds them now. `transcripts` are the ids the person
+		 * was told would go; a transcript naming it that is not among them,
+		 * or one that does not read, keeps the recording and deletes
+		 * nothing. The first file that cannot be deleted stops the rest, so
+		 * no transcript is left naming a recording that is gone.
+		 */
+		async deleteRecording({
+			id,
+			transcripts,
+		}: {
+			id: string;
+			transcripts: readonly string[];
+		}): Promise<Result<undefined, FilesError | DeleteError>> {
+			const listed = await notes.list('transcriptions');
+			if (listed.error !== null) return Err(listed.error);
+			const { items, invalid } = listed.data;
+			if (invalid.length > 0)
+				return DeleteError.UnreadTranscripts({
+					paths: invalid.map(({ path }) => path),
+				});
+			const now = items.filter((note) => note.recordingId === id);
+			if (now.some((note) => !transcripts.includes(note.id)))
+				return DeleteError.NewTranscript();
+			for (const note of now) {
+				const removed = await notes.delete({
+					collection: 'transcriptions',
+					id: note.id,
+				});
+				if (removed.error !== null) return removed;
+			}
+			const removed = await notes.delete({ collection: 'recordings', id });
+			if (removed.error !== null) return removed;
+			const audio = await listAudio();
+			if (audio.error !== null) return audio;
+			return removeAudio(audio.data.filter((file) => file.id === id));
+		},
 		/**
 		 * Delete the audio of every recording made before `cutoff`, as the
 		 * person asks in Settings; nothing deletes audio on its own. A
