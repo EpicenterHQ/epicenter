@@ -6,7 +6,6 @@ import {
 	groupByDay,
 	matches,
 	recordedAt,
-	sortById,
 } from './feed';
 
 describe('recordedAt', () => {
@@ -18,20 +17,6 @@ describe('recordedAt', () => {
 	test('is undefined for an id timeId did not make', () => {
 		expect(recordedAt('my-note')).toBeUndefined();
 	});
-});
-
-test('sortById orders by time either way', () => {
-	const ids = ['2026-01-02', '2026-01-01', '2026-01-03'].map((id) => ({ id }));
-	expect(sortById(ids, 'newest').map((r) => r.id)).toEqual([
-		'2026-01-03',
-		'2026-01-02',
-		'2026-01-01',
-	]);
-	expect(sortById(ids, 'oldest').map((r) => r.id)).toEqual([
-		'2026-01-01',
-		'2026-01-02',
-		'2026-01-03',
-	]);
 });
 
 test('matches needs every word, in any order and case', () => {

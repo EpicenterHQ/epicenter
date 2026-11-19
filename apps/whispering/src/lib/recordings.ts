@@ -31,14 +31,11 @@ import {
 import { tryAsync } from 'wellcrafted/result';
 import { recordedAt } from './feed';
 
+/** A recording; its time comes from its id (`recordedAt` in `feed.ts`). */
 export type Recording = {
 	id: string;
-	/** From the id, so audio with no note still has a time. */
-	recordedAt: Date | undefined;
 	durationMs: number | undefined;
 	transcript: string;
-	/** Whether `<id>.md` is there. */
-	note: boolean;
 	/** Whether `<id>.webm` is there. */
 	audio: boolean;
 };
@@ -77,11 +74,9 @@ function toRecording({ id, note, audio }: Listed): Recording {
 	const { fields, body } = readMarkdown(note ?? '');
 	return {
 		id,
-		recordedAt: recordedAt(id),
 		durationMs:
 			typeof fields.durationMs === 'number' ? fields.durationMs : undefined,
 		transcript: body.trim(),
-		note: note !== null,
 		audio,
 	};
 }
@@ -97,7 +92,7 @@ async function writeNote(id: string, text: string) {
 }
 
 export const recordings = {
-	/** Every recording, in no particular order. One call reads every note. */
+	/** Every recording, oldest first (ids sort by time). One call reads every note. */
 	list: () =>
 		tryAsync({
 			try: async () =>
@@ -113,8 +108,8 @@ export const recordings = {
 			catch: (cause) => RecordingsError.ReadFailed({ id, cause }),
 		}),
 
-	/** Write the note for a take the recorder just finished. */
-	create: ({ id, durationMs }: { id: string; durationMs: number }) =>
+	/** Write the note for a take the recorder just finished: its time and length, no transcript yet. */
+	addNote: ({ id, durationMs }: { id: string; durationMs: number }) =>
 		tryAsync({
 			try: () => {
 				const time = recordedAt(id)?.toISOString();

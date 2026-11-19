@@ -6,7 +6,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import { dictation } from '#lib/dictation.svelte.ts';
-	import { groupByDay, matches, type Sort, sortById } from '#lib/feed.ts';
+	import { groupByDay, matches, recordedAt, type Sort } from '#lib/feed.ts';
 	import { recordingsQueries } from '#lib/queries.ts';
 	import RecordButton from './RecordButton.svelte';
 	import RecordingItem from './RecordingItem.svelte';
@@ -19,17 +19,14 @@
 	let search = $state('');
 	let sort = $state<Sort>('newest');
 	let shown = $state(PAGE);
-	/** The recording the person opened; until they open one, the latest. */
-	let opened = $state<string>();
 
-	const found = $derived(
-		sortById(
-			(list.data ?? []).filter((recording) => matches(dictation.transcriptOf(recording), search)),
-			sort,
-		),
-	);
-	const openId = $derived(opened ?? dictation.latest ?? sortById(list.data ?? [], 'newest')[0]?.id);
-	const groups = $derived(groupByDay(found.slice(0, shown), (recording) => recording.recordedAt));
+	/** The list arrives oldest first. */
+	const found = $derived.by(() => {
+		const matching = (list.data ?? []).filter((recording) => matches(recording.transcript, search));
+		return sort === 'newest' ? matching.toReversed() : matching;
+	});
+	const openId = $derived(dictation.openId ?? list.data?.at(-1)?.id);
+	const groups = $derived(groupByDay(found.slice(0, shown), (recording) => recordedAt(recording.id)));
 
 	/** Show the next page once `node` comes within a screen of the bottom of the feed. */
 	function loadMoreWhenSeen(node: HTMLElement) {
@@ -81,7 +78,7 @@
 					: `${list.data.length.toLocaleString()} ${list.data.length === 1 ? 'recording' : 'recordings'}`}
 			</p>
 
-			{#each groups as group (group.label)}
+			{#each groups as group}
 				<section class="flex flex-col gap-1">
 					<h2 class="px-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						{group.label}
@@ -90,7 +87,7 @@
 						<RecordingItem
 							{recording}
 							open={recording.id === openId}
-							onOpen={() => (opened = recording.id)}
+							onOpen={() => dictation.open(recording.id)}
 						/>
 					{/each}
 				</section>

@@ -6,7 +6,7 @@
 	let src = $state<string>();
 	let failed = $state<string>();
 
-	// The audio is read when the player mounts and its URL freed when it goes.
+	// The audio is read when the player mounts, plays at once, and its URL is freed when it goes.
 	$effect(() => {
 		let url: string | undefined;
 		let gone = false;
@@ -25,5 +25,5 @@
 {#if failed}
 	<p class="text-sm text-muted-foreground">{failed}</p>
 {:else if src}
-	<audio controls {src} class="h-9 w-full"></audio>
+	<audio controls autoplay {src} class="h-9 w-full"></audio>
 {/if}

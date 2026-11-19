@@ -17,7 +17,10 @@ pub struct Listed {
     pub audio: bool,
 }
 
-/// Each recording in `dir`, by id. A missing folder lists nothing.
+/// Each recording in `dir`, in id order, which is oldest first for ids
+/// `timeId` made. A missing folder lists nothing. A note that cannot be read
+/// is skipped with a warning rather than hiding every other recording, and
+/// one that is not UTF-8 is read with its bad bytes replaced.
 pub fn list(dir: &Path) -> std::io::Result<Vec<Listed>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -33,8 +36,12 @@ pub fn list(dir: &Path) -> std::io::Result<Vec<Listed>> {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         if let Some(id) = name.strip_suffix(".md") {
-            let note = std::fs::read_to_string(entry.path())?;
-            listed(&mut by_id, id).note = Some(note);
+            match std::fs::read(entry.path()) {
+                Ok(bytes) => {
+                    listed(&mut by_id, id).note = Some(String::from_utf8_lossy(&bytes).into_owned())
+                }
+                Err(error) => log::warn!("{name} could not be read: {error}"),
+            }
         } else if let Some(id) = name.strip_suffix(".webm") {
             listed(&mut by_id, id).audio = true;
         }
@@ -62,6 +69,7 @@ mod tests {
         std::fs::write(path.join("b.webm"), [0u8]).unwrap();
         std::fs::write(path.join("c.md"), "only a note").unwrap();
         std::fs::write(path.join("c.md.tmp"), "half written").unwrap();
+        std::fs::write(path.join("e.md"), [b'o', b'k', 0xff]).unwrap();
         std::fs::create_dir(path.join("d.md")).unwrap();
 
         let listed = list(path).unwrap();
@@ -75,6 +83,7 @@ mod tests {
                 ("a", Some("hello"), true),
                 ("b", None, true),
                 ("c", Some("only a note"), false),
+                ("e", Some("ok\u{fffd}"), false),
             ]
         );
     }

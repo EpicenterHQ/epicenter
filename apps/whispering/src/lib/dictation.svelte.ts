@@ -1,25 +1,19 @@
 /**
- * What is happening right now: whether a recording is running, which
- * recording just finished, and transcript edits not yet saved. This is the
- * one place the record, stop, save sequence is written.
- *
- * An edit lives here as a draft until its save finishes. A refetch of the
- * list never overwrites a draft, and an edit made while the save was in
- * flight stays a draft.
+ * What is happening right now: whether a recording is running, and which
+ * recording the feed shows open. This is the one place the record, stop,
+ * save sequence is written.
  */
 import { timeId } from '@epicenter/app/time';
 import { toastOnError } from '@epicenter/ui/toast-on-error';
-import { SvelteMap } from 'svelte/reactivity';
 import { toast } from 'svelte-sonner';
 import { runMutation } from 'wellcrafted/query';
 import { queryClient, recordingsMutations } from './queries';
 import { type EndedReason, recorder } from './recorder';
-import type { Recording } from './recordings';
 
 type Status =
 	| { kind: 'idle' }
 	| { kind: 'starting' }
-	| { kind: 'recording'; id: string; startedAt: number }
+	| { kind: 'recording'; startedAt: number }
 	| { kind: 'stopping' };
 
 const ENDED: Record<EndedReason, string> = {
@@ -31,14 +25,16 @@ const ENDED: Record<EndedReason, string> = {
 
 function createDictation() {
 	let status = $state<Status>({ kind: 'idle' });
-	/** The recording that finished last, which the feed opens. */
-	let latest = $state<string | undefined>();
-	const drafts = new SvelteMap<string, string>();
+	/**
+	 * The recording the feed shows open: the one the person opened last, or
+	 * the one that just finished, whichever came later. Undefined until
+	 * either happens, when the feed opens the newest.
+	 */
+	let openId = $state<string>();
 
 	async function start() {
-		const id = timeId();
 		status = { kind: 'starting' };
-		const { error } = await recorder.start(id, (reason) => {
+		const { error } = await recorder.start(timeId(), (reason) => {
 			toast.warning('Recording stopped', {
 				description: `${ENDED[reason]} What was recorded is kept.`,
 			});
@@ -48,7 +44,7 @@ function createDictation() {
 			status = { kind: 'idle' };
 			return toastOnError(error, 'Could not start recording');
 		}
-		status = { kind: 'recording', id, startedAt: Date.now() };
+		status = { kind: 'recording', startedAt: Date.now() };
 	}
 
 	async function stop() {
@@ -57,10 +53,10 @@ function createDictation() {
 		const { data, error } = await recorder.stop();
 		status = { kind: 'idle' };
 		if (error) return toastOnError(error, 'Could not finish the recording');
-		latest = data.id;
+		openId = data.id;
 		const saved = await runMutation(
 			queryClient,
-			recordingsMutations.create,
+			recordingsMutations.addNote,
 			data,
 		);
 		toastOnError(saved, 'Could not save the recording');
@@ -70,8 +66,8 @@ function createDictation() {
 		get status() {
 			return status;
 		},
-		get latest() {
-			return latest;
+		get openId() {
+			return openId;
 		},
 
 		/** Start recording, or stop the recording that is running. */
@@ -80,37 +76,9 @@ function createDictation() {
 			if (status.kind === 'recording') return stop();
 		},
 
-		/** The transcript as the person sees it: their unsaved edit, else the note's. */
-		transcriptOf(recording: Recording) {
-			return drafts.get(recording.id) ?? recording.transcript;
-		},
-
-		edit(id: string, text: string) {
-			drafts.set(id, text);
-		},
-
-		/** Save the draft of `id`, if it has one. The draft goes once its text is on disk. */
-		async save(id: string) {
-			const transcript = drafts.get(id);
-			if (transcript === undefined) return;
-			const saved = await runMutation(
-				queryClient,
-				recordingsMutations.setTranscript,
-				{ id, transcript },
-			);
-			if (saved.error)
-				return toastOnError(saved, 'Could not save the transcript');
-			if (drafts.get(id) === transcript) drafts.delete(id);
-		},
-
-		/** Save every draft: before the page goes away. */
-		saveAll() {
-			for (const id of drafts.keys()) void this.save(id);
-		},
-
-		/** Forget a deleted recording's draft, so nothing writes its note back. */
-		discard(id: string) {
-			drafts.delete(id);
+		/** Show the recording `id` open in the feed. */
+		open(id: string) {
+			openId = id;
 		},
 	};
 }

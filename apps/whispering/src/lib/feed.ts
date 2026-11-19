@@ -19,15 +19,6 @@ export function recordedAt(id: string): Date | undefined {
 	return new Date(`${day}T${h}:${m}:${s}.${ms}Z`);
 }
 
-/** Ids sort by time because `timeId` puts the time first. */
-export function sortById<T extends { id: string }>(
-	items: T[],
-	sort: Sort,
-): T[] {
-	const sorted = items.toSorted((a, b) => a.id.localeCompare(b.id));
-	return sort === 'newest' ? sorted.reverse() : sorted;
-}
-
 /** Whether `text` holds every word of `query`, ignoring case. */
 export function matches(text: string, query: string): boolean {
 	const haystack = text.toLowerCase();
@@ -62,20 +53,15 @@ export function groupByDay<T>(
 	dateOf: (item: T) => Date | undefined,
 	now = new Date(),
 ): { label: string; items: T[] }[] {
-	const groups: { key: string; label: string; items: T[] }[] = [];
+	const groups: { label: string; items: T[] }[] = [];
 	for (const item of items) {
 		const at = dateOf(item);
-		const key = at ? dayKey(at) : 'unknown';
+		const label = at ? dayLabel(at, now) : 'Unknown date';
 		const last = groups.at(-1);
-		if (last?.key === key) last.items.push(item);
-		else
-			groups.push({
-				key,
-				label: at ? dayLabel(at, now) : 'Unknown date',
-				items: [item],
-			});
+		if (last?.label === label) last.items.push(item);
+		else groups.push({ label, items: [item] });
 	}
-	return groups.map(({ label, items }) => ({ label, items }));
+	return groups;
 }
 
 /** `0:42`, `12:05`, or `1:02:05`. */

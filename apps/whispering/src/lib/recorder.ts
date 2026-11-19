@@ -11,7 +11,7 @@ import {
 import { Channel } from '@tauri-apps/api/core';
 import { appLocalDataDir } from '@tauri-apps/api/path';
 
-export type { EndedReason, RecorderError } from '@epicenter/recorder/native';
+export type { EndedReason } from '@epicenter/recorder/native';
 
 export const recorder = {
 	/**

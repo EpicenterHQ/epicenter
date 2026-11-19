@@ -4,14 +4,10 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import '@epicenter/ui/app.css';
-	import { dictation } from '#lib/dictation.svelte.ts';
 	import { queryClient } from '#lib/queries.ts';
 
 	let { children } = $props();
 </script>
-
-<!-- An unsaved transcript edit is saved before the page goes away. -->
-<svelte:window onpagehide={() => dictation.saveAll()} />
 
 <QueryClientProvider client={queryClient}>
 	<Tooltip.Provider>

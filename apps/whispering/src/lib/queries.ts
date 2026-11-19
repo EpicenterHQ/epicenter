@@ -32,7 +32,7 @@ export const recordingsQueries = resultQueries(['recordings'], {
 });
 
 export const recordingsMutations = resultMutations(['recordings'], {
-	create: recordings.create,
+	addNote: recordings.addNote,
 	setTranscript: recordings.setTranscript,
 	delete: recordings.delete,
 });

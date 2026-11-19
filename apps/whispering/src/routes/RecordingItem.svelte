@@ -1,17 +1,21 @@
 <!--
 	One recording in the feed. Closed, it is one line with Copy; open, its
-	transcript is edited in place, with its audio and Delete.
+	transcript is edited in place, with Play and Delete.
+
+	An edit is a draft here until its save lands: a refetch of the list never
+	overwrites it, and an edit made while the save was in flight stays.
 -->
 <script lang="ts">
+	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
+	import PlayIcon from '@lucide/svelte/icons/play';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { runMutation } from 'wellcrafted/query';
-	import { dictation } from '#lib/dictation.svelte.ts';
-	import { formatDuration } from '#lib/feed.ts';
+	import { formatDuration, recordedAt } from '#lib/feed.ts';
 	import { queryClient, recordingsMutations } from '#lib/queries.ts';
 	import type { Recording } from '#lib/recordings.ts';
 	import AudioPlayer from './AudioPlayer.svelte';
@@ -22,13 +26,29 @@
 		onOpen,
 	}: { recording: Recording; open: boolean; onOpen: () => void } = $props();
 
-	const transcript = $derived(dictation.transcriptOf(recording));
+	let draft = $state<string>();
+	/** The audio loads only when the person asks to hear it. */
+	let playing = $state(false);
+
+	const transcript = $derived(draft ?? recording.transcript);
 	const time = $derived(
-		recording.recordedAt?.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) ?? recording.id,
+		recordedAt(recording.id)?.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) ??
+			recording.id,
 	);
 	const length = $derived(
 		recording.durationMs === undefined ? 'unknown length' : formatDuration(recording.durationMs),
 	);
+
+	async function save() {
+		const submitted = draft;
+		if (submitted === undefined) return;
+		const saved = await runMutation(queryClient, recordingsMutations.setTranscript, {
+			id: recording.id,
+			transcript: submitted,
+		});
+		if (saved.error) return toastOnError(saved, 'Could not save the transcript');
+		if (draft === submitted) draft = undefined;
+	}
 
 	function confirmDelete() {
 		confirmationDialog.open({
@@ -36,7 +56,6 @@
 			description: 'Its audio and transcript are deleted from this computer.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			onConfirm: async () => {
-				dictation.discard(recording.id);
 				const deleted = await runMutation(queryClient, recordingsMutations.delete, { id: recording.id });
 				toastOnError(deleted, 'Could not delete the recording');
 			},
@@ -58,11 +77,18 @@
 			aria-label="Transcript"
 			placeholder="No transcript yet. Type one here."
 			class="max-h-80 min-h-24"
-			bind:value={() => transcript, (text) => dictation.edit(recording.id, text)}
-			onblur={() => dictation.save(recording.id)}
+			bind:value={() => transcript, (text) => (draft = text)}
+			onblur={save}
 		/>
 		{#if recording.audio}
-			<AudioPlayer id={recording.id} />
+			{#if playing}
+				<AudioPlayer id={recording.id} />
+			{:else}
+				<Button variant="outline" size="sm" class="self-start" onclick={() => (playing = true)}>
+					<PlayIcon />
+					Play
+				</Button>
+			{/if}
 		{/if}
 	</article>
 {:else}
