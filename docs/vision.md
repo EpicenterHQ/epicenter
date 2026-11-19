@@ -9,7 +9,7 @@ and so do your agents.**
 Epicenter is where one person's software lives. `~/Epicenter` is on a computer
 you control and keep on. Today that is a computer you own; a rented
 one you control is allowed and gets its own setup later. Your Epicenter, the
-folder, is one private Git repository and one program: its root `epicenter.ts`
+folder, is one private Git repository and one Bun project: its root `epicenter.ts`
 declares the records and composes the apps. Records live in root `data/`,
 mostly Markdown; app code lives in `apps/`; caches live in root `local/`.
 One command, `epicenter serve`, offers every app's actions over MCP on that
@@ -142,7 +142,7 @@ apply <proposal>`, which changes Gmail and records each outcome.
 
 | Way | What it does | Example |
 | --- | --- | --- |
-| pull | copies a source's items inward; never writes the source | Gmail, a Todoist inbox, Whispering's folder |
+| pull | copies a source's items inward; never writes the source | Gmail, a Todoist inbox |
 | move | writes a kept record carrying `from: <source>/<id>`, then closes the item at the source | a Todoist item becomes a task, then is completed in Todoist |
 | apply | changes the source through an action, then pulls what changed | Mail's `apply` |
 
@@ -166,8 +166,8 @@ or cron calls `epicenter <app> <action>`, which runs only while `serve` does.
 
 For an app's shape, start from the `writing` example in
 [`@epicenter/app`'s README](../packages/app/README.md#a-home). This
-repository ships no inside apps; Mail (cached) and Messages (live) are the
-author's and are not published.
+repository ships no apps for an Epicenter: `apps/whispering` is a program.
+Mail (cached) and Messages (live) are the author's and are not published.
 
 ## Ways in
 
@@ -228,20 +228,20 @@ author's apps and do not ship here.
 | --- | --- |
 | Epicenter | the folder `~/Epicenter` on your computer, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
 | your computer | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or under a job the person sets up ([serve's rules](../packages/app/README.md#running-the-home)); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
-| an app | a function of your Epicenter's data, usually in `~/Epicenter/apps/<app>/`, that returns its description and actions; the root `epicenter.ts` composes it into `defineEpicenter({ apps })`, and its key there is its name; "an inside app" where an outside app is nearby |
-| a data key | a kind of record in your Epicenter, declared in the root `epicenter.ts` with `defineData`: a folder (`words` holds `data/words/<id>.md`) and its fields; its handle has `list`, `get`, `create`, `patch`, `edit`, and `delete`, which an app's actions call; a record is one file of it, addressed by its path, and it is yours |
+| an app | a function of your Epicenter's data, usually in `~/Epicenter/apps/<app>/`, that returns its description and actions; the root `epicenter.ts` composes it into `defineEpicenter({ apps })`, and its key there is its name |
+| a data key | a kind of record in your Epicenter, declared in the root `epicenter.ts` with `defineData`: a folder (`words` holds `data/words/<id>.md`) and its fields; its handle has `list`, `get`, `create`, `patch`, `edit`, and `delete`, which an app's actions call |
+| a record | one file of a data key, addressed by its path; it is yours |
 | an action | something you can ask an app to do, written with `defineAction`; it is a command in the terminal and a tool over MCP |
-| an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
-| a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's data declares, in its own folder, and none has to |
-| a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
+| a program | software that runs on your device and needs no Epicenter: Whispering; the friendliest writes files in a shape your `epicenter.ts` declares, and none has to |
+| a service | software on someone else's servers that holds the truth of its own data: Gmail, Beeper, Todoist |
 | a source | where a pull copies from: a service, or a program's folder |
 | an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 
-Every app is inside an Epicenter or outside it. The test: does it work
-without an Epicenter? If it does, it is an outside app. Data crosses only
-through an inside app's actions: Mail brings Gmail in, and Gmail does nothing.
-A product can have both halves: Whispering is an outside app, and Whispering's
-inside app is the `whispering` app in an Epicenter.
+An app is code in your Epicenter. Everything else is a program or a
+service, and it works without an Epicenter. Data crosses only through an
+app's actions or through files in the documented shape: Mail brings Gmail in,
+and Gmail does nothing. Whispering is a program; pointed at `data/`, it needs
+no app, only data keys.
 
 "Epicenter" is the place, and `epicenter` is its command. "Server" means
 someone else's computer, and "hosted" means someone else runs it; yours is your
@@ -250,9 +250,9 @@ computer, and your apps run on it.
 Epicenter, the company, makes several products. Epicenter is the one that
 lives on your own computer. The others stand alone and choose their own data model, and each has its
 own name: Whispering is standalone, and a hosted notes service would not be
-called Epicenter and would sit beside the vault, not replace it. Each is an
-outside app, and an Epicenter can bring any of them in, the way Mail brings in
-Gmail. "Local-first" is only for a product whose devices sync.
+called Epicenter and would sit beside your Epicenter, not replace it. Each
+works without an Epicenter, and an Epicenter can bring any of them in, the way
+Mail brings in Gmail. "Local-first" is only for a product whose devices sync.
 
 ## Your Epicenter
 
@@ -263,13 +263,6 @@ in again, such as a sign-in or a copy of a mailbox, and it never leaves
 this computer. [The package README](../packages/app/README.md#a-home) shows the layout
 and a complete app; that README is the one place the mechanics are written
 down.
-
-## Where code runs
-
-Code goes where what it needs is. Recording needs the microphone, so it lives
-in Whispering. Searching Gmail needs your sign-in, so it is an action that
-runs on your computer. One `serve` there runs every action
-([running `serve`](../packages/app/README.md#running-the-home)).
 
 ## One ladder
 
@@ -301,7 +294,8 @@ Whispering is whole at rung 1.
 
 **Next, in order, each tied to its need**:
 
-1. The vault on the current engine: its records as data keys and its
+1. The vault, the author's 3,400 pages of plain-file notes, on the current
+   engine: its records as data keys and its
    commands as actions, served from your computer and used from the phone for a
    month. Its files moved in on 2026-11-15; its code still runs on
    the retired engine.
