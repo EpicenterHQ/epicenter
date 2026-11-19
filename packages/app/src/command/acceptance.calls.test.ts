@@ -377,12 +377,19 @@ test('a command naming another Epicenter gets 409, runs nothing, and names the f
 		});
 		// The command named its root, by its real path, on the one request it made.
 		expect(named).toEqual([encodeURIComponent(f.epicenter)]);
-		status = 503;
+		// Another program, or a serve from before an upgrade: said as one message, no probe.
+		status = 404;
 		expect(await f.run('notes', 'write', '{"page":"monday"}')).toMatchObject({
 			code: 1,
-			stderr: 'serve answered 503 Service Unavailable\n',
+			stderr: `The program on port ${f.port} answered 404 Not Found. If it is this Epicenter's serve from before an upgrade, restart it; if it is another program, set another \`port\` in ${join(f.epicenter, 'EPICENTER.md')}.\n`,
 		});
 		expect(await f.run('--json')).toMatchObject({ code: 1 });
+		// A 413 proves nothing ran.
+		status = 413;
+		expect(await f.run('notes', 'write', '{"page":"monday"}')).toMatchObject({
+			code: 2,
+			stderr: 'The input is larger than serve takes\n',
+		});
 	} finally {
 		await other.stop(true);
 	}

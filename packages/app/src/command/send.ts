@@ -7,6 +7,7 @@
  * `EPICENTER.md`; a command never starts it and never runs an action in its
  * place.
  */
+import { join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	ActionError,
@@ -20,7 +21,7 @@ import {
 	ROOT_HEADER,
 	rootHeaderValue,
 } from './protocol.ts';
-import type { EpicenterRoot } from './root.ts';
+import { type EpicenterRoot, MARKER } from './root.ts';
 
 /**
  * Send one request to this Epicenter's serve and give its response. With no serve
@@ -53,11 +54,19 @@ async function reach(
 			});
 		return ActionError.Unreachable({ message: ended });
 	}
-	if (response.status === 409) {
-		await response.body?.cancel().catch(() => undefined);
-		return anotherEpicenter(root);
-	}
-	return Ok(response);
+	if (response.status === 200) return Ok(response);
+	await response.body?.cancel().catch(() => undefined);
+	if (response.status === 409) return anotherEpicenter(root);
+	// Serve refuses a body past its limit before reading it, so nothing ran.
+	if (response.status === 413)
+		return ActionError.NotStarted({
+			cause: 'usage',
+			message: 'The input is larger than serve takes',
+		});
+	// No probe: what answered may be an older serve or another program.
+	return ActionError.Unreachable({
+		message: `The program on port ${root.port} answered ${`${response.status} ${response.statusText}`.trim()}. If it is this Epicenter's serve from before an upgrade, restart it; if it is another program, set another \`port\` in ${join(root.folder, MARKER)}.`,
+	});
 }
 
 /** The listing serve answers at `GET /actions/`: every app it loaded, their problems, and the routines. */
@@ -71,14 +80,6 @@ export async function fetchListing(
 		'The connection to serve ended before its listing',
 	);
 	if (error) return Err(error);
-	// Any status but 200 is serve not answering, as for a call.
-	if (response.status !== 200) {
-		await response.body?.cancel().catch(() => undefined);
-		return ActionError.Unreachable({
-			message:
-				`serve answered ${response.status} ${response.statusText}`.trim(),
-		});
-	}
 	try {
 		const listing = (await response.json()) as Listing;
 		if (Array.isArray(listing?.apps) && Array.isArray(listing.problems))

@@ -325,8 +325,15 @@ folder it took for its Epicenter and where that folder's marker is
 The serve on port 4747 is another Epicenter's. This command took /Users/ada/Epicenter/apps/vault/data for its Epicenter, from /Users/ada/Epicenter/apps/vault/data/EPICENTER.md: if that is not your Epicenter, remove that file; if it is, set a different `port` in it.
 ```
 
-Any other answer that is not serve's is `Unreachable` with its status, such
-as `serve answered 503 Service Unavailable`, exit 1. Two Epicenters on one
+An input past serve's 25 MB limit is refused with `413`; the command answers
+`NotStarted` (`The input is larger than serve takes`), exit 2, since nothing
+ran. Any other status is `Unreachable`, exit 1, with one message, since the
+command does not probe what answered:
+
+```txt
+The program on port 4747 answered 404 Not Found. If it is this Epicenter's serve from before an upgrade, restart it; if it is another program, set another `port` in /Users/ada/Epicenter/EPICENTER.md.
+```
+ Two Epicenters on one
 computer each need their own `port`, a whole number from 1 to 65535.
 
 The port is also the lock. A second `epicenter serve`, for this Epicenter or
