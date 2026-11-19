@@ -101,9 +101,9 @@ decision settles.
 
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
-- Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented`/`Superseded` is a hygiene smell (`scripts/check-doc-hygiene.ts` flags it).
+- Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented` or `Superseded` should be deleted.
 - When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
-- `docs/spec-history.md` is a dated index of past specs. It is history, not truth.
+- `docs/spec-history.md` is a frozen, dated index of past specs. It is history, not truth.
 
 ## Writing conventions
 
