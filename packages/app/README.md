@@ -133,10 +133,11 @@ reading, `list` takes each file whose extension `parse` calls `.md` and uses
 its name. So whatever `create` writes, `list` reads back as the same id.
 `2026-06-26-messi`, `.foo`, `..`, `café`, and `Dune ` with its trailing
 space are ids; `''`, `a/b`, `../x`, and `x/` are not, since Node would name
-the file something else. No method changes an id: one that names no file
-returns `Misfit` at the key's folder, quoting the id. A name the system
-refuses, one too long or with a NUL byte, is the same `Misfit` when a write
-tries it. Spaces, case, and Unicode form are part of the name, so an app
+the file something else. An id cannot contain `\`, which Windows reads as a
+separator: the folder refuses to write it. No method changes an id: one that
+names no file returns `Misfit` at the key's folder, quoting the id. A name
+the folder or the system refuses (a `\`, one too long, a NUL byte) is the
+same `Misfit` when a write tries it. Spaces, case, and Unicode form are part of the name, so an app
 trims or normalises what a person typed before it passes it on. On a disk
 that ignores case, as a Mac's does, `Dune` and `dune` are one file: each
 verb finds it and answers with the id it was given. An action that takes an
@@ -322,6 +323,10 @@ whose target is not a key beside it when it runs; the types do not check it.
   as `shelf "poems" names no record in shelves`, and nothing is written. Each
   ref in a list is checked. An absent optional ref, or `null`, is fine. The
   cost is one file lookup per ref the write sets.
+- So a record must exist before another can name it. For two records that
+  name each other, create the first without its ref (the field must be
+  optional), create the second naming the first, then patch the first to
+  name the second.
 - Nothing checks a ref again. Deleting or renaming its target, or editing
   the file by hand, leaves it naming nothing, and a later write that does
   not set that field does not notice. Code that follows a ref reads the
@@ -773,13 +778,18 @@ cannot see are in the next section.
   `..`, `Dune ` and a decomposed `café` were refused and are ids now, so an
   app that relied on the handle to refuse them trims or normalises first.
   The `Misfit` for an id that names no file no longer suggests a tidy id to
-  send.
+  send: a page that showed "send \"Dune\"" from it has nothing to show, and
+  `" Dune"` is now a different record from `"Dune"`.
+- An id with `\` was refused as an id; it is now refused by the folder, with
+  the same `Misfit` at the key's folder and the folder's reason.
 - `list` returns every `.md` file directly in the key's folder, including
   names that start with a dot, such as `.draft.md`, which 0.7.0 skipped.
   On a USB or network drive a Mac may write `._name.md` beside each file;
   each shows as a `Misfit`.
 - A write that sets a `field.ref` to a record that is not there is a
-  `Misfit` and writes nothing. In 0.7.0 it was written as given.
+  `Misfit` and writes nothing. In 0.7.0 it was written as given. Create a
+  target before the record that names it; two records that name each other
+  take a create without the ref and a patch after.
 
 - `epicenter` imports the app and calls its function each time it loads the app, today on every call. A cache or counter kept in the function body starts over each time; keep it in a file.
 - Listing apps calls the function too, so read and write inside actions, not in the function body.
