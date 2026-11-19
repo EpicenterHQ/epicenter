@@ -31,17 +31,14 @@ test('missing and broken code entries list problems without stopping the apps th
 	expect(result.problems).toEqual([
 		{
 			entry: 'broken',
-			folder: join(f.apps, 'broken'),
 			problems: ['code/epicenter.ts: broken'],
 		},
 		{
 			entry: 'legacy',
-			folder: join(f.apps, 'legacy'),
 			problems: ['no code/epicenter.ts'],
 		},
 		{
 			entry: 'missing',
-			folder: join(f.apps, 'missing'),
 			problems: ['no code/epicenter.ts'],
 		},
 	]);

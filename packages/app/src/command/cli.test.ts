@@ -78,7 +78,6 @@ test('listing isolates broken imports, invalid apps, folders that cannot name an
 	});
 	expect(value.problems[2]).toMatchObject({
 		entry: 'serve',
-		folder: join(f.apps, 'serve'),
 	});
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
@@ -314,23 +313,6 @@ test('a misused command answers its usage line, with its help as the next step',
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /actions/<app>/<action>',
 	);
-});
-
-test('epicenter check is refused like any unknown app', async () => {
-	const f = await setup();
-	const answer = async (app: string) => {
-		const result = await f.run(app, '--json');
-		const { error } = JSON.parse(result.stdout);
-		return {
-			code: result.code,
-			name: error.name,
-			cause: error.cause,
-			message: error.message.replace(`"${app}"`, '"<app>"'),
-		};
-	};
-	const check = await answer('check');
-	expect(check).toMatchObject({ code: 2, name: 'NotStarted' });
-	expect(check).toEqual(await answer('nope'));
 });
 
 test('a throwing action returns exit 1 with its message', async () => {

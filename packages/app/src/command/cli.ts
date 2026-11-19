@@ -19,10 +19,9 @@ import { appReport, helpReport, rootReport } from './report.ts';
 import { epicenterRoot } from './root.ts';
 import { callAction, fetchListing } from './send.ts';
 
-/** The commands `epicenter` keeps for itself: each one's usage, and what its `--help` says beneath it. */
-const SERVE = {
-	usage: 'epicenter serve',
-	help: `Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
+/** What `epicenter serve --help` says. */
+const SERVE_HELP = `epicenter serve
+Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
 built UI, then its fetch), and each action at POST /actions/<app>/<action>,
 on 127.0.0.1 at the port EPICENTER.md
 names, which every Epicenter must. It starts in the Epicenter's folder. An
@@ -39,13 +38,12 @@ an occurrence since its last check, as a call. epicenter on its own lists
 them. Serve commits nothing: Git stores the Epicenter, and its owner commits
 it. It has no sign-in and answers only this computer. To reach it from your
 other devices, run a private proxy such as:
-tailscale serve --bg 4747`,
-};
+tailscale serve --bg <port>`;
 
 const HELP = `epicenter                              your apps and routines
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<input>]
-${SERVE.usage}
+epicenter serve
 epicenter --version
 
 Acts on the Epicenter it runs in: the nearest folder at or above this one
@@ -72,8 +70,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		else if (token === '--version' || token === '-V') version = true;
 		else words.push(token);
 	}
-	// A throw after a command began is `Threw`; after an action call was sent, its outcome is unknown.
-	let begun = false;
+	// A throw after an action call was sent leaves its outcome unknown.
 	let sent = false;
 	async function answer(): Promise<Answer | undefined> {
 		const [app, ...rest] = words;
@@ -82,9 +79,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		if (version && app !== undefined)
 			return usage('--version stands alone', 'epicenter --help');
 		if (app === 'serve') {
-			if (help) return Ok(`${SERVE.usage}\n${SERVE.help}`);
+			if (help) return Ok(SERVE_HELP);
 			if (flag || rest.length)
-				return usage(`Usage: ${SERVE.usage}`, 'epicenter serve --help');
+				return usage('Usage: epicenter serve', 'epicenter serve --help');
 			if (json)
 				return usage(
 					'serve prints no answer; --json does not apply',
@@ -115,7 +112,6 @@ export async function runCli(argv: string[]): Promise<number> {
 					`cd ${root.folder} && epicenter serve`,
 				);
 			const { serveHttp } = await import('./serve.ts');
-			begun = true;
 			return serveHttp(root);
 		}
 		// A word that is no name names no app, and would not reach POST /actions/<app>/<action>: `..` is `/`.
@@ -125,7 +121,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			if (error) return Err(error);
 			return app === undefined
 				? Ok(rootReport(listing, root, json))
-				: appReport(listing, root, app, json);
+				: appReport(listing, app, json);
 		}
 		// The action is one name; the input after it is {...} or -, never one.
 		const [action = '', ...after] = rest;
@@ -162,7 +158,6 @@ export async function runCli(argv: string[]): Promise<number> {
 			answered = ActionError.Unreachable({
 				message: `serve took the action, but its outcome could not be reported: ${message}`,
 			});
-		else if (begun) answered = ActionError.Threw({ message });
 		else answered = ActionError.NotStarted({ cause: 'internal', message });
 	}
 	if (answered === undefined) return 0;

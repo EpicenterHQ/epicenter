@@ -15,13 +15,22 @@ import {
 	type PublicError,
 	readAnswer,
 } from '../index.ts';
-import {
-	anotherEpicenter,
-	type Listing,
-	ROOT_HEADER,
-	rootHeaderValue,
-} from './protocol.ts';
+import { type Listing, ROOT_HEADER, rootHeaderValue } from './protocol.ts';
 import { type EpicenterRoot, MARKER } from './root.ts';
+
+/**
+ * The command's refusal when serve at `root`'s port answered 409: it serves
+ * another Epicenter. It names the folder the command took for its
+ * Epicenter and that folder's marker, since a stray `EPICENTER.md` below the
+ * real one is the usual cause. Only this computer's terminal prints it.
+ */
+function anotherEpicenter({ folder, port }: EpicenterRoot) {
+	const marker = join(folder, MARKER);
+	return ActionError.NotStarted({
+		cause: 'unavailable',
+		message: `The serve on port ${port} is another Epicenter's. This command took ${folder} for its Epicenter, from ${marker}: if that is not your Epicenter, remove that file; if it is, set a different \`port\` in it.`,
+	});
+}
 
 /**
  * Send one request to this Epicenter's serve and give its response. With no serve

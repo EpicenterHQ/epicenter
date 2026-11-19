@@ -25,30 +25,14 @@ import {
 	toolName,
 	unknownApp,
 } from './protocol.ts';
-import { appPath, type EpicenterRoot } from './root.ts';
+import { appDir, type EpicenterRoot } from './root.ts';
 
-/** Each app's problems as `--json` prints them, with the folder serve does not say. */
-export function withFolders(
-	root: Pick<EpicenterRoot, 'folder'>,
-	problems: AppProblems[],
-) {
-	return problems.map(({ entry, problems }) => ({
-		entry,
-		folder: appPath(root, entry),
-		problems,
-	}));
-}
-
-/** The `Problems:` block a report prints after its apps: each app, its folder, and its problems. */
-export function problemLines(
-	root: Pick<EpicenterRoot, 'folder'>,
-	problems: AppProblems[],
-): string[] {
+/** The `Problems:` block a report prints after its apps: each app and its problems. */
+function problemLines(problems: AppProblems[]): string[] {
 	return [
 		'Problems:',
 		...problems.flatMap(({ entry, problems }) => [
 			`  ${entry}`,
-			`    ${appPath(root, entry)}`,
 			...problems.map((problem) => `    ${problem}`),
 		]),
 	];
@@ -79,8 +63,8 @@ export function rootReport(
 		return {
 			epicenter: root.folder,
 			version,
-			apps: apps.map((app) => withFolder(app, root)),
-			problems: withFolders(root, problems),
+			apps,
+			problems,
 			routines,
 		};
 	const width = Math.max(0, ...apps.map(({ name }) => name.length));
@@ -94,7 +78,7 @@ export function rootReport(
 		`Epicenter: ${basename(root.folder)} (${root.folder})`,
 		`Version: ${version}`,
 	);
-	if (problems.length) lines.push('', ...problemLines(root, problems));
+	if (problems.length) lines.push('', ...problemLines(problems));
 	lines.push('');
 	if (!routines.length)
 		lines.push('No routines. Add routines/<name>.md with cron and action.');
@@ -111,14 +95,6 @@ export function rootReport(
 			),
 		);
 	return lines.join('\n');
-}
-
-/** An app as `--json` prints it: the listing's, with its folder. */
-function withFolder(
-	{ name, description, ...rest }: AppListing,
-	root: Pick<EpicenterRoot, 'folder'>,
-) {
-	return { name, description, folder: appPath(root, name), ...rest };
 }
 
 /**
@@ -140,20 +116,19 @@ function listedApp(
 const actionNames = (listed: AppListing) =>
 	listed.actions.map((tool) => fromToolName(tool.name).action);
 
-/** What `epicenter <app>` prints: the app's data keys and actions and its folder. */
+/** What `epicenter <app>` prints: the app's folder, data keys and actions. */
 export function appReport(
 	listing: Listing,
-	root: Pick<EpicenterRoot, 'folder'>,
 	app: string,
 	json: boolean,
 ): Answer {
 	const { data: listed, error } = listedApp(listing, app);
 	if (error) return Err(error);
-	if (json) return Ok(withFolder(listed, root));
+	if (json) return Ok(listed);
 	return Ok(
 		[
 			`${app}  ${listed.description}`,
-			`folder: ${appPath(root, app)}`,
+			`folder: ${appDir(app)}/`,
 			'',
 			...Object.entries(listed.data ?? {}).flatMap(([key, each]) => [
 				`  ${key}  ${each.path}`,

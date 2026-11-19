@@ -63,9 +63,7 @@ test('an app whose local/ has no .gitignore runs, and the listing and serve name
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'notes',
 	]);
-	expect(listed.problems).toEqual([
-		{ entry: 'notes', folder: join(f.apps, 'notes'), problems: [fix] },
-	]);
+	expect(listed.problems).toEqual([{ entry: 'notes', problems: [fix] }]);
 
 	const served = await startServe(f);
 	try {

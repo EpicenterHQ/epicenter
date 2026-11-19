@@ -33,9 +33,6 @@ import {
 } from './protocol.ts';
 import { appDir, appPath, type EpicenterRoot, fromRoot } from './root.ts';
 
-/** The words the `epicenter` command keeps for itself, which no app may be named. */
-export const COMMAND_WORDS = ['serve'] as const;
-
 /**
  * Why `name` cannot name an app, or `undefined` when it can: it must be
  * lowercase letters, digits, and dashes, starting with a letter, and not a
@@ -44,8 +41,7 @@ export const COMMAND_WORDS = ['serve'] as const;
 function nameProblem(name: string): string | undefined {
 	if (!isName(name))
 		return `${JSON.stringify(name)} is not lowercase letters, digits, and dashes, starting with a letter`;
-	if ((COMMAND_WORDS as readonly string[]).includes(name))
-		return `"${name}" is an epicenter command`;
+	if (name === 'serve') return '"serve" is an epicenter command';
 	return undefined;
 }
 

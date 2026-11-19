@@ -163,7 +163,6 @@ ${words}return { description: 'The vocab app', data, actions: {} };
 	expect(reading).toMatchObject({
 		name: 'reading',
 		description: 'How much I read each week',
-		folder: join(f.apps, 'reading'),
 		data: {
 			books: {
 				path: 'data/books/',

@@ -21,7 +21,7 @@ import { stderrJsonLines } from './output.ts';
 import { appProblems, noSuchAction, unknownApp } from './protocol.ts';
 
 /** An action found in its loaded app: the app's name, the action's, and what runs. */
-export type Found = { app: string; action: string; run: Action };
+type Found = { app: string; action: string; run: Action };
 
 /** A call ready to run: the action and its checked input. */
 export type Call = Found & { input: Record<string, unknown> };

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { COMMAND_WORDS } from './apps.ts';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
 
@@ -96,7 +95,7 @@ function needsServe(args: string[]) {
 		return !args.some((arg) =>
 			['--help', '-h', '--version', '-V'].includes(arg),
 		);
-	return !(COMMAND_WORDS as readonly string[]).includes(first);
+	return first !== 'serve';
 }
 
 /**

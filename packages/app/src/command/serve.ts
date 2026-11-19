@@ -58,7 +58,7 @@
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
  * mistake reaches only refusals.
  *
- * Calls leave their writes pending (`run.ts`). Serve reads `routines/` once,
+ * Serve reads `routines/` once,
  * when it starts, and keeps one clock: once a minute it runs each routine
  * whose schedule had an occurrence since its last check, as an action call
  * (`routines.ts`, ADR-0937). It commits nothing: Git stores the Epicenter,

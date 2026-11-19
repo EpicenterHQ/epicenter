@@ -4,10 +4,9 @@
  * MCP tool names, and the listing's types. Serve and the sender each import
  * this; neither imports the other, and nothing here loads an app.
  */
-import { join } from 'node:path';
 import type { ObjectSchema } from '../field.ts';
 import { type Action, ActionError } from '../index.ts';
-import { type EpicenterRoot, MARKER } from './root.ts';
+import type { EpicenterRoot } from './root.ts';
 
 /**
  * The header a request names its Epicenter in: the root's real path,
@@ -22,20 +21,6 @@ export function rootHeaderValue({
 	folder,
 }: Pick<EpicenterRoot, 'folder'>): string {
 	return encodeURIComponent(folder);
-}
-
-/**
- * The command's refusal when serve at `root`'s port answered 409: it serves
- * another Epicenter. It names the folder the command took for its
- * Epicenter and that folder's marker, since a stray `EPICENTER.md` below the
- * real one is the usual cause. Only this computer's terminal prints it.
- */
-export function anotherEpicenter({ folder, port }: EpicenterRoot) {
-	const marker = join(folder, MARKER);
-	return ActionError.NotStarted({
-		cause: 'unavailable',
-		message: `The serve on port ${port} is another Epicenter's. This command took ${folder} for its Epicenter, from ${marker}: if that is not your Epicenter, remove that file; if it is, set a different \`port\` in it.`,
-	});
 }
 
 /**

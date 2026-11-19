@@ -139,9 +139,9 @@ export async function rootInstructions({
 
 /**
  * `message` with every path inside the Epicenter written from its folder,
- * as `apps/notes/code/x.ts`. A problem serve lists is made once, at start,
- * through this, so a device that reads the listing sees no folder of this
- * computer's above the Epicenter. A path outside it is left as written.
+ * as `apps/notes/code/x.ts`, so a problem reads the same on every computer.
+ * Serve makes each problem once, at start, through this. A path outside the
+ * Epicenter is left as written.
  */
 export const fromRoot = (
 	{ folder }: Pick<EpicenterRoot, 'folder'>,
