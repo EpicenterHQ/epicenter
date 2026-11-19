@@ -30,7 +30,15 @@ export const assertType = <T extends true>(): T | undefined => undefined;
  * A folder for a definition that never reads or writes, such as one refused
  * before any handle exists. Any call on it throws.
  */
-export const unusedFolder = {} as Folder;
+export const unusedFolder: Folder = {
+	path: '/unused-folder',
+	write: unused,
+	edit: unused,
+	delete: unused,
+};
+function unused(): never {
+	throw new Error('This test folder is not for reading or writing');
+}
 
 let root: string | undefined;
 
