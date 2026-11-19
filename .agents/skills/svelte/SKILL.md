@@ -142,6 +142,10 @@ Choose the owner before declaring state or extracting a handler:
 - Keep simple component props inline. Use named `Props` only when a wrapper, generic relationship, exported contract, or native DOM type composition earns it. Push large view-mode branches into focused child components. Read [component and UI patterns](references/component-ui-patterns.md).
 - Use local `@epicenter/ui` loading, empty, pending, and tooltip components before ad hoc markup.
 
+## SvelteKit in Whispering
+
+Whispering is the only SvelteKit app. It builds with `adapter-static` and sets `ssr = false` in `src/routes/+layout.ts`, so every route renders in the browser. It has no server load functions, form actions, `+server.ts` endpoints, or server hooks; adding one needs a server the static build does not have. Route files reach `src/lib` through `$lib` and use relative imports for files that live together.
+
 ## Reference Map
 
 - Read [UI verification](../ui-design/references/verification.md) for visible or interactive changes: view screenshots for appearance, exercise changed interactions, and check desktop UI in the native app.

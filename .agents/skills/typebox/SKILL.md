@@ -50,13 +50,11 @@ validator.Parse(value); // throws or returns typed value
 ## Standard Schema Boundary
 
 TypeBox does not implement Standard Schema. Do not write TypeBox code that expects
-`schema['~standard']`. If a boundary accepts Standard Schema, prefer Arktype or
-another schema library that implements it natively. If a boundary owns TypeBox
+`schema['~standard']`. If a boundary accepts Standard Schema, use a schema
+library that implements it natively. If a boundary owns TypeBox
 schemas, keep the boundary TypeBox-native and use JSON Schema as the portable
 representation.
 
 ## Repo Policy
 
-Inside apps declare data fields and action inputs with `defineData`, `defineAction`, and `field` from `@epicenter/app`. An app's actions, declared with them, are the same actions the CLI and MCP expose. The [field helpers](../../../packages/app/src/field.ts) produce TypeBox schemas. Raw TypeBox fits alongside them when a field needs another JSON Schema shape. Use Arktype for local runtime
-validation, request parsing, env/config parsing, persisted UI state, transforms,
-and branded domain values.
+Inside apps declare data fields and action inputs with `defineData`, `defineAction`, and `field` from `@epicenter/app`. An app's actions, declared with them, are the same actions the CLI and MCP expose. The [field helpers](../../../packages/app/src/field.ts) produce TypeBox schemas. Raw TypeBox fits alongside them when a field needs another JSON Schema shape.

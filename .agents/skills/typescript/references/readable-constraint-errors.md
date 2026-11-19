@@ -76,14 +76,7 @@ to approve exactly what runtime accepts.
   purpose: `defineActions({ 'tabs.close': action } as unknown as
   Parameters<typeof defineActions>[0])`. The call should throw.
 - Keep diagnostic text easy to read in editor tooltips and CI logs. A plain
-  template-literal message works here. Installed `@ark/util` adds U+200B to its
-  `ErrorMessage` type, but the suffix is not required for this error and does
-  not make a string type nominal. Add it only for a demonstrated completion or
-  assignability problem.
-- Check library inference before replacing the predicate with a regex-derived
-  type. Installed `arkregex` 0.0.5 widens a nondigit range such as `[a-z]` to
-  `string`, so it cannot prove this key shape at compile time. Its `.test()`
-  returns a boolean; it does not throw for a nonmatch.
+  template-literal message works here.
 
 The example comes from an original `defineActions` implementation that
 is no longer in the checkout.
