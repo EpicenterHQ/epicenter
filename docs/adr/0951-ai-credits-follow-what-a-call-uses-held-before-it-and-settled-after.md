@@ -5,6 +5,8 @@
 - **Relates:** [ADR-0950](0950-api-epicenter-so-is-a-model-api-and-every-client-reaches-it-with-an-api-key.md) (every client reaches the model API with a key; ships with this record), [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) (Epicenter offers hosted inference with an included allowance), [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (Superseded; credits as product units, and a charge shaped by when its cost is known).
 - **Unbuilt:** all of it, beside ADR-0950. The first thing to exist is each model's token rates in `packages/ai/src/providers.ts` and a reservation that settles with an amount in `apps/api/worker/billing/service.ts`.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 The hosted API bills through Autumn. Users see and buy `ai_credits`, a

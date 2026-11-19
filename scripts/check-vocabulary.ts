@@ -63,7 +63,6 @@ const SCANNED_EXTENSIONS = ['.ts', '.svelte', '.md'];
 /** Dated records and generated output, excluded from every rule. */
 const FROZEN = [
 	'docs/adr/',
-	'docs/benchmarks/',
 	'docs/spec-history.md',
 	'specs/',
 	'.context/',
@@ -99,14 +98,9 @@ const RULES: readonly Rule[] = [
 		adr: 'ADR-0309',
 		excludes: [],
 		scope: [
-			'packages/svelte/',
-			'packages/server/workers/',
 			'apps/whispering/',
-			'.agents/skills/yjs/',
 			'.agents/skills/svelte/',
-			'.agents/skills/collapse-pass/',
-			'docs/CONTEXT.md',
-			'docs/architecture.md',
+			'.agents/skills/code-collapse/',
 			'README.md',
 		],
 	},

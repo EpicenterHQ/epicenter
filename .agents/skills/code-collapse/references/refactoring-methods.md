@@ -1,0 +1,382 @@
+# Refactoring methods
+
+Read the sections relevant to a candidate: inlining and source visibility,
+caller evidence, typed access boundaries, duplicate branches, derivable state,
+file shape, straggler cleanup, or definition navigation. These methods also
+support focused reviews without starting an exploratory pass.
+
+[code-collapse](../SKILL.md) owns execution, scope, authorization, and reporting.
+Use [factory composition](../../typescript/references/factory-function-composition.md) for factory
+shape, [method documentation](../../typescript/references/method-documentation-and-sibling-calls.md),
+<!-- vocab-check: ignore-next-line (the code-prose skill name) -->
+and [code-prose](../../code-prose/SKILL.md) for identifiers and comments.
+
+## Keep source and action visible
+
+Keep the source and the action visible where they are used. Introduce a separate
+name or layer when it adds understanding or owns necessary behavior. Mentally inline a
+binding and ask: does the reader lose an explanation or necessary behavior, or
+just lose a jump?
+
+A shallow property alias or forwarding helper can hide ownership without
+explaining anything. A named operation can earn its place by expressing a
+non-obvious decision, enforcing an invariant, owning a lifecycle, or making a
+long phase understandable. Preserve evaluation timing, receiver binding,
+caching, and snapshot semantics when inlining; fewer names must not change behavior.
+
+A boundary that isolates unsafe input can earn its place too. Keep the parsing
+or validation owner rather than distribute its checks among callers.
+
+### Find same name property aliases
+
+When looking for shallow aliases, search a bounded area for `const a = b.a`,
+such as `const status = row.status` or `const row = editor.row`. From the repo
+root, use PCRE2 so the final property must match the captured variable name:
+
+```sh
+rg -n --pcre2 '\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.\1(?![\w$])(?=\s*(?:;|,|$))' apps packages -g '*.ts' -g '*.js' -g '*.mjs' -g '*.svelte'
+```
+
+Replace `apps packages` with the relevant paths. The search includes nested
+accesses like `const status = editor.row.status`; optional chaining, bracket
+access, and typed declarations need a different pattern. Comments and strings
+can match too.
+
+Treat matches as candidates, not automatic replacements. Trace each binding's
+uses and apply the source-and-action test above. Keep an intentional snapshot
+or single getter read; check whether later reads would observe a different value,
+especially across `await`. For method aliases, compare the receiver supplied by
+the extracted call with the object call. Inline when direct access improves
+clarity and preserves behavior, then verify the affected behavior.
+
+## The audit: count callers as evidence
+
+Trace the binding's actual callers before changing it. Delete unused internal
+code; check external consumers before deleting a public export. For a live
+binding, compare the explanation and behavior its definition contributes with
+the navigation and repetition it introduces. A single caller can justify a
+meaningful operation; several callers can repeat an unnecessary forwarding layer.
+
+Count callers when the number helps establish scope or maintenance cost. A
+local simplification does not require an inventory of every function in the file.
+
+### When to Keep a Single-Caller Function
+
+Not every 1-caller function should be inlined. Keep it when:
+
+- **Part of a meaningful family**: `pushText`, `pushSheet`, `pushRichtext` expose distinct typed constructors. Keep the shared vocabulary when it helps callers understand those operations; visual symmetry alone is insufficient.
+- **Complex logic worth naming**: Deep-clone operations, recursive tree walks, or multi-step parsing where the name documents intent.
+- **A named phase makes the caller readable**: Extract a long imperative phase when its name explains the work. Length alone does not establish a useful boundary.
+
+## Type Safety Boundaries
+
+For each stored or incoming shape, give raw access one parsing boundary.
+Downstream operations use its typed result rather than repeating casts.
+
+```
+BAD: Multiple raw access points scattered across methods
+─────────────────────────────────────────────────────────
+getCurrentType()    → entry.get('type') as ContentType     ← raw .get() + cast
+write()             → entry.get('columns') as Y.Map<...>   ← raw .get() + cast
+replaceCurrentText  → entry.get('content') as Y.Text       ← raw .get() + cast
+
+GOOD: Single boundary, everything else uses typed discriminated union
+───────────────────────────────────────────────────────────────────
+readEntry()         → entry.get('type'), instanceof checks  ← THE boundary
+getCurrentEntry()   → readEntry(last)                       ← typed from here
+write()             → getCurrentEntry() (discriminated)     ← typed
+read()              → getCurrentEntry() (discriminated)     ← typed
+```
+
+Route access through the typed reader. Public methods discriminate
+`getCurrentEntry()` instead of repeating raw `.get()` calls. Svelte reads the
+same method through `reactive(capability)`; see [Svelte](../../svelte/SKILL.md).
+When the existing reader is a public getter, keep that contract unless the API
+is being redesigned.
+
+## Collapsing Duplicate Branches
+
+When branches repeat an operation with different inputs, check whether an
+existing operation already expresses the common work.
+
+### The Tell
+
+Describing two branches with the same sentence identifies a candidate. Compare
+the information and behavior each preserves before sharing the operation.
+
+If you can describe two branches with the same sentence, they may be
+duplicates. The sentence is a useful tell, not proof that their facts,
+lifetimes, or failure behavior are interchangeable.
+
+```typescript
+// BEFORE: "flatten to string and push" appears twice
+switch (entry.type) {
+	case 'richtext':
+		pushText(xmlFragmentToPlaintext(entry.content) + text);
+		break;
+	case 'sheet':
+		pushText(serializeSheetToCsv(entry) + text);
+		break;
+}
+
+// AFTER: this.read() already does "flatten to string"
+} else {
+	pushText(this.read() + text);
+}
+```
+
+Also applies to `as*()` conversion methods. If every non-matching branch does "read as string → push as target type", collapse:
+
+```typescript
+// BEFORE: 3 cases, 2 are near-identical
+asRichText(): Y.XmlFragment {
+	const entry = this.currentEntry;
+	if (!entry) return ydoc.transact(() => pushRichtext()).content;
+	switch (entry.type) {
+		case 'richtext':
+			return entry.content;
+		case 'text': {
+			const plaintext = entry.content.toString();
+			return ydoc.transact(() => { /* push richtext from plaintext */ }).content;
+		}
+		case 'sheet': {
+			const csv = serializeSheetToCsv(entry);
+			return ydoc.transact(() => { /* push richtext from csv */ }).content;
+		}
+	}
+}
+
+// AFTER: Same-type early return + single conversion path
+asRichText(): Y.XmlFragment {
+	const entry = this.currentEntry;
+	if (!entry) return ydoc.transact(() => pushRichtext()).content;
+	if (entry.type === 'richtext') return entry.content;
+	const plaintext = this.read();
+	return ydoc.transact(() => {
+		const { content } = pushRichtext();
+		populateFragmentFromText(content, plaintext);
+		return { content };
+	}).content;
+}
+```
+
+## Composition Over Duplication
+
+When function B is function A + one extra step, compose instead of duplicating:
+
+```typescript
+// BEFORE: pushSheetFromCsv duplicates 90% of pushSheet's body
+function pushSheet(): SheetEntry { /* 10 lines of Y.Map setup */ }
+function pushSheetFromCsv(csv: string): SheetEntry {
+	/* same 10 lines of Y.Map setup */
+	parseSheetFromCsv(csv, columns, rows);
+}
+
+// AFTER: Compose
+const result = pushSheet();
+parseSheetFromCsv(csv, result);
+```
+
+## Prefer Inline for Trivial Duplications
+
+Judge a short repeated block by what an extraction would explain. Keep it inline
+when the operation is already clear and a helper would only add a name and
+navigation. Use the extraction criteria below when a shared owner could improve
+the result.
+
+When a duplicated block is 1-3 lines and appears 2-3 times in one file, keeping
+it inline is often more readable. The helper adds a name to learn, a definition
+to jump to, and an abstraction boundary to reason about; those costs can exceed
+what the duplication saves. Treat the counts as an inspection prompt, not a
+threshold that overrides a shared rule or necessary boundary.
+
+**The readability test:** Does a reader need to leave the callsite to understand what's happening? If the inline code is self-explanatory, extraction hurts more than it helps.
+
+```typescript
+// Two adjacent functions with identical 2-line path construction.
+// A buildChildPath() helper saves zero cognitive load: readers
+// understand the inline version instantly.
+
+// GOOD: Keep inline. The repetition is obvious and local.
+async createFile(parentId: FileId | null, name: string) {
+	const parentPath = parentId ? (this.getPath(parentId) ?? '/') : '/';
+	const path = parentPath === '/' ? `/${name}` : `${parentPath}/${name}`;
+	await fs.writeFile(path, '');
+}
+
+async createFolder(parentId: FileId | null, name: string) {
+	const parentPath = parentId ? (this.getPath(parentId) ?? '/') : '/';
+	const path = parentPath === '/' ? `/${name}` : `${parentPath}/${name}`;
+	await fs.mkdir(path);
+}
+
+// Adds a helper name without explaining more than the local path construction.
+// Reader now has to find buildChildPath() to understand either function.
+function buildChildPath(parentId: FileId | null, name: string): string {
+	const parentPath = parentId ? (this.getPath(parentId) ?? '/') : '/';
+	return parentPath === '/' ? `/${name}` : `${parentPath}/${name}`;
+}
+```
+
+Same principle in templates: a class string used twice is easier to scan inline than to chase to a `$derived` variable:
+
+```svelte
+<!-- GOOD: Both usages visible at a glance while scanning the template -->
+<TreeView.Folder
+	class="w-full rounded-sm px-2 py-1 text-sm hover:bg-accent
+		{isHighlighted ? 'bg-accent text-accent-foreground' : ''}"
+/>
+<!-- ...later in the same template... -->
+<TreeView.File
+	class="w-full rounded-sm px-2 py-1 text-sm hover:bg-accent
+		{isHighlighted ? 'bg-accent text-accent-foreground' : ''}"
+/>
+
+<!-- BAD: Extracted to a variable: reader leaves the template to understand styling -->
+<TreeView.Folder class={itemClass} />
+```
+
+### When extraction earns its place
+
+Extract when the name explains non-obvious work, one owner must enforce a shared
+rule, or repeating a substantial operation would obscure callers and make changes
+harder. Block length, repetition count, and file distance are evidence of those
+costs, not automatic thresholds. A two-use parser can deserve extraction; a
+four-use alias can still deserve deletion.
+
+## Inline Known-Behavior Calls
+
+When a "smart" function branches internally but every caller already knows which branch it takes:
+
+```typescript
+// replaceCurrentText branches on type, but callers know the answer:
+function replaceCurrentText(content, current) {
+	if (current?.type === 'text') { /* in-place overwrite */ }
+	else { pushText(content); }
+}
+
+// write() KNOWS it's text → always takes the if-branch
+// appendText() KNOWS it's NOT text → always takes the else-branch
+```
+
+Inline the known branch at each call site. Keep the branching function only for callers that genuinely don't know (e.g., `restoreFromSnapshot` where the live doc's type is unknown).
+
+## Parameter Objects and Derivation
+
+### Parameter Objects
+
+When 2+ params always travel together and a type already describes them:
+
+```typescript
+// BEFORE
+serializeSheetToCsv(entry.columns, entry.rows)
+
+// AFTER: SheetBinding already bundles columns + rows
+serializeSheetToCsv(entry)
+```
+
+### Type Derivation
+
+Derive types instead of duplicating fields:
+
+```typescript
+// BEFORE: columns/rows duplicated in both types
+type SheetBinding = { columns: Y.Map<...>; rows: Y.Map<...> };
+type SheetEntry = { type: 'sheet'; columns: Y.Map<...>; rows: Y.Map<...>; createdAt: number };
+
+// AFTER: Intersection
+type SheetEntry = SheetBinding & { type: 'sheet'; createdAt: number };
+```
+
+### Value Derivation
+
+The same rule one level down: if a value can be computed from values already in scope, don't pass or store it separately.
+
+```typescript
+// BEFORE: isDirty is always editorContent !== baseline
+function save(editorContent: string, baseline: string, isDirty: boolean) { ... }
+
+// AFTER: derive it
+function save(editorContent: string, baseline: string) {
+	const isDirty = editorContent !== baseline;
+	...
+}
+```
+
+Removing derivable state often simplifies signatures, types, and control flow in one move.
+
+## File Shape
+
+Caller counts audit a function. These audit the file it lives in.
+
+1. **Inverted pyramid.** Lead with the exported or significant functions and push helpers below them. Don't bury the lead.
+2. **Responsibilities and lifetimes.** Split or combine files when actual callers become easier to understand or change. File count and overlapping names do not decide. For a broad model change, use the [concept inventory](concept-inventory.md) to explain the distinctions retained or removed.
+3. **Use shared code.** A common utility (file path parsing, say) may already exist. Check for it before writing the same thing inline.
+
+## Post-Refactor Straggler Sweep
+
+Before handing off a refactor, hunt for dead references the change left behind. Refactors that remove or move code create orphaned exports, stale JSDoc, and unnecessary indirection that won't trigger type errors: they compile fine but add confusion.
+
+### The Sweep Checklist
+
+Run these searches against the codebase after every non-trivial refactor:
+
+1. **Dead exports**: Grep for the removed symbol. If nothing imports it, un-export or delete.
+2. **Stale imports**: An import that pulled the old name may now be partially unused. Check each importing file.
+3. **Orphaned JSDoc**: Comments that reference removed endpoints, deleted types, or old patterns. These mislead future readers worse than no comment.
+4. **Single-file directories**: If a refactor moved the only meaningful file out of a directory, the directory may now hold just an `index.ts` barrel re-exporting one thing. Flatten `dir/index.ts` → `dir.ts` when the import path resolves identically (Node/Vite resolve both `$lib/auth` and `$lib/auth/index.ts`).
+5. **Unnecessary indirection**: A contract type that existed solely for a removed endpoint. A helper that wrapped a one-liner. A re-export chain where the middle barrel is now a single passthrough.
+6. **Indirect re-exports outside barrels**: `export { Foo } from './bar'` in a non-`index.ts` file. These accumulate at the bottom of implementation files and nobody imports through them. They also leave orphaned imports that only existed to feed the re-export.
+
+### Example: Key Delivery Refactor
+
+Embedding encryption keys in the session response (eliminating `GET /workspace-key`) left these stragglers:
+
+```
+Straggler                                    Found by
+─────────────────────────────────────────────────────────────
+currentKeyVersion import in create-auth.ts    grep for the symbol → imported but unreferenced
+currentKeyVersion export from encryption.ts   only consumer was create-auth.ts → dead export
+SessionResponse JSDoc: "without fetching       grep for old pattern language → stale
+ key material"
+WorkspaceKeyResponse contract type             grep for the type → zero consumers
+```
+
+### When to Sweep
+
+- After removing an endpoint, type, or module
+- After collapsing a multi-step flow into fewer steps
+- After inlining a function (its callers may have stale comments)
+- After renaming (old name may linger in JSDoc, error messages, tests)
+
+Complete the sweep before handing off the refactor. When commits are authorized,
+include related stragglers with the change that created them; separate unrelated
+cleanup so it remains reviewable.
+
+## Go-to-Definition Check
+
+After a refactor that moves, renames, or re-exports a symbol, press Go-to-Def from a real call site. The cursor should land on the actual definition, not on an alias line, a re-export passthrough, or a destructure-re-export of a module-level object. If it lands somewhere worse than before, the refactor regressed navigation: fix it before handing off the change.
+
+Common regressions introduced by refactors:
+
+- Re-export chains added during file moves where the intermediate file does nothing.
+- Module-level `const x = {...} satisfies T; export const { fn } = x;` introduced "for symmetry" that lands Go-to-Def on the destructuring line.
+- Wrapper / adapter functions inserted with no behavior change.
+- Hand-written interface annotation added to a factory whose `ReturnType<typeof ...>` already covered it.
+
+See [typescript](../../typescript/SKILL.md) "Go-to-Definition Awareness" for the per-shape mechanics.
+
+## Anti-Patterns
+
+- **Premature extraction**: Naming already clear local work without adding an explanation or owning a shared rule. Repetition alone does not justify a helper. See "Prefer Inline for Trivial Duplications" above.
+- **Abstracting away differences**: Three push constructors with different fields share boilerplate, but a `pushEntry(type, fields: Record<string, unknown>)` helper loses all type safety. The duplication communicates structure.
+- **Type-erasing helpers**: Any helper that accepts `unknown` or `Record<string, any>` to "reduce duplication"
+- **Refactoring while fixing bugs**: Fix the bug at the owning boundary first, then use a separate commit for cleanup that is not required by that correction
+- **Batch-committing**: "Cleaned up the module" as one commit with 15 changes: impossible to review or revert
+- **Shotgun inlining**: Inlining everything with 1 caller regardless of context. Respect constructor families and complex logic.
+- **Skipping the straggler sweep**: Refactoring without cleaning up dead references. The code compiles, but the next person reads stale JSDoc and wastes 30 minutes confused about an endpoint that no longer exists.
+- **Identity functions**: `function f(x) { return x; }` has callers, but does nothing. It's dead code wearing a disguise. Inline the call.
+- **Compatibility with unshipped code**: Supporting an old signature, alias, or data shape that only existed earlier in the same branch is compatibility with something that was never deployed. Delete the old path and update its callers.
+- **Speculative v2 code**: Commented-out types, tables, or functions "deferred to v2" with zero consumers. Git remembers: delete from the source file.
+- **Secondary key when primary exists**: Matching records by a secondary key (name, slug, path) when a stable primary key (id) is available. The secondary key can collide, change, or diverge across systems. If the primary key exists, use it.
+- **Indirect re-exports from non-barrel files**: `export { Foo } from './types.js'` at the bottom of `create-foo.ts`. The `export { }` re-export syntax belongs in `index.ts` barrels only. Implementation files export directly at the declaration. Same principle in any module system: Python's `from .types import Foo` at EOF, Rust's `pub use` in non-`mod.rs` files.

@@ -17,6 +17,8 @@
 - **Unbuilt:** LFS at the Git audience (ADR-0546); the devices and grants list; the requesting address on the device approval page; the scheduled delete of expired tokens.
 - **Amended by:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at the client table: every app's client is its origin, `so.epicenter` is the Epicenter app and its engine, and `so.epicenter.cli` retires; [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) at "A browser app keeps its access token in `localStorage` and holds no refresh token" and its `prompt=none` renewal: a browser app keeps a rotated refresh token beside its access tokens and renews without navigating.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 Today every hosted request carries a Better Auth session.

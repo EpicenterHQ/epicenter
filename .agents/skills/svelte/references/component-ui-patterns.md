@@ -248,11 +248,6 @@ and give the person a repair path that preserves their input. In a personal
 app, a `Misfit` can carry a partial record for a repair form while other rows
 remain usable. See [the app client's repair guidance](../../epicenter-app/SKILL.md#build-the-ui-as-a-client).
 
-Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
-mounting, so do not repeat `tab === value` inside each panel. A disabled trigger
-does not establish valid fields for a later event. Use forceMount only for a
-named retained lifetime.
-
 Keep unsubmitted Add, Send, or Save form input with the form. Bind shared
 `Textarea` and `Input` directly, using a function binding for a derived value,
 instead of an app-local component that only forwards bindings. Keep substantial
@@ -724,7 +719,7 @@ when it only repeats those arguments. Keep extraction when it centralizes a
 shared rule, avoids substantial repetition, caches a necessary result, or makes
 non-obvious work understandable. Use the same test for forwarding `$derived`
 aliases; keep template locals needed to narrow optional values. See
-[refactoring methods](../../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible)
+[refactoring methods](../../code-collapse/references/refactoring-methods.md#keep-source-and-action-visible)
 and [template narrowing](#template-locals-narrow-reactive-values-before-use).
 
 Repeated shallow reads such as `editor.row` can stay direct so ownership

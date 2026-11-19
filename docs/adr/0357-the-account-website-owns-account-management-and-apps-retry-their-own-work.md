@@ -4,6 +4,8 @@
 - **Date:** 2026-09-07
 - **Unbuilt:** Release verification of live-provider checkout and system-browser opening from a packaged desktop build.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 `apps/api/ui` already serves the hosted account and billing dashboard.

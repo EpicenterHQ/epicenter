@@ -8,10 +8,9 @@ registry's response because the CLI finishes the text: it resolves the
 registry's `IconPlaceholder` to a Lucide import and drops the `cn-*` style
 hooks a project does not define.
 
-`shadcn-svelte-extras/` holds the 2026-09-24 responses for
-[`light-switch`](https://www.shadcn-svelte-extras.com/r/light-switch.json) and
-[`link`](https://www.shadcn-svelte-extras.com/r/link.json). They are review
-inputs and are not checked. Epicenter-owned components have no upstream match.
+`shadcn-svelte-extras/` holds the 2026-09-24 response for
+[`link`](https://www.shadcn-svelte-extras.com/r/link.json). It is a review
+input and is not checked. Epicenter-owned components have no upstream match.
 
 ## Patches and the check
 
@@ -47,7 +46,6 @@ component is rebased; a difference without a reason is reverted.
 | IconButton and Link | `IconButton` owns icon labels and tooltips; Link keeps its `tooltip` prop | Icon-only controls need an accessible name. `IconButton` composes trigger props when nested in popovers. Both are the kit's own; Button is upstream's text. |
 | Dialog | Viewport scrolling | Long recording details remain usable. |
 | Sidebar | The same offcanvas Sidebar at narrow widths | Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
-| Tabs.Content | Inactive children unmount; `forceMount` retains them explicitly | Editor panels share one selection and disposable controls; the main app shell preserves its chat and settings state. |
 | Theme | Geist fonts and seven dark Neutral token adjustments | The accepted soft charcoal direction uses existing semantic variables; component geometry remains Vega’s. |
 
 Other structural choices with live callers remain in their components: the

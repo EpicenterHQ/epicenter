@@ -47,7 +47,7 @@ not create a second implementation assignment.
 - Desired result: A physical recording interrupted by window destruction or
   application exit releases the microphone, retains captured desktop audio,
   and permits another recording after reopening.
-- Current basis: The [recorder](packages/recorder/README.md) writes desktop
+- Current basis: The [recorder](apps/whispering/packages/recorder/README.md) writes desktop
   audio as Opus in WebM from the first sample, and `recover()` finishes
   recordings a quit or crash cut off.
 - Remaining acceptance: With a real input device, exercise interruption,
@@ -59,7 +59,7 @@ not create a second implementation assignment.
 - Desired result: Select on-device transcription when available; otherwise
   explain what is missing and open the model settings. Keep endpoint
   transcription available as an explicit alternative.
-- Grounding: [SpeechSettings](apps/whispering/src/lib/components/SpeechSettings.svelte)
+- Grounding: [SpeechSettings](apps/whispering/src/routes/components/settings/SpeechSettings.svelte)
   offers on-device models under **On this computer**. The web build has no
   local transcription.
 - Revisit when: Next Whispering connection or first-run pass. Verify model
@@ -182,41 +182,18 @@ not create a second implementation assignment.
 
 ## Release and hosted operations
 
-### Establish hosted erasure before external onboarding
+### Take down the retired hosted API
 
-- Desired result: Attribute hosted allocations to their account and verify an
-  operator procedure that retires access and removes owned application data.
-- Grounding: [Auth configuration](packages/server/src/auth/base-config.ts)
-  still refuses account deletion before destructive work. Reinventory current
-  allocations; the [account notes](apps/api/worker/account/README.md) include
-  historical storage owners and do not establish the live deployment's state.
-- Revisit when: Before external onboarding. Automated retries and self-service
-  deletion require their own product need. Offline copies, backups, logs, and
-  provider retention need explicit limits.
-
-### Make Sign in with Apple a supported product path
-
-- Desired result: Offer Apple on supported sign-in and account-linking surfaces.
-- Grounding: Server configuration supports Apple, but the
-  [UI provider list](apps/api/ui/src/lib/auth/providers.ts) exposes only Google,
-  GitHub, and Microsoft.
-- Revisit when: Next provider or linking pass; verify the complete sign-in flow.
-
-### Reconcile obsolete OAuth registrations in deployed databases
-
-- Desired result: Old clients and redirects no longer authorize grants, while
-  the current CLI and desktop registrations remain functional.
-- Grounding: [The registrations](apps/api/worker/oauth-registrations.ts)
-  declare the clients, and [registration](packages/server/src/auth/oauth-registrations.ts)
-  writes them to the database; it updates known clients but does not remove
-  unknown rows. The old `epicenter-cli` row may survive in deployments that once
-  seeded it. `so.epicenter` (the deleted desktop app), `so.epicenter.todos`, and
-  `so.epicenter.capture` belong to apps no longer in this repository and may
-  now be obsolete too. No deployed inventory was read, so existence is
-  unverified.
-- Revisit when: Next production registration audit. Inspect exact rows and
-  historical redirects before disabling obsolete clients; keep legitimate
-  external registrations. This entry does not authorize production changes.
+- Desired result: Nothing still serves `api.epicenter.so`, and the people who
+  used it have their data and any paid balance handled.
+- Grounding: [ADR-0970](docs/adr/0970-the-hosted-api-is-retired.md) removed the
+  code and the deploy step, which stops republishing but takes nothing down.
+  The live Worker, its Postgres database, its Infisical secrets, Autumn
+  billing, OAuth client rows, and account data stay as they were. Account
+  deletion was never automated.
+- Revisit when: Before anything else reuses the domain, or when the owner
+  decides how to close paid plans and credit balances. This entry does not
+  authorize production changes.
 
 ### Reconcile metadata for retired published package versions
 
@@ -225,8 +202,8 @@ not create a second implementation assignment.
 - Grounding: The earlier retirement list included `@epicenter/workspace`,
   `@epicenter/filesystem`, and `@epicenter/cli`. `@epicenter/cli` was
   published again and is retired once more, folded into `@epicenter/app`
-  (ADR-0960); `@epicenter/app` is published; `@epicenter/folder` is private now, and
-  whether it was ever published is unchecked. Check current registry metadata
+  (ADR-0960); `@epicenter/app` is published; `@epicenter/folder` was private and is now
+  deleted; whether it was ever published is unchecked. Check current registry metadata
   and intended version ranges before proposing any deprecation; preserve the
   license of each previously published version.
 - Revisit when: Next package release. Do not unpublish or deprecate a whole
@@ -242,9 +219,9 @@ not create a second implementation assignment.
 - Grounding: On 2026-11-17, `apps/landing/src/pages/privacy.astro` and
   `terms.astro` still call Epicenter "local-first software". The blog posts
   `apps/landing/src/content/blog/launch.md` and
-  `second-brain-infrastructure.md` describe the earlier product. The plan
-  comparison in `apps/api/ui/src/lib/components/PlanComparison.svelte` says
-  "All plans include cloud sync, unlimited workspaces". The front-door rewrite
+  `second-brain-infrastructure.md` describe the earlier product. The retired
+  account website's plan comparison said "All plans include cloud sync,
+  unlimited workspaces". The front-door rewrite
   in `98a9930ac1` left these for a deliberate decision.
 - Revisit when: Before the next public announcement or pricing change. Privacy
   and terms wording is a legal statement; change what it promises, not only its
@@ -252,19 +229,14 @@ not create a second implementation assignment.
 
 ### Finish the logging cleanup the logging skill describes
 
-- Desired result: No package builds an error only to log it, and the hosted API
-  writes one record per request the way `epicenter serve` writes one per action
-  run.
+- Desired result: No package builds an error only to log it.
 - Grounding: The [logging skill](.agents/skills/logging/SKILL.md) forbids a
   `new Error` at a log call site, yet six subscriber loops still do it:
   `packages/ai/src/open-ai.ts`, `packages/ai/src/local-servers.ts`,
   `folder-package:packages/ai/src/agent/loop.ts`, and in the retired Folder package
   `folder-package:packages/folder/src/folder.ts` (two) and `note-edit.ts`. The six are the
-  same catch-and-log loop copied; one shared helper may replace them. The
-  skill names one hosted API request as a unit of work, but no per-request
-  record exists.
-- Revisit when: The next logging pass. Before the hosted API record, check how
-  Cloudflare Workers keep and query logs. The Folder sites go away with that
+  same catch-and-log loop copied; one shared helper may replace them.
+- Revisit when: The next logging pass. The Folder sites go away with that
   package rather than being fixed.
 
 ### Triage the open pull requests against the current code

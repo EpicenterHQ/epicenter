@@ -12,7 +12,7 @@ Follow the [project writing conventions](../../../AGENTS.md#writing-conventions)
 
 A specification gives an agent or maintainer the context they need to implement a feature autonomously. The goal is not to describe everything exhaustively. The goal is to show enough evidence that the direction is credible and give the implementer a concrete launch point.
 
-**A spec is in-flight scaffolding, not the durable record.** It plans work and holds research while the work is underway. It is not authoritative and does not outlive the work. Durable decisions live in `docs/adr/`, shared vocabulary in `docs/CONTEXT.md`, current state in `docs/reference/` and the code. When a load-bearing decision crystallizes while you are writing the spec, record it as a `Proposed` ADR in `docs/adr/` right then and reference it from the spec; do not leave it buried in the spec to be "harvested" later. When the work lands, retire the spec using [the spec lifecycle](../../../specs/README.md#lifecycle). ADR acceptance follows [the ADR guidance](../../../docs/adr/README.md); implementation completion does not authorize a status change. Git and `docs/spec-history.md` keep the history.
+**A spec is in-flight scaffolding, not the durable record.** It plans work and holds research while the work is underway. It is not authoritative and does not outlive the work. Durable decisions live in `docs/adr/`, shared vocabulary in `docs/vision.md` under "The pieces", and current state in package READMEs and the code. When a load-bearing decision crystallizes while you are writing the spec, record it as a `Proposed` ADR in `docs/adr/` right then and reference it from the spec; do not leave it buried in the spec to be "harvested" later. When the work lands, retire the spec using [the spec lifecycle](../../../specs/README.md#lifecycle). ADR acceptance follows [the ADR guidance](../../../docs/adr/README.md); implementation completion does not authorize a status change. Git and `docs/spec-history.md` keep the history.
 
 > **Note**: This guide uses `[PLACEHOLDER]` markers for content you must fill in. Code blocks show templates; replace all bracketed content with your feature's details.
 
@@ -36,7 +36,7 @@ Specs should:
 
 A good spec is a launching pad, not a script to follow.
 
-**Before outlining sections, apply the [one-sentence-test](../one-sentence-test/SKILL.md).** If you can't name what this spec is about in one concrete sentence, the design is not coherent yet. That is the finding, and the spec is not ready.
+**Before outlining sections, apply the [one-sentence test](../code-collapse/SKILL.md#say-it-in-one-sentence).** If you can't name what this spec is about in one concrete sentence, the design is not coherent yet. That is the finding, and the spec is not ready.
 
 ---
 

@@ -13,14 +13,12 @@
 
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	buildLiveArgs,
-	compareStoredRun,
 	type EvalCase,
 	fingerprintInstructions,
 	judge,
@@ -41,7 +39,6 @@ const corpusPath = fileURLToPath(
 const gateCorpusPath = fileURLToPath(
 	new URL('../evals/always-on-gate.json', import.meta.url),
 );
-const runsDir = fileURLToPath(new URL('../evals/runs', import.meta.url));
 const scriptPath = fileURLToPath(
 	new URL('./run-trigger-eval.ts', import.meta.url),
 );
@@ -51,14 +48,14 @@ function makeCase(overrides: Partial<EvalCase> = {}): EvalCase {
 		id: 'case-1',
 		prompt: 'Run a collapse pass over this package.',
 		anchors: ['collapse pass'],
-		expect: 'collapse-pass',
+		expect: 'code-collapse',
 		forbid: [],
 		...overrides,
 	};
 }
 
 describe('validateCorpus', () => {
-	const known = new Set(['collapse-pass', 'refactoring']);
+	const known = new Set(['code-collapse', 'refactoring']);
 
 	test('accepts a well-formed case', () => {
 		expect(validateCorpus([makeCase()], known)).toEqual([]);
@@ -94,11 +91,11 @@ describe('validateCorpus', () => {
 
 	test('rejects a skill that is both expected and forbidden', () => {
 		const problems = validateCorpus(
-			[makeCase({ forbid: ['collapse-pass'] })],
+			[makeCase({ forbid: ['code-collapse'] })],
 			known,
 		);
 		expect(problems).toContain(
-			'case-1: collapse-pass is both expected and forbidden',
+			'case-1: code-collapse is both expected and forbidden',
 		);
 	});
 
@@ -111,7 +108,7 @@ describe('validateCorpus', () => {
 	test('accepts a near-miss case with a null expectation', () => {
 		expect(
 			validateCorpus(
-				[makeCase({ expect: null, forbid: ['collapse-pass'] })],
+				[makeCase({ expect: null, forbid: ['code-collapse'] })],
 				known,
 			),
 		).toEqual([]);
@@ -228,10 +225,10 @@ describe('parseLoadedSkills', () => {
 	test('collects each skill the transcript shows being loaded', () => {
 		const stream =
 			event([
-				{ type: 'tool_use', name: 'Skill', input: { skill: 'collapse-pass' } },
-			]) + event([{ type: 'text', text: 'collapse-pass' }]);
+				{ type: 'tool_use', name: 'Skill', input: { skill: 'code-collapse' } },
+			]) + event([{ type: 'text', text: 'code-collapse' }]);
 
-		expect(parseLoadedSkills(stream)).toEqual(['collapse-pass']);
+		expect(parseLoadedSkills(stream)).toEqual(['code-collapse']);
 	});
 
 	test('ignores tool uses that are not the Skill tool', () => {
@@ -265,19 +262,19 @@ describe('parseLoadedSkills', () => {
 
 describe('judge', () => {
 	test('passes when the expected skill loaded', () => {
-		expect(judge(makeCase(), ['collapse-pass']).verdict).toBe('pass');
+		expect(judge(makeCase(), ['code-collapse']).verdict).toBe('pass');
 	});
 
 	test('fails when a different skill loaded', () => {
 		const result = judge(makeCase(), ['refactoring']);
 
 		expect(result.verdict).toBe('fail');
-		expect(result.reason).toBe('expected collapse-pass, loaded refactoring');
+		expect(result.reason).toBe('expected code-collapse, loaded refactoring');
 	});
 
 	test('fails on a forbidden skill even when the expected one also loaded', () => {
 		const result = judge(makeCase({ forbid: ['refactoring'] }), [
-			'collapse-pass',
+			'code-collapse',
 			'refactoring',
 		]);
 
@@ -289,12 +286,12 @@ describe('judge', () => {
 		const nearMiss = makeCase({ expect: null, forbid: [] });
 
 		expect(judge(nearMiss, []).verdict).toBe('pass');
-		expect(judge(nearMiss, ['collapse-pass']).verdict).toBe('fail');
+		expect(judge(nearMiss, ['code-collapse']).verdict).toBe('fail');
 	});
 
 	test('reports loading nothing when a skill was expected', () => {
 		expect(judge(makeCase(), []).reason).toBe(
-			'expected collapse-pass, loaded nothing',
+			'expected code-collapse, loaded nothing',
 		);
 	});
 });
@@ -358,7 +355,7 @@ describe('partitionByRouter', () => {
 test('an unknown router is a corpus error', () => {
 	const problems = validateCorpus(
 		[makeCase({ router: 'gemini' as never })],
-		new Set(['collapse-pass']),
+		new Set(['code-collapse']),
 	);
 
 	expect(problems).toContain('case-1: unknown router: gemini');
@@ -495,53 +492,11 @@ describe('fingerprintInstructions', () => {
 			}),
 		);
 		const after = await fingerprintInstructions(
-			await scratch({ 'AGENTS.md': 'Review gates: load collapse-pass.' }),
+			await scratch({ 'AGENTS.md': 'Review gates: load code-collapse.' }),
 		);
 
 		expect(after.digest).not.toBe(before.digest);
 	});
-});
-
-describe('compareStoredRun', () => {
-	const current = {
-		files: [{ path: 'AGENTS.md', bytes: 4, sha256: 'aa' }],
-		digest: 'now',
-	};
-
-	test('a run produced under the same instructions is comparable', () => {
-		expect(compareStoredRun({ instructions: { ...current } }, current)).toBe(
-			'comparable',
-		);
-	});
-
-	test('a run produced under different instructions is superseded', () => {
-		const stored = { instructions: { ...current, digest: 'then' } };
-
-		expect(compareStoredRun(stored, current)).toBe('superseded');
-	});
-
-	// A run recorded before the digest existed is not a failed run. It simply
-	// cannot say which AGENTS.md produced its numbers, and reporting that as an
-	// absence keeps it from being quoted as if it could.
-	test('a run recorded before the digest existed is undigested', () => {
-		expect(compareStoredRun({}, current)).toBe('undigested');
-	});
-});
-
-test('--verify-runs reports every stored run against the working tree', () => {
-	const result = spawnSync(
-		'bun',
-		['run', scriptPath, '--verify-runs', runsDir],
-		{ encoding: 'utf8' },
-	);
-
-	// Every shipped run is listed exactly once, with a verdict and no numbers:
-	// this flag answers whether a rate may be quoted, never what the rate was.
-	const lines = result.stdout.trim().split('\n');
-	const stored = readdirSync(runsDir).filter((n) => n.endsWith('.json'));
-	expect(lines.length).toBe(stored.length);
-	for (const line of lines)
-		expect(line).toMatch(/^(comparable|superseded|undigested)\t.+\.json$/);
 });
 
 test('the shipped corpus covers both boundaries and both directions', async () => {

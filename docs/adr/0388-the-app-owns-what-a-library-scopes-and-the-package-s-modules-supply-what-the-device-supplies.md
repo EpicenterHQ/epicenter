@@ -70,6 +70,7 @@ the App, `@epicenter/app/clipboard` is the platform the app runs on.
 - Presentation code and boot screens reach the platform without an App.
 - A `runtime` field on the App for a platform module is refused; the build
   condition is the only selector for one.
+<!-- doc-path-check: ignore-next-line -->
 - `docs/CONTEXT.md` names the opened data surface a store and carries the
   App hub, device scope, and account scope entries; nothing there still
   describes a composition root.

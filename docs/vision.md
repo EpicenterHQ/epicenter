@@ -20,9 +20,8 @@ and live Epicenter.
 This page is the front door. [ADR-0943] records Epicenter's core invariants
 and their tradeoffs. [ADR-0896] and [ADR-0898] describe how collections meet;
 [ADR-0840] records why the direction changed from the folder sync product, and
-[ADR-0897] why hosted Notes waits. [Architecture](architecture.md),
-[CONTEXT](CONTEXT.md), and the package READMEs describe the code that exists,
-which is mostly the earlier product described at the end.
+[ADR-0897] why hosted Notes waits. The package READMEs describe the code that
+exists.
 
 ## A computer that stays on
 
@@ -200,8 +199,8 @@ changes in place ([ADR-0910]).
   Todoist. Todoist stays near empty, and Tasks is the list.
 - **A recording on a plane.** Whispering on your laptop records, transcribes,
   and pastes with no network, and keeps each recording, with its audio, in
-  its own folder ([ADR-0894], Proposed). It needs no Epicenter, and no
-  account: an Epicenter account only unlocks paid models. If you point its
+  its own folder ([ADR-0894], Proposed). It needs no Epicenter and no
+  account. If you point its
   folder into `~/Epicenter/apps/whispering/data`, or copy new files there with
   a file syncer, the recordings appear for your agents. A later Whispering may
   hand each new recording over to your home once it can reach it, and from

@@ -113,8 +113,8 @@ commits. App publication copies only code into a separate
 history ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and
-needs no Epicenter. Epicenter, the company, also hosts services: sign-in and
-paid models (`apps/api`).
+needs no Epicenter. The hosted API is retired for now
+([ADR-0970](docs/adr/0970-the-hosted-api-is-retired.md)).
 
 The folder sync product that came before is retired
 ([ADR-0899](docs/adr/0899-the-folder-sync-product-is-retired.md)). Some of its
@@ -131,7 +131,6 @@ Your data is on the home, and whoever can read the home can read it.
 | Your other devices | Only what a UI or agent fetches while it reaches the home. They keep no copy. |
 | The home's private `origin` backup | Whoever hosts the backup repository can read all included apps and records. Nothing is pushed until you add an origin. |
 | A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a file in Mail's `local/` on the home, and never leaves it. |
-| Epicenter's hosted services | What you send them: a prompt or audio for a paid model, and your account. They hold no part of your Epicenter. |
 
 `serve` signs no one in and listens only on the home, so which other devices
 reach it is your private network's decision. See the
@@ -147,7 +146,6 @@ Applications under `apps/` are outside apps
 | App | What it is |
 | --- | --- |
 | [Whispering](apps/whispering) | Voice recorder and speech-to-text, in a browser tab or as a desktop app. Recordings, transcripts, and settings are files in a folder. |
-| [API](apps/api) | Epicenter's hosted services: sign-in, paid models, and hosted-only billing, on Cloudflare Workers. |
 | [Landing](apps/landing) | The website at epicenter.so. |
 
 ### Packages
@@ -156,12 +154,10 @@ Applications under `apps/` are outside apps
 | --- | --- |
 | [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports (`defineApp`, `defineData`, `defineAction`, fields, `folderOnDisk`), the client a UI calls actions with, and the `epicenter` command, which runs each app's actions as commands and MCP tools and serves UIs. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
-| [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |
-| [`@epicenter/server`](packages/server) | The Hono library `apps/api` composes. |
+| [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 
-Whispering's own packages, and the folder sync product's code it still imports
-(`@epicenter/folder`, `@epicenter/definition`, `@epicenter/local`), are under
-[packages/](packages).
+Whispering's own packages are under
+[apps/whispering/packages/](apps/whispering/packages).
 
 ## Architecture
 
@@ -176,7 +172,6 @@ Whispering's own packages, and the folder sync product's code it still imports
 
 packages/app                   what epicenter.ts imports
 packages/app/src/command       epicenter: runs actions, serve, check
-apps/api                       Epicenter's hosted services, an outside app from a home
 ```
 
 [The vision](docs/vision.md) | [Trust model](docs/trust-model.md)
@@ -196,10 +191,9 @@ Every app starts from the repo root. `bun dev:<app>` runs that app's dev server,
 | Command | Starts | App port |
 | --- | --- | --- |
 | `bun dev:whispering` | Whispering in a browser tab | 1420 |
-| `bun dev:api` | Hosted API worker | 8787 |
 | `bun dev:landing` | Landing site | 4321 |
 
-The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Whispering's desktop build.
+Rust is needed for Whispering's desktop build.
 
 `bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
 
@@ -211,13 +205,11 @@ Run the pieces on their own while you work:
 
 ```bash
 bun run format          # rewrite formatting (CI autofixes this for you)
-bun run lint:check
+bun run lint            # fix lint findings
 bun run typecheck
 bun run test
 bun run check          # the whole merge gate: the above plus doc paths, catalog pins, API paths, UI boundary, boot purity, vocabulary
 ```
-
-One check sits outside the gate on purpose. `bun run check:doc-hygiene` flags specs and ADRs that time has made stale, so it belongs to review rather than to merge.
 
 ## Design notes
 

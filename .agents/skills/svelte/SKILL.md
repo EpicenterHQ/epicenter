@@ -48,7 +48,7 @@ existing functions, state, effects, ownership, and component boundaries as
 choices you can reconsider. Repeated decisions, mirrored state, and
 compensating effects are clues to examine: they can reveal a missing owner, or
 they can carry a real distinction. When the arrangement itself is in question,
-borrow the reasoning in [collapse-pass](../collapse-pass/SKILL.md) and
+borrow the reasoning in [code-collapse](../code-collapse/SKILL.md) and
 [rethink](../rethink/SKILL.md) to find one that can make several local fixes
 unnecessary; that reasoning serves this task without starting a separate
 workflow. Let that understanding determine the edits. Scale investigation to
@@ -135,12 +135,16 @@ Choose the owner before declaring state or extracting a handler:
 - When several template branches render variants of an optional discriminated union, check presence once in an outer block, then branch on its discriminant inside. Repeated optional checks or a forwarding `$derived` alias obscure the shared presence condition; an isolated variant check can use optional chaining. See [optional union rendering](references/component-ui-patterns.md#render-optional-unions-presence-first).
 - Prefer `satisfies Record` for exhaustive finite mappings to labels, icons, or other constant values. Use branching for conditions, computations, different markup, or variant-specific fields.
 - Use `SvelteMap` for reactive keyed data and `SvelteSet` for reactive membership; use plain maps and sets for imperative-only reads. See [reactive collections](references/lifecycle-and-reactivity.md#reactive-collections) for value reactivity and stable projections.
-- Bridge a non-store external event source (`window` events, an auth store) into reactivity with `createSubscriber` from `svelte/reactivity`, not a hand-rolled `$state` plus `$effect` plus listener set: reads inside an effect become reactive and the subscription is ref-counted to effect usage (start on first subscriber, cleanup at zero). A capability with `subscribe` needs none of this: `reactive` already does it (`packages/svelte/src/reactive.ts`). Keep a manual listener set only when the same source also serves imperative `.get()`/`.watch()` consumers whose liveness cannot ride on effect ref-counting.
+- Bridge a non-store external event source (`window` events, an auth store) into reactivity with `createSubscriber` from `svelte/reactivity`, not a hand-rolled `$state` plus `$effect` plus listener set: reads inside an effect become reactive and the subscription is ref-counted to effect usage (start on first subscriber, cleanup at zero). A capability with `subscribe` needs none of this: `reactive` already does it (`apps/whispering/src/lib/reactive.ts`). Keep a manual listener set only when the same source also serves imperative `.get()`/`.watch()` consumers whose liveness cannot ride on effect ref-counting.
 - For new reusable DOM behavior on elements, prefer `{@attach}` attachments over new `use:` actions. Keep `use:` for existing code or libraries that only expose actions.
 - For string attributes that combine plain text with expressions, use Svelte quoted interpolation (`label="Loading {name}"`, `href="/users/{id}"`) instead of a JavaScript template literal attribute. Keep expression attributes for non-string values, callbacks, objects, booleans, and cases where the entire attribute is a computed JavaScript expression.
 - For file editor views, preserve unfinished edits and give the person a way to repair invalid content. See [file editor views](references/component-ui-patterns.md#file-editor-views).
 - Keep simple component props inline. Use named `Props` only when a wrapper, generic relationship, exported contract, or native DOM type composition earns it. Push large view-mode branches into focused child components. Read [component and UI patterns](references/component-ui-patterns.md).
 - Use local `@epicenter/ui` loading, empty, pending, and tooltip components before ad hoc markup.
+
+## SvelteKit in Whispering
+
+Whispering is the only SvelteKit app. It builds with `adapter-static` and sets `ssr = false` in `src/routes/+layout.ts`, so every route renders in the browser. It has no server load functions, form actions, `+server.ts` endpoints, or server hooks; adding one needs a server the static build does not have. Route files reach `src/lib` through `$lib` and use relative imports for files that live together.
 
 ## Reference Map
 

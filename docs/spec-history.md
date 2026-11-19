@@ -6,7 +6,7 @@
 >
 > - For **current decisions and why**, read `docs/adr/`.
 > - For **how package-owned systems work now**, read the package README and code.
-> - For **shared vocabulary**, read `docs/CONTEXT.md`.
+> - For **shared vocabulary**, read `docs/vision.md` ("The pieces").
 > - To **read a removed spec's body**: `git log --all --full-history -- "<path>"` then `git show <sha>:<path>`.
 >
 > A row records that a design was explored on that date. It does not mean the
@@ -14,7 +14,7 @@
 > status is unreliable, so currentness is owned by `docs/adr/`. "State" is the
 > only fact shown: whether the spec is still in the working tree.
 >
-> **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
+> **Frozen.** The generator was removed; git keeps it (`git log --all -- scripts/generate-spec-history.ts`).
 
 **1492 specs ever** (2 still in tree, 1490 removed).
 

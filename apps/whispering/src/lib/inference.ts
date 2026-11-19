@@ -9,8 +9,8 @@
  * removed or moved since is reported by name, and nothing falls back to
  * another.
  *
- * A failure says what is known. Refused before sending (the shell refused it,
- * or no one is signed in) is certain; an endpoint that never answered is not:
+ * A failure says what is known. Refused before sending (the shell refused it)
+ * is certain; an endpoint that never answered is not:
  * the request may have gone and its answer been lost, so the outcome is
  * unknown, and nothing is sent again without the person asking. Keys never
  * reach a message: an endpoint removes its key from any refusal it reads.
@@ -89,11 +89,6 @@ export const InferenceError = defineErrors({
 		status,
 		detail,
 	}),
-	/** The endpoint reported an error while it answered. */
-	Failed: ({ name, detail }: { name: string; detail: string }) => ({
-		message: `${name} stopped with an error: ${detail}`,
-		detail,
-	}),
 	/** The answer did not read as the request's answer. */
 	Malformed: ({ name, reason }: { name: string; reason: string }) => ({
 		message: `${name}’s answer did not read: ${reason}`,
@@ -133,18 +128,14 @@ function moved(
  * Failures that stop a request before anything is sent, by the name each
  * carries: an endpoint's or the desktop shell's refusal of a request that
  * does not read (`InvalidRequest`), the shell's refusals of where it would
- * go or of a key it cannot read (`ConnectionFetchError`), an account with
- * no token to send (`AccountUnavailable`), and hosted inference while signed
- * out (`SignedOut`). Any other failure of a request that was handed over may
- * have reached the endpoint.
+ * go or of a key it cannot read (`ConnectionFetchError`). Any other failure
+ * of a request that was handed over may have reached the endpoint.
  */
 const BEFORE_SEND = new Set([
 	'InvalidRequest',
 	'SchemeRefused',
 	'OriginRefused',
 	'CredentialsFailed',
-	'AccountUnavailable',
-	'SignedOut',
 ]);
 
 /**
@@ -181,11 +172,6 @@ function failureOf(target: Target, error: AiError): InferenceError {
 				name: target.name,
 				status: error.status,
 				detail: error.message.slice(0, 300).trim(),
-			}).error;
-		case 'Failed':
-			return InferenceError.Failed({
-				name: target.name,
-				detail: error.message,
 			}).error;
 		case 'Malformed':
 			return InferenceError.Malformed({

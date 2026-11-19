@@ -22,8 +22,7 @@ encrypts them.
 | One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, each app's `local/` folder included. Epicenter adds nothing against that. |
 
 Choosing where to rent a home is choosing who can read it, in the way choosing
-which agents get a shell is. Epicenter's hosted services hold no part of your
-Epicenter and none of its sign-ins.
+which agents get a shell is.
 
 ## Reaching the home
 
@@ -93,37 +92,14 @@ changes Gmail through your own sign-in
 ([ADR-0882](adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md),
 [ADR-0898](adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md)).
 
-Epicenter's own hosted services (`apps/api`) are outside apps in the same
-sense. They hold your account and what you send them. They hold no part of
-your Epicenter.
+## A model sees what you send it
 
-## The AI gateways see the prompt and the audio
-
-Epicenter's hosted gateways are two OpenAI-compatible routes in `apps/api`:
-`/v1/chat/completions` for chat (`packages/server/src/routes/inference.ts`) and
-`/v1/audio/transcriptions` for speech-to-text
-(`packages/server/src/routes/transcription.ts`). Both are passthrough proxies.
-The gateway attaches Epicenter's own key, forwards your request to the upstream
-provider (OpenAI or Gemini for chat, OpenAI `whisper-1` for transcription), and
-streams the reply back. It never reads a provider key from your request, so it
-cannot receive yours (ADR-0054).
-
-When you transcribe through the hosted gateway, your audio leaves your device,
-reaches Epicenter's Worker in memory for the one request, and goes to the
-upstream provider under Epicenter's key. The Worker keeps no audio and no
-transcript; the only durable record is a metered usage event (audio seconds,
-model, provider) so the call can be billed. A chat prompt is handled the same
-way. For that moment the request is inside Epicenter's trust boundary and the
-provider's.
-
-The private path is to point the connection somewhere you operate. An
-inference connection is `{ baseUrl, apiKey? }` (ADR-0060), so Whispering can
-use your own Ollama for chat or a local Speaches server for transcription, and
-the bytes never leave your machine.
-
-Epicenter signs in with social OAuth only: `packages/server/src/auth/base-config.ts`
-disables email and password on purpose, since no mail sender is wired up to
-verify an address.
+An inference connection is `{ baseUrl, apiKey? }` (ADR-0060). Whispering sends
+your prompt or audio to the endpoint you configure: a provider you hold a key
+for, or a server you run, such as Ollama for chat or a local Speaches server for
+transcription. With a local server the bytes never leave your machine.
+Epicenter runs no inference gateway of its own
+([ADR-0970](adr/0970-the-hosted-api-is-retired.md)).
 
 ## What came before
 
@@ -131,8 +107,9 @@ The folder sync product kept every device's folder in step through an
 Epicenter server, hosted or self-hosted, that held each folder's history in
 plaintext. It is retired
 ([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)), and so is its
-trust model: a choice of server and of who a folder was shared with. Its routes
-still exist in `packages/server` until nothing imports them.
+trust model: a choice of server and of who a folder was shared with. Its server
+code was deleted with the hosted API
+([ADR-0970](adr/0970-the-hosted-api-is-retired.md)).
 
 Before that, Epicenter encrypted every value in a synced Yjs document under a
 key derived from a root its servers held. That still trusted the server, so it

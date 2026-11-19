@@ -88,16 +88,8 @@ triggers or richer content.
 `Textarea` and `Input` expose `bind:value`, including function bindings for values
 read from an editor.
 
-Default editor composition needs no tabs: render structured controls for valid
-rows and a text editor for invalid rows. Bind to current editor values and submit
-complete replacements. Add tabs when the app offers a choice among views of valid
-input.
-
-`Tabs.Content` unmounts inactive children by default, including custom `child`
-snippets. Do not repeat the selected-tab condition inside every panel. Keep editor
-input, refused input, and unfinished forms above disposable panels. Use
-`forceMount` when an inactive panel intentionally owns state that must survive.
-The retained panel stays hidden and its controls remain alive.
+Render structured controls for valid rows and a text editor for invalid rows.
+Bind to current editor values and submit complete replacements.
 
 A structured panel still renders only while the current row is valid. Its setters
 check current row and application eligibility because input may arrive before
@@ -109,7 +101,7 @@ ADR-0523.
 Use `Loading` for a page or panel loading state with an optional caption:
 
 ```svelte
-<Loading class="flex-1" label="Loading tabs..." />
+<Loading class="flex-1" label="Loading recordings..." />
 ```
 
 Use `Empty` for empty, error, or prompt states, and for pending states that need

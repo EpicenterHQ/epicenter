@@ -7,6 +7,8 @@
 - **Relates:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) (resource audiences), ADR-0564 (endpoint and key), and ADR-0633 (account-free local data).
 - **Unbuilt:** independent inference-only consent for the planned clients, its integration into standalone apps, and the included allowance's amount, renewal, eligible models, and limit behavior.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 ADR-0618 removed inference because the proposed Epicenter product contained

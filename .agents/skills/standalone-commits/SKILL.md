@@ -10,7 +10,7 @@ metadata:
 
 A standalone commit is a commit a reviewer can audit on its own, at that point in branch history. It may depend on earlier commits in the same branch, but it should not require future commits to explain, compile, test, or justify it.
 
-> **Related Skills**: See [git](../git/SKILL.md) for conventional commit messages and PR text.
+> **Related**: [pull-request](../pull-request/SKILL.md) for PR titles and bodies; commit format and worktree rules are in `AGENTS.md`, "Git hygiene".
 
 ## Two Halves: Boundary And Order
 
@@ -138,7 +138,7 @@ Better: Keep the fix focused. Put cleanup in a separate commit only if it is wor
 
 ## Commit Message Shape
 
-Use the `git` skill for exact conventional commit formatting. For standalone commits, make the subject name the outcome, not the implementation detail.
+Make the subject name the outcome, not the implementation detail.
 
 Good:
 

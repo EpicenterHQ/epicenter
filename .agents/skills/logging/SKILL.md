@@ -52,7 +52,7 @@ tagged variant when the layer owns a stable failure vocabulary.
 
 ## Level is a call-site decision, not a variant property
 
-The [billing client](../../../apps/api/worker/billing/autumn.ts) logs a rejected provider request at `error` when the provider reports a client-side failure. A transient provider or transport failure goes to `warn`. Both paths return `BillingError.ProviderRequestFailed()` to the caller.
+The billing client logs a rejected provider request at `error` when the provider reports a client-side failure. A transient provider or transport failure goes to `warn`. Both paths return `BillingError.ProviderRequestFailed()` to the caller.
 
 Do NOT attach a `severity` to `defineErrors` variants. That's `miette`'s pattern; `tracing`, `log`, and every production Rust logger put level on the call. Context-dependent data belongs at the context.
 
@@ -231,5 +231,4 @@ Serialize at the sink. A host that wants searchable records uses a sink that wri
 ## See also
 
 - `error-handling` skill: `trySync`/`tryAsync` patterns and the [error variants reference](../error-handling/references/error-variants.md) for the typed failures the logger consumes
-- `rust-errors` skill: full `tracing` ↔ `Logger` mapping
 - `tapErr` (from `wellcrafted/result`): Result-chain combinator that logs on the Err branch and passes the Result through. Rare in epicenter, since most call sites branch on `result.error` directly to use the data on the Ok branch. Reach for it only when the Result flows out of the function in a `.then(...)` chain.

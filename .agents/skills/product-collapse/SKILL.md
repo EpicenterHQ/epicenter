@@ -1,6 +1,6 @@
 ---
 name: product-collapse
-description: Develop simpler product behavior with the person by questioning assumed requirements and working backward from what they need. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment.
+description: Develop simpler product behavior with the person by questioning assumed requirements and working backward from what they need. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment, or when judging asymmetric wins, meaning whether refusing a small promise would remove disproportionate complexity.
 ---
 
 # Product collapse
@@ -33,6 +33,14 @@ A recurring choice might be resolved once. A mode or degree of fidelity
 might be unnecessary. Actions might belong together, or a combined action
 might work better as separate decisions. Something the browser or
 operating system already does may be enough.
+
+Often a change only needs to take effect when something starts. An editor
+window that can switch between folders has to close files, settle pending
+work, and clean up. If each window stays with one folder, opening another
+folder opens a new window, and all of that goes away. The same goes for
+reloading a page after a setting changes instead of keeping a live
+connection in step with it. The person waits a moment and may lose unsaved
+work, so decide whether that is acceptable before the code goes.
 
 For example, someone who wants to review their week might need one
 useful report with a date-range choice. They may have no use for a report
@@ -77,13 +85,30 @@ Carry settled choices forward without reconfirming each detail. Bring
 back consequential choices that remain unresolved. Agreement on a
 direction does not by itself authorize implementation.
 
-Use [collapse-pass](../collapse-pass/SKILL.md) to carry an authorized
+Use [code-collapse](../code-collapse/SKILL.md) to carry an authorized
 change through its callers, remove what it made unnecessary, and verify
 the result. Use disposable data for app experiments.
-
-Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when weighing whether
-giving up one small promise could remove much larger complexity.
 
 Read [the examples](references/examples.md) for illustrations of this
 judgment. They show questions worth examining, not changes to apply by
 keyword or a required number of alternatives.
+
+## Asymmetric wins
+
+Ask: what could we refuse? Could giving up 10 to 20 percent of the
+features remove 80 to 90 percent of the complexity?
+
+Look for one small promise that drags a lot of code along with it: a fast
+path, an old format, a rare mode, a compatibility alias, a fallback parser,
+exact reproduction. Write down what people lose and the deletion prize, the
+code that goes away with it. Then check that the product still does what
+its sentence says. A second way of doing something looks cheap to add, but
+it has to be kept working forever.
+
+Choose the smallest loss that removes the second way, not simply the
+biggest deletion.
+
+For example, letting browser apps sign in with Google's one-tap costs a
+second of speed, but it forces a separate sign-in path, helpers, an error
+state, and two sets of docs and tests. Refusing it makes Google sign-in a
+few seconds slower and leaves one path for every provider.

@@ -2,7 +2,7 @@
 
 Root `package.json` scripts are a menu of commands. Each entry is one of:
 
-- one call to a tool or workspace: `biome lint`, `bun run --cwd apps/api dev`;
+- one call to a tool or workspace: `biome lint`, `bun run --cwd apps/landing dev`;
 - one `bun run scripts/<file>.ts`;
 - one `infisical run ... -- bun run scripts/<file>.ts`, which counts as a tool
   call so the `:remote` name keeps showing that a command touches production.
@@ -18,7 +18,6 @@ here. Run everything from the repository root.
 | --- | --- |
 | `dev:*` | start an app |
 | `check:*` | validate the repository and exit non-zero on failure |
-| `gen:*` | regenerate a checked-in file |
 | `:desktop` | the native Tauri window of the same app |
 | `:remote` | wraps Infisical's `prod` environment; a production admin operation |
 

@@ -16,12 +16,9 @@ Judge an API from its call sites as well as its implementation: what does
 autocomplete offer, what does hover explain, and where does Go to Definition
 lead?
 
-Use [services-layer](../services-layer/SKILL.md) when deciding which operations
-belong together and what their callers should supply. Use
-[query-layer](../query-layer/SKILL.md) when adapting those operations for caching
-and observable execution state. Schema libraries and tests have their own
-skills: [arktype](../arktype/SKILL.md), [typebox](../typebox/SKILL.md), and
-[testing](../testing/SKILL.md).
+Use [query-layer](../query-layer/SKILL.md) when adapting Result-returning
+operations for caching and observable execution state. Tests have their own
+skill: [testing](../testing/SKILL.md).
 
 ## Core rules
 
@@ -47,7 +44,7 @@ skills: [arktype](../arktype/SKILL.md), [typebox](../typebox/SKILL.md), and
 ### Modules and names
 
 - Treat acronyms as normal words in camelCase: `parseUrl`, `defineKv`, `readJson`, `customerId`.
-- Give relative imports an explicit extension, the one the package already uses: for example, `.ts` in `packages/app` and `.js` in `packages/account`.
+- Give relative imports an explicit extension, the one the package already uses: for example, `.ts` in `packages/app` and `.js` in `packages/ai`.
 - Export symbols at their declarations. Reserve `export { ... } from ...` for barrel files.
 - In React/TSX, prefer named function components with explicit props parameters over `React.FC`/`FunctionComponent`; only type component values when you are storing them in a registry or passing them as data.
 - Use `is`, `has`, or `can` prefixes for booleans that answer a question.
@@ -101,7 +98,6 @@ For broader public-shape decisions that affect navigation across packages, see
 - [Project conventions](references/project-conventions.md): examples for derived types, local shape copies, imports, barrels, generics, and inference.
 - [Type safety and control flow](references/type-safety-and-control-flow.md): identity brands, casts, optional properties, boolean naming, switches, record lookups, error composition, and invariants.
 - [Type organization](references/type-organization.md): type ownership, co-location, factory output aliases, and the cost of extraction.
-- [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and record ids.
 - [Type tests](../testing/references/type-testing.md): inferred types, rejected inputs, and compiler verification.
 - [Advanced TypeScript features](references/advanced-typescript-features.md): iterator helpers and const generic array inference.
 - [Readable constraint errors](references/readable-constraint-errors.md): identifying an invalid literal key or string in a compiler diagnostic.

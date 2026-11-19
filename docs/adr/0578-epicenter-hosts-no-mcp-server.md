@@ -6,6 +6,8 @@
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at the third-party MCP client row, the `https://mcp.epicenter.so/mcp` resource row, the MCP uses of `folders:read` and `folders:write`, and `cimd(...)`: there is no `mcp` audience, and no client identifies itself by a client ID metadata document. [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) at "only `mcp` limits scopes" and the `mcp` column of its audience table: a deployment has two audiences, `api` and `git`, and both allow every scope.
 - **Amended by:** ADR-0594 at the kept `grant-target.ts` and "with a folder choice": the `/consent` page stays for device codes, and `grant-target.ts` is deleted. [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at "Every OAuth client is a first-party row written by `registerFirstPartyClients`", "The authorization server composes no `@better-auth/cimd` plugin", and "A `client_id` that names a URL is an unknown client": a third-party browser app's client id is the URL of its client ID metadata document, and the authorization server composes `cimd(...)` again; the `mcp` audience stays deleted.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 ADR-0550 put an MCP server in front of hosted folders so that Claude.ai and

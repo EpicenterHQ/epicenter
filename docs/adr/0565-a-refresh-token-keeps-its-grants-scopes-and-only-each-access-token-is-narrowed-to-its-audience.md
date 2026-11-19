@@ -11,6 +11,8 @@
 - **Relates:** ADR-0546 (the Git audience a folder syncs to), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment names the authority), ADR-0559 (a window's children end with the window).
 - **Unbuilt:** moving from Better Auth `1.8.0-beta.0` to 1.8 stable before the first deploy; `epicenter auth status` reporting a grant as signed in after its sign-in has ended (a refresh answered `invalid_grant` twice) until `epicenter auth logout`.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 ADR-0549 gives each first-party grant every audience its client may reach,

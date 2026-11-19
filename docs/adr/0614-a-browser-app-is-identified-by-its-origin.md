@@ -7,6 +7,8 @@
 - **Relates:** ADR-0611 (a first-party app is an ordinary client), ADR-0612 (what a grant names).
 - **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name or offering to create a repository by it; a refresh token per grant that renews without leaving the page; the account grant `epicenter login` holds; and native app identity.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 Every OAuth client is a row that `buildFirstPartyClients` in

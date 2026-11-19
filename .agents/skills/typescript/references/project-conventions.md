@@ -6,7 +6,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
 
 - **Do not add a type until you have tried to derive or import it**: New named
   types are guilty until proven useful. Before declaring a type, check whether
-  the shape already exists in an external library, an arktype/typebox schema, a
+  the shape already exists in an external library, a typebox schema, a
   factory return value, a runtime constant, or a function signature.
 
   ```typescript
@@ -161,9 +161,9 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   );
   ```
 
-- **Give relative imports an explicit extension, and match the package**: For example, `packages/app` re-exports `defineApp` from `./app.ts`, while `packages/account` re-exports `createBrowserOAuth` from `./browser-oauth.js`. TypeScript resolves the latter to the source `.ts` file.
+- **Give relative imports an explicit extension, and match the package**: For example, `packages/app` re-exports `defineApp` from `./app.ts`, while `packages/ai` re-exports `AiError` from `./client.js`. TypeScript resolves the latter to the source `.ts` file.
 
-  This does not apply to package imports (`import { type } from 'arktype'`) or path aliases (`import Component from '$lib/components/Foo.svelte'`): only bare relative paths.
+  This does not apply to package imports (`import { Type } from 'typebox'`) or path aliases (`import Component from '$lib/components/Foo.svelte'`): only bare relative paths.
 - **`export { }` is only for barrel files**: Every symbol is exported directly at its declaration (`export type`, `export const`, `export function`). The `export { Foo } from './bar'` re-export syntax is reserved for `index.ts` barrel files: that is their entire job. Don't add re-exports at the bottom of implementation files "for convenience"; they go unused, leave orphaned imports, and create a false second import path.
 
   ```typescript

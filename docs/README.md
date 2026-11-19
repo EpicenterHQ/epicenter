@@ -9,8 +9,6 @@ This directory holds the vision, the decision records, and a few operating guide
 - [The `epicenter` command](../packages/app/src/command/README.md) and [what an app imports](../packages/app/README.md): how the current product works in code.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
 - [Trust model](trust-model.md): who can read your files, decided by who can read the home.
-- [Context](CONTEXT.md): the retired folder sync product's vocabulary, for the code of it still here.
-- [Architecture](architecture.md): a map of the retired folder sync product's code.
 - [Spec history](spec-history.md): a dated index of every spec ever written (history, not current truth).
 
 ## Directory structure
@@ -19,7 +17,7 @@ This directory holds the vision, the decision records, and a few operating guide
 Architecture Decision Records: the authoritative, immutable record of durable decisions. See [adr/README.md](adr/README.md) for the template and rules.
 
 ### `/guides`
-Two operating guides for live systems: [Whispering redirects](guides/whispering-redirects.md) (the legacy domains and where they point) and [billing and the Autumn boundary](guides/billing-autumn-boundary.md).
+One operating guide for a live system: [Whispering redirects](guides/whispering-redirects.md) (the legacy domains and where they point).
 
 ### `/licensing`
 [Licensing strategy](licensing/licensing-strategy.md): the license, the threat model, and "If MIT returns".
