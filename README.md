@@ -190,7 +190,7 @@ bun run format          # rewrite formatting (CI autofixes this for you)
 bun run lint            # fix lint findings
 bun run typecheck
 bun run test
-bun run check          # the whole merge gate: the above plus doc paths, catalog pins, UI boundary, boot purity
+bun run check          # the whole merge gate: the above plus unused code (knip), doc paths, catalog pins, UI boundary, boot purity
 ```
 
 ## Design notes
