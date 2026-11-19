@@ -20,8 +20,7 @@
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { formatDuration } from '#lib/feed.ts';
 	import { queryClient, recordingsMutations } from '#lib/queries.ts';
-	import { recordings } from '#lib/app.ts';
-	import type { Recording } from '#lib/data/recordings.ts';
+	import { type Recording, recordings } from '#lib/data/recordings.ts';
 
 	let {
 		recording,

@@ -1,10 +1,9 @@
 /**
- * Where Whispering keeps its files: five operations on one folder. Each data
- * module (`#lib/data/*`) is made over a `Files` and never asks where it runs:
+ * Where Whispering keeps its files: five operations on one folder, with
+ * one implementation for each place the page runs (`index.ts` picks):
  *
  * - `tauriFiles()` on the desktop: the app's local data directory.
  * - `opfsFiles()` in a browser: the Origin Private File System.
- * - `memoryFiles()` in tests.
  *
  * A path is relative to the folder, uses `/`, and is a plain name
  * (`checkPath`), so nothing reaches outside the folder. The page reads only
