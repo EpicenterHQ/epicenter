@@ -4,7 +4,7 @@ Epicenter runs personal apps on a computer their owner controls. Each app
 keeps its code and records together in the home's private Git repository.
 The CLI runs app actions, and `epicenter serve` makes them available to
 the owner's devices and agents. The earlier folder sync product is retired.
-Some of its packages still have callers in Whispering. The hosted API is retired for now (ADR-0970).
+Some of its packages still have callers in Whispering. The hosted API is retired for now.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` lists the apps in this repository; package
@@ -84,10 +84,8 @@ READMEs and decision records, where they can be checked with the implementation.
 
 `docs/adr/`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
-Check changes to apps, the CLI, or storage against [the vision](docs/vision.md)
-and [the home layout](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md).
-For changes to the old sync code, start with its current callers and
-[the retirement decision](docs/adr/0899-the-folder-sync-product-is-retired.md).
+Check changes to apps, the CLI, or storage against [the vision](docs/vision.md).
+For changes to the old sync code, start with its current callers.
 
 Verify API names, exports, and file layouts against current source and callers,
 not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
