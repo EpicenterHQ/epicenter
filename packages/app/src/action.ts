@@ -100,8 +100,9 @@ type ActionDef<
 	/**
 	 * `false` to leave the action out of MCP, for one an agent must not
 	 * call, such as sending as the owner. The command and a page still call
-	 * it. An agent with a shell can run the command, so this keeps the
-	 * action from an agent that reaches your Epicenter only through MCP.
+	 * it. Anything that can send HTTP to serve can still call it, so this
+	 * keeps the action from an agent that reaches your Epicenter only
+	 * through MCP.
 	 */
 	readonly mcp?: false;
 	/** Return `Ok(data)` or `Err(error)`; `data` must survive JSON. */

@@ -1,9 +1,10 @@
 /**
  * MCP for `epicenter serve`, at `POST /`: one tool per action, named
- * `<app>_<action>`, except an action marked `mcp: false`, and nothing else. `tools/call` runs the action in serve
- * as the command's call does, and answers `{ data, error }` as
- * `structuredContent`, with `isError` for any error. Updates are not sent:
- * an MCP client reads only the answer.
+ * `<app>_<action>`, and nothing else. Serve hands it the program without
+ * actions marked `mcp: false`, so here they are neither listed nor found.
+ * `tools/call` runs the action in serve as the command's call does, and
+ * answers `{ data, error }` as `structuredContent`, with `isError` for any
+ * error. Updates are not sent: an MCP client reads only the answer.
  *
  * The SDK's `Server` holds one transport at a time, and a stateless
  * transport takes one request, so each request gets its own of both.
@@ -46,15 +47,12 @@ function toolResult(answer: Answer) {
  */
 export function createMcp(program: Program, listing: Listing) {
 	const tools = listing.apps.flatMap((app) =>
-		app.actions
-			.filter((action) => action.mcp !== false)
-			.map((action) => ({
-				name: `${app.name}_${action.name}`,
-				description: action.description,
-				inputSchema: action.input,
-			})),
+		app.actions.map((action) => ({
+			name: `${app.name}_${action.name}`,
+			description: action.description,
+			inputSchema: action.input,
+		})),
 	);
-	const names = new Set(tools.map((tool) => tool.name));
 	return async (request: Request) => {
 		const server = new Server(
 			{ name: 'epicenter', version: listing.version },
@@ -70,13 +68,6 @@ export function createMcp(program: Program, listing: Listing) {
 			return { tools };
 		});
 		server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-			// A listed program refuses an unlisted tool, so an action marked
-			// `mcp: false` is not called by its name either.
-			if (!program.problem && !names.has(params.name))
-				throw new McpError(
-					ErrorCode.InvalidParams,
-					`There is no tool ${JSON.stringify(params.name)}`,
-				);
 			const [app = '', ...action] = params.name.split('_');
 			return toolResult(
 				await answerCall(

@@ -37,8 +37,6 @@ export type ActionListing = {
 	name: string;
 	description: string;
 	input: ObjectSchema;
-	/** `false` when MCP leaves the action out. */
-	mcp?: false;
 };
 
 /** An app as the listing shows it. */

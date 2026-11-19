@@ -243,16 +243,12 @@ test('MCP offers one tool per action and runs it', async () => {
 		name: 'writing_send',
 		arguments: {},
 	});
-	expect(hidden.error.message).toContain('There is no tool "writing_send"');
+	expect(hidden.result.isError).toBe(true);
+	expect(hidden.result.content[0].text).toContain('has no action "send"');
 });
 
-test('an action marked mcp: false is listed and called outside MCP', async () => {
+test('an action marked mcp: false is still called outside MCP', async () => {
 	const { request } = await setup();
-	const listing: Json = await (await request('/actions/')).json();
-	expect(listing.apps[0].actions.at(-1)).toMatchObject({
-		name: 'send',
-		mcp: false,
-	});
 	const [answer] = await lines(
 		await request('/actions/writing/send', post({})),
 	);

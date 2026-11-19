@@ -145,9 +145,28 @@ function listingOf({ apps, problem }: Program): Listing {
 				name: action,
 				description: run.description,
 				input: run.input,
-				...(run.mcp === false ? { mcp: false as const } : {}),
 			})),
 		})),
+	};
+}
+
+/** The program as MCP is given it: every action not marked `mcp: false`. */
+function offeredToMcp(program: Program): Program {
+	return {
+		...program,
+		apps: Object.fromEntries(
+			Object.entries(program.apps).map(([name, app]) => [
+				name,
+				{
+					...app,
+					actions: Object.fromEntries(
+						Object.entries(app.actions).filter(
+							([, action]) => action.mcp !== false,
+						),
+					),
+				},
+			]),
+		),
 	};
 }
 
@@ -158,7 +177,8 @@ function listingOf({ apps, problem }: Program): Listing {
  */
 function createRoute(program: Program) {
 	const listing = listingOf(program);
-	const mcp = createMcp(program, listing);
+	const offered = offeredToMcp(program);
+	const mcp = createMcp(offered, listingOf(offered));
 	return async (request: Request) => {
 		const { method } = request;
 		const { pathname } = new URL(request.url);
