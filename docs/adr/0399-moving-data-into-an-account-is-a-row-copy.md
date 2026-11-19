@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0143](0143-account-open-never-consumes-device-data.md) at required sign-in adoption; signing in moves no data.
 - **Amends:** [ADR-0351](0351-local-data-removal-is-an-explicit-sign-out-choice.md) at removal scope: account-data removal excludes device-owned Local rows and blobs.
 - **Relates:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md), [ADR-0401](0401-a-record-names-its-destination-at-creation.md), and [ADR-0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md).
-- **Unbuilt:** Product-specific copy workflows and reference mapping. Whispering's accepted copy workflow is specified in [ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
+- **Unbuilt:** Product-specific copy workflows and reference mapping. Whispering's accepted copy workflow is specified in ADR-0428.
 
 ## Context
 

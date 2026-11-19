@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-26
-- **Amends:** [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md) at the application-facing readiness and recovery boundary.
+- **Amends:** ADR-0180 at the application-facing readiness and recovery boundary.
 - **Amended by:** [ADR-0186](0186-an-app-reaches-epicenter-through-one-bundled-mit-client-it-installs-itself.md) at the delivery and namespace boundary: how an app obtains the handle is settled as a bundled MIT package, and `recording` joins the initial capability set. The handle's shape, its refusal of optional namespaces, and its transcription rules are unchanged.
 - **Relates:** [ADR-0152](0152-epicenter-home-is-a-shell-above-workspaces.md), [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md)
 

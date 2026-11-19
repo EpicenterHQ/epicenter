@@ -69,7 +69,7 @@ Derived records:
 every native app),
 [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)
 (the model cache),
-[ADR-0759](0759-an-apps-native-shell-is-generated-on-every-build.md) (the
+ADR-0759 (the
 generated shell).
 
 | Shared place | Who meets there |
@@ -136,7 +136,7 @@ where, how and when**
 ([ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md)).
 [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md),
 [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md),
-[ADR-0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md),
+ADR-0756,
 and ADR-0759 apply it. The roots say what the system is; the rule says what
 an app's own code may contain. Under it, app code calls no sync function,
 and each of Whispering's four `#platform/*` seams becomes a capability's

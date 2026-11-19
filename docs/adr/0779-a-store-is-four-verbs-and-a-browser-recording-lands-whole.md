@@ -4,9 +4,9 @@
 - **Date:** 2026-11-05
 - **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at the store contract (`connect`, `Heard` with `paths`, `everything` and `files`, and `append?`): a store has four verbs, and connecting is the page's; [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at "append where they can" and "A file collection appends where its store can": no store and no collection appends.
-- **Relates:** [ADR-0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) (a guarantee that needs a process outliving the page is the installed app's), [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) (a capability read through `subscribe`).
+- **Relates:** ADR-0780 (now in [Whispering's decisions](../../apps/whispering/README.md#decisions)) (a guarantee that needs a process outliving the page is the installed app's), [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) (a capability read through `subscribe`).
 - **Amended by:** [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) at where a browser recording lands: in the team's repository.
-- **Amended by:** [ADR-0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) at a take landing whole in the folder: its note does, and its audio lands where the person keeps audio.
+- **Amended by:** ADR-0788 at a take landing whole in the folder: its note does, and its audio lands where the person keeps audio.
 - **Amended by:** [ADR-0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) at a store being four verbs: a fifth, `patch`, applies field changes where the file lives.
 
 ## Context

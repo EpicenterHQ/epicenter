@@ -11,7 +11,7 @@
 - **Amends:** [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md): withdraw code at the container's top; retain `data/` paths and the write boundary.
 - **Amends:** [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md): replace per-app repositories and backups with one root checkpoint; retain the host and listener boundary.
 - **Amends:** [ADR-0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md): withdraw ignoring `apps/`; retain the wrapper.
-- **Amends:** [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md): withdraw the assumption that an app's data is a separately cloneable repository; leave the device protocol undecided.
+- **Amends:** ADR-0887: withdraw the assumption that an app's data is a separately cloneable repository; leave the device protocol undecided.
 - **Amends:** [ADR-0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md): withdraw repository-relative record paths; retain container-relative `data/...` paths without redesigning the data-root API.
 
 - **Amends:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md): source authority remains; preserving a stray edit before a pull requires a manual checkpoint.

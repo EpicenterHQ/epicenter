@@ -73,7 +73,7 @@ Inference and saved-catalog constructors are specified in
 [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
 Blob transfer and recorder dependencies are specified in
 [ADR-0372](0372-local-and-remote-blobs-open-independently.md) and
-[ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md).
+ADR-0366.
 
 Store definitions contain their ID and schema. The ID selects the document and
 SQL namespaces and the Local blob namespace. Both stores expose `sqlite`; Local
@@ -83,7 +83,7 @@ The public store shape keeps account identity private under
 [ADR-0429](0429-store-handles-keep-account-identity-private.md); openers capture
 Personal identity privately and handles expose no Account projection.
 Whispering's recording ownership follows
-[ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
+ADR-0428.
 A future `openShared` follows the same shape with shared-owner authorization;
 it remains unbuilt. Secrets still take their own `{ id }`. SQLite borrows the
 containing store's scope and lifetime under ADR-0436. An ID selects storage; it grants no authorization.
