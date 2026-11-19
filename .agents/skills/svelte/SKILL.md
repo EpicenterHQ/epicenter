@@ -144,7 +144,7 @@ Choose the owner before declaring state or extracting a handler:
 
 ## SvelteKit in Whispering
 
-Whispering is the only SvelteKit app. It builds with `adapter-static` and sets `ssr = false` in `src/routes/+layout.ts`, so every route renders in the browser. It has no server load functions, form actions, `+server.ts` endpoints, or server hooks; adding one needs a server the static build does not have. Route files reach `src/lib` through `$lib` and use relative imports for files that live together.
+Whispering is the only SvelteKit app. The new `apps/whispering` is on SvelteKit 3: its Kit options live in `sveltekit({ ... })` in `vite.config.ts`, with no `svelte.config.js`. It builds with `adapter-static` and sets `ssr = false` in `src/routes/+layout.ts`, so every route renders in the browser. It has no server load functions, form actions, `+server.ts` endpoints, or server hooks; adding one needs a server the static build does not have. Route files reach `src/lib` through `#lib`, a subpath import in `package.json`, with the file's extension (`#lib/feed.ts`), and use relative imports for files that live together. `apps/whispering-old` stays on SvelteKit 2 with `$lib` until it is deleted.
 
 ## Reference Map
 
