@@ -185,11 +185,6 @@ The [dashboard auth module](../../../../apps/api/ui/src/lib/platform/auth.ts) co
 
 The promise answers “has the first read finished?” The live state answers “who is signed in now?” A later refresh can change that answer after the promise has settled.
 
-## Related
-
-- `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
-- `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
-
 # Stable adapters and reactive reads
 
 An adapted capability keeps its methods. Reading `auth.state()` in markup,
@@ -318,8 +313,6 @@ Reserve `$derived.by()` for multi-statement logic where you genuinely need a fun
 
 `satisfies Record<T, string>` checks the mapping. Add `as const` when preserving
 literal value types is part of the contract.
-
-See `docs/articles/record-lookup-over-nested-ternaries.md` for rationale.
 
 # Reactive collections
 

@@ -59,7 +59,6 @@ successful save, send that same payload once the save succeeds.
 “Export the saved note” fixes the note ID at the click. Read its saved content
 after the save succeeds and handle a missing note. The export can include
 later typing or edits merged from another writer.
-[Historical editor walkthrough](../../../../docs/articles/a-save-can-finish-after-the-person-has-moved-on.md#a-save-could-wait-for-later-typing)
 
 ### Native controls
 

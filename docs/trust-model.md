@@ -137,5 +137,3 @@ still exist in `packages/server` until nothing imports them.
 Before that, Epicenter encrypted every value in a synced Yjs document under a
 key derived from a root its servers held. That still trusted the server, so it
 was deleted with the `@epicenter/encryption` package.
-<!-- doc-path-check: ignore-next-line -->
-The argument is in `docs/articles/20260615T140000-dont-encrypt-the-data-dont-hold-it.md`.

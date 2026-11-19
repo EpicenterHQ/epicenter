@@ -122,7 +122,6 @@ test('dated records keep their words', () => {
 	withRepo((dir) => {
 		write(dir, 'docs/adr/0299-a-row-is-its-scalars.md', 'Its scalars.\n');
 		write(dir, 'specs/old.md', 'The scalar plan, and prose.\n');
-		write(dir, 'docs/articles/why.md', 'Prose and scalars.\n');
 		write(dir, 'README.md', 'clean\n');
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);

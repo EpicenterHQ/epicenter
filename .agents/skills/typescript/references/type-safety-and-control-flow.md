@@ -296,8 +296,6 @@ default: {
 
 The rule of thumb: if the type checker proves the input is one of N closed values AND adding an N+1th value should require updating this site, add `satisfies never`. Otherwise, leave the switch alone.
 
-See `docs/articles/switch-over-if-else-for-value-comparison.md` for rationale.
-
 ## Record Lookup Over Nested Ternaries
 
 When an expression maps a finite set of known values to outputs, use a `satisfies Record` lookup instead of nested ternaries. This is the expression-level counterpart to "Switch Over If/Else": switch handles statements with side effects, record lookup handles value mappings.
@@ -323,8 +321,6 @@ const tooltip = ({
 `as const` is unnecessary here. `satisfies` already validates the shape and value types. `as const` would narrow values to literal types (`'Connected'` instead of `string`), which adds no value when the output is just rendered or passed as a string.
 
 When the record is used once, inline it. When it's shared or has 5+ entries, extract to a named constant.
-
-See `docs/articles/record-lookup-over-nested-ternaries.md` for rationale.
 
 ## Compose Errors Bottom-Up, Don't Filter Top-Down
 
@@ -376,8 +372,6 @@ The narrow types weren't extracted from a wide one. They were composed bottom-up
 `Extract<>` is the right tool when the union is upstream and you can't redefine it: `Extract<keyof JSX.IntrinsicElements, 'div' | 'section'>`, `Extract<NodeJS.ErrnoException['code'], 'ENOENT' | 'EACCES'>`. The smell is when *you* defined the union and *you* are filtering it back down: that's a sign you owned the composition and composed it wrong.
 
 The test: do I own this union? If yes, split it. If no, `Extract<>` is fine.
-
-See `docs/articles/20260504T100000-extract-is-the-tell-you-composed-top-down.md` for rationale.
 
 ## Silent Fallback Smell
 

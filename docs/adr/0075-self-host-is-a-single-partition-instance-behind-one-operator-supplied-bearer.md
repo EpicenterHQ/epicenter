@@ -27,7 +27,7 @@ Epicenter is two products, split on partition cardinality, with no shared "mode"
 
 The instance ownership rule is the **pin-to-constant topology**, exposed as the `instance` rule that pins `owners/instance` independent of caller identity, **not** `perUser` keyed by user id. This decouples identity from partition: the resolver returns a named principal while the partition stays constant, so adding per-token identities later never re-partitions data.
 
-The naming rationale lives in [Identity and Partition Are Different Axes](../articles/identity-and-partition-are-different-axes.md): `perUser` names the hosted rule where identity selects the partition; `instance` names the self-hosted rule where the deployment pins the partition.
+The naming: `perUser` names the hosted rule where identity selects the partition; `instance` names the self-hosted rule where the deployment pins the partition.
 
 Roles are flat: any valid bearer gets full read/write to `owners/instance`. The bearer check is **verifier-shaped** (`verify(presented) -> principal | null`), and per-token named credentials (per-member revocation, authenticated attribution) are a documented additive seam, refused until a real multi-person deployment needs them. Boot **fails closed** when the token is missing or weak (a portable length/charset gate that points at the `gen-token` helper, `bun run gen-token`), preserving the entropy floor that minting used to provide without re-imposing the Bun-only mint path.
 

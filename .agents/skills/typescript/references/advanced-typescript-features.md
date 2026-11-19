@@ -65,4 +65,3 @@ const status = field.select(['draft', 'published']);
 type Status = Static<typeof status>; // 'draft' | 'published'
 ```
 
-See `docs/articles/typescript-const-modifier-generic-type-parameters.md` for details.

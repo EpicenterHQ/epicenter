@@ -63,13 +63,7 @@ Zero-knowledge means the server can't read your data. The cost: account recovery
 
 PGP has been trying to make key management practical for thirty years. Signal works because messaging is one-dimensional. The server is a relay that never processes content. Most apps aren't relays. Epicenter needs to search documents, run AI against notes, and let users recover a lost account without losing everything. The relay reads plaintext, which is what makes those features possible; if you want a server that can't read your data, self-host it.
 
-For the full argument:
-
-- [Trust model](/docs/trust-model.md): what the relay sees, the metadata it still sees, and the two deployments
-- [Don't Encrypt the Data, Don't Hold It](/docs/articles/20260615T140000-dont-encrypt-the-data-dont-hold-it.md): why the encryption layer was removed and the anchor direction
-- [Why E2E Encryption Keeps Failing](/docs/articles/why-e2e-encryption-keeps-failing.md): PGP, Signal, and the structural problem
-- [Let the Server Handle Encryption](/docs/articles/let-the-server-handle-encryption.md): the pragmatic alternative
-- [If You Don't Trust the Server, Become the Server](/docs/articles/if-you-dont-trust-the-server-become-the-server.md): self-hosting as the clean answer
+For the full argument, see the [trust model](/docs/trust-model.md): what the relay sees, the metadata it still sees, and the two deployments
 
 ## Architecture
 
