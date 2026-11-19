@@ -25,6 +25,7 @@
 	<Button onclick={() => dictation.toggle()}>
 		<CircleIcon class="fill-current text-red-500" />
 		Record
+		<kbd class="font-sans text-xs opacity-70" title="Works from any app">⌘⇧;</kbd>
 	</Button>
 {:else}
 	<Button disabled>

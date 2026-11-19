@@ -3,11 +3,22 @@
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
+	import { listen } from '@tauri-apps/api/event';
 	import '@epicenter/ui/app.css';
+	import { dictation } from '#lib/dictation.svelte.ts';
 	import { queryClient } from '#lib/queries.ts';
 	import { settings } from '#lib/settings.svelte.ts';
 
 	let { children } = $props();
+
+	// The global shortcut (⌘⇧;) is held in Rust (`main.rs`), which sends each
+	// press here; it does what the Record button does.
+	$effect(() => {
+		const unlisten = listen('toggle-recording', () => dictation.toggle());
+		return () => {
+			void unlisten.then((stop) => stop());
+		};
+	});
 </script>
 
 <QueryClientProvider client={queryClient}>

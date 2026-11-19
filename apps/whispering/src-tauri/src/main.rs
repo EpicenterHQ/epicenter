@@ -6,7 +6,8 @@
 //! the open window, so the app is the directory's one writer.
 //!
 //! Transcription runs here too (`transcribe.rs`), with the server's API key
-//! read from the Keychain (`keys.rs`).
+//! read from the Keychain (`keys.rs`), and one fixed global shortcut asks the
+//! page to start or stop a recording.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -15,11 +16,17 @@ mod keys;
 mod recordings;
 mod transcribe;
 
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_fs::FsExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// The window's label, which the capability selects.
 const WINDOW: &str = "main";
+
+/// The global shortcut that starts and stops a recording from any app: ⌘⇧; on a Mac.
+const SHORTCUT: &str = "CommandOrControl+Shift+Semicolon";
+/// What the window hears when the shortcut is pressed; the page decides what it does.
+const TOGGLE_RECORDING: &str = "toggle-recording";
 
 fn main() {
     tauri::Builder::default()
@@ -27,6 +34,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _, _| focus(app)))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_epicenter_recorder::init())
         .setup(|app| Ok(start(app.handle())?))
         .invoke_handler(tauri::generate_handler![
@@ -57,7 +65,23 @@ fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .min_inner_size(400.0, 400.0)
         .build()
         .map_err(|error| format!("The window could not open: {error}"))?;
+    listen_for_shortcut(app);
     Ok(())
+}
+
+/// Hold the global shortcut, sending each press to the window. Another app
+/// holding it leaves the shortcut off, never the app: Record still works.
+fn listen_for_shortcut<R: Runtime>(app: &AppHandle<R>) {
+    let held = app
+        .global_shortcut()
+        .on_shortcut(SHORTCUT, |app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                let _ = app.emit_to(WINDOW, TOGGLE_RECORDING, ());
+            }
+        });
+    if let Err(error) = held {
+        log::warn!("The shortcut {SHORTCUT} could not be held: {error}");
+    }
 }
 
 /// Every recording in `recordings/`: its note's text and whether its audio is there.
@@ -80,5 +104,17 @@ fn focus<R: Runtime>(app: &AppHandle<R>) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shortcut_parses() {
+        assert!(SHORTCUT
+            .parse::<tauri_plugin_global_shortcut::Shortcut>()
+            .is_ok());
     }
 }

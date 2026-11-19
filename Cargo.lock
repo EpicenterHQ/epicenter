@@ -6503,6 +6503,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-epicenter-recorder",
  "tauri-plugin-fs",
+ "tauri-plugin-global-shortcut",
  "tauri-plugin-single-instance",
  "tempfile",
 ]

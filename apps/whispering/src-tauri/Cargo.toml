@@ -24,6 +24,8 @@ tauri = { version = "2.12", features = [] }
 tauri-plugin-clipboard-manager = "2.5"
 tauri-plugin-epicenter-recorder = { path = "../../whispering-old/packages/tauri-plugin-epicenter-recorder" }
 tauri-plugin-fs = "2.7"
+# Holds ⌘⇧; from any app to start and stop a recording (`main.rs`).
+tauri-plugin-global-shortcut = "2.4"
 tauri-plugin-single-instance = "2.5"
 
 [dev-dependencies]
