@@ -88,20 +88,40 @@ keyword or a required number of alternatives.
 ## Asymmetric wins
 
 An asymmetric win is a refusal that returns more complexity than it costs
-in capability: preserve the product sentence, refuse the small promise,
-delete the code family. It is not a quota. Look for the one promise (a fast
-path, old shape, rare mode, compatibility alias, fallback parser, exact
-reproduction) that owns a disproportionate code family, and decide whether
-refusing exactly that leaves the sentence true.
+in capability: refuse 10 to 20 percent of the functionality to collapse 80
+to 90 percent of the complexity. The spine:
 
-For each candidate, name the capability lost and the machinery that
-disappears: methods, adapters, error variants, tests, docs branches, UI
-states, fixtures. Prefer the smallest loss that removes the second shape.
-Keep the feature, and say why, when the loss is load-bearing: exact detail
-that carries comprehension, accessibility, trust, brand, or a
-regression-sensitive state. Do not ship drift under "good enough", and do
-not count a deletion that only moves complexity somewhere harder to see.
-Name the refusal in the spec so it stays refused.
+```txt
+Preserve the product sentence.
+Refuse the small promise.
+Delete the code family.
+```
+
+The ratio is a way to spot the opportunity, not arithmetic and not a
+quota. Do not remove arbitrary features. Find the one small promise (a fast
+path, old shape, rare mode, compatibility alias, fallback parser, exact
+reproduction) that owns a disproportionate code family, then decide whether
+refusing exactly that leaves the product sentence intact. A second path
+feels cheap to add, but it is a permanent invariant.
+
+1. Name the product sentence and the workflow that must stay true.
+2. List the candidate refusals and circle the one that forces the most
+   extra surface area.
+3. For each, name the capability lost and the machinery that disappears:
+   methods, adapters, error variants, tests, docs branches, UI states,
+   fixtures.
+4. Separate refusals that change the product's purpose from those that
+   drop a convenience inside the same workflow.
+5. Prefer the smallest loss that removes the second shape, not the largest
+   deletion.
+6. Remove it from the sentence. If the sentence still describes a useful
+   product, refuse the promise and write the refusal into the spec.
+   Otherwise keep the feature and say why.
+
+Keep it when the loss is load-bearing: exact detail that carries
+comprehension, accessibility, trust, brand, or a regression-sensitive
+state. Do not ship drift under "good enough", and do not count a deletion
+that only moves complexity somewhere harder to see.
 
 Use the [clean-breaks reference](../rethink/references/clean-breaks.md) to
 carry out the replacement and delete the old path.

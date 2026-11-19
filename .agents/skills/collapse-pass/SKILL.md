@@ -128,24 +128,35 @@ for any new work the replacement introduces.
 ## State it in one sentence
 
 To audit a design, surface, or abstraction, write one concrete sentence
-about it in your response, so the reader can see the gap between what the
-prose claims and what the code does. If the sentence keeps drifting, the
-design is not coherent yet; name that.
+about it in your response: objects, verbs, and scope, with no "flexibly
+handles" or "unified experience". The value is the visible gap between what
+the prose claims and what the code does. If the sentence keeps drifting,
+the design is not coherent yet; name that before continuing.
 
-For a design or set of commands, endpoints, or options, the sentence is the
-thesis. Ask of each surface: does it serve the sentence, would the sentence
-survive its removal, and does another surface serve the same verb? A
-convenience feature that forces a second sentence belongs to another product.
+**A design or set of surfaces** (commands, endpoints, options). The
+sentence is the thesis. Ask of each surface: does it serve the sentence,
+would the sentence survive its removal, is there a verb with no surface,
+do two surfaces serve one verb? A convenience feature that forces a second
+sentence belongs to another product. This is also where an asymmetric win
+shows up: remove the feature that forces the most extra surface from the
+sentence, and if the sentence still describes a useful product, take it to
+the asymmetric wins section of [product-collapse](../product-collapse/SKILL.md).
 
-For a wrapper, flag, or utility, reduce it in order:
+**A wrapper, flag, or utility.** Reduce it three times, in order:
 
-1. Strip the docs. Ignore the name and JSDoc, read the body, and finish
-   "this function ___" with mechanics only.
-2. Specialize to the defaults in use. A knob set to `Infinity`, `false`, or
-   `null` leaves the code it guards inert.
-3. Ask whether the caller needs that version. If not, the wrapper adds nothing.
+```txt
+1. Strip the docs. Ignore the name and JSDoc, read the body:
+   "This function dedups by id, refcounts open/close, and destroys on
+   idle timeout."
+2. Specialize to the defaults in use:
+   "With gcTime: Infinity, it dedups by id. Docs live forever." The
+   refcount is inert.
+3. Ask what the caller needs. A singleton caller has one id and one
+   lifetime, so dedup is a no-op: the wrapper adds nothing. Delete it.
+```
 
-Paraphrasing the JSDoc is not a reduction; it repeats the claim being tested.
+Stopping at step 1 sounds useful until the defaults neuter the feature.
+Paraphrasing the JSDoc is a summary of the claim, not a reduction.
 
 ## Carry the change through
 
