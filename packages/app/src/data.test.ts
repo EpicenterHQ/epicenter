@@ -316,8 +316,38 @@ test.each([
 	},
 );
 
+test('an id with a backslash is refused by every verb and in a ref, since the folder will not write it', async () => {
+	const id = 'a\\b';
+	const { folder, files } = await tempFolder();
+	const data = defineData(folder, {
+		notes: { description: 'note', fields: { title: field.text() } },
+		links: { description: 'link', fields: { note: field.ref('notes') } },
+	});
+	const refused = {
+		name: 'Misfit',
+		path: 'data/notes',
+		problems: [
+			{
+				line: '"a\\\\b" is not a file name: the id is the file name without .md',
+			},
+		],
+	};
+	for (const result of [
+		await data.notes.get(id),
+		await data.notes.create(id, { title: 'x' }),
+		await data.notes.patch(id, { title: 'x' }),
+		await data.notes.edit(id, () => Ok({ title: 'x' })),
+		await data.notes.delete(id),
+	])
+		expect(expectErr(result)).toMatchObject(refused);
+	expect(expectErr(await data.links.create('l', { note: id }))).toMatchObject({
+		name: 'Misfit',
+		problems: [{ kind: 'note names no record in notes' }],
+	});
+	expect(await files('data')).toEqual([]);
+});
+
 test.each([
-	['with a backslash', 'a\\b'],
 	['with a NUL byte', 'a\u0000b'],
 	['longer than the system allows', 'x'.repeat(300)],
 ])('an id %s makes every write throw and writes no file', async (_, id) => {

@@ -84,19 +84,29 @@ export function isUnderLocal(path: string): boolean {
 }
 
 /**
- * `path` as a folder takes it: `./a//b.md` is `a/b.md`. Throws for an empty,
- * absolute, or climbing path, and for one inside `.git`.
+ * Why a folder will not take `path`, or undefined when it will: an empty,
+ * absolute, or climbing path, one with `\`, which Windows reads as a
+ * separator, and one inside `.git`.
  */
-export function normalizePath(path: string): string {
+export function pathRefusal(path: string): string | undefined {
 	const parts = path.split('/').filter((part) => part !== '' && part !== '.');
 	if (path.startsWith('/') || path.includes('\\'))
-		throw new Error(`${JSON.stringify(path)} is not a relative path`);
-	if (parts.length === 0) throw new Error('a path is needed');
+		return `${JSON.stringify(path)} is not a relative path`;
+	if (parts.length === 0) return 'a path is needed';
 	if (parts.includes('..'))
-		throw new Error(`${JSON.stringify(path)} climbs out of the folder`);
-	if (parts[0] === '.git')
-		throw new Error(`${JSON.stringify(path)} is inside .git`);
-	return parts.join('/');
+		return `${JSON.stringify(path)} climbs out of the folder`;
+	if (parts[0] === '.git') return `${JSON.stringify(path)} is inside .git`;
+	return undefined;
+}
+
+/** `path` as a folder takes it: `./a//b.md` is `a/b.md`. Throws for a path `pathRefusal` refuses. */
+export function normalizePath(path: string): string {
+	const refusal = pathRefusal(path);
+	if (refusal !== undefined) throw new Error(refusal);
+	return path
+		.split('/')
+		.filter((part) => part !== '' && part !== '.')
+		.join('/');
 }
 
 /** `path` normalized, or a throw when it lies outside `data/` and `local/`. */

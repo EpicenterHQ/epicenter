@@ -9,7 +9,7 @@ import {
 } from './action-result.ts';
 import { ActionError, type Misfit, type Problem } from './errors.ts';
 import { isOptional, refKeyOf, whatFits } from './field.ts';
-import { type Folder, readText } from './folder.ts';
+import { type Folder, pathRefusal, readText } from './folder.ts';
 import {
 	changeMarkdown,
 	type FieldValues,
@@ -45,11 +45,16 @@ export function idOf(path: string): string | undefined {
 
 /**
  * Whether `id` names a record: Node gives `<id>.md` back with that id as its
- * name. `''`, `a/b`, `../x`, `x/` and any value that is not text do not, so
- * every id `create` writes, `list` reads back as the same id.
+ * name, and the folder will take that name. `''`, `a/b`, `../x`, `x/`, `a\b`
+ * and any value that is not text do not, so every id `create` writes, `list`
+ * reads back as the same id.
  */
 export function isId(id: unknown): id is string {
-	return typeof id === 'string' && idOf(`${id}.md`) === id;
+	return (
+		typeof id === 'string' &&
+		idOf(`${id}.md`) === id &&
+		pathRefusal(`${id}.md`) === undefined
+	);
 }
 
 /** One ref a value holds: the key it points into, the id, and where it sits. */
@@ -234,6 +239,7 @@ export function createMarkdownRecords({
 		// One listing per target key per write, the same names `list` reads.
 		const listed = new Map<string, Set<string>>();
 		const has = ({ target, id }: Ref) => {
+			if (!isId(id)) return false;
 			if (!listed.has(target)) listed.set(target, new Set(idsIn(target)));
 			return listed.get(target)?.has(id) === true;
 		};
