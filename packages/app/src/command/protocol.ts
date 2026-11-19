@@ -49,12 +49,18 @@ export const noSuchAction = (app: string, action: string, actions: string[]) =>
 		next: `epicenter ${app}`,
 	});
 
-/** An app that does not load, refusing a call or a listing's view of it: its name, then each problem on its own line. */
+/**
+ * An app that does not load, refusing a call or a listing's view of it: its
+ * name, each problem on its own line, then what to do. Serve loads code only
+ * when it starts, so a fix shows after a restart.
+ */
 export const appProblems = (name: string, problems: string[]) =>
 	ActionError.NotStarted({
-		message: [`${name}:`, ...problems.map((problem) => `  ${problem}`)].join(
-			'\n',
-		),
+		message: [
+			`${name}:`,
+			...problems.map((problem) => `  ${problem}`),
+			'Fix its code, then restart serve.',
+		].join('\n'),
 	});
 
 /**

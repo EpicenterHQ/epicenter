@@ -620,7 +620,9 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 			'broken/x',
 			'{}',
 			{
-				message: expect.stringMatching(/^broken:\n {2}code\/epicenter\.ts: /),
+				message: expect.stringMatching(
+					/^broken:\n {2}code\/epicenter\.ts: .*\nFix its code, then restart serve\.$/,
+				),
 			},
 		],
 	] as const) {
@@ -669,7 +671,9 @@ test('a call serve never started answers NotStarted alone, as the one line of a 
 	expect(broken.code).toBe(2);
 	expect(JSON.parse(broken.stdout)).toEqual(
 		notStarted({
-			message: expect.stringMatching(/^broken:\n {2}code\/epicenter\.ts: /),
+			message: expect.stringMatching(
+				/^broken:\n {2}code\/epicenter\.ts: .*\nFix its code, then restart serve\.$/,
+			),
 		}),
 	);
 });

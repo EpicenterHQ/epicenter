@@ -542,7 +542,15 @@ export async function serveHttp(
 	}
 	loaded.resolve(served);
 	const routines = startRoutines(served.routines);
-	writeErr(`Serving your apps at http://${LOOPBACK}:${port}.`);
+	// Serve has no page at `/`, so the start message is where a person learns
+	// the addresses. Which apps have a built page is read once, here.
+	const base = `http://${LOOPBACK}:${port}`;
+	const pages: string[] = [];
+	for (const { name, folder, app } of served.apps.values())
+		if (app && (await uiFile(folder, 'index.html')).ok) pages.push(name);
+	writeErr(`Listening on ${base}.`);
+	writeErr(`  the listing: ${base}${ACTIONS}`);
+	for (const name of pages) writeErr(`  ${name}: ${base}/apps/${name}/`);
 	for (const { entry, problems } of served.listing.problems)
 		writeErr(`${entry}: ${problems.join('; ')}`);
 	for (const routine of served.routines)

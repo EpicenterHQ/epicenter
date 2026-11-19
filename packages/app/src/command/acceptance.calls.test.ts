@@ -528,6 +528,26 @@ test('a throw nothing catches after an action answered is logged, and serve keep
 		},
 	));
 
+test('serve starts by naming its port, the listing, and each app with a built page', async () => {
+	const f = await fixture();
+	roots.push(f.userDir);
+	await f.app('plain', bareApp('plain'));
+	await f.app('paged', bareApp('paged'));
+	const dist = join(f.epicenter, 'apps', 'paged', 'code', 'ui', 'dist');
+	await mkdir(dist, { recursive: true });
+	await writeFile(join(dist, 'index.html'), '<h1>Paged</h1>');
+	const served = await startServe(f);
+	try {
+		expect(served.stderr()).toStartWith(
+			`Listening on ${served.base}.\n  the listing: ${served.base}/actions/\n  paged: ${served.base}/apps/paged/\n`,
+		);
+		expect(served.stderr()).not.toContain('/apps/plain/');
+		expect((await fetch(`${served.base}/apps/paged/`)).status).toBe(200);
+	} finally {
+		await served.stop();
+	}
+});
+
 test('a stray EPICENTER.md below the root is an Epicenter, and the refusal names it', async () => {
 	const f = await setup();
 	// A command finds the nearest marker, as Git finds the nearest .git, so one

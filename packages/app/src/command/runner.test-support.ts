@@ -271,7 +271,7 @@ async function spawnServe(
 			const { value: chunk, done } = await reader.read();
 			if (done) break;
 			output += new TextDecoder().decode(chunk);
-			const port = /Serving your apps at http:\/\/127\.0\.0\.1:(\d+)\./.exec(
+			const port = /Listening on http:\/\/127\.0\.0\.1:(\d+)\./.exec(
 				output,
 			)?.[1];
 			if (port) ready.resolve(`http://127.0.0.1:${port}`);
