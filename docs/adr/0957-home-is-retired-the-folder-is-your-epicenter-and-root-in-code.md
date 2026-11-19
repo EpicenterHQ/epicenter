@@ -44,8 +44,8 @@ only it.**
 - The `x-epicenter-home` header becomes `x-epicenter-root` and keeps its
   job: serve refuses a call meant for another Epicenter that reached its
   port. ADR-0961 settles what it carries: the command sends the root's real
-  path on its request to `127.0.0.1`, and serve's answers carry only
-  `x-epicenter: 1`, so no path reaches another device.
+  path on its request to `127.0.0.1`, and serve refuses another root's
+  with a 409 that names no path, so no path reaches another device.
 - Once "Epicenter" names the folder, a message about the program names
   serve as its subject: `serve is not running` and `start it with epicenter
   serve`, not `Epicenter is not running for this home`

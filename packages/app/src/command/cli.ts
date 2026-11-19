@@ -38,11 +38,11 @@ built UI, then its fetch), and each action at POST /actions/<app>/<action>,
 on 127.0.0.1 at the port EPICENTER.md
 names, which every Epicenter must. It starts in the Epicenter's folder. An
 Epicenter has one serve, and only serve loads app code: epicenter <app> and
-bare epicenter ask it, and are refused while it is stopped. Each call runs
-from the app's code as it is on disk then, to its end, and serve keeps
-nothing about it. An app whose code threw while loading, or imported a file
-that was missing, keeps that failure until serve restarts, even once fixed;
-epicenter check tries the fixed code. It runs the Epicenter's routines: a routines/<name>.md
+bare epicenter ask it, and are refused while it is stopped. Serve loads every
+app, AGENTS.md and routines/ once, when it starts, and runs each call to its
+end from that load, keeping nothing about it. Restart serve after editing an
+app's code; epicenter check tries changed code first. It runs the
+Epicenter's routines: a routines/<name>.md
 declares cron: "0 8 * * *", action: "<app> <action>" and an optional
 input: {...}. Serve reads them when it starts, refuses one whose action or
 input does not fit, and once a minute runs each routine whose schedule had

@@ -56,10 +56,10 @@ version an Epicenter runs is one line in a file in Git
 - `bun install` at the top of the Epicenter installs every app's packages and
   Epicenter. Epicenter has no install command, and calls and listings never
   install.
-- Restart `serve` after changing packages: stop `epicenter serve` and start
-  it again. An edit to an app's own files
-  shows on the next call. A package lives in the Epicenter's top `node_modules/`,
-  outside the app's folder, and `serve` keeps the packages it has loaded.
+- Restart `serve` after changing an app's code or packages: stop
+  `epicenter serve` and start it again. Serve loads each app once, when it
+  starts, so an edit to an app's own files and a changed package both take
+  effect at the restart. See [Restart serve to run changed code](#restart-serve-to-run-changed-code).
 - To upgrade, edit the version in the Epicenter's `package.json`, then run
   `bun install && bun run build`, commit `package.json` and `bun.lock`, and
   restart `serve`. The build gives every UI the new client; reload open pages.
@@ -101,7 +101,7 @@ epicenter writing add '{"body":"An observation I want to return to","source":"My
 epicenter writing search '{"query":"observation"}'
 ```
 
-Open `http://127.0.0.1:4747/writing/`. Save a real note, search for it, and open
+Open `http://127.0.0.1:4747/apps/writing/`. Save a real note, search for it, and open
 it to edit. Your notes are in `apps/writing/data/notes/`. Closing the terminal
 stops the server; the files remain. Keep unsubmitted text open until saved.
 
@@ -212,8 +212,7 @@ note for people. Nothing refuses an Epicenter inside another: a command uses
 the nearest marked folder at or above where it runs. So a file named
 `EPICENTER.md` below your Epicenter, even in an app's `data/`, makes commands
 run under it look for an Epicenter there; when that one's port is your serve's,
-the refusal names the folder it took, such as `Port 4747 is in use by another
-Epicenter's serve, not the one for /Users/ada/Epicenter/apps/vault/data`.
+the refusal names the folder it took and its marker, as below.
 
 ```sh
 epicenter
@@ -354,13 +353,7 @@ can show a path of this computer to your own devices.
 
 An action runs in serve's environment: it does not see variables exported in
 the caller's shell, and what it prints goes to serve's output, not to the
-command. Each load drops cached modules under `codePath`, dependencies
-included, then imports `code/epicenter.ts`. The next call reads edits to code
-or its imports without restarting serve, with one exception: Bun keeps a
-module whose code threw while it ran, or that imported a missing file, so
-that failure stays until serve restarts, even once the file is fixed. Restart
-serve after fixing an app that failed to load; `epicenter check` tries the
-fixed code without one.
+command.
 
 An action shares its process with other calls. `process.exit` ends serve:
 every call then running is cut off, and a command that sent one answers
@@ -371,7 +364,7 @@ perform no Git work.
 
 `epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions at `POST /actions/<app>/<action>`, the listing as JSON at `GET /actions/`, and each app at `/apps/<app>/`: a file from its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)), then the app's own `fetch` ([ADR-0945](../../../../docs/adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md)), then 404. The launcher links to apps with a built page; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. A later route of the server's own takes its own first segment, beside `actions` and `apps`, so no app name is reserved ([ADR-0967](../../../../docs/adr/0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)). The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A request a browser marks `Sec-Fetch-Site: cross-site` is refused with 403 unless it is a top-level `GET` navigation (`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document`), such as a link or an OAuth redirect back; another site's image, script, `fetch()` or frame is refused. A browser sends these headers only to `localhost`, `127.0.0.1` or `https`, so reach serve from another device at its `https://<machine>.<tailnet>.ts.net` address, not a plain `http` tailnet IP. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
-MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` offers the actions of serve's listing, which loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
+MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions. Serve reads `AGENTS.md` and builds the tools once, when it starts. An app that fails to load has no tools, and serve prints why when it starts. `tools/call` decodes the tool name and runs the loaded action. What an action yields is not sent over MCP; a client gets its answer.
 
 A page calls actions through `@epicenter/app/client`, at
 `POST /actions/<app>/<action>`. See [A call over HTTP](#a-call-over-http).
@@ -379,6 +372,29 @@ A page calls actions through `@epicenter/app/client`, at
 Serve commits nothing. Git stores the Epicenter, and its owner commits and pushes
 it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
 serve exits, and a call or routine still running is cut.
+
+### Restart serve to run changed code
+
+Serve loads every app once, when it starts, and answers every call from that
+load until it stops ([ADR-0959](../../../../docs/adr/0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md)).
+It reads `AGENTS.md` and `routines/` in the same pass. An edit to an app's
+code, to a package, to `.env`, to `AGENTS.md` or to a routine takes effect
+when serve restarts; until then serve runs what it loaded, and nothing says
+the code on disk is newer. Records and `code/ui/dist/` are read when they are
+needed, so an edited record or a new build needs no restart.
+
+Serve has no reload command. Stop it and start it again, however you keep it
+running. Since that differs by computer, the Epicenter's `AGENTS.md` should
+carry the owner's restart command, so every agent that edits code can run it.
+For serve kept running by launchd:
+
+```md
+After editing an app's code, restart serve:
+launchctl kickstart -k gui/$(id -u)/<label>
+```
+
+`epicenter check` loads an app in its own process, so it tries changed code
+before a restart. A stop cuts every call and routine run still going.
 
 ## Keep serve running
 

@@ -90,7 +90,7 @@ none.**
   probes and the command's own size check (ADR-0959).
 - An app's and a routine's problems are made once, when serve starts, and
   a path inside the Epicenter in them is written from its folder, such as
-  `apps/notes/code/x.ts`. Nothing else is rewritten: an action's own error
+  `apps/<app>/code/x.ts`. Nothing else is rewritten: an action's own error
   message reaches its caller as the action wrote it, absolute paths
   included. The owner accepted that a message can show a path of this
   computer to the owner's own devices (ADR-0959).

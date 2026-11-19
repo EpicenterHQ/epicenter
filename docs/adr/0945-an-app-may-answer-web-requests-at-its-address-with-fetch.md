@@ -67,11 +67,11 @@ export default defineApp(({ folder }) => {
   `fetch` as for actions.
 - **A failure is a 500.** A `fetch` that throws, or returns something that is
   not a `Response`, answers 500, and serve logs one line naming the app. An
-  app that does not load answers 500 with its problems, for a path no file
-  answers.
-- **`fetch` is loaded like an action.** Serve loads the app for each request
-  that reaches `fetch`, as it does for each call, until ADR-0959 loads each
-  app once.
+  app that does not load answers 500 with its problems for every path under
+  its address, its built files included.
+- **`fetch` is loaded like an action.** Serve loads each app once, when it
+  starts (ADR-0959), and every request that reaches `fetch` calls the
+  function that load returned.
 
 **`fetch` is for protocols someone else defined. Anything a person or an
 agent should be able to do is an action.** The command line and MCP do not

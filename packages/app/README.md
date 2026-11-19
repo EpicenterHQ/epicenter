@@ -46,9 +46,9 @@ The app is a function of its folder
 `epicenter` calls it with the folder of `apps/reading/`, and everything
 inside it, data and actions alike, reaches the files through that argument.
 A helper outside the function that touches files takes the folder as a
-parameter. `epicenter` imports the app afresh and calls the function each
-time it loads the app, which today is on every call, so a value kept in the
-function body does not survive from one call to the next: keep it in a file.
+parameter. Serve imports the app and calls the function once, when it
+starts, so a value kept in the function body lasts until serve restarts:
+keep anything the app must remember in a file.
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading patch '{"id":"dune","finished":"2026-11-10"}'`
@@ -749,8 +749,7 @@ cannot see are in the next section.
 
 ### Changes the compiler does not flag
 
-- `epicenter` imports the app and calls its function each time it loads the app, today on every call. A cache or counter kept in the function body starts over each time; keep it in a file.
-- Listing apps calls the function too, so read and write inside actions, not in the function body.
+- Serve calls the app's function once, when it starts, and `epicenter check` calls it once in its own process. A cache or counter kept in the function body lasts until serve restarts; keep what must last in a file. Read and write inside actions, not in the function body.
 - A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
 - The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
 - `checkAnswer` refuses a `Threw` whose `thrown` is not a plain object, such as an `Error` instance a test passes in, and answers `Unreachable`. An answer read from serve is parsed JSON, so it is unaffected.
@@ -815,14 +814,50 @@ must be rebuilt
 - **Serve refuses a cross-site request that does not open a page.** Another
   site that loaded an app's icon or framed its page gets 403.
 
+### Serve loads once, and routines run actions
+
+Serve loads every app once, when it starts
+([ADR-0959](../../docs/adr/0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md)),
+and a routine names an action instead of a command
+([ADR-0937](../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md)).
+The compiler flags none of these.
+
+| 0.7.0 | After |
+| --- | --- |
+| an edit to an app's code shows on the next call | it shows after serve restarts; nothing says the code on disk is newer |
+| an app that failed to load stayed failed until serve restarted, even once fixed | the same, and so does every app: serve loads once |
+| `AGENTS.md` read on each MCP initialize | read once, when serve starts |
+| `routines/` read once a minute | read once, when serve starts; restart after adding or changing one |
+| a routine with `run: ["epicenter", "flights", "daily", "run", {"recheck": false}]` | `action: "flights daily"` and `input: {"recheck": false}`; a file with `run` is refused |
+| a routine running a shell command or Git | not possible; write an action that does it, or use the computer's own scheduler |
+| a routine naming a missing action failed when it ran | refused when serve starts, printed beside the address, and listed by bare `epicenter` |
+| `EPICENTER.md` with no `port` used 4747 | `port` is required; a marker without one is refused |
+| an entry in `apps/` that is a link to a folder elsewhere loaded that folder | refused: `apps/<name> is a link; an app is a folder in apps/, not a link to one` |
+| serve rewrote every error it sent, an action's included, showing the Epicenter's folder as `.` and your home folder as `~` | a problem serve makes names a path from the Epicenter's folder, such as `apps/<app>/code/epicenter.ts`; an action's own error is sent as written, full paths included |
+| a folder in `apps/` without `code/epicenter.ts` answered 404 at its address | it answers 500 with its problem, and is listed with `no code/epicenter.ts` |
+| a second serve on the port, or another program there, reached through a probe | a command naming another Epicenter is refused with 409, naming the folder it took and its marker; serve refuses to start on a port in use |
+| a refusal for a missing action named the app's actions only in its message | `--json` also carries them as `error.actions` |
+
+- **Add the restart command to your `AGENTS.md`.** Agents that edit code
+  must restart serve to run it. Write how, for this computer, in the
+  Epicenter's `AGENTS.md`, such as
+  `After editing an app's code, restart serve: launchctl kickstart -k gui/$(id -u)/<label>`.
+- **Rewrite each routine** from `run` to `action` and `input`. A routine
+  that ran something other than `epicenter <app> <action>` becomes an
+  action, or moves to the computer's scheduler.
+- **Add `port` to `EPICENTER.md`** if it has none: `port: 4747` between two
+  `---` lines.
+- **Move a linked app into `apps/`.** Copy its folder in place of the link.
+
 ### Upgrade steps
 
 1. In the root `package.json`, remove `@epicenter/cli` and set `@epicenter/app` to the new version.
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass, and rename its grouped actions.
 4. Run `bun run build` in each app that has a UI.
-5. Restart `epicenter serve`. Until you do, the command reads the old serve as another program on the port and runs nothing.
-6. Commit the result as one commit, so reverting it returns everything to 0.7.0.
+5. Name `port` in `EPICENTER.md`, rewrite each routine to `action`, and add your restart command to `AGENTS.md`.
+6. Restart `epicenter serve`. Until you do, the old serve does not answer the command's addresses, and the command runs nothing.
+7. Commit the result as one commit, so reverting it returns everything to 0.7.0.
 
 ## Upgrading from 0.6
 

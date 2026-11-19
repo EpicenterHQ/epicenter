@@ -70,10 +70,11 @@ GET  /apps/<app>                308 to /apps/<app>/
 - **The launcher links to `/apps/<app>/`.**
 - **No old address is answered.** `/<app>/` and `POST /<app>/<action>`
   answer 404. Nothing redirects.
-- **An app folder with no `code/epicenter.ts` answers 404 under
-  `/apps/<app>/`,** as a missing folder does. An app that throws while
-  loading answers 500 with its problems only when a request reaches its
-  `fetch`.
+- **A folder in `apps/` that did not load answers 500 with its problems
+  for every path under `/apps/<app>/`,** whether it has no
+  `code/epicenter.ts` or its code threw (amended 2026-11-18 with
+  ADR-0959: serve loads every entry once, when it starts). A name with no
+  folder answers 404.
 
 ## Consequences
 

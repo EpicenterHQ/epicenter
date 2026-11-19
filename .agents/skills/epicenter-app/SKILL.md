@@ -200,9 +200,9 @@ description, data, actions }))` (ADR-0960). The app is a function of its
 folder: `epicenter` calls it with `apps/<app>/`, and the data and
 actions declared inside it reach the files through `folder`. A helper
 outside the function that touches files takes the folder as a parameter.
-`epicenter` imports the app afresh and calls the function each time it
-loads the app, which today is on every call, so a value kept in the
-function body does not survive between calls: keep it in a file.
+Serve imports the app and calls the function once, when it starts, so a
+value kept in the function body lasts until serve restarts and no longer:
+keep anything the app must remember in a file.
 
 ```ts
 export default defineApp(({ folder }) => {
@@ -241,11 +241,14 @@ such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the Epicenter's
 `package.json`. `bun install` at the top of the Epicenter installs its packages;
 no command runs it, and a call never installs.
-Restart `serve` after packages change, by stopping and starting it: an edit
-to an app's own files shows on the next call, a changed package only after
-the restart. Restart it too after fixing an app that failed to load because
-its code threw or imported a missing file: serve keeps that failure until it
-restarts, while `epicenter check` already tries the fixed code. Upgrade Epicenter by editing the `@epicenter/app` version in the
+Restart `serve` after editing an app's code or changing packages, by
+stopping and starting it: serve loads every app once, when it starts, and
+runs that code until it stops. Nothing says the code on disk is newer, so an
+agent that skips the restart tests the old code. The Epicenter's `AGENTS.md`
+should name the owner's restart command, such as
+`launchctl kickstart -k gui/$(id -u)/<label>`; add it when it is missing and
+the owner tells you how serve is kept running. `epicenter check` tries
+changed code before the restart. Upgrade Epicenter by editing the `@epicenter/app` version in the
 Epicenter's `package.json`, then running `bun install && bun run build` at the top.
 That one package is the library and the `epicenter` command.
 Write each action with `defineAction`, which types its
@@ -284,8 +287,8 @@ did not listen needs. Serve runs the action to its end even when the page
 closes, and keeps nothing about the call, so save what a reload must show
 (the person's submitted input first, then completed output) in records.
 
-Actions run inside `epicenter serve` itself, from the files as they are when
-the call arrives, so an edit takes effect on the next call. The command line
+Actions run inside `epicenter serve` itself, from the code serve loaded when
+it started, so an edit takes effect when serve restarts. The command line
 loads no app code: `epicenter`, `epicenter <app>`, an action's `--help` and
 `epicenter <app> <action>` all ask serve, and are refused with exit 2 while
 serve is stopped. `epicenter check` loads each app in its own process, so it
@@ -379,12 +382,26 @@ the Epicenter on its own: what is not committed is in neither its history nor it
 backup. The branch and index are shared, and a commit made while serve runs
 can capture a partial edit or part of a running action. Make a named commit before a risky change.
 
-A routine's `run` is a program and its arguments. An argument may be a JSON
-value, which reaches the command as one word of JSON text:
-`run: ["epicenter", "flights", "daily", "run", {"recheck": false}]`.
+A routine is a file in `routines/` that runs one action on a cron schedule.
+Its front matter values are JSON, so the action is quoted:
 
-`epicenter` on its own shows each routine with its next occurrence and its
-command as a line to copy into a terminal. For the repository, run Git at the
+```md
+---
+cron: "0 8 * * *"
+action: "flights daily"
+input: {"recheck": false}
+---
+Research flights each morning.
+```
+
+`input` is optional. Serve reads routines when it starts, so restart serve
+after adding or changing one. A routine naming an unknown action, or an input
+that does not fit, is refused then: serve prints it, and `epicenter` lists it
+with its problem. A routine runs an action and nothing else; to run Git or a
+script on a schedule, write an action that does it.
+
+`epicenter` on its own shows each routine with its next occurrence and the
+action and input it runs. For the repository, run Git at the
 top of the Epicenter: `git status -sb` shows the branch, commits not on origin and
 each uncommitted file, and `git log -1 --format=%cr` how long ago the last
 commit was.
@@ -671,5 +688,6 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - Run from inside the app's Epicenter. Another person's Epicenter is a
   different folder with its own port.
 
-A running serve loads edited code on the next call. It serves code/ui/dist/
+A running serve runs the code it loaded when it started; restart it after
+editing code. It serves code/ui/dist/
 as the app's last `bun run build` left it.
