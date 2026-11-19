@@ -189,6 +189,7 @@ a reset before each use, a guard that its answer is for the open plan, and an
 exception to the rule. If one write's refetches ever cost too much, Wellcrafted
 documents a `meta.invalidates` opt-in; a precise list goes stale silently when a
 new read starts depending on the write, so adopt it only for that measured cost.
+Do not work out which reads a write affects by slicing its mutation key.
 
 The rule's scope is the client. The dashboard creates one per attachment, so
 its rule never touches another attachment's cache.
