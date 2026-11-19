@@ -20,7 +20,6 @@
 		"ignoreUnknown": true,
 		"includes": [
 			"**",
-			"!.conductor",
 			"!**/.svelte-kit",
 			"!**/.astro",
 			"!**/.plasmo",
