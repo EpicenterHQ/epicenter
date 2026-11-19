@@ -13,8 +13,8 @@ import { runMutation, runQuery } from 'wellcrafted/query';
 import { tryAsync } from 'wellcrafted/result';
 import { goto } from '$app/navigation';
 import { copyText, recorder, transcription } from './platform';
+import { type EndedReason, HEARD } from './platform/recorder/recorder';
 import { queryClient, recordingsMutations, settingsQueries } from './queries';
-import { type EndedReason, HEARD } from './recorder/recorder';
 
 type Status =
 	| { kind: 'idle' }

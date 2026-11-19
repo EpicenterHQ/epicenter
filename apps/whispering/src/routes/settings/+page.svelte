@@ -18,7 +18,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
 	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
-	import { transcription } from '#lib/platform.ts';
+	import { transcription } from '#lib/platform/index.ts';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import RecordingBar from '../RecordingBar.svelte';
 	import MicrophoneSettings from './MicrophoneSettings.svelte';

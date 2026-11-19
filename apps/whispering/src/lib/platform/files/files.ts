@@ -1,6 +1,6 @@
 /**
  * Where Whispering keeps its files: five operations on one folder, with
- * one implementation for each place the page runs (`index.ts` picks):
+ * one implementation for each place the page runs (`platform/index.ts` picks):
  *
  * - `tauriFiles()` on the desktop: the app's local data directory.
  * - `opfsFiles()` in a browser: the Origin Private File System.

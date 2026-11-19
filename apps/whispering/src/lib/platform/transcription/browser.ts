@@ -11,8 +11,8 @@
  * server that does not looks the same as one that cannot be reached.
  */
 import { Err, Ok } from 'wellcrafted/result';
+import { originOf } from '../../transcription-server';
 import type { Files } from '../files/files';
-import { originOf } from '../transcription-server';
 import {
 	type TranscribeError,
 	type Transcription,

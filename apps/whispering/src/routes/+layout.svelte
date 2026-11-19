@@ -4,10 +4,9 @@
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
-	import { isTauri } from '@tauri-apps/api/core';
-	import { listen } from '@tauri-apps/api/event';
 	import '@epicenter/ui/app.css';
 	import { dictation } from '#lib/dictation.svelte.ts';
+	import { onShortcut } from '#lib/platform/index.ts';
 	import { runQuery } from 'wellcrafted/query';
 	import { queryClient, settingsQueries } from '#lib/queries.ts';
 
@@ -22,15 +21,8 @@
 		if (read.error) toastOnError(read, 'Could not read your settings');
 	});
 
-	// The global shortcut (⌘⇧;) is held in Rust (`main.rs`), which sends each
-	// press here; it does what the Record button does. A browser has none.
-	$effect(() => {
-		if (!isTauri()) return;
-		const unlisten = listen('toggle-recording', () => dictation.toggle());
-		return () => {
-			void unlisten.then((stop) => stop());
-		};
-	});
+	// The global shortcut (⌘⇧;) does what the Record button does.
+	$effect(() => onShortcut(() => dictation.toggle()));
 </script>
 
 <QueryClientProvider client={queryClient}>

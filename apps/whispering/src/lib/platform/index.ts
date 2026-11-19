@@ -8,6 +8,7 @@
  * | `recorder` | the native recorder, writing each second | `MediaRecorder`, writing on Stop |
  * | `transcription` | Rust sends it; the key is in the Keychain | `fetch` sends it; the key is in `localStorage` |
  * | `copyText` | the clipboard plugin, which works while another app is in front | the page's clipboard |
+ * | `onShortcut` | ⌘⇧; from any app, held in Rust (`main.rs`) | none |
  *
  * ```txt
  * settings.json
@@ -16,6 +17,7 @@
  * ```
  */
 import { isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { opfsFiles } from './files/opfs';
 import { tauriFiles } from './files/tauri';
@@ -34,3 +36,14 @@ export const transcription = desktop
 export const copyText = desktop
 	? writeText
 	: (text: string) => navigator.clipboard.writeText(text);
+
+/**
+ * Call `run` on each press of the global shortcut until the returned
+ * function is called. Rust holds the shortcut and sends each press here; a
+ * browser has no global shortcut, so it never calls `run`.
+ */
+export function onShortcut(run: () => void): () => void {
+	if (!desktop) return () => {};
+	const listening = listen('toggle-recording', run);
+	return () => void listening.then((stop) => stop());
+}

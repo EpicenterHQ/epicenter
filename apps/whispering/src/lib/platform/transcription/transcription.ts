@@ -13,7 +13,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type { Server } from '../transcription-server';
+import type { Server } from '../../transcription-server';
 
 /** Why `transcribe` gave no text, as `TranscribeError` in `transcribe.rs` says it. */
 export type TranscribeError =
