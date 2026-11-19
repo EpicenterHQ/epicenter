@@ -5,13 +5,17 @@
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import '@epicenter/ui/app.css';
 	import { queryClient } from '#lib/queries.ts';
+	import { settings } from '#lib/settings.svelte.ts';
 
 	let { children } = $props();
 </script>
 
 <QueryClientProvider client={queryClient}>
 	<Tooltip.Provider>
-		{@render children()}
+		<!-- Settings are read once, before the first screen, so it never shows the wrong server. -->
+		{#await settings.loaded then}
+			{@render children()}
+		{/await}
 	</Tooltip.Provider>
 </QueryClientProvider>
 

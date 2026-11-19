@@ -5,8 +5,8 @@
  * body is the transcript. A recording is the two files by id; either can be
  * missing.
  *
- * A note is written to `<id>.md.tmp` and renamed over `<id>.md`, so a crash
- * mid-write leaves the old note whole.
+ * A note is written whole (`writeWhole` in `files.ts`), so a crash mid-write
+ * leaves the old note whole.
  */
 import {
 	changeMarkdown,
@@ -14,15 +14,7 @@ import {
 	readMarkdown,
 } from '@epicenter/app/markdown';
 import { invoke } from '@tauri-apps/api/core';
-import {
-	BaseDirectory,
-	exists,
-	readFile,
-	readTextFile,
-	remove,
-	rename,
-	writeTextFile,
-} from '@tauri-apps/plugin-fs';
+import { exists, readFile, readTextFile, remove } from '@tauri-apps/plugin-fs';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -30,6 +22,7 @@ import {
 } from 'wellcrafted/error';
 import { tryAsync } from 'wellcrafted/result';
 import { recordedAt } from './feed';
+import { appData, writeWhole } from './files';
 
 /** A recording; its time comes from its id (`recordedAt` in `feed.ts`). */
 export type Recording = {
@@ -63,7 +56,6 @@ export const RecordingsError = defineErrors({
 });
 export type RecordingsError = InferErrors<typeof RecordingsError>;
 
-const at = { baseDir: BaseDirectory.AppLocalData };
 const notePath = (id: string) => `recordings/${id}.md`;
 const audioPath = (id: string) => `recordings/${id}.webm`;
 
@@ -81,16 +73,6 @@ function toRecording({ id, note, audio }: Listed): Recording {
 	};
 }
 
-/** Write `text` to `<id>.md` through a temporary file beside it. */
-async function writeNote(id: string, text: string) {
-	const temporary = `${notePath(id)}.tmp`;
-	await writeTextFile(temporary, text, at);
-	await rename(temporary, notePath(id), {
-		oldPathBaseDir: BaseDirectory.AppLocalData,
-		newPathBaseDir: BaseDirectory.AppLocalData,
-	});
-}
-
 export const recordings = {
 	/** Every recording, oldest first (ids sort by time). One call reads every note. */
 	list: () =>
@@ -104,7 +86,9 @@ export const recordings = {
 	audio: (id: string) =>
 		tryAsync({
 			try: async () =>
-				new Blob([await readFile(audioPath(id), at)], { type: 'audio/webm' }),
+				new Blob([await readFile(audioPath(id), appData)], {
+					type: 'audio/webm',
+				}),
 			catch: (cause) => RecordingsError.ReadFailed({ id, cause }),
 		}),
 
@@ -116,7 +100,7 @@ export const recordings = {
 				const set: FieldValues = time
 					? { recordedAt: time, durationMs }
 					: { durationMs };
-				return writeNote(id, changeMarkdown('', { set, body: '' }));
+				return writeWhole(notePath(id), changeMarkdown('', { set, body: '' }));
 			},
 			catch: (cause) => RecordingsError.WriteFailed({ id, cause }),
 		}),
@@ -128,11 +112,11 @@ export const recordings = {
 	setTranscript: ({ id, transcript }: { id: string; transcript: string }) =>
 		tryAsync({
 			try: async () => {
-				const before = (await exists(notePath(id), at))
-					? await readTextFile(notePath(id), at)
+				const before = (await exists(notePath(id), appData))
+					? await readTextFile(notePath(id), appData)
 					: '';
-				await writeNote(
-					id,
+				await writeWhole(
+					notePath(id),
 					changeMarkdown(before, {
 						set: {},
 						body: transcript ? `${transcript}\n` : '',
@@ -147,7 +131,7 @@ export const recordings = {
 		tryAsync({
 			try: async () => {
 				for (const path of [notePath(id), audioPath(id)])
-					if (await exists(path, at)) await remove(path, at);
+					if (await exists(path, appData)) await remove(path, appData);
 			},
 			catch: (cause) => RecordingsError.DeleteFailed({ id, cause }),
 		}),
