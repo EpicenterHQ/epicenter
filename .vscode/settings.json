@@ -35,7 +35,6 @@
 		"editor.formatOnSave": true
 	},
 	// Repair relative Markdown links when a note is renamed or moved in the Explorer.
-	// Same convention as javascript/typescript updateImportsOnFileMove; see
-	// docs/articles/20260607T143000-markdown-link-repair-is-the-only-irreversible-choice.md
+	// Same convention as javascript/typescript updateImportsOnFileMove.
 	"markdown.updateLinksOnFileMove.enabled": "always"
 }

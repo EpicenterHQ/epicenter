@@ -87,9 +87,9 @@ export const asPrincipalId = (value: string): PrincipalId =>
 
 Skip it when:
 
-- The ID is minted fresh in this code: use `generateXxxId()` instead. See [Three Parts, One ID](../articles/three-part-branded-id-pattern.md).
+- The ID is minted fresh in this code: use `generateXxxId()` instead.
 - The branded type is only ever consumed from an arktype-validated schema: `id: PrincipalId` in the schema body already produces a branded value.
-- Path-style types that flow through a single `path.resolve()` choke point: cast there once. See [Absolute Path Type Safety](../articles/absolute-path-type-safety.md).
+- Path-style types that flow through a single `path.resolve()` choke point: cast there once.
 
 ## Naming
 

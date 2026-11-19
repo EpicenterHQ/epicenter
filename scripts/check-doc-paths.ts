@@ -24,7 +24,7 @@
  *     token. Its ref may be absent from a shallow CI clone, so it is not checked.
  *
  * Excluded from the scan, because their paths are illustrative or frozen:
- *   - `specs/` and `docs/articles/` at any depth: dated records, kept stale.
+ *   - `specs/` at any depth: dated records, kept stale.
  *   - `.agents/` and `.claude/`: skill and agent prompts cite example paths
  *     like `apps/whatever/src/lib/feature.ts` as teaching stand-ins.
  *   - an ADR whose status is `Superseded`: its paths were true when it was
@@ -58,7 +58,7 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {
 	.filter(Boolean);
 const trackedPaths = new Set(tracked);
 
-const EXCLUDED_DOC_DIRS = ['specs', 'docs/articles', '.agents', '.claude'];
+const EXCLUDED_DOC_DIRS = ['specs', '.agents', '.claude'];
 const REPO_ROOT_DIRS = ['apps', 'packages', 'docs', 'specs', 'scripts'];
 
 const isExcludedDoc = (file: string) =>

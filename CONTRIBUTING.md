@@ -84,7 +84,7 @@ Write the migration, push it locally, open a PR. A maintainer with Infisical pro
 
 To check the API without Infisical, run `bun run --cwd apps/api test` with PostgreSQL's `initdb` and `pg_ctl` on `PATH`. It boots both API entries against disposable Postgres clusters with fixture secrets and drives them with real access tokens.
 
-The convention in one line: `:local` works on a fresh clone, `:remote` wraps with `infisical run --env=prod` and is admin-only. See [`docs/articles/local-remote-script-convention.md`](docs/articles/local-remote-script-convention.md) for the full story.
+The convention in one line: `:local` works on a fresh clone, `:remote` wraps with `infisical run --env=prod` and is admin-only.
 
 ## Development Workflow
 

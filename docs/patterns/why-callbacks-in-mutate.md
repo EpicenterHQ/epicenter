@@ -77,8 +77,6 @@ Prefer call-site callbacks for UI consequences:
 ```
 
 Clearing the field here assumes the dialog still owns the submitted selection.
-For what happened when people could start another selection during a save, see
-[A save can finish after the person has moved on](../articles/a-save-can-finish-after-the-person-has-moved-on.md).
 
 ## Hook-Local Result Mutations
 

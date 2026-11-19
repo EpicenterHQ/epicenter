@@ -53,9 +53,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   Prefer the owning runtime type, schema, factory return type, function
   signature, or a caller-owned capability function. Keep incomplete fake objects
   in tests, checked with `satisfies` when useful, instead of widening
-  production code to accommodate them. See
-  `docs/articles/copied-types-are-boundary-leaks.md` for the full review
-  pattern.
+  production code to accommodate them.
 
 - **Compose types upward from a named base**: When you author a type, reach for
   a base you can name and grow with `Base & Extra`, not a wider type you carve
@@ -129,7 +127,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   };
   ```
 
-  Exception: Match upstream library types exactly (e.g., standard-schema interfaces). See `docs/articles/readonly-is-mostly-noise.md` for rationale.
+  Exception: Match upstream library types exactly (e.g., standard-schema interfaces).
 
 - **Acronyms in camelCase**: Treat acronyms as single words, capitalizing only the first letter:
 
@@ -149,7 +147,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   HTTPClient;
   ```
 
-  Exception: Match existing platform APIs (e.g., `XMLHttpRequest`). See `docs/articles/acronyms-in-camelcase.md` for rationale.
+  Exception: Match existing platform APIs (e.g., `XMLHttpRequest`).
 
 - TypeScript 5.5+ automatically infers type predicates in `.filter()` callbacks. Don't add manual type assertions:
 
@@ -181,7 +179,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   // Bad: re-export at bottom of create-tables.ts
   export type { TablesHelper, TableDefinitions };
   ```
-- **Question single-method `Pick` dependencies**: `Pick<T, K>` is fine for data projection, but `Pick<Thing, 'method'>` in dependency injection is often a boundary smell. If the caller only needs one operation, prefer a named capability function in the caller's language. Keep the object shape only when the caller participates in that object's life cycle or needs the rest of the capability family. See `docs/articles/single-method-pick-is-a-boundary-leak.md`.
+- **Question single-method `Pick` dependencies**: `Pick<T, K>` is fine for data projection, but `Pick<Thing, 'method'>` in dependency injection is often a boundary smell. If the caller only needs one operation, prefer a named capability function in the caller's language. Keep the object shape only when the caller participates in that object's life cycle or needs the rest of the capability family.
 - For factory signatures, internal arrow functions, and returned method placement, read [factory function composition](factory-function-composition.md). For public JSDoc and existing receiver-dependent APIs, read [method documentation and sibling calls](method-documentation-and-sibling-calls.md).
 - **Generic type parameters use `T` prefix + descriptive name**: Never use single letters like `S`, `D`, `K`. Always prefix with `T` and use the full name:
 

@@ -1,6 +1,6 @@
 ---
 name: technical-articles
-description: 'Technical articles and blog posts with honest trade-offs. Use when: "write a blog post", "draft an article", "write about this", creating articles in docs/articles/.'
+description: 'Technical articles and blog posts with honest trade-offs. Use when: "write a blog post", "draft an article", "write about this", writing a technical article.'
 metadata:
   author: epicenter
   version: '1.0'
@@ -9,6 +9,7 @@ metadata:
 # Technical Articles
 
 This skill owns article shape. The [project writing conventions](../../../AGENTS.md#writing-conventions) apply throughout.
+Articles no longer live in this repository. The old ones moved to the owner's own Epicenter, and new ones go there too.
 
 ## Core Principles
 

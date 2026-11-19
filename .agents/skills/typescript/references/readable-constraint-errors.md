@@ -85,6 +85,5 @@ to approve exactly what runtime accepts.
   `string`, so it cannot prove this key shape at compile time. Its `.test()`
   returns a boolean; it does not throw for a nonmatch.
 
-The [background article](../../../../docs/articles/20260513T235515-type-level-error-messages.md)
-develops the example. The original `defineActions` implementation it discusses
+The example comes from an original `defineActions` implementation that
 is no longer in the checkout.

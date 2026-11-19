@@ -15,9 +15,6 @@ This directory contains knowledge articles, guides, and reference materials for 
 
 ## Directory structure
 
-### `/articles`
-Technical articles and write-ups explaining specific concepts, implementations, or solutions.
-
 ### `/architecture`
 High-level architectural documentation and system diagrams.
 

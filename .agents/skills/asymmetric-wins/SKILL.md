@@ -214,5 +214,3 @@ Decision:
 The product still has social sign-in. It refuses one fast path so one invariant
 can own every provider and environment.
 
-For narrative context, see
-`docs/articles/20260504T160541-asymmetric-wins-support-fewer-features-to-collapse-complexity.md`.

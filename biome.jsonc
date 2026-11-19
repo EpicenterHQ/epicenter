@@ -48,7 +48,6 @@
 			"!tools/oxlint/anti-slop",
 			"!**/.gitignore",
 			"!.DS_Store",
-			"!docs/articles",
 			"!**/*.md",
 			// svelte-check owns .svelte files. Biome's HTML/Svelte parser
 			// rejects valid Svelte 5 syntax (e.g. value-less `{:then}`),

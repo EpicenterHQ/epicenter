@@ -131,8 +131,6 @@ export type PollVote = typeof PollVote.infer;
 
 Branded primitives are not an exception to `derive-types-before-you-declare-them.md`; they are the same rule pointing the other way, because `.as<T>()` is an input rather than a derivation. The question also settles cases the repo has not hit yet: `.narrow()` supplies nothing new, so derive.
 
-See `docs/articles/derive-types-before-you-declare-them.md`.
-
 ### Branding a Known-String Value
 
 At trusted call sites that receive a `string` from another typed source (Better Auth user id, URL params, Hono context vars), use the `as*` helper:

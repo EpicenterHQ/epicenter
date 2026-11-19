@@ -209,11 +209,7 @@ test('untracked markdown is not part of the scan', () => {
 test('excluded docs are not scanned', () => {
 	withRepo((dir) => {
 		write(dir, 'README.md', '# Clean\n');
-		write(
-			dir,
-			'docs/articles/old.md',
-			'See `packages/missing/src/index.ts`.\n',
-		);
+		write(dir, 'specs/old.md', 'See `packages/missing/src/index.ts`.\n');
 		write(dir, '.agents/skill.md', 'See `packages/missing/src/index.ts`.\n');
 		write(dir, '.claude/prompt.md', 'See `packages/missing/src/index.ts`.\n');
 		commitAll(dir);
