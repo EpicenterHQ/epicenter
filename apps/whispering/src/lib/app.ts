@@ -69,7 +69,7 @@ export const audioFiles: AudioFiles = {
 	write: (path, bytes) => files.write(path, bytes),
 };
 
-export const folder = openFolder(files);
+const folder = openFolder(files);
 export const query = createFolderQuery(folder);
 
 // The folder is read again when the window regains focus. A desktop window

@@ -48,7 +48,7 @@ const NO_INPUTS: Omit<Recorder, 'start'> = {
  * stops, over `NO_INPUTS`. `load` runs at stop, so a missing or unreadable
  * fixture fails that recording instead of the session.
  */
-export function createFixtureRecorder({
+function createFixtureRecorder({
 	name,
 	load,
 }: {

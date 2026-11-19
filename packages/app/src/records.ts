@@ -44,7 +44,7 @@ type Need = 'absent' | 'present' | 'either';
  * extension `.md`, else undefined. `notes/.foo.md` is `.foo` and
  * `notes/...md` is `..`; `notes/.md` and `notes/x.md.bak` are no record.
  */
-export function idOf(path: string) {
+function idOf(path: string) {
 	const { ext, name } = parse(path);
 	return ext === '.md' ? name : undefined;
 }
@@ -55,7 +55,7 @@ export function idOf(path: string) {
  * `../x`, `x/`, `a\b` and any value that is not text do not, so every id `create` writes, `list`
  * reads back as the same id.
  */
-export function isId(id: unknown): id is string {
+function isId(id: unknown): id is string {
 	return (
 		typeof id === 'string' && idOf(`${id}.md`) === id && !id.includes('\\')
 	);
