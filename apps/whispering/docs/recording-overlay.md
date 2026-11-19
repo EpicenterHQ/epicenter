@@ -3,7 +3,7 @@
 > Historical. This describes the recording overlay of an earlier Whispering
 > desktop build. Whispering now runs only as a browser build with no overlay
 > window, and Epicenter no longer hosts it
-> ([ADR-0701](../../../docs/adr/0701-apps-run-as-separate-programs.md); archived
+> (ADR-0701; archived
 > at the tag `archive/app-hosting`). See [README.md](../README.md) for what it
 > supports.
 

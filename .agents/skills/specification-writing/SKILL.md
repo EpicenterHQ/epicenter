@@ -12,7 +12,7 @@ Follow the [project writing conventions](../../../AGENTS.md#writing-conventions)
 
 A specification gives an agent or maintainer the context they need to implement a feature autonomously. The goal is not to describe everything exhaustively. The goal is to show enough evidence that the direction is credible and give the implementer a concrete launch point.
 
-**A spec is in-flight scaffolding, not the durable record.** It plans work and holds research while the work is underway. It is not authoritative and does not outlive the work. Durable decisions live in `docs/adr/`, shared vocabulary in `docs/vision.md` under "The pieces", and current state in package READMEs and the code. When a load-bearing decision crystallizes while you are writing the spec, record it as a `Proposed` ADR in `docs/adr/` right then and reference it from the spec; do not leave it buried in the spec to be "harvested" later. When the work lands, retire the spec using [the spec lifecycle](../../../specs/README.md#lifecycle). ADR acceptance follows [the ADR guidance](../../../docs/adr/README.md); implementation completion does not authorize a status change. Git and `docs/spec-history.md` keep the history.
+**A spec is in-flight scaffolding, not the durable record.** It plans work and holds research while the work is underway. It is not authoritative and does not outlive the work. Built rules live in the `## Decisions` section of the README beside their code, what was tried and turned down in `docs/history.md`, shared vocabulary in `docs/vision.md` under "The pieces", and current state in package READMEs and the code. Keep a decision in the spec's decisions table while the work is underway. When the work lands, write its rule into the README and retire the spec using [the spec lifecycle](../../../specs/README.md#lifecycle). Git and `docs/spec-history.md` keep the history.
 
 > **Note**: This guide uses `[PLACEHOLDER]` markers for content you must fill in. Code blocks show templates; replace all bracketed content with your feature's details.
 
@@ -204,7 +204,7 @@ Include:
 
 Use a table for traceability. Every material decision should have a class and rationale.
 
-A load-bearing decision (a Class 2 coherence or Class 3 taste choice about architecture, ownership, an API shape, or a rejected alternative worth not re-litigating) belongs in an ADR, not only in this table. Write it as a `Proposed` ADR in `docs/adr/` as soon as it crystallizes and reference the ADR number in the table's rationale. The table then traces the spec's decisions to their durable home; the ADR survives after the spec is deleted.
+A load-bearing decision (a Class 2 coherence or Class 3 taste choice about architecture, ownership, an API shape, or a rejected alternative worth not re-litigating) needs a durable home, not only this table. Once it is built, its rule goes in the `## Decisions` section of the README beside the code it governs. A decision an agent might propose again, including an alternative it turned down, also gets a proposed entry in `docs/history.md`, for the owner to accept. The table then traces the spec's decisions to their durable home, which survives after the spec is deleted.
 
 ```markdown
 ## Design Decisions

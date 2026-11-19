@@ -1,9 +1,9 @@
 # Whispering architecture
 
 Whispering is one build that runs in a browser tab and in a Tauri window
-([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
+([Whispering's decisions](README.md#web-and-desktop)).
 It keeps its recordings on the device it runs on
-([ADR-0894](../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)):
+([Whispering's decisions](README.md#the-folder)):
 in a Tauri window in `data/` in the app's local data directory, unless the
 person picked another folder, and in a browser in `data/` in the Origin
 Private File System. Both hold the same tree (`src/lib/format/layout.ts`):
@@ -51,8 +51,8 @@ extension, so `..`, a hidden file and an absolute path are refused.
   missing marker), then the bytes. A write goes to a hidden temporary
   file of its own beside its target (`.<name>.<random>.tmp`), flushed and
   renamed over it, so a reader finds the old file or the new one; the
-  first command on a folder in a run removes what a crash left of those
-  (ADR-0962). The page holds none of `@tauri-apps/plugin-fs`'s commands.
+  first command on a folder in a run removes what a crash left of those.
+  The page holds none of `@tauri-apps/plugin-fs`'s commands.
 - `opfsFiles(dir)` writes through `createWritable()`, whose changes reach
   the file when the stream closes, and reads a few files at a time.
 - `memoryFiles()` is a map, for tests.
@@ -150,7 +150,7 @@ reads.
 ## The capabilities and the root
 
 `src/lib/app.ts` opens every capability once, for the page's life
-([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+(ADR-0766).
 Code imports what it uses from there, never through context.
 
 - `folder`: `openFolder(isTauri() ? tauriFiles(desktopFolderPath) :
@@ -198,7 +198,7 @@ folder as the recorder writes into it. A take lands at
   through `Files`. A crash or a closed tab loses the take.
 - In a Tauri window the shell encodes Opus at `recordings/<id>.webm` in
   the folder, a second at a time from its first second, and at Stop
-  finishes it there (ADR-0962). It refuses an id whose audio is already
+  finishes it there. It refuses an id whose audio is already
   there.
 
 A recording has no note while it records: the record screen
@@ -248,7 +248,7 @@ for a later release; the last version of their pages is at the tag
 ## Models and connections
 
 Every model is an endpoint
-([ADR-0757](../../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
+([Whispering's model rules](README.md#models-and-keys)).
 `app.ts` makes one `openAi` (`ai`) from, in order, `customEndpoints` (one
 endpoint per connection in `settings.md`), `localServers` (Ollama and LM
 Studio), and on the desktop `localSpeech()` from `@epicenter/transcription`

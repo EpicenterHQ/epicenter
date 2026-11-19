@@ -1,10 +1,9 @@
 /**
- * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`
- * (ADR-0962).
+ * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`.
  *
  * The shell's recorder encodes the microphone to Opus from the first sample
  * and writes it, a second at a time, at `recordings/<id>.webm` in the
- * folder (ADR-0962). It refuses a folder the app's grant does not hold, and
+ * folder. It refuses a folder the app's grant does not hold, and
  * an id whose audio is already there. `stop` finishes the take in place.
  * When the page reloads or its window closes, the shell finishes the
  * recording itself: the audio is kept. A process that ends before then

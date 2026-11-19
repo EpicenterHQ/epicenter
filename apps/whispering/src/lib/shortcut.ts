@@ -2,12 +2,12 @@
  * The global shortcut (`src-tauri/src/shortcut.rs`): which key, where it is
  * set, and the shell's hold on it. Only a Tauri window has one: a page
  * cannot hold a key while another app has focus, so `openShortcut` answers
- * null in a browser (ADR-0780, ADR-0781), and the app shows its settings
+ * null in a browser, and the app shows its settings
  * and hears its presses only where it is (`{#if shortcut}`). The shell
  * holds the key while Whispering runs and sends each press; the page
  * decides what a press does (`onPress`).
  *
- * The key is `shortcut` in `settings.md` (ADR-0894), which travels with
+ * The key is `shortcut` in `settings.md`, which travels with
  * the folder; two computers sharing a folder share one shortcut. Rust never
  * reads the note: once it is read, and whenever the key changes, the page
  * asks the shell to hold it (`set_shortcut`).

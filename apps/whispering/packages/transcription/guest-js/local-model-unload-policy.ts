@@ -4,7 +4,7 @@
  *
  * Presentation only. The values are the generated `UnloadPolicy` union, so this
  * list cannot name a policy Rust does not have, and Rust owns both the durable
- * value and the clock that enforces it (ADR-0012, ADR-0180). Adding a policy
+ * value and the clock that enforces it. Adding a policy
  * starts in Rust; the type error here is the reminder to label it.
  *
  * Order is UX order (recommended first), not alphabetical.

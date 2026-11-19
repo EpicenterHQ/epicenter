@@ -5,15 +5,15 @@
  * the same folder.
  *
  * Where a take is kept while it records depends on where the page runs
- * (ADR-0779, ADR-0780): the desktop shell encodes it at its path in the
- * folder from its first second (ADR-0962); a browser keeps it in the page's
+ * (ADR-0779): the desktop shell encodes it at its path in the
+ * folder from its first second; a browser keeps it in the page's
  * memory and writes it once at Stop, so a crash or a closed tab loses it.
  * Stop answers once its audio is at its path, and its note is written
  * then. The library leaves the take out until its note is written
  * (`takeInProgress`). Audio whose note was not written, or that a crash cut
- * off, lists as an untitled recording (ADR-0894).
+ * off, lists as an untitled recording.
  *
- * The models are the page's one merge of endpoints (`ai`, ADR-0757): the
+ * The models are the page's one merge of endpoints (`ai`): the
  * connections the person saved, then what runs on this computer, each
  * followed as it changes. The person chooses one model for transcription,
  * in `settings.md`; a request captures that choice when it is prepared and

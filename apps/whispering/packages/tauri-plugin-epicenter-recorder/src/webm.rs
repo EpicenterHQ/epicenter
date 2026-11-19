@@ -27,7 +27,7 @@
 //! 3. the Cues' Seek and the Duration, each over its Void;
 //! 4. flushed to the disk, then the Segment's size, flushed again.
 //!
-//! A file cut off before that is left as it is (ADR-0962): its whole
+//! A file cut off before that is left as it is: its whole
 //! Clusters play, and a player and the transcription decoder stop at a torn
 //! one at its end.
 //!

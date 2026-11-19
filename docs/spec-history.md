@@ -4,14 +4,14 @@
 > ref this clone can see, by date, generated from git history so the timeline
 > survives any deletion. Scope is every `specs/` directory repo-wide.
 >
-> - For **current decisions and why**, read `docs/adr/`.
+> - For **current rules and why**, read the `## Decisions` section of the README beside the code; for what was tried and turned down, `docs/history.md`.
 > - For **how package-owned systems work now**, read the package README and code.
 > - For **shared vocabulary**, read `docs/vision.md` ("The pieces").
 > - To **read a removed spec's body**: `git log --all --full-history -- "<path>"` then `git show <sha>:<path>`.
 >
 > A row records that a design was explored on that date. It does not mean the
 > design is live. There is no status column on purpose: a spec's self-declared
-> status is unreliable, so currentness is owned by `docs/adr/`. "State" is the
+> status is unreliable, so currentness is owned by READMEs and the code. "State" is the
 > only fact shown: whether the spec is still in the working tree.
 >
 > **Frozen.** The generator was removed; git keeps it (`git log --all -- scripts/generate-spec-history.ts`).

@@ -71,12 +71,11 @@ jobs:
       # Token asymmetry is deliberate: production uses the full-scope
       # CLOUDFLARE_API_TOKEN (it needs Zone > Workers Routes > Edit for the custom
       # domains), NOT the least-privilege preview token.
-      # Whispering is not deployed from here. ADR-0227 refused its hosted web
-      # runtime and `apps/whispering/wrangler.jsonc` went with it. Removing the
+      # Whispering is not deployed from here. Its hosted web runtime was refused,
+      # and `apps/whispering/wrangler.jsonc` went with it. Removing the
       # step does not tear down whatever is already serving
       # whispering.epicenter.so: Cloudflare keeps the last deployed version, so
-      # this stops republishing rather than taking anything down. ADR-0227 says
-      # what would reopen it.
+      # this stops republishing rather than taking anything down.
 
       - name: Deploy Landing
         id: landing

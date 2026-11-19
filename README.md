@@ -109,14 +109,12 @@ run on their home, outside this runtime source repository. Each app has
 `apps/<app>/code/` and sibling `data/` in the home's one private Git
 repository. Its owner commits code and records together; actions make no
 commits. App publication copies only code into a separate
-history ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
+history.
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and
-needs no Epicenter. The hosted API is retired for now
-([ADR-0970](docs/adr/0970-the-hosted-api-is-retired.md)).
+needs no Epicenter. The hosted API is retired for now.
 
-The folder sync product that came before is retired
-([ADR-0899](docs/adr/0899-the-folder-sync-product-is-retired.md)). Some of its
+The folder sync product that came before is retired. Some of its
 code stays here while Whispering imports it.
 
 ## Trust boundaries
@@ -212,7 +210,7 @@ bun run check          # the whole merge gate: the above plus doc paths, catalog
 
 ## Design notes
 
-Durable decisions and their reasoning live in [docs/adr/](docs/adr). Specs in [specs/](specs) are in-flight design scaffolding rather than current truth; when a spec and an ADR disagree, the ADR wins. Start with [docs/README.md](docs/README.md).
+Each area's rules live in a `## Decisions` section of its README, beside the code they govern. [docs/history.md](docs/history.md) logs what Epicenter tried, kept, and turned down, and why. The old decision records are in the `adr-archive` Git tag. Specs in [specs/](specs) are in-flight design scaffolding rather than current truth. Start with [docs/README.md](docs/README.md).
 
 ## Contributing
 

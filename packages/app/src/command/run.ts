@@ -2,7 +2,7 @@
  * Answer one call in serve: find `action` of `app` in the program, check
  * `input` against its schema, run it, and answer what it did. The route, MCP
  * and every caller through them share this one call, so a page, an agent and
- * the command get the one input check (ADR-0953). Nothing is filled: an
+ * the command get the one input check. Nothing is filled: an
  * absent key stays absent, and an action's `run` writes its own default.
  *
  * A call that cannot begin is `NotStarted`. A run answers its own Result as

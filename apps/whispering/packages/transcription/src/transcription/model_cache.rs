@@ -325,7 +325,7 @@ fn load_gguf_model(model_path: &Path) -> Result<Model, String> {
 /// Returns the text with an `AppliedHints` built from the same expressions that
 /// decide what reaches the runtime, so the report cannot drift from the run: a
 /// prompt the model will not take is reported as not applied rather than
-/// dropped in silence (ADR-0180).
+/// dropped in silence.
 /// Decide which advisory hints actually reach the runtime, and report exactly
 /// those.
 ///

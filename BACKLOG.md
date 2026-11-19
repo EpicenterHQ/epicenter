@@ -92,7 +92,8 @@ not create a second implementation assignment.
   product. Settle the first retrieval interaction before choosing a scheduler or
   schema.
 - Distribution: A person gets an app by copying its `code/` folder into their
-  home; no command does it ([ADR-0955](docs/adr/0955-no-command-makes-or-copies-an-app.md)).
+  home; no command does it
+  ([the home's rules](packages/app/README.md#the-home)).
 - Revisit when: Chinese study becomes the next product milestone.
 
 ### Make Whispering's dictation loop clear from speech to delivered text
@@ -127,10 +128,8 @@ not create a second implementation assignment.
 
 - Desired result: If sharing is chosen, define who can see or change which
   records, how they are invited, and whose home owns the data.
-- Current basis: A home is one private Git repository per person
-  ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
-  The Folder sync product that framed earlier collaboration plans is retired
-  ([ADR-0899](docs/adr/0899-the-folder-sync-product-is-retired.md)).
+- Current basis: A home is one private Git repository per person.
+  The Folder sync product that framed earlier collaboration plans is retired.
 - Revisit when: A real case of two people sharing data needs more than one
   person's home.
 
@@ -186,8 +185,7 @@ not create a second implementation assignment.
 
 - Desired result: Nothing still serves `api.epicenter.so`, and the people who
   used it have their data and any paid balance handled.
-- Grounding: [ADR-0970](docs/adr/0970-the-hosted-api-is-retired.md) removed the
-  code and the deploy step, which stops republishing but takes nothing down.
+- Grounding: The retirement removed the code and the deploy step, which stops republishing but takes nothing down.
   The live Worker, its Postgres database, its Infisical secrets, Autumn
   billing, OAuth client rows, and account data stay as they were. Account
   deletion was never automated.
@@ -201,8 +199,8 @@ not create a second implementation assignment.
   breaking existing installs or mislabeling packages restored in this repo.
 - Grounding: The earlier retirement list included `@epicenter/workspace`,
   `@epicenter/filesystem`, and `@epicenter/cli`. `@epicenter/cli` was
-  published again and is retired once more, folded into `@epicenter/app`
-  (ADR-0960); `@epicenter/app` is published; `@epicenter/folder` was private and is now
+  published again and is retired once more, folded into `@epicenter/app`;
+  `@epicenter/app` is published; `@epicenter/folder` was private and is now
   deleted; whether it was ever published is unchecked. Check current registry metadata
   and intended version ranges before proposing any deprecation; preserve the
   license of each previously published version.

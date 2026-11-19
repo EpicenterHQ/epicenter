@@ -16,7 +16,7 @@ export const commands = {
 	downloadModel: (modelId: string, onProgress: Channel<DownloadProgress>) => typedError<null, CatalogError>(__TAURI_INVOKE("plugin:epicenter-transcription|download_model", { modelId, onProgress })),
 	/**
 	 *  Remove a model's file from the shared Hugging Face cache, which is a
-	 *  cache (ADR-0757): any app or Hugging Face tool that used the file
+	 *  cache: any app or Hugging Face tool that used the file
 	 *  downloads it again. The model is unloaded first, after any transcription
 	 *  with it finishes, and a model still downloading is refused `Busy`.
 	 *  Removing a model that is not there succeeds.
@@ -37,7 +37,7 @@ export const commands = {
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("plugin:epicenter-transcription|get_unload_policy"),
 	/**
 	 *  Set the unload policy. Rust owns the idle clock because a backgrounded
-	 *  webview timer throttles exactly when idle eviction must fire (ADR-0012),
+	 *  webview timer throttles exactly when idle eviction must fire,
 	 *  and owns the value too, so it applies from launch instead of waiting for a
 	 *  webview to reconcile it. It carries no model identity.
 	 */

@@ -131,7 +131,7 @@ export function createLibrary({
 	const snapshot: FolderSnapshot = $derived(read.data ?? EMPTY_FOLDER);
 
 	// The take under way is the record screen's until its note is written,
-	// though on the desktop its audio is at its path (ADR-0962).
+	// though on the desktop its audio is at its path.
 	const entries = $derived(
 		[
 			...snapshot.recordings.items,

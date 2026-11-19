@@ -1,4 +1,4 @@
-//! Whispering's desktop app (ADR-0894): one window over Whispering's folder,
+//! Whispering's desktop app: one window over Whispering's folder,
 //! `data/` in the app's local data directory unless the person picked
 //! another in the folder dialog. The page reads and writes the folder
 //! through Whispering's own file commands (`files.rs`), which check each
@@ -6,7 +6,7 @@
 //! here at start) and the one the dialog granted
 //! (`tauri-plugin-persisted-scope` restores it at each start). The page
 //! holds none of the file system plugin's commands, and Rust keeps no
-//! folder setting. Every file is written inside the folder (ADR-0962): a
+//! folder setting. Every file is written inside the folder: a
 //! take at its own path from its first second
 //! (`tauri-plugin-epicenter-recorder`), and a note through a temporary file
 //! beside it (`whispering-files`). It transcribes on this computer (`tauri-plugin-epicenter-transcription`),
@@ -193,7 +193,7 @@ mod tests {
     }
 
     /// The bundle is `so.epicenter.whispering`, and it loads the one build
-    /// the web serves (ADR-0781). The development configuration's
+    /// the web serves. The development configuration's
     /// identifier is the production one with `.dev`, so it has its own local
     /// data directory and folder. Neither configures the file system plugin:
     /// every path the file commands check is a plain name, which the scope's

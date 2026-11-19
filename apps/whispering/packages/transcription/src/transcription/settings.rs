@@ -9,10 +9,10 @@
 //! second device may have neither the bytes nor compatible hardware, so this
 //! must never synchronize.
 //!
-//! This is ownership, not a mirror of a frontend value, which is why it does not
-//! reopen [ADR-0012](../../../../docs/adr/0012-transcription-settings-are-read-at-use-not-mirrored-into-rust.md).
-//! There is exactly one copy and exactly one writer, so the staleness class that
-//! record closed (a frontend pushing a copy Rust then re-read) cannot appear.
+//! This is ownership, not a mirror of a frontend value. Whispering refuses a
+//! copy of the page's choices pushed into Rust, because such a copy went stale
+//! (see Decisions, Transcription, in `apps/whispering/README.md`). Here there
+//! is exactly one copy and exactly one writer, so that staleness cannot appear.
 //! Language and prompt remain application-owned and still travel per call.
 
 use log::warn;

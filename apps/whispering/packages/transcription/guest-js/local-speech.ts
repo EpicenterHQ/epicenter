@@ -1,12 +1,12 @@
 /**
  * `localSpeech()`: transcribe.cpp inside this app's process as an AI
- * endpoint (ADR-0757) in a Tauri window, and null in a browser, where there
+ * endpoint in a Tauri window, and null in a browser, where there
  * is none; the same `openAi([... , localSpeech()])` skips it. Its `fetch`
  * answers the OpenAI-compatible `audio/transcriptions` and `models` requests
  * in-process by calling this plugin's commands, so there is no port another
  * program could call, and `openAi` lists its installed models beside every
  * other endpoint's. The plugin's bindings load with the first command, so a
- * browser never loads them (ADR-0781).
+ * browser never loads them.
  *
  * A transcription uploads its audio as `file`, as any OpenAI client does (a
  * dictation's blob, or a recording read from the folder), and the plugin

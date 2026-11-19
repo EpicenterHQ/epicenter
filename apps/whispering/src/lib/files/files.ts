@@ -1,6 +1,6 @@
 /**
  * Whispering's storage: five operations on the files of one folder, passed
- * in at startup (ADR-0894). Everything above it (recordings, transcriptions
+ * in at startup. Everything above it (recordings, transcriptions
  * and `settings.md`) is written once, in the layout
  * `format/layout.ts` declares, over whichever `Files` the page was given:
  *
