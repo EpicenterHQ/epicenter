@@ -60,6 +60,8 @@ export type Action<In = any, Out = unknown, U = any> = ((
 	 * Serve checks a call with it, and MCP and the listing show it.
 	 */
 	readonly input: ObjectSchema;
+	/** `false` when MCP leaves the action out; the command and a page still call it. */
+	readonly mcp?: false;
 };
 
 /** What the action `A` reports while it runs, `never` when it only returns. */
@@ -95,6 +97,14 @@ type ActionDef<
 	readonly description: string;
 	/** Each key the action takes, as a field: `{ word: field.text() }`, `{}` for none. */
 	readonly input: I;
+	/**
+	 * `false` to leave the action out of MCP, for one an agent must not
+	 * call, such as sending as the owner. The command and a page still call
+	 * it. Anything that can send HTTP to serve can still call it, so this
+	 * keeps the action from an agent that reaches your Epicenter only
+	 * through MCP.
+	 */
+	readonly mcp?: false;
 	/** Return `Ok(data)` or `Err(error)`; `data` must survive JSON. */
 	run(input: InputOf<I>, update: Update<U>): Out;
 };
@@ -113,7 +123,7 @@ export function defineAction<
 export function defineAction(
 	def: ActionDef<Input, RunResult | Promise<RunResult>, Returned>,
 ): Action {
-	const { description, run } = def;
+	const { description, mcp, run } = def;
 	const action = async (
 		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
@@ -124,5 +134,6 @@ export function defineAction(
 	return Object.assign(action, {
 		description,
 		input: objectSchema(def.input),
+		mcp,
 	});
 }

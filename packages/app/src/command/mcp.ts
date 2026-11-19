@@ -1,9 +1,10 @@
 /**
  * MCP for `epicenter serve`, at `POST /`: one tool per action, named
- * `<app>_<action>`, and nothing else. `tools/call` runs the action in serve
- * as the command's call does, and answers `{ data, error }` as
- * `structuredContent`, with `isError` for any error. Updates are not sent:
- * an MCP client reads only the answer.
+ * `<app>_<action>`, and nothing else. Serve hands it the program without
+ * actions marked `mcp: false`, so here they are neither listed nor found.
+ * `tools/call` runs the action in serve as the command's call does, and
+ * answers `{ data, error }` as `structuredContent`, with `isError` for any
+ * error. Updates are not sent: an MCP client reads only the answer.
  *
  * The SDK's `Server` holds one transport at a time, and a stateless
  * transport takes one request, so each request gets its own of both.

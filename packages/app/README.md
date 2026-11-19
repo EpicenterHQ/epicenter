@@ -97,7 +97,8 @@ name is its key in `defineEpicenter({ apps })`. Serve refuses an app or
 action name that is not lowercase letters, digits and dashes, starting
 with a letter, since an MCP tool is `<app>_<action>`; the type refuses an
 app named `serve`, the command's own word. An action whose `run` returns
-something other than a Result answers `Threw`.
+something other than a Result answers `Threw`. Add `mcp: false` to an
+action an agent must not call through MCP, such as one that sends as you.
 
 ## The command and serve
 
@@ -115,7 +116,7 @@ changing code. Every other command asks serve and runs no app code.
 | Route | What it answers |
 | --- | --- |
 | `POST /actions/<app>/<action>` | JSON lines: `{"update": ...}` for each update, then `{"answer": {data, error}}` |
-| `POST /` | MCP, one tool per action, named `<app>_<action>` |
+| `POST /` | MCP, one tool per action not marked `mcp: false`, named `<app>_<action>` |
 | `GET /actions/` | every app, action, description and input schema |
 
 Serve refuses a request a tunnel delivered, a `Host` that is not loopback,
@@ -274,3 +275,11 @@ a rule here in the same pull request as the code.
   cannot take, such as `bun install`; an agent working there reads it
   itself.
   Refused: sending `AGENTS.md` as MCP instructions.
+- **An action marked `mcp: false` is left out of MCP and refused there by
+  name; the command and a page still call it.** Some actions act as the
+  owner, such as sending a message or changing Gmail, and an agent that
+  reaches your Epicenter only through MCP, such as one on a phone, must not
+  run them. An agent with a shell on your computer can still run the command, so
+  this limits a channel, not a person.
+  Refused: a description telling agents not to call it; per-caller
+  permissions.
