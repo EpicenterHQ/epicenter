@@ -4,11 +4,16 @@
 //! writes `<id>.md` beside it through `tauri-plugin-fs`. Both check the file
 //! system scope, which allows only that directory. A second launch focuses
 //! the open window, so the app is the directory's one writer.
+//!
+//! Transcription runs here too (`transcribe.rs`), with the server's API key
+//! read from the Keychain (`keys.rs`).
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod keys;
 mod recordings;
+mod transcribe;
 
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_fs::FsExt;
@@ -23,7 +28,12 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_epicenter_recorder::init())
         .setup(|app| Ok(start(app.handle())?))
-        .invoke_handler(tauri::generate_handler![recordings_list])
+        .invoke_handler(tauri::generate_handler![
+            recordings_list,
+            keys::key_set,
+            keys::key_exists,
+            transcribe::transcribe
+        ])
         .run(tauri::generate_context!())
         .expect("Whispering could not start");
 }
@@ -32,10 +42,9 @@ fn main() {
 /// the window. The recorder records into a folder the scope allows, and the
 /// file system plugin's commands check the same scope.
 fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let data = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("The system did not say where Whispering keeps its files: {error}"))?;
+    let data = app.path().app_local_data_dir().map_err(|error| {
+        format!("The system did not say where Whispering keeps its files: {error}")
+    })?;
     std::fs::create_dir_all(data.join("recordings"))
         .map_err(|error| format!("{} could not be made: {error}", data.display()))?;
     app.fs_scope()
@@ -52,9 +61,7 @@ fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 
 /// Every recording in `recordings/`: its note's text and whether its audio is there.
 #[tauri::command]
-async fn recordings_list<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<Vec<recordings::Listed>, String> {
+async fn recordings_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<recordings::Listed>, String> {
     let dir = app
         .path()
         .app_local_data_dir()

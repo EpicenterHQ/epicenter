@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "whispering",
-	"description": "The Whispering window. It records with the native recorder, lists recordings in one call, and reads, writes, renames and removes files through the file system plugin. Every path is checked against the file system scope, which `main.rs` sets to the app's local data directory; no permission here names a folder.",
+	"description": "The Whispering window. It records with the native recorder, lists recordings in one call, and reads, writes, renames and removes files through the file system plugin. Every path is checked against the file system scope, which `main.rs` sets to the app's local data directory; no permission here names a folder. It sends a recording to the transcription server and keeps or checks the server's API key through the app's own commands, which never return the key.",
 	"local": true,
 	"windows": ["main"],
 	"permissions": [
@@ -13,6 +13,9 @@
 		"fs:allow-write-text-file",
 		"fs:allow-rename",
 		"fs:allow-remove",
-		"allow-recordings-list"
+		"allow-recordings-list",
+		"allow-key-set",
+		"allow-key-exists",
+		"allow-transcribe"
 	]
 }

@@ -12,7 +12,11 @@ publish = false
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
+# The transcription server's API key, as a Keychain item per server (`keys.rs`).
+keyring = "4.2"
 log = "0.4"
+# Sends a recording to the transcription server (`transcribe.rs`).
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.12", features = [] }

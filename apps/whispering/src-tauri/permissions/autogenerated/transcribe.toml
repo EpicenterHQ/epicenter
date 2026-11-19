@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-transcribe"
+description = "Enables the transcribe command without any pre-configured scope."
+commands.allow = ["transcribe"]
+
+[[permission]]
+identifier = "deny-transcribe"
+description = "Denies the transcribe command without any pre-configured scope."
+commands.deny = ["transcribe"]
