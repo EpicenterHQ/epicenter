@@ -27,7 +27,7 @@ Use the product page for old marketing/download links. Use the web app only when
 ## Cloudflare Setup
 
 Cloudflare stores and runs these redirects. Change them in the dashboard.
-The former repository apply command has been retired; [domain operations](../../ops/README.md)
+The former repository apply command has been retired; [domain operations](../../scripts/cf-audit.ts)
 documents the shared security baseline and read-only `bun run cf:audit:remote`
 command. The audit does not check or provision redirect rules.
 

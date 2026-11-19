@@ -1,5 +1,35 @@
 #!/usr/bin/env bun
-/** Read-only checks for the declared Epicenter zones. See ops/README.md. */
+/**
+ * Read-only audit of the declared Epicenter Cloudflare zones. Operators change
+ * DNS, security settings, and redirect rules in the Cloudflare dashboard; this
+ * script never writes.
+ *
+ * Run from the repository root (production admin operation, needs Infisical):
+ *
+ *   bun run cf:audit:remote
+ *
+ * Infisical's production `/ops` path supplies `CLOUDFLARE_ZONE_TOKEN`, which
+ * needs only `Zone:Read`, `Zone Settings:Read`, and `DNS:Read` on these zones.
+ *
+ * Checks per zone: Always Use HTTPS and Automatic HTTPS Rewrites on, strict
+ * origin TLS, minimum TLS 1.2 or higher, and Cloudflare's DNSSEC status. HSTS
+ * and the DS record are printed as observations, not asserted, because HSTS
+ * is a per-hostname commitment (review every subdomain before enabling
+ * `includeSubDomains`) and the DS record must be compared with the registrar
+ * (`dig +short DS <zone>`). Public SPF and DMARC come from the system resolver
+ * with TXT chunks joined; duplicates are issues. `mail: 'none'` zones must have
+ * SPF `v=spf1 -all` and DMARC `p=reject`. `external` zones keep provider-managed
+ * mail, so do not add a no-mail SPF there. `review` zones have no settled mail
+ * policy yet and are observed only.
+ *
+ * A new zone needs an entry and mail classification below; the list does not
+ * discover zones. Keep `epicenter.audio` while its registration is active.
+ * Exit 0 means these checks passed; exit 1 means an issue or incomplete read
+ * needs review. It does not certify mail delivery, redirects, or the DNSSEC
+ * chain. Nothing schedules it: run it when commissioning a domain or after
+ * changing domain settings. Redirect rules live on the source zone with
+ * proxied DNS (docs/adr/0472, docs/guides/whispering-redirects.md).
+ */
 import { resolveTxt } from 'node:dns/promises';
 
 const ZONES = [
@@ -26,7 +56,9 @@ const WEB_BASELINE = {
 
 const token = process.env.CLOUDFLARE_ZONE_TOKEN;
 if (!token)
-	throw new Error('CLOUDFLARE_ZONE_TOKEN is not set. See ops/README.md.');
+	throw new Error(
+		'CLOUDFLARE_ZONE_TOKEN is not set. Run `bun run cf:audit:remote`.',
+	);
 if (process.argv.length > 2)
 	throw new Error('This audit accepts no arguments.');
 

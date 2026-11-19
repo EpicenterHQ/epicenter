@@ -180,13 +180,6 @@
         "typescript": "catalog:",
       },
     },
-    "ops": {
-      "name": "@epicenter/ops",
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/account": {
       "name": "@epicenter/account",
       "version": "0.1.1",
@@ -529,8 +522,6 @@
     "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
 
     "@epicenter/landing": ["@epicenter/landing@workspace:apps/landing"],
-
-    "@epicenter/ops": ["@epicenter/ops@workspace:ops"],
 
     "@epicenter/recorder": ["@epicenter/recorder@workspace:apps/whispering/packages/recorder"],
 

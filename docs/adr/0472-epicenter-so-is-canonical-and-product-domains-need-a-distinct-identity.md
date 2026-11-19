@@ -61,7 +61,7 @@ redirect-only A records use the documented `192.0.2.1` placeholder.
 preserved existing email records on `epicenter.md` and `getepicenter.com`.
 
 Cloudflare's dashboard owns the alias rules. The repository's
-[domain audit](../../ops/README.md) checks selected zone settings and public
+[domain audit](../../scripts/cf-audit.ts) checks selected zone settings and public
 email records without changing them. It does not provision redirects or
 promise automatic repair. Operators verify redirects after intentional changes.
 
