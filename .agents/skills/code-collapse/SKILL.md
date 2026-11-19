@@ -30,13 +30,10 @@ takes almost none, because startup already knows how.
   rebinding while every `db` reference keeps working, reload the page and
   let startup make a new one.
 
-Restarting is safe only if shutdown finishes pending work and startup
-recovers whatever must survive: in-flight requests, queued writes,
-half-written files, open connections. Where those can't be drained, such as
-a long-running server with work in flight, keep the live handle. Otherwise
-each case trades a brief interruption for deleting everything that kept the
-old thing in step. When that changes what the person experiences, such as an editor window that can no longer switch
-folders, develop the choice with them in
+Restart only where shutdown can finish pending work and startup can recover
+what must survive. When it changes what the person experiences, such as an
+editor window that can no longer switch folders, develop the choice with
+them in
 [product-collapse](../product-collapse/SKILL.md) unless it is already
 settled.
 
@@ -95,6 +92,13 @@ Establish that the replacement has the information whenever it is
 needed. Before removing a check, understand what it protects and whether
 the information it uses is still current.
 
+Check who else uses it: other settings, platforms, tests, and published
+exports such as `@epicenter/app`. Work still in flight, such as requests and
+queued writes, must finish. Checks for auth, rate limits, locks, and retries
+protect something even when they look redundant. A search with no callers
+does not prove code is unused: string-keyed access, Tauri command names, and
+Svelte templates escape grep.
+
 Keep a boundary when it names non-obvious work, enforces a shared rule,
 owns a lifecycle, isolates unsafe input, or makes a long phase
 understandable. Caller count alone does not decide.
@@ -135,10 +139,8 @@ separate product.
    the lookup does nothing either. The wrapper adds nothing for this caller.
 ```
 
-If the honest sentence is "it does nothing," it is probably safe to delete,
-once you have checked who else uses it: other settings, platforms, tests,
-and exports (`@epicenter/app` is published). Today's settings are not the
-contract.
+If the honest sentence is "it does nothing," it can probably go, once you
+have checked what it still protects (see the section above).
 
 ## Carry the change through
 
@@ -165,12 +167,7 @@ guarantee must not leave an old path that silently loses it. Use
 paths. Keep temporary compatibility only for a named consumer or
 migration, with a retirement condition.
 
-Before deleting code, confirm tests cover what it does, and add one first if
-they don't. Keep checks that protect auth, rate limits, locks, and retries
-with idempotency even when they look redundant. A search that finds no
-callers does not prove code is unused: string-keyed access, Tauri command
-names, and Svelte templates escape grep. Commit behavior-preserving cleanup
-separately from behavior changes.
+Commit behavior-preserving cleanup separately from behavior changes.
 
 Preserve stored data, unfinished input, unrelated work, and real consumer
 contracts. Applied migrations are durable history. Read
