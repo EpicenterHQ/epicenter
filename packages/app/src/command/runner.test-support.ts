@@ -87,7 +87,7 @@ export async function stopFixtureServes() {
 
 /**
  * Whether `args` ask `epicenter` something only serve answers: every command
- * but `check`, `serve`, and help or the version on their own (ADR-0961).
+ * but `serve`, and help or the version on their own (ADR-0961).
  */
 function needsServe(args: string[]) {
 	const words = args.filter((arg) => arg !== '--json');

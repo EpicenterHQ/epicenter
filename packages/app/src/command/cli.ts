@@ -3,8 +3,8 @@
  * app code (ADR-0961). It finds its Epicenter once, by walking up. The
  * listing feeds bare `epicenter`, `epicenter <app>` and an action's
  * `--help`; a call goes to serve as a page's does, with the action's name
- * and the input as typed, and serve reads the input and runs the action. `check` reads the apps in
- * this process; `serve` is the process. Every command ends in one answer,
+ * and the input as typed, and serve reads the input and runs the action.
+ * `serve` is the process. Every command ends in one answer,
  * `{ data, error }`, which `runCli` presents in one place (ADR-0953). Serve
  * prints no answer while it runs.
  */
@@ -20,17 +20,6 @@ import { epicenterRoot } from './root.ts';
 import { callAction, fetchListing } from './send.ts';
 
 /** The commands `epicenter` keeps for itself: each one's usage, and what its `--help` says beneath it. */
-const CHECK = {
-	usage: 'epicenter check [<app>] [--json]',
-	help: `Reads every data key of every app, or one app's, and reports each file that
-does not fit its key's fields. Each key shows how many files it holds and how
-many have problems, then each file's problems. Many files with one kind of
-problem usually mean the declaration is too narrow, not the files. It reads
-only, and loads each app's code as it is on disk, so it tries changed code
-before serve restarts. An app whose local/ has no .gitignore is listed with
-the command that adds one. Exit 0 when nothing has a problem, 1 when a file
-or an app has one, and 2 when a named app does not load.`,
-};
 const SERVE = {
 	usage: 'epicenter serve',
 	help: `Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
@@ -41,7 +30,7 @@ Epicenter has one serve, and only serve loads app code: epicenter <app> and
 bare epicenter ask it, and are refused while it is stopped. Serve loads every
 app, AGENTS.md and routines/ once, when it starts, and runs each call to its
 end from that load, keeping nothing about it. Restart serve after editing an
-app's code; epicenter check tries changed code first. It runs the
+app's code. It runs the
 Epicenter's routines: a routines/<name>.md
 declares cron: "0 8 * * *", action: "<app> <action>" and an optional
 input: {...}. Serve reads them when it starts, refuses one whose action or
@@ -56,13 +45,12 @@ tailscale serve --bg 4747`,
 const HELP = `epicenter                              your apps and routines
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<input>]
-${CHECK.usage}
 ${SERVE.usage}
 epicenter --version
 
 Acts on the Epicenter it runs in: the nearest folder at or above this one
-that holds EPICENTER.md. serve starts in that folder, and every command but
-check asks it.
+that holds EPICENTER.md. serve starts in that folder, and every other
+command asks it.
 An action's input is one JSON object, such as '{"title":"Call the bank"}',
 or - to read it from stdin; null removes a field that takes it.
 --json prints every command's answer as one JSON value, {"data": ..., "error": ...},
@@ -93,15 +81,11 @@ export async function runCli(argv: string[]): Promise<number> {
 		const flag = words.find((word) => word.startsWith('-') && word !== '-');
 		if (version && app !== undefined)
 			return usage('--version stands alone', 'epicenter --help');
-		if (app === 'check' || app === 'serve') {
-			const command = app === 'check' ? CHECK : SERVE;
-			if (help) return Ok(`${command.usage}\n${command.help}`);
-			const misused = usage(
-				`Usage: ${command.usage}`,
-				`epicenter ${app} --help`,
-			);
-			if (flag || rest.length > (app === 'check' ? 1 : 0)) return misused;
-			if (app === 'serve' && json)
+		if (app === 'serve') {
+			if (help) return Ok(`${SERVE.usage}\n${SERVE.help}`);
+			if (flag || rest.length)
+				return usage(`Usage: ${SERVE.usage}`, 'epicenter serve --help');
+			if (json)
 				return usage(
 					'serve prints no answer; --json does not apply',
 					'epicenter serve --help',
@@ -122,12 +106,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const { data: root, error: noRoot } = epicenterRoot();
 		if (noRoot) return Err(noRoot);
-		// check and serve load what the other commands do not, so only they import it.
-		if (app === 'check') {
-			const { checkCommand } = await import('./check.ts');
-			begun = true;
-			return checkCommand(root, rest[0], json);
-		}
+		// serve loads what the other commands do not, so only it imports it.
 		if (app === 'serve') {
 			// Bun reads .env from the folder a process starts in, so serve starts in the root's (ADR-0965).
 			if (realpathSync(process.cwd()) !== root.folder)

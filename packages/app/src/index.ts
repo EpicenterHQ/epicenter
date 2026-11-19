@@ -22,7 +22,6 @@ export {
 	type DataRecord,
 	defineData,
 } from './data.ts';
-export { checkData } from './data-check.ts';
 export {
 	ActionError,
 	type NotStarted,

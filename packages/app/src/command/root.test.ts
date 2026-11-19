@@ -48,7 +48,6 @@ test('a command acts on the nearest Epicenter at or above it, and refuses outsid
 	for (const words of [
 		['--json'],
 		['reading', '--json'],
-		['check', '--json'],
 	]) {
 		const outside = await f.runIn(f.userDir, ...words);
 		expect(outside.code).toBe(2);
@@ -113,8 +112,10 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 		JSON.parse((await f.runIn(f.epicenter, '--json')).stdout).error.message,
 	).toBe(`${marker}: prot is not a field; the only field is port`);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
-	// check asks no serve, so it shows the marker reads alone.
-	expect((await f.runIn(f.epicenter, 'check', '--json')).code).toBe(0);
+	// The marker reads: the command looks for serve on its port, where none runs.
+	expect(
+		JSON.parse((await f.runIn(f.epicenter, '--json')).stdout).error.message,
+	).toBe('serve is not running; if it stopped, its output says why');
 });
 
 test('a marker with no port is refused, naming the file, by serve and by every command', async () => {
@@ -122,7 +123,7 @@ test('a marker with no port is refused, naming the file, by serve and by every c
 	const marker = join(f.epicenter, 'EPICENTER.md');
 	for (const text of ['', 'Notes for people.\n', '---\n---\n']) {
 		await writeFile(marker, text);
-		for (const words of [['serve'], ['--json'], ['check', '--json']]) {
+		for (const words of [['serve'], ['--json'], ['reading', '--json']]) {
 			const refused = await f.run(...words);
 			expect(refused.code).toBe(2);
 			expect(refused.stdout + refused.stderr).toContain(

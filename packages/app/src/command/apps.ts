@@ -5,7 +5,7 @@
  * folder is listed with why it does not. A link in `apps/` is refused, not
  * followed, so an app's code and data are always inside the Epicenter.
  * Serve loads every entry when it starts and answers from what it loaded
- * until it stops, and `check` loads them in its own process. Each entry
+ * until it stops. Each entry
  * loads inside its own guard, so a broken app is listed with its problems
  * and the others still load.
  */
@@ -23,7 +23,7 @@ import {
 import { appDir, appPath, type EpicenterRoot, fromRoot } from './root.ts';
 
 /** The words the `epicenter` command keeps for itself, which no app may be named. */
-export const COMMAND_WORDS = ['check', 'serve'] as const;
+export const COMMAND_WORDS = ['serve'] as const;
 
 /**
  * Why `name` cannot name an app, or `undefined` when it can: it must be

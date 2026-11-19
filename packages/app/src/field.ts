@@ -263,8 +263,8 @@ export const field = {
 	},
 
 	/**
-	 * One id in another key of the same `defineData`: text that `check`
-	 * confirms names a file there. Reads open no other file. `defineData`
+	 * One id in another key of the same `defineData`: text meant to name a
+	 * file there, which nothing confirms. Reads open no other file. `defineData`
 	 * refuses a target that is not one of its keys.
 	 */
 	ref: <const O extends Options>(target: string, options?: O) => {

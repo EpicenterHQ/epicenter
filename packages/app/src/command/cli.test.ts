@@ -200,10 +200,8 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 		[['reading', 'log', '--help'], 0],
 		[['--version'], 0],
 		[['--help'], 0],
-		[['check', '--help'], 0],
-		[['check'], 0],
 		[['nope'], 2],
-		[['check', 'nope'], 2],
+		[['check'], 2],
 		[['serve'], 2],
 	];
 	for (const [words, code] of answered) {
@@ -314,20 +312,16 @@ Routines:
 
 test('a misused command answers its usage line, with its help as the next step', async () => {
 	const f = await setup();
-	const check = 'epicenter check [<app>] [--json]';
-	for (const words of [
-		['reading', 'vault'],
-		['--from', './x'],
-	]) {
-		const result = await f.run('check', ...words, '--json');
+	for (const words of [['reading'], ['--from', './x']]) {
+		const result = await f.run('serve', ...words, '--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout)).toEqual({
 			data: null,
 			error: {
 				name: 'NotStarted',
 				cause: 'usage',
-				message: `Usage: ${check}`,
-				next: 'epicenter check --help',
+				message: 'Usage: epicenter serve',
+				next: 'epicenter serve --help',
 			},
 		});
 	}
@@ -338,9 +332,23 @@ test('a misused command answers its usage line, with its help as the next step',
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /actions/<app>/<action>',
 	);
-	expect((await f.run('check', '--help')).stdout).toStartWith(
-		`${check}\nReads every data key`,
-	);
+});
+
+test('epicenter check is refused like any unknown app', async () => {
+	const f = await setup();
+	const answer = async (app: string) => {
+		const result = await f.run(app, '--json');
+		const { error } = JSON.parse(result.stdout);
+		return {
+			code: result.code,
+			name: error.name,
+			cause: error.cause,
+			message: error.message.replace(`"${app}"`, '"<app>"'),
+		};
+	};
+	const check = await answer('check');
+	expect(check).toMatchObject({ code: 2, name: 'NotStarted' });
+	expect(check).toEqual(await answer('nope'));
 });
 
 test('a throwing action returns exit 1 with its message', async () => {

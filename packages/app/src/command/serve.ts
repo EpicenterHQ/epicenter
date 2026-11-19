@@ -290,7 +290,7 @@ async function launcher({ root, apps, listing }: Served) {
  * A request under `/apps/<app>/`: a file from the app's build for a `GET` or
  * `HEAD` that names one, else the app's `fetch`, else 404. An entry that
  * did not load answers 500 with its problems, whatever the path, so a name
- * the loader refused, such as `check`, serves nothing.
+ * the loader refused, such as `serve`, serves nothing.
  */
 async function appRequest(
 	{ apps }: Served,
