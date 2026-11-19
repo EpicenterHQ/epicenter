@@ -116,6 +116,15 @@ Before choosing a path API, determine your execution context:
 
 **Rule**: If the code runs in the browser (Tauri webview), use Tauri's path APIs. If it runs in Node.js/Bun, use the Node.js `path` module.
 
+## Apps that also run in a browser
+
+When the same page runs in Tauri and in a plain browser tab, give each
+capability that differs one contract type and two implementations,
+`native.ts` and `browser.ts`, in its own folder. Choose between them with
+`isTauri()` in one file, and import `@tauri-apps/*` nowhere else. Whispering
+does this under `src/lib/platform/`; its
+[README](../../../apps/whispering/README.md) shows the layout.
+
 ## Available Functions from `@tauri-apps/api/path`
 
 ### Path Manipulation
