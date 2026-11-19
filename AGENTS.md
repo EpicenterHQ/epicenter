@@ -1,7 +1,7 @@
 # Epicenter
 
 Epicenter runs personal apps on a computer their owner controls. Each app
-keeps its code and records together in the home's private Git repository.
+keeps its code and records together in your Epicenter's private Git repository.
 The CLI runs app actions, and `epicenter serve` makes them available to
 the owner's devices and agents. The earlier folder sync product is retired.
 Some of its packages still have callers in Whispering. The hosted API is retired for now.
@@ -14,7 +14,7 @@ READMEs describe their contracts. Load only the context needed for the task.
 
 Everything under `packages/` and `apps/` is AGPL-3.0-or-later. `@epicenter/app`,
 which holds the library and the `epicenter` command, is the one package meant
-to be published, so a home can depend on it; it is not on npm yet. Every other
+to be published, so an Epicenter can depend on it; it is not on npm yet. Every other
 package is private. `@epicenter/cli` is retired
 at its last published version.
 Previously published MIT versions remain MIT for those versions. Before adding
