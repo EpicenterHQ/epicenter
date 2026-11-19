@@ -18,7 +18,8 @@ import {
 	ListToolsRequestSchema,
 	McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { Answer } from '../answer.ts';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { ActionError, type Answer } from '../answer.ts';
 import type { Listing } from '../call.ts';
 import { errorText } from './output.ts';
 import type { Program } from './program.ts';
@@ -69,14 +70,17 @@ export function createMcp(program: Program, listing: Listing) {
 		});
 		server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
 			const [app = '', ...action] = params.name.split('_');
-			return toolResult(
-				await answerCall(
-					program,
-					app,
-					action.join('_'),
-					params.arguments ?? {},
-				),
+			// As on the route, a throw that escapes the call is still an answer
+			// rather than a protocol error.
+			const answer = await answerCall(
+				program,
+				app,
+				action.join('_'),
+				params.arguments ?? {},
+			).catch((cause: unknown) =>
+				ActionError.Threw({ message: extractErrorMessage(cause) }),
 			);
+			return toolResult(answer);
 		});
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			enableJsonResponse: true,

@@ -52,6 +52,13 @@ async function setup() {
 		input: { code: Type.String({ pattern: '[' }) },
 		run: () => Ok(null),
 	});
+	const hostile = defineAction({
+		description: 'Throws a value nothing can describe',
+		input: {},
+		run: () => {
+			throw Object.assign(Object.create(null), { n: 1n });
+		},
+	});
 	const big = defineAction({
 		description: 'Returns what JSON cannot carry',
 		input: {},
@@ -79,7 +86,7 @@ async function setup() {
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, odd, big, bare, send },
+					actions: { add, fail, fake, tag, odd, big, hostile, bare, send },
 				},
 			},
 		}).apps,
@@ -240,6 +247,7 @@ test('MCP offers one tool per action and runs it', async () => {
 		'writing_tag',
 		'writing_odd',
 		'writing_big',
+		'writing_hostile',
 		'writing_bare',
 	]);
 	const called = await rpc('tools/call', {
@@ -265,6 +273,16 @@ test('MCP offers one tool per action and runs it', async () => {
 		arguments: { code: 'x' },
 	});
 	expect(odd.result.structuredContent.error.name).toBe('NotStarted');
+	// A throw nothing can describe is Threw on both, never a protocol error.
+	const hostile = await rpc('tools/call', {
+		name: 'writing_hostile',
+		arguments: {},
+	});
+	expect(hostile.result.structuredContent.error.name).toBe('Threw');
+	const [routed] = await lines(
+		await request('/actions/writing/hostile', post({})),
+	);
+	expect(routed.answer.error.name).toBe('Threw');
 });
 
 test('an action marked mcp: false is still called outside MCP', async () => {
