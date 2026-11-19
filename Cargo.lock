@@ -6189,6 +6189,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "whispering"
+version = "8.0.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-epicenter-recorder",
+ "tauri-plugin-fs",
+ "tauri-plugin-single-instance",
+ "tempfile",
+]
+
+[[package]]
 name = "whispering-files"
 version = "0.0.1"
 dependencies = [

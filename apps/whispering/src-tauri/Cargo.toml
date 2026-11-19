@@ -1,0 +1,24 @@
+[package]
+name = "whispering"
+version = "8.0.0"
+description = "Whispering's desktop window: records into the app's data directory from the first second"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12", features = [] }
+tauri-plugin-epicenter-recorder = { path = "../../whispering-old/packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-fs = "2.7"
+tauri-plugin-single-instance = "2.5"
+
+[dev-dependencies]
+tempfile = "3.8"

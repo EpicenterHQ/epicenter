@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-recordings-list"
+description = "Enables the recordings_list command without any pre-configured scope."
+commands.allow = ["recordings_list"]
+
+[[permission]]
+identifier = "deny-recordings-list"
+description = "Denies the recordings_list command without any pre-configured scope."
+commands.deny = ["recordings_list"]
