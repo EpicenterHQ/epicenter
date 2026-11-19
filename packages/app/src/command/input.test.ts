@@ -2,14 +2,8 @@
 
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import {
-	type Action,
-	defineAction,
-	defineData,
-	type Folder,
-	field,
-	Ok,
-} from '../index.ts';
+import { type Action, defineAction, defineData, field, Ok } from '../index.ts';
+import { unusedFolder } from '../library.test-support.ts';
 import { appListing } from './apps.ts';
 import { readInput, usageLine } from './input.ts';
 import { actionHelp } from './report.ts';
@@ -168,7 +162,7 @@ test('every input shape works: lists of objects, and a reference checked as an i
 
 test("a data key's edit takes id, old, and new beside each other, and nothing else", () => {
 	// Only the action's declaration is read, so the folder is never used.
-	const { notes } = defineData({} as Folder, {
+	const { notes } = defineData(unusedFolder, {
 		notes: {
 			description: 'note',
 			fields: { title: field.text({ optional: true }) },

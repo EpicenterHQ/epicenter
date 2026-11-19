@@ -110,6 +110,11 @@ export function defineData<const TSpec extends Spec>(
 	folder: Folder,
 	spec: TSpec,
 ): Data<TSpec> {
+	// 0.7.0 took the spec alone, so a call written for it leaves `spec` undefined.
+	if (!isPlainObject(spec))
+		throw new Error(
+			'defineData takes the folder first: defineData(folder, { tasks: { description, fields } }), inside defineApp(({ folder }) => ...)',
+		);
 	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))
 			throw new Error(
@@ -198,6 +203,7 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		// The id names no file, so the problem sits at the key's folder.
 		return ActionError.Misfit({
 			path: base,
+			id,
 			problems: [
 				{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
 			],

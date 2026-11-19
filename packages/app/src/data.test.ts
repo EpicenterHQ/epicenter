@@ -757,3 +757,12 @@ test.skipIf(!foldsCase)(
 		expect(await read('data/notes/Dune.md')).toContain('first');
 	},
 );
+
+test('defineData called as in 0.7.0, with the spec alone, says the folder comes first', () => {
+	const fix =
+		'defineData takes the folder first: defineData(folder, { tasks: { description, fields } }), inside defineApp(({ folder }) => ...)';
+	const spec = { notes: { description: 'note', fields: {} } };
+	expect(() =>
+		defineData(...([spec] as unknown as Parameters<typeof defineData>)),
+	).toThrow(fix);
+});

@@ -12,6 +12,7 @@ test('every shared factory is its name, message and fields, unchanged through JS
 		ActionError.Missing({ path: 'data/a.md' }),
 		ActionError.Misfit({
 			path: 'data/a.md',
+			id: 'a',
 			problems: [{ line: 'title is missing', kind: 'title is missing' }],
 		}),
 		ActionError.Misfit({
