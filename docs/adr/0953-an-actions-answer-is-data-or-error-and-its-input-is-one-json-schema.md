@@ -76,7 +76,7 @@ Rebuilt from that JSON, `meaning` is required. `packages/app/src/command/input.t
 
 **An action cannot answer `NotStarted` or `Unreachable`.** When an action returns an error named either, serve answers `Threw` with the message `The action "<key>" returned NotStarted, a name only Epicenter answers`. This holds whether or not the error carries the namespace, since any action can copy a field; the name alone decides. Every other error an action returns passes through unchanged, `Threw` and `Refused` included.
 
-**One browser-safe module reads an answer, for a page and for the CLI.** `packages/app/src/answer.ts` exports `readAnswer(response, onUpdate)`, which `connect()` in `client.ts` and `sendToServe` in `serve-call.ts` both call, and `checkAnswer(value)`, which validates one answer. It never trusts HTTP status alone: a 200 whose lines are not frames, or whose stream ends with no answer, is `Unreachable`, and a non-2xx response is read only for a `NotStarted` answer in its body.
+**One browser-safe module makes a call, for a page and for the CLI.** `packages/app/src/call.ts` exports `postAction(url, body, options)`, which `connect()` in `client.ts` and `callServe` in `command/send.ts` both call, and `isResult(value)`, which validates one answer. It never trusts HTTP status alone: a 200 whose lines are not frames, or whose stream ends with no answer, is `Unreachable`. A 4xx is `NotStarted`, since serve refused before anything ran, and any other status is `Unreachable`.
 
 **Exit codes follow the name.** For an action call, 0 is success, 2 is exactly `NotStarted`, and every other error is 1. MCP sets `isError: true` for any error.
 

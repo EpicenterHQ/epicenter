@@ -14,8 +14,7 @@
  * route (`/actions/flights/daily`).
  */
 import { type Action, isAction } from './action.ts';
-import { isName } from './name.ts';
-import { isPlainObject } from './result.ts';
+import { isName, NAME_RULE } from './name.ts';
 
 /** An app as its function returns it: what it is for, and each action under its name. */
 export type App = {
@@ -44,9 +43,9 @@ export function isEpicenter(value: unknown): value is Epicenter {
 
 /**
  * Define a home's program from its apps. Throws, naming each problem, for a
- * name that is not lowercase letters, digits and dashes, for an app named
- * `serve`, which is the command's own word, and for an app or action that is
- * not one.
+ * name that is not lowercase letters, digits and dashes, an app with no
+ * description, and an action `defineAction` did not make. Its type refuses
+ * an app named `serve`, which is the command's own word.
  */
 export function defineEpicenter<
 	const TApps extends Record<string, App> & { serve?: never },
@@ -56,41 +55,20 @@ export function defineEpicenter<
 	return Object.freeze({ apps, [EPICENTER]: true as const });
 }
 
-const NAMED = 'lowercase letters, digits and dashes, starting with a letter';
-
 /** What is wrong with `apps` beyond its types, one sentence each. */
-function appsProblems(apps: unknown): string[] {
-	if (!isPlainObject(apps))
-		return [
-			'defineEpicenter takes { apps }, an object of each app by its name',
-		];
+function appsProblems(apps: Record<string, App>) {
 	const problems: string[] = [];
-	for (const [name, app] of Object.entries(apps)) {
-		if (name === 'serve')
+	for (const [name, { description, actions }] of Object.entries(apps)) {
+		if (!isName(name))
 			problems.push(
-				'An app cannot be named serve: epicenter serve is the command that runs the home',
+				`The app name ${JSON.stringify(name)} must be ${NAME_RULE}`,
 			);
-		else if (!isName(name))
-			problems.push(`The app name ${JSON.stringify(name)} must be ${NAMED}`);
-		if (!isPlainObject(app)) {
-			problems.push(
-				`apps.${name} is not an app: an app's function returns { description, actions }`,
-			);
-			continue;
-		}
-		const { description, actions } = app;
-		if (typeof description !== 'string' || description.trim() === '')
+		if (description.trim() === '')
 			problems.push(`apps.${name} needs a description`);
-		if (!isPlainObject(actions)) {
-			problems.push(
-				`apps.${name} needs actions: an object of defineAction(...), {} for none`,
-			);
-			continue;
-		}
 		for (const [action, value] of Object.entries(actions)) {
 			if (!isName(action))
 				problems.push(
-					`apps.${name} has the action ${JSON.stringify(action)}, which must be ${NAMED}`,
+					`apps.${name} has the action ${JSON.stringify(action)}, which must be ${NAME_RULE}`,
 				);
 			else if (!isAction(value))
 				problems.push(
