@@ -1,6 +1,6 @@
 /**
- * The person's settings: `settings.md` at the top of Whispering's folder
- * (ADR-0894). Its front matter holds the transcription model, each provider
+ * The person's settings: `settings.md` at the top of Whispering's folder.
+ * Its front matter holds the transcription model, each provider
  * connection without its key, and the desktop's global shortcut, which a
  * browser ignores. It moves and exports with the recordings; Whispering
  * alone reads and writes it.

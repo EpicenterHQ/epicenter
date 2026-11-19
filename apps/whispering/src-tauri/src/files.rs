@@ -1,5 +1,5 @@
 //! Whispering's own file commands, one per operation of the page's `Files`
-//! (`tauriFiles`), plus "Change…" and the folder's Git check (ADR-0894).
+//! (`tauriFiles`), plus "Change…" and the folder's Git check.
 //! Rust moves bytes; the page reads and writes what they mean.
 //!
 //! Each command takes the folder as an absolute path and checks it against
@@ -12,7 +12,7 @@
 //! path that passes stays under the granted folder.
 //!
 //! A write goes to a hidden temporary file beside its target, flushed and
-//! renamed over it (`whispering_files::beside`, ADR-0962). The first
+//! renamed over it (`whispering_files::beside`). The first
 //! command on a folder in a run removes what a crash left of those files
 //! there, before anything writes it (`Folders`). While "Change…" moves a
 //! folder, and after it has moved the recordings out, every command on

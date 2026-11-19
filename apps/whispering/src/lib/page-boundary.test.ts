@@ -1,12 +1,12 @@
 /**
  * What the page may import, and who opens what.
  *
- * One build runs in a browser tab and in a Tauri window (ADR-0781), so
+ * One build runs in a browser tab and in a Tauri window, so
  * nothing under `src/` may reach Node or Bun. The page reaches Tauri in a
  * few named places, each of which asks `isTauri()` or runs only on the
  * desktop, and loads every Tauri module but `@tauri-apps/api/core` when it
  * is first used, so a browser never loads one. Whispering's files are one
- * `Files` (ADR-0894), chosen and opened once in `src/lib/app.ts` with every
+ * `Files`, chosen and opened once in `src/lib/app.ts` with every
  * other capability. This reads the sources, so a violation names its file.
  */
 import { expect, test } from 'bun:test';

@@ -8,8 +8,8 @@ transcribe depend on it; other standalone apps stay free of transcribe-cpp and
 model downloads.
 
 Its TypeScript package, `@epicenter/transcription`, lives in `guest-js/`
-beside it (ADR-0755: a capability keeps its TypeScript and its Rust plugin
-in one directory).
+beside it, so the capability keeps its TypeScript and its Rust plugin in
+one directory.
 
 ## Installing
 
@@ -36,7 +36,7 @@ directly bypasses this path. Other platforms run the ordinary event loop.
 
 Each app owns its settings in its local data directory's `local/`,
 `app.path().app_local_data_dir()/local/local-transcription.json`, where the
-app keeps what belongs to this computer alone (ADR-0894): the directory named
+app keeps what belongs to this computer alone: the directory named
 by the app's bundle identifier, so `so.epicenter.whispering` and
 `so.epicenter.whispering.dev` keep separate choices. Plugin setup fails if that
 directory cannot be resolved. The file holds the unload policy, which is
@@ -45,7 +45,7 @@ and keeps that choice with its other model choices.
 
 Model files live in the shared Hugging Face cache (`~/.cache/huggingface/hub`,
 or under `HF_HOME`), so every app and Hugging Face tool on the machine reuses
-one download. That cache is a cache (ADR-0757): `remove_model` deletes a
+one download. That cache is a cache: `remove_model` deletes a
 model's file from it when the person asks, unloading the model first, and any
 app or tool that used the file downloads it again. It removes every snapshot
 pointer that resolves to the model's bytes and the blob, and keeps a file of
@@ -103,7 +103,7 @@ There is no default grant. Every permission is prefixed
 `@epicenter/transcription` exports:
 
 - `.`: `localSpeech()`, described last below, which is null outside a
-  Tauri window (`isTauri()`, ADR-0781), and `openLocalSpeech()`, the same
+  Tauri window (`isTauri()`), and `openLocalSpeech()`, the same
   handle for code that runs only in one. The generated bindings load with
   the first command, so a browser never loads them.
 - `./bindings`: the generated bindings (`commands` and the wire types), such
@@ -122,7 +122,7 @@ There is no default grant. Every permission is prefixed
   (`openLocalSpeech()`). It is a
   Tauri window's view: an app shows it where `localSpeech()` is not null.
 - `localSpeech()` (the `.` export): this app's transcribe.cpp as an
-  `@epicenter/ai` endpoint (ADR-0757), or `null` in a browser. Its `fetch`
+  `@epicenter/ai` endpoint ([Whispering's model rules](../../README.md#models-and-keys)), or `null` in a browser. Its `fetch`
   answers `audio/transcriptions` and `models` in-process through
   `transcribe_audio` (the uploaded `file`) and `list_inference_models`. A
   refusal answers as an OpenAI error whose `code` is the `TranscriptionError`

@@ -14,7 +14,7 @@
  * {#each ai.endpoints() as endpoint (endpoint.id)}…{/each}
  * ```
  *
- * It reads the capability's shape (ADR-0769). Everything a capability does
+ * It reads the capability's shape. Everything a capability does
  * is one of four verbs, and each answers in its own form: creating answers a
  * capability with its own `subscribe`, reading answers a value at once,
  * acting answers a promise (or an async iterable), and listening answers the

@@ -11,12 +11,12 @@ import { customAlphabet } from 'nanoid';
 const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, '0');
 
 /** `at` as a day here: `2026-11-10`. */
-export function localDay(at: Date = new Date()): string {
+export function localDay(at = new Date()) {
 	return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
 }
 
 /** `at` as RFC 3339 in this computer's offset: `2026-11-10T22:41:05+08:00`. */
-export function localTime(at: Date = new Date()): string {
+export function localTime(at = new Date()) {
 	const offset = -at.getTimezoneOffset();
 	const sign = offset >= 0 ? '+' : '-';
 	const clock = `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
@@ -37,7 +37,7 @@ const random = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
  * timeId(new Date('2026-10-30T22:41:05.123Z')); // '2026-10-30T22-41-05-123Z-k3x9a2f8'
  * ```
  */
-export function timeId(at: Date = new Date()): string {
+export function timeId(at = new Date()) {
 	const stamp = at
 		.toISOString()
 		.replace(/\.(\d{3})Z$/, '-$1Z')

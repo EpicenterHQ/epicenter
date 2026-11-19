@@ -2,13 +2,13 @@
 
 I've been thinking a lot about the right way to make Epicenter sustainable while staying true to our roots in transparency, openness, and open source.
 
-Epicenter is where one person's software lives: small apps you and your agents make and change, each a folder of plain files in `~/Epicenter`. The `epicenter` program runs their actions, and `epicenter serve` offers them to your devices and your agents ([vision](docs/vision.md)). You supply the computer it runs on, the home: a Mac you leave on, a box in a closet, or a server you rent. Epicenter supplies the program ([ADR-0903](docs/adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)).
+Epicenter is where one person's software lives: small apps you and your agents make and change, each a folder of plain files in `~/Epicenter`. The `epicenter` program runs their actions, and `epicenter serve` offers them to your devices and your agents ([vision](docs/vision.md)). You supply the computer it runs on, the home: a Mac you leave on, a box in a closet, or a server you rent. Epicenter supplies the program.
 
 ## What pays for it
 
 Epicenter is paid for by services we host.
 
-A hosted service is something we run on our own servers for many people, the way Google runs Gmail. There is none today: the hosted API at `api.epicenter.so` (sign-in and AI inference paid for with credits) is retired for now ([ADR-0970](docs/adr/0970-the-hosted-api-is-retired.md)). Hosted Notes may come next, if a month of real use shows the need ([ADR-0897](docs/adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md)). To your Epicenter, a service like this is an outside app, the same as Gmail: an app pulls a copy of what is there, or moves an item out of it into a folder you keep ([ADR-0898](docs/adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md)).
+A hosted service is something we run on our own servers for many people, the way Google runs Gmail. There is none today: the hosted API at `api.epicenter.so` (sign-in and AI inference paid for with credits) is retired for now. Hosted Notes may come next, if a month of real use shows the need. To your Epicenter, a service like this is an outside app, the same as Gmail: an app pulls a copy of what is there, or moves an item out of it into a folder you keep.
 
 Your Epicenter needs none of them. It runs on your home, and if you don't have a computer you can leave on, a small rented Linux server can be one.
 

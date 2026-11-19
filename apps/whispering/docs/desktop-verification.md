@@ -2,7 +2,7 @@
 
 > **Historical record.** Whispering's desktop build is now its own program on
 > `epicenter-standalone`, not an app Epicenter hosts
-> ([ADR-0701](../../../docs/adr/0701-apps-run-as-separate-programs.md)), and the
+> (ADR-0701), and the
 > hosted design is archived at the tag `archive/app-hosting`. The dated
 > sections below are evidence from the earlier desktop builds, the first
 > standalone shell and then Whispering inside Epicenter, kept as they were
@@ -20,7 +20,7 @@ Window Close warns only for unfinished Folder saves. A recording-only window
 closes silently and native cleanup keeps its audio. Application Quit always
 confirms and mentions active capture. It uses a standalone native alert with no
 window parent. No page reports save status or reads native recording status for
-departure. See [ADR-0663](../../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md).
+departure. See ADR-0663.
 
 The user inspected and accepted the standalone alert's appearance. Computer use
 cannot capture or control its macOS UserNotificationCenter surface, so the user
@@ -113,7 +113,7 @@ and its native recording. Cancel keeps both. Confirmed destruction finalizes
 captured audio without waiting for pending metadata saves. Each window answers
 independently; application Quit separately checks all folder pages and the
 recorder. Standalone Todos' macOS Quit uses its one window's ordinary close.
-See [ADR-0663](../../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md).
+See ADR-0663.
 
 **Verified live on macOS with isolated packaged debug apps and disposable
 folders:**

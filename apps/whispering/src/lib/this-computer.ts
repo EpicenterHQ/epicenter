@@ -1,6 +1,6 @@
 /**
- * What makes sense on one computer and stays on it, outside the folder
- * (ADR-0894): it names hardware or holds a secret, and the folder may be
+ * What makes sense on one computer and stays on it, outside the folder:
+ * it names hardware or holds a secret, and the folder may be
  * in a Git history or a file syncer.
  *
  * - A secret (a provider's API key) is a Keychain item on the desktop,

@@ -1,6 +1,6 @@
 //! This computer's secrets, the provider API keys, as Keychain items (the
 //! platform's credential store elsewhere), one per name, under the app's
-//! bundle identifier (ADR-0894). The page reads a key when a request needs
+//! bundle identifier. The page reads a key when a request needs
 //! one and sends the request itself; a key is never in the folder.
 //!
 //! The Keychain asks before another program reads an item, which the

@@ -3,7 +3,7 @@
  * Every page, component and module imports what it uses from here; product
  * state (Whispering and its library) is the app's own (`WhisperingApp`).
  *
- * - `folder` is Whispering's folder over one `Files` (ADR-0894): the data
+ * - `folder` is Whispering's folder over one `Files`: the data
  *   folder on the desktop (`data/` in the app's local data directory unless
  *   the person moved it, `folderPath`), and the Origin Private File System's
  *   `data/` in a browser. It holds the notes, the audio and `settings.md`.
@@ -12,7 +12,7 @@
  *   read before the app renders and whenever the window regains focus, and
  *   every write as a mutation. Components read `settings.md` through its
  *   query; the connections and the shortcut through `query.settings`.
- * - `ai` is every model this page reaches (ADR-0757), in the order the
+ * - `ai` is every model this page reaches, in the order the
  *   model picker lists them: the person's connections (`settings.md`, each
  *   key a secret on this computer), Ollama and LM Studio on this computer,
  *   then, on the desktop, transcription in this app's process (`speech`).

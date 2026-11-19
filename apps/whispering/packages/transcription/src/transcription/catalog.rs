@@ -19,7 +19,7 @@
 //! Storage is the shared Hugging Face cache (`~/.cache/huggingface/hub`,
 //! overridable by `HF_HOME`), owned by `hf-hub`: downloads stage and resume
 //! through it, and a file already in the cache (from this app or any other HF
-//! tool) is reused. The cache is a cache (ADR-0757): `remove_model` deletes a
+//! tool) is reused. The cache is a cache: `remove_model` deletes a
 //! model's file from it when the person asks, and another app or tool that
 //! used the file downloads it again. Rust never stores a path; it resolves the
 //! coordinate to a cache path at point of use, so a file removed outside
@@ -431,7 +431,7 @@ pub async fn reveal_model<R: tauri::Runtime>(
 }
 
 /// Remove a model's file from the shared Hugging Face cache, which is a
-/// cache (ADR-0757): any app or Hugging Face tool that used the file
+/// cache: any app or Hugging Face tool that used the file
 /// downloads it again. The model is unloaded first, after any transcription
 /// with it finishes, and a model still downloading is refused `Busy`.
 /// Removing a model that is not there succeeds.

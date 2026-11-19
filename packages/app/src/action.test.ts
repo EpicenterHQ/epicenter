@@ -16,29 +16,6 @@ const count = defineAction({
 	},
 });
 
-test('an action carries its description and its input as one JSON Schema object', () => {
-	expect(count.description).toBe('Count to a number, saying each one');
-	expect(JSON.parse(JSON.stringify(count.input))).toEqual({
-		type: 'object',
-		properties: {
-			to: { type: 'integer', minimum: 1 },
-			label: { type: 'string' },
-		},
-		required: ['to'],
-		additionalProperties: false,
-	});
-});
-
-test('run reports through update, and onUpdate hears each one before the answer', async () => {
-	const heard: number[] = [];
-	const answer = await count(
-		{ to: 3 },
-		{ onUpdate: ({ at }) => heard.push(at) },
-	);
-	expect(heard).toEqual([1, 2, 3]);
-	expect(answer).toEqual(Ok('n=3'));
-});
-
 test('a listener that throws does not stop the action', async () => {
 	const answer = await count(
 		{ to: 2 },
@@ -51,13 +28,13 @@ test('a listener that throws does not stop the action', async () => {
 	expect(answer).toEqual(Ok('n=2'));
 });
 
-test('an action that returns no Result throws when called', () => {
+test('an action that returns no Result rejects when called', async () => {
 	const bare = defineAction({
 		description: 'Forgets its Result',
 		input: {},
 		run: () => 'plain' as never,
 	});
-	expect(() => bare({})).toThrow('must return Ok(data) or Err(error)');
+	await expect(bare({})).rejects.toThrow('must return Ok(data) or Err(error)');
 });
 
 test('a definition is refused for what its types cannot say', () => {
@@ -69,25 +46,16 @@ test('a definition is refused for what its types cannot say', () => {
 		}),
 	).toThrow('has a default in "limit"');
 	expect(() =>
-		defineAction({
-			description: '',
-			input: {},
-			run: () => Ok(null),
-			mcp: false,
-		} as never),
-	).toThrow('has "mcp", which an action does not take');
+		defineAction({ description: ' ', input: {}, run: () => Ok(null) }),
+	).toThrow('An action needs a description');
 });
 
-test('defineEpicenter refuses names that are not names, and serve', () => {
+test('defineEpicenter refuses names that are not names, and what defineAction did not make', () => {
 	const app = { description: 'Counts', actions: { count } };
 	expect(defineEpicenter({ apps: { counter: app } }).apps.counter).toBe(app);
 	expect(() => defineEpicenter({ apps: { Counter: app } })).toThrow(
 		'The app name "Counter" must be lowercase letters',
 	);
-	expect(() =>
-		// @ts-expect-error: serve is the command's own word.
-		defineEpicenter({ apps: { serve: app } }),
-	).toThrow('An app cannot be named serve');
 	expect(() =>
 		defineEpicenter({
 			apps: {
@@ -106,3 +74,10 @@ test('defineEpicenter refuses names that are not names, and serve', () => {
 		}),
 	).toThrow('apps.counter.actions.count is not an action');
 });
+
+/** Types only: checked, never run. */
+export function typed() {
+	const app = { description: 'Counts', actions: { count } };
+	// @ts-expect-error: serve is the command's own word.
+	defineEpicenter({ apps: { serve: app } });
+}

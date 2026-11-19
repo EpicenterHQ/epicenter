@@ -7,13 +7,12 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
+import type { Answer, AppListing, Listing } from '../call.ts';
 import { ActionError } from '../errors.ts';
 import { isName } from '../name.ts';
-import type { Answer } from '../result.ts';
 import { findHome, type Home } from './home.ts';
-import { presentAnswer, writeErr } from './output.ts';
-import type { AppListing, Listing } from './protocol.ts';
-import { callAction, fetchListing } from './send.ts';
+import { printAnswer, writeErr } from './output.ts';
+import { callServe, fetchListing } from './send.ts';
 
 const HELP = `epicenter                          every app in this home
 epicenter <app>                    what an app can do
@@ -79,8 +78,8 @@ function appText({ name, description, actions }: AppListing) {
 	].join('\n');
 }
 
-/** The answer for `words`, which the caller presents. */
-async function answer(words: string[]): Promise<Answer | undefined> {
+/** Run the command `words` and give its answer, which `runCli` prints. */
+async function runCommand(words: string[]): Promise<Answer> {
 	const [app, action, input, ...extra] = words;
 	if (app === 'serve') {
 		if (action !== undefined) return usage('Usage: epicenter serve');
@@ -105,7 +104,7 @@ async function answer(words: string[]): Promise<Answer | undefined> {
 	if (error) return Err(error);
 	if (app !== undefined && action !== undefined)
 		// Each update is one line of JSON on stderr, as it arrives.
-		return callAction(home, app, action, input ?? '{}', (update) =>
+		return callServe(home, app, action, input ?? '{}', (update) =>
 			writeErr(JSON.stringify(update)),
 		);
 	const { data: listing, error: unlisted } = await fetchListing(home);
@@ -121,21 +120,19 @@ async function answer(words: string[]): Promise<Answer | undefined> {
 }
 
 /** Run the command and return its exit code, so the entry point lets stdout drain. */
-export async function runCli(argv: string[]): Promise<number> {
+export async function runCli(argv: string[]) {
 	if (argv.includes('--help') || argv.includes('-h'))
-		return presentAnswer(Ok(HELP));
+		return printAnswer(Ok(HELP));
 	if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V'))
-		return presentAnswer(Ok(`epicenter ${packageJson.version}`));
+		return printAnswer(Ok(`epicenter ${packageJson.version}`));
 	const flag = argv.find((word) => word.startsWith('-'));
 	if (flag)
-		return presentAnswer(
+		return printAnswer(
 			usage(`${flag} is not an option; the options are --help and --version`),
 		);
-	let answered: Answer | undefined;
-	try {
-		answered = await answer(argv);
-	} catch (cause) {
-		answered = ActionError.NotStarted({ message: extractErrorMessage(cause) });
-	}
-	return answered === undefined ? 0 : presentAnswer(answered);
+	return printAnswer(
+		await runCommand(argv).catch((cause) =>
+			ActionError.NotStarted({ message: extractErrorMessage(cause) }),
+		),
+	);
 }

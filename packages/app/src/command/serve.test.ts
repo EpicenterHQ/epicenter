@@ -2,13 +2,12 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from '../action.ts';
 import { defineData } from '../data.ts';
 import { defineEpicenter } from '../epicenter.ts';
-import { ActionError } from '../errors.ts';
 import { field } from '../field.ts';
-import type { Loaded } from './load.ts';
+import type { Program } from './program.ts';
 import { createHandler } from './serve.ts';
 
 const homes: string[] = [];
@@ -40,22 +39,22 @@ async function setup() {
 		},
 	});
 	const fake = defineAction({
-		description: 'Claims it never began',
-		input: {},
-		run: () => ActionError.NotStarted({ message: 'not really' }),
+		description: 'Returns a name only Epicenter answers',
+		input: { name: field.select(['NotStarted', 'Threw', 'Unreachable']) },
+		run: ({ name }) => Err({ name, message: 'not really' }),
 	});
-	const loaded: Loaded = {
-		epicenter: defineEpicenter({
+	const program: Program = {
+		apps: defineEpicenter({
 			apps: {
 				writing: {
 					description: 'Notes for later',
 					actions: { add, fail, fake },
 				},
 			},
-		}),
+		}).apps,
 		instructions: 'Be kind to the notes.',
 	};
-	const answer = createHandler({ folder, port: 4747 }, loaded);
+	const answer = createHandler({ folder, port: 4747 }, program);
 	const request = (path: string, init: RequestInit = {}) =>
 		answer(
 			new Request(`http://127.0.0.1:4747${path}`, {
@@ -110,7 +109,7 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 	const { folder, request } = await setup();
 	for (const [path, body, message] of [
 		['/actions/writing/add', '{"id":"a"}', 'body is needed'],
-		['/actions/writing/add', 'not json', 'The input is not JSON'],
+		['/actions/writing/add', 'not json', 'The input is not one JSON object'],
 		['/actions/writing/add', '{"id":"a","body":"x","x":1}', '"x" is not a key'],
 		['/actions/writing/nope', '{}', 'writing has no action "nope"'],
 		['/actions/nope/add', '{}', 'There is no app "nope"'],
@@ -127,9 +126,18 @@ test('a throw is Threw, and a reserved name an action returns is Threw too', asy
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
 	expect(threw.answer.error).toEqual({ name: 'Threw', message: 'broke' });
-	const [fake] = await lines(await request('/actions/writing/fake', post({})));
-	expect(fake.answer.error.name).toBe('Threw');
-	expect(fake.answer.error.message).toContain('a name only Epicenter answers');
+	for (const name of ['NotStarted', 'Threw', 'Unreachable']) {
+		const [fake] = await lines(
+			await request('/actions/writing/fake', post({ name })),
+		);
+		expect(fake.answer.error).toEqual({
+			name: 'Threw',
+			message:
+				'The action "fake" returned ' +
+				name +
+				', a name only Epicenter answers',
+		});
+	}
 });
 
 test('the listing has every app, action, description and input schema', async () => {
@@ -204,7 +212,7 @@ test('the guards refuse tunnels, foreign hosts and origins, and another home', a
 test('a home whose program did not load answers that one problem', async () => {
 	const answer = createHandler(
 		{ folder: '/home', port: 4747 },
-		{ problem: 'epicenter.ts did not load: boom', instructions: undefined },
+		{ apps: {}, problem: 'epicenter.ts did not load: boom' },
 	);
 	const request = (path: string, init?: RequestInit) =>
 		answer(

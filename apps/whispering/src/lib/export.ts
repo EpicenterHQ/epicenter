@@ -3,7 +3,7 @@
  * `settings.md`, in a zip archive whose entries are stored, not
  * compressed (audio is already compressed). A browser's recordings live in
  * its storage for this site, which it may clear, so export is how they
- * leave it (ADR-0894); the archive holds the same tree as the desktop's
+ * leave it; the archive holds the same tree as the desktop's
  * folder.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';

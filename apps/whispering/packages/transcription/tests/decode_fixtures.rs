@@ -125,7 +125,10 @@ fn open_take() -> Vec<u8> {
 /// Segment states its size, is damage, and fails. This holds the decoder to
 /// how the WebM reader ends a torn take (an unexpected end of file) and
 /// treats a finished one (it refuses to open it), so a symphonia upgrade
-/// that changes either fails here.
+/// that changes either fails here. Nothing rewrites a cut-off file. The rule
+/// rests on the reader's end-of-file behavior; it does not match an error
+/// message (as Symphonia 0.5's "past master element" text once was), and it
+/// does not treat any error near the end as the end of the audio.
 #[test]
 fn a_torn_take_decodes_to_its_whole_blocks_and_a_torn_finished_file_fails() {
     let open = open_take();

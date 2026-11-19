@@ -19,6 +19,12 @@ import {
 } from 'typebox';
 import { Value } from 'typebox/value';
 
+/** Declared fields, each a TypeBox schema. */
+export type Fields = Record<string, TSchema>;
+
+/** `T` written out as one object type, without `readonly`, so an editor shows its keys. */
+export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
+
 /** What every field helper takes: a description, and whether it may be absent. */
 type Options = {
 	description?: string;
@@ -33,7 +39,7 @@ function only(
 	helper: string,
 	options: object | undefined,
 	declared: readonly string[],
-): void {
+) {
 	if (
 		options !== undefined &&
 		(typeof options !== 'object' || options === null || Array.isArray(options))
@@ -70,7 +76,7 @@ export type ObjectSchema = {
 /**
  * The `ObjectSchema` of `fields`. TypeBox marks an optional field with a
  * property `JSON.stringify` skips, so the one record of which keys are
- * required is `required`, written here once (ADR-0953).
+ * required is `required`, written here once.
  */
 export function objectSchema(fields: Record<string, TSchema>): ObjectSchema {
 	const schema = Type.Object(fields, { additionalProperties: false });
@@ -262,10 +268,10 @@ export const field = {
 	},
 
 	/**
-	 * One id in a key of the same `defineData`, which may be any of its keys.
-	 * A write that sets it refuses an id with no record there; nothing checks
-	 * it again, so a later delete can leave it naming nothing. Reads open no
-	 * other file. `defineData` refuses a target that is not one of its keys.
+	 * One id in a key of the same `defineData`, which may be any of its keys:
+	 * text whose schema names that key. `defineData` refuses a key it does
+	 * not define. Nothing checks that the record is there, so an app that
+	 * needs it reads it.
 	 */
 	ref: <const O extends Options>(target: string, options?: O) => {
 		only('ref', options, OPTIONS);
@@ -276,6 +282,7 @@ export const field = {
 	},
 };
 
+/** The parts of a field's JSON Schema that the words for it read. */
 type Described = {
 	type?: string;
 	format?: string;
@@ -319,15 +326,6 @@ const SAID = new Set([
 	'minItems',
 ]);
 
-/** The schema a field takes besides `null`: `X | null`, as `set` takes a field, is `X`. */
-function withoutNull(field: TSchema): TSchema {
-	const { anyOf } = field as Described;
-	const nonNull = anyOf?.filter((choice) => choice.type !== 'null');
-	return anyOf?.length === 2 && nonNull?.length === 1 && nonNull[0]
-		? (nonNull[0] as TSchema)
-		: field;
-}
-
 /** What `schema` takes, as the end of "<value> is not …". */
 function wanted(schema: Described): string | undefined {
 	const choices =
@@ -366,10 +364,9 @@ function wanted(schema: Described): string | undefined {
  * long). Serve says it of an input's key and a data read of a front matter
  * line, so both say it alike.
  */
-export function whatFits(field: TSchema, value: unknown): string | undefined {
+export function whatFits(field: TSchema, value: unknown) {
 	if (Value.Check(field, value)) return undefined;
-	const schema = withoutNull(field);
-	const [error] = Value.Errors(schema, value);
+	const [error] = Value.Errors(field, value);
 	if (!error || !SAID.has(error.keyword)) return undefined;
-	return wanted(schema as Described);
+	return wanted(field as Described);
 }

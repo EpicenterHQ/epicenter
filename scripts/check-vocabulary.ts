@@ -62,7 +62,7 @@ const SCANNED_EXTENSIONS = ['.ts', '.svelte', '.md'];
 
 /** Dated records and generated output, excluded from every rule. */
 const FROZEN = [
-	'docs/adr/',
+	'docs/history.md',
 	'docs/spec-history.md',
 	'specs/',
 	'.context/',

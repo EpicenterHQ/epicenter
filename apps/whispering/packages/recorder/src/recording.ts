@@ -1,17 +1,17 @@
 /**
- * The recording vocabulary both hosts share (ADR-0780), and
+ * The recording vocabulary both hosts share, and
  * `Recorder`, the one interface both implement.
  *
  * A recording's audio is at its path when it stops (`Recorder.start`,
  * `Recording`). Every page calls the same `recorder` from
  * `@epicenter/recorder`, which `index.ts` chooses when it loads: the
- * shell's in a Tauri window, the page's own in a browser (ADR-0781). The
- * two need not promise the same things (ADR-0780):
+ * shell's in a Tauri window, the page's own in a browser. The
+ * two need not promise the same things:
  *
  * - On the desktop the shell's recorder encodes the microphone to Opus from
  *   the first sample and writes it, a second at a time, at
- *   `recordings/<id>.webm` in the folder; Stop finishes it there
- *   (ADR-0962). The shell outlives the page, so a quit or a crash keeps
+ *   `recordings/<id>.webm` in the folder; Stop finishes it there.
+ *   The shell outlives the page, so a quit or a crash keeps
  *   every whole second written, which plays as it is.
  * - In a browser the page keeps each piece `MediaRecorder` hands over in
  *   memory, and Stop writes the take once with `files.write` at

@@ -4,7 +4,7 @@ Epicenter runs personal apps on a computer their owner controls. Each app
 keeps its code and records together in the home's private Git repository.
 The CLI runs app actions, and `epicenter serve` makes them available to
 the owner's devices and agents. The earlier folder sync product is retired.
-Some of its packages still have callers in Whispering. The hosted API is retired for now (ADR-0970).
+Some of its packages still have callers in Whispering. The hosted API is retired for now.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` lists the apps in this repository; package
@@ -82,7 +82,7 @@ READMEs and `docs/history.md`, where they can be checked with the implementation
 
 ## Planning docs and decisions
 
-Package READMEs, `docs/adr/`, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
+Package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
 Check changes to apps, the CLI, or storage against [the vision](docs/vision.md)
 and [the history](docs/history.md) of how Epicenter got its current shape.
@@ -93,9 +93,12 @@ not just `docs/` or `specs/`. READMEs explain the current surface.
 **Decisions.** A rule the code follows lives in a `## Decisions` section of the
 README beside that code: the rule, why it holds, and the alternative that lost.
 Change the rule in the same pull request as the code, and delete it when it
-stops being true. Where an area has no Decisions section yet, its ADRs in
-`docs/adr/` still explain its rules; that directory is being retired one area
-at a time, so write no new records there.
+stops being true. The `documentation` skill gives the entry format.
+
+**Records.** `docs/adr/` is deleted; Epicenter writes no decision records. A
+bare `ADR-NNNN` in a comment or the history names one of the old records, all
+of which are in the annotated `adr-archive` Git tag:
+`git show "adr-archive:$(git ls-tree --name-only adr-archive docs/adr/ | grep /NNNN-)"`.
 
 **History.** [docs/history.md](docs/history.md) logs what Epicenter tried,
 kept, and turned down, oldest first, with why. It is background, never
@@ -104,14 +107,14 @@ service, or a new dependency. An entry is for a decision an agent might propose
 again, where returning to it would cost more than a day. Do not add one
 unprompted; propose the entry and let the owner decide.
 
-Treat conflicts among READMEs, records, code, and user intent as judgment
+Treat conflicts among READMEs, code, and user intent as judgment
 points, not an automatic precedence hierarchy. Explain a conflict with the
 requested outcome rather than silently inheriting an old decision.
 
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
 - Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented` or `Superseded` should be deleted.
-- When a design pass settles a durable decision, write the rule into the `## Decisions` section of the README it governs, propose a history entry if it changes Epicenter's direction, and delete the now-spent spec. Git keeps the body recoverable.
+- When a design pass settles a durable decision, write the rule into the `## Decisions` section of the README it governs, propose a history entry if an agent might propose the losing option again, and delete the now-spent spec. Git keeps the body recoverable.
 - `docs/spec-history.md` is a frozen, dated index of past specs. It is history, not truth.
 
 ## Writing conventions
