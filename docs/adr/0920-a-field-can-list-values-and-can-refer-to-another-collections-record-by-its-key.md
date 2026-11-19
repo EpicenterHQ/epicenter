@@ -115,3 +115,23 @@ required unless it says `optional: true`, and an absent one is absent, never
 `[]`. `min` bounds its length when it is given. `defineData` still refuses a
 `field.ref` whose target is not one of its keys, when it runs; the types no
 longer check the target, so `field.ref` takes any text as its target.
+
+## Amendment (2026-11-18): a write checks the refs it sets, and nothing checks them again
+
+`create`, `patch`, and `edit` refuse a write that sets a `field.ref` to an id
+with no record in its target key, including each item of a list and a ref
+inside an object: a `Misfit` naming the field, the key, and the id, such as
+`watch "sfo-bos" names no record in watches`, with nothing written. An absent
+optional ref and `null` pass. This applies to a change computed by `edit`'s
+function too: the check runs inside the write, after the function returns,
+with a synchronous lookup, so the callback runs once (the reason "check
+references inside `update`" was removed above was an asynchronous read).
+
+A ref is checked once, when it is set, by the rule that each thing is
+checked once, where it can change, recorded with the removal of
+`epicenter check`. A delete or rename of the target, or a hand
+edit, leaves it naming nothing until code that follows it reads the target;
+"`epicenter check` reports them" in the consequences above no longer holds.
+The cost is one file lookup per ref a write sets. Inside one serve, a write
+sees every write that finished before it; a target being created by another
+process at the same moment may be missed, and the write is refused.

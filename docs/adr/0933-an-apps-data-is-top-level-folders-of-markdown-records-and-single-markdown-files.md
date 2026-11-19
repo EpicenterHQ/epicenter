@@ -211,3 +211,35 @@ its file to `data/settings/settings.md`. Each key also needs a `description`,
 what one record is as a noun (ADR-0935's amendment of the same date). The
 title of this record keeps "single Markdown files" for its history; the rule
 above replaces it.
+
+## Amendment (2026-11-18): an id is Node's name for the file, and every `.md` file in a key's folder is a record
+
+This follows the rule that each thing is checked once, where it can change,
+recorded with the removal of `epicenter check`.
+
+**An id is the file name without `.md`, as Node reads it.** The seven checks
+above (non-empty, 200 UTF-8 bytes, no `/` or `\`, no control character, no
+leading `.`, no edge whitespace, NFC) are gone. A handle takes an id when
+`node:path`'s `parse` of `data/<key>/<id>.md` gives the id back as its name,
+and `list` takes each file whose extension `parse` calls `.md`, with its name
+as the id. The two sides are one function, so every id `create` writes,
+`list` reads back. `''`, `a/b`, `../x`, and `x/` are refused, since Node would
+name the file otherwise; `.foo`, `..`, ` Dune`, and a decomposed `café` are
+ids. A name the system refuses (too long, a NUL byte) is a `Misfit` when a
+write tries it. The `Misfit` no longer suggests a tidied id.
+
+**Every file directly in a key's folder whose extension is `.md` is a
+record.** A name starting with `.` is no longer the app's own: `.draft.md` is
+the record `.draft`. Everything else in the folder belongs to the app, with
+no list to maintain: subfolders, other extensions, `x.md.bak`, and a file
+named just `.md`. A Mac's `._name.md` on a non-Apple drive shows as a
+`Misfit`; that was accepted.
+
+**A ref is resolved when a write sets it.** "A read never opens the record a
+ref names; `epicenter check` is where a ref is resolved" is replaced: a write
+that sets a ref to a record that is not there is a `Misfit`, and nothing
+checks it afterward ([ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md)'s
+amendment of this date). With `epicenter check` gone, the check rules above
+(names that are not ids, names equal under case folding, unresolved refs) are
+reported by nothing. Two ids that differ only by case are one file on a disk
+that ignores case: each verb finds it and answers with the id it was given.

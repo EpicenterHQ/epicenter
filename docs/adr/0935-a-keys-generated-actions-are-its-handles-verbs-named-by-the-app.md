@@ -188,3 +188,16 @@ owner's home sent both together.
   without an article.
 - There is no one-file key (ADR-0933's amendment), so every verb that names a
   record takes `id`, and every key offers all six verbs.
+
+## Amendment (2026-11-18): the edit action builds its own function
+
+The handle no longer has a passage form
+([ADR-0934](0934-code-reaches-a-record-by-its-keys-name-and-its-id.md)'s
+amendment of this date), so "folds plainly to the handle's
+`edit(id, { old, new })`" and "the passage form lives on the handle" no
+longer hold. The `edit` action hands the handle's `edit` a function that
+answers `Missing` for an absent record and `Changed` (`quote` or `twice`)
+unless `old` is in the body once, and otherwise replaces it. Its input,
+annotations, and answers are unchanged. An empty `old` is refused by the
+input schema before the action runs; called directly in code, it answers
+`Changed` (`twice`).

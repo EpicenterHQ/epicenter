@@ -191,3 +191,21 @@ uses `edit(id, fn)`. The patch an `edit` function returns holds only the
 fields that change. One that names `path` or `id`, as `Ok({ ...record, done:
 true })` does, is refused with `Misfit` saying to return only the fields that
 change; the handle used to drop those keys without a word.
+
+## Amendment (2026-11-18): edit takes only a function, and a write checks the refs it sets
+
+`edit(id, { old, new })` is gone from the handle: `edit(id, fn)` is its one
+form, and the 2026-11-17 bend of "each verb takes one kind of change" is
+undone. The generated `edit` action still takes `{ id, old, new }` and builds
+the replacing function itself
+([ADR-0935](0935-a-keys-generated-actions-are-its-handles-verbs-named-by-the-app.md)'s
+amendment of this date), so its input and answers are unchanged.
+
+"The handle writes every declared field and opens no other file: a ref is
+written as given" no longer holds: a write looks up each ref it sets and
+refuses one that names no record
+([ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md)'s
+amendment of this date). An id is refused by the rule in
+[ADR-0933](0933-an-apps-data-is-top-level-folders-of-markdown-records-and-single-markdown-files.md)'s
+amendment of this date, with `Misfit`. A `Misfit`'s `record` is typed as
+JSON values by name, the same as on a page, not as the key's fields.
