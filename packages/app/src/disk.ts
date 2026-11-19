@@ -8,13 +8,11 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-	chmodSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
-	statSync,
 	unlinkSync,
 	writeFileSync,
 } from 'node:fs';
@@ -50,10 +48,9 @@ export function filesIn(folder: string) {
 /**
  * Replace the file at `path` under `home` with `bytes` at once. The bytes go
  * to a file in `local/.tmp/` and are renamed over the target, so a commit
- * made meanwhile finds nothing unfinished under `data/`. A file that is
- * replaced keeps its mode. When the write makes `local/`, it also writes
- * `local/.gitignore`, so the temporary files stay out of Git whatever the
- * root `.gitignore` says.
+ * made meanwhile finds nothing unfinished under `data/`. When the write
+ * makes `local/`, it also writes `local/.gitignore`, so the temporary files
+ * stay out of Git whatever the root `.gitignore` says.
  */
 export function replaceFile(home: string, path: string, bytes: Uint8Array) {
 	if (mkdirSync(join(home, 'local'), { recursive: true }) !== undefined)
@@ -62,13 +59,9 @@ export function replaceFile(home: string, path: string, bytes: Uint8Array) {
 	mkdirSync(temp, { recursive: true });
 	const target = join(home, path);
 	mkdirSync(dirname(target), { recursive: true });
-	const found = statSync(target, { throwIfNoEntry: false });
-	const kept = found === undefined ? undefined : found.mode & 0o7777;
 	const held = join(temp, randomUUID());
 	try {
-		writeFileSync(held, bytes, { mode: kept ?? 0o666 });
-		// The umask narrows a new file's mode; a kept mode is exact.
-		if (kept !== undefined) chmodSync(held, kept);
+		writeFileSync(held, bytes);
 		renameSync(held, target);
 	} catch (error) {
 		rmSync(held, { force: true });
