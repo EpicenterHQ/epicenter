@@ -36,7 +36,7 @@ Specs should:
 
 A good spec is a launching pad, not a script to follow.
 
-**Before outlining sections, apply the [one-sentence-test](../one-sentence-test/SKILL.md).** If you can't name what this spec is about in one concrete sentence, the design is not coherent yet. That is the finding, and the spec is not ready.
+**Before outlining sections, apply the [one-sentence test](../collapse-pass/SKILL.md#state-it-in-one-sentence).** If you can't name what this spec is about in one concrete sentence, the design is not coherent yet. That is the finding, and the spec is not ready.
 
 ---
 

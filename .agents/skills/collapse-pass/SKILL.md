@@ -1,6 +1,6 @@
 ---
 name: collapse-pass
-description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Use control-flow for a request limited to one function's branching.
+description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Also use for the one-sentence test: stating in one sentence what a surface or abstraction actually does, to find orphaned surfaces, duplicate verbs, and inert abstractions. Answer a plain code-comprehension question directly instead. Use control-flow for a request limited to one function's branching.
 metadata:
   author: epicenter
   version: '2.0'
@@ -125,6 +125,28 @@ a file does not simplify the system if its job is now spread across
 callers. Name what becomes easier to understand or maintain, and account
 for any new work the replacement introduces.
 
+## State it in one sentence
+
+To audit a design, surface, or abstraction, write one concrete sentence
+about it in your response, so the reader can see the gap between what the
+prose claims and what the code does. If the sentence keeps drifting, the
+design is not coherent yet; name that.
+
+For a design or set of commands, endpoints, or options, the sentence is the
+thesis. Ask of each surface: does it serve the sentence, would the sentence
+survive its removal, and does another surface serve the same verb? A
+convenience feature that forces a second sentence belongs to another product.
+
+For a wrapper, flag, or utility, reduce it in order:
+
+1. Strip the docs. Ignore the name and JSDoc, read the body, and finish
+   "this function ___" with mechanics only.
+2. Specialize to the defaults in use. A knob set to `Infinity`, `false`, or
+   `null` leaves the code it guards inert.
+3. Ask whether the caller needs that version. If not, the wrapper adds nothing.
+
+Paraphrasing the JSDoc is not a reduction; it repeats the claim being tested.
+
 ## Carry the change through
 
 Establish the starting state so your changes remain distinguishable from
@@ -136,9 +158,8 @@ updates explaining meaningful findings and changes in direction.
 
 When a simpler design would change a product promise, use
 [product-collapse](../product-collapse/SKILL.md) to develop the experience
-with the user. Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when
-judging whether giving up one small promise would remove much larger
-complexity.
+with the user; its asymmetric wins section covers judging whether giving
+up one small promise would remove much larger complexity.
 
 Carry settled decisions forward. Bring back consequential choices that
 exceed existing authorization, including changes to stored formats or
