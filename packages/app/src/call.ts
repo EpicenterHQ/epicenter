@@ -13,7 +13,7 @@
  * `Unreachable` too. This module uses only web APIs, so a page's bundle can
  * carry it.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import {
 	ActionError,
 	type Answer,
@@ -106,10 +106,11 @@ export async function fetchServe(
 	init: RequestInit,
 	ended: string,
 ): Promise<Result<Response, NotStarted | Unreachable>> {
-	const response = await fetch(url, init).catch((cause: unknown) =>
-		fetchFailed(cause, ended),
-	);
-	if (!(response instanceof Response)) return response;
+	const { data: response, error } = await tryAsync({
+		try: () => fetch(url, init),
+		catch: (cause) => fetchFailed(cause, ended),
+	});
+	if (error !== null) return Err(error);
 	if (response.status === 200) return Ok(response);
 	void response.body?.cancel().catch(() => undefined);
 	return statusFailed(response);
