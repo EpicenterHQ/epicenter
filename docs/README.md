@@ -5,7 +5,7 @@ This directory holds the vision, the history of Epicenter's big decisions, the o
 ## Start here
 
 - [Vision](vision.md): what Epicenter is and the rules it keeps: your apps and files on a computer you control and keep on.
-- [History](history.md): the big turns in Epicenter's direction, oldest first, and why each was made. Background, not rules.
+- [History](history.md): what Epicenter tried, kept, and turned down, oldest first, and why. Background, not rules.
 - Each area's current rules are in a `## Decisions` section of its README, beside its code.
 - [Decision records (ADRs)](adr/README.md): older records, retired one area at a time as their rules move into READMEs.
 - [What a home imports, and the `epicenter` command](../packages/app/README.md): how the current product works in code.
