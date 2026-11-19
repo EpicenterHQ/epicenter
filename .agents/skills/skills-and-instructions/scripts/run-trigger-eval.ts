@@ -12,7 +12,7 @@
  * forbids claims it.
  * These are facts about descriptions. They are *not* routing results. A
  * description can carry a near-miss clause that a substring scan cannot weigh
- * (`collapse-pass` tells the agent to answer plain comprehension questions
+ * (`code-collapse` tells the agent to answer plain comprehension questions
  * directly, and no amount of lexical analysis sees that), and a model can route
  * correctly on intent with no lexical overlap at all. Treat this mode as a
  * cheap smoke test on description coverage, and never quote it as evidence

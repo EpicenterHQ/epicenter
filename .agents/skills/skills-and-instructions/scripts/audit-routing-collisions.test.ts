@@ -7,7 +7,7 @@
  * `--explain` flag cannot drift them.
  *
  * The content-coupled assertions are deliberate. "asymmetric wins" having
- * exactly one owner, and "simplify this" being owned by collapse-pass, are routing facts the composition audit is
+ * exactly one owner, and "simplify this" being owned by code-collapse, are routing facts the composition audit is
  * built around; if a description edit changes one, a failing test here is the
  * report, not noise.
  *
@@ -77,11 +77,11 @@ test('a single claimant with no collision exits 0', () => {
 	const { code, out } = run('--explain', 'simplify this');
 
 	expect(code).toBe(0);
-	expect(out).toContain('collapse-pass/SKILL.md [claims]');
+	expect(out).toContain('code-collapse/SKILL.md [claims]');
 });
 
 test('a phrase every mention routes away is reported as unowned', () => {
-	// collapse-pass sends this back to the agent and nobody accepts it,
+	// code-collapse sends this back to the agent and nobody accepts it,
 	// which is the intended routing. The script reports unowned; whether unowned
 	// is correct stays the reader's call.
 	const { code, out, err } = run(
@@ -90,7 +90,7 @@ test('a phrase every mention routes away is reported as unowned', () => {
 	);
 
 	expect(code).toBe(1);
-	expect(out).toContain('collapse-pass/SKILL.md [disclaims]');
+	expect(out).toContain('code-collapse/SKILL.md [disclaims]');
 	expect(err).toContain('No skill description claims');
 	expect(err).toContain('route it elsewhere');
 });

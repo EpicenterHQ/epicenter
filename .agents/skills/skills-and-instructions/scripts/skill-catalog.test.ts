@@ -58,7 +58,7 @@ describe('classifyClaim', () => {
 	const controlFlow =
 		'Control flow: early returns, guard clauses, linearizing nested logic. ' +
 		'Use for "flatten these conditions", "too many nested ifs". ' +
-		'For a broad "simplify this" pass over a diff or package, use collapse-pass instead.';
+		'For a broad "simplify this" pass over a diff or package, use code-collapse instead.';
 
 	test('claims a phrase carried by a trigger sentence', () => {
 		expect(classifyClaim(controlFlow, 'nested ifs')).toBe('claims');

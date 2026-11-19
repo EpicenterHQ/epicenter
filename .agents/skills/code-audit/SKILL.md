@@ -10,7 +10,7 @@ metadata:
 
 Recurring smell categories worth hunting periodically. Each category has a grep pattern, a real example from the repo (if one exists), and a "why it matters" so you know whether a hit is a real smell or expected.
 
-> **Related skills**: See `post-implementation-review` for the full second-read ritual after implementation. See [refactoring methods](../collapse-pass/references/refactoring-methods.md) for fixing what you find. See the one-sentence test in [collapse-pass](../collapse-pass/SKILL.md) for the cohesion audit that frames whether an abstraction earns its keep.
+> **Related skills**: See `post-implementation-review` for the full second-read ritual after implementation. See [refactoring methods](../code-collapse/references/refactoring-methods.md) for fixing what you find. See the one-sentence test in [code-collapse](../code-collapse/SKILL.md) for the cohesion audit that frames whether an abstraction earns its keep.
 
 The categories below were validated against the actual codebase by repeated agent audits. They're not generic style nits: each one signals a specific kind of contract problem in a TypeScript-heavy framework codebase.
 

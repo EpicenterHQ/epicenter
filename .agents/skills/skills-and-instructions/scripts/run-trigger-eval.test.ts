@@ -48,14 +48,14 @@ function makeCase(overrides: Partial<EvalCase> = {}): EvalCase {
 		id: 'case-1',
 		prompt: 'Run a collapse pass over this package.',
 		anchors: ['collapse pass'],
-		expect: 'collapse-pass',
+		expect: 'code-collapse',
 		forbid: [],
 		...overrides,
 	};
 }
 
 describe('validateCorpus', () => {
-	const known = new Set(['collapse-pass', 'refactoring']);
+	const known = new Set(['code-collapse', 'refactoring']);
 
 	test('accepts a well-formed case', () => {
 		expect(validateCorpus([makeCase()], known)).toEqual([]);
@@ -91,11 +91,11 @@ describe('validateCorpus', () => {
 
 	test('rejects a skill that is both expected and forbidden', () => {
 		const problems = validateCorpus(
-			[makeCase({ forbid: ['collapse-pass'] })],
+			[makeCase({ forbid: ['code-collapse'] })],
 			known,
 		);
 		expect(problems).toContain(
-			'case-1: collapse-pass is both expected and forbidden',
+			'case-1: code-collapse is both expected and forbidden',
 		);
 	});
 
@@ -108,7 +108,7 @@ describe('validateCorpus', () => {
 	test('accepts a near-miss case with a null expectation', () => {
 		expect(
 			validateCorpus(
-				[makeCase({ expect: null, forbid: ['collapse-pass'] })],
+				[makeCase({ expect: null, forbid: ['code-collapse'] })],
 				known,
 			),
 		).toEqual([]);
@@ -225,10 +225,10 @@ describe('parseLoadedSkills', () => {
 	test('collects each skill the transcript shows being loaded', () => {
 		const stream =
 			event([
-				{ type: 'tool_use', name: 'Skill', input: { skill: 'collapse-pass' } },
-			]) + event([{ type: 'text', text: 'collapse-pass' }]);
+				{ type: 'tool_use', name: 'Skill', input: { skill: 'code-collapse' } },
+			]) + event([{ type: 'text', text: 'code-collapse' }]);
 
-		expect(parseLoadedSkills(stream)).toEqual(['collapse-pass']);
+		expect(parseLoadedSkills(stream)).toEqual(['code-collapse']);
 	});
 
 	test('ignores tool uses that are not the Skill tool', () => {
@@ -262,19 +262,19 @@ describe('parseLoadedSkills', () => {
 
 describe('judge', () => {
 	test('passes when the expected skill loaded', () => {
-		expect(judge(makeCase(), ['collapse-pass']).verdict).toBe('pass');
+		expect(judge(makeCase(), ['code-collapse']).verdict).toBe('pass');
 	});
 
 	test('fails when a different skill loaded', () => {
 		const result = judge(makeCase(), ['refactoring']);
 
 		expect(result.verdict).toBe('fail');
-		expect(result.reason).toBe('expected collapse-pass, loaded refactoring');
+		expect(result.reason).toBe('expected code-collapse, loaded refactoring');
 	});
 
 	test('fails on a forbidden skill even when the expected one also loaded', () => {
 		const result = judge(makeCase({ forbid: ['refactoring'] }), [
-			'collapse-pass',
+			'code-collapse',
 			'refactoring',
 		]);
 
@@ -286,12 +286,12 @@ describe('judge', () => {
 		const nearMiss = makeCase({ expect: null, forbid: [] });
 
 		expect(judge(nearMiss, []).verdict).toBe('pass');
-		expect(judge(nearMiss, ['collapse-pass']).verdict).toBe('fail');
+		expect(judge(nearMiss, ['code-collapse']).verdict).toBe('fail');
 	});
 
 	test('reports loading nothing when a skill was expected', () => {
 		expect(judge(makeCase(), []).reason).toBe(
-			'expected collapse-pass, loaded nothing',
+			'expected code-collapse, loaded nothing',
 		);
 	});
 });
@@ -355,7 +355,7 @@ describe('partitionByRouter', () => {
 test('an unknown router is a corpus error', () => {
 	const problems = validateCorpus(
 		[makeCase({ router: 'gemini' as never })],
-		new Set(['collapse-pass']),
+		new Set(['code-collapse']),
 	);
 
 	expect(problems).toContain('case-1: unknown router: gemini');
@@ -492,7 +492,7 @@ describe('fingerprintInstructions', () => {
 			}),
 		);
 		const after = await fingerprintInstructions(
-			await scratch({ 'AGENTS.md': 'Review gates: load collapse-pass.' }),
+			await scratch({ 'AGENTS.md': 'Review gates: load code-collapse.' }),
 		);
 
 		expect(after.digest).not.toBe(before.digest);

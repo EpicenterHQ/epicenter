@@ -1,14 +1,15 @@
 ---
-name: collapse-pass
+name: code-collapse
 description: Find a simpler design behind code complexity, carry it through its callers, and verify the result. Use when asked for a collapse pass, a refactoring or simplification pass, another pass, "simplify this", "conceptually collapse this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Also use for the one-sentence test: stating in one sentence what a surface or abstraction actually does, to find orphaned surfaces, duplicate verbs, and inert abstractions. Answer a plain code-comprehension question directly instead.
 metadata:
   author: epicenter
   version: '2.0'
 ---
 
-# Collapse pass
+# Code collapse
 
-A collapse pass looks for a simpler way for the system to do its job.
+A code collapse, or collapse pass, looks for a simpler way for the system
+to do its job.
 Question the current concepts and promises as well as their implementation.
 
 Try the plainest articulation of the design. Follow “it’s just plain X”
@@ -25,16 +26,16 @@ takes almost none, because startup already knows how.
 
 - A server with hot reloading. Build it again and restart it, and the
   reload machinery is never needed.
-- An editor window that can switch between folders. It has to close files,
-  settle pending work, and clean up. If a window stays with one folder,
-  opening another folder opens another window, or reloads this one.
 - A database connection when a key changes. Instead of killing it and
   rebinding while every `db` reference keeps working, reload the page and
   let startup make a new one.
 
 Each trades a brief interruption, and sometimes unsaved work, for deleting
-everything that kept the old thing in step. That changes the experience
-too, so develop the choice with the user unless it is already settled.
+everything that kept the old thing in step. When that changes what the
+person experiences, such as an editor window that can no longer switch
+folders, develop the choice with them in
+[product-collapse](../product-collapse/SKILL.md) unless it is already
+settled.
 
 ## Understand the work
 

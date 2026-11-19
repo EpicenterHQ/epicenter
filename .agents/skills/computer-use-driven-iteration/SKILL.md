@@ -90,7 +90,7 @@ the user requests it. That skill owns independent reviewer setup and
 adjudication. Reflection happens every wave; a full reviewer group does not.
 Preserve reviewer independence from the implementation worker.
 
-Use [collapse-pass](../collapse-pass/SKILL.md) when accepted findings call for
+Use [code-collapse](../code-collapse/SKILL.md) when accepted findings call for
 sustained removal of unearned indirection. Feed its result back into the same
 product journeys. Review agreement and fewer lines do not establish that the
 product improved.

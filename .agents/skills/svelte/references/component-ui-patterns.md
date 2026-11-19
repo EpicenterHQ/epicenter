@@ -719,7 +719,7 @@ when it only repeats those arguments. Keep extraction when it centralizes a
 shared rule, avoids substantial repetition, caches a necessary result, or makes
 non-obvious work understandable. Use the same test for forwarding `$derived`
 aliases; keep template locals needed to narrow optional values. See
-[refactoring methods](../../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible)
+[refactoring methods](../../code-collapse/references/refactoring-methods.md#keep-source-and-action-visible)
 and [template narrowing](#template-locals-narrow-reactive-values-before-use).
 
 Repeated shallow reads such as `editor.row` can stay direct so ownership
