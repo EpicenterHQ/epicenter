@@ -34,6 +34,14 @@ might be unnecessary. Actions might belong together, or a combined action
 might work better as separate decisions. Something the browser or
 operating system already does may be enough.
 
+Often a change only needs to take effect when something starts. Instead
+of keeping a running thing in step with it, restart or reload and let
+startup build it fresh. A window that can switch between folders can open a
+new window. A server can be rebuilt and run again instead of hot reloaded.
+A page can reload after a database key changes instead of rebinding the
+connection. The person waits a moment and may lose unsaved work, but the
+code that kept the old thing alive disappears.
+
 For example, someone who wants to review their week might need one
 useful report with a date-range choice. They may have no use for a report
 builder with configurable columns, grouping, and saved layouts. That
