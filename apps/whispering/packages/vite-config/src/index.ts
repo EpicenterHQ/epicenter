@@ -53,7 +53,7 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 const APP_MODULE = '/src/lib/app.ts';
 
 /**
- * Editing what an app is made of reloads the page (ADR-0768): a change that
+ * Editing what an app is made of reloads the page: a change that
  * reaches `src/lib/app.ts`, the file itself or anything it imports, is a new
  * world for the page, and a reload frees the old one whole (its folder, its
  * Worker, every listener) with nothing for the app to close. An edit that

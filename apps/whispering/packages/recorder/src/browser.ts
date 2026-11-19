@@ -6,7 +6,7 @@
  * `<path>.<ext>` in the app's files, with `files.write`. Its duration is
  * the recorder's own clock: the time it spent recording, pauses left out. A
  * take a crash or a closed tab cuts off is lost; keeping one through that
- * is the desktop app's, whose shell outlives the page (ADR-0780). The app's
+ * is the desktop app's, whose shell outlives the page. The app's
  * leave guard asks before a page closes while a take runs.
  *
  * AAC in MP4 is asked for first (`.m4a`), since a recording lands in folders

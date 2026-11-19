@@ -11,7 +11,7 @@
  * count, each path's length in the order asked (or a marker for a missing
  * file), then the bytes. `files_write` sends its bytes as the request's
  * body; the shell writes them to a hidden temporary file beside the target
- * and renames it over the target (ADR-0962).
+ * and renames it over the target.
  */
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -40,7 +40,7 @@ type FolderChange = 'moved' | 'opened';
 
 /**
  * Change the desktop's folder from `from` to `to`, which the folder dialog
- * granted (ADR-0894): an empty folder gets the recordings moved into it
+ * granted: an empty folder gets the recordings moved into it
  * (`moved`); a Whispering folder, one holding `settings.md` or
  * `recordings/`, is opened and the old one left as it was (`opened`); any
  * other folder is refused with why. Two folders are never merged.

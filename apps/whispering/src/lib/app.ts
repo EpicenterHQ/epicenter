@@ -3,7 +3,7 @@
  * Every page, component and module imports what it uses from here; product
  * state (Whispering and its library) is the app's own (`WhisperingApp`).
  *
- * - `folder` is Whispering's folder over one `Files` (ADR-0894): the data
+ * - `folder` is Whispering's folder over one `Files`: the data
  *   folder on the desktop (`data/` in the app's local data directory unless
  *   the person moved it, `folderPath`), and the Origin Private File System's
  *   `data/` in a browser. It holds the notes, the audio and `settings.md`.

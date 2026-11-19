@@ -1,7 +1,7 @@
 /**
  * `@epicenter/recorder`: the recording vocabulary (`recording.ts`), and
  * `recorder`, this window's microphones, chosen when this module loads
- * with `isTauri()` (ADR-0781). In a Tauri window it is the shell's, whose
+ * with `isTauri()`. In a Tauri window it is the shell's, whose
  * code (`tauri.ts`) loads with the first call; in a browser it is the
  * page's own (`browser.ts`).
  */

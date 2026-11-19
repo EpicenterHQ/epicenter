@@ -1,5 +1,5 @@
 /**
- * What is in Whispering's folder (ADR-0894), and how a note is checked.
+ * What is in Whispering's folder, and how a note is checked.
  *
  * - A recording is a note at `recordings/{id}.md` (its title, when it was
  *   recorded, and how long it is; notes in the body) beside its audio at

@@ -85,7 +85,7 @@ pub fn get_unload_policy<R: Runtime>(
 }
 
 /// Set the unload policy. Rust owns the idle clock because a backgrounded
-/// webview timer throttles exactly when idle eviction must fire (ADR-0012),
+/// webview timer throttles exactly when idle eviction must fire,
 /// and owns the value too, so it applies from launch instead of waiting for a
 /// webview to reconcile it. It carries no model identity.
 #[tauri::command]

@@ -3,7 +3,7 @@
 Whispering's desktop microphone. It lists the inputs, reads one's level, and
 records: a page in the shell opens no microphone of its own.
 A recording is written at its final path a second at a time
-([ADR-0962](../../../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)):
+([Whispering's decisions](../../README.md#the-folder)):
 `start` creates `recordings/<id>.webm` in Whispering's folder and encodes
 the microphone into it as Opus as it captures, a second at a time, and
 `stop` finishes it there. Nothing deletes a recording's audio. A quit or a

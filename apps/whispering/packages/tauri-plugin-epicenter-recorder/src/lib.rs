@@ -1,6 +1,5 @@
 //! Whispering's microphone recorder, which writes each take at its path in
-//! the app's folder from the moment it starts and finishes it there at Stop
-//! (ADR-0962).
+//! the app's folder from the moment it starts and finishes it there at Stop.
 //!
 //! A shell installs it beside `tauri-plugin-fs`, whose scope says which
 //! folders it may record into:

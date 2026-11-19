@@ -1,5 +1,5 @@
 <!--
-	Where Whispering keeps its recordings (ADR-0894). On the desktop, the
+	Where Whispering keeps its recordings. On the desktop, the
 	folder: its path, "Show in Finder", "Copy path", and "Change…", which
 	picks another in the system's dialog (granting the app that folder and
 	nothing else). An empty folder gets the recordings moved into it; a

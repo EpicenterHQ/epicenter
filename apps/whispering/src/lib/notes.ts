@@ -1,6 +1,6 @@
 /**
- * Whispering's notes (`recordings/{id}.md` and the like) over `Files`
- * (ADR-0894), every kind through one service: the kind is part of each
+ * Whispering's notes (`recordings/{id}.md` and the like) over `Files`,
+ * every kind through one service: the kind is part of each
  * call. It keeps nothing between calls: `list()` lists a kind's directory
  * and reads every note in it in one `readMany`, and the query layer
  * (`folder-query.ts`) lists again after every write and when the window

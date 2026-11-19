@@ -27,7 +27,7 @@
 //!
 //! The take, a WebM at `recordings/<id>.webm` in the folder, is created when
 //! the recording starts, and each second of it is written there whole as
-//! soon as it is encoded (ADR-0962), so a process that ends mid-recording
+//! soon as it is encoded, so a process that ends mid-recording
 //! leaves every second but the last behind a head that does not state its
 //! length. Nothing repairs such a take: it plays from its whole seconds as
 //! it is. Once capture has begun, nothing here deletes a file that holds

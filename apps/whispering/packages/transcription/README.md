@@ -36,7 +36,7 @@ directly bypasses this path. Other platforms run the ordinary event loop.
 
 Each app owns its settings in its local data directory's `local/`,
 `app.path().app_local_data_dir()/local/local-transcription.json`, where the
-app keeps what belongs to this computer alone (ADR-0894): the directory named
+app keeps what belongs to this computer alone: the directory named
 by the app's bundle identifier, so `so.epicenter.whispering` and
 `so.epicenter.whispering.dev` keep separate choices. Plugin setup fails if that
 directory cannot be resolved. The file holds the unload policy, which is
@@ -103,7 +103,7 @@ There is no default grant. Every permission is prefixed
 `@epicenter/transcription` exports:
 
 - `.`: `localSpeech()`, described last below, which is null outside a
-  Tauri window (`isTauri()`, ADR-0781), and `openLocalSpeech()`, the same
+  Tauri window (`isTauri()`), and `openLocalSpeech()`, the same
   handle for code that runs only in one. The generated bindings load with
   the first command, so a browser never loads them.
 - `./bindings`: the generated bindings (`commands` and the wire types), such

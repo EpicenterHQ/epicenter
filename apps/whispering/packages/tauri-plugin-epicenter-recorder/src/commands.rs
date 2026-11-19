@@ -10,7 +10,7 @@
 //! the person picked in the folder dialog. The id must be one plain name
 //! with no extension. Only then is the microphone opened. The take is
 //! recorded at `recordings/<id>.webm` in the folder and finished there at
-//! Stop (ADR-0962).
+//! Stop.
 
 use std::path::PathBuf;
 use std::sync::Arc;

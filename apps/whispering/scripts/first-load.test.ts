@@ -1,5 +1,5 @@
 /**
- * The web's first load holds no desktop module (ADR-0781).
+ * The web's first load holds no desktop module.
  *
  * One build serves a browser tab and a Tauri window, so each capability
  * decides where the page runs with `isTauri()` and loads its desktop

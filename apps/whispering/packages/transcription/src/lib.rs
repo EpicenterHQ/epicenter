@@ -4,7 +4,7 @@
 //! arrives; the page's `localSpeech()` answers every transcription that way.
 //! Model settings belong to the installing app and live in its local data
 //! directory's `local/`, `app_local_data_dir()/local/local-transcription.json`,
-//! where the app keeps what belongs to this computer alone (ADR-0894); model
+//! where the app keeps what belongs to this computer alone; model
 //! files stay in the shared Hugging Face cache.
 
 use std::path::PathBuf;

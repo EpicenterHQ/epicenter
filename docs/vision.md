@@ -199,8 +199,9 @@ changes in place ([ADR-0910]).
   Todoist. Todoist stays near empty, and Tasks is the list.
 - **A recording on a plane.** Whispering on your laptop records, transcribes,
   and pastes with no network, and keeps each recording, with its audio, in
-  its own folder ([ADR-0894], Proposed). It needs no Epicenter and no
-  account. If you point its
+  its own folder
+  ([Whispering's decisions](../apps/whispering/README.md#the-folder)). It needs
+  no Epicenter and no account. If you point its
   folder into `~/Epicenter/apps/whispering/data`, or copy new files there with
   a file syncer, the recordings appear for your agents. A later Whispering may
   hand each new recording over to your home once it can reach it, and from
@@ -445,7 +446,6 @@ fields are written one `key: <JSON>` line each.
 [ADR-0882]: adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md
 [ADR-0889]: adr/0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md
 [ADR-0893]: adr/0893-a-records-path-is-its-path-in-the-apps-data-repository.md
-[ADR-0894]: adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md
 [ADR-0896]: adr/0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md
 [ADR-0897]: adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md
 [ADR-0898]: adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md
