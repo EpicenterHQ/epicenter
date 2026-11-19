@@ -149,12 +149,22 @@ function bounds(options: Bounds | undefined) {
 
 export const field = {
 	/**
-	 * Text. `pattern` is a regular expression the whole value must match; give
-	 * a `description` that reads after "must be", since that is how a refusal
-	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
+	 * Text. `pattern` is a regular expression the value must contain a match
+	 * of, as JSON Schema reads it: `'\\S'` is not blank, and `'^[A-Z]{3}$'`
+	 * anchors it to the whole value. A refusal names the pattern, then the
+	 * description: `body must be text matching \S (what to save)`.
 	 */
 	text: <const O extends Options & { pattern?: string }>(options?: O) => {
 		only('text', options, [...OPTIONS, 'pattern']);
+		// TypeBox compiles a pattern with the `u` flag on every check.
+		if (options?.pattern !== undefined)
+			try {
+				new RegExp(options.pattern, 'u');
+			} catch {
+				throw new Error(
+					`field.text's pattern ${JSON.stringify(options.pattern)} is not a regular expression`,
+				);
+			}
 		return maybeOptional(
 			Type.String({
 				...schemaOptions(options),
@@ -274,14 +284,11 @@ type Described = {
 	items?: Described;
 	anyOf?: Described[];
 	const?: unknown;
-	enum?: unknown[];
 };
 
 const FORMATS: Record<string, string> = {
 	date: 'a day like 2026-11-12',
 	'date-time': 'a date and time like 2026-11-12T09:30:00Z',
-	uri: 'a URL like https://example.com',
-	email: 'an email address',
 };
 
 const TYPES: Record<string, string> = {
@@ -290,7 +297,6 @@ const TYPES: Record<string, string> = {
 	integer: 'a whole number',
 	boolean: 'true or false',
 	array: 'a list',
-	object: 'an object',
 };
 
 /** The checks `whatFits` says in words; another, such as `maxLength`, keeps TypeBox's message. */
@@ -299,7 +305,6 @@ const SAID = new Set([
 	'format',
 	'const',
 	'anyOf',
-	'enum',
 	'pattern',
 	'minimum',
 	'maximum',
@@ -308,14 +313,11 @@ const SAID = new Set([
 
 /** What `schema` takes, as the end of "<value> is not …". */
 function wanted(schema: Described): string | undefined {
-	const choices =
-		schema.enum ??
-		(schema.anyOf?.every((choice) => 'const' in choice)
-			? schema.anyOf.map((choice) => choice.const)
-			: undefined);
-	if (choices) return `one of ${choices.map(String).join(', ')}`;
-	// A pattern is a regular expression; the field's description says it in words.
-	if (schema.pattern !== undefined) return schema.description;
+	if (schema.anyOf?.every((choice) => 'const' in choice))
+		return `one of ${schema.anyOf.map((choice) => String(choice.const)).join(', ')}`;
+	// A pattern is a regular expression; a description, when there is one, says what it is for.
+	if (schema.pattern !== undefined)
+		return `text matching ${schema.pattern}${schema.description ? ` (${schema.description})` : ''}`;
 	if (schema.format !== undefined) return FORMATS[schema.format];
 	if (schema.type === 'array') {
 		const each = schema.items && wanted(schema.items);
@@ -348,5 +350,10 @@ export function whatFits(field: TSchema, value: unknown) {
 	if (Value.Check(field, value)) return undefined;
 	const [error] = Value.Errors(field, value);
 	if (!error || !SAID.has(error.keyword)) return undefined;
+	// The words describe the field, or a list's item; a failure deeper inside
+	// raw TypeBox keeps TypeBox's message.
+	const listItem =
+		(field as Described).type === 'array' && /^\/\d+$/.test(error.instancePath);
+	if (error.instancePath !== '' && !listItem) return undefined;
 	return wanted(field as Described);
 }

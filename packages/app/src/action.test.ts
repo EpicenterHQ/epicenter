@@ -48,6 +48,9 @@ test('a definition is refused for what its types cannot say', () => {
 	expect(() =>
 		defineAction({ description: ' ', input: {}, run: () => Ok(null) }),
 	).toThrow('An action needs a description');
+	expect(() => field.text({ pattern: '[' })).toThrow(
+		'is not a regular expression',
+	);
 });
 
 test('defineEpicenter refuses names that are not names, and what defineAction did not make', () => {

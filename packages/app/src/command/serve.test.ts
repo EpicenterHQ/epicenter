@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Type } from 'typebox';
 import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from '../action.ts';
 import { defineData } from '../data.ts';
@@ -38,6 +39,19 @@ async function setup() {
 			throw new Error('broke');
 		},
 	});
+	const tag = defineAction({
+		description: 'Takes words shaped by a pattern and nested raw TypeBox',
+		input: {
+			word: field.text({ pattern: '\\S', description: 'not blank' }),
+			meta: Type.Optional(Type.Object({ n: Type.Number() })),
+		},
+		run: () => Ok(null),
+	});
+	const odd = defineAction({
+		description: 'Has a raw pattern that is not a regular expression',
+		input: { code: Type.String({ pattern: '[' }) },
+		run: () => Ok(null),
+	});
 	const fake = defineAction({
 		description: 'Returns a name only Epicenter answers',
 		input: { name: field.select(['NotStarted', 'Threw', 'Unreachable']) },
@@ -48,7 +62,7 @@ async function setup() {
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake },
+					actions: { add, fail, fake, tag, odd },
 				},
 			},
 		}).apps,
@@ -113,6 +127,13 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 		['/actions/writing/nope', '{}', 'writing has no action "nope"'],
 		['/actions/nope/add', '{}', 'There is no app "nope"'],
 		['/actions/writing/add/more', '{}', "is not an action's address"],
+		[
+			'/actions/writing/tag',
+			'{"word":" "}',
+			'word must be text matching \\S (not blank)',
+		],
+		['/actions/writing/tag', '{"word":"a","meta":{"n":"x"}}', 'meta: '],
+		['/actions/writing/odd', '{"code":"x"}', 'could not be checked'],
 	] as const) {
 		const [line] = await lines(await request(path, post(body)));
 		expect(line.answer.error.name).toBe('NotStarted');
@@ -178,7 +199,13 @@ test('MCP offers one tool per action and runs it', async () => {
 	const listed = await rpc('tools/list', {});
 	expect(
 		listed.result.tools.map((tool: { name: string }) => tool.name),
-	).toEqual(['writing_add', 'writing_fail', 'writing_fake']);
+	).toEqual([
+		'writing_add',
+		'writing_fail',
+		'writing_fake',
+		'writing_tag',
+		'writing_odd',
+	]);
 	const called = await rpc('tools/call', {
 		name: 'writing_add',
 		arguments: { id: 'b', body: 'From an agent' },
