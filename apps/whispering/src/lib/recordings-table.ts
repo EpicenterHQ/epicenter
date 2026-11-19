@@ -446,7 +446,12 @@ type CapturedDeletions = {
 	/** What each deletion would remove, captured as a single deletion is. */
 	readonly deletions: Extract<Deletion, { kind: 'recording' }>[];
 	/** Recordings that cannot be deleted now, with Whispering's own reason. */
-	readonly refused: { readonly title: string; readonly reason: string }[];
+	readonly refused: {
+		readonly title: string;
+		readonly reason: string;
+		/** Whether it was being transcribed when captured. */
+		readonly transcribing: boolean;
+	}[];
 };
 
 /**
@@ -456,20 +461,28 @@ type CapturedDeletions = {
  * told apart from its own, is refused with that reason and left out.
  */
 export function captureDeletions(
-	library: Pick<Library, 'deletionFor' | 'entries'>,
+	library: Pick<Library, 'deletionFor' | 'entries' | 'transcribing'>,
 	ids: readonly string[],
 ): CapturedDeletions {
 	const captured: CapturedDeletions = { deletions: [], refused: [] };
+	const entries = new Map(library.entries.map((item) => [item.id, item]));
 	for (const id of ids) {
-		const note = library.entries.find((item) => item.id === id);
+		const note = entries.get(id);
 		const title = note ? titleOf(note) : id;
+		const transcribing = library.transcribing(id);
 		const { data: deletion, error: refusal } = library.deletionFor({
 			collection: 'recordings',
 			id,
 		});
-		if (refusal !== null) captured.refused.push({ title, reason: refusal });
+		if (refusal !== null)
+			captured.refused.push({ title, reason: refusal, transcribing });
 		else if (deletion.kind === 'recording') captured.deletions.push(deletion);
-		else captured.refused.push({ title, reason: 'It is not a recording.' });
+		else
+			captured.refused.push({
+				title,
+				reason: 'It is not a recording.',
+				transcribing,
+			});
 	}
 	return captured;
 }
@@ -477,13 +490,7 @@ export function captureDeletions(
 const count = (n: number, one: string, many: string) =>
 	`${n.toLocaleString()} ${n === 1 ? one : many}`;
 
-/** Up to three of `names`, then how many more. */
-const namesWithMore = (names: readonly string[]) =>
-	names.length > 3
-		? `${names.slice(0, 3).join(', ')} and ${(names.length - 3).toLocaleString()} more`
-		: names.join(', ');
-
-/** What the person is told before several recordings are deleted: what goes, what stays, and what was left out. */
+/** What the person is told before several recordings are deleted: what goes, and what was left out. */
 export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 	title: string;
 	description: string;
@@ -492,20 +499,34 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 		(sum, item) => sum + item.transcripts.length,
 		0,
 	);
-	const withAudio = deletions.filter((item) => item.audio !== undefined).length;
-	const names = deletions.map((item) => `“${item.title}”`);
-	const kept = refused.map(({ title, reason }) => `“${title}” (${reason})`);
+	const hasAudio = deletions.some((item) => item.audio !== undefined);
 
-	let title = `Delete ${count(deletions.length, 'recording', 'recordings')}`;
+	let title = `Delete ${count(deletions.length, 'recording', 'recordings')}?`;
+	if (deletions.length <= 3) {
+		const names = deletions.map((item) => `“${item.title}”`);
+		const last = names.pop();
+		title = `Delete ${names.length > 0 ? `${names.join(', ')} and ${last}` : last}?`;
+	}
+
+	const also: string[] = [];
+	if (hasAudio) also.push(deletions.length === 1 ? 'Its audio' : 'Their audio');
 	if (transcripts > 0)
-		title += ` and ${count(transcripts, 'transcript', 'transcripts')}`;
-	let description = `This deletes ${namesWithMore(names)}`;
-	if (withAudio > 0)
-		description += `, with ${count(withAudio, 'audio file', 'audio files')}`;
-	description += '.';
-	if (refused.length > 0)
-		description += ` ${count(refused.length, 'selected recording is', 'selected recordings are')} kept: ${namesWithMore(kept)}.`;
-	return { title: `${title}?`, description };
+		also.push(count(transcripts, 'transcript', 'transcripts'));
+	let description = '';
+	if (also.length > 0) description += `${also.join(' and ')} are deleted too. `;
+	description += 'This can’t be undone.';
+	if (refused.length > 0) {
+		const kept = count(
+			refused.length,
+			'selected recording',
+			'selected recordings',
+		);
+		const one = refused.length === 1;
+		description += refused.every((item) => item.transcribing)
+			? ` ${kept} ${one ? 'is' : 'are'} being transcribed and ${one ? 'is' : 'are'} kept.`
+			: ` ${kept} can’t be deleted right now and ${one ? 'is' : 'are'} kept.`;
+	}
+	return { title, description };
 }
 
 /**

@@ -195,45 +195,69 @@ test('a shift-click with no earlier click on the page changes that row alone', (
 });
 
 /** A recording deletion as `captureDeletions` captures it. */
-const deletionOf = (i: number, audio?: string) => ({
+const deletionOf = (i: number, audio?: string, transcripts = 0) => ({
 	kind: 'recording' as const,
 	id: `r${i}`,
 	title: `Note ${i}`,
 	noted: true,
 	audio,
-	transcripts: [],
+	transcripts: Array.from({ length: transcripts }, (_, t) => ({
+		collection: 'transcriptions' as const,
+		id: `t${i}-${t}`,
+	})),
 });
 
-test('deleting 15,000 recordings counts them and names only the first three', () => {
+const refusal = (transcribing: boolean) => ({
+	title: 'Busy',
+	reason: 'reason',
+	transcribing,
+});
+
+test('more than three recordings are counted in the title, not named', () => {
 	const deletions = Array.from({ length: 15_000 }, (_, i) =>
-		deletionOf(i, `recordings/r${i}.wav`),
+		deletionOf(i, `recordings/r${i}.wav`, 1),
 	);
 	const { title, description } = describeDeletions({ deletions, refused: [] });
-	expect(title).toContain((15_000).toLocaleString());
-	expect(description).toContain('“Note 0”, “Note 1”, “Note 2”');
-	expect(description).toContain(`${(14_997).toLocaleString()} more`);
-	expect(description).not.toContain('“Note 3”');
+	expect(title).toBe(`Delete ${(15_000).toLocaleString()} recordings?`);
+	expect(description).toContain(
+		`Their audio and ${(15_000).toLocaleString()} transcripts`,
+	);
+	expect(description).not.toContain('Note');
 });
 
-test('a recording with no audio file is deleted without mention of audio', () => {
+test('three or fewer recordings are named in the title', () => {
+	const { title } = describeDeletions({
+		deletions: [deletionOf(0), deletionOf(1), deletionOf(2)],
+		refused: [],
+	});
+	expect(title).toBe('Delete “Note 0”, “Note 1” and “Note 2”?');
+});
+
+test('without audio or transcripts, it only says it cannot be undone', () => {
 	const { description } = describeDeletions({
 		deletions: [deletionOf(0)],
 		refused: [],
 	});
-	expect(description).not.toContain('audio');
+	expect(description).toBe('This can’t be undone.');
 });
 
-test('recordings that cannot be deleted are kept, with their reasons', () => {
-	const refused = Array.from({ length: 5 }, (_, i) => ({
-		title: `Busy ${i}`,
-		reason: `reason ${i}`,
-	}));
+test('recordings being transcribed are said to be kept for that reason', () => {
+	const { description } = describeDeletions({
+		deletions: [deletionOf(0, 'recordings/r0.wav')],
+		refused: [refusal(true), refusal(true)],
+	});
+	expect(description).toContain('This can’t be undone.');
+	expect(description).toContain(
+		'2 selected recordings are being transcribed and are kept.',
+	);
+});
+
+test('recordings kept for mixed reasons are said to be kept, without a reason', () => {
 	const { description } = describeDeletions({
 		deletions: [deletionOf(0)],
-		refused,
+		refused: [refusal(true), refusal(false)],
 	});
-	expect(description).toContain('5 selected recordings are kept');
-	expect(description).toContain('“Busy 0” (reason 0)');
-	expect(description).toContain('2 more');
-	expect(description).not.toContain('Busy 3');
+	expect(description).toContain(
+		'2 selected recordings can’t be deleted right now and are kept.',
+	);
 });
