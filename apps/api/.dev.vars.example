@@ -1,6 +1,0 @@
-# Copy to .dev.vars and fill in real values.
-BETTER_AUTH_SECRET=change-me
-GOOGLE_CLIENT_SECRET=
-OPENAI_API_KEY=
-AUTUMN_SECRET_KEY=
-GEMINI_API_KEY=

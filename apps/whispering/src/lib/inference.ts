@@ -133,18 +133,14 @@ function moved(
  * Failures that stop a request before anything is sent, by the name each
  * carries: an endpoint's or the desktop shell's refusal of a request that
  * does not read (`InvalidRequest`), the shell's refusals of where it would
- * go or of a key it cannot read (`ConnectionFetchError`), an account with
- * no token to send (`AccountUnavailable`), and hosted inference while signed
- * out (`SignedOut`). Any other failure of a request that was handed over may
- * have reached the endpoint.
+ * go or of a key it cannot read (`ConnectionFetchError`). Any other failure
+ * of a request that was handed over may have reached the endpoint.
  */
 const BEFORE_SEND = new Set([
 	'InvalidRequest',
 	'SchemeRefused',
 	'OriginRefused',
 	'CredentialsFailed',
-	'AccountUnavailable',
-	'SignedOut',
 ]);
 
 /**

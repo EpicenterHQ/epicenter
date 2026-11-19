@@ -38,7 +38,7 @@ export function refPathOf(schema: unknown): string | undefined {
 
 ## Name a condition when it explains a decision
 
-In the [account dashboard](../../../apps/api/ui/src/routes/dashboard/+layout.svelte), a valid link can still belong to a different person. The same condition controls whether to show the dashboard and whether signing in requires reauthentication.
+In the account dashboard, a valid link can still belong to a different person. The same condition controls whether to show the dashboard and whether signing in requires reauthentication.
 
 ```typescript
 const mismatched = $derived(

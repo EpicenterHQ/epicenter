@@ -94,7 +94,7 @@ the undefined result or another observable property of the adapter.
 
 ## Current example: closing after queued work
 
-[Cloud request middleware](../../../../packages/server/src/create-cloud-context-middleware.ts)
+Cloud request middleware
 contains:
 
 ```ts
@@ -117,7 +117,7 @@ Keep this callback. Replacing the chain with `Promise.allSettled(queue)`
 would omit cleanup.
 
 The existing
-[middleware tests](../../../../packages/server/src/create-cloud-context-middleware.test.ts)
+middleware tests
 check that the connection stays open until queued work settles,
 including failed work and handler failures.
 

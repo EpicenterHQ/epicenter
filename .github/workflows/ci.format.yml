@@ -12,10 +12,6 @@
 # Deliberately NOT in this gate:
 #   - Formatting. ci.autofix.yml runs `bun run format` and pushes the fix, so
 #     failing here would only tell a contributor what a bot is already doing.
-#
-# The gate's tests do need one local program, which this job installs:
-# PostgreSQL's initdb and pg_ctl. The session handoff tests in packages/server
-# start their own disposable cluster on a loopback port.
 name: Code quality
 
 on:
@@ -67,16 +63,5 @@ jobs:
           bun-version-file: 'package.json'
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Put PostgreSQL's server programs on PATH
-        # Ubuntu installs initdb and pg_ctl under /usr/lib/postgresql/<major>/bin,
-        # off PATH. Use the newest one the image has, or install it.
-        run: |
-          bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -n 1 || true)
-          if [ -z "$bin" ]; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends postgresql
-            bin=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -n 1)
-          fi
-          echo "$bin" >> "$GITHUB_PATH"
       - name: Canonical gate
         run: bun run check
