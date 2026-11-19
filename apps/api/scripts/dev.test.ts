@@ -1,6 +1,6 @@
 /**
- * The dashboard command selects localhost:5178, and the development launcher
- * accepts only loopback origins before it starts its build and secret tools.
+ * The development launcher accepts only loopback origins before it starts its
+ * build and secret tools.
  * With a valid origin, it removes production routes from the Wrangler config
  * passed to local development and cleans up generated files.
  */
@@ -12,13 +12,10 @@ import { localPublicOrigin } from './dev-config.ts';
 
 setDefaultTimeout(20_000);
 
-test('dashboard startup supplies its public origin without changing ordinary API startup', async () => {
+test('ordinary API startup runs the API workspace dev script', async () => {
 	const { scripts } = await Bun.file(
 		new URL('../../../package.json', import.meta.url),
 	).json();
-	expect(scripts['dev:api-dashboard']).toBe(
-		'API_PUBLIC_ORIGIN=http://localhost:5178 bun run --filter @epicenter/api --filter @epicenter/api-ui dev',
-	);
 	expect(scripts['dev:api']).toBe('bun run --cwd apps/api dev');
 });
 

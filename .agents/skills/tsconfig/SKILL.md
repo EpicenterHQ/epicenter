@@ -1,6 +1,6 @@
 ---
 name: tsconfig
-description: 'TypeScript config conventions for this monorepo: the two-base layering, the seven leaf tiers, and the never-redeclare list. Use when adding a package, editing any tsconfig.json, picking a tier for a new app, or debugging module resolution.'
+description: 'TypeScript config conventions for this monorepo: the two-base layering, the seven leaf tiers, and the never-redeclare list. Use when adding or scaffolding a package, editing any tsconfig.json, picking a tier for a new app, or debugging module resolution.'
 metadata:
   author: epicenter
   version: '1.0'
@@ -117,11 +117,29 @@ without `@types/bun` installed would then fail with `Cannot find type definition
 
 ## Adding a new package
 
-1. Scaffold via the `monorepo` skill's boilerplate.
-2. Pick a tier from the table above; copy that exact shape.
-3. `package.json` uses `exports` only, no `main`/`types`. Entry point is
-   `./src/index.ts`.
-4. `bun install` at the repo root, then `bun typecheck`.
+1. Pick a tier from the table above; copy that exact shape.
+2. Start `package.json` from this shape (a package in `packages/`):
+
+   ```json
+   {
+     "name": "@epicenter/<package-name>",
+     "version": "0.0.1",
+     "exports": { ".": "./src/index.ts" },
+     "license": "AGPL-3.0-or-later",
+     "scripts": { "typecheck": "tsc --noEmit" },
+     "dependencies": {},
+     "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
+   }
+   ```
+
+   - `exports` only, no `main`/`types`. The entry point is `./src/index.ts`;
+     there is no build step, consumers import the source.
+   - Internal dependencies use `"workspace:*"`; shared versions use
+     `"catalog:"` from the root `package.json` catalogs.
+   - Use `peerDependencies` for packages a consumer must also install.
+   - Before adding an MIT package, read "If MIT returns" in
+     `docs/licensing/licensing-strategy.md`.
+3. `bun install` at the repo root to register the workspace, then `bun typecheck`.
 
 ## Background
 

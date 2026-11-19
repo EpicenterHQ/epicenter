@@ -33,9 +33,8 @@ packs and publishes it by hand. See
 ### CI
 
 `ci.format.yml` is the merge gate, and `bun run check` is that same gate on your
-machine. Every step in it is a root script, and the structural checks arrive as
-one `check:structure` step, so a check is added or removed in `package.json` and
-nowhere else. Do not re-list the steps here or in the workflow.
+machine. Every step in it is a root script, so a check is added or removed in
+`scripts/check.ts` and nowhere else. Do not re-list the steps here or in the workflow.
 
 The one exception is the commit message step, which runs on pull requests
 only. The job checks out a single merge commit, so the step reads the pull
@@ -45,7 +44,7 @@ not run it.
 
 | File | Trigger | What it does |
 |---|---|---|
-| `ci.format.yml` | Push to `main`, pull requests | The merge gate: `lint:ci`, `typecheck`, `test`, `check:structure`. Cancels older runs for the same branch or PR. |
+| `ci.format.yml` | Push to `main`, pull requests | The merge gate: `bun run check`: lint, typecheck, test, and the structural checks. Cancels older runs for the same branch or PR. |
 | `ci.autofix.yml` | Push to `main`, pull requests | Runs `bun run format` and commits fixes back via autofix-ci. This is why the gate does not check formatting. Cancels older runs for the same branch or PR. |
 
 Two things stay off the gate deliberately. Formatting, because autofix owns it.

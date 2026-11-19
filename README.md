@@ -196,7 +196,6 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 | Command | Starts | App port |
 | --- | --- | --- |
 | `bun dev:api` | Hosted API worker alone | 8787 |
-| `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:landing` | Landing site, standalone | 4321 |
 
 `bun dev:whispering` runs Whispering in a browser tab.
@@ -216,7 +215,7 @@ bun run format          # rewrite formatting (CI autofixes this for you)
 bun run lint:check
 bun run typecheck
 bun run test
-bun run check:structure # doc paths, catalog pins, API paths, UI boundary, boot purity, vocabulary, state paths
+bun run check          # the whole merge gate: the above plus doc paths, catalog pins, API paths, UI boundary, boot purity, vocabulary
 ```
 
 One check sits outside the gate on purpose. `bun run check:doc-hygiene` flags specs and ADRs that time has made stale, so it belongs to review rather than to merge.
