@@ -625,18 +625,38 @@ A Hono or Elysia app's `fetch` fits as it is. It reaches the app's folder by
 closing over `folder`:
 
 ```ts
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { defineApp } from '@epicenter/app';
 import { Hono } from 'hono';
 
 export default defineApp(({ folder }) => {
 	const web = new Hono({ strict: false }).basePath('/apps/mail');
+	const statePath = 'local/oauth-state.txt';
+	web.get('/oauth/start', async (c) => {
+		const state = crypto.randomUUID();
+		await folder.write(statePath, state);
+		return c.redirect(`https://mail.example/authorize?state=${state}`);
+	});
 	web.get('/oauth/callback', async (c) => {
+		const expected = await readFile(join(folder.path, statePath), 'utf8').catch(
+			() => '',
+		);
+		if (!expected || c.req.query('state') !== expected)
+			return c.text('This sign-in was not started here', 400);
+		await folder.delete(statePath);
 		await folder.write('local/code.txt', c.req.query('code') ?? '');
 		return c.redirect('../');
 	});
 	return { description: 'Mail', actions: {}, fetch: web.fetch };
 });
 ```
+
+The callback checks `state` against the one `/oauth/start` wrote. Serve lets
+any site send the browser to an app's page (a top-level `GET`), so without
+the check another site could send its own `code` to the callback and replace
+the app's sign-in. The `state` lives in a file, because nothing an app keeps
+in memory lasts from one request to the next.
 
 `epicenter serve` gives each app the address `/apps/<app>/`. A `GET` or `HEAD`
 there answers a file from `code/ui/dist/` when one matches; every other
@@ -645,7 +665,7 @@ arrives as the browser sent it, whole path included, so the app names its
 own address: `basePath('/apps/mail')` above, after its folder. Serve
 redirects `/apps/mail` to `/apps/mail/`, so a page route `'/'` needs
 `strict: false`, which lets Hono match the trailing slash. A body over
-25 MB is refused with 413. A `fetch` that throws answers 500, and serve logs a line naming the app.
+25 MiB is refused with 413. A `fetch` that throws answers 500, and serve logs a line naming the app.
 
 `fetch` is for protocols someone else defined: an OAuth redirect, a file
 download, a feed, a form upload, or an app's own page when it has no build
@@ -654,11 +674,22 @@ an agent should be able to do is an action. Serve has no page at `/` that
 lists apps: `epicenter` prints them, `GET /actions/` gives them as JSON, and
 an app's page is at `/apps/<app>/`.
 
-Serve refuses a request a browser marks as coming from another site
-(`Sec-Fetch-Site: cross-site`) unless it opens a page: a top-level `GET`
-navigation, which is how an OAuth provider sends the browser back. Another
-site's `<img>`, script, `fetch()` or frame gets 403. A cross-site form
-`POST`, such as OAuth's `response_mode=form_post`, is refused.
+Serve refuses a request a browser marks as coming from another origin
+(`Sec-Fetch-Site` other than `same-origin` or `none`) unless it opens a page:
+a top-level `GET` navigation, which is how an OAuth provider sends the
+browser back. Another origin's `<img>`, script, `fetch()` or frame gets 403,
+including a page on another port of this computer, which a browser counts
+as the same site. A cross-site form `POST`, such as OAuth's
+`response_mode=form_post`, is refused.
+
+Every app's pages share one origin, serve's. A page or a `fetch` answer from
+one app can call any app's actions, and MCP at `POST /`; serve does not ask
+which app's page made a call. So an app whose `fetch` shows text from
+outside, such as an email, must escape it: one injected script in one app
+reaches every action in the Epicenter. A service worker an app's page
+registers answers only for that app's address, unless the app's `fetch`
+serves it with a `Service-Worker-Allowed: /` header; then it answers for
+every app's pages until it is removed, so an app should not send that header.
 
 Serve loads the app again for each request that reaches `fetch`, as it does
 for each action call, so nothing an app keeps in memory lasts from one
@@ -805,8 +836,9 @@ must be rebuilt
 - **A script or test that posts to serve directly**, or fakes its URLs,
   uses `/actions/<app>/<action>`, and reads a refusal from the `answer` line
   of a 200. Any status other than 200 means serve did not take the call.
-- **Serve refuses a cross-site request that does not open a page.** Another
-  site that loaded an app's icon or framed its page gets 403.
+- **Serve refuses a request from another origin that does not open a page.**
+  Another site, or a page on another port of this computer, that loaded an
+  app's icon or framed its page gets 403.
 
 ### Serve loads once, and routines run actions
 

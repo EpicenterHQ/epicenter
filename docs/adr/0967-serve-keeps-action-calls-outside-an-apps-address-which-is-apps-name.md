@@ -8,7 +8,7 @@
 
 ## Context
 
-`epicenter serve` answered six kinds of request
+`epicenter serve` answered five routes
 (`packages/app/src/command/serve.ts`):
 
 ```txt

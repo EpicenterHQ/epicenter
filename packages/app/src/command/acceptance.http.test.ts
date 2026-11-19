@@ -412,7 +412,7 @@ test("a request under /apps/<app>/ is a built file first, then the app's fetch, 
 	expect((await fetch(`${f.base}/mail/`)).status).toBe(404);
 });
 
-test('serve refuses a request from another site unless it opens a page', async () => {
+test('serve refuses a request from another origin unless it opens a page', async () => {
 	const f = await setup((f) => f.app('mail', mail));
 	const from = (
 		site: string,
@@ -439,9 +439,13 @@ test('serve refuses a request from another site unless it opens a page', async (
 		(await from('cross-site', 'navigate', 'document', { method: 'POST' }))
 			.status,
 	).toBe(403);
+	// Another port of the same host is the same site but another origin: it
+	// may open a page and nothing else.
+	expect((await from('same-site', 'no-cors', 'image')).status).toBe(403);
+	expect((await from('same-site', 'cors', 'empty')).status).toBe(403);
+	expect((await from('same-site', 'navigate', 'document')).status).toBe(200);
 	// The page itself, a typed address, and a program with no such headers.
 	expect((await from('same-origin', 'cors', 'empty')).status).toBe(200);
-	expect((await from('same-site', 'no-cors', 'image')).status).toBe(200);
 	expect((await from('none', 'navigate', 'document')).status).toBe(200);
 	expect((await fetch(`${f.base}/apps/mail/oauth/callback`)).status).toBe(200);
 	// The guard stands in front of every route, actions included.
