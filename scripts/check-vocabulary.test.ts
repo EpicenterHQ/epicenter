@@ -120,7 +120,7 @@ test('an untracked file is not scanned, so the verdict does not depend on the ma
 
 test('dated records keep their words', () => {
 	withRepo((dir) => {
-		write(dir, 'docs/adr/0299-a-row-is-its-scalars.md', 'Its scalars.\n');
+		write(dir, 'docs/history.md', 'Rows were scalars.\n');
 		write(dir, 'specs/old.md', 'The scalar plan, and prose.\n');
 		write(dir, 'README.md', 'clean\n');
 		commitAll(dir);
