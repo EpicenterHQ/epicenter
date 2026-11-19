@@ -2,16 +2,10 @@ import { join, parse } from 'node:path';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
-import {
-	ActionError,
-	isResult,
-	type Misfit,
-	type PublicError,
-} from './answer.ts';
+import { ActionError, type Misfit, type PublicError } from './answer.ts';
 import type { DataDef } from './data.ts';
 import { filesIn, readBytes, removeFile, replaceFile } from './disk.ts';
 import { type Fields, isOptional, whyNot } from './field.ts';
-import { isPlainObject } from './json.ts';
 import {
 	changeMarkdown,
 	type FieldValues,
@@ -154,8 +148,6 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			const schema = fields[key] as TSchema;
 			if (value === undefined) continue;
 			if (value === null && isOptional(schema)) removed.push(key);
-			else if (value === null && !creating)
-				return misfitFor(id, `${key} is required, so it cannot be removed`);
 			else set[key] = value as JsonValue;
 		}
 		const problems: string[] = [];
@@ -197,25 +189,13 @@ export function createHandle(home: string, key: string, def: DataDef) {
 
 		let patch = change as Patch;
 		if (computed) {
-			const result = change(structuredClone(current?.record));
-			if (!isResult(result))
-				throw new Error(
-					'The change given to edit must return a Result: Ok(change) or Err(error)',
-				);
+			const result = change(structuredClone(current?.record)) as Result<
+				Patch,
+				PublicError
+			>;
 			if (result.error !== null) return result;
-			if (!isPlainObject(result.data))
-				throw new Error(
-					'The change given to edit must return a record patch inside Ok',
-				);
 			patch = result.data;
 		}
-		// A spread of the record carries its path and id, which name it and are not fields.
-		const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
-		if (named.length)
-			return misfitFor(
-				id,
-				`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
-			);
 
 		const { body, ...given } = patch;
 		if (body !== undefined && typeof body !== 'string')
@@ -240,10 +220,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		return Ok({ value: next.data, text: after });
 	}
 
-	/**
-	 * Write `id` as `planWrite` says, from its file now. The bytes are compared,
-	 * not the text, since decoding drops a byte order mark.
-	 */
+	/** Write `id` as `planWrite` says, from its file now. */
 	function write(id: string, need: Need, change: Patch | Compute) {
 		const before = readBytes(join(home, pathOf(id)));
 		const result = planWrite(
@@ -254,11 +231,9 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		);
 		if (result.error !== null) return result as Err<PublicError>;
 		const { value, text } = result.data;
-		if (text !== undefined) {
-			const bytes = new TextEncoder().encode(text);
-			if (!before || !Buffer.from(before).equals(bytes))
-				replaceFile(home, pathOf(id), bytes);
-		}
+		// planWrite gives text only when it differs from the file's.
+		if (text !== undefined)
+			replaceFile(home, pathOf(id), new TextEncoder().encode(text));
 		return Ok(value);
 	}
 
