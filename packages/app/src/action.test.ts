@@ -16,16 +16,11 @@ const count = defineAction({
 	},
 });
 
-test('a listener that throws does not stop the action', async () => {
-	const answer = await count(
-		{ to: 2 },
-		{
-			onUpdate: () => {
-				throw new Error('listener broke');
-			},
-		},
-	);
+test('a direct call hands each update to its listener', async () => {
+	const heard: unknown[] = [];
+	const answer = await count({ to: 2 }, { onUpdate: (n) => heard.push(n) });
 	expect(answer).toEqual(Ok('n=2'));
+	expect(heard).toEqual([{ at: 1 }, { at: 2 }]);
 });
 
 test('an action that returns no Result rejects when called', async () => {

@@ -42,9 +42,10 @@ import {
 export type Input = Record<string, TSchema>;
 
 /**
- * What `run` calls to report while it runs. It returns at once and never
- * throws: what a listener returns is not awaited and what it throws is
- * dropped, so no caller can slow or stop the action.
+ * What `run` calls to report while it runs. Serve's listener returns at
+ * once, never throws, and drops an update once the caller is gone, so no
+ * caller can slow or stop the action. A test that passes its own `onUpdate`
+ * gets each value as `run` sends it.
  */
 export type Update<U> = (value: U) => void;
 
@@ -105,28 +106,6 @@ type ActionDef<
 	run(input: InputOf<I>, update: Update<U>): Out;
 };
 
-/**
- * `update` for one call: it hands each value to `listener`, which cannot
- * reach the action. After `close`, a late update goes nowhere.
- */
-function updateChannel(listener: ((value: unknown) => unknown) | undefined) {
-	let open = listener !== undefined;
-	return {
-		update(value: unknown) {
-			if (!open) return;
-			try {
-				const heard = listener?.(value);
-				if (heard instanceof Promise) heard.catch(() => undefined);
-			} catch {
-				// A listener's failure is its own; the action goes on.
-			}
-		},
-		close() {
-			open = false;
-		},
-	};
-}
-
 /** `value`, or a throw when `run` returned something other than a Result. */
 function requireResult(value: unknown, description: string) {
 	if (!isResult(value))
@@ -172,12 +151,10 @@ export function defineAction(
 		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
 	) => {
-		const { update, close } = updateChannel(options?.onUpdate);
-		try {
-			return requireResult(await run(given as never, update), description);
-		} finally {
-			close();
-		}
+		const update = (value: unknown) => {
+			options?.onUpdate?.(value);
+		};
+		return requireResult(await run(given as never, update), description);
 	};
 	return Object.assign(action, { description, input, [ACTION]: true });
 }
