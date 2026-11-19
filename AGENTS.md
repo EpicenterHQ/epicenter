@@ -35,7 +35,7 @@ Start apps from the repo root with `bun dev:<app>`. Do not cd into an app to sta
 - `bun dev:<app>` runs every process the app needs, including the hosted API on `localhost:8787` for apps that talk to it.
 - `bun dev:<app>:ui` is the frontend alone, where that split exists.
 - `bun dev:api` is the backend alone.
-- Details in the `monorepo` skill.
+- `scripts/README.md` explains the root scripts and their names.
 
 ## Script suffix convention
 
