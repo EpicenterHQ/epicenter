@@ -120,6 +120,9 @@ const ServeError = defineErrors({
 	Unhandled: ({ cause }: { cause: unknown }) => ({
 		message: `A promise no app awaited rejected: ${extractErrorMessage(cause)}`,
 	}),
+	Uncaught: ({ cause }: { cause: unknown }) => ({
+		message: `An error nothing caught was thrown: ${extractErrorMessage(cause)}`,
+	}),
 });
 
 /** Serve's record of what it could not do, beside its run records. */
@@ -583,10 +586,20 @@ export async function serveHttp(
 			message: `Port ${port} is in use. If that is not this Epicenter's serve, set another \`port\` in ${join(root.folder, MARKER)}.`,
 		});
 	}
-	// Bun ends the process on a rejection nothing handles; one app's stray
-	// promise would then stop every app, so serve logs it and keeps serving.
+	// Bun ends the process on a rejection or a throw nothing handles, such as
+	// an app's timer callback that throws or an action that throws after it
+	// answered. One app would then stop every app, so serve logs it and keeps
+	// serving. Node warns that state is unknown after an uncaught throw; here
+	// the throw unwinds one app's callback, which shares no objects with the
+	// other apps, and every write goes through a temporary file and a rename,
+	// so a cut write leaves its target whole. Serve's own state survives too:
+	// Bun.serve catches what a request handler throws, and the routine clock
+	// is a setInterval that keeps ticking after a tick throws.
 	process.on('unhandledRejection', (cause) =>
 		serveLog.error(ServeError.Unhandled({ cause }).error),
+	);
+	process.on('uncaughtException', (cause) =>
+		serveLog.error(ServeError.Uncaught({ cause }).error),
 	);
 	let served: Served;
 	try {

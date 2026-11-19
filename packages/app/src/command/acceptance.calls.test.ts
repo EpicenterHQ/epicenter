@@ -464,7 +464,7 @@ test('an async app function that throws is a problem line, and the other apps st
 	try {
 		await Bun.sleep(100);
 		expect(served.stderr()).toContain(
-			"\neager: code/epicenter.ts: An app's function is not async",
+			"\neager: code/epicenter.ts: An app's function must not be async",
 		);
 		const listed = await fetch(`${served.base}/actions/`);
 		expect(
@@ -476,6 +476,59 @@ test('an async app function that throws is a problem line, and the other apps st
 		await served.stop();
 	}
 });
+
+/** Serve with `fine` and `thrower`, whose code is `body`; expects serve to still list both apps after `trigger` runs and `thrown` is logged. */
+async function survivesThrow(
+	body: string,
+	thrown: string,
+	trigger = async (_base: string) => {},
+) {
+	const f = await fixture();
+	roots.push(f.userDir);
+	await f.app('fine', bareApp('fine'));
+	await f.app('thrower', `${header}${body}`);
+	const served = await startServe(f);
+	try {
+		await trigger(served.base);
+		await Bun.sleep(100);
+		expect(served.stderr()).toContain(thrown);
+		const listed = await fetch(`${served.base}/actions/`);
+		expect(
+			((await listed.json()) as { apps: { name: string }[] }).apps.map(
+				(app) => app.name,
+			),
+		).toEqual(['fine', 'thrower']);
+	} finally {
+		expect(await served.stop()).toBe(0);
+	}
+}
+
+test('a throw nothing catches in an app timer is logged, and serve keeps serving', () =>
+	survivesThrow(
+		`export default defineApp(() => {
+	setTimeout(() => { throw new Error('timer threw'); });
+	return { description: 'Throws', actions: {} };
+});`,
+		'timer threw',
+	));
+
+test('a throw nothing catches after an action answered is logged, and serve keeps serving', () =>
+	survivesThrow(
+		`export default defineApp(() => ({ description: 'Throws', actions: {
+	late: defineAction({ description: 'Throws after answering', input: {}, run: () => {
+		queueMicrotask(() => { throw new Error('late threw'); });
+		return Ok('answered');
+	} }),
+} }));`,
+		'late threw',
+		async (base) => {
+			const late = await fetch(`${base}/actions/thrower/late`, {
+				method: 'POST',
+				body: '{}',
+			});
+			expect(await late.text()).toContain('answered');
+		},
+	));
 
 test('a stray EPICENTER.md below the root is an Epicenter, and the refusal names it', async () => {
 	const f = await setup();

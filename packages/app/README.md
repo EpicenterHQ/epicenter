@@ -74,6 +74,10 @@ lists an app whose `epicenter.ts` throws while loading, or whose default
 export `defineApp` refuses, with those lines as its problems, and does not
 run it.
 
+Once an app is running, a throw nothing catches does not stop serve. An app
+whose timer callback throws, or whose action throws after it answered, has
+the error logged on serve's stderr, and every app keeps answering.
+
 - `defineData` returns one handle per key: methods an action calls
   (`data.books.get('dune')`) and `actions(...)`, which gives the verbs it
   names.
