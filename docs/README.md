@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains knowledge articles, guides, and reference materials for Epicenter.
+This directory holds the vision, the decision records, and a few operating guides for Epicenter.
 
 ## Start here
 
@@ -15,29 +15,16 @@ This directory contains knowledge articles, guides, and reference materials for 
 
 ## Directory structure
 
-### `/architecture`
-High-level architectural documentation and system diagrams.
-
-### `/blog`
-Blog posts and longer-form content.
-
-### `/guides`
-How-to guides for specific tasks or integrations.
-
-### `/patterns`
-Documented coding patterns and best practices used in the codebase.
-
-### `/assets`
-Static resources (images, demos) used throughout documentation.
-
-### `/launches`
-Launch campaign materials and planning documents.
-
-### `/release-notes`
-Version release notes used by the CI/CD pipeline.
-
 ### `/adr`
 Architecture Decision Records: the authoritative, immutable record of durable decisions. See [adr/README.md](adr/README.md) for the template and rules.
+
+### `/guides`
+Two operating guides for live systems: [Whispering redirects](guides/whispering-redirects.md) (linked from [ops](../ops/README.md)) and [billing and the Autumn boundary](guides/billing-autumn-boundary.md).
+
+### `/licensing`
+[Licensing strategy](licensing/licensing-strategy.md): the license, the threat model, and "If MIT returns".
+
+Older writing (launch plans, blog drafts, patterns, release notes, images, and dated reviews) is no longer in this repository. Git history keeps it: `git log --diff-filter=D --name-only -- docs/` finds the removal commit, and `git show <parent>:docs/<path>` restores a file.
 
 ## Authority and specs
 
