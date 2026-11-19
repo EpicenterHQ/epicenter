@@ -188,9 +188,10 @@ holds that the web's first load carries no desktop module.
 
 ## Recording
 
-`recorder` is one microphone device (`microphone.ts`) over the `recorder`
-from `@epicenter/recorder`, which picks the browser's or the shell's. A take
-lands at `recordings/<id>.<ext>` when Stop answers.
+`recorder` is the `recorder` from `@epicenter/recorder`, which picks the
+browser's or the shell's; Whispering starts each take with `audioFiles`, the
+folder as the recorder writes into it. A take lands at
+`recordings/<id>.<ext>` when Stop answers.
 
 - In a browser the recorder asks for AAC in MP4 first and Opus in WebM
   second, keeps each piece in memory, and at Stop writes the take once

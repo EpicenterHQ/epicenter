@@ -99,12 +99,11 @@ test('the files are chosen and opened once, in app.ts', () => {
 
 test('a microphone is reached only through the recorder package, in app.ts', () => {
 	// `@epicenter/recorder` chooses the shell's or the page's microphone, and
-	// `app.ts` makes the one microphone device over the folder with it.
-	expect(callers('createMicrophoneDevice')).toEqual(['lib/app.ts']);
+	// `app.ts` hands it on, beside the folder it records into.
 	expect(
 		files
 			.filter((file) =>
-				/import \{[^}]*\brecorder\b[^}]*\} from '@epicenter\/recorder'/.test(
+				/(import|export) \{[^}]*\brecorder\b[^}]*\} from '@epicenter\/recorder'/.test(
 					file.text,
 				),
 			)
