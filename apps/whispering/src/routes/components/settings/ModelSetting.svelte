@@ -25,7 +25,6 @@
 		<p class="font-medium">Transcription</p>
 		<ModelPicker
 			ai={whispering.ai}
-			can="transcribe"
 			value={choice}
 			onSelect={select}
 			placeholder="Choose a model"

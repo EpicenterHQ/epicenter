@@ -41,7 +41,7 @@ function computer() {
 
 test('a server appears when a probe finds it and tells subscribers', async () => {
 	const host = computer();
-	host.running.set('http://localhost:11434', ['llama3.2', 'nomic-embed-text']);
+	host.running.set('http://localhost:11434', ['llama3.2', 'whisper-small']);
 	const ai = openAi([localServers({ fetch: host.fetch })]);
 	let told = 0;
 	ai.subscribe(() => told++);
@@ -51,10 +51,10 @@ test('a server appears when a probe finds it and tells subscribers', async () =>
 		'http://localhost:1234/v1/models',
 	]);
 	expect(ai.models()).toEqual([
-		{ id: 'llama3.2', can: ['chat'], endpoint: 'ollama', source: 'local' },
+		{ id: 'llama3.2', can: [], endpoint: 'ollama', source: 'local' },
 		{
-			id: 'nomic-embed-text',
-			can: ['embed'],
+			id: 'whisper-small',
+			can: ['transcribe'],
 			endpoint: 'ollama',
 			source: 'local',
 		},

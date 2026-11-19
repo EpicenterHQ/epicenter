@@ -28,10 +28,12 @@ test('an HTTP endpoint sends under its base URL with its key and never elsewhere
 		key: ' sk-test ',
 		fetch,
 	});
-	await endpoint.fetch('chat/completions', {
+	await endpoint.fetch('audio/transcriptions', {
 		headers: { authorization: 'Bearer stolen', cookie: 'a=b' },
 	});
-	expect(calls[0]?.url).toBe('https://api.example.test/v1/chat/completions');
+	expect(calls[0]?.url).toBe(
+		'https://api.example.test/v1/audio/transcriptions',
+	);
 	const headers = new Headers(calls[0]?.init?.headers);
 	expect(headers.get('authorization')).toBe('Bearer sk-test');
 	expect(headers.get('cookie')).toBeNull();
@@ -57,9 +59,9 @@ test('a custom endpoint guesses what each listed id can do', () => {
 	});
 	expect(endpoint.name).toBe('api.example.test');
 	expect(endpoint.models()).toEqual([
-		{ id: 'gpt-x', can: ['chat'] },
+		{ id: 'gpt-x', can: [] },
 		{ id: 'whisper-large', can: ['transcribe'] },
-		{ id: 'text-embedding-3', can: ['embed'] },
+		{ id: 'text-embedding-3', can: [] },
 		{ id: 'tts', can: [] },
 	]);
 });
@@ -83,7 +85,7 @@ test('an HTTP endpoint names its base URL, and a refusal never repeats its key',
 });
 
 function probing(id: string, source: Endpoint['source']) {
-	let models: { id: string; can: ['chat'] }[] = [];
+	let models: { id: string; can: ['transcribe'] }[] = [];
 	const listeners = new Set<() => void>();
 	const endpoint: Endpoint = {
 		id,
@@ -100,7 +102,7 @@ function probing(id: string, source: Endpoint['source']) {
 		endpoint,
 		listeners,
 		find(...ids: string[]) {
-			models = ids.map((model) => ({ id: model, can: ['chat'] }));
+			models = ids.map((model) => ({ id: model, can: ['transcribe'] }));
 			for (const listener of listeners) listener();
 		},
 	};
