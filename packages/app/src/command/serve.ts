@@ -40,11 +40,10 @@
  * An Epicenter has one `serve`, and its port is how it is found. A command names
  * its root on each request (`x-epicenter-root`, its real path, sent only to
  * 127.0.0.1), and serve refuses one naming another root with 409, a body that
- * does not name its own. Every answer carries `x-epicenter: 1` and no path,
- * so a command or a second `serve` can tell this Epicenter's serve from another
- * Epicenter's or another program (ADR-0961). No header carries a version;
- * the listing does, so bare `epicenter` prints the version serve runs. After
- * an upgrade, the owner restarts serve.
+ * does not name its own (ADR-0961). That is the one way serve and the command
+ * tell Epicenters apart. No header carries a version; the listing does, so
+ * bare `epicenter` prints the version serve runs. After an upgrade, the owner
+ * restarts serve.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
  * It listens only on 127.0.0.1 and trusts every request it answers: another
@@ -78,17 +77,8 @@ import { type Apps, loadApps } from './apps.ts';
 import { listApps } from './listing.ts';
 import { createMcpServer, type McpOffer } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
-import {
-	answeredBy,
-	type Holder,
-	type Listing,
-	MAX_INPUT_BYTES,
-	portHeld,
-	ROOT_HEADER,
-	rootHeaderValue,
-	SERVE_HEADER,
-} from './protocol.ts';
-import { type EpicenterRoot, rootInstructions } from './root.ts';
+import { type Listing, ROOT_HEADER, rootHeaderValue } from './protocol.ts';
+import { type EpicenterRoot, MARKER, rootInstructions } from './root.ts';
 import {
 	type Routine,
 	readRoutines,
@@ -99,6 +89,9 @@ import { type Call, checkCall, findAction, runAction } from './run.ts';
 
 /** `serve` listens only here; another device reaches it through a proxy on this computer. */
 const LOOPBACK = '127.0.0.1';
+
+/** The largest request body serve takes, in bytes. */
+const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
@@ -490,13 +483,13 @@ function fromAnotherSite(request: Request) {
 }
 
 /**
- * Start the listener and the routine clock. The listener answers everything
- * for a request from this computer or the tailnet whose `Origin`, if any, is
- * its own host. The caller owns its lifetime and ends it with `stop`. A port
- * something else holds throws before the clock starts.
+ * Start the listener. It answers everything for a request from this
+ * computer or the tailnet whose `Origin`, if any, is its own host, from
+ * `served` once it has loaded: a request that arrives while serve loads its
+ * apps waits. A port something else holds throws before anything loads,
+ * so a second serve runs no app's code.
  */
-function startHttpServer(served: Served) {
-	const { root } = served;
+function listen(root: EpicenterRoot, served: Promise<Served>) {
 	const ours = rootHeaderValue(root);
 	const answer = async (request: Request): Promise<Response> => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
@@ -516,22 +509,6 @@ function startHttpServer(served: Served) {
 				return forbidden();
 		}
 		if (fromAnotherSite(request)) return forbidden();
-		return stamped(await meantHere(request));
-	};
-	// Every answer to a request serve accepts says it is an Epicenter's serve,
-	// and no more, so a command or a second serve can tell who holds the port.
-	// An app's fetch may answer `Response.redirect`, whose headers are frozen.
-	const stamped = (response: Response) => {
-		try {
-			response.headers.set(SERVE_HEADER, '1');
-			return response;
-		} catch {
-			const copy = new Response(response.body, response);
-			copy.headers.set(SERVE_HEADER, '1');
-			return copy;
-		}
-	};
-	const meantHere = async (request: Request) => {
 		// A request meant for another Epicenter is refused without naming this one,
 		// so a command in a second Epicenter cannot read or write here (ADR-0936,
 		// ADR-0961). A page or an MCP client names none and is not compared.
@@ -540,32 +517,27 @@ function startHttpServer(served: Served) {
 			return new Response('This call is for another Epicenter', {
 				status: 409,
 			});
-		return route(served, request);
+		return route(await served, request);
 	};
-	const server = Bun.serve({
+	return Bun.serve({
 		hostname: LOOPBACK,
 		port: root.port,
 		idleTimeout: 0,
 		// Bun refuses a larger body itself, with a bare 413, for an action and an
-		// app's fetch alike. The command refuses such an input before sending it.
-		maxRequestBodySize: MAX_INPUT_BYTES,
+		// app's fetch alike.
+		maxRequestBodySize: MAX_BODY_BYTES,
 		// Bun's development mode answers a throw with its stack; serve names no path.
 		development: false,
+		// Said outright: with development off, Bun 1.4.3 lets a second serve bind
+		// the same port unless reusePort is false, and the port is serve's lock.
+		reusePort: false,
 		fetch: answer,
-		// A throw is a request serve accepted, so its 500 says so too.
+		// A throw answers a plain 500, never Bun's page with a stack.
 		error: (error) => {
 			serveLog.error(ServeError.Unanswered({ cause: error }).error);
-			return stamped(new Response('serve could not answer', { status: 500 }));
+			return new Response('serve could not answer', { status: 500 });
 		},
 	});
-	const routines = startRoutines(served.routines);
-	return {
-		/** Stop listening and running routines. A call or routine still running is cut when serve exits. */
-		stop() {
-			routines.stop();
-			void server.stop();
-		},
-	};
 }
 
 /** The exit code of `git <args>` run in `cwd`, or undefined when there is no Git to run. */
@@ -597,30 +569,10 @@ async function dotenvProblem(root: string) {
 }
 
 /**
- * Who holds `root`'s port, asked as a command asks, with this root: its own
- * serve, another Epicenter's, or another program. `undefined` when nothing
- * there answers HTTP.
- */
-async function whoAnswers(root: EpicenterRoot) {
-	try {
-		// This one reads no app: serve answers OPTIONS / with 405, or 409.
-		const response = await fetch(`http://${LOOPBACK}:${root.port}/`, {
-			method: 'OPTIONS',
-			headers: { [ROOT_HEADER]: rootHeaderValue(root) },
-			signal: AbortSignal.timeout(2_000),
-		});
-		await response.body?.cancel().catch(() => undefined);
-		return answeredBy(response);
-	} catch {
-		return undefined;
-	}
-}
-
-/**
  * Serve until the process receives SIGINT or SIGTERM, then answer nothing:
  * serve prints no answer. It never starts when a `.env` at the root would
- * reach Git, saying why, or when the port is taken, answering who holds it.
- * Once listening it prints each app whose `local/` has no `.gitignore`.
+ * reach Git, saying why, or when the port is in use. Once listening it
+ * prints each app and routine with a problem.
  */
 export async function serveHttp(
 	root: EpicenterRoot,
@@ -629,24 +581,26 @@ export async function serveHttp(
 	const dotenv = await dotenvProblem(root.folder);
 	if (dotenv)
 		return ActionError.NotStarted({ cause: 'unavailable', message: dotenv });
-	const portTaken = (holder: Holder) =>
-		holder === 'its serve'
-			? ActionError.NotStarted({
-					cause: 'unavailable',
-					message: `serve is already running for this Epicenter on port ${port}.`,
-				})
-			: portHeld(root, holder);
-	const holder = await whoAnswers(root);
-	if (holder) return portTaken(holder);
-	const served = await load(root);
-	let server: ReturnType<typeof startHttpServer>;
+	const loaded = Promise.withResolvers<Served>();
+	let server: ReturnType<typeof listen>;
 	try {
-		server = startHttpServer(served);
+		server = listen(root, loaded.promise);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
-		// The port was taken since it was asked, or its holder does not speak HTTP.
-		return portTaken((await whoAnswers(root)) ?? 'another program');
+		return ActionError.NotStarted({
+			cause: 'unavailable',
+			message: `Port ${port} is in use. If that is not this Epicenter's serve, set another \`port\` in ${join(root.folder, MARKER)}.`,
+		});
 	}
+	let served: Served;
+	try {
+		served = await load(root);
+	} catch (error) {
+		void server.stop(true);
+		throw error;
+	}
+	loaded.resolve(served);
+	const routines = startRoutines(served.routines);
 	writeErr(`Serving your apps at http://${LOOPBACK}:${port}.`);
 	for (const { entry, problems } of served.listing.problems)
 		writeErr(`${entry}: ${problems.join('; ')}`);
@@ -657,6 +611,8 @@ export async function serveHttp(
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	server.stop();
+	// A call or routine still running is cut when serve exits.
+	routines.stop();
+	void server.stop();
 	return undefined;
 }

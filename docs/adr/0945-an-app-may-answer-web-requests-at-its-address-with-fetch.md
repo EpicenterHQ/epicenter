@@ -63,7 +63,7 @@ export default defineApp(({ folder }) => {
   redirects `/apps/mail` to `/apps/mail/`, and `strict: false` lets a page
   route `'/'` match it.
 - **The body limit is serve's.** Bun refuses any request body over 25 MB
-  (`MAX_INPUT_BYTES` in `packages/app/src/command/protocol.ts`) with 413, for
+  (`MAX_BODY_BYTES` in `packages/app/src/command/serve.ts`) with 413, for
   `fetch` as for actions.
 - **A failure is a 500.** A `fetch` that throws, or returns something that is
   not a `Response`, answers 500, and serve logs one line naming the app. An

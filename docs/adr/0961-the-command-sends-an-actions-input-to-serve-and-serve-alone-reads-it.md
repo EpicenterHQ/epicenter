@@ -79,20 +79,15 @@ none.**
   differ it answers `409` with the body `This call is for another
   Epicenter`, which does not name its root. A request without the header,
   from a page or an MCP client, is not compared.
-- Serve sets `x-epicenter: 1` and no path on every answer to a request it
-  accepts, a `500` included. A caller tells an Epicenter's serve from
-  another program by that header alone. A tunnelled request's `403` and
-  Bun's own `413` for a body past the limit carry nothing; the command
-  refuses an input past the limit before it sends it.
-- A second `serve` whose port is taken probes the same way: `OPTIONS /` with
-  its own `x-epicenter-root`. A `409` means another Epicenter's serve holds
-  the port, any other answer with `x-epicenter: 1` means its own serve is
-  already running, and an answer without it means another program.
-- A serve started before this decision sets no `x-epicenter`, so it reads
-  as another program. The refusal says that a serve from before an upgrade
-  is stopped and started again; the owner restarts serve after upgrading
-  (ADR-0953). An earlier version of this record recognized the old
-  `x-epicenter-home` header for one release; the owner chose a clean break.
+- That `409` is the one way the command and serve tell Epicenters apart.
+  The command's refusal for it names the folder it took for its Epicenter
+  and that folder's `EPICENTER.md`, which shows a stray marker below the
+  real one. Any other answer that is not serve's is `Unreachable` with its
+  status. A second `serve` probes nothing: it cannot bind a port in use, and
+  says the port is in use and where to set another. Serve once set
+  `x-epicenter: 1` on every answer so a caller could tell its own serve, an
+  older serve and another program apart; the owner removed that, the
+  probes and the command's own size check (ADR-0959).
 - An app's and a routine's problems are made once, when serve starts, and
   a path inside the Epicenter in them is written from its folder, such as
   `apps/notes/code/x.ts`. Nothing else is rewritten: an action's own error
@@ -115,8 +110,8 @@ none.**
 - No device on the private network learns the account name from a header.
   A command or serve from another Epicenter learns only that the port is
   taken by an Epicenter that is not its own.
-- `whoAnswers` in `serve.ts` and `reach` in `send.ts` read `x-epicenter` and
-  the status, not a path; `rootHeaderValue` builds the request header.
+- `reach` in `send.ts` reads the status, not a path; `rootHeaderValue`
+  builds the request header.
 - Deleted from `cli.ts`: the load, the input read and the help built from a
   loaded app. Serve has two ways in for an action, a call at
   `POST /actions/<app>/<action>` and MCP at `POST /`, and no request that

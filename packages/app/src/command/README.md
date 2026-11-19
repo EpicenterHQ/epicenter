@@ -320,10 +320,28 @@ process, so it also tries changed code before a restart.
 The port is the Epicenter's name. A command names its Epicenter on every request in
 an `x-epicenter-root` header: its real path, sent only to `127.0.0.1`, so it
 never leaves the computer. Serve refuses a request naming another root with
-`409` and a body that does not name its own. Every answer to a request it
-accepts, its `500` included, carries `x-epicenter: 1` and no path; a
-tunnelled request's `403` and Bun's own `413` carry nothing
-([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
+`409` and a body that does not name its own, and the command says which
+folder it took for its Epicenter and where that folder's marker is
+([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)):
+
+```txt
+The serve on port 4747 is another Epicenter's. This command took /Users/ada/Epicenter/apps/vault/data for its Epicenter, from /Users/ada/Epicenter/apps/vault/data/EPICENTER.md: if that is not your Epicenter, remove that file; if it is, set a different `port` in it.
+```
+
+Any other answer that is not serve's is `Unreachable` with its status, such
+as `serve answered 503 Service Unavailable`, exit 1. Two Epicenters on one
+computer each need their own `port`, a whole number from 1 to 65535.
+
+The port is also the lock. A second `epicenter serve`, for this Epicenter or
+another, cannot bind a port in use; it exits 2 before it loads any app:
+
+```txt
+Port 4747 is in use. If that is not this Epicenter's serve, set another `port` in /Users/ada/Epicenter/EPICENTER.md.
+```
+
+After an upgrade, the serve that was already running is still the old
+version until you restart it. Nothing warns you: restart serve after every
+upgrade.
 
 An app's and a routine's problems are made once, when serve starts, and a
 path inside the Epicenter in them is written from its folder, so
@@ -333,37 +351,6 @@ action returns, sends as an update, or says in an error it throws reaches
 its caller as the action wrote it, so a message such as
 `EACCES: permission denied, open '/Users/ada/Epicenter/apps/notes/data/a.md'`
 can show a path of this computer to your own devices.
-
-A command whose port answers for something else runs nothing, and a second
-serve does not start; both say the same:
-
-```txt
-Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
-```
-
-It says `another program` when what answers is not an Epicenter's serve,
-and adds that a serve from before an upgrade is stopped and started again:
-one from before 0.8 sets no `x-epicenter`, and nothing tells it apart. Two
-Epicenters on one computer each need their own `port`, a whole number from 1 to
-65535.
-
-The port is also the lock. A second `epicenter serve` for an Epicenter that is
-already served exits 2 and changes nothing:
-
-```txt
-serve is already running for this Epicenter on port 4747.
-```
-
-When something else holds the port, it says who, asking as a command does:
-
-```txt
-Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
-Port 4747 is in use by another program. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md. If it is an epicenter serve from before an upgrade, stop it and start it again.
-```
-
-After an upgrade, the serve that was already running is still the old
-version until you restart it. Nothing warns you: restart serve after every
-upgrade.
 
 An action runs in serve's environment: it does not see variables exported in
 the caller's shell, and what it prints goes to serve's output, not to the
@@ -472,7 +459,7 @@ cross-site guards every request passes.
 | The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
 | No such app or action, an address that is not `/actions/<app>/<action>`, the app cannot load, or the input is not JSON, not an object, or does not fit | 200, one line: `{"answer": { data: null, error: { name: "NotStarted", ... } }}` |
 | A method other than `POST` (other than `GET /actions/`, the listing) | 405 |
-| The body is larger than 25 MiB | 413 from Bun, with no body and no `x-epicenter`; the command refuses such an input before sending it |
+| The body is larger than 25 MiB | 413 from Bun, with no body; the command reads it as `Unreachable` |
 
 A stream that ends with no `answer` line was cut off, and its outcome is
 unknown: the action may still be running or may have finished. A page and

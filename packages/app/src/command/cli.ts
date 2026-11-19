@@ -15,7 +15,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
 import { noSuchAction } from './input.ts';
 import { presentAnswer, writeErr } from './output.ts';
-import { MAX_INPUT_BYTES, unknownApp } from './protocol.ts';
+import { unknownApp } from './protocol.ts';
 import { appReport, helpReport, missingAction, rootReport } from './report.ts';
 import { epicenterRoot } from './root.ts';
 import { callAction, fetchListing } from './send.ts';
@@ -169,11 +169,6 @@ export async function runCli(argv: string[]): Promise<number> {
 		// Only this process can read its stdin, so it reads `-` and sends the text.
 		const [typed = '{}'] = after;
 		const input = typed === '-' ? await Bun.stdin.text() : typed;
-		if (Buffer.byteLength(input) > MAX_INPUT_BYTES)
-			return usage(
-				`The input is larger than ${MAX_INPUT_BYTES / 1024 / 1024} MiB`,
-				`epicenter ${name} ${key} --help`,
-			);
 		// Each update is one line of JSON on stderr, as it arrives.
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve reads the input and runs the action; this process only sends the call.

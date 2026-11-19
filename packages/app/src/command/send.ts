@@ -14,10 +14,9 @@ import {
 	type PublicError,
 	readAnswer,
 } from '../index.ts';
-import type { Listing } from './protocol.ts';
 import {
-	answeredBy,
-	portHeld,
+	anotherEpicenter,
+	type Listing,
 	ROOT_HEADER,
 	rootHeaderValue,
 } from './protocol.ts';
@@ -54,10 +53,9 @@ async function reach(
 			});
 		return ActionError.Unreachable({ message: ended });
 	}
-	const holder = answeredBy(response);
-	if (holder !== 'its serve') {
+	if (response.status === 409) {
 		await response.body?.cancel().catch(() => undefined);
-		return portHeld(root, holder);
+		return anotherEpicenter(root);
 	}
 	return Ok(response);
 }
@@ -74,8 +72,13 @@ export async function fetchListing(
 	);
 	if (error) return Err(error);
 	// Any status but 200 is serve not answering, as for a call.
-	if (response.status !== 200)
-		return (await readAnswer(response)) as Result<never, PublicError>;
+	if (response.status !== 200) {
+		await response.body?.cancel().catch(() => undefined);
+		return ActionError.Unreachable({
+			message:
+				`serve answered ${response.status} ${response.statusText}`.trim(),
+		});
+	}
 	try {
 		const listing = (await response.json()) as Listing;
 		if (Array.isArray(listing?.apps) && Array.isArray(listing.problems))

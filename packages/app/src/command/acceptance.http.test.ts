@@ -421,10 +421,9 @@ test("a request under /apps/<app>/ is a built file first, then the app's fetch, 
 		'signed in',
 	);
 	expect(await readFile(join(f.made, 'local/code.txt'), 'utf8')).toBe('abc');
-	// An answer whose headers cannot change still carries serve's own header.
+	// An answer whose headers cannot change passes through as the app made it.
 	const back = await at('mail/back', { redirect: 'manual' });
 	expect(back.status).toBe(302);
-	expect(back.headers.get('x-epicenter')).toBe('1');
 	expect((await at('mail/boom')).status).toBe(500);
 	expect((await at('mail/odd')).status).toBe(500);
 	// An app without fetch answers 404 for a path no file answers.
