@@ -39,7 +39,7 @@ import {
 } from './field.ts';
 
 /** An action's input as an app writes it: a record of fields. */
-export type Input = Record<string, TSchema & object>;
+export type Input = Record<string, TSchema>;
 
 /**
  * What `run` calls to report while it runs. It returns at once and never

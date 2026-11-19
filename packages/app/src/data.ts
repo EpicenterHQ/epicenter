@@ -64,12 +64,6 @@ export type DataRecord<TDef extends DataDef> = Flat<
 	{ path: string; id: string; body: string } & Static<TObject<TDef['fields']>>
 >;
 
-/**
- * Marks a handle `defineData` made, for the types only: it is how the
- * overload of `defineData(tmp, data)` tells a result from a spec.
- */
-const HANDLE = Symbol('epicenter.handle');
-
 /** The calls on one data key. */
 export type Handle<TDef extends DataDef> = {
 	/**
@@ -104,16 +98,16 @@ export type Handle<TDef extends DataDef> = {
 	): Promise<Result<DataRecord<TDef>, Misfit | TError>>;
 	/** Delete a record, answering whether there was one. */
 	delete(id: string): Promise<Result<boolean, Misfit>>;
-	readonly [HANDLE]: true;
 };
 
-/** One handle per key, each carrying its definition. */
+/**
+ * One handle per key, each carrying its definition, so a result is itself a
+ * spec: `defineData(tmp, data)` opens the same keys under `tmp`, with the
+ * same type.
+ */
 export type Data<TSpec extends Spec> = {
 	[K in keyof TSpec & string]: TSpec[K] & Handle<TSpec[K]>;
 };
-
-/** What `defineData` returned, for any definitions. */
-type AnyData = Record<string, DataDef & { readonly [HANDLE]: true }>;
 
 /** Markdown yields JSON values, so a handle at runtime is typed by them. */
 type AnyHandle = Handle<{
@@ -128,15 +122,10 @@ type AnyHandle = Handle<{
  * how a test points a home's data at a temporary folder. Throws when a
  * definition is wrong in a way its types cannot say.
  */
-export function defineData<const TData extends AnyData>(
-	dir: string,
-	data: TData,
-): TData;
 export function defineData<const TSpec extends Spec>(
 	dir: string,
 	spec: TSpec,
-): Data<TSpec>;
-export function defineData(dir: string, spec: Spec): unknown {
+): Data<TSpec> {
 	if (!isAbsolute(dir))
 		throw new Error(
 			`defineData takes the home's folder first, as an absolute path: defineData(import.meta.dir, { ... }), not ${JSON.stringify(dir)}`,
@@ -179,7 +168,7 @@ export function defineData(dir: string, spec: Spec): unknown {
 			key,
 			createHandle(dir, key, { description, fields }),
 		]),
-	);
+	) as Data<TSpec>;
 }
 
 /** Every ref annotation anywhere in `schema`, however deep. */
@@ -234,7 +223,6 @@ function createHandle(dir: string, key: string, def: DataDef) {
 			named(id, () => records.write(id, 'either', change)),
 		delete: (id: string) =>
 			named(id, async () => Ok(await deleteFile(dir, records.path(id)))),
-		[HANDLE]: true,
 	} as AnyHandle;
 	return { ...def, ...handle };
 }

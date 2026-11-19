@@ -9,7 +9,12 @@ import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import type { Action } from '../action.ts';
 import { type Answer, isPlainObject } from '../answer.ts';
-import { ActionError, type NotStarted, type PublicError } from '../errors.ts';
+import {
+	ActionError,
+	type NotStarted,
+	type PublicError,
+	type Thrown,
+} from '../errors.ts';
 import type { JsonValue } from '../markdown.ts';
 import { checkObject, readInput } from './input.ts';
 import type { Loaded } from './load.ts';
@@ -20,8 +25,6 @@ export type Found = { app: string; action: string; run: Action };
 
 /** A call ready to run: the action and its checked input. */
 export type Call = Found & { input: Record<string, unknown> };
-
-type Thrown = { name: string; message: string } & Record<string, unknown>;
 
 /**
  * The names only Epicenter answers: an action that returns one answers
