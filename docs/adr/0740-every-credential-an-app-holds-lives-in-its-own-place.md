@@ -7,6 +7,8 @@
 - **Relates:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (a refresh token per grant renews access without leaving the page), [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) (refresh families and reuse detection), [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) (the engine's token in Epicenter's AppData).
 - **Unbuilt:** the web refresh token in origin storage; removing `automaticRenewal` and the `prompt=none` renewal from `folder-package:packages/account/src/browser-oauth.ts`.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 Desktop apps keep credentials in the OS keychain through `keyring`

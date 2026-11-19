@@ -20,23 +20,13 @@
 			"why": "Named phrase with a single owner. If the hub answers this, the hub's description is too broad."
 		},
 		{
-			"id": "review-nested-ifs",
-			"cluster": "review",
-			"prompt": "These nested ifs are unreadable. Can you simplify this handler?",
-			"anchors": ["nested ifs"],
-			"distractors": ["simplify this"],
-			"expect": "control-flow",
-			"forbid": [],
-			"why": "'nested ifs' is control-flow's hook. 'simplify this' belongs to collapse-pass and stays in the prompt as the distractor, because the thing worth measuring is that a concrete named smell beats a generic verb sitting beside it."
-		},
-		{
 			"id": "review-simplify-this",
 			"cluster": "review",
 			"prompt": "Take a look at packages/data and simplify this. There is a lot of indirection nobody needs.",
 			"anchors": ["simplify this"],
 			"expect": "collapse-pass",
-			"forbid": ["control-flow"],
-			"why": "The other side of the boundary review-nested-ifs sets up. A bare 'simplify this' aimed at a package is the collapse pass; control-flow disclaims the phrase precisely so this prompt does not land on a single-function skill."
+			"forbid": [],
+			"why": "A bare 'simplify this' aimed at a package is the collapse pass."
 		},
 		{
 			"id": "review-asymmetric-win",
@@ -156,7 +146,7 @@
 			"prompt": "Another refactoring pass on the importer. Follow related callers for fresh opportunities.",
 			"anchors": ["refactoring pass"],
 			"expect": "collapse-pass",
-			"forbid": ["control-flow"],
+			"forbid": [],
 			"why": "A repeated broad pass owns exploration; methods are references, not a competing entrypoint."
 		},
 		{

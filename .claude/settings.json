@@ -1,9 +1,18 @@
 {
+	"attribution": {
+		"commit": "",
+		"pr": "",
+		"sessionUrl": false
+	},
 	"permissions": {
 		"deny": [
 			"Bash(git add -A*)",
 			"Bash(git add --all*)",
 			"Bash(git add . *)",
+			"Bash(git add -u*)",
+			"Bash(git add --update*)",
+			"Bash(git commit -a*)",
+			"Bash(git commit --all*)",
 			"Read(.env)",
 			"Read(.env.*)",
 			"Read(!.env.example)",
@@ -20,7 +29,9 @@
 			"Bash(git branch*--delete*)",
 			"Bash(git clean *)",
 			"Bash(git checkout -- *)",
+			"Bash(gh pr merge*--admin*)",
 			"Bash(git checkout . *)",
+			"Bash(git stash pop*)",
 			"Bash(git stash drop*)",
 			"Bash(git stash clear*)",
 			"Bash(git worktree remove*--force*)",

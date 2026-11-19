@@ -6,6 +6,8 @@
 <!-- doc-path-check: ignore-next-line (the ADR path belongs to the external Wellcrafted repository) -->
 - **Relates:** [Wellcrafted](https://github.com/wellcrafted-dev/wellcrafted) and its own proposed ADR, `docs/adr/0001-result-namespaces-produce-native-tanstack-options.md`, for the library-owned conversion contract.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 The dashboard's `1d6c4d9315^:apps/api/ui/src/lib/billing/queries.ts` repeated

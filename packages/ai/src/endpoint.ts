@@ -1,7 +1,7 @@
 /**
- * An endpoint is a place that answers OpenAI-compatible requests: Epicenter's
- * hosted inference, a provider the person holds a key for, a server on this
- * computer, or an engine inside the app. It is a value, not a connection: an
+ * An endpoint is a place that answers OpenAI-compatible requests: a provider
+ * the person holds a key for, a server on this computer, or an engine inside
+ * the app. It is a value, not a connection: an
  * id, a `fetch` rooted at the endpoint, and the models it offers now
  * (ADR-0757).
  *
@@ -15,7 +15,7 @@
 export type Capability = 'chat' | 'transcribe' | 'embed';
 
 /** Where a model runs, from the person's point of view. */
-export type Source = 'local' | 'hosted' | 'custom';
+export type Source = 'local' | 'custom';
 
 /** A model as its endpoint declares it. */
 export type EndpointModel = {

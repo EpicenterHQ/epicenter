@@ -1,6 +1,6 @@
 # Composing a PR body
 
-Read when deciding how to explain a change. These are choices to make from the reader’s needs, not a sequence or a set of required sections. See [examples.md](examples.md) for complete bodies and [visual-patterns.md](visual-patterns.md) for ways to show relationships.
+Read when deciding how to explain a change. These are choices to make from the reader’s needs, not a sequence or a set of required sections.
 
 ## Orient the reader
 
@@ -26,7 +26,7 @@ Use an example or diagram where the reader would otherwise have to reconstruct b
 
 Public API, CLI, HTTP, config, and type-signature changes need code examples. Show enough input, output, or surrounding use to make the contract clear. Check these against the final implementation. Internal edits need examples only when they help explain the decision.
 
-Use [visual-patterns.md](visual-patterns.md) for possible forms. The prose around a visual should orient the reader and explain its consequence.
+The prose around a visual should orient the reader and explain its consequence.
 
 ## Make consequences explicit
 

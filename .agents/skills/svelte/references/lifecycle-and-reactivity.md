@@ -181,7 +181,7 @@ and mount lifetime.
 
 ## A caller can own the initial wait
 
-The [dashboard auth module](../../../../apps/api/ui/src/lib/platform/auth.ts) constructs its client synchronously and exports `authReady = client.refresh()` for the first cookie-session read. The [layout](../../../../apps/api/ui/src/routes/dashboard/+layout.svelte) waits on that promise once with `{#await authReady}`. Later sign-ins are changes to `auth.state()`. In the signed-in branch, `{#key signIn.account}` gives each account its own dashboard session.
+The dashboard auth module constructs its client synchronously and exports `authReady = client.refresh()` for the first cookie-session read. The layout waits on that promise once with `{#await authReady}`. Later sign-ins are changes to `auth.state()`. In the signed-in branch, `{#key signIn.account}` gives each account its own dashboard session.
 
 The promise answers “has the first read finished?” The live state answers “who is signed in now?” A later refresh can change that answer after the promise has settled.
 
@@ -191,7 +191,7 @@ An adapted capability keeps its methods. Reading `auth.state()` in markup,
 `$derived`, or an effect tracks the capability. Reading it in component setup
 or an event handler takes a snapshot. Actions pass through untracked, so an
 effect can call `void ai.refresh()` without subscribing to that action.
-See [the adapter contract](../../../../apps/api/ui/src/lib/reactive.ts).
+See the adapter contract.
 
 A check on one call to `auth.state()` cannot narrow the answer to a second
 call. Read it once when several expressions need the same answer. The
