@@ -181,7 +181,7 @@ Do NOT assert on `console.*` output. Inject a `memorySink` and inspect the event
 
 ## DI, not globals
 
-Let the caller supply a logger when it needs a different sink. The [CLI run tests](../../../packages/app/src/command/run.test.ts) give each test its own `memorySink()` and pass `createLogger('cli/run', sink)` to `runAction` as its `log` option. Each test reads its own event list, and none of them touches stderr, where the runner's default logger writes.
+Let the caller supply a logger when it needs a different sink. The [CLI run tests](https://github.com/EpicenterHQ/epicenter/blob/app-before-0971/packages/app/src/command/run.test.ts) give each test its own `memorySink()` and pass `createLogger('cli/run', sink)` to `runAction` as its `log` option. Each test reads its own event list, and none of them touches stderr, where the runner's default logger writes.
 
 Add a `log` option to a package factory only when a caller needs records to go somewhere other than the default. Do not add one to every factory ahead of that need.
 

@@ -105,6 +105,11 @@ code that goes away with it. Then check that the product still does what
 its sentence says. A second way of doing something looks cheap to add, but
 it has to be kept working forever.
 
+Be careful with a promise that touches data already stored or an API other
+people call. Dropping a reader for old data on disk, or a published export,
+loses something people can't get back. Read
+[durable contracts](../code-collapse/references/durable-contracts.md) first.
+
 Choose the smallest loss that removes the second way, not simply the
 biggest deletion.
 

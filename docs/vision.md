@@ -48,7 +48,7 @@ for it. Never expose the port publicly; `serve` refuses Tailscale Funnel.
 Agents can run on the home itself or reach its actions from another
 connected computer. If the home sleeps or goes offline, your other devices
 cannot reach it. For the listener and service setup, see
-[the epicenter command](../packages/app/src/command/README.md#one-serve-runs-every-action).
+[the epicenter command](../packages/app/README.md#the-command-and-serve).
 
 ## Core invariants
 
@@ -199,8 +199,8 @@ changes in place ([ADR-0910]).
   Todoist. Todoist stays near empty, and Tasks is the list.
 - **A recording on a plane.** Whispering on your laptop records, transcribes,
   and pastes with no network, and keeps each recording, with its audio, in
-  its own folder ([ADR-0894], Proposed). It needs no Epicenter, and no
-  account: an Epicenter account only unlocks paid models. If you point its
+  its own folder ([ADR-0894], Proposed). It needs no Epicenter and no
+  account. If you point its
   folder into `~/Epicenter/apps/whispering/data`, or copy new files there with
   a file syncer, the recordings appear for your agents. A later Whispering may
   hand each new recording over to your home once it can reach it, and from

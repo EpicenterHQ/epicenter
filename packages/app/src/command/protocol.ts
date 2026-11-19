@@ -1,31 +1,24 @@
 /**
- * What the command and serve agree on over HTTP (ADR-0961): the header that
- * names an Epicenter, the refusal when a port answers for another one, the
- * MCP tool names, and the listing's types. Serve and the sender each import
- * this; neither imports the other, and nothing here loads an app.
+ * What the command and serve agree on over HTTP: the header that names a
+ * home, the MCP tool names, and the listing. Serve and the command each
+ * import this; neither imports the other, and nothing here loads app code.
  */
 import type { ObjectSchema } from '../field.ts';
-import { type Action, ActionError } from '../index.ts';
-import type { EpicenterRoot } from './root.ts';
 
 /**
- * The header a request names its Epicenter in: the root's real path,
- * percent-encoded. The command sends it only to 127.0.0.1, so the path never
- * leaves this computer, and serve refuses a request whose root is not its
- * own with 409.
+ * The header a request from the command names its home in: the home's real
+ * path, percent-encoded. The command sends it only to 127.0.0.1, so the path
+ * never leaves this computer, and serve refuses a request for another home
+ * with 409, so a command in a second home on the same port reaches nothing.
  */
-export const ROOT_HEADER = 'x-epicenter-root';
+export const HOME_HEADER = 'x-epicenter-home';
 
-/** This Epicenter as the header carries it: its root's real path, percent-encoded. */
-export function rootHeaderValue({
-	folder,
-}: Pick<EpicenterRoot, 'folder'>): string {
-	return encodeURIComponent(folder);
-}
+/** A home as the header carries it. */
+export const homeHeaderValue = (folder: string) => encodeURIComponent(folder);
 
 /**
- * The MCP tool name of the action `action` in `app`: the two names joined by
- * `_`. Names have no underscores, so `fromToolName` reads it back.
+ * The MCP tool name of `action` in `app`: the two names joined by `_`. A
+ * name has no underscore, so `fromToolName` reads it back.
  */
 export const toolName = (app: string, action: string) => `${app}_${action}`;
 
@@ -35,77 +28,25 @@ export function fromToolName(name: string) {
 	return { app, action: more.length ? '' : action };
 }
 
-/** A name that finds no app in the Epicenter: serve's answer, and the command's from the listing. */
-export const unknownApp = (name: string) =>
-	ActionError.NotStarted({
-		message: `Unknown app "${name}"`,
-		next: 'epicenter',
-	});
-
-/** An action `app` does not have, naming the actions it has: serve's answer, and the command's from the listing. */
-export const noSuchAction = (app: string, action: string, actions: string[]) =>
-	ActionError.NotStarted({
-		message: `${app} has no action ${JSON.stringify(action)}; ${actions.length ? `its actions: ${actions.join(', ')}` : 'it has none'}`,
-		next: `epicenter ${app}`,
-	});
-
-/**
- * An app that does not load, refusing a call or a listing's view of it: its
- * name, each problem on its own line, then what to do. Serve loads code only
- * when it starts, so a fix shows after a restart.
- */
-export const appProblems = (name: string, problems: string[]) =>
-	ActionError.NotStarted({
-		message: [
-			`${name}:`,
-			...problems.map((problem) => `  ${problem}`),
-			'Fix its code, then restart serve.',
-		].join('\n'),
-	});
-
-/**
- * An action as an MCP tool definition: its name, input schema, and the hints
- * it states. `mcp: false` marks one a listing shows and serve does not offer.
- */
-export type ActionTool = {
+/** An action as the listing shows it. */
+export type ActionListing = {
 	name: string;
 	description: string;
-	inputSchema: ObjectSchema;
-	annotations?: Action['annotations'];
-	mcp?: false;
+	input: ObjectSchema;
 };
 
-/** An app as the listing carries it: its description, each data key's path and fields as JSON Schema, and its actions as tools. */
+/** An app as the listing shows it. */
 export type AppListing = {
 	name: string;
 	description: string;
-	data?: Record<
-		string,
-		{ path: string; description: string; fields: ObjectSchema }
-	>;
-	actions: ActionTool[];
+	actions: ActionListing[];
 };
-
-/** An entry in `apps/` with problems: one that did not load, or a `local/` that could reach Git. */
-export type AppProblems = { entry: string; problems: string[] };
-
-/** A routine as the listing shows it: its schedule, next occurrence, and the action it runs with its input, or why its file is refused. */
-export type RoutineRow =
-	| {
-			name: string;
-			cron: string;
-			next: string | undefined;
-			app: string;
-			action: string;
-			input: Record<string, unknown>;
-	  }
-	| { name: string; problem: string };
 
 /** Everything serve offers, as `GET /actions/` answers it. */
 export type Listing = {
 	/** The version of `@epicenter/app` serve runs. */
 	version: string;
 	apps: AppListing[];
-	problems: AppProblems[];
-	routines: RoutineRow[];
+	/** Why `epicenter.ts` did not load, when it did not; then there are no apps. */
+	problem?: string;
 };

@@ -1,87 +1,41 @@
 /**
- * An action: a function an app exposes, carrying what the CLI, MCP, and a UI
- * need to call it: a description and the JSON Schema of its input. Call it as
- * any function:
+ * An action: one thing a person, an agent or a page can ask a home to do,
+ * with a description and the fields of its input. Every action is written
+ * with `defineAction`; nothing is reachable from the command, MCP or a page
+ * unless an action exposes it.
  *
  * ```ts
- * const learn = defineAction({
- *   description: 'Learn a word, due now',
- *   input: { word: field.text(), meaning: field.text({ optional: true }) },
- *   run: ({ word, meaning }) => words.create(word, { meaning }),
+ * const add = defineAction({
+ *   description: 'Save a thought, named by the time',
+ *   input: { body: field.text() },
+ *   run: ({ body }) => notes.create(timeId(), { body }),
  * });
- *
- * await learn({ word: '你好' });
  * ```
  *
  * `run` may take a second argument, `update`, and call it to say where it is
  * while it runs. Annotate it, and every caller's `onUpdate` has that type:
  *
  * ```ts
- * const sync = defineAction({
- *   description: 'Copy new mail',
- *   input: { account: field.text() },
- *   async run({ account }, update: Update<{ copied: number }>) {
- *     for (const copied of await copy(account)) update({ copied });
- *     return Ok(null);
- *   },
- * });
- *
- * await sync({ account }, { onUpdate: ({ copied }) => show(copied) });
+ * async run({ account }, update: Update<{ copied: number }>) {
+ *   for (const copied of await copy(account)) update({ copied });
+ *   return Ok(null);
+ * }
  * ```
  *
  * An update reports and is never the answer: a caller that does not listen
- * loses nothing (ADR-0879).
+ * loses nothing. An action is also a function, so a test calls it directly;
+ * a direct call skips the input check serve makes.
  */
 
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import { isActionResult, type PublicError } from './action-result.ts';
+import type { Flat } from './data.ts';
+import type { PublicError } from './errors.ts';
 import { defaultIn, type ObjectSchema, objectSchema } from './field.ts';
+import { isAnswer } from './result.ts';
 
-/**
- * An action's input as an app writes it: a record of fields, or of any
- * TypeBox schemas. Each is an object, so another action's `input`, a schema
- * whose `type` is text, is not one; its fields are `input.properties`.
- */
+/** An action's input as an app writes it: a record of fields. */
 export type Input = Record<string, TSchema & object>;
-
-/**
- * MCP's tool annotations, verbatim. They are hints the action gives an MCP
- * client, which decides from them how careful to be before a call. Serve
- * forwards them and nothing enforces them: an action that says it is
- * read-only and writes is the action's own mistake.
- */
-type Annotations = {
-	title?: string;
-	readOnlyHint?: boolean;
-	destructiveHint?: boolean;
-	idempotentHint?: boolean;
-	openWorldHint?: boolean;
-};
-
-/** What an action's declaration and the action it makes both carry. */
-type Shared = {
-	readonly description: string;
-	readonly annotations?: Annotations;
-	/**
-	 * `false` keeps the action out of the tools serve offers over MCP:
-	 * `tools/list` leaves it out and `tools/call` refuses its name. The
-	 * command line, HTTP, pages and routines call it as any other action.
-	 *
-	 * It shapes the list an agent is offered, and it is not a wall: an agent
-	 * with a shell can still call the action through the CLI or HTTP.
-	 */
-	readonly mcp?: boolean;
-};
-
-/**
- * An action's metadata, as callers read it. `input` is one complete JSON
- * Schema object, made once from the fields the action was written with: it
- * lists its `required` keys, `[]` when none is, and refuses other keys. It
- * survives `JSON.stringify` whole, so validation, MCP's `inputSchema`,
- * `--help`, and `list --json` all read this one value (ADR-0953).
- */
-type ActionMeta = Shared & { readonly input: ObjectSchema };
 
 /**
  * What `run` calls to report while it runs. It returns at once and never
@@ -91,26 +45,31 @@ type ActionMeta = Shared & { readonly input: ObjectSchema };
 export type Update<U> = (value: U) => void;
 
 /**
- * An action: a function of its input, with what callers read to call it.
- * `U` is what it reports through `update` while it runs, `never` for one
- * that only returns; a bare `Action` is any action, as its input and output
- * are any.
+ * An action: a function of its input that carries its description and its
+ * input as one JSON Schema object. `U` is what it reports through `update`,
+ * `never` for one that only returns.
  */
-// biome-ignore lint/suspicious/noExplicitAny: a bare Action is any action, whatever it reports.
+// biome-ignore lint/suspicious/noExplicitAny: a bare Action is any action, whatever it takes and reports.
 export type Action<In = any, Out = unknown, U = any> = ((
 	input: In,
 	options?: { onUpdate?: (value: U) => unknown },
-) => Out) &
-	ActionMeta;
+) => Out) & {
+	readonly description: string;
+	/**
+	 * Every field as one JSON Schema object: `required` lists the keys a
+	 * caller must give, `[]` when none is, and other keys are refused.
+	 * Serve checks a call with it, and MCP and the listing show it.
+	 */
+	readonly input: ObjectSchema;
+};
 
 /** What the action `A` reports while it runs, `never` when it only returns. */
 export type ActionUpdate<A> =
 	A extends Action<never, unknown, infer U> ? U : never;
 
 /**
- * What an action may return: a value that survives JSON, which is how the CLI,
- * MCP, and a UI receive it. `undefined` arrives as `null`, and a property that
- * is `undefined` arrives absent.
+ * What an action may return: a value that survives JSON. `undefined`
+ * arrives as `null`, and a property that is `undefined` arrives absent.
  */
 type Returned =
 	| string
@@ -124,34 +83,23 @@ type Returned =
 
 /** What `run` returns: a Result whose data survives JSON. */
 type RunResult = Result<Returned, PublicError>;
-/** `T` written out as one object type, without `readonly`, so an editor shows its keys. */
-export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
 
 /** The value of `input`, as a caller gives it and `run` receives it. */
 type InputOf<I extends Input> = Flat<Static<TObject<I>>>;
 
-/**
- * An action as an app writes it: `run` receives its input, typed by its
- * fields, and `update`, which it may leave out.
- */
+/** An action as an app writes it. */
 type ActionDef<
 	I extends Input,
 	Out extends RunResult | Promise<RunResult>,
 	U extends Returned,
-> = Shared & {
-	/** Each key the action takes, as a field: `{ word: field.text() }`. */
+> = {
+	/** What the action does, in a sentence a person or an agent reads before calling it. */
+	readonly description: string;
+	/** Each key the action takes, as a field: `{ word: field.text() }`, `{}` for none. */
 	readonly input: I;
-	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
+	/** Return `Ok(data)` or `Err(error)`; `data` must survive JSON. */
 	run(input: InputOf<I>, update: Update<U>): Out;
 };
-
-function checked(value: unknown, description: string) {
-	if (!isActionResult(value))
-		throw new TypeError(
-			`The action "${description}" must return Ok(data) or Err(error)`,
-		);
-	return value;
-}
 
 /**
  * `update` for one call: it hands each value to `listener`, which cannot
@@ -175,13 +123,21 @@ function reporting(listener: ((value: unknown) => unknown) | undefined) {
 	};
 }
 
+function checked(value: unknown, description: string) {
+	if (!isAnswer(value))
+		throw new TypeError(
+			`The action "${description}" must return Ok(data) or Err(error)`,
+		);
+	return value;
+}
+
+const ACTION_KEYS = new Set(['description', 'input', 'run']);
+
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
- * the fields. The action carries its input as one JSON Schema object made
- * from the fields (`ActionMeta`). Calling it hands `run` the input as given:
- * an absent field stays absent. `run` reaches the app's data and `folder` as
- * any closure does, from the app's function. The type of `run`'s `update` argument is the type
- * of every caller's `onUpdate`. Throws when the definition is wrong in a way
+ * the fields and every caller's `onUpdate` by `run`'s `update`. Calling the
+ * action hands `run` the input as given: an absent field stays absent, and
+ * `run` writes its own default. Throws when the definition is wrong in a way
  * its types cannot say, such as a field with a `default`.
  */
 export function defineAction<
@@ -192,8 +148,6 @@ export function defineAction<
 export function defineAction(
 	def: ActionDef<Input, RunResult, Returned>,
 ): Action {
-	// Fail at declaration, before a non-JSON schema can break tool discovery.
-	JSON.stringify(def.input);
 	const problems = actionProblems(def);
 	if (problems.length)
 		throw new Error(
@@ -201,17 +155,19 @@ export function defineAction(
 				.map((problem) => `The action "${def.description}" ${problem}`)
 				.join('\n'),
 		);
-	const { run, ...meta } = def;
+	const { description, run } = def;
 	const input = objectSchema(def.input);
+	// Fail at definition, before a schema JSON cannot carry breaks the listing.
+	JSON.stringify(input);
 	const action = (
-		input: unknown,
+		given: unknown,
 		options?: { onUpdate?: (value: unknown) => unknown },
 	) => {
 		const { update, close } = reporting(options?.onUpdate);
 		let answer: unknown;
 		try {
 			answer = (run as (input: unknown, update: Update<unknown>) => unknown)(
-				input,
+				given,
 				update,
 			);
 		} catch (cause) {
@@ -220,58 +176,38 @@ export function defineAction(
 		}
 		if (answer instanceof Promise)
 			return answer
-				.then((settled) => checked(settled, meta.description))
+				.then((settled) => checked(settled, description))
 				.finally(close);
 		close();
-		return checked(answer, meta.description);
+		return checked(answer, description);
 	};
-	return Object.assign(action, { ...meta, input });
+	return Object.assign(action, { description, input });
 }
 
-/** What an action is made of; anything else, such as `readonly`, is a typo the types let through. */
-const ACTION_KEYS = new Set([
-	'description',
-	'input',
-	'annotations',
-	'mcp',
-	'run',
-]);
-
-/** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
+/** What is wrong with `def` beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, mcp, run } = def as Record<string, unknown>;
+	const { description, input, run } = def as Record<string, unknown>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
 		if (!ACTION_KEYS.has(key))
 			problems.push(`has "${key}", which an action does not take`);
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
-	if (mcp !== undefined && typeof mcp !== 'boolean')
-		problems.push('has an mcp flag that is not a boolean');
 	if (typeof run !== 'function') problems.push('has no run');
-	else if (run.constructor.name === 'AsyncGeneratorFunction')
-		problems.push(
-			'has a run that is an async function*; an action reports by calling update, its second argument, and returns its answer',
-		);
 	if (typeof input !== 'object' || input === null)
-		return [...problems, 'has no input'];
-	if ((input as { type?: unknown }).type === 'object')
-		return [
-			...problems,
-			"has another action's input schema as its input; write `input: other.input.properties`",
-		];
-	for (const [key, schema] of Object.entries(input as Input)) {
+		return [...problems, 'has no input; write input: {} for none'];
+	for (const [key, schema] of Object.entries(input)) {
 		if (typeof schema !== 'object' || schema === null || Array.isArray(schema))
 			problems.push(`has "${key}" in its input, which is not a field`);
 		else if (defaultIn(schema))
 			problems.push(
-				`has a default in "${key}"; no field has one, so write the default in run, where the value is read, such as \`limit ?? 50\``,
+				`has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
 			);
 	}
 	return problems;
 }
 
-/** Whether `value` is an action: a function carrying a description and input. */
+/** Whether `value` is an action: a function carrying a description and an input schema. */
 export function isAction(value: unknown): value is Action {
 	return (
 		typeof value === 'function' &&

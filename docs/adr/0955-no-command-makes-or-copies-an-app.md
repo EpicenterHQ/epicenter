@@ -49,7 +49,7 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 <!-- doc-path-check: ignore-next-line (folded into packages/app/src/command/cli.ts, ADR-0961) -->
 - `COMMANDS` in `packages/app/src/command/commands.ts` holds `check` and `serve`.
   `new` and `export` are not in it.
-- "What an app holds" in `packages/app/src/command/README.md` lists those files. It is
+- "What an app holds" in `app-before-0971:packages/app/src/command/README.md` lists those files. It is
   the only description of a new app. The README's quick start has one line
   that fetches the Writing example; it gives no general procedure for
   copying or publishing an app.
@@ -59,7 +59,7 @@ or out of one. An app is a folder its owner writes: `apps/<name>/code/` with
 - An Epicenter with no apps says
   `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 - The `epicenter` command starts neither Git nor Bun. The one program it
-  starts is a routine's own `run`, in `packages/app/src/command/routines.ts`.
+  starts is a routine's own `run`, in `app-before-0971:packages/app/src/command/routines.ts`.
 - Taking an app's code stays a copy that nothing merges (ADR-0904). The
   owner makes it with their own tools.
 

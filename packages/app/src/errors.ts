@@ -1,10 +1,10 @@
 /**
- * The failures an app's producers and clients share. Three names belong to
- * the platform's handling of a call and say whether the action ran
- * (ADR-0953): `NotStarted` (it never began), `Threw` (it began and threw) and
- * `Unreachable` (the outcome is unknown). Any other name is the action's own
- * answer, so the action ran. A name does not say which writes persisted; a
- * caller rereads its records to learn what was saved.
+ * The failures Epicenter itself answers, and the shape every action error
+ * has. Three names belong to the platform and say whether an action ran:
+ * `NotStarted` (it never began), `Threw` (it began and threw) and
+ * `Unreachable` (the outcome is unknown). The data handles answer `Misfit`,
+ * `Exists` and `Missing`. `Refused` is a ready-made name for an action's own
+ * refusal. Any other name is the action's own.
  */
 import {
 	defineErrors,
@@ -13,27 +13,23 @@ import {
 } from 'wellcrafted/error';
 import type { JsonValue } from './front-matter.ts';
 
+/** What every action error is: a name and a message, plus fields of its own. */
+export type PublicError = { name: string; message: string };
+
+/**
+ * One reason a file or a change does not fit its fields. `line` names the
+ * value; `kind` leaves it out, so many files can share one.
+ */
 export type Problem = { line: string; kind: string };
 
 /** The names only Epicenter answers. An action that returns one answers `Threw` instead. */
 export const RESERVED_NAMES: readonly string[] = ['NotStarted', 'Unreachable'];
 
-const CHANGED = {
-	quote:
-		"'s body does not have that text; it may have changed since it was read, so get it again",
-	twice:
-		"'s body has that text more than once; quote more around it, or the whole body",
-	there: ' is already there',
-};
-
 export const ActionError = defineErrors({
 	/**
-	 * A file, or a change to one, does not fit its declared fields. A data
-	 * handle always sets `id`: the id the caller gave, or the file's name for a
-	 * read; for an id that cannot name a file, `path` is the key's folder. An
-	 * app's own file that is not a record, such as a settings file in
-	 * `local/`, leaves `id` out. A read carries the partial `record` for repair, unless the file is unreadable; a
-	 * refused change carries none.
+	 * A record, or a change to one, does not fit its declared fields. A read
+	 * carries the fields that fit as `record`, for repair, unless its front
+	 * matter cannot be read; a refused change carries none.
 	 */
 	Misfit: ({
 		path,
@@ -42,7 +38,7 @@ export const ActionError = defineErrors({
 		record,
 	}: {
 		path: string;
-		id?: string;
+		id: string;
 		problems: Problem[];
 		record?: Record<string, JsonValue>;
 	}) => ({
@@ -51,62 +47,42 @@ export const ActionError = defineErrors({
 			...problems.map((problem) => `${path}: ${problem.line}`),
 		].join('\n'),
 		path,
-		...(id === undefined ? {} : { id }),
+		id,
 		problems,
 		...(record === undefined ? {} : { record }),
 	}),
-	/** The quoted passage changed or is not in one place, or a new file is already there. */
-	Changed: ({
+	/** `create` found a record already there. */
+	Exists: ({ path }: { path: string }) => ({
+		message: `${path} is already there`,
 		path,
-		cause,
-	}: {
-		path: string;
-		cause: keyof typeof CHANGED;
-	}) => ({
-		message: `${path}${CHANGED[cause]}`,
-		path,
-		cause,
 	}),
-	/** There is no file at this path. It may be a dependency of the requested action. */
+	/** There is no record at this path. */
 	Missing: ({ path }: { path: string }) => ({
 		message: `There is no ${path}`,
 		path,
 	}),
-	/** The action began and threw, with its JSON-safe tagged payload when available. */
+	/** The action said no. Epicenter never answers it. */
+	Refused: (body: { message: string }) => body,
+	/** The action began and threw, with what it threw when that survives JSON. */
 	Threw: (body: {
 		message: string;
 		thrown?: { name: string; message: string } & Record<string, unknown>;
 	}) => body,
 	/**
-	 * The app said no: a ready-made name for an action's own refusal. Epicenter
-	 * never answers it; a write that does not fit the declared fields is `Misfit`.
-	 * It does not imply the action wrote nothing.
-	 */
-	Refused: (body: { message: string; next?: string }) => body,
-	/**
-	 * The call's outcome is unknown: the connection dropped after it was
-	 * sent, a line was not a valid frame, or the answer never came. Only a
-	 * caller answers it; serve turns an action's own into `Threw`.
+	 * The outcome is unknown: the connection dropped after the call was sent,
+	 * or the answer never came. Only a caller answers it.
 	 */
 	Unreachable: (body: { message: string }) => body,
 	/**
-	 * The action never began, so it is safe to call again once what `message`
-	 * names is fixed. `next` is the command that helps, when there is one.
-	 * Only serve and the CLI answer it; serve turns an action's own into
-	 * `Threw`.
+	 * The action never began, so calling again is safe once what `message`
+	 * names is fixed. `next` is a command that helps, when there is one.
 	 */
 	NotStarted: (body: { message: string; next?: string }) => body,
 });
 export type ActionError = InferErrors<typeof ActionError>;
-/** The action never began. */
-export type NotStarted = InferError<typeof ActionError.NotStarted>;
-/** The action began and threw. */
-export type Threw = InferError<typeof ActionError.Threw>;
-/** The call's outcome is unknown. */
-export type Unreachable = InferError<typeof ActionError.Unreachable>;
-/** A file or change that does not fit; a read's carries the fields that do as `record`. */
 export type Misfit = InferError<typeof ActionError.Misfit>;
-/** The file is not as the write needed it. */
-export type Changed = InferError<typeof ActionError.Changed>;
-/** There is no file for the id. */
+export type Exists = InferError<typeof ActionError.Exists>;
 export type Missing = InferError<typeof ActionError.Missing>;
+export type NotStarted = InferError<typeof ActionError.NotStarted>;
+export type Threw = InferError<typeof ActionError.Threw>;
+export type Unreachable = InferError<typeof ActionError.Unreachable>;

@@ -25,7 +25,7 @@ read a file.
 There are also two ways to change a file based on what is in it. `edit`
 takes a function of the current text that returns `Ok({ value, text })` or
 an error, and the record layer's `write` in
-`packages/app/src/markdown-records.ts` uses it to refuse with `Missing` or
+`app-before-0971:packages/app/src/markdown-records.ts` uses it to refuse with `Missing` or
 `Changed`. `update` takes a function that returns only the new text;
 `textUpdate` in `context.ts` builds it from `edit`. `edit` cannot be built
 from `update`: a refusal would have to leave through a variable outside the

@@ -98,17 +98,17 @@ prefix_rule(
 # Production. A `:remote` script wraps its command in Infisical's prod
 # environment.
 prefix_rule(
-    pattern = ["bun", "run", ["cf:audit:remote", "auth:generate:remote", "db:migrate:remote", "db:studio:remote"]],
+    pattern = ["bun", "run", "cf:audit:remote"],
     decision = "prompt",
     justification = "A `:remote` script runs against production and needs the person's approval.",
-    match = ["bun run db:migrate:remote", "bun run cf:audit:remote"],
-    not_match = ["bun run db:migrate:local", "bun run check"],
+    match = ["bun run cf:audit:remote"],
+    not_match = ["bun run check"],
 )
 
 prefix_rule(
     pattern = ["infisical", "run", "--env=prod"],
     decision = "prompt",
     justification = "This runs a command with production secrets and needs the person's approval.",
-    match = ["infisical run --env=prod --path=/ops -- drizzle-kit migrate"],
-    not_match = ["infisical run --path=/apps/local-books -- bun run src/bin.ts status"],
+    match = ["infisical run --env=prod --path=/ops -- bun run scripts/cf-audit.ts"],
+    not_match = ["infisical run --path=/ops -- bun run scripts/cf-audit.ts"],
 )

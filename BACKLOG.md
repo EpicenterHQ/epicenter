@@ -47,7 +47,7 @@ not create a second implementation assignment.
 - Desired result: A physical recording interrupted by window destruction or
   application exit releases the microphone, retains captured desktop audio,
   and permits another recording after reopening.
-- Current basis: The [recorder](packages/recorder/README.md) writes desktop
+- Current basis: The [recorder](apps/whispering/packages/recorder/README.md) writes desktop
   audio as Opus in WebM from the first sample, and `recover()` finishes
   recordings a quit or crash cut off.
 - Remaining acceptance: With a real input device, exercise interruption,
@@ -59,7 +59,7 @@ not create a second implementation assignment.
 - Desired result: Select on-device transcription when available; otherwise
   explain what is missing and open the model settings. Keep endpoint
   transcription available as an explicit alternative.
-- Grounding: [SpeechSettings](apps/whispering/src/lib/components/SpeechSettings.svelte)
+- Grounding: [SpeechSettings](apps/whispering/src/routes/components/settings/SpeechSettings.svelte)
   offers on-device models under **On this computer**. The web build has no
   local transcription.
 - Revisit when: Next Whispering connection or first-run pass. Verify model
@@ -202,8 +202,8 @@ not create a second implementation assignment.
 - Grounding: The earlier retirement list included `@epicenter/workspace`,
   `@epicenter/filesystem`, and `@epicenter/cli`. `@epicenter/cli` was
   published again and is retired once more, folded into `@epicenter/app`
-  (ADR-0960); `@epicenter/app` is published; `@epicenter/folder` is private now, and
-  whether it was ever published is unchecked. Check current registry metadata
+  (ADR-0960); `@epicenter/app` is published; `@epicenter/folder` was private and is now
+  deleted; whether it was ever published is unchecked. Check current registry metadata
   and intended version ranges before proposing any deprecation; preserve the
   license of each previously published version.
 - Revisit when: Next package release. Do not unpublish or deprecate a whole

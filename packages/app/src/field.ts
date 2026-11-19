@@ -8,8 +8,7 @@
  * field stays absent: nothing is filled in. The code that reads a value
  * writes its default, as `({ done = false, tags = [] })`. No field carries a
  * JSON Schema `default`, and a definition that has one is refused
- * (`defaultIn`). Fields describe data; an action declares private input
- * handling separately.
+ * (`defaultIn`).
  */
 import {
 	type TLiteral,
@@ -119,10 +118,10 @@ export type OptionalKeys<F> = {
 	[K in keyof F]: F[K] extends { '~optional': true } ? K : never;
 }[keyof F];
 
-/** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a folder key>" } }`. */
+/** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "key": "<a data key>" } }`. */
 const REF = 'x-epicenter-ref';
 
-/** The folder key named by a data ref, or undefined for another field. */
+/** The data key named by a ref, or undefined for another field. */
 export function refKeyOf(schema: unknown): string | undefined {
 	if (typeof schema !== 'object' || schema === null) return undefined;
 	const annotation = (schema as Record<string, unknown>)[REF];
@@ -263,10 +262,10 @@ export const field = {
 	},
 
 	/**
-	 * One id in another key of the same `defineData`. A write that sets it
-	 * refuses an id with no record there; nothing checks it again, so a
-	 * later delete can leave it naming nothing. Reads open no other file.
-	 * `defineData` refuses a target that is not one of its keys.
+	 * One id in a key of the same `defineData`, which may be any of its keys.
+	 * A write that sets it refuses an id with no record there; nothing checks
+	 * it again, so a later delete can leave it naming nothing. Reads open no
+	 * other file. `defineData` refuses a target that is not one of its keys.
 	 */
 	ref: <const O extends Options>(target: string, options?: O) => {
 		only('ref', options, OPTIONS);
@@ -361,24 +360,11 @@ function wanted(schema: Described): string | undefined {
 }
 
 /**
- * What a field takes, in the words `whatFits` refuses with, such as `text` or
- * `a day like 2026-11-12`, ending `, or null` for one that takes `null`. The
- * command line's `--help` says it of each key.
- */
-export function whatTakes(field: TSchema): string {
-	const nonNull = withoutNull(field);
-	// A pattern's words are the field's description, which help prints beside these.
-	const { pattern: _, ...schema } = nonNull as Described;
-	const words = wanted(schema) ?? 'any JSON value';
-	return nonNull === field ? words : `${words}, or null`;
-}
-
-/**
  * What a field takes, in words such as `a day like 2026-11-12` or `a whole
  * number from 1 to 5`, when `value` does not fit it for a reason those words
  * say; `undefined` when it fits, or when they would not say why (a text too
- * long). A call says it of an input's key and a data read of a file's front
- * matter, so both say it alike.
+ * long). Serve says it of an input's key and a data read of a front matter
+ * line, so both say it alike.
  */
 export function whatFits(field: TSchema, value: unknown): string | undefined {
 	if (Value.Check(field, value)) return undefined;

@@ -39,14 +39,13 @@
 ## Try the CLI
 
 Epicenter needs [Bun](https://bun.sh) and Git; an AI account is not required.
-Make `~/Epicenter` as
-[Make an Epicenter](packages/app/src/command/README.md#make-an-epicenter)
-says, then write a one-file notes app and call it from the terminal, as
-[Try an app](packages/app/src/command/README.md#try-an-app) shows. This
-repository ships no apps, so the first one is yours.
+Make `~/Epicenter` as [a home](packages/app/README.md#a-home) shows: a
+`package.json` that names the port, an `epicenter.ts`, and one app. Then run
+`epicenter serve` there and call the app from the terminal. This repository
+ships no apps, so the first one is yours.
 
-For CLI commands, MCP setup, and keeping `serve` running in the background, see
-[the CLI guide](packages/app/src/command/README.md).
+For the command, MCP, and the routes serve answers, see
+[the command and serve](packages/app/README.md#the-command-and-serve).
 
 ## How it works
 
@@ -96,7 +95,7 @@ Whispering. An inside app brings its data in through actions. Mail pulls a copy
 of your mailbox to the home, and an agent changes Gmail only through a proposal
 you apply.
 
-[The vision](docs/vision.md) | [The `epicenter` command](packages/app/src/command/README.md) | [What an app imports](packages/app/README.md)
+[The vision](docs/vision.md) | [What a home imports, and the `epicenter` command](packages/app/README.md)
 
 ## Status
 
@@ -131,7 +130,6 @@ Your data is on the home, and whoever can read the home can read it.
 | Your other devices | Only what a UI or agent fetches while it reaches the home. They keep no copy. |
 | The home's private `origin` backup | Whoever hosts the backup repository can read all included apps and records. Nothing is pushed until you add an origin. |
 | A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a file in Mail's `local/` on the home, and never leaves it. |
-| Epicenter's hosted services | What you send them: a prompt or audio for a paid model, and your account. They hold no part of your Epicenter. |
 
 `serve` signs no one in and listens only on the home, so which other devices
 reach it is your private network's decision. See the
@@ -153,13 +151,12 @@ Applications under `apps/` are outside apps
 
 | Package | What it is |
 | --- | --- |
-| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports (`defineApp`, `defineData`, `defineAction`, fields, `folderOnDisk`), the client a UI calls actions with, and the `epicenter` command, which runs each app's actions as commands and MCP tools and serves UIs. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
+| [`@epicenter/app`](packages/app) | What a home's `epicenter.ts` imports (`defineData`, `defineAction`, `defineEpicenter`, fields), the client a page calls actions with, and the `epicenter` command, which serves every action to the command line and MCP. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 
-Whispering's own packages, and the folder sync product's code it still imports
-(`@epicenter/folder`, `@epicenter/definition`, `@epicenter/local`), are under
-[packages/](packages).
+Whispering's own packages are under
+[apps/whispering/packages/](apps/whispering/packages).
 
 ## Architecture
 
@@ -173,7 +170,7 @@ Whispering's own packages, and the folder sync product's code it still imports
     data/                      the app's records in the private root history
 
 packages/app                   what epicenter.ts imports
-packages/app/src/command       epicenter: runs actions, serve, check
+packages/app/src/command       epicenter: serve, MCP, and calls to serve
 ```
 
 [The vision](docs/vision.md) | [Trust model](docs/trust-model.md)

@@ -8,7 +8,7 @@ This directory holds the vision, the history of Epicenter's big decisions, the o
 - [History](history.md): the big turns in Epicenter's direction, oldest first, and why each was made. Background, not rules.
 - Each area's current rules are in a `## Decisions` section of its README, beside its code.
 - [Decision records (ADRs)](adr/README.md): older records, retired one area at a time as their rules move into READMEs.
-- [The `epicenter` command](../packages/app/src/command/README.md) and [what an app imports](../packages/app/README.md): how the current product works in code.
+- [What a home imports, and the `epicenter` command](../packages/app/README.md): how the current product works in code.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
 - [Trust model](trust-model.md): who can read your files, decided by who can read the home.
 - [Spec history](spec-history.md): a dated index of every spec ever written (history, not current truth).

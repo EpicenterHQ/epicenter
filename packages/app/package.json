@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/app",
-	"version": "0.8.0",
-	"description": "Epicenter: what an app's epicenter.ts imports to define its data and actions, the client its UI calls them through, and the epicenter command that runs them as commands and MCP tools. An Epicenter depends on it and runs it with Bun.",
+	"version": "0.9.0",
+	"description": "Epicenter: what a home's epicenter.ts imports to define its data, apps and actions, the client a page calls actions through, and the epicenter command that serves them. A home depends on it and runs it with Bun.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/EpicenterHQ/epicenter.git",
@@ -23,7 +23,6 @@
 		"!src/**/*.test-support.ts"
 	],
 	"scripts": {
-		"pack": "bun scripts/pack.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test"
 	},

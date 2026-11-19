@@ -61,7 +61,7 @@ the input.**
 **Serve answers one JSON listing, and every view of the apps prints from
 it.** `GET /actions/` (ADR-0967) answers each app's
 description, its data keys, its problems and each action as the MCP tool
-`serve` offers (`appListing` in `packages/app/src/command/apps.ts`).
+`serve` offers (`appListing` in `app-before-0971:packages/app/src/command/apps.ts`).
 
 | Reader | What it prints from the listing |
 | --- | --- |

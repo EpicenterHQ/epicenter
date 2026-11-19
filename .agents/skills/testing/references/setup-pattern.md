@@ -38,7 +38,7 @@ test('a missing optional list stays absent', async () => {
 });
 ```
 
-- **Compose fixtures when the extra setup matters.** The [CLI install tests](../../../../packages/app/src/command/install.test.ts) start with `fixture()`, add a Notes app with its own `package.json`, and return its folder. Tests that only need an empty Epicenter can use the base fixture.
+- **Compose fixtures when the extra setup matters.** The [CLI install tests](https://github.com/EpicenterHQ/epicenter/blob/app-before-0971/packages/app/src/command/install.test.ts) start with `fixture()`, add a Notes app with its own `package.json`, and return its folder. Tests that only need an empty Epicenter can use the base fixture.
 - **Keep setup visible and cleanup reliable.** Create the fixture in the test. Register cleanup that must run after a failure in `afterEach`, as the install tests do for temporary roots.
 - **Keep the return value small.** Include values a test or its cleanup needs. Keep intermediate construction details inside the helper.
 - **Skip shared setup** for pure functions, type-only tests, and cases whose starting conditions have little in common.

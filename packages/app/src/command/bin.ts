@@ -1,11 +1,8 @@
 #!/usr/bin/env -S bun --no-install
 /**
- * The `epicenter` command. An Epicenter depends on it: `bun install` at the top of
- * the Epicenter puts it in `node_modules/.bin`, beside the one `@epicenter/app`
- * this command and every app resolve.
- *
- * The exit code is set, never forced, so stdout drains before the process
- * ends.
+ * The `epicenter` command. A home depends on `@epicenter/app`, so
+ * `bun install` puts this in its `node_modules/.bin`. The exit code is set,
+ * never forced, so stdout drains before the process ends.
  */
 import { runCli } from './cli.ts';
 

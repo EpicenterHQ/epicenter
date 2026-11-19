@@ -1,34 +1,57 @@
-import { join } from 'node:path';
+/**
+ * A home's records, opened once by its `epicenter.ts` and passed to every
+ * app:
+ *
+ * ```ts
+ * export const data = defineData(import.meta.dir, {
+ *   watches: { description: 'trip idea', fields: { to: field.text() } },
+ *   checks: { description: 'research result', fields: { watch: field.ref('watches') } },
+ * });
+ * export type Data = typeof data;
+ * ```
+ *
+ * Each key is a folder of Markdown records under the home's `data/`, one
+ * file per id: `data.watches` reads and writes `data/watches/<id>.md`. A
+ * handle has `list`, `get`, `create`, `patch`, `edit` and `delete`, and
+ * generates no actions: an app writes each action it offers.
+ *
+ * `defineData` touches no file. A test rebinds the same definitions to a
+ * temporary folder with `defineData(tmp, data)`.
+ */
+import { isAbsolute } from 'node:path';
 import type { Static, TObject, TUnsafe } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Flat } from './action.ts';
-import { isPlainObject, type PublicError } from './action-result.ts';
-import { isName } from './app.ts';
-import { type DataActions, dataActions, type Verb } from './data-actions.ts';
 import {
 	ActionError,
-	type Changed,
+	type Exists,
 	type Misfit,
 	type Missing,
+	type PublicError,
 } from './errors.ts';
 import { defaultIn, type OptionalKeys, refKeyOf } from './field.ts';
-import { type Folder, filesIn } from './folder.ts';
+import { filesIn, openFolder } from './folder.ts';
 import { isFieldKey, type JsonValue } from './front-matter.ts';
+import { isName } from './name.ts';
 import {
 	createMarkdownRecords,
 	type Fields,
 	idOf,
 	isId,
 	refTargets,
-} from './markdown-records.ts';
+} from './records.ts';
+import { isPlainObject } from './result.ts';
+
+/** `T` written out as one object type, without `readonly`, so an editor shows its keys. */
+export type Flat<T> = { -readonly [K in keyof T]: T[K] } & {};
 
 /**
- * One data key: what one of its records is, as a noun ("task", "writing
- * note"), and the declared Markdown fields of each. Its actions say the
- * description in sentences such as "Read one task".
+ * One data key: what one of its records is, as a noun ("trip idea"), and
+ * the front matter fields each record has.
  */
 export type DataDef = { description: string; fields: Fields };
 type Spec = Record<string, DataDef>;
+
+/** What `patch` and `edit` take: each field to set, `null` to remove an optional one, and `body`. */
 export type Change<TFields extends Fields> = Flat<
 	{
 		[K in keyof TFields]?:
@@ -40,134 +63,132 @@ export type Change<TFields extends Fields> = Flat<
 export type NewRecord<TFields extends Fields> = Flat<
 	Static<TObject<TFields>> & { body?: string }
 >;
-/** A flat record with its path, id, declared fields, and body. */
+/** A record: its path from the home, its id, its fields and its body. */
 export type DataRecord<TDef extends DataDef> = Flat<
 	{ path: string; id: string; body: string } & Static<TObject<TDef['fields']>>
 >;
 
-type Handle<TDef extends DataDef> = {
+/** Marks a handle `defineData` made, so `defineData(tmp, data)` knows it was given one. */
+const HANDLE = Symbol('epicenter.handle');
+
+/** The calls on one data key. */
+export type Handle<TDef extends DataDef> = {
 	/**
-	 * Read one id, or undefined when absent. The id is the file name without
-	 * `.md`; every method that takes one refuses with Misfit an id Node would
-	 * not give back as that file's name. A name the folder or the system
-	 * refuses, such as one with `\`, throws.
+	 * One record, or undefined when there is no file. The id is the file name
+	 * without `.md`; every call that takes one refuses with Misfit an id that
+	 * cannot be a file name, such as `a/b`.
 	 */
 	get(id: string): Promise<Result<DataRecord<TDef> | undefined, Misfit>>;
-	/** One Result per `.md` file directly in the key's folder, sorted by path. */
+	/** One Result per `.md` file directly in the key's folder, sorted by id. */
 	list(): Promise<Result<DataRecord<TDef>, Misfit>[]>;
-	/** Create one file, returning Changed (there) when it exists. */
+	/** Write a new record, refusing with Exists when one is there. */
 	create(
 		id: string,
 		record: NewRecord<TDef['fields']>,
-	): Promise<Result<DataRecord<TDef>, Misfit | Changed>>;
-	/** Patch fields and replace the body of an existing record; an absent id returns Missing. */
+	): Promise<Result<DataRecord<TDef>, Misfit | Exists>>;
+	/** Change fields or the body of a record, refusing with Missing when there is none. */
 	patch(
 		id: string,
 		change: Change<TDef['fields']>,
-	): Promise<Result<DataRecord<TDef>, Misfit | Changed | Missing>>;
+	): Promise<Result<DataRecord<TDef>, Misfit | Missing>>;
 	/**
-	 * Compute a patch from a fitting record, or undefined when absent; the
-	 * patch may create the file.
+	 * Compute a change from the record, or from undefined when there is none,
+	 * in which case the change creates it. Nothing else in this process
+	 * changes the file between the read and the write. `change` runs once,
+	 * and returns `Ok(change)` or its own `Err`, which writes nothing.
 	 */
 	edit<TError extends PublicError = never>(
 		id: string,
 		change: (
 			record: DataRecord<TDef> | undefined,
 		) => Result<Change<TDef['fields']>, TError>,
-	): Promise<Result<DataRecord<TDef>, Misfit | Changed | TError>>;
-	/** Delete one id, returning whether its file existed. */
+	): Promise<Result<DataRecord<TDef>, Misfit | TError>>;
+	/** Delete a record, answering whether there was one. */
 	delete(id: string): Promise<Result<boolean, Misfit>>;
-	/** The file path for this id as given, without checking it or the disk. */
-	path(id: string): string;
+	readonly [HANDLE]: true;
 };
-/** Data metadata and reads: each key is a folder of records under `data/`. */
-export type AnyData = Record<
-	string,
-	DataDef & Pick<Handle<DataDef>, 'get' | 'list' | 'path'>
->;
 
-/** Markdown yields JSON values, so a handle at runtime is typed by them; `Data` keeps each field's schema. */
-export type AnyHandle = Handle<{
+/** One handle per key, each carrying its definition. */
+export type Data<TSpec extends Spec> = {
+	[K in keyof TSpec & string]: TSpec[K] & Handle<TSpec[K]>;
+};
+
+/** What `defineData` returned, for any definitions. */
+export type AnyData = Record<string, DataDef & { readonly [HANDLE]: true }>;
+
+/** Markdown yields JSON values, so a handle at runtime is typed by them. */
+type AnyHandle = Handle<{
 	description: string;
 	fields: Record<string, TUnsafe<JsonValue>>;
 }>;
 
-/** One handle per key: its definition, its verbs, and its actions. */
-export type Data<TSpec extends Spec> = {
-	[K in keyof TSpec & string]: TSpec[K] &
-		Handle<TSpec[K]> & {
-			/** Expose only the named verbs. */
-			actions<V extends Verb>(...verbs: [V, ...V[]]): DataActions<TSpec[K], V>;
-		};
-};
-
 /**
- * Declare an app's data: each key a folder of Markdown records under
- * `data/`, one file per id. Each handle reads and writes in `folder`, the
- * app's own.
+ * The records under `<dir>/data/`, one handle per key of `spec`. `dir` is
+ * the home's folder, `import.meta.dir` in its `epicenter.ts`. Given what an
+ * earlier call returned, it opens the same definitions under `dir`, which is
+ * how a test points a home's data at a temporary folder. Throws when a
+ * definition is wrong in a way its types cannot say.
  */
+export function defineData<const TData extends AnyData>(
+	dir: string,
+	data: TData,
+): TData;
 export function defineData<const TSpec extends Spec>(
-	folder: Folder,
+	dir: string,
 	spec: TSpec,
-): Data<TSpec> {
-	// 0.7.0 took the spec alone, so a call written for it leaves `spec` undefined.
+): Data<TSpec>;
+export function defineData(dir: string, spec: Spec): unknown {
+	if (typeof dir !== 'string' || !isAbsolute(dir))
+		throw new Error(
+			`defineData takes the home's folder first, as an absolute path: defineData(import.meta.dir, { ... }), not ${JSON.stringify(dir)}`,
+		);
 	if (!isPlainObject(spec))
 		throw new Error(
-			'defineData takes the folder first: defineData(folder, { tasks: { description, fields } }), inside defineApp(({ folder }) => ...)',
+			'defineData takes its keys second: defineData(import.meta.dir, { notes: { description, fields } })',
 		);
 	for (const [key, { description, fields }] of Object.entries(spec)) {
 		if (!isName(key))
 			throw new Error(
-				(key as string).endsWith('.md')
-					? `The data key ${JSON.stringify(key)} must be a name: every key is a folder of records now, so write ${JSON.stringify((key as string).slice(0, -3))}, give the one record a fixed id, and move data/${key} to data/${(key as string).slice(0, -3)}/<id>.md`
-					: `The data key ${JSON.stringify(key)} must be a name`,
+				`The data key ${JSON.stringify(key)} must be lowercase letters, digits and dashes, starting with a letter`,
 			);
 		if (typeof description !== 'string' || description.trim() === '')
 			throw new Error(
-				`The data key ${key} needs a description: what one record is, such as "task"`,
+				`The data key ${key} needs a description: what one record is, such as "trip idea"`,
 			);
 		if (!isPlainObject(fields))
 			throw new Error(
 				`The data key ${key} needs fields: an object of field schemas, {} for none`,
 			);
-		JSON.stringify(fields);
-		for (const [field, schema] of Object.entries(fields)) {
-			// An action folds a record's fields beside its id and body, and a read gives its path.
-			if (['path', 'body', 'id'].includes(field))
-				throw new Error(`The data key ${key} reserves the field "${field}"`);
-			if ((schema as { readOnly?: boolean }).readOnly)
+		for (const [name, schema] of Object.entries(fields)) {
+			// A record carries its path, id and body beside its fields.
+			if (['path', 'body', 'id'].includes(name))
+				throw new Error(`The data key ${key} reserves the field "${name}"`);
+			if (!isFieldKey(name))
 				throw new Error(
-					`The data key ${key} marks field "${field}" readOnly; an app offers only the verbs a caller may use`,
-				);
-			if (!isFieldKey(field))
-				throw new Error(
-					`The data key ${key} has a field ${JSON.stringify(field)} a front matter line cannot name`,
+					`The data key ${key} has a field ${JSON.stringify(name)} a front matter line cannot name`,
 				);
 			if (defaultIn(schema))
 				throw new Error(
-					`The data key ${key} has a default in field "${field}"; a read gives only what the file holds`,
+					`The data key ${key} has a default in field "${name}"; a read gives only what the file holds`,
 				);
-			checkRefs(schema, key, field);
+			const targets = refTargets(schema);
+			if (refsAnywhere(schema).length !== targets.length)
+				throw new Error(
+					`The data key ${key}'s field "${name}" holds a ref inside another shape; a ref is a field or the item of a list`,
+				);
+			for (const target of targets)
+				if (!Object.hasOwn(spec, target))
+					throw new Error(
+						`The data key ${key}'s field "${name}" refers to ${JSON.stringify(target)}, which must be a key in this defineData`,
+					);
 		}
 	}
-	function checkRefs(schema: unknown, key: string, field: string) {
-		const walked = refTargets(schema);
-		if (refsAnywhere(schema).length !== walked.length)
-			throw new Error(
-				`The data key ${key}'s field "${field}" holds a ref inside another shape; a ref is a field or the item of a list`,
-			);
-		for (const target of walked)
-			if (!Object.hasOwn(spec, target))
-				throw new Error(
-					`The data key ${key}'s field "${field}" refers to ${JSON.stringify(target)}, which must name a key in this defineData`,
-				);
-	}
 	return Object.fromEntries(
-		Object.entries(spec).map(([key, def]) => [
+		Object.entries(spec).map(([key, { description, fields }]) => [
 			key,
-			createHandle(folder, key, def),
+			createHandle(dir, key, { description, fields }),
 		]),
-	) as unknown as Data<TSpec>;
+	);
 }
 
 /** Every ref annotation anywhere in `schema`, however deep. */
@@ -180,27 +201,23 @@ function refsAnywhere(schema: unknown): string[] {
 	];
 }
 
-/** The handle for one data key: its verbs, its definition, and its actions. */
-function createHandle(folder: Folder, key: string, def: DataDef) {
+/** The handle for one data key: its definition and its calls. */
+function createHandle(dir: string, key: string, def: DataDef) {
+	const folder = openFolder(dir);
 	const base = `data/${key}`;
 	/** The ids of the key `of`: each `.md` file directly in its folder. */
 	const idsIn = (of: string) =>
-		filesIn(folder.path, `data/${of}`).flatMap((name) => idOf(name) ?? []);
+		filesIn(dir, `data/${of}`).flatMap((name) => idOf(name) ?? []);
 	const records = createMarkdownRecords({
 		folder,
 		base,
 		fields: def.fields,
 		idsIn,
 	});
-	/**
-	 * `run`'s answer, or a Misfit at the key's folder when Node would give the
-	 * file for `id` another name. A name the folder or the system refuses
-	 * throws from `run`.
-	 */
+	/** `run`'s answer, or a Misfit at the key's folder for an id that cannot be a file name. */
 	async function named<T>(id: string, run: () => Promise<T>) {
 		if (isId(id)) return run();
 		const why = 'is not a file name: the id is the file name without .md';
-		// The id names no file, so the problem sits at the key's folder.
 		return ActionError.Misfit({
 			path: base,
 			id,
@@ -210,7 +227,6 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		});
 	}
 	const handle = {
-		path: records.path,
 		get: (id: string) => named(id, () => records.read(id)),
 		async list() {
 			const found = [];
@@ -227,16 +243,8 @@ function createHandle(folder: Folder, key: string, def: DataDef) {
 		edit: (id: string, change: (record: unknown) => unknown) =>
 			named(id, () => records.write(id, 'either', change)),
 		delete: (id: string) =>
-			named(id, async () => {
-				const path = records.path(id);
-				const existed = await Bun.file(join(folder.path, path)).exists();
-				if (existed) await folder.delete(path);
-				return Ok(existed);
-			}),
+			named(id, async () => Ok(await folder.delete(records.path(id)))),
+		[HANDLE]: true,
 	} as AnyHandle;
-	return {
-		...def,
-		...handle,
-		actions: (...verbs: string[]) => dataActions(key, def, handle, verbs),
-	};
+	return { ...def, ...handle };
 }

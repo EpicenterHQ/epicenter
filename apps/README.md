@@ -9,11 +9,13 @@ The apps in this folder are outside apps: each works without an Epicenter
 | [Whispering](whispering/README.md) | A voice recorder that runs on your device, in a browser tab or as a desktop app. |
 | [Landing](landing) | The website at epicenter.so. |
 
-Personal apps such as Capture and Tasks live in the owner's Epicenter. One
-private Git repository holds each app's `apps/<name>/code/` and sibling
-`data/`. This repository ships no apps of that kind, examples included
+Personal apps such as Capture and Tasks live in the owner's home, one
+private Git repository: each is a function in `apps/<name>/` that the home's
+`epicenter.ts` composes, and their records live in the home's `data/`
+([ADR-0971](../docs/adr/0971-an-epicenter-is-one-program-composed-in-its-root-epicenter-ts.md)).
+This repository ships no apps of that kind, examples included
 ([ADR-0969](../docs/adr/0969-the-repository-ships-no-apps.md)).
-The `epicenter-app` skill says how to make and change one.
+[`@epicenter/app`'s README](../packages/app/README.md) says how to make one.
 
 Honeycrisp, Local Books, the PostHog proxy, and the composition guide that
 described the retired product's apps are at the tag `before-0891-layout`.
