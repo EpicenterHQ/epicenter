@@ -49,7 +49,8 @@ fn main() {
 
 /// Make the data directory, allow it in the file system scope, then open
 /// the window. The recorder records into a folder the scope allows, and the
-/// file system plugin's commands check the same scope.
+/// file system plugin's commands check the same scope. The asset protocol,
+/// which the page's audio player streams from, may read `recordings/` only.
 fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let folder = recordings::dir(app)?;
     std::fs::create_dir_all(&folder)
@@ -58,6 +59,9 @@ fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     app.fs_scope()
         .allow_directory(&data, true)
         .map_err(|error| format!("{} could not be opened: {error}", data.display()))?;
+    app.asset_protocol_scope()
+        .allow_directory(&folder, false)
+        .map_err(|error| format!("{} could not be opened: {error}", folder.display()))?;
     WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
         .title("Whispering")
         .inner_size(900.0, 720.0)

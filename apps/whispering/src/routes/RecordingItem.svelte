@@ -15,14 +15,12 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
-	import PlayIcon from '@lucide/svelte/icons/play';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { runMutation } from 'wellcrafted/query';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { formatDuration } from '#lib/feed.ts';
 	import { queryClient, recordingsMutations } from '#lib/queries.ts';
-	import type { Recording } from '#lib/recordings.ts';
-	import AudioPlayer from './AudioPlayer.svelte';
+	import { type Recording, recordings } from '#lib/recordings.ts';
 
 	let {
 		recording,
@@ -31,8 +29,13 @@
 	}: { recording: Recording; open: boolean; onOpen: () => void } = $props();
 
 	let draft = $state<string>();
-	/** The audio loads only when the person asks to hear it. */
-	let playing = $state(false);
+	/**
+	 * The URL the player streams from. It hangs on the id alone, not on the
+	 * whole recording, so a refetch of the list does not reload the player
+	 * mid-play.
+	 */
+	const audioId = $derived(recording.audio ? recording.id : undefined);
+	const audioUrl = $derived(audioId && recordings.audioUrl(audioId));
 
 	const transcript = $derived(draft ?? recording.transcript);
 	const transcribing = $derived(dictation.isTranscribing(recording.id));
@@ -97,15 +100,11 @@
 			bind:value={() => transcript, (text) => (draft = text)}
 			onblur={save}
 		/>
-		{#if recording.audio}
-			{#if playing}
-				<AudioPlayer id={recording.id} />
-			{:else}
-				<Button variant="outline" size="sm" class="self-start" onclick={() => (playing = true)}>
-					<PlayIcon />
-					Play
-				</Button>
-			{/if}
+		{#if audioUrl}
+			<!-- `preload="none"`: nothing is read until the person presses play. -->
+			{#await audioUrl then { data: src }}
+				{#if src}<audio controls preload="none" {src} class="h-9 w-full"></audio>{/if}
+			{/await}
 		{/if}
 	</article>
 {:else}

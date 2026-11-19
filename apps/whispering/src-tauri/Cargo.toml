@@ -19,7 +19,7 @@ log = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2.12", features = [] }
+tauri = { version = "2.12", features = ["protocol-asset"] }
 # Copies a transcript the moment it arrives, with no click to allow it.
 tauri-plugin-clipboard-manager = "2.5"
 tauri-plugin-epicenter-recorder = { path = "../../whispering-old/packages/tauri-plugin-epicenter-recorder" }

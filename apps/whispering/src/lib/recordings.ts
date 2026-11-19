@@ -1,20 +1,18 @@
 /**
  * Recordings on disk, in `recordings/` in the app's local data directory:
  * `<id>.webm` is the audio the native recorder wrote, and `<id>.md` is the
- * note, whose front matter holds `recordedAt` and `durationMs` and whose
- * body is the transcript. A recording is the two files by id; either can be
- * missing.
+ * note, whose front matter holds `durationMs` and whose body is the
+ * transcript. A recording is the two files by id; either can be missing.
+ * Its time is in its id (`recordedAt` in `feed.ts`), so the note does not
+ * repeat it.
  *
  * A note is written whole (`writeWhole` in `files.ts`), so a crash mid-write
  * leaves the old note whole.
  */
-import {
-	changeMarkdown,
-	type FieldValues,
-	readMarkdown,
-} from '@epicenter/app/markdown';
-import { invoke } from '@tauri-apps/api/core';
-import { exists, readFile, readTextFile, remove } from '@tauri-apps/plugin-fs';
+import { changeMarkdown, readMarkdown } from '@epicenter/app/markdown';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { appLocalDataDir, join } from '@tauri-apps/api/path';
+import { exists, readTextFile, remove } from '@tauri-apps/plugin-fs';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -85,26 +83,29 @@ export const recordings = {
 			catch: (cause) => RecordingsError.ListFailed({ cause }),
 		}),
 
-	/** The audio of the recording `id`. */
-	audio: (id: string) =>
+	/**
+	 * A URL an `<audio>` element plays the recording `id` from. On the desktop
+	 * it is the file itself through Tauri's asset protocol, which streams it
+	 * and seeks without reading it all; `main.rs` lets that protocol read
+	 * `recordings/` and nothing else.
+	 */
+	audioUrl: (id: string) =>
 		tryAsync({
 			try: async () =>
-				new Blob([await readFile(audioPath(id), appData)], {
-					type: 'audio/webm',
-				}),
+				convertFileSrc(
+					await join(await appLocalDataDir(), 'recordings', `${id}.webm`),
+				),
 			catch: (cause) => RecordingsError.ReadFailed({ id, cause }),
 		}),
 
 	/** Write the note for a take the recorder just finished: its time and length, no transcript yet. */
 	addNote: ({ id, durationMs }: { id: string; durationMs: number }) =>
 		tryAsync({
-			try: () => {
-				const time = recordedAt(id)?.toISOString();
-				const set: FieldValues = time
-					? { recordedAt: time, durationMs }
-					: { durationMs };
-				return writeWhole(notePath(id), changeMarkdown('', { set, body: '' }));
-			},
+			try: () =>
+				writeWhole(
+					notePath(id),
+					changeMarkdown('', { set: { durationMs }, body: '' }),
+				),
 			catch: (cause) => RecordingsError.WriteFailed({ id, cause }),
 		}),
 
