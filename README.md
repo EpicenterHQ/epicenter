@@ -53,7 +53,7 @@ bun install && bun run build
 epicenter serve
 ```
 
-Open `http://127.0.0.1:4747/writing/` to save a thought, quote, or link with its
+Open `http://127.0.0.1:4747/apps/writing/` to save a thought, quote, or link with its
 source, then find and edit it. Keep the terminal open while the server runs.
 Your notes are Markdown files in `apps/writing/data/notes/`. You own the app's
 copy in `apps/writing/code/` and can change it with your editor or coding agent.

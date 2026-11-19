@@ -224,7 +224,7 @@ app's `fetch` passes as it is; it reaches files by closing over `folder`.
 Serve answers `/apps/<app>/<path>` with a file from `code/ui/dist/` first, for
 `GET` and `HEAD`, then `fetch`, with the request unchanged: a Hono app sets
 `new Hono({ strict: false }).basePath('/apps/<app>')`, its folder's name
-(`strict: false` so a page route `'/'` matches `/apps/<app>/`). A cross-site request reaches it only as a top-level `GET` navigation. Serve
+(`strict: false` so a page route `'/'` matches `/apps/<app>/`). A request from another origin, including another port of this computer, reaches it only as a top-level `GET` navigation. Check OAuth `state` in a callback, kept in a file under `local/`; every app shares serve's origin, so escape outside text a `fetch` shows. Serve
 loads the app for each request, so keep nothing in memory between requests;
 an app that serves many files per page, such as media, waits for serve to
 load each app once (ADR-0959). Test it by calling

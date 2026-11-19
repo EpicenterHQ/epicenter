@@ -65,7 +65,7 @@ changed-code fields of ADR-0959.
 | Reader | What it prints from the listing |
 | --- | --- |
 | MCP `tools/list` | each action not marked `mcp: false` |
-| the launcher page, `GET /` | each app with a UI or a `fetch` |
+| the launcher page, `GET /` | each app with a built page |
 | bare `epicenter` and `epicenter --json` | every app, its problems, and the routines |
 | `epicenter <app>` and `--help` on an action | one app, or one action and its input |
 
