@@ -4,8 +4,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import type { ActionUpdate, DataRecord } from './index.ts';
 import type { JsonValue } from './front-matter.ts';
+import type { ActionUpdate, DataRecord } from './index.ts';
 import { defineData, field } from './index.ts';
 import {
 	assertType,
