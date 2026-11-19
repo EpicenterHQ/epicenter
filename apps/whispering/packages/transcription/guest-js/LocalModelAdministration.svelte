@@ -3,9 +3,7 @@
 	and removal, its folder, and when an idle model leaves memory, over the
 	app's `localSpeech()` handle (`speech`; its own by default), so the
 	app's model picker hears each download and removal. Which model the app
-	uses is the app's choice (`choice`): an app with model choices passes
-	its own; by default it is the active model the shell transcribes with by
-	itself.
+	uses is the app's choice (`choice`).
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
@@ -21,19 +19,18 @@
 	import { LOCAL_MODEL_UNLOAD_POLICY_OPTIONS } from './local-model-unload-policy.js';
 	import {
 		createLocalModels,
-		createNativeChoice,
 		type LocalModelChoice,
 	} from './local-models.svelte.js';
 	import { type LocalSpeech, openLocalSpeech } from './local-speech.js';
 
 	let {
 		speech = openLocalSpeech(),
-		choice = createNativeChoice(),
+		choice,
 	}: {
 		/** The app's handle, the same value it merges in `openAi`. */
 		speech?: LocalSpeech;
 		/** Which model the app uses, and how to choose another. */
-		choice?: LocalModelChoice;
+		choice: LocalModelChoice;
 	} = $props();
 
 	// Fixed for the component's life.

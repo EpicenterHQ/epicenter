@@ -19,8 +19,7 @@ export const commands = {
 	 *  cache (ADR-0757): any app or Hugging Face tool that used the file
 	 *  downloads it again. The model is unloaded first, after any transcription
 	 *  with it finishes, and a model still downloading is refused `Busy`.
-	 *  Removing a model that is not there succeeds. The active-model choice is
-	 *  kept; it reads as unavailable until the model is downloaded again.
+	 *  Removing a model that is not there succeeds.
 	 */
 	removeModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("plugin:epicenter-transcription|remove_model", { modelId })),
 	/**
@@ -34,48 +33,13 @@ export const commands = {
 	 *  Async so a slow file manager call never blocks the main thread.
 	 */
 	revealModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("plugin:epicenter-transcription|reveal_model", { modelId })),
-	/**
-	 *  The active local model's identity and whether it can run right now, or
-	 *  `None` when nobody has chosen one.
-	 *
-	 *  Administration only: the app grants this to its model settings. Explicit
-	 *  inference discovers installed IDs through `list_inference_models`.
-	 */
-	getActiveModel: () => __TAURI_INVOKE<{
-	id: string,
-	/**
-	 *  The curated display name, so a caller can name the model in an error
-	 *  without holding a catalog of its own.
-	 */
-	name: string,
-	/**
-	 *  Whether the model's file is present on this machine. Disk presence, the
-	 *  same verdict `list_models` renders; never a statement about memory.
-	 */
-	installed: boolean,
-	/**
-	 *  Whether this model accepts an initial prompt, so a caller knows whether
-	 *  to offer the field at all. The runtime still guards the real decision at
-	 *  use and reports what it applied, so a stale hint can only hide a field,
-	 *  never misfeed the model.
-	 */
-	supportsPrompt: boolean,
-	/**  Whether this model takes a spoken-language hint. */
-	supportsLanguage: boolean,
-} | null>("plugin:epicenter-transcription|get_active_model"),
-	/**
-	 *  Make `model_id` the active local model, or clear the choice with `null`.
-	 *  The settings page's administration write; inference never changes this choice.
-	 */
-	setActiveModel: (modelId: string | null) => typedError<null, SettingsError>(__TAURI_INVOKE("plugin:epicenter-transcription|set_active_model", { modelId })),
 	/**  When the app drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("plugin:epicenter-transcription|get_unload_policy"),
 	/**
 	 *  Set the unload policy. Rust owns the idle clock because a backgrounded
 	 *  webview timer throttles exactly when idle eviction must fire (ADR-0012),
 	 *  and owns the value too, so it applies from launch instead of waiting for a
-	 *  webview to reconcile it. It carries no model identity, so it applies
-	 *  whether or not a model is active.
+	 *  webview to reconcile it. It carries no model identity.
 	 */
 	setUnloadPolicy: (policy: UnloadPolicy) => typedError<null, SettingsError>(__TAURI_INVOKE("plugin:epicenter-transcription|set_unload_policy", { policy })),
 	/**  Installed native models available to explicit inference. No cache paths escape. */
@@ -86,64 +50,17 @@ export const commands = {
 	 *  decoded where they arrive; nothing is written to disk. Audio that is not
 	 *  base64 is an `AudioReadError`; then an unknown or uninstalled model is
 	 *  refused before the audio is decoded, and audio that does not decode is an
-	 *  `AudioReadError`. The active-model
-	 *  setting is neither read nor changed.
+	 *  `AudioReadError`.
 	 */
 	transcribeAudio: (modelId: string, audio: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_audio", { modelId, audio, hints })),
-	/**
-	 *  Load `model_id` into memory now, so the next transcription with it starts
-	 *  warm. It replaces any other resident model and stays under the unload
-	 *  policy. An unknown or uninstalled model is refused.
-	 */
-	loadModel: (modelId: string) => typedError<null, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|load_model", { modelId })),
-	/**
-	 *  Drop `model_id` from memory if it is resident, after any transcription
-	 *  with it finishes. Its file stays in the cache.
-	 */
-	unloadModel: (modelId: string) => typedError<null, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|unload_model", { modelId })),
-	/**
-	 *  Open this app's model settings through the callback given to
-	 *  `Builder::open_settings`. Refused when the app gave none.
-	 */
-	openModelSettings: () => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-transcription|open_model_settings")),
 };
 
 /* Types */
 /**
- *  This app's active local model: its identity and disk presence.
- *
- *  Administration reads this full description. Explicit inference discovers
- *  installed catalog IDs through `list_inference_models`; capture hints use
- *  `ModelCache::readiness`. Residency stays private to the host.
- */
-export type ActiveModel = {
-	id: string,
-	/**
-	 *  The curated display name, so a caller can name the model in an error
-	 *  without holding a catalog of its own.
-	 */
-	name: string,
-	/**
-	 *  Whether the model's file is present on this machine. Disk presence, the
-	 *  same verdict `list_models` renders; never a statement about memory.
-	 */
-	installed: boolean,
-	/**
-	 *  Whether this model accepts an initial prompt, so a caller knows whether
-	 *  to offer the field at all. The runtime still guards the real decision at
-	 *  use and reports what it applied, so a stale hint can only hide a field,
-	 *  never misfeed the model.
-	 */
-	supportsPrompt: boolean,
-	/**  Whether this model takes a spoken-language hint. */
-	supportsLanguage: boolean,
-};
-
-/**
  *  Which advisory hints the run actually applied.
  *
  *  Built from the exact values handed to the runtime, never from what the caller
- *  asked for. A hint the active model cannot take is reported as not applied
+ *  asked for. A hint the model cannot take is reported as not applied
  *  rather than dropped in silence, so a caller can tell its user that the prompt
  *  or language did not reach the recognizer instead of wondering why it had no
  *  effect.
@@ -152,12 +69,12 @@ export type AppliedHints = {
 	/**
 	 *  The language hint the runtime received. `None` means it autodetected:
 	 *  the caller asked for autodetect, sent nothing, or asked for a language
-	 *  the active model does not take.
+	 *  the model does not take.
 	 */
 	language: string | null,
 	/**
 	 *  Whether the caller's initial prompt reached the runtime. `false` when the
-	 *  caller sent none, or the active model does not accept one (Whisper does;
+	 *  caller sent none, or the model does not accept one (Whisper does;
 	 *  the Parakeet family does not).
 	 */
 	initialPrompt: boolean,
@@ -184,7 +101,6 @@ export type DownloadProgress = {
 export type InferenceModel = {
 	id: string,
 	installed: boolean,
-	active: boolean,
 };
 
 /**
@@ -207,41 +123,29 @@ export type ModelInfo = {
 	downloaded: boolean,
 };
 
-/**
- *  Failures model administration commands can report. Both are actionable:
- *  the id is not a model this build knows, or the choice could not be made
- *  durable.
- */
-export type SettingsError = { name: "UnknownModel"; message: string } | { name: "SaveFailed"; message: string };
+/**  Why a setting could not be made durable. */
+export type SettingsError = { name: "SaveFailed"; message: string };
 
 export type TranscriptionError = { name: "AudioReadError"; message: string } |
 /**
- *  The local route cannot run: no model is active, or the selected or
- *  explicitly requested model is unknown or not installed on this computer.
+ *  The requested model is unknown, or not installed on this computer.
  *
- *  Callers show the refusal and offer this app's model settings.
- *  Explicit inference may name the requested catalog model in its message.
- *
- *  Failing here changes nothing. No model is adopted, downloaded,
- *  substituted, or routed to the cloud on the caller's behalf.
+ *  Failing here changes nothing. No model is downloaded, substituted, or
+ *  routed to the cloud on the caller's behalf.
  */
-{ name: "LocalRouteUnavailable"; reason: UnavailableReason; message: string } |
+{ name: "ModelUnavailable"; message: string } |
 /**
- *  Operational, not a precondition: the active model was resolvable but the
- *  runtime could not load it. Kept distinct so a broken install does not
- *  read as "you have not set this up".
+ *  Operational: the model is installed but the runtime could not load it.
+ *  Kept distinct so a broken install does not read as a missing model.
  */
 { name: "ModelLoadError"; message: string } |
 /**  Operational: inference itself failed. */
 { name: "TranscriptionError"; message: string };
 
 /**
- *  The advisory hints an application supplies with a transcription.
- *
- *  The active-model route resolves the model from host settings. Explicit file
- *  inference receives the model separately from these hints. Neither route
- *  changes the active-model setting. Language and prompt remain application-owned;
- *  nothing here is retained between calls.
+ *  The advisory hints an application supplies with a transcription. The model
+ *  is named separately. Language and prompt remain application-owned; nothing
+ *  here is retained between calls.
  */
 export type TranscriptionHints = {
 	language?: string | null,
@@ -253,8 +157,7 @@ export type TranscriptionHints = {
  *
  *  Two outcomes because there are two honest stories. `transcribed` names the
  *  exact model that produced the text, which makes accidental substitution
- *  detectable. Explicit inference must name the requested model; the active-model
- *  route must name the model it resolved from settings, regardless of residency.
+ *  detectable: it is always the requested model.
  *  `empty-audio` reports that nothing ran, and deliberately carries no model and
  *  no applied hints, because claiming either would be claiming an inference that
  *  never happened.
@@ -262,21 +165,6 @@ export type TranscriptionHints = {
 export type TranscriptionOutcome = { outcome: "transcribed"; text: string; modelId: string; applied: AppliedHints } |
 /**  The audio held no samples, so no model was loaded and no hint applied. */
 { outcome: "empty-audio" };
-
-/**
- *  Why the local transcription route cannot run right now.
- *
- *  A compact reason without model identity or residency. Callers can show the
- *  refusal and offer this app's model settings.
- */
-export type UnavailableReason =
-/**  Nobody has chosen an active local model on this device. */
-"no-active-model" |
-/**
- *  A model is active, but it cannot run here: its file is not on this
- *  machine, or it is not a model this build knows about.
- */
-"active-model-unavailable";
 
 /**
  *  How long after the last transcription the resident model should be dropped.

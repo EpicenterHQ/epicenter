@@ -45,8 +45,6 @@ export type LocalSpeechCommands = Pick<
 	| 'downloadModel'
 	| 'removeModel'
 	| 'revealModel'
-	| 'loadModel'
-	| 'unloadModel'
 	| 'getUnloadPolicy'
 	| 'setUnloadPolicy'
 >;
@@ -61,8 +59,6 @@ const pluginCommands: LocalSpeechCommands = {
 	downloadModel: async (...args) => (await plugin()).downloadModel(...args),
 	removeModel: async (...args) => (await plugin()).removeModel(...args),
 	revealModel: async (...args) => (await plugin()).revealModel(...args),
-	loadModel: async (...args) => (await plugin()).loadModel(...args),
-	unloadModel: async (...args) => (await plugin()).unloadModel(...args),
 	getUnloadPolicy: async () => (await plugin()).getUnloadPolicy(),
 	setUnloadPolicy: async (...args) => (await plugin()).setUnloadPolicy(...args),
 };
@@ -70,7 +66,7 @@ const pluginCommands: LocalSpeechCommands = {
 /** How each refusal answers over HTTP; the error's name is its code. */
 const STATUS = {
 	AudioReadError: 400,
-	LocalRouteUnavailable: 404,
+	ModelUnavailable: 404,
 	ModelLoadError: 500,
 	TranscriptionError: 500,
 } satisfies Record<TranscriptionError['name'], number>;
@@ -237,14 +233,6 @@ export function openLocalSpeech({
 		/** Show a downloaded model's folder in the shared cache. */
 		reveal(modelId: string) {
 			return native.revealModel(modelId);
-		},
-		/** Load a model into memory now, so its next transcription starts warm. */
-		load(modelId: string) {
-			return native.loadModel(modelId);
-		},
-		/** Drop a model from memory; its file stays in the cache. */
-		unload(modelId: string) {
-			return native.unloadModel(modelId);
 		},
 		/** When an idle model leaves memory. */
 		unloadPolicy(): Promise<UnloadPolicy> {

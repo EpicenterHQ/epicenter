@@ -9,13 +9,10 @@ macro_rules! timing_note {
     };
 }
 
-use super::catalog::{describe, installed_model_path};
+use super::catalog::{installed_model_path, supports_language};
 use super::error::{error_chain_message, TranscriptionError};
 use super::settings::{LocalTranscriptionSettings, UnloadPolicy};
-use super::{
-    AppliedHints, LocalTranscriptionReadiness, TranscriptionHints, TranscriptionOutcome,
-    UnavailableReason,
-};
+use super::{AppliedHints, TranscriptionHints, TranscriptionOutcome};
 use log::{debug, info, warn};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,33 +36,15 @@ struct CachedModel {
 
 type Cached = Option<CachedModel>;
 
-/// The active model resolved at the point of use.
+/// A requested model resolved at the point of use.
 struct ResolvedModel {
     id: String,
     path: PathBuf,
-    supports_prompt: bool,
     supports_language: bool,
 }
 
-/// The one precondition failure, before it becomes either an advisory readiness
-/// answer or a transcription error. Both renderings carry the same reason and
-/// the same identity-free sentence.
-struct Unavailable {
-    reason: UnavailableReason,
-    message: String,
-}
-
-impl From<Unavailable> for TranscriptionError {
-    fn from(unavailable: Unavailable) -> Self {
-        TranscriptionError::LocalRouteUnavailable {
-            reason: unavailable.reason,
-            message: unavailable.message,
-        }
-    }
-}
-
 /// Owns the resident model's lifecycle: the loaded model and the unload-policy
-/// clock, plus the host-owned settings that name the active model. The cache
+/// clock, plus the host-owned settings that hold the policy. The cache
 /// owns native mechanism only; the settings store owns the values. They share
 /// the struct because every command that touches one touches the other, and
 /// there is exactly one of each per device.
@@ -82,8 +61,8 @@ pub struct ModelCache {
     /// cache mutex during long inference.
     last_activity_ms: Arc<AtomicU64>,
 
-    /// The host's device-local settings: which model is active, and when to drop
-    /// it. Read at the point of use on every transcribe, prewarm, and idle tick.
+    /// The host's device-local settings: when to drop the resident model. Read
+    /// at the point of use on every transcription and idle tick.
     settings: Arc<LocalTranscriptionSettings>,
 }
 
@@ -105,119 +84,11 @@ impl ModelCache {
         self.settings.unload_policy()
     }
 
-    // ── Active model ──────────────────────────────────────────────────
-
-    /// Resolve the active model, at the point of use, to everything a run needs:
-    /// its id, its file, and what it accepts.
-    ///
-    /// The single resolution path. Readiness and transcribe both go through it,
-    /// so the answer an application was shown and the answer a transcription
-    /// acts on cannot disagree about *why* the route is unusable. Resolving here
-    /// rather than from a cached verdict is what makes a model that appears (or
-    /// disappears) in the shared cache take effect on the very next call.
-    ///
-    /// Failure changes nothing: no adoption, no download, no substitution.
-    fn resolve_active(&self) -> Result<ResolvedModel, Unavailable> {
-        let Some(model_id) = self.settings.active_model_id() else {
-            return Err(Unavailable {
-                reason: UnavailableReason::NoActiveModel,
-                message: "No local transcription model is active on this device. \
-                          Open model settings to choose one."
-                    .to_string(),
-            });
-        };
-        // Identity stays inside the host. `describe` is read for capabilities,
-        // and the message below deliberately names no model.
-        match (describe(&model_id), installed_model_path(&model_id)) {
-            (Some(model), Some(path)) => Ok(ResolvedModel {
-                id: model_id,
-                path,
-                supports_prompt: model.supports_prompt,
-                supports_language: model.supports_language,
-            }),
-            _ => Err(Unavailable {
-                reason: UnavailableReason::ActiveModelUnavailable,
-                message: "The active local transcription model is not available on this \
-                          device. Open model settings to download it or choose another."
-                    .to_string(),
-            }),
-        }
-    }
-
-    /// The advisory readiness an application may read. Derived from the same
-    /// resolution transcribe performs, never from a separate cached verdict.
-    pub fn readiness(&self) -> LocalTranscriptionReadiness {
-        match self.resolve_active() {
-            Ok(model) => LocalTranscriptionReadiness::Ready {
-                supports_prompt: model.supports_prompt,
-                supports_language: model.supports_language,
-            },
-            Err(unavailable) => LocalTranscriptionReadiness::Unavailable {
-                reason: unavailable.reason,
-                message: unavailable.message,
-            },
-        }
-    }
-
-    // ── Transcribe ────────────────────────────────────────────────────
-
-    /// Synchronous inference dispatch. Validates the samples, resolves the
-    /// active model to a cached GGUF path, then loads (or reuses) and runs
-    /// transcribe.cpp batch with the caller's advisory hints. Called from a
-    /// blocking-pool thread.
-    ///
-    /// Empty audio is the one case that returns without naming a model: there is
-    /// nothing to transcribe, so nothing ran.
-    pub fn transcribe(
-        &self,
-        samples: Vec<f32>,
-        hints: TranscriptionHints,
-    ) -> Result<TranscriptionOutcome, TranscriptionError> {
-        // Resolve first: a caller with no active model deserves that error even
-        // when it happens to have sent silence. The precondition is about this
-        // device being set up, and silence does not make it set up.
-        let model = self.resolve_active()?;
-        let model_id = model.id.clone();
-
-        if samples.is_empty() {
-            // No model is named and no hint is reported: nothing ran, so there is
-            // nothing honest to attribute this to.
-            warn!("[Transcription] zero samples, nothing to transcribe");
-            return Ok(TranscriptionOutcome::EmptyAudio);
-        }
-
-        let samples = sanitize_samples(samples);
-
-        info!(
-            "[Transcription] starting GGUF transcription: model={} pcm_samples={}",
-            model_id,
-            samples.len(),
-        );
-
-        let inference_started = Instant::now();
-        let (text, applied) = self.run_loaded(&model, &hints, &samples)?;
-
-        info!(
-            "[Transcription] GGUF transcription complete: characters={} elapsed_ms={}",
-            text.len(),
-            inference_started.elapsed().as_millis(),
-        );
-        self.evict_if_immediate();
-        Ok(TranscriptionOutcome::Transcribed {
-            text,
-            model_id,
-            applied,
-        })
-    }
-
-    /// Resolve an explicitly named catalog model, without reading or changing
-    /// the active-model setting: unknown and uninstalled models are refused.
+    /// Resolve an explicitly named catalog model: unknown and uninstalled
+    /// models are refused.
     fn resolve_explicit(&self, model_id: String) -> Result<ResolvedModel, TranscriptionError> {
-        let invalid = |message: String| TranscriptionError::LocalRouteUnavailable {
-            reason: UnavailableReason::ActiveModelUnavailable,
-            message,
-        };
-        let info = describe(&model_id)
+        let invalid = |message: String| TranscriptionError::ModelUnavailable { message };
+        let supports_language = supports_language(&model_id)
             .ok_or_else(|| invalid(format!("Unknown native transcription model: {model_id}")))?;
         let path = installed_model_path(&model_id).ok_or_else(|| {
             invalid(format!(
@@ -227,14 +98,13 @@ impl ModelCache {
         Ok(ResolvedModel {
             id: model_id,
             path,
-            supports_prompt: info.supports_prompt,
-            supports_language: info.supports_language,
+            supports_language,
         })
     }
 
     /// Inference over audio the caller already holds (an upload), with the
-    /// requested catalog model and without changing dictation settings. An
-    /// unknown or uninstalled model is refused before `audio` is decoded.
+    /// requested catalog model. An unknown or uninstalled model is refused
+    /// before `audio` is decoded.
     pub fn transcribe_bytes(
         &self,
         model_id: String,
@@ -270,29 +140,6 @@ impl ModelCache {
     }
 
     // ── Model cache + eviction ────────────────────────────────────────
-
-    /// Load the active model into the cache without running inference, so the
-    /// next transcribe finds it warm. Idempotent: a no-op when it is already
-    /// resident. Called at capture start (manual record / VAD listen) to overlap
-    /// the cold load with the user's speech. Shares the one load path
-    /// (`ensure_loaded`) with transcribe, and resolves the same active model, so
-    /// what is warmed here is exactly what transcribe will run.
-    pub fn prewarm(&self) -> Result<(), TranscriptionError> {
-        let model = self.resolve_active()?;
-        self.touch_activity();
-        let _guard = self.ensure_loaded(&model.id, model.path.clone())?;
-        Ok(())
-    }
-
-    /// Load the named catalog model into memory now, so the next transcription
-    /// with it starts warm. It replaces any other resident model (one fits in
-    /// memory) and stays under the unload policy like any other load.
-    pub fn load(&self, model_id: String) -> Result<(), TranscriptionError> {
-        let model = self.resolve_explicit(model_id)?;
-        self.touch_activity();
-        let _guard = self.ensure_loaded(&model.id, model.path)?;
-        Ok(())
-    }
 
     /// Drop the named model from memory if it is the resident one, waiting
     /// for a transcription with it to finish. Answers whether it was resident.
@@ -364,7 +211,7 @@ impl ModelCache {
         Ok(guard)
     }
 
-    /// Run one batch transcription on the resident active model, loading it
+    /// Run one batch transcription on the resident model, loading it
     /// first if needed. Holds the cache lock across load and inference. Returns
     /// the text alongside the hints the run actually applied.
     fn run_loaded(
@@ -477,7 +324,7 @@ fn load_gguf_model(model_path: &Path) -> Result<Model, String> {
 ///
 /// Returns the text with an `AppliedHints` built from the same expressions that
 /// decide what reaches the runtime, so the report cannot drift from the run: a
-/// prompt the active model will not take is reported as not applied rather than
+/// prompt the model will not take is reported as not applied rather than
 /// dropped in silence (ADR-0180).
 /// Decide which advisory hints actually reach the runtime, and report exactly
 /// those.
@@ -528,10 +375,10 @@ fn run_gguf(
     let accepts_prompt = session.model().supports(Feature::InitialPrompt);
     let (language, initial_prompt) = plan_hints(hints, accepts_prompt, accepts_language);
     if hints.initial_prompt.is_some() && initial_prompt.is_none() {
-        debug!("[Transcription] active model does not accept an initial prompt; not applied");
+        debug!("[Transcription] model does not accept an initial prompt; not applied");
     }
     if hints.language.is_some() && language.is_none() {
-        debug!("[Transcription] active model does not accept a language hint; not applied");
+        debug!("[Transcription] model does not accept a language hint; not applied");
     }
 
     // `applied` mirrors `run_options` field for field: both are built from the
@@ -689,30 +536,6 @@ fn disk_identity(path: &Path) -> Option<DiskIdentity> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transcription::catalog;
-
-    /// A cache over a settings file in a scratch directory. `label` keeps
-    /// concurrent tests off each other's files.
-    fn cache_with(label: &str, stored: Option<&str>) -> ModelCache {
-        let dir = std::env::temp_dir().join(format!(
-            "epicenter-readiness-{label}-{}",
-            std::process::id()
-        ));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("local-transcription.json");
-        if let Some(model_id) = stored {
-            // Written directly rather than through `set_active_model_id`, which
-            // refuses ids outside the catalog. This is the shape a settings file
-            // takes when a build drops a model the user had active.
-            std::fs::write(
-                &path,
-                format!("{{\"activeModelId\":\"{model_id}\",\"unloadPolicy\":\"never\"}}"),
-            )
-            .unwrap();
-        }
-        ModelCache::new(LocalTranscriptionSettings::load(path))
-    }
 
     #[test]
     fn unknown_explicit_model_is_refused_before_audio_is_decoded() {
@@ -727,89 +550,12 @@ mod tests {
                 b"not audio",
                 TranscriptionHints::default(),
             ),
-            Err(TranscriptionError::LocalRouteUnavailable {
-                reason: UnavailableReason::ActiveModelUnavailable,
-                message,
-            }) if message.contains("unknown-recorded-model")
+            Err(TranscriptionError::ModelUnavailable { message })
+                if message.contains("unknown-recorded-model")
         ));
     }
 
-    fn unavailable_of(readiness: &LocalTranscriptionReadiness) -> (UnavailableReason, String) {
-        match readiness {
-            LocalTranscriptionReadiness::Unavailable { reason, message } => {
-                (*reason, message.clone())
-            }
-            LocalTranscriptionReadiness::Ready { .. } => {
-                panic!("expected the route to be unavailable")
-            }
-        }
-    }
-
-    #[test]
-    fn no_active_model_reads_as_that_precondition() {
-        let (reason, message) = unavailable_of(&cache_with("none", None).readiness());
-        assert_eq!(reason, UnavailableReason::NoActiveModel);
-        assert!(
-            message.contains("model settings"),
-            "the message must name the one place that can fix it: {message}"
-        );
-    }
-
-    #[test]
-    fn an_active_model_this_build_dropped_reads_as_unavailable() {
-        let (reason, _) =
-            unavailable_of(&cache_with("dropped", Some("retired@main/model.gguf")).readiness());
-        assert_eq!(reason, UnavailableReason::ActiveModelUnavailable);
-    }
-
-    /// Readiness is advisory, so it is allowed to be stale. It is never allowed
-    /// to disagree with transcribe about *why* the route cannot run: both go
-    /// through one resolution, and this is what pins that.
-    #[test]
-    fn readiness_and_transcribe_report_the_same_precondition() {
-        for (label, stored) in [
-            ("agree-none", None),
-            ("agree-dropped", Some("retired@main/model.gguf")),
-        ] {
-            let cache = cache_with(label, stored);
-            let (advisory, _) = unavailable_of(&cache.readiness());
-            let error = cache
-                .transcribe(vec![0.1, 0.2], TranscriptionHints::default())
-                .expect_err("an unusable route must fail transcribe");
-            match error {
-                TranscriptionError::LocalRouteUnavailable { reason, .. } => {
-                    assert_eq!(reason, advisory, "advisory and acted-on reason must match");
-                }
-                other => panic!("expected a precondition failure, got {other:?}"),
-            }
-        }
-    }
-
-    /// Model identity is administration data. An application reads readiness and
-    /// receives transcription errors, so neither may name a model, or callers
-    /// would start keying behaviour off a name they are not supposed to have.
-    #[test]
-    fn nothing_an_application_receives_names_a_model() {
-        for (label, stored) in [
-            ("leak-none", None),
-            ("leak-dropped", Some("retired@main/model.gguf")),
-        ] {
-            let cache = cache_with(label, stored);
-            let (_, advisory) = unavailable_of(&cache.readiness());
-            let TranscriptionError::LocalRouteUnavailable { message: acted, .. } = cache
-                .transcribe(vec![0.1], TranscriptionHints::default())
-                .expect_err("an unusable route must fail transcribe")
-            else {
-                panic!("expected a precondition failure");
-            };
-            for name in catalog::model_names() {
-                assert!(!advisory.contains(name), "readiness leaked {name}");
-                assert!(!acted.contains(name), "the error leaked {name}");
-            }
-        }
-    }
-
-    /// A language the active model cannot take must not be handed to the runtime
+    /// A language the model cannot take must not be handed to the runtime
     /// and must not be reported as applied. Reporting it would tell the user
     /// their choice took effect when the recognizer never saw it.
     #[test]
@@ -854,42 +600,16 @@ mod tests {
         assert_eq!(plan_hints(&hints, true, true), (None, None));
     }
 
-    /// Failing closed means failing *inert*: a caller that hits the precondition
-    /// must not find that the attempt adopted, downloaded, or substituted a model.
     /// Empty audio ran no model, so the outcome must not name one or claim a
-    /// hint was applied. The precondition still comes first: silence does not
-    /// make an unconfigured device configured.
+    /// hint was applied.
     #[test]
     fn empty_audio_claims_no_model_and_no_applied_hints() {
-        let cache = cache_with("empty-audio", None);
-        let error = cache
-            .transcribe(Vec::new(), TranscriptionHints::default())
-            .expect_err("no active model is still the first answer");
-        assert!(matches!(
-            error,
-            TranscriptionError::LocalRouteUnavailable { .. }
-        ));
-
-        // With a resolvable model the empty-audio outcome carries no attribution
-        // at all, which is the shape that cannot lie.
         let outcome = TranscriptionOutcome::EmptyAudio;
         let encoded = serde_json::to_string(&outcome).unwrap();
         assert_eq!(encoded, "{\"outcome\":\"empty-audio\"}");
         assert!(
             !encoded.contains("modelId") && !encoded.contains("applied"),
             "empty audio must not attribute a model or hints: {encoded}"
-        );
-    }
-
-    #[test]
-    fn a_failed_precondition_changes_no_host_state() {
-        let cache = cache_with("inert", None);
-        let _ = cache.transcribe(vec![0.1], TranscriptionHints::default());
-        let _ = cache.prewarm();
-        assert_eq!(
-            cache.settings().active_model_id(),
-            None,
-            "a failed transcription must not adopt a model"
         );
     }
 
@@ -985,7 +705,7 @@ mod explicit_inference_evidence {
 
     #[test]
     #[ignore = "requires EPICENTER_NATIVE_AUDIO and the already cached Whisper Tiny model; never downloads"]
-    fn cached_model_transcribes_uploaded_audio_without_active_settings() {
+    fn cached_model_transcribes_uploaded_audio() {
         let audio = std::fs::read(std::env::var("EPICENTER_NATIVE_AUDIO").expect("fixture path"))
             .expect("fixture audio");
         let invalid: &[u8] = b"invalid audio";
@@ -997,7 +717,6 @@ mod explicit_inference_evidence {
         assert!(!path.exists());
         let cache = ModelCache::new(LocalTranscriptionSettings::load(path.clone()));
         let id = "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf";
-        assert!(cache.settings().active_model_id().is_none());
         assert!(cache
             .transcribe_bytes("unknown".into(), &audio, TranscriptionHints::default())
             .is_err());
@@ -1037,7 +756,6 @@ mod explicit_inference_evidence {
         assert_eq!(model_id, id);
         assert_eq!(applied.language.as_deref(), Some("en"));
         assert!(applied.initial_prompt);
-        assert!(cache.settings().active_model_id().is_none());
         assert!(!path.exists());
     }
 }

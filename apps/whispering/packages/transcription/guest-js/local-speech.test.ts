@@ -19,7 +19,7 @@ mock.module('@tauri-apps/api/core', () => ({
 		calls.push({ command, args });
 		const name = command.replace('plugin:epicenter-transcription|', '');
 		if (name === 'list_inference_models')
-			return installed.map((id) => ({ id, installed: true, active: false }));
+			return installed.map((id) => ({ id, installed: true }));
 		const reply = replies[name];
 		if (!reply) throw new Error(`No fake reply for ${name}`);
 		return reply(args);
@@ -83,8 +83,7 @@ test('a plugin refusal answers as an OpenAI error with its name as the code', as
 	reset();
 	replies.transcribe_audio = () => {
 		throw {
-			name: 'LocalRouteUnavailable',
-			reason: 'active-model-unavailable',
+			name: 'ModelUnavailable',
 			message: 'Native transcription model is not installed: whisper-large',
 		};
 	};
@@ -95,7 +94,7 @@ test('a plugin refusal answers as an OpenAI error with its name as the code', as
 	expect(response.status).toBe(404);
 	expect(await response.json()).toEqual({
 		error: {
-			code: 'LocalRouteUnavailable',
+			code: 'ModelUnavailable',
 			message: 'Native transcription model is not installed: whisper-large',
 		},
 	});
@@ -194,22 +193,6 @@ test('remove deletes through remove_model, then lists the model no longer', asyn
 	});
 	expect(speech.models()).toEqual([]);
 	expect(told).toBe(2);
-});
-
-test('load and unload name the model to the plugin', async () => {
-	reset();
-	replies.load_model = () => null;
-	replies.unload_model = () => null;
-	const speech = localSpeech();
-	await speech.load('whisper-tiny');
-	await speech.unload('whisper-tiny');
-	expect(calls.map(({ command, args }) => [command, args])).toEqual([
-		['plugin:epicenter-transcription|load_model', { modelId: 'whisper-tiny' }],
-		[
-			'plugin:epicenter-transcription|unload_model',
-			{ modelId: 'whisper-tiny' },
-		],
-	]);
 });
 
 test('the catalog, a folder, and the unload policy go to their commands', async () => {

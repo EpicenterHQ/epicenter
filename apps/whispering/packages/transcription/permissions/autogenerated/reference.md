@@ -36,32 +36,6 @@ Denies the download_model command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-transcription:allow-get-active-model`
-
-</td>
-<td>
-
-Enables the get_active_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-get-active-model`
-
-</td>
-<td>
-
-Denies the get_active_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-transcription:allow-get-unload-policy`
 
 </td>
@@ -140,58 +114,6 @@ Denies the list_models command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-transcription:allow-load-model`
-
-</td>
-<td>
-
-Enables the load_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-load-model`
-
-</td>
-<td>
-
-Denies the load_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:allow-open-model-settings`
-
-</td>
-<td>
-
-Enables the open_model_settings command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-open-model-settings`
-
-</td>
-<td>
-
-Denies the open_model_settings command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-transcription:allow-remove-model`
 
 </td>
@@ -244,32 +166,6 @@ Denies the reveal_model command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-transcription:allow-set-active-model`
-
-</td>
-<td>
-
-Enables the set_active_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-set-active-model`
-
-</td>
-<td>
-
-Denies the set_active_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-transcription:allow-set-unload-policy`
 
 </td>
@@ -315,32 +211,6 @@ Enables the transcribe_audio command without any pre-configured scope.
 <td>
 
 Denies the transcribe_audio command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:allow-unload-model`
-
-</td>
-<td>
-
-Enables the unload_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-unload-model`
-
-</td>
-<td>
-
-Denies the unload_model command without any pre-configured scope.
 
 </td>
 </tr>

@@ -8,13 +8,11 @@
 //!
 //! A model is identified by a stable `modelId` string such as
 //! `"handy-computer/whisper-small-gguf@main/whisper-small-Q4_K_M.gguf"`. That id
-//! is an opaque catalog key, frozen once shipped: the stored active choice and
-//! every transcript name it. It is not a coordinate; the `@main` in shipped ids
-//! predates pinning and no longer says what is downloaded. The app's model
-//! settings name it when they administer models, and the app stores the
-//! active dictation choice. Explicit inference lists cached IDs and passes
-//! the selected ID to `transcribe_audio`; `ModelCache::prewarm` and
-//! `ModelCache::transcribe` resolve the active choice. An unknown ID is refused
+//! is an opaque catalog key, frozen once shipped: every transcript names it.
+//! It is not a coordinate; the `@main` in shipped ids predates pinning and no
+//! longer says what is downloaded. The app's model settings name it when they
+//! administer models. Inference lists cached IDs and passes the selected ID to
+//! `transcribe_audio`. An unknown ID is refused
 //! rather than parsed. (Custom drop-in GGUF is a later earned feature, not a
 //! compatibility path.)
 //!
@@ -229,53 +227,17 @@ fn find_or_unknown(model_id: &str) -> Result<&'static CatalogEntry, CatalogError
 /// The on-disk GGUF path for a model that is both in this build's catalog and
 /// present on this machine; `None` otherwise.
 ///
-/// The one place `ModelCache::transcribe`/`prewarm_model` turn the active model
-/// into a path. Deliberately a plain `Option`: an id outside the catalog and a
-/// model that is not downloaded are the same public answer ("the active model
-/// cannot run"), and the caller composes the user-facing message so that message
-/// never has to name a model. Resolution happens at the point of use, so a file
+/// Resolution happens at the point of use, so a file
 /// that appears on disk after a failed load works on the very next call, and one
 /// deleted outside this app is noticed on the very next call too.
 pub fn installed_model_path(model_id: &str) -> Option<PathBuf> {
     find(model_id).and_then(CatalogEntry::cached_path)
 }
 
-/// This app's active local model: its identity and disk presence.
-///
-/// Administration reads this full description. Explicit inference discovers
-/// installed catalog IDs through `list_inference_models`; capture hints use
-/// `ModelCache::readiness`. Residency stays private to the host.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ActiveModel {
-    pub id: String,
-    /// The curated display name, so a caller can name the model in an error
-    /// without holding a catalog of its own.
-    pub name: String,
-    /// Whether the model's file is present on this machine. Disk presence, the
-    /// same verdict `list_models` renders; never a statement about memory.
-    pub installed: bool,
-    /// Whether this model accepts an initial prompt, so a caller knows whether
-    /// to offer the field at all. The runtime still guards the real decision at
-    /// use and reports what it applied, so a stale hint can only hide a field,
-    /// never misfeed the model.
-    pub supports_prompt: bool,
-    /// Whether this model takes a spoken-language hint.
-    pub supports_language: bool,
-}
-
-/// Describe a stored model id against the catalog, or `None` when the id names
-/// no model this build ships. Both the settings store (to refuse an unknown
-/// choice) and `get_active_model` (to report identity and presence) read
-/// through here, so there is one answer to "is this a real model".
-pub fn describe(model_id: &str) -> Option<ActiveModel> {
-    find(model_id).map(|entry| ActiveModel {
-        id: entry.id.to_string(),
-        name: entry.name.to_string(),
-        installed: entry.cached_path().is_some(),
-        supports_prompt: entry.supports_prompt,
-        supports_language: entry.supports_language,
-    })
+/// Whether catalog model `model_id` takes a spoken-language hint, or `None`
+/// when it names no model this build ships.
+pub(crate) fn supports_language(model_id: &str) -> Option<bool> {
+    find(model_id).map(|entry| entry.supports_language)
 }
 
 /// Every catalog id. Exists for tests that need a real, resolvable identity
@@ -283,13 +245,6 @@ pub fn describe(model_id: &str) -> Option<ActiveModel> {
 #[cfg(test)]
 pub fn model_ids() -> Vec<String> {
     CATALOG.iter().map(|entry| entry.id.to_string()).collect()
-}
-
-/// Every catalog display name, so a test can assert that a message an
-/// application receives names none of them.
-#[cfg(test)]
-pub fn model_names() -> Vec<&'static str> {
-    CATALOG.iter().map(|entry| entry.name).collect()
 }
 
 /// A catalog model for administration: identity, display fields, capabilities,
@@ -479,15 +434,14 @@ pub async fn reveal_model<R: tauri::Runtime>(
 /// cache (ADR-0757): any app or Hugging Face tool that used the file
 /// downloads it again. The model is unloaded first, after any transcription
 /// with it finishes, and a model still downloading is refused `Busy`.
-/// Removing a model that is not there succeeds. The active-model choice is
-/// kept; it reads as unavailable until the model is downloaded again.
+/// Removing a model that is not there succeeds.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_model<R: tauri::Runtime>(
     model_id: String,
     _app: tauri::AppHandle<R>,
     downloads: State<'_, Downloads>,
-    state: State<'_, crate::PluginState<R>>,
+    state: State<'_, crate::PluginState>,
 ) -> Result<(), CatalogError> {
     let entry = find_or_unknown(&model_id)?;
     if downloads.has(&model_id) {
@@ -515,7 +469,7 @@ pub async fn remove_model<R: tauri::Runtime>(
 mod id_tests {
     use super::*;
 
-    /// The ids stored as the active choice and named on transcripts. A change
+    /// The ids named on transcripts and in `settings.md`. A change
     /// here strands every saved choice, so it must be deliberate.
     #[test]
     fn shipped_model_ids_never_change() {
