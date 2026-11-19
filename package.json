@@ -136,7 +136,6 @@
 		"format": "biome check --write --linter-enabled=false",
 		"lint": "biome lint --write",
 		"lint:check": "biome lint",
-		"lint:anti-slop": "oxlint",
 		"typecheck": "bun run scripts/typecheck.ts",
 		"test": "bun run scripts/test.ts",
 		"check:ui-boundary": "bun run scripts/check-ui-boundary.ts",
@@ -154,10 +153,8 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
-		"@oxlint/plugins": "1.89.0",
 		"@types/bun": "catalog:",
 		"@y/y": "14.0.0-rc.26",
-		"oxlint": "1.89.0",
 		"playwright": "^1.61.1",
 		"wrangler": "catalog:"
 	},

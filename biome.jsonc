@@ -42,8 +42,6 @@
 			"!**/permissions/schemas/schema.json",
 			// Upstream snapshots stay as the shadcn-svelte CLI wrote them; the kit is checked against them.
 			"!packages/ui/upstream",
-			// Preserve the vendored lint rules byte-for-byte for upstream updates.
-			"!tools/oxlint/anti-slop",
 			"!**/.gitignore",
 			"!.DS_Store",
 			"!**/*.md",
