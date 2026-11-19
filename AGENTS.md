@@ -100,7 +100,7 @@ decision settles.
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
 - Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented` or `Superseded` should be deleted.
-- When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
+- When a design pass settles a durable decision, write the rule into the `## Decisions` section of the README it governs, propose a history entry if it changes Epicenter's direction, and delete the now-spent spec. Git keeps the body recoverable.
 - `docs/spec-history.md` is a frozen, dated index of past specs. It is history, not truth.
 
 ## Writing conventions
