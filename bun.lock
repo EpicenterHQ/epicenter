@@ -35,7 +35,7 @@
       "version": "7.11.1",
       "dependencies": {
         "@epicenter/ai": "workspace:*",
-        "@epicenter/app": "workspace:*",
+        "@epicenter/app-old": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/transcription": "workspace:*",
         "@tanstack/query-core": "catalog:",
@@ -128,12 +128,9 @@
         "typescript": "catalog:",
       },
     },
-    "packages/app": {
-      "name": "@epicenter/app",
+    "packages/app-old": {
+      "name": "@epicenter/app-old",
       "version": "0.8.0",
-      "bin": {
-        "epicenter": "./src/command/bin.ts",
-      },
       "dependencies": {
         "@modelcontextprotocol/sdk": "catalog:",
         "nanoid": "catalog:",
@@ -325,7 +322,7 @@
 
     "@epicenter/ai": ["@epicenter/ai@workspace:packages/ai"],
 
-    "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
+    "@epicenter/app-old": ["@epicenter/app-old@workspace:packages/app-old"],
 
     "@epicenter/landing": ["@epicenter/landing@workspace:apps/landing"],
 

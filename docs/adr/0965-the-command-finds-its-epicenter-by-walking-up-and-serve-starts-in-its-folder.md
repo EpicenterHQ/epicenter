@@ -9,7 +9,7 @@
 ADR-0868 chose the Epicenter a command acts on in three steps: the nearest
 folder at or above the current directory holding `EPICENTER.md`; else the
 folder named by `EPICENTER_ROOT`; else `~/Epicenter`. `epicenterDir` in
-`packages/app/src/command/root.ts` does exactly that.
+`packages/app-old/src/command/root.ts` does exactly that.
 
 The second and third steps let a command act on an Epicenter from anywhere.
 They also let it act on one the person did not mean: a command run in
@@ -43,7 +43,7 @@ README says so where it shows the job.
   `(cd ~/Epicenter && epicenter reading log '{"minutes":30}')`.
 - `.env` is always the root's, because serve always starts there.
 - The CLI's tests run each command inside the fixture's Epicenter. Today
-  `run` in `packages/app/src/command/runner.test-support.ts` runs from the temporary
+  `run` in `packages/app-old/src/command/runner.test-support.ts` runs from the temporary
   `$HOME` and relies on the `~/Epicenter` default.
 - Removed: the two fallbacks in `epicenterDir`, `folderPath` (which only
   reads `EPICENTER_ROOT`), and the help sentence that names them.

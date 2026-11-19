@@ -21,7 +21,7 @@ fail without establishing what the enclosing action wrote.
 ## Decision
 
 Producers and clients use one `ActionError` contract, defined in
-`packages/app/src/errors.ts`. Its six variants are `Changed`, `Missing`,
+`packages/app-old/src/errors.ts`. Its six variants are `Changed`, `Missing`,
 `Threw`, `Refused`, `Unreachable`, and `Stopped`. Payload schemas supply factory
 input types and validate received fields. An enumerable
 `namespace: 'epicenter/action-error'` marker makes participation explicit; it

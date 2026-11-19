@@ -34,7 +34,7 @@ Use a `const` type parameter with a `readonly` array constraint to preserve lite
 
 The `const` modifier preserves literal types; the `readonly` constraint determines mutability.
 
-The complete `select` member of [`field`](../../../../packages/app/src/field.ts) shows how the declaration preserves the caller's literal choices. The helpers and schema types it uses are defined or imported in the same module.
+The complete `select` member of [`field`](../../../../packages/app-old/src/field.ts) shows how the declaration preserves the caller's literal choices. The helpers and schema types it uses are defined or imported in the same module.
 
 ```typescript
 select: <

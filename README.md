@@ -40,13 +40,13 @@
 
 Epicenter needs [Bun](https://bun.sh) and Git; an AI account is not required.
 Make `~/Epicenter` as
-[Make an Epicenter](packages/app/src/command/README.md#make-an-epicenter)
+[Make an Epicenter](packages/app-old/src/command/README.md#make-an-epicenter)
 says, then write a one-file notes app and call it from the terminal, as
-[Try an app](packages/app/src/command/README.md#try-an-app) shows. This
+[Try an app](packages/app-old/src/command/README.md#try-an-app) shows. This
 repository ships no apps, so the first one is yours.
 
 For CLI commands, MCP setup, and keeping `serve` running in the background, see
-[the CLI guide](packages/app/src/command/README.md).
+[the CLI guide](packages/app-old/src/command/README.md).
 
 ## How it works
 
@@ -96,7 +96,7 @@ Whispering. An inside app brings its data in through actions. Mail pulls a copy
 of your mailbox to the home, and an agent changes Gmail only through a proposal
 you apply.
 
-[The vision](docs/vision.md) | [The `epicenter` command](packages/app/src/command/README.md) | [What an app imports](packages/app/README.md)
+[The vision](docs/vision.md) | [The `epicenter` command](packages/app-old/src/command/README.md) | [What an app imports](packages/app/README.md)
 
 ## Status
 
@@ -171,7 +171,7 @@ Whispering's own packages are under
     data/                      the app's records in the private root history
 
 packages/app                   what epicenter.ts imports
-packages/app/src/command       epicenter: runs actions, serve, check
+packages/app-old/src/command       epicenter: runs actions, serve, check
 ```
 
 [The vision](docs/vision.md) | [Trust model](docs/trust-model.md)

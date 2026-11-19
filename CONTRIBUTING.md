@@ -63,7 +63,7 @@ Internal PRs (`chore:`, `refactor:`, `docs:`) leave the section out.
 Merging to `main` deploys the Cloudflare Workers
 ([workflows](.github/workflows/README.md)). `@epicenter/app` is the one
 published package; the owner publishes it by hand
-([releasing](packages/app/src/command/README.md#release)).
+([releasing](packages/app-old/src/command/README.md#release)).
 
 ## License
 

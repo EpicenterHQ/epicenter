@@ -53,7 +53,7 @@ For library code, test that incorrect types are rejected. Use `@ts-expect-error`
 
 ### Pattern
 
-In the [app type tests](../../../../packages/app/src/app.types.test.ts), `vocab` is a typed app fixture. An uncalled function lets TypeScript check an invalid call without executing it in Bun.
+In the [app type tests](../../../../packages/app-old/src/app.types.test.ts), `vocab` is a typed app fixture. An uncalled function lets TypeScript check an invalid call without executing it in Bun.
 
 ```typescript
 test('an edit needs both the old and new text', () => {

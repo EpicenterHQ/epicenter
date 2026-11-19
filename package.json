@@ -78,10 +78,10 @@
 		"yaml": "^2.9.0"
 	},
 	"bin": {
-		"epicenter": "./packages/app/src/command/bin.ts"
+		"epicenter": "./packages/app-old/src/command/bin.ts"
 	},
 	"scripts": {
-		"epicenter": "bun --no-install packages/app/src/command/bin.ts",
+		"epicenter": "bun --no-install packages/app-old/src/command/bin.ts",
 		"build": "bun run --filter '*' build",
 		"build:whispering:desktop": "bun run --cwd apps/whispering build:desktop",
 		"check": "bun run scripts/check.ts",

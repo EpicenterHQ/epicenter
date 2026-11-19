@@ -108,8 +108,8 @@ apps/zhongwen/
 
 **There is no `upstream` remote and no `epicenter update`.** Both are
 removed with no deprecation period: `update` leaves the table in
-<!-- doc-path-check: ignore-next-line (folded into packages/app/src/command/cli.ts, ADR-0961) -->
-`packages/app/src/command/commands.ts`, and `new --from` adds no remote. An
+<!-- doc-path-check: ignore-next-line (folded into packages/app-old/src/command/cli.ts, ADR-0961) -->
+`packages/app-old/src/command/commands.ts`, and `new --from` adds no remote. An
 `upstream` remote an app already has stays where it is, and no command uses
 it.
 
@@ -190,7 +190,7 @@ its person or their agent.
 ## Not decided
 
 - Several UIs side by side in one app. `serve` finds one folder named `ui/`
-  (`packages/app/src/command/serve.ts`).
+  (`packages/app-old/src/command/serve.ts`).
 - How an app records that it has taken changes up to a later commit.
   `Source-Commit` on the first commit does not move.
 - Where Whispering's contract lives. ADR-0891 named

@@ -37,7 +37,7 @@
 	},
 	"dependencies": {
 		"@epicenter/ai": "workspace:*",
-		"@epicenter/app": "workspace:*",
+		"@epicenter/app-old": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/transcription": "workspace:*",
 		"@tanstack/query-core": "catalog:",

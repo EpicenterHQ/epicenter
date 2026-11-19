@@ -1,0 +1,28 @@
+{
+	"name": "@epicenter/app-old",
+	"private": true,
+	"version": "0.8.0",
+	"description": "The earlier @epicenter/app (defineApp, a folder per app, generated data actions), kept to read from while packages/app is rebuilt to ADR-0971. Nothing depends on it.",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./client": "./src/client.ts",
+		"./markdown": "./src/front-matter.ts"
+	},
+	"scripts": {
+		"pack": "bun scripts/pack.ts",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "catalog:",
+		"nanoid": "catalog:",
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

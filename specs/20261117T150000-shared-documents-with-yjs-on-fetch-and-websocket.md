@@ -72,7 +72,7 @@ The working assumptions behind the sketch:
   `export`, `compact`, and an agent's `read` and `edit` load one.
 - **Agents and the command line edit through actions.** `edit` takes the one
   passage to replace and its replacement, as `edited` in
-  `packages/app/src/text-edit.ts` does, makes that change as a Yjs update,
+  `packages/app-old/src/text-edit.ts` does, makes that change as a Yjs update,
   appends it, and publishes it. Only `export` writes the Markdown file.
 - **The Markdown is what lasts.** A lost `local/` costs the edits since the
   last export. Recovery rebuilds the document from Markdown, and a browser

@@ -115,21 +115,21 @@ then running `bun install && bun run build`.
 
 Nothing in this repository publishes by itself: no script or workflow runs
 `bun publish`. The owner releases by hand, from the repository root. Set
-`version` in `packages/app/package.json`, then pack:
+`version` in `packages/app-old/package.json`, then pack:
 
 ```sh
 bun run --cwd packages/app pack
 ```
 
 `pack` writes the tarball, as a registry would receive it, into
-`packages/app/dist/pack/<hash>/`, and prints its path. It publishes nothing.
+`packages/app-old/dist/pack/<hash>/`, and prints its path. It publishes nothing.
 `bun pm pack` rewrites `catalog:` to real versions, and the script refuses a
 tarball where one is left. `--outdir` selects another folder.
 
 Publish from that folder, with `--dry-run` before the real publish:
 
 ```sh
-cd packages/app/dist/pack/<hash>
+cd packages/app-old/dist/pack/<hash>
 bun publish epicenter-app-0.8.0.tgz --dry-run
 bun publish epicenter-app-0.8.0.tgz
 ```
@@ -570,7 +570,7 @@ body: |
 ## The Epicenter's report
 
 `epicenter` on its own prints serve's listing: the version serve runs, the
-one its `packages/app/package.json` states. `--json` answers the report as
+one its `packages/app-old/package.json` states. `--json` answers the report as
 `data`, with that version as `version`. Then come the
 apps serve loaded and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is

@@ -5,7 +5,7 @@ Nothing is encrypted, nothing syncs, and `epicenter serve` signs no one in.
 That is the trust model, and everything below follows from it.
 
 This page describes what the code does today, in `packages/app`
-and its command, `packages/app/src/command`. [The vision](vision.md) names the pieces, and
+and its command, `packages/app-old/src/command`. [The vision](vision.md) names the pieces, and
 [ADR-0903](adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)
 decides that the home is a computer its person controls, owned or rented.
 
@@ -27,7 +27,7 @@ which agents get a shell is.
 ## Reaching the home
 
 `epicenter serve` offers every app's actions over MCP at `/`, and each app's
-UI at `/apps/<app>/` (`packages/app/src/command/serve.ts`). It signs no one in: it trusts
+UI at `/apps/<app>/` (`packages/app-old/src/command/serve.ts`). It signs no one in: it trusts
 this computer and the tailnet, and who reaches it is the home's decision
 ([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
 Anything that reaches it can call every action of every app.

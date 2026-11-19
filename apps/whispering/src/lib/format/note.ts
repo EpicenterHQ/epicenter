@@ -13,7 +13,7 @@ import {
 	type FieldValues,
 	type JsonValue,
 	readMarkdown,
-} from '@epicenter/app/markdown';
+} from '@epicenter/app-old/markdown';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
 /** Why a note's text does not read: the key and line involved, when there is one. */
