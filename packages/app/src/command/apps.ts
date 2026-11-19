@@ -1,13 +1,15 @@
 /**
  * The apps in an Epicenter (ADR-0841), each a folder in its `apps/`, loaded
- * once (ADR-0959). A folder there is an app when it has a
- * `code/epicenter.ts` whose default export is `defineApp(...)`; its name is
- * the folder's. Serve loads every entry when it starts and answers from what
- * it loaded until it stops, and `check` loads them in its own process. Each
- * entry loads inside its own guard, so a broken app is listed with its
- * problems and the others still load.
+ * once (ADR-0959). Every folder there is an app, named by the folder's
+ * name: its `code/epicenter.ts` default-exports `defineApp(...)`, or the
+ * folder is listed with why it does not. A link in `apps/` is refused, not
+ * followed, so an app's code and data are always inside the Epicenter.
+ * Serve loads every entry when it starts and answers from what it loaded
+ * until it stops, and `check` loads them in its own process. Each entry
+ * loads inside its own guard, so a broken app is listed with its problems
+ * and the others still load.
  */
-import { lstat, readdir, realpath, stat } from 'node:fs/promises';
+import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -56,12 +58,6 @@ export type Apps = Map<string, AppEntry>;
 
 const CODE = 'code/epicenter.ts';
 
-/** Whether a failed read means only that nothing usable is there. */
-const isAbsent = (error: unknown) =>
-	['ENOENT', 'ENOTDIR', 'ELOOP'].includes(
-		(error as NodeJS.ErrnoException).code ?? '',
-	);
-
 /** What `epicenter.ts` in `folder` defines, or why it does not load. */
 async function importApp(
 	folder: string,
@@ -109,24 +105,22 @@ async function localProblem(
 	return `${named} has no .gitignore; run: echo '*' > ${named}/.gitignore`;
 }
 
-/** The entry `name` in `apps/`, loaded; undefined when it does not look like an app. */
+/** The entry `name` in `apps/`, loaded; undefined when it is not a folder or a link. */
 async function loadEntry(
 	root: Pick<EpicenterRoot, 'folder'>,
 	name: string,
 ): Promise<AppEntry | undefined> {
-	const path = appPath(root, name);
+	const folder = appPath(root, name);
+	const listed = (problems: string[]) => ({ name, folder, problems });
 	try {
-		if (!(await stat(path)).isDirectory()) return undefined;
-		const folder = await realpath(path);
-		const has = (part: string) =>
-			lstat(join(folder, part)).then(
-				() => true,
-				() => false,
-			);
-		if (!(await stat(join(folder, CODE)).catch(() => undefined))?.isFile()) {
-			if (!(await has('code')) && !(await has('data'))) return undefined;
-			return { name, folder, problems: [`${CODE} is missing`] };
-		}
+		const entry = await lstat(folder);
+		if (entry.isSymbolicLink())
+			return listed([
+				`${appDir(name)} is a link; an app is a folder in apps/, not a link to one`,
+			]);
+		if (!entry.isDirectory()) return undefined;
+		if (!(await stat(join(folder, CODE)).catch(() => undefined))?.isFile())
+			return listed([`no ${CODE}`]);
 		const named = nameProblem(name);
 		const loaded = named
 			? { problems: [`its folder's name cannot name an app: ${named}`] }
@@ -139,8 +133,7 @@ async function loadEntry(
 			problems: [...loaded.problems, ...(local ? [local] : [])],
 		};
 	} catch (error) {
-		if (isAbsent(error)) return undefined;
-		return { name, folder: path, problems: [extractErrorMessage(error)] };
+		return listed([extractErrorMessage(error)]);
 	}
 }
 

@@ -71,12 +71,9 @@ version an Epicenter runs is one line in a file in Git
   `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
   no command rewrites the list.
 
-An entry in `apps/` may be a link; Epicenter treats it as the folder it leads
-to. Bun finds packages from where a file really is, so a link to code outside
-the Epicenter finds no `@epicenter/app`, and the listing gives Bun's reason. Keep
-an app's code inside the Epicenter. A command also starts from the folder it
-really runs in, so one run inside a linked app's folder finds no Epicenter;
-run it from the Epicenter's folder.
+An entry in `apps/` that is a link is refused, not followed: the listing
+names it as a problem, and its app does not load. An app's folder is the
+folder itself, inside the Epicenter.
 
 ## Install and try a writing inbox
 
@@ -246,12 +243,13 @@ with its usage line and its help command as the next step.
 
 ## Discover and load an app
 
-Discovery lists `apps/`, skips dot entries, and accepts a directory or a link
-to one with `code/epicenter.ts`. The file must default-export
+Discovery lists `apps/` and skips dot entries and files. Every folder there
+is an app: its `code/epicenter.ts` must default-export
 `defineApp(({ folder }) => ...)`. The loader calls that function once with
-`folderOnDisk(<container>)` and lists what it returns.
-An entry with `code/` or `data/` but no declaration is listed with
-`code/epicenter.ts is missing`. Other folders are skipped. Discovery reads
+`folderOnDisk(<container>)` and lists what it returns. A folder with no
+declaration is listed with `no code/epicenter.ts`, and a link is listed with
+`apps/<name> is a link; an app is a folder in apps/, not a link to one`.
+Discovery reads
 `apps/` only, never the `workspaces` list, so a package the owner added to
 that list is not taken for an app.
 
@@ -262,10 +260,8 @@ does not hide the others. Listings include container locations, data keys,
 schemas, and actions. The listing's `Version` is the one serve runs. They carry no per-app Git status. An
 empty Epicenter says `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 
-The container's real path is `folder.path`. Contracts address `data/...`
-from that container. A separate real `codePath` is used for module imports
-and invalidation, and for UI builds and serving. Replacing `code/` leaves
-record paths intact.
+The container's path is `folder.path`. Contracts address `data/...`
+from that container. Replacing `code/` leaves record paths intact.
 
 An action's input is one argument after its name, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from

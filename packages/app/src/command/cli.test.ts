@@ -32,7 +32,7 @@ async function setup() {
 	return f;
 }
 
-test('listing isolates broken imports, invalid apps and folders that cannot name an app, and lists a linked app like any other', async () => {
+test('listing isolates broken imports, invalid apps, folders that cannot name an app, and a link', async () => {
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
 	await f.app('serve', reading);
@@ -55,11 +55,10 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const value = JSON.parse(result.stdout).data;
 	expect(value.epicenter).toBe(f.epicenter);
 	expect(value.apps.map((app: { name: string }) => app.name)).toEqual([
-		'linked',
 		'reading',
 		'vault',
 	]);
-	expect(value.apps[1].actions[0]).toMatchObject({
+	expect(value.apps[0].actions[0]).toMatchObject({
 		name: 'reading_log',
 		inputSchema: {
 			type: 'object',
@@ -87,11 +86,15 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 		spaced: [
 			'code/epicenter.ts: actions has the key "week show", which is not lowercase letters, digits, and dashes, starting with a letter',
 		],
+		// A link is refused, not followed.
+		linked: [
+			'apps/linked is a link; an app is a folder in apps/, not a link to one',
+		],
 		serve: [
 			'its folder\'s name cannot name an app: "serve" is an epicenter command',
 		],
 	});
-	expect(value.problems[2]).toMatchObject({
+	expect(value.problems[3]).toMatchObject({
 		entry: 'serve',
 		folder: join(f.apps, 'serve'),
 	});
@@ -387,7 +390,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 	expect(await readFile(join(f.apps, 'counts/local/count'), 'utf8')).toBe('1');
 });
 
-test('a run uses its own app folder and local files, and a linked app loads from where it really is', async () => {
+test('a run uses its own app folder and local files', async () => {
 	const f = await setup();
 	const result = await f.run('reading', 'inspect', '--json');
 	expect(result.code).toBe(0);
@@ -396,16 +399,6 @@ test('a run uses its own app folder and local files, and a linked app loads from
 	expect(
 		await Bun.file(join(f.apps, 'reading', 'local/index.json')).exists(),
 	).toBe(true);
-	const target = await f.app(
-		'linked',
-		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
-		// Inside the Epicenter: linked code finds packages from where it really is.
-		join(f.epicenter, 'shelf'),
-	);
-	await symlink(target, join(f.apps, 'linked'));
-	await f.restartServe();
-	// A link is a folder: the app runs from where it really is.
-	expect((await f.run('linked', '--json')).code).toBe(0);
 });
 
 test('app and action views include locations, schemas, field help and version', async () => {

@@ -1,9 +1,9 @@
-/** Container folder paths and symlinked entries keep records rooted beside code/. */
+/** Container folder paths keep records rooted beside code/. */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { lstat, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, header } from './runner.test-support.ts';
+import { fixture, header } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
 
@@ -66,48 +66,4 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	expect(
 		JSON.parse((await f.run('journal', '--json')).stdout).data,
 	).not.toHaveProperty('cache');
-});
-
-test('W5 a symlinked entry loads an app where it lives, when its code is inside the Epicenter', async () => {
-	const f = await setup();
-	const loose = await f.folder(join(f.epicenter, 'shelf', 'loose'), {
-		'code/epicenter.ts': bareApp('loose'),
-		'data/notes/a.md': 'a\n',
-	});
-	await symlink(loose, join(f.apps, 'loose'));
-	expect((await lstat(join(f.apps, 'loose'))).isSymbolicLink()).toBe(true);
-	expect(await readlink(join(f.apps, 'loose'))).toBe(loose);
-
-	const vault = await f.folder(join(f.epicenter, 'shelf', 'vault'), {
-		'recipes/code/epicenter.ts': bareApp('recipes'),
-		'journal/today.md': 'today\n',
-	});
-	await writeFile(join(vault, 'recipes', 'soup.md'), 'soup\n');
-	await symlink(join(vault, 'recipes'), join(f.apps, 'recipes'));
-	expect(await readlink(join(f.apps, 'recipes'))).toBe(join(vault, 'recipes'));
-
-	const listed = JSON.parse((await f.run('--json')).stdout).data;
-	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
-		'loose',
-		'recipes',
-	]);
-	expect((await f.run('loose', '--json')).code).toBe(0);
-
-	// Code finds packages from where it really is, so code outside the Epicenter
-	// does not find the Epicenter's @epicenter/app, and the listing gives Bun's
-	// reason, with the home folder as ~.
-	const outside = await f.folder(join(f.userDir, 'Code', 'outside'), {
-		'code/epicenter.ts': bareApp('outside'),
-	});
-	await symlink(outside, join(f.apps, 'outside'));
-	await f.restartServe();
-	expect(JSON.parse((await f.run('--json')).stdout).data.problems).toEqual([
-		{
-			entry: 'outside',
-			folder: join(f.apps, 'outside'),
-			problems: [
-				"code/epicenter.ts: Cannot find package '@epicenter/app' imported from ~/Code/outside/code/epicenter.ts",
-			],
-		},
-	]);
 });
