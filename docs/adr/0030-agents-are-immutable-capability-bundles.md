@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-18
-- **Note (2026-06-20), per [ADR-0043](0043-an-agent-answers-where-its-capability-lives.md):** the bundle model here stands (an agent is a model + tools + trust location, immutable for the conversation). What ADR-0043 corrects: Epicenter runs no per-user answering worker, so "managed agents backed by the metered hosted worker" below is superseded. A capability-free agent answers in the **client** over Epicenter's metered inference stream; a local-data agent answers on the user's **daemon**. Epicenter still publishes a curated catalog and still runs no arbitrary user code; it simply hosts no per-user answerer.
+- **Note (2026-06-20), per ADR-0043:** the bundle model here stands (an agent is a model + tools + trust location, immutable for the conversation). What ADR-0043 corrects: Epicenter runs no per-user answering worker, so "managed agents backed by the metered hosted worker" below is superseded. A capability-free agent answers in the **client** over Epicenter's metered inference stream; a local-data agent answers on the user's **daemon**. Epicenter still publishes a curated catalog and still runs no arbitrary user code; it simply hosts no per-user answerer.
 
 ## Context
 

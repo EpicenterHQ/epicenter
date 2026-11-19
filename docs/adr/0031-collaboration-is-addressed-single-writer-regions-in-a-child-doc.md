@@ -192,7 +192,7 @@ cleanly. Pick when deletion (beyond supersede-collapse) becomes real.
 
 ## Open decision: durable partial vs bounded floor when streaming
 
-Resolved by [ADR-0036](0036-answer-bodies-are-native-parts-arrays-streamed-into-y-text.md)
+Resolved by ADR-0036
 in favor of option A below: stream into the durable `Y.Text`. The body is a native
 `MessagePart[]` (a `Y.Array` of typed parts whose text parts are `Y.Text`), so the
 partial survives a refresh. The floor cost feared below is negligible for a

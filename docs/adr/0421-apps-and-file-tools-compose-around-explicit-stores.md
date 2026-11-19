@@ -60,9 +60,9 @@ An app opens only the stores it needs. A definition can be reused across owners
 without making those stores the same data. No mandatory runtime aggregate is
 needed merely to collect their handles. Current stores own blob namespaces;
 hosted blob ownership and ordinary URL references follow
-[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md).
+ADR-0438.
 Products separately choose SQL, secret, recording, and inference resources under
-[ADR-0423](0423-app-resources-open-as-independent-handles.md). Importing a schema
+ADR-0423. Importing a schema
 opens nothing. Rows do not own byte retention or transfer.
 
 [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md) describes

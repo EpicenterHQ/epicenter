@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-31
 - **Amends:** [ADR-0306](0306-borrowed-data-is-disposable-and-a-persons-own-data-is-not.md) at its classification test, which is withdrawn and replaced. Its two classes, its obligations table, and its refusal of migration, repair, backup, and export for a provider copy all stand.
-- **Relates:** [ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md) (what an authority is), [ADR-0312](0312-a-sqlite-handle-is-all-run-and-batch-and-a-transaction-never-crosses-a-process-boundary.md) (the application owns its SQLite file), [ADR-0307](0307-a-derived-index-is-in-memory-sqlite-rebuilt-on-read.md) (the promotion rule this record leans on)
+- **Relates:** ADR-0298 (what an authority is), ADR-0312 (the application owns its SQLite file), [ADR-0307](0307-a-derived-index-is-in-memory-sqlite-rebuilt-on-read.md) (the promotion rule this record leans on)
 
 ## Context
 

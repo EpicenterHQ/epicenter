@@ -419,19 +419,16 @@ Epicenter it is a cached source, like Gmail.
 
 ## What came before
 
-Records [ADR-0802] to [ADR-0839] designed a folder sync product for many
+Records ADR-0802 to ADR-0839 designed a folder sync product for many
 people: folders kept the same on every device and with everyone they were
 shared with, a server keeping every version, Git at the edges, and web and
-phone apps. [ADR-0835] was its register. It stopped because its one user
+phone apps. ADR-0835 was its register. It stopped because its one user
 needed something smaller first, and it is retired ([ADR-0899]); some of its
 code is still in this repository until nothing imports it. What carried over: files a person can read, Git as history, one table
 of operations rendered as CLI and MCP ([ADR-0827]), and the rule that a note's
 fields are written one `key: <JSON>` line each.
 
-[ADR-0802]: adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md
 [ADR-0827]: adr/0827-the-cli-and-mcp-render-one-table-of-operations.md
-[ADR-0835]: adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md
-[ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
 [ADR-0899]: adr/0899-the-folder-sync-product-is-retired.md
 [ADR-0850]: adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md
@@ -439,7 +436,6 @@ fields are written one `key: <JSON>` line each.
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
-[ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
 [ADR-0941]: adr/0941-epicenter-serve-is-a-program-you-keep-running.md
 [ADR-0945]: adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md
 [ADR-0880]: adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md
@@ -459,7 +455,6 @@ fields are written one `key: <JSON>` line each.
 [ADR-0937]: adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md
 [ADR-0940]: adr/0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md
 [ADR-0958]: adr/0958-no-command-makes-an-epicenter.md
-
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md
 [ADR-0927]: adr/0927-serve-listens-only-on-this-computer.md
 [ADR-0930]: adr/0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md

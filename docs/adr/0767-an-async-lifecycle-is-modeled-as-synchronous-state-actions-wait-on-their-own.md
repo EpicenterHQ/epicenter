@@ -2,18 +2,18 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
-- **Supersedes:** [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md): an asynchronous opener that resolves to a ready App, so no caller holds anything while it opens; a capability is now handed over at once, and the `openApp` and `App` that record described exist nowhere in code.
-- **Amends:** [ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) at its consequence "A reader outside `<Opening>` sees the opening state and handles it" and at the action row of the standard shape: a read answers at every moment without checking `state()`, every async method on a folder or its collections waits for the open, and only `<Opening>` and Recovery read `state()`.
+- **Supersedes:** ADR-0410: an asynchronous opener that resolves to a ready App, so no caller holds anything while it opens; a capability is now handed over at once, and the `openApp` and `App` that record described exist nowhere in code.
+- **Amends:** ADR-0766 at its consequence "A reader outside `<Opening>` sees the opening state and handles it" and at the action row of the standard shape: a read answers at every moment without checking `state()`, every async method on a folder or its collections waits for the open, and only `<Opening>` and Recovery read `state()`.
 - **Amended by:** [ADR-0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) at `folder.state()`, `folder.retry()` and `<Opening>`: the states are `opening`, `open`, `failed` (carrying `retry()`) and `closed`, and the root is `<WhenOpen>`.
 - **Relates:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (a dependent takes the folder as a value), [ADR-0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) (the shape every capability shares).
-- **Amended by:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at the folder's states and an action answering the open's error: the state is its lifecycle and whether its store is available, and a write waits through both.
+- **Amended by:** ADR-0775 at the folder's states and an action answering the open's error: the state is its lifecycle and whether its store is available, and a write waits through both.
 - **Amended by:** [ADR-0777](0777-a-capability-has-no-ready-promise.md) at what a capability exposes of its first load: no `ready` promise; its actions wait.
-- **Amended by:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at a capability loading on its own: a page's stores load in one connection, which `<WhenOpen>` waits for.
+- **Amended by:** ADR-0778 at a capability loading on its own: a page's stores load in one connection, which `<WhenOpen>` waits for.
 - **Unbuilt:** dependents built on the waiting actions, such as Whispering's recovery of unfinished recordings and `createRecorder(folder)`. Built in W2 of the plan in `65affce69c:specs/20261104T160000-one-sync-core-on-every-native-platform.md`, starting with Todos.
 
 ## Context
 
-[ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md)
+ADR-0410
 chose the opposite of handing something over early:
 
 ```ts
@@ -27,7 +27,7 @@ example. Today each app's `Startup` (and `DesktopStartup` in
 `65affce69c:packages/svelte/src/desktop-startup.svelte`) awaits an opener before it
 sets any context, which keeps the same promise by another route.
 
-[ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md)
+ADR-0766
 reversed that. `openFolder(contract)` returns at once with `state()`
 (`opening`, `ready` or `failed`), `retry()` and `subscribe`, and
 `src/lib/app.ts` exports `folder` as a module value. It left open what

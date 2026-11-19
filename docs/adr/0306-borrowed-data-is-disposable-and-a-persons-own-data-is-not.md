@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-31
 - **Amended by:** [ADR-0318](0318-epicenter-data-is-what-epicenter-is-the-authority-for-and-a-foreign-write-is-a-command.md) at the classification test. Withdrawn: origin and recoverability as the question, which misclassifies a draft composed against a provider. The two classes, the obligations table, and the refusals below all stand, and the table gains a row for how a write happens.
-- **Relates:** [ADR-0247](0247-an-app-that-keeps-a-local-copy-of-a-providers-data-owns-its-file-lifecycle.md) (an app owns its provider copy's lifecycle), [ADR-0280](0280-a-browser-stores-durable-record-is-a-chain-of-updates-in-indexeddb-folded-on-idle.md) (the local database has no authority to refill from), and [ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md) (what the authority holds for a person)
+- **Relates:** [ADR-0247](0247-an-app-that-keeps-a-local-copy-of-a-providers-data-owns-its-file-lifecycle.md) (an app owns its provider copy's lifecycle), ADR-0280 (the local database has no authority to refill from), and ADR-0298 (what the authority holds for a person)
 
 ## Context
 

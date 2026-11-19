@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-19
-- **Relates:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (local apps with optional services).
+- **Relates:** ADR-0633 (local apps with optional services).
 - **Unbuilt:** applying the mail app's display name, publishing its website, and configuring DNS, hosting, and TLS for the chosen address.
 
 ## Context

@@ -5,7 +5,7 @@
 - **Amended by:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md) (`Proposed`) at row liveness and at root naming. Withdrawn: that the persistence owner "cannot recreate a deleted row" (`:116-117`), since an address is reusable there; and that Epicenter never declares, reserves or enumerates roots, since it now declares the grammar `<table>/<rowId>`, reserves the `!` prefix, and enumerates roots to build a projection. What survives, and is the reason prose lives in its own document, is that Epicenter never *interprets* the inside of one: an application owns that document's shape completely.
 - **Amended by:** [ADR-0264](0264-a-table-declares-its-row-documents-derivation-and-file-codec.md) at "there is no document declaration on `defineTable`" only; roots stay application-owned and Epicenter still never interprets their contents.
 - **Amends:** [ADR-0106](0106-a-child-doc-body-owns-one-layout-the-polymorphic-timeline-is-refused-until-a-product-earns-it.md) and [ADR-0107](0107-a-child-doc-text-body-is-a-plain-y-text-the-timeline-array-is-deleted.md) only for the permanent row-document root layout
-- **Relates:** [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), [ADR-0131](0131-row-sync-folds-sealed-row-intent-rounds-without-refusal.md), [ADR-0133](0133-row-authority-stores-documents-as-sequence-addressed-update-logs.md), [ADR-0134](0134-replicas-store-confirmed-state-and-compacted-row-intents.md)
+- **Relates:** [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), ADR-0131, ADR-0133, ADR-0134
 
 ## Context
 

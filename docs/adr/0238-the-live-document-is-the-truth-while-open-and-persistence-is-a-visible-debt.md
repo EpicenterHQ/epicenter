@@ -5,9 +5,9 @@
   always on screen, so a person signing out has already been told, and a rule
   that stops them leaving would trap somebody whose disk is genuinely full. The
   point of making the state visible is that no exit path needs its own rule.
-- **Amended by:** [ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md) at sync delivery. The authority is byte-blind and positional; a replica's owed suffix is still read from its durable update log.
+- **Amended by:** ADR-0298 at sync delivery. The authority is byte-blind and positional; a replica's owed suffix is still read from its durable update log.
 - **Date:** 2026-08-12
-- **Supersedes:** [ADR-0223](0223-a-page-holds-the-store-and-only-three-small-relations-have-to-survive.md). Its in-memory SQLite, the worker that mirrored it to an OPFS file, and the three relations are gone; IndexedDB owns the durable facts directly. "A page holds the store" survives through ADR-0227.
+- **Supersedes:** ADR-0223. Its in-memory SQLite, the worker that mirrored it to an OPFS file, and the three relations are gone; IndexedDB owns the durable facts directly. "A page holds the store" survives through ADR-0227.
 - **Amends:** [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md) at its OPFS clause only: the store's browser record is IndexedDB at the ADR-0348 address. The keychain clause and the decision that a build declares its owner stand.
 - **Amends:** [ADR-0237](0237-nonconformance-is-a-reads-only-error-and-a-disposed-store-throws.md)
   at the storage arm: the `storage-failed` poison is withdrawn, and an unusable
@@ -20,8 +20,8 @@
   attempted by one ordered queue flushed whole, rather than by each verb owning
   its own SQLite transaction. The old document-identity stamp is retired by
   ADR-0292.
-- **Relates:** [ADR-0233](0233-a-browser-application-keeps-a-private-document-and-one-workspace-replica-per-account.md)
-- **Amended by:** [ADR-0280](0280-a-browser-stores-durable-record-is-a-chain-of-updates-in-indexeddb-folded-on-idle.md) at the browser layout. Its proposed whole-document write was not adopted; the current browser still keeps an update log, with authority positions read from its records.
+- **Relates:** ADR-0233
+- **Amended by:** ADR-0280 at the browser layout. Its proposed whole-document write was not adopted; the current browser still keeps an update log, with authority positions read from its records.
 - **Amended by:** [ADR-0300](0300-accepted-edits-are-live-immediately-and-persistence-and-sync-are-best-effort.md) at the sync gate, and restored at that gate by [ADR-0302](0302-a-local-edit-is-offered-to-the-authority-once-it-is-durable.md). Sync sends only durably recorded work again; what 0300 kept is that an edit is accepted live and neither path may throw through the editor.
   (which documents exist and where), [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md)
   (the client owns the store).

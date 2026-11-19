@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
-- **Amended by:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) at one-object-per-document. The hydration decision stands; the granularity is now one object per generation.
-- **Amends:** [ADR-0277](0277-the-authority-reads-the-bytes-and-sync-becomes-the-yjs-protocol.md) at three stated reasons, not at its decision. The authority still reads, the granularity is still one Durable Object per document, and the transport is still three messages. Withdrawn: "an update that will not apply is refused at the door"; "the memory ceiling... is 128 MB per isolate, shared" as the mechanism; and "the ceiling is worth more than the request count" as the argument against per-generation.
+- **Amended by:** ADR-0295 at one-object-per-document. The hydration decision stands; the granularity is now one object per generation.
+- **Amends:** ADR-0277 at three stated reasons, not at its decision. The authority still reads, the granularity is still one Durable Object per document, and the transport is still three messages. Withdrawn: "an update that will not apply is refused at the door"; "the memory ceiling... is 128 MB per isolate, shared" as the mechanism; and "the ceiling is worth more than the request count" as the argument against per-generation.
 - **Unbuilt:** all of it.
 
 ## Context

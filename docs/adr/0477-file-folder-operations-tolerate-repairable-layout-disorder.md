@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
-- **Amended by:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), which deletes the desktop folder owner and its bridge suite; the desktop runs the same TypeScript operations as the browser and Bun
-- **Relates:** [ADR-0480](0480-file-tables-own-only-their-markdown-row-files.md) defines row-only operations without inferred attachments; [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md), [ADR-0467](0467-file-workflows-report-each-operations-outcome.md), and [ADR-0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md) state the per-operation rules this layout promise bounds.
+- **Amended by:** ADR-0531, which deletes the desktop folder owner and its bridge suite; the desktop runs the same TypeScript operations as the browser and Bun
+- **Relates:** [ADR-0480](0480-file-tables-own-only-their-markdown-row-files.md) defines row-only operations without inferred attachments; [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md), [ADR-0467](0467-file-workflows-report-each-operations-outcome.md), and ADR-0474 state the per-operation rules this layout promise bounds.
 
 <!-- doc-path-check: ignore-file (Accepted record; its Decision names paths as they were when it was accepted) -->
 
@@ -22,7 +22,7 @@ ran it again where the batch published. The browser adapter ran the guard
 inside its IndexedDB readwrite transaction. The native adapter ran it inside
 its batch queue, which orders that one boundary's batches only: another program
 can add a sibling after the check. The planned Rust adapter of
-[ADR-0476](0476-whisperings-desktop-folder-uses-one-rust-library-in-both-tauri-shells.md)
+ADR-0476
 cannot receive a JavaScript callback. Retaining the callback's condition in Rust
 would require sending observed directory membership across IPC, comparing it at
 publication, and retrying on a mismatch.

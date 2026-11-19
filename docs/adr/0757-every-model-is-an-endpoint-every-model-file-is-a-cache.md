@@ -2,10 +2,10 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
-- **Supersedes:** [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md) and [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md): an app reaches each model through an endpoint, and 1da16bda42 deleted the saved-selection resolver and the inference constructors they described.
+- **Supersedes:** ADR-0363 and ADR-0365: an app reaches each model through an endpoint, and 1da16bda42 deleted the saved-selection resolver and the inference constructors they described.
 - **Amends:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) at its AI worked example: `openAi({ account, local })` with `ai.hosted()`, `ai.local()` and `ai.custom()` becomes `openAi([...endpoints])`, the default order is the array's order rather than local, hosted, custom, and a management handle exists only for a source with a local lifecycle.
 - **Amended by:** [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) at the endpoint shape and `models(): Promise<Model[]>`, at `ai.complete(request)`, at reading `models()` at fixed moments, and at the provider keys held by `@epicenter/account`: an endpoint is `{ id, name, source, fetch, models(), subscribe?, refresh? }` with a synchronous `models()`, `openAi` has `chat`, `transcribe` and `embed`, an app calls `ai.refresh()` at those moments, and the keys are `@epicenter/ai`'s.
-- **Relates:** [ADR-0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) (a cache is one of the five stored kinds), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (provider keys live in the app's credentials file, and the shell sends keyed requests), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (programs meet in a shared place; the sync moments), [ADR-0056](0056-local-inference-is-a-delegated-engine-behind-the-openai-compatible-seam.md) (local inference behind the OpenAI-compatible seam), [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md) (runtime transcription calls the host directly), [ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) (Epicenter adapts to what you already have), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (Epicenter is made of standards and places).
+- **Relates:** ADR-0730 (a cache is one of the five stored kinds), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (provider keys live in the app's credentials file, and the shell sends keyed requests), ADR-0750 (programs meet in a shared place; the sync moments), [ADR-0056](0056-local-inference-is-a-delegated-engine-behind-the-openai-compatible-seam.md) (local inference behind the OpenAI-compatible seam), [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md) (runtime transcription calls the host directly), ADR-0758 (Epicenter adapts to what you already have), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (Epicenter is made of standards and places).
 - **Unbuilt:** all of it: `openAi([...])`, the endpoint shape `{ id, fetch, models() }`, per-model capabilities, `hosted`, `custom` and `localServers` in `@epicenter/ai`; one desktop relay in place of `948ea39cf4:apps/whispering/src-tauri/src/http.rs` and `folder-package:packages/tauri-epicenter-account/src/relay.rs`; the accessor through which `@epicenter/account` hands over the person's provider keys; `@epicenter/transcription` exporting `localSpeech()`, with its in-process fetch and its remove, load and unload beside download, in place of `@epicenter/transcription-native`.
 
 ## Context
@@ -104,7 +104,7 @@ vocabulary. Whispering's `http.rs` and the account crate's `relay.rs`
 become the one shell fetch behind `custom(key)`.
 
 **`openAi` reads each endpoint's `models()` at the sync moments of
-[ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md),
+ADR-0750,
 when the model picker opens, and after a `localSpeech()` lifecycle action.**
 For `localServers()`, that read is the probe of this computer: a server's
 models appear when it answers and leave when it no longer does. A server on
@@ -125,7 +125,7 @@ removed through the keys `@epicenter/account` holds, and the plan and usage
 are read from the account.
 
 **Model files stay in the shared Hugging Face cache, which is a cache in
-[ADR-0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md)'s
+ADR-0730's
 sense.** A file any app or Hugging Face tool fetched counts as present for
 every app, and a deleted file is downloaded again. Epicenter keeps no model
 directory of its own.
@@ -133,7 +133,7 @@ directory of its own.
 **Each app that needs local speech runs its own transcribe.cpp; programs
 share model files, not a server.** Programs meet in a shared place, the
 cache, and never call each other, as
-[ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)
+ADR-0750
 has them meet in a folder. Whispering embeds transcribe.cpp; the Epicenter
 app and Vocab do not. Epicenter builds no model server: a person who wants
 one shared speech server runs an existing one and adds it as a

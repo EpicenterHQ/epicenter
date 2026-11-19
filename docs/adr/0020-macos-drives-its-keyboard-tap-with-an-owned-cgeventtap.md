@@ -5,7 +5,7 @@
 
 ## Context
 
-[ADR-0008](0008-rdev-backs-the-desktop-global-trigger.md) put `rdev::listen`
+ADR-0008 put `rdev::listen`
 behind the desktop global trigger on every platform, and
 [ADR-0011](0011-rust-owns-the-macos-dictation-capability.md) gave a background
 supervisor thread ownership of the tap's lifecycle, trusting the listener's return

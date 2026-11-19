@@ -5,7 +5,7 @@
   this branch. Reconcile at merge time (`docs/adr/README.md`).
 - **Relates:** [ADR-0187](0187-a-bound-handle-reports-staleness-tables-can-name-rows-values-cannot.md)
   (the invalidation shape and its laws, which this satisfies unchanged),
-  [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
+  ADR-0215
   (one document, rows nested on a table root),
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)
   (the projection `db.query` reads).

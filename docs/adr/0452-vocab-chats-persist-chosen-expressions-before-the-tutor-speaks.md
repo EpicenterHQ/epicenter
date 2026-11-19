@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
-- **Amends:** [ADR-0444](0444-vocab-stores-finished-chat-messages-as-local-rows.md) (chat existence and title are no longer derived only from messages); [ADR-0445](0445-vocab-saves-local-chats-and-syncs-saved-entries.md) (new chats start from Words, and Words navigation keeps the selected chat alive)
+- **Amends:** [ADR-0444](0444-vocab-stores-finished-chat-messages-as-local-rows.md) (chat existence and title are no longer derived only from messages); ADR-0445 (new chats start from Words, and Words navigation keeps the selected chat alive)
 
 ## Context
 

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-09
   this branch. Reconcile at merge time (`docs/adr/README.md`).
-- **Relates:** [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
+- **Relates:** ADR-0215
   (a row is a Yjs type and a field is an attribute on it),
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)
   (a Lens is pure JSON),

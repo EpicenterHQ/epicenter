@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-04
 - **Amended by:** [ADR-0135](0135-row-documents-have-application-owned-roots.md) for the permanent row-document root model; the timeline deletion survives
-- **Relates:** [ADR-0106](0106-a-child-doc-body-owns-one-layout-the-polymorphic-timeline-is-refused-until-a-product-earns-it.md) (refused the polymorphic timeline and gated this step-3 storage change), [ADR-0005](0005-child-docs-are-bound-through-the-workspace.md) (child docs are bound through the workspace)
+- **Relates:** [ADR-0106](0106-a-child-doc-body-owns-one-layout-the-polymorphic-timeline-is-refused-until-a-product-earns-it.md) (refused the polymorphic timeline and gated this step-3 storage change), ADR-0005 (child docs are bound through the workspace)
 
 ## Context
 

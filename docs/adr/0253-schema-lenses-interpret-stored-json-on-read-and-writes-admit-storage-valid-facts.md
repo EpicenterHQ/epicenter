@@ -14,7 +14,7 @@
   at KV updates. `kv.update` writes supplied storage-valid values and returns
   no schema Result; `kv.get` remains the whole-value conformance boundary.
 - **Relates:** [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md),
-  [ADR-0217](0217-the-authority-appends-opaque-bytes-and-the-client-owns-every-merge.md),
+  ADR-0217,
   and [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md).
 
 ## Context

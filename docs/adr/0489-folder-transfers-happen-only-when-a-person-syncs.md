@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-02
-- **Relates:** [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server and the credential; [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) sets the remote and combines histories on Connect; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) decides when commits happen; [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) settles what both sides changed, the device syncing winning.
+- **Relates:** ADR-0521 chooses the server and the credential; ADR-0532 sets the remote and combines histories on Connect; ADR-0529 decides when commits happen; ADR-0576 settles what both sides changed, the device syncing winning.
 - **Unbuilt:** refreshing only the views an incoming change touched; until then an app reloads after incoming changes.
 
 ## Context
@@ -11,10 +11,10 @@ This record used to also choose where a folder lived from the signed-in
 account (`~/Epicenter/accounts/<account-key>/<folder-id>/`), download an
 account's folder into a staging directory before opening it, and discover a
 folder's repository through a server-side pairing.
-[ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)
+ADR-0532
 removed the account from a folder's address, and Connect into an empty folder
 takes the remote's history in place of a download.
-[ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)
+ADR-0521
 replaced pairings with the folder's own `remote.origin.url`. What remains is
 when transfers happen and what one Sync does.
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-10
-- **Supersedes:** [ADR-0115](0115-super-chat-remote-attach-rides-an-endpoint-addressed-trusted-relay.md)
+- **Supersedes:** ADR-0115
 
 ## Context
 

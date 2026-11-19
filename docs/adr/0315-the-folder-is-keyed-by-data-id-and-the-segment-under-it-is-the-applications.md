@@ -1,7 +1,7 @@
 # 0315. The folder is keyed by data id, and the segment under it is the application's
 
 - **Status:** Accepted
-- **Amended at the layout by [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md).** The folder is `~/Epicenter/<data-id>/` with no segment under it, because the `local`/`account` pair this record moved went with the device store (ADR-0336) and there is one store per data id to render. What survives is this record's reasoning about why two renderers must never share one swept directory, which ADR-0337's single working copy makes moot rather than answers. What this record decided about the data id being the key stands.
+- **Amended at the layout by ADR-0337.** The folder is `~/Epicenter/<data-id>/` with no segment under it, because the `local`/`account` pair this record moved went with the device store (ADR-0336) and there is one store per data id to render. What survives is this record's reasoning about why two renderers must never share one swept directory, which ADR-0337's single working copy makes moot rather than answers. What this record decided about the data id being the key stands.
 - **Built:** the folder claim, in `1e3101d842:apps/epicenter/src/checkout.ts`, which takes a lock per folder so two writers cannot interleave. Nothing else here shipped.
 - **Date:** 2026-08-31
 - **Amends:** [ADR-0271](0271-a-workspace-mirrors-continuously-to-the-epicenter-folder-one-way.md) at the layout block and at the closed set of places. The one-way rule, the complete pass, and the manifest are unchanged and are what force everything below.

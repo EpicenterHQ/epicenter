@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Amends:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) at recovery: a saved copy of the working folder is readable source material, not a writable historical generation. Pull, Push, and their comparison baseline remain.
+- **Amends:** ADR-0337 at recovery: a saved copy of the working folder is readable source material, not a writable historical generation. Pull, Push, and their comparison baseline remain.
 - **Relates:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) (local bytes), [ADR-0372](0372-local-and-remote-blobs-open-independently.md) (explicit remote hosting), [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent references), [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) (recovering old content).
-- **Implementation:** The checkout renderer and manifest were in `1e3101d842:packages/app/src/data/artifact/checkout.ts` until commit `5984d2cbde` removed store checkout ([ADR-0501](0501-store-checkout-push-pull-and-its-baseline-are-removed.md)). The structural archive and unmounted server backup machinery have been removed.
+- **Implementation:** The checkout renderer and manifest were in `1e3101d842:packages/app/src/data/artifact/checkout.ts` until commit `5984d2cbde` removed store checkout (ADR-0501). The structural archive and unmounted server backup machinery have been removed.
 
 ## Context
 

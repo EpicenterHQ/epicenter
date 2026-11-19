@@ -12,7 +12,7 @@ on the desktop the shell writes the take at that path from its first
 second and outlives the page, so a quit finishes it and a crash keeps
 what reached the disk; in a browser the page keeps the take in memory until
 Stop, and a crash or a closed tab loses it
-([ADR-0779](../../docs/adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md)).
+(ADR-0779).
 `recorder` from `@epicenter/recorder` is this window's: the package
 chooses it when it loads, with `isTauri()`
 ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)),

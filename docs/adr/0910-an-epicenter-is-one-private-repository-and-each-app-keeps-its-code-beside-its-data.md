@@ -2,10 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-14
-- **Amended by:** [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md): local code export and refresh; publication still uses a separate history and ordinary Git. Then [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md): `serve` serves `ui/dist/` as the app's own build left it, with no fingerprint; a home has no root `theme.css`, an app keeps its palette in `code/`, and `new` no longer reports dangling links.
+- **Amended by:** ADR-0911: local code export and refresh; publication still uses a separate history and ordinary Git. Then [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md): `serve` serves `ui/dist/` as the app's own build left it, with no fingerprint; a home has no root `theme.css`, an app keeps its palette in `code/`, and `new` no longer reports dangling links.
 - **Implementation:** Source retains the existing container lock, tolerant reads, HTTP/MCP actions, UI builds, private input and serve-owned clock. This change adds code/data siblings under `apps/`, root checkpoints, committed code copying, and single-clone restore; it removes action Git bookkeeping.
 - **Migration:** On 2026-11-14 the root and 18 app repositories were combined into one private repository, with exact original signed objects under archival tags. On 2026-11-15 the personal home moved onto Vault history instead (see "Personal Vault home, 2026-11-15" below). The earlier combined history remains as archive refs on that home's origin. Its separate GitHub repository and the 17 individual app repositories were deleted after their histories and media were verified on the surviving origin. The stopped originals remain in local recovery archives.
-- **Supersedes:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md): separate code and data repositories and sharing their existing histories; [ADR-0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md): a root that excludes apps, records their repositories, and restores them with separate clones.
+- **Supersedes:** ADR-0877: separate code and data repositories and sharing their existing histories; ADR-0884: a root that excludes apps, records their repositories, and restores them with separate clones.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md): withdraw per-action commits and app-repository sync.
 - **Amends:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md): root checkpoints retain the local-file exclusion and refusal.
 - **Amends:** [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md): withdraw code at the container's top; retain `data/` paths and the write boundary.
@@ -22,7 +22,7 @@ recovery paths and the archival tag namespace. Code-only publication and
 updates remain deliberate copies; no managed publisher or updater was added.
 
 - **Proposed amendment:** [ADR-0937](0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md): serve keeps no checkpoint clock; a home checkpoints through a routine.
-- **Amended by:** [ADR-0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md): `--from` takes a folder on disk or `owner/repo/folder#ref` on GitHub, and `SOURCE.md` records repository, folder, ref, and commit as fields.
+- **Amended by:** ADR-0929: `--from` takes a folder on disk or `owner/repo/folder#ref` on GitHub, and `SOURCE.md` records repository, folder, ref, and commit as fields.
 
 ## Context
 
@@ -263,7 +263,7 @@ verification artifacts record commit identities.
 - A storage policy for other Epicenters. The personal Vault home uses ordinary
   blobs; existing LFS support remains for older homes.
 - The code-only publication workflow. Local export is subsequently settled by
-  [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md);
+  ADR-0911;
   repository provisioning and automated publication remain outside the CLI.
 - What a program on another device clones under ADR-0887 after data stops
   being its own repository.

@@ -2,25 +2,25 @@
 
 - **Status:** Accepted
 - **Amended by:** [ADR-0273](0273-an-epicenter-app-is-an-spa-with-a-namespace-and-background-work-is-a-hidden-window.md) at two points: a window may run without being shown, and the client-owned store is what an application may use rather than what makes it one. Proposed amendment: [ADR-0449](0449-epicenter-connects-independent-applications-through-personal-data.md) revises the refusal of standalone desktop products.
-- **Amended by:** [ADR-0305](0305-the-third-party-app-catalog-is-a-future-epicenter-deployment-plane.md) at the temporary refusal of third-party installed apps. The current product remains one first-party runtime; the future catalog plane is preserved as an unbuilt deployment direction.
+- **Amended by:** ADR-0305 at the temporary refusal of third-party installed apps. The current product remains one first-party runtime; the future catalog plane is preserved as an unbuilt deployment direction.
 - **Amended by:** [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) at the hosted-web refusal, which shipped code already contradicts. A browser build is a target again, and a deliberately reduced one. Every other refusal here stands.
-- **Amended by:** [ADR-0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) at "The Chrome extension runtime is refused": a browser extension may run when its data is a document synced through the account, and Tabs is the first; [ADR-0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) at the same point, after [ADR-0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md) superseded ADR-0724: a browser extension may run, and it writes items through the local engine.
+- **Amended by:** ADR-0724 at "The Chrome extension runtime is refused": a browser extension may run when its data is a document synced through the account, and Tabs is the first; ADR-0745 at the same point, after ADR-0743 superseded ADR-0724: a browser extension may run, and it writes items through the local engine.
 - **Date:** 2026-08-08
   this branch. Reconcile at merge time (`docs/adr/README.md`).
-- **Supersedes:** [ADR-0186](0186-an-app-reaches-epicenter-through-one-bundled-mit-client-it-installs-itself.md),
-  [ADR-0210](0210-an-installed-app-declares-its-name-and-the-namespace-it-owns.md),
-  [ADR-0211](0211-an-installed-app-runs-only-inside-epicenter-so-its-client-stops-asking.md)
-  and [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md):
+- **Supersedes:** ADR-0186,
+  ADR-0210,
+  ADR-0211
+  and ADR-0179:
   the third-party installed-app plane is refused for now, so the client it was
   reached through, the folder it was admitted as, and the declaration it carried
   all go with it.
 - **Amends:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md),
   widening it from Honeycrisp to every surface.
-- **Relates:** [ADR-0223](0223-a-page-holds-the-store-and-only-three-small-relations-have-to-survive.md)
+- **Relates:** ADR-0223
   (where the store runs),
   [ADR-0225](0225-a-store-authority-is-one-durable-object-per-principal-and-application-and-being-signed-in-is-the-sharing-model.md)
   (the one authority),
-  [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md).
+  ADR-0215.
 
 ## Context
 

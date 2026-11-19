@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-29
-- **Supersedes:** [ADR-0265](0265-a-row-carries-a-store-owned-updatedat-system-field.md) entirely.
-- **Relates:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md), [ADR-0296](0296-rich-content-is-a-declared-field-and-a-table-owns-its-file-codec.md)
+- **Supersedes:** ADR-0265 entirely.
+- **Relates:** ADR-0295, ADR-0296
 
 ## Context
 

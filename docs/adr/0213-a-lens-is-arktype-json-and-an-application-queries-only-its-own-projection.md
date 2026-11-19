@@ -24,7 +24,7 @@
   `create(rowId, fields)`, and "a singleton is a row whose id you chose". A row
   is created at a minted id, always, and a lens declares a `kv` section for what
   it keeps one of. Also
-  [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md),
+  ADR-0215,
   which makes the surface synchronous and turns `document.open` into
   `document(id)`.
 - **Confirms:** [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md) and

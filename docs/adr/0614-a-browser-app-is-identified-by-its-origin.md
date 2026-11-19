@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-18
-- **Amended by:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) at repository consent as a condition of local app use: consent connects existing local data and never selects it by name alone. [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) at grants for non-Git services: inference authorization needs no repository target and grants no repository access.
-- **Amends:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "a grant has no target, and a token reaches its person's own namespace": a grant names one repository; [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands.
-- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (a first-party app is an ordinary client), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (what a grant names).
+- **Amended by:** ADR-0633 at repository consent as a condition of local app use: consent connects existing local data and never selects it by name alone. [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) at grants for non-Git services: inference authorization needs no repository target and grants no repository access.
+- **Amends:** ADR-0594 at "a grant has no target, and a token reaches its person's own namespace": a grant names one repository; [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands.
+- **Relates:** ADR-0611 (a first-party app is an ordinary client), ADR-0612 (what a grant names).
 - **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name or offering to create a repository by it; a refresh token per grant that renews without leaving the page; the account grant `epicenter login` holds; and native app identity.
 
 ## Context
@@ -16,12 +16,12 @@ target `*`. A third-party browser app was to sign in with a client ID
 metadata document on its origin
 ([ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md)),
 and a grant names no repository
-([ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md)).
+(ADR-0594).
 With several apps and several people sharing one repository
-([ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md)),
+(ADR-0612),
 each consent has to say which repository an app reaches, and a first-party
 app is an ordinary client
-([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
+(ADR-0611).
 
 ## Decision
 
@@ -49,7 +49,7 @@ repositories holds two grants.
 **A signed-in device holds an account grant.** `epicenter login` gives the
 CLI a grant that reaches every repository the person is on. The deferred
 Epicenter desktop app reaches Git through the CLI's credential helper
-([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
+(ADR-0611).
 Only browser apps hold per-repository grants.
 
 **`connect()` navigates the page to consent and back.** An app may suggest
@@ -57,7 +57,7 @@ a repository name; at consent the one repository of that name on the
 person's list is preselected, and otherwise the person chooses. Consent
 also offers to create a repository with the suggested name, which the
 person who creates it owns
-([ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md)).
+(ADR-0612).
 
 ```txt
 https://kanban.alice.dev wants to read and change everything in one repository.
@@ -74,7 +74,7 @@ It suggests: studio
 app would claim its website's origin; how Epicenter verifies that claim is
 not decided. The Epicenter desktop app is no OAuth client: it reaches the
 Git service through the CLI's credential helper
-([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
+(ADR-0611).
 
 ## Consequences
 

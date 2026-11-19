@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-06
-- **Amended by:** [ADR-0260](0260-the-desktop-host-owns-the-profile-registry-and-active-profile.md) at the decision to defer multi-account storage. Profile-correct storage is required; retaining multiple credentials remains optional.
-- **Relates:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md), [ADR-0092](0092-identity-is-the-partition.md)
+- **Amended by:** ADR-0260 at the decision to defer multi-account storage. Profile-correct storage is required; retaining multiple credentials remains optional.
+- **Relates:** ADR-0071, ADR-0088, [ADR-0092](0092-identity-is-the-partition.md)
 
 ## Context
 

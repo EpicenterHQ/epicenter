@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0231](0231-rebuilding-replaces-a-workspaces-current-yjs-document.md) at the product rebuild action and the authority's whole-document replacement path
 - **Amended by:** [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) at the deferred whole-document rebuild, which is now available as Rebuild workspace: it creates a generation from the client's own live document under a compare-and-swap lease, and the authority never proves coverage because nothing is replaced.
 - **Amended by:** [ADR-0267](0267-a-workspace-exports-and-imports-as-a-legible-folder-structured-artifact.md) at the deferred Compact-workspace action: the manual reset is no longer deferred, it is export and import.
-- **Relates:** [ADR-0220](0220-the-authority-keeps-a-snapshot-and-a-tail-and-a-deletion-becomes-real.md), [ADR-0233](0233-a-browser-application-keeps-a-private-document-and-one-workspace-replica-per-account.md), and [ADR-0255](0255-data-definitions-use-one-data-first-public-vocabulary.md)
+- **Relates:** ADR-0220, ADR-0233, and [ADR-0255](0255-data-definitions-use-one-data-first-public-vocabulary.md)
 
 ## Context
 

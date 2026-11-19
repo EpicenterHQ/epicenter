@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-02
-- **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md), [ADR-0092](0092-identity-is-the-partition.md)
+- **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md), ADR-0075, [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md), [ADR-0092](0092-identity-is-the-partition.md)
 
 ## Context
 

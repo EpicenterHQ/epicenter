@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-20
-- **Supersedes:** [ADR-0001](0001-classified-scan-read-surface.md)
+- **Supersedes:** ADR-0001
 - **Amends:** [ADR-0120](0120-fields-validate-present-values-and-table-lenses-own-presence.md)
 - **Amended by:** [ADR-0176](0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md)
   (withdraws the unowned Lens-declared-index possibility; the table traversal

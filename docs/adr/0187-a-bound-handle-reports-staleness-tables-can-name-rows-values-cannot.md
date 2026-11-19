@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-07-28
 - **Amended by:** [ADR-0206](0206-a-rows-id-comes-from-whoever-knows-it-and-one-relation-holds-every-fact.md) at one clause, the value half of this record's title. Values are deleted there, so "values cannot" has no subject; the table-invalidation law, its two scopes, and the staleness contract are untouched.
-- **Amends:** [ADR-0186](0186-an-app-reaches-epicenter-through-one-bundled-mit-client-it-installs-itself.md) by settling the `data` half of what it deferred; and [ADR-0185](0185-trusted-app-http-uses-tauris-standard-transport-without-observation.md) by naming the host-owned data invalidation socket as an Epicenter capability carrier rather than an ordinary HTTP observer
-- **Relates:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0175](0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), [ADR-0178](0178-row-facts-and-value-facts-are-separate-relations-keyed-by-structured-coordinates.md)
+- **Amends:** ADR-0186 by settling the `data` half of what it deferred; and [ADR-0185](0185-trusted-app-http-uses-tauris-standard-transport-without-observation.md) by naming the host-owned data invalidation socket as an Epicenter capability carrier rather than an ordinary HTTP observer
+- **Relates:** ADR-0160, [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0175](0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), ADR-0178
 
 ## Context
 

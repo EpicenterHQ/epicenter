@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-06
-- **Supersedes:** [ADR-0097](0097-super-chat-tool-modules-receive-a-host-api.md)
+- **Supersedes:** ADR-0097
 - **Relates:** [ADR-0080](0080-the-super-app-is-a-desktop-host-cross-device-is-remote-access-to-the-session-not-a-per-app-capability-plane.md), [ADR-0084](0084-super-chat-shell-is-a-bun-hosted-local-server-not-a-bundled-spa.md), [ADR-0096](0096-local-workspace-persistence-is-environment-injected.md)
 
 ## Context

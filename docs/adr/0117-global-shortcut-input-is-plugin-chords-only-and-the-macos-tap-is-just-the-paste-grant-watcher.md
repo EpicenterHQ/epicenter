@@ -2,15 +2,15 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-09
-- **Supersedes:** [ADR-0008](0008-rdev-backs-the-desktop-global-trigger.md) (rdev no longer backs any trigger), [ADR-0019](0019-global-shortcuts-have-a-permission-free-floor-and-accessibility-is-an-opt-in-tier.md) (the two-tier model collapses to one tier plus a paste-only grant)
+- **Supersedes:** ADR-0008 (rdev no longer backs any trigger), ADR-0019 (the two-tier model collapses to one tier plus a paste-only grant)
 - **Relates:** [ADR-0011](0011-rust-owns-the-macos-dictation-capability.md) and [ADR-0020](0020-macos-drives-its-keyboard-tap-with-an-owned-cgeventtap.md) (the macOS tap mechanics survive, re-scoped to the grant watcher), [ADR-0040](0040-a-cursor-write-that-cannot-paste-falls-back-to-the-clipboard-decided-from-the-grant.md) (the grant-decided paste is the sole reason the tap survives), [ADR-0052](0052-shortcut-reach-is-the-minimum-of-command-key-and-platform-ceilings.md) (the reach model loses its Accessibility-gated global rung), [ADR-0058](0058-push-to-talk-owns-the-recording-it-starts-keyed-by-its-id-not-a-lifecycle-layer.md) (push-to-talk becomes a chord hold)
 
 ## Context
 
-[ADR-0008](0008-rdev-backs-the-desktop-global-trigger.md) put a raw `rdev`
+ADR-0008 put a raw `rdev`
 keyboard tap behind the desktop global trigger to bind the three gestures
 `tauri-plugin-global-shortcut` cannot express: the Fn key, modifier-only chords,
-and a press-and-release push-to-talk. [ADR-0019](0019-global-shortcuts-have-a-permission-free-floor-and-accessibility-is-an-opt-in-tier.md)
+and a press-and-release push-to-talk. ADR-0019
 split shortcuts into a permission-free Tier-0 chord floor and an opt-in Tier-1
 tap behind macOS Accessibility. [ADR-0020](0020-macos-drives-its-keyboard-tap-with-an-owned-cgeventtap.md)
 then replaced rdev with an owned `CGEventTap` on macOS, leaving rdev to back only

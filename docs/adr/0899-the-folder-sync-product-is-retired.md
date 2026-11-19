@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) at "the folder sync product waits": it does not wait; it is retired, and nothing returns to it.
 - **Amends:** [ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) at "a tag keeps it": the tag `folder-sync-product` stays as history, not as a way back.
 - **Supersedes:** the records from ADR-0500 to ADR-0834 that designed the folder sync product and still said `Accepted` or `Proposed`, each listed in the index as "Superseded by 0899".
-- **Relates:** [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) (the product's register), [ADR-0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md) (hosted Notes, which this does not decide).
+- **Relates:** ADR-0835 (the product's register), [ADR-0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md) (hosted Notes, which this does not decide).
 
 ## Context
 

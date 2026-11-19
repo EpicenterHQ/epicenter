@@ -4,7 +4,7 @@
 - **Date:** 2026-09-23
 - **Scope note:** The store-owned SQLite implementation does not implement this cleanup decision. Pending Local Mail triage and unknown SQL remain retained.
 - **Unbuilt:** Cleanup inventory, safe-removal evidence, erasure ownership, confirmation UI, and interruption recovery.
-- **Relates:** [ADR-0367](0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md) requires safe exclusive erasure; [ADR-0436](0436-stores-own-local-sqlite-namespaces.md) scopes local SQL to its containing store.
+- **Relates:** [ADR-0367](0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md) requires safe exclusive erasure; ADR-0436 scopes local SQL to its containing store.
 
 ## Context
 

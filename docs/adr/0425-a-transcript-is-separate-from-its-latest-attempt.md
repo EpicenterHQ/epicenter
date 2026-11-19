@@ -32,7 +32,7 @@ version to display.
 **Only one transcription or cleanup operation may be active for one recording.**
 Another recording can process independently. A retry of saved audio starts a
 new attempt, whose result row is written when the request starts and whose body
-is filled when the answer arrives ([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+is filled when the answer arrives (ADR-0542).
 A failed attempt leaves every successful result intact and writes no failure
 row; a result row without a body and without a live request is unfinished. The
 active state and latest error are shown during the page lifetime. If writing an

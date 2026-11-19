@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-19
 - **Unbuilt:** Page-owned product startup without aggregate rollback/close; proof of departure and native ownership before removing caller disposal.
-- **Amends:** [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md) at product composition rollback: successful page-owned acquisitions may remain until document replacement; individual failed acquisitions still own safe cleanup.
+- **Amends:** ADR-0410 at product composition rollback: successful page-owned acquisitions may remain until document replacement; individual failed acquisitions still own safe cleanup.
 - **Amends:** [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at departure ownership, UI cleanup registration, and recovery rendering.
 - **Amends:** [ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md) at desktop identity transitions and same-person reauthentication.
 

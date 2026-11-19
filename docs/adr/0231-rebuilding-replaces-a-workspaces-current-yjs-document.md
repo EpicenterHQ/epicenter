@@ -3,9 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-08-10
 - **Amended by:** [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) at bootstrap and the announcement. A replica dials its generation's address, so the authority no longer names its document on every connection and the bootstrap connection is deleted; supersession becomes a fact the generation states rather than an equality the replica computes. Rebuild workspace returns as a source of bytes for a new generation.
-- **Amended by:** [ADR-0277](0277-the-authority-reads-the-bytes-and-sync-becomes-the-yjs-protocol.md) at the cursor. Admission is still equality on the document identity, which is what generations ride on; a replica no longer holds a log position, because there is no log to be positioned in.
+- **Amended by:** ADR-0277 at the cursor. Admission is still equality on the document identity, which is what generations ride on; a replica no longer holds a log position, because there is no log to be positioned in.
 - **Superseded by:** [ADR-0256](0256-automatic-folding-is-the-current-maintenance-path-and-manual-workspace-compaction-is-deferred.md) at the product rebuild action and the authority's whole-document replacement path
-- **Amends:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md), [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md), [ADR-0219](0219-a-deleted-row-is-removed-and-the-presence-flag-is-retired.md), [ADR-0220](0220-the-authority-keeps-a-snapshot-and-a-tail-and-a-deletion-becomes-real.md), [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md), and [ADR-0225](0225-a-store-authority-is-one-durable-object-per-principal-and-application-and-being-signed-in-is-the-sharing-model.md)
+- **Amends:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md), [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md), [ADR-0219](0219-a-deleted-row-is-removed-and-the-presence-flag-is-retired.md), ADR-0220, ADR-0222, and [ADR-0225](0225-a-store-authority-is-one-durable-object-per-principal-and-application-and-being-signed-in-is-the-sharing-model.md)
 
 ## Context
 

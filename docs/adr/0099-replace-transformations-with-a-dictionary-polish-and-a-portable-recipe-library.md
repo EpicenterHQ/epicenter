@@ -153,7 +153,7 @@ Wave 1 of the build renames them to `polish.*`, `dictionary`, and `recipes`.
    Google (`services/completion/{anthropic,google}`, the `@anthropic-ai/sdk` and
    `@google/generative-ai` SDKs) beside the wire path, on the same instinct that
    excluded them from the inference collapse. That exclusion was about the
-   agent/tool loop ([ADR-0050](0050-the-inference-contract-is-openai-compatible.md):
+   agent/tool loop (ADR-0050:
    a streamed, multi-step tool protocol), not one-shot completion. Polish and
    Recipes make exactly one non-streaming `POST /chat/completions`, and Anthropic
    and Google both serve that over OpenAI-compatible Bearer endpoints, so every

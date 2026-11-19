@@ -27,7 +27,7 @@ If it also publishes a row, it receives that store explicitly and checks
 cancellation after publication. Current code borrows blob capabilities from
 opened stores; `personal.blobs.copyFrom(local.blobs, id)` returns a fresh
 destination ID under [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md).
-The hosted URL direction in [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
+The hosted URL direction in ADR-0438
 instead returns a URL. The workflow decides whether a Personal row needs that
 reference or only text.
 Store lifetime does not establish that the initiating UI or selected workflow

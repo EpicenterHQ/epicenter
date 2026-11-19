@@ -5,10 +5,10 @@
 - **Amended by:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) at half of one clause. "Sign-out preserves local device and account data" keeps its account half; there is no device data left for it to preserve. Its one-connection rule and its refusal of a registry stand.
 - **Amended by:** [ADR-0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md) at one clause: "selecting a different server replaces it" is withdrawn, and the surfaces that performed it are deleted. Choosing a server becomes installing a build.
 - **Amended by:** [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) at what the host holds: one connection per authority named by an installed bundle, derived from what is installed rather than stored. This record's refusal of a registry, of generated profile ids, and of a credential wallet stands, and is honoured more literally: nothing is remembered.
-- **Restated by:** [ADR-0263](0263-a-connection-is-one-server-at-a-time-and-a-replica-is-derived-from-it.md) as the reader-facing connection and switching contract
-- **Supersedes:** [ADR-0260](0260-the-desktop-host-owns-the-profile-registry-and-active-profile.md)
+- **Restated by:** ADR-0263 as the reader-facing connection and switching contract
+- **Supersedes:** ADR-0260
 - **Amends:** [ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md) at the selected deployment's identity: the host owns one active connection, not a registry of profiles.
-- **Relates:** [ADR-0109](0109-hosted-tauri-auth-keeps-app-owned-keyring-edges-until-three-real-callers-earn-sharing.md), [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md), [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md), [ADR-0232](0232-a-page-lifetime-is-one-auth-generation-and-a-permanently-denied-sync-stops-for-good.md), [ADR-0261](0261-a-local-account-replica-is-addressed-by-its-application-server-url-and-verified-principal.md)
+- **Relates:** [ADR-0109](0109-hosted-tauri-auth-keeps-app-owned-keyring-edges-until-three-real-callers-earn-sharing.md), [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md), [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md), ADR-0232, ADR-0261
 - **Implemented in part:** The host and WebView now share one connection
   snapshot. A future connection-selection UI remains host-owned and still
   reloads the next auth generation.

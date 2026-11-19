@@ -90,7 +90,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   Tauri module but `@tauri-apps/api/core` loads when first used;
   `apps/whispering/scripts/first-load.test.ts` refuses one in the web's first load.
 - **Capabilities are module values; product state is the app's own**
-  ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+  (ADR-0766).
   `app.ts` exports them, opened once per page. `WhisperingApp` makes
   Whispering and its library over them. `dispose` refuses new work and late
   replies and waits for nothing.

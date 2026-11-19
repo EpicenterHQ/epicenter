@@ -3,9 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-09-01
 - **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes generation from current data identity without renaming persisted addresses or merging owner partitions.
-- **Supersedes:** [ADR-0261](0261-a-local-account-replica-is-addressed-by-its-application-server-url-and-verified-principal.md). Addressing a replica by its server URL and verified principal is withdrawn entirely; the facts it put in the address move to a declaration and a stamp.
+- **Supersedes:** ADR-0261. Addressing a replica by its server URL and verified principal is withdrawn entirely; the facts it put in the address move to a declaration and a stamp.
 - **Amends:** [ADR-0304](0304-application-persistence-is-runtime-selected-and-scoped-by-its-owning-app.md) at its desktop path, which gains a format-version segment; and [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at the `data/<data-id>/` spelling, which gains the same version segment.
-- **Relates:** [ADR-0292](0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md) (the generation is the address, unchanged), [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) (who mints the number), [ADR-0318](0318-epicenter-data-is-what-epicenter-is-the-authority-for-and-a-foreign-write-is-a-command.md) (the authority test), [ADR-0321](0321-app-owned-storage-is-named-sqlite-files-an-application-opens-and-deletes-and-nothing-else.md) (the other storage kind)
+- **Relates:** ADR-0292 (the generation is the address, unchanged), ADR-0293 (who mints the number), [ADR-0318](0318-epicenter-data-is-what-epicenter-is-the-authority-for-and-a-foreign-write-is-a-command.md) (the authority test), ADR-0321 (the other storage kind)
 <!-- doc-path-check: ignore-next-line -->
 - **Built, in the browser.** `packages/app/src/data/store/browser.ts` composes `epicenter/v4/<app-id>/<data-id>/<n>`, and `openDatabase`, `createGeneration`, and `newestGeneration` each take the opening application's id. The desktop spelling is unbuilt: no desktop code writes `data/` at all.
 - **Amended by:** [ADR-0348](0348-the-local-address-carries-the-principal-and-a-database-needs-no-binding-to-know-whose-it-is.md) at its refusal of the partition segments and at the format version: the address regains `<principal-id>` between the app id and the data id, and the version becomes `v5`. The principal was never the device-wide constant this record refused; two people on one browser profile is the case it missed. The app segment, the "one grammar, two spellings" rule, and the refusal of the base URL all stand.
@@ -108,7 +108,7 @@ says two applications may name one data id and each keeps its own replica.
 **The version segment stays, above the data id, and is shared across
 substrates.** It versions the interpretation of the bytes, not the shape of the
 path: `v2` was the document collapse
-([ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md))
+(ADR-0295)
 and `v3` the owed-row collapse
 ([ADR-0301](0301-owed-updates-collapse-into-one-resendable-row-and-the-fold-stops-asking-whether-a-store-syncs.md)),
 where "the value changed rather than the schema." After this collapse a `v3`

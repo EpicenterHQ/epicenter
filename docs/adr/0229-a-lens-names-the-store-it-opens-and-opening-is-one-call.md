@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-09
   this branch. Reconcile at merge time (`docs/adr/README.md`).
-- **Amended by:** [ADR-0233](0233-a-browser-application-keeps-a-private-document-and-one-workspace-replica-per-account.md):
+- **Amended by:** ADR-0233:
   in a browser the lens still names the application, and the caller also names
   which durable document to open and whose it is, so the derived location
   becomes `epicenter/<namespace>/device` or
@@ -33,9 +33,9 @@
 - **Amends:** [ADR-0204](0204-an-app-is-one-reverse-domain-identifier-that-names-every-place-it-exists.md)
   by completing it. Its rule was that one identifier names every place an app
   exists; the store's location was the last place still carrying a second name.
-- **Relates:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
+- **Relates:** ADR-0160
   (a lens is partial and non-authoritative, which is why the word survives),
-  [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
+  ADR-0215
   (one document per application),
   [ADR-0225](0225-a-store-authority-is-one-durable-object-per-principal-and-application-and-being-signed-in-is-the-sharing-model.md)
   (the authority is already addressed by namespace),

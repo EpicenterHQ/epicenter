@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Supersedes:** [ADR-0143](0143-account-open-never-consumes-device-data.md) at required sign-in adoption; signing in moves no data.
+- **Supersedes:** ADR-0143 at required sign-in adoption; signing in moves no data.
 - **Amends:** [ADR-0351](0351-local-data-removal-is-an-explicit-sign-out-choice.md) at removal scope: account-data removal excludes device-owned Local rows and blobs.
 - **Relates:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md), [ADR-0401](0401-a-record-names-its-destination-at-creation.md), and [ADR-0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md).
 - **Unbuilt:** Product-specific copy workflows and reference mapping. Whispering's accepted copy workflow is specified in [ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
@@ -13,7 +13,7 @@ The earlier proposal partitioned Local by the signed-in account and placed
 Local and Personal inside one App. The current direction opens stores explicitly.
 Local belongs to the device profile across account changes; Personal captures
 one account. Current stores own blob namespaces.
-[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md) proposes
+ADR-0438 proposes
 owner-scoped hosted objects addressed by authority URL. Opening another destination
 does not decide which rows or bytes a product should copy.
 

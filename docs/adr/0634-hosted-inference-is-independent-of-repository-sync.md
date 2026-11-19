@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
-- **Supersedes:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), its removal of hosted inference, transcription, the `ai` scope, AI billing, and the CLI's hosted request path.
-- **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) at its data-only product scope and bring-your-own-key-only CLI path; [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) at every browser service grant requiring a repository target; [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at applying the repository inventory to inference usage or billing records; and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) at excluding hosted inference from Epicenter's product scope.
-- **Relates:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) (resource audiences), [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) (endpoint and key), and [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (account-free local data).
+- **Supersedes:** ADR-0618, its removal of hosted inference, transcription, the `ai` scope, AI billing, and the CLI's hosted request path.
+- **Amends:** ADR-0611 at its data-only product scope and bring-your-own-key-only CLI path; [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) at every browser service grant requiring a repository target; ADR-0619 at applying the repository inventory to inference usage or billing records; and ADR-0627 at excluding hosted inference from Epicenter's product scope.
+- **Relates:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) (resource audiences), ADR-0564 (endpoint and key), and ADR-0633 (account-free local data).
 - **Unbuilt:** independent inference-only consent for the planned clients, its integration into standalone apps, and the included allowance's amount, renewal, eligible models, and limit behavior.
 
 ## Context

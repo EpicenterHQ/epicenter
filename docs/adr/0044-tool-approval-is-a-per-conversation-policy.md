@@ -3,7 +3,7 @@
 - **Status:** Accepted (design; lands with the first tool consumer)
 - **Amended by:** [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md): the policy seam (read-only / ask / auto, defaulted from the agent) is unchanged, but the underlying mechanism is no longer the durable doc-mediated approval of ADR-0042. The loop is client-side and the human is present, so an `ask` resolves by pausing the loop synchronously for an in-client decision.
 - **Date:** 2026-06-20
-- **Relates:** [ADR-0042](0042-the-agent-loop-is-the-workers-over-the-doc-as-the-message-array.md) (the doc-mediated approval mechanism this policy drives), [ADR-0030](0030-agents-are-immutable-capability-bundles.md) (the agent the mode defaults from), [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md) (tools are workspace actions), [ADR-0031](0031-collaboration-is-addressed-single-writer-regions-in-a-child-doc.md) (the single-writer region the decision is written into)
+- **Relates:** ADR-0042 (the doc-mediated approval mechanism this policy drives), [ADR-0030](0030-agents-are-immutable-capability-bundles.md) (the agent the mode defaults from), [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md) (tools are workspace actions), [ADR-0031](0031-collaboration-is-addressed-single-writer-regions-in-a-child-doc.md) (the single-writer region the decision is written into)
 
 ## Context
 

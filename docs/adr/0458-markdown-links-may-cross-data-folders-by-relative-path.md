@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-29
-- **Relates:** [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) at attachment ownership.
+- **Relates:** ADR-0456 at attachment ownership.
 - **Unbuilt:** resolution of cross-folder relative links in file-backed application views.
 
 ## Context

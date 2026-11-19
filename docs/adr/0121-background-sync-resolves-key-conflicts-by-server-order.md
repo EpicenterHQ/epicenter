@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-15
 - **Amended by:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md) (`Proposed`) at conflict resolution and at the outbox. Withdrawn: server acceptance order as the conflict rule, the refusal to store a device timestamp or a per-key clock, and the durable outbox this record's crash-recovery paragraph depends on. What survives is the product posture: no background conflict inbox, and no retained losing value.
-- **Relates:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md), [ADR-0092](0092-identity-is-the-partition.md), [ADR-0119](0119-complete-record-maps-sync-through-schema-blind-server-ordered-patches.md)
+- **Relates:** ADR-0088, [ADR-0092](0092-identity-is-the-partition.md), ADR-0119
 
 ## Context
 

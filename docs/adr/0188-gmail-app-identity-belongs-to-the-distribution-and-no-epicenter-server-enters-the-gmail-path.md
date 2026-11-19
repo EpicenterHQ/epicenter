@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-29
-- **Relates:** [ADR-0082](0082-local-mail-syncs-by-push-free-history-list-polling.md) (originally carried this decision on the wrong axis; retains push-free polling), [ADR-0081](0081-per-upstream-oauth-concurrency-decides-mirror-topology.md) (a per-device grant is free under Google's concurrency ceiling, which is what makes device-local consent affordable), [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md) (Epicenter's *own* OAuth is hosted-only; that is a different credential from the Gmail grant and does not govern here), [ADR-0116](0116-local-mail-is-desktop-first-one-bun-engine-no-background-mail-service.md) (the local engine that holds the grant), [ADR-0062](0062-local-books-stores-oauth-tokens-in-a-single-0600-file.md) (the 0600 on-disk token lineage this follows), [ADR-0068](0068-privacy-is-a-deployment-not-a-product-feature.md) (privacy is where you run it)
+- **Relates:** [ADR-0082](0082-local-mail-syncs-by-push-free-history-list-polling.md) (originally carried this decision on the wrong axis; retains push-free polling), [ADR-0081](0081-per-upstream-oauth-concurrency-decides-mirror-topology.md) (a per-device grant is free under Google's concurrency ceiling, which is what makes device-local consent affordable), ADR-0071 (Epicenter's *own* OAuth is hosted-only; that is a different credential from the Gmail grant and does not govern here), [ADR-0116](0116-local-mail-is-desktop-first-one-bun-engine-no-background-mail-service.md) (the local engine that holds the grant), ADR-0062 (the 0600 on-disk token lineage this follows), [ADR-0068](0068-privacy-is-a-deployment-not-a-product-feature.md) (privacy is where you run it)
 
 ## Context
 

@@ -52,7 +52,7 @@ acquire a durable history requirement merely because saved recording does.
 The later workflow may store the returned BlobId in its Local row. A Personal
 workflow may store text without an audio reference, or explicitly publish audio
 under its Personal owner and save the returned authority URL under
-[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). Current code copies
+ADR-0438. Current code copies
 to `personal.blobs` and saves the returned BlobId. These are
 product schema and mapping choices. Neither makes a row own bytes or creates
 an automatic local-to-remote transfer.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-23
 - **Amends:** [ADR-0309](0309-a-field-holds-a-value-or-a-node-and-the-retired-words-fail-the-build.md) at the row API and stored node layout. Value fields and collaborative nodes keep their distinct editing behavior.
-- **Amends:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) only at the nested row layout: the body moves from an attribute to the sole sequence child; the one-document decision stands.
+- **Amends:** ADR-0295 only at the nested row layout: the body moves from an attribute to the sole sequence child; the one-document decision stands.
 
 ## Context
 

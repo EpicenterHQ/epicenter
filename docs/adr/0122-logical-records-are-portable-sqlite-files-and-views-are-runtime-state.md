@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-15
-- **Relates:** [ADR-0119](0119-complete-record-maps-sync-through-schema-blind-server-ordered-patches.md), [ADR-0120](0120-fields-validate-present-values-and-table-lenses-own-presence.md), [ADR-0096](0096-local-workspace-persistence-is-environment-injected.md)
+- **Relates:** ADR-0119, [ADR-0120](0120-fields-validate-present-values-and-table-lenses-own-presence.md), [ADR-0096](0096-local-workspace-persistence-is-environment-injected.md)
 
 ## Context
 

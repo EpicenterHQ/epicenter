@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-07
-- **Amended by:** [ADR-0248](0248-a-row-owns-an-independent-yjs-document-at-a-derived-address.md)
+- **Amended by:** ADR-0248
   at the index/document split. The row's scalar type remains nested in the
   application document, while its rich document is independently loaded.
   this branch. Reconcile at merge time (`docs/adr/README.md`). This record
@@ -22,11 +22,11 @@
   (the lens and the application surface),
   [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md)
   (persistence and history).
-- **Supersedes:** [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md)
+- **Supersedes:** ADR-0163
   (`Proposed`) and, through it,
-  [ADR-0140](0140-open-workspaces-synchronize-automatically-and-callers-settle-one-watermark.md),
-  [ADR-0141](0141-authority-current-state-and-receipt-watermarks-drive-row-convergence.md)
-  and [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md)
+  ADR-0140,
+  ADR-0141
+  and ADR-0142
   (all `Accepted`), because retiring 0163 alone would revive them. Withdrawn from
   all four: numbered intent submission, the sealed batch and its
   `(sequence, digest)` receipt, `batch-conflict` recovery, replica-id rotation,
@@ -35,7 +35,7 @@
   recovery questions with one mechanism. The earlier 0212 draft carried these
   same supersessions for the same reason with a different replacement; the
   replacement changed, the retirement did not.
-  Also [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md).
+  Also ADR-0173.
   Withdrawn: the write-once blob slot and `digest A + B -> refuse or park B`. A
   blob digest is an ordinary field a later write repoints.
 - **Amends:** [ADR-0121](0121-background-sync-resolves-key-conflicts-by-server-order.md)
@@ -81,7 +81,7 @@
   withdrawn. This record adopts 0130 exactly as written, including its API:
   `using document = await tables.notes.document.open(row.id)`, with the
   application naming roots inside.
-- **Amended by:** [ADR-0284](0284-the-application-document-is-an-index-and-a-rows-remaining-fields-live-in-its-own-document.md) at what the row document holds: scalars declared `record`, beside the prose.
+- **Amended by:** ADR-0284 at what the row document holds: scalars declared `record`, beside the prose.
 
 ## Context
 

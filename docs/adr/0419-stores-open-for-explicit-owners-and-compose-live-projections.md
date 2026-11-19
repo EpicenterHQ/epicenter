@@ -6,7 +6,7 @@
 - **Unbuilt:** Shared opening, space membership and synchronization, store-first persistence addresses, native document persistence, and live SQLite projections. Those examples below remain proposals, not exports. Product migration is deferred.
 - **Amends:** [ADR-0406](0406-one-application-schema-is-used-by-every-store.md) at mandatory schema reuse: each opener receives its own definition; applications may reuse a schema or choose different schemas for different workflows.
 
-- **Related target:** [ADR-0436](0436-stores-own-local-sqlite-namespaces.md) adds raw, store-owned local SQL. It is separate from this record's derived read-only projections and proposed native Yjs persistence. Raw SQL may hold original data and is not inherently disposable.
+- **Related target:** ADR-0436 adds raw, store-owned local SQL. It is separate from this record's derived read-only projections and proposed native Yjs persistence. Raw SQL may hold original data and is not inherently disposable.
 
 ## Context
 
@@ -52,7 +52,7 @@ await local.close();
 Every opened store owns `tables` and `kv`. A Local store also owns `.blobs`;
 its definition ID selects the device-local blob namespace. Hosted publication
 belongs to an Account-bound client independent of the definition under
-[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). The proposed Shared
+ADR-0438. The proposed Shared
 store does not imply a Shared blob handle. Bytes remain outside the Yjs document
 and are transferred explicitly.
 

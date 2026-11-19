@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-06-15
 
-Supersedes [ADR-0002](0002-four-visible-read-states.md). It also amends the
-bucket list in [ADR-0001](0001-classified-scan-read-surface.md): `scan()` now
+Supersedes ADR-0002. It also amends the
+bucket list in ADR-0001: `scan()` now
 returns three buckets, not four.
 
 Every stored table entry resolves to exactly one of three states (conforming,

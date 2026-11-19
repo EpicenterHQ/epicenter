@@ -6,7 +6,7 @@
   at the public name: the declaration exposes its reverse-domain application
   identifier as `id`.
   this branch. Reconcile at merge time (`docs/adr/README.md`).
-- **Supersedes:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md):
+- **Supersedes:** ADR-0160:
   its address grammar and its "no independent Lens ID" stand, but its central
   claim, that several release-local Lenses may interpret one namespace and
   none is canonical, described the shared one-Epicenter namespace model that
@@ -24,13 +24,13 @@
   nullable-never-optional, one type through every door, validation that never
   gates storage. The artifact is now called a workspace declaration, authored
   with `defineWorkspace`, and parsed with `parseWorkspace`.
-- **Amends:** [ADR-0210](0210-an-installed-app-declares-its-name-and-the-namespace-it-owns.md):
+- **Amends:** ADR-0210:
   the admission artifact is `workspace.json`, not `lens.json`. Same shape,
   same rules, same admission gate; staged candidates are re-published by
   re-running their build script.
-- **Relates:** [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
+- **Relates:** ADR-0215
   (one document per application),
-  [ADR-0232](0232-a-page-lifetime-is-one-auth-generation-and-a-permanently-denied-sync-stops-for-good.md)
+  ADR-0232
   (a page lifetime is one generation, which is the lifecycle this record's
   invariant rides on),
   [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md)

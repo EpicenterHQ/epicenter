@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Amends:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) at three-way comparison against the current store and remote-conflict previews. The readable working copy and field-level writes remain.
+- **Amends:** ADR-0337 at three-way comparison against the current store and remote-conflict previews. The readable working copy and field-level writes remain.
 - **Relates:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes generation identity independently. [ADR-0341](0341-the-folder-moves-only-when-a-person-says-so-in-both-directions.md) defines baseline advancement; [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) separates change inspection from application.
 - **Unbuilt:** Permitted-field Push planning, complete preflight including body-edit refusal, durable baseline advancement and interrupted-operation refusal, and running-owner CLI wiring. Current checkout is not this narrowed contract.
 

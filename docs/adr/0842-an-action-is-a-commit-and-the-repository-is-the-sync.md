@@ -39,7 +39,7 @@ schema refuses, a refusal before `run`). 3: `run` started and threw; the folder'
 changes are undone, and effects outside it may have happened. With `--json`, an
 error is `{"error":{"code":"usage"|"failed"|"needs_person","message":…,"next":…}}`,
 where `next` is the command to run (`epicenter mail connect`). This changes
-[ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md)'s meaning of 2,
+ADR-0520's meaning of 2,
 which today also covers a thrown error.
 
 **Actions on one app take turns.** One action per app runs at a time; different

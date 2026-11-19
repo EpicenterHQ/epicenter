@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-24
-- **Relates:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) (stable body ownership), [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (file push)
+- **Relates:** ADR-0295 (stable body ownership), ADR-0337 (file push)
 - **Unbuilt:** Browser checkout evidence with the new codec contract.
 
 ## Context

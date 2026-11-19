@@ -13,7 +13,7 @@ must not let an old window borrow a new person's identity.
 
 One host process holds one boot Account. Deliberate sign-in or sign-out restarts
 the host immediately; no window is asked or waited for
-([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)). A first sign-in or different-person replacement
+(ADR-0542). A first sign-in or different-person replacement
 persists the credential for relaunch; it does not replace the boot Account.
 A failed relaunch leaves old windows unable to use the replacement identity.
 

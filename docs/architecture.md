@@ -10,7 +10,7 @@ says what Epicenter is, and the READMEs of `packages/app` and its command say
 how it works in code.
 
 For that product,
-[ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
+ADR-0835
 was the register of its decisions and [CONTEXT](CONTEXT.md) holds its
 vocabulary. This page says which package holds each piece, which files a flow
 passes through, and where the code differed from what was decided.
@@ -193,21 +193,21 @@ one folder or, with `--all`, `syncEvery`.
 
 ## Not built, and where the code differs
 
-[ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
+ADR-0835
 holds the Built column; this table says what the code does where it differs.
 
 | Decided | What the code does |
 | --- | --- |
-| Epicenter sends a change at once and checks every 30 seconds, with no notifier and no live session ([ADR-0830](adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md)) | `keepEverySynced` runs a round 3 seconds after the last change in a burst (`AFTER_CHANGE_MS`) and every 3 seconds (`CHECK_EVERY_MS`); a web store polls every 3 seconds (`POLL_MS`); web puts batch within 50 ms, not when typing pauses. There is no notifier and no live session. |
-| A folder is the directory Epicenter last synced, else Epicenter asks; no proof by name and files ([ADR-0832](adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md)) | `identify` still proves a directory by its recorded name and exact files in a folder the person holds alone, and `questionOf` matches unbound directories by name or title and joins silently when one match is held alone. |
-| A restore never deletes on a device; bytes leave through an outbox; the chain covers what changed, not who ([ADR-0829](adr/0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md)) | The next sync after a restore deletes on the device the files the restore removed. No outbox and no epoch rotation on restore; `purgeBlobs` deletes kept bytes. Each change's `digest` includes its account, author, and client. |
-| Text inline up to 2 KiB; each folder's older changes in its own archive ([ADR-0833](adr/0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md)) | Bytes up to 16 KiB (`INLINE_MAX`) are inline in Postgres, larger ones in the blob store. There is no archive. |
-| A body merges by Git's line merge, both versions shown; no merge by word ([ADR-0830](adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md)) | Sync's `merge3` merges by line. `settle`, which a folder's own write and an agent's tool run over a note that changed under them, still merges a line both sides changed by word first (`merge/merge.ts`). |
-| A note's front matter is one `key: <JSON>` per line ([ADR-0796](adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md)) | The grammar's reader and patcher exist and sync merges with them; a folder's own write formats a note as block YAML (`note/canonical.ts`). |
-| `epicenter git land` turns a branch into one change ([ADR-0831](adr/0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md)) | There is no `git land` command. |
-| Every folder is a Git remote ([ADR-0834](adr/0834-every-folder-is-also-a-git-remote.md)) | No Git endpoint. History leaves with `export --git` and enters with `import --git`. |
-| An app is a view, a window over one folder, and capabilities ([ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)) | An app compiles a contract with `defineContract` and opens a place with `openFolder(contract, home({ site, account }))`. `defineView`, `openFolder(view)`, and `@epicenter/app` do not exist. The fit check is unbuilt. |
-| Items named `{name}` ([ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)) | The code says note and `{id}`. |
+| Epicenter sends a change at once and checks every 30 seconds, with no notifier and no live session (ADR-0830) | `keepEverySynced` runs a round 3 seconds after the last change in a burst (`AFTER_CHANGE_MS`) and every 3 seconds (`CHECK_EVERY_MS`); a web store polls every 3 seconds (`POLL_MS`); web puts batch within 50 ms, not when typing pauses. There is no notifier and no live session. |
+| A folder is the directory Epicenter last synced, else Epicenter asks; no proof by name and files (ADR-0832) | `identify` still proves a directory by its recorded name and exact files in a folder the person holds alone, and `questionOf` matches unbound directories by name or title and joins silently when one match is held alone. |
+| A restore never deletes on a device; bytes leave through an outbox; the chain covers what changed, not who (ADR-0829) | The next sync after a restore deletes on the device the files the restore removed. No outbox and no epoch rotation on restore; `purgeBlobs` deletes kept bytes. Each change's `digest` includes its account, author, and client. |
+| Text inline up to 2 KiB; each folder's older changes in its own archive (ADR-0833) | Bytes up to 16 KiB (`INLINE_MAX`) are inline in Postgres, larger ones in the blob store. There is no archive. |
+| A body merges by Git's line merge, both versions shown; no merge by word (ADR-0830) | Sync's `merge3` merges by line. `settle`, which a folder's own write and an agent's tool run over a note that changed under them, still merges a line both sides changed by word first (`merge/merge.ts`). |
+| A note's front matter is one `key: <JSON>` per line (ADR-0796) | The grammar's reader and patcher exist and sync merges with them; a folder's own write formats a note as block YAML (`note/canonical.ts`). |
+| `epicenter git land` turns a branch into one change (ADR-0831) | There is no `git land` command. |
+| Every folder is a Git remote (ADR-0834) | No Git endpoint. History leaves with `export --git` and enters with `import --git`. |
+| An app is a view, a window over one folder, and capabilities (ADR-0818) | An app compiles a contract with `defineContract` and opens a place with `openFolder(contract, home({ site, account }))`. `defineView`, `openFolder(view)`, and `@epicenter/app` do not exist. The fit check is unbuilt. |
+| Items named `{name}` (ADR-0818) | The code says note and `{id}`. |
 | The Epicenter app shows every folder, its history, sharing, and import | Its Folders window is built (`apps/epicenter/src/folders/`) and its pages have not been seen running. "Connect your agents", views across folders, and purge are not built. |
 | `epicenter query`, `set`, `delete`, `normalize` ([ADR-0827](adr/0827-the-cli-and-mcp-render-one-table-of-operations.md)) | Not built; an agent has typed collection tools through `epicenter mcp`. |
 

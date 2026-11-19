@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-12
   this branch. Reconcile at merge time (`docs/adr/README.md`).
-- **Amends:** [ADR-0233](0233-a-browser-application-keeps-a-private-document-and-one-workspace-replica-per-account.md)
+- **Amends:** ADR-0233
   at the store surface: the replica verbs (`applyRemote`, the client log,
   `onLocalWork`, `hasUnresolvedDependencies`) leave the public type.
 - **Amended at the vocabulary only.** `WorkspaceStoreBase` is `DataDocument`,

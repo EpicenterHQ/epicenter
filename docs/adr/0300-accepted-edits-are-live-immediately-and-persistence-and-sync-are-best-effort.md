@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-31
 - **Amends:** [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md) at the rule that sync sends only durably recorded work
-- **Relates:** [ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md), [ADR-0110](0110-edit-write-timing-follows-the-value-owner-there-is-no-debounce-tier.md)
+- **Relates:** ADR-0298, [ADR-0110](0110-edit-write-timing-follows-the-value-owner-there-is-no-debounce-tier.md)
 - **Amended by:** [ADR-0302](0302-a-local-edit-is-offered-to-the-authority-once-it-is-durable.md) at the transient sync-delivery queue, which is withdrawn. The rest stands: an edit is accepted live and neither path may throw through the editor.
 
 ## Context

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) replaces aggregate App return types with independently acquired resource handles; account-free store behavior remains.
+- **Amended by:** ADR-0423 replaces aggregate App return types with independently acquired resource handles; account-free store behavior remains.
 - **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md): the shared data API stands; the account-only members `account`, `retirement`, and account inference exist only on an account session's type.
 
 ## Context
@@ -63,7 +63,7 @@ forwards it, so the App simply does not forward it for a local open.
 <!-- doc-path-check: ignore-next-line -->
 `packages/app/src/index.ts`: one per app, opened as many times as a product
 needs, each open owning one library. A page may hold a local App and a
-personal App at once from one Application, which [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) already permits as a separately captured non-primary library. Moving data between them is an explicit import over two handles, as [ADR-0143](0143-account-open-never-consumes-device-data.md) and ADR-0355 require, never a handle feature.
+personal App at once from one Application, which [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) already permits as a separately captured non-primary library. Moving data between them is an explicit import over two handles, as ADR-0143 and ADR-0355 require, never a handle feature.
 
 ## Consequences
 

@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md) at runtime write validation: ordinary store assignments, including permitted working-copy edits, preserve JSON values independently of conformance. Definitions remain consumer-specific read lenses and never migrate stored data; static authoring types are not a runtime write gate.
 - **Implemented boundary:** Executable-config validation, strict malformed-input refusal, and artifact JSON-value validation. The YAML parsing shared with Matter was deleted with Matter.
 - **Unbuilt:** Owner-routed field-only Pull/Push.
-- **Amended by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at the Matter file contract: Matter and `@epicenter/matter-core/parse` are deleted.
+- **Amended by:** ADR-0534 at the Matter file contract: Matter and `@epicenter/matter-core/parse` are deleted.
 
 ## Context
 

@@ -3,13 +3,13 @@
 - **Status:** Accepted
 - **Date:** 2026-08-21
   open ADRs before merge.
-- **Supersedes:** [ADR-0250](0250-a-database-exposes-documents-as-first-class-members-and-applications-compose-their-lifecycles.md)
+- **Supersedes:** ADR-0250
   at the public document namespace and lifecycle owner. The independent
   document, derived address, and opaque manager remain.
 - **Amends:** [ADR-0255](0255-data-definitions-use-one-data-first-public-vocabulary.md)
   at the opened data surface: `data.tables` owns row-document opening, and
   `data.documents` is not public.
-- **Relates to:** [ADR-0248](0248-a-row-owns-an-independent-yjs-document-at-a-derived-address.md)
+- **Relates to:** ADR-0248
   and [ADR-0251](0251-one-transaction-coordinator-backs-direct-operations-and-explicit-compositions.md).
 
 ## Context

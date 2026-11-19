@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-12
 - **Amends:** [ADR-0272](0272-restore-replaces-a-workspace-from-an-artifact-under-a-new-document-identity.md) at the product recovery workflow: bringing old content back uses ordinary Push, not a restore endpoint or replacement document. [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md) at recovery through writable historical generations: no generation picker is required.
-- **Relates:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (the working copy), [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) (historical Push semantics), [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) (file-change inspection), [ADR-0394](0394-materialization-contains-documents-and-blob-references.md) (folder contents).
+- **Relates:** ADR-0337 (the working copy), [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) (historical Push semantics), [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) (file-change inspection), [ADR-0394](0394-materialization-contains-documents-and-blob-references.md) (folder contents).
 - **Implementation:** `createWorkingCopy` already exposes Pull and Push with previews, new-row admission, permanent row deletion, and reports for unreadable files. A dedicated backup-restoration UI is not required.
 
 ## Context

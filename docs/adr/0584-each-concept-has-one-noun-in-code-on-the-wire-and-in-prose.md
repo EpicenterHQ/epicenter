@@ -2,15 +2,15 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Amended by:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) only at the public `Folder` handle: it names rooted local paths and contents; a directory remains a physical filesystem location.
-- **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
-- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `openFolder({ app, definition })` and `WindowFolder.app`: the opener takes no `app`, and `window_folder` answers the folder alone.
-- **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at the App noun, "named by its reverse-domain id", and at its wire renames: an app is named by its address, and the renames land before the first release, after which the page API changes only by addition.
-- **Amended by:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) at the rename of `WindowFolder.folder` to `folderId`: `WindowFolder` is deleted, so nothing is renamed.
-- **Amended by:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at the Folder noun: what a person shares and an app opens is a repository.
-- **Amended by:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`.
+- **Amended by:** ADR-0636 only at the public `Folder` handle: it names rooted local paths and contents; a directory remains a physical filesystem location.
+- **Amended by:** ADR-0585 at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
+- **Amended by:** ADR-0586 at `openFolder({ app, definition })` and `WindowFolder.app`: the opener takes no `app`, and `window_folder` answers the folder alone.
+- **Amended by:** ADR-0589 at the App noun, "named by its reverse-domain id", and at its wire renames: an app is named by its address, and the renames land before the first release, after which the page API changes only by addition.
+- **Amended by:** ADR-0607 at the rename of `WindowFolder.folder` to `folderId`: `WindowFolder` is deleted, so nothing is renamed.
+- **Amended by:** ADR-0612 at the Folder noun: what a person shares and an app opens is a repository.
+- **Amended by:** ADR-0613 at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`.
 - **Unbuilt:** application migration from the legacy folder API to the public local-data API; this terminology pass changes no exported function, stored field, CLI command, or lock name.
-- **Relates:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) decided the opener (`openFolder`, `folder.own`, no `lens`); [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) is the one write; [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) pins installed apps to the shell commands they were built against; [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) addresses a row by its stem.
+- **Relates:** ADR-0583 decided the opener (`openFolder`, `folder.own`, no `lens`); ADR-0576 is the one write; ADR-0581 pins installed apps to the shell commands they were built against; [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) addresses a row by its stem.
 
 ## Context
 

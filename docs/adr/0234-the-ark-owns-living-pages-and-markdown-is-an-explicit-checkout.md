@@ -5,7 +5,7 @@
 - **Status:** Proposed
 - **Date:** 2026-08-10
 - **Amends:** [ADR-0207](0207-rows-render-continuously-to-markdown-and-frontmatter-is-the-only-way-back.md) at the Ark page checkout: it replaces continuous field rendering, field-only prose, and conflict-free push with an explicit checkout of a page row and its prose document; [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md) at the application model: `so.theark` is a Lens whose page rows own the authored page attributes and prose document.
-- **Relates:** [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md), [ADR-0229](0229-a-lens-names-the-store-it-opens-and-opening-is-one-call.md)
+- **Relates:** ADR-0215, [ADR-0229](0229-a-lens-names-the-store-it-opens-and-opening-is-one-call.md)
 
 ## Context
 

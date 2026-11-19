@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-22
-- **Relates:** [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the configurable backend this unlocks), [ADR-0035](0035-durable-storage-is-one-per-person-coordination-box.md) (cross-origin sync carries the bearer as a WebSocket subprotocol, not through this fetch), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the inference wire whose base URL becomes user-chosen)
+- **Relates:** [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the configurable backend this unlocks), [ADR-0035](0035-durable-storage-is-one-per-person-coordination-box.md) (cross-origin sync carries the bearer as a WebSocket subprotocol, not through this fetch), ADR-0050 (the inference wire whose base URL becomes user-chosen)
 
 ## Context
 

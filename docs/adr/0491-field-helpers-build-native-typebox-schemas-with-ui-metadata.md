@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-02
 - **Amends:** [ADR-0255](0255-data-definitions-use-one-data-first-public-vocabulary.md) at the refusal of inert JSON Schema `default` annotations. Initialization and recovery remain application-owned.
-- **Amended by:** [ADR-0525](0525-a-field-is-plain-json-schema.md) at native callbacks: `Type.Refine`, `~guard`, and codecs are refused in fields, the frozen-copy protection is removed, and a prepared field is a JSON copy rather than a `Memory.Clone` snapshot.
-- **Amended by:** [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) at the three reads: `check` replaces `accepts`, `conformance`, and `inputIssues`, and a missing field is an issue only when it is required.
+- **Amended by:** ADR-0525 at native callbacks: `Type.Refine`, `~guard`, and codecs are refused in fields, the frozen-copy protection is removed, and a prepared field is a JSON copy rather than a `Memory.Clone` snapshot.
+- **Amended by:** ADR-0526 at the three reads: `check` replaces `accepts`, `conformance`, and `inputIssues`, and a missing field is an issue only when it is required.
 
 ## Context
 

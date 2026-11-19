@@ -3,12 +3,12 @@
 - **Status:** Accepted
 - **Date:** 2026-08-28
 - **Amends:** [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) at its route table. The small object holding the generation list stays and gains two jobs; `GET /current`, `PUT /current`, and the envelope `POST` body do not survive. Numbering by increment, "a generation object knows its own name from `ctx.id.name`", and the ban on `idFromString` are unchanged and load-bearing.
-- **Amends:** [ADR-0277](0277-the-authority-reads-the-bytes-and-sync-becomes-the-yjs-protocol.md) at the address surface, which moves under `/api` and gains explicit non-existence.
-- **Amended by:** [ADR-0290](0290-a-mint-is-a-foreground-job-the-client-owns-and-it-cannot-outlive-a-page.md) at two words in the minting paragraph. An upload is no longer resumable, because a mint is never resumed; and "a visible ledger row a person deletes" survives only as far as ADR-0287 allows, which is that an abandoned number is inert rather than removable. The route table is unchanged.
-- **Amended by:** [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) at mint allocation timing and the data-bearing request.
+- **Amends:** ADR-0277 at the address surface, which moves under `/api` and gains explicit non-existence.
+- **Amended by:** ADR-0290 at two words in the minting paragraph. An upload is no longer resumable, because a mint is never resumed; and "a visible ledger row a person deletes" survives only as far as ADR-0287 allows, which is that an abandoned number is inert rather than removable. The route table is unchanged.
+- **Amended by:** ADR-0293 at mint allocation timing and the data-bearing request.
 - **Unbuilt:** all of it.
 - **Amended by:** [ADR-0287](0287-the-authority-does-not-delete-a-generation-and-erasure-is-an-account-operation.md) at most of its decision. The tombstone, the sever, the per-generation sweep, the on-wake gate, `410`, and `DELETE` are all withdrawn; the ledger survives as an allocator, a browse list, and a register of addresses whose consumer is account erasure.
-- **Amended by:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) at the per-document routes and the address register, which have no subject once a generation is one document.
+- **Amended by:** ADR-0295 at the per-document routes and the address register, which have no subject once a generation is one document.
 
 ## Context
 

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-18
-- **Supersedes:** [ADR-0929](0929-new-copies-an-apps-code-from-a-folder-in-git-or-a-folder-on-github.md): `new --from` no longer exists. [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md): `export` no longer exists.
+- **Supersedes:** ADR-0929: `new --from` no longer exists. ADR-0911: `export` no longer exists.
 - **Amends:** [ADR-0940](0940-git-stores-the-home-and-epicenter-does-not-wrap-it.md) at "`epicenter export` reads": no command exports, so the `epicenter` command runs no Git.
 - **Relates:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) (copying is the only way to take an app's code; the owner does the copying), [ADR-0943](0943-epicenters-core-invariants.md) (rule 6), [ADR-0958](0958-no-command-makes-an-epicenter.md) (no command makes an Epicenter).
 

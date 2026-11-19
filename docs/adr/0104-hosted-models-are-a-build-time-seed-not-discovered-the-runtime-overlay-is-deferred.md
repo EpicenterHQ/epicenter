@@ -2,8 +2,8 @@
 
 - **Status:** Superseded
 - **Date:** 2026-07-03
-- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.
-- **Relates:** [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (custom connections discover their models via `/v1/models`; this decides why hosted does not), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible wire and the free-string model id the gateway routes), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the metered gateway hosted points at), [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (the credit price a hosted catalog entry carries)
+- **Superseded by:** ADR-0618, Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.
+- **Relates:** [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (custom connections discover their models via `/v1/models`; this decides why hosted does not), ADR-0050 (the OpenAI-compatible wire and the free-string model id the gateway routes), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the metered gateway hosted points at), [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (the credit price a hosted catalog entry carries)
 
 ## Context
 
@@ -24,7 +24,7 @@
 - **A future reader has a settled answer to "why not discover hosted too?"** without re-running the pass. The hosted gateway does not need `GET /v1/models`, reaffirming [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md).
 - **Adding a hosted model still ships a client today.** Accepted while the catalog is small and rarely changed; the overlay is the escape hatch when that cost bites, not a thing carried empty now.
 - **Two guards are pre-decided for the overlay so it cannot be built carelessly.** The overlay wins on *presence* (new ids appear) but must not silently rewrite *price*: either the seed wins on credits or the served payload is signed, so a bad deploy cannot re-bill a user mid-session. And the gateway serves a public projection (a DTO), never the internal catalog.
-- **The type cost of the eventual overlay is already priced.** [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) already made the model id a free string the gateway routes (an unservable id is a runtime error, not a compile error), so overlay-added ids being unbounded strings is consistent, not a regression. The seed keeps its literal union.
+- **The type cost of the eventual overlay is already priced.** ADR-0050 already made the model id a free string the gateway routes (an unservable id is a runtime error, not a compile error), so overlay-added ids being unbounded strings is consistent, not a regression. The seed keeps its literal union.
 - **Nothing in the client changes.** Custom `/v1/models` discovery, the injected hosted transport, and the custom-before-hosted collision tie-break all stand as [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) left them.
 
 ### Refinement (2026-07-03): the overlay read should be query-backed

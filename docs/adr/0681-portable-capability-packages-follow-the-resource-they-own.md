@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-22
-- **Relates:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) established runtime selection inside the former App package; [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) and [ADR-0643](0643-the-folder-package-owns-its-local-engine.md) establish Folder's public contract and implementation owner; [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) keeps inference independent of local data; [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) and [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) define the accepted, unbuilt database contract.
+- **Relates:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) established runtime selection inside the former App package; ADR-0636 and ADR-0643 establish Folder's public contract and implementation owner; [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) keeps inference independent of local data; ADR-0673 and ADR-0678 define the accepted, unbuilt database contract.
 - **Unbuilt:** `@epicenter/sqlite` and `@epicenter/secrets` have no production exports. The browser SQLite backend remains undecided.
 
 ## Context

@@ -5,7 +5,7 @@
 
 ## Context
 
-[ADR-0028](0028-both-shortcut-tiers-share-one-physical-keybinding-model.md) unified the runtime representation of both shortcut tiers onto one physical `KeyBinding`, and [ADR-0019](0019-global-shortcuts-have-a-permission-free-floor-and-accessibility-is-an-opt-in-tier.md) split execution into a permission-free chord floor and an opt-in hold tier. The representation is now one, but the model around it still asks four separate questions for one fact: scope (focused or system), tier (chord or hold), backend (in-app keydown or native tap), and storage home. Each is really re-reading the physical shape of the keystroke, and the settings UI surfaces the worst of them, a "system vs in-app" scope toggle, as a choice the user already made when they picked the key. A bare letter cannot be system-wide; a chord can; a hold can but needs Accessibility. The keystroke already decides reach, so the user should not be asked.
+[ADR-0028](0028-both-shortcut-tiers-share-one-physical-keybinding-model.md) unified the runtime representation of both shortcut tiers onto one physical `KeyBinding`, and ADR-0019 split execution into a permission-free chord floor and an opt-in hold tier. The representation is now one, but the model around it still asks four separate questions for one fact: scope (focused or system), tier (chord or hold), backend (in-app keydown or native tap), and storage home. Each is really re-reading the physical shape of the keystroke, and the settings UI surfaces the worst of them, a "system vs in-app" scope toggle, as a choice the user already made when they picked the key. A bare letter cannot be system-wide; a chord can; a hold can but needs Accessibility. The keystroke already decides reach, so the user should not be asked.
 
 ## Decision
 

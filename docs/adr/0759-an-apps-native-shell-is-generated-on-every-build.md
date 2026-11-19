@@ -2,8 +2,8 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
-- **Amends:** [ADR-0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md) at `native/`, the app layout, and the bundle settings left without a source: the whole shell, not only `main.rs` and permissions, is generated on every build and never committed, and app-specific native code lives in `modules/<name>/`; [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) at "stays the app's own, per platform, in `native/`": it lives in `modules/<name>/`.
-- **Relates:** [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) (a capability keeps its TypeScript and its Rust plugin in one directory), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names from the site's host), [ADR-0738](0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md) (`epicenter add` writes a handle module), [ADR-0760](0760-global-shortcuts-are-a-capability.md) (Whispering's shortcut becomes a capability).
+- **Amends:** [ADR-0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md) at `native/`, the app layout, and the bundle settings left without a source: the whole shell, not only `main.rs` and permissions, is generated on every build and never committed, and app-specific native code lives in `modules/<name>/`; ADR-0753 at "stays the app's own, per platform, in `native/`": it lives in `modules/<name>/`.
+- **Relates:** [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) (a capability keeps its TypeScript and its Rust plugin in one directory), ADR-0722 (names from the site's host), ADR-0738 (`epicenter add` writes a handle module), [ADR-0760](0760-global-shortcuts-are-a-capability.md) (Whispering's shortcut becomes a capability).
 - **Unbuilt:** all of it: the generator and the `.gitignore` entry for its output; the `package.json` key a capability declares its plugin and platform permissions in; `modules/` in any app; the development host.
 
 ## Context
@@ -19,7 +19,7 @@ put the Rust no capability covers in `native/`.
 
 Most of what those files say derives from something an app already
 declares. The product name and bundle identifier derive from the site
-([ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md)). The
+(ADR-0722). The
 microphone permission is there because the app records, which its
 `@epicenter/recorder` dependency already says. The icon set derives from
 one image.
@@ -38,7 +38,7 @@ Tauri permission files, `main.rs`, and the Cargo project into a directory
 
 | Source | Gives |
 | --- | --- |
-| the site | the product name and the bundle identifier ([ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md)) |
+| the site | the product name and the bundle identifier (ADR-0722) |
 | the capabilities in the app's dependencies | each one's Tauri plugin and permissions, and its platform permissions: `@epicenter/recorder` adds the microphone permission |
 | `icon.png` | every icon size each platform needs |
 
@@ -62,7 +62,7 @@ capability: TypeScript plus a Rust plugin.** Promoting a module into
 adds a capability, because the workspace pins every package's version and
 the generator reads the dependency. `epicenter add` remains the command
 that writes a script's handle module
-([ADR-0738](0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md)).
+(ADR-0738).
 
 **Development may run on a shared host; a release never does.** After the
 generator, a development host is built: one prebuilt shell carrying every

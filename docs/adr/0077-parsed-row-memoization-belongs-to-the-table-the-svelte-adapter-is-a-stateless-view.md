@@ -68,7 +68,7 @@ Split the two concerns by layer.
   `parseRow` is memoized by the stored value's object reference (a
   `WeakMap<storedValue, Result>`), so `scan()` and `get()` reparse only changed
   rows and return the same row object for an unchanged row across calls. `scan()`
-  stays the public classified-read surface from [ADR-0001](0001-classified-scan-read-surface.md);
+  stays the public classified-read surface from ADR-0001;
   the cache sits behind it.
 
 Reactivity granularity is the adapter's job; parse memoization and row identity

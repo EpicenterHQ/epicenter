@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-31
-- **Amends:** [ADR-0239](0239-a-stores-kind-is-its-sync-value-and-delivery-bookkeeping-is-internal.md) at the fold's use of the store's kind, which stops being a constructor argument; [ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md) at owed appends staying individually addressable
+- **Amends:** [ADR-0239](0239-a-stores-kind-is-its-sync-value-and-delivery-bookkeeping-is-internal.md) at the fold's use of the store's kind, which stops being a constructor argument; ADR-0298 at owed appends staying individually addressable
 - **Relates:** [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md), whose ordered queue is unchanged; [ADR-0300](0300-accepted-edits-are-live-immediately-and-persistence-and-sync-are-best-effort.md), whose transient delivery queue was withdrawn hours later by [ADR-0302](0302-a-local-edit-is-offered-to-the-authority-once-it-is-durable.md), which is why the merge has no second queue to keep in step
 
 ## Context

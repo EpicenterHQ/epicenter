@@ -2,18 +2,18 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Supersedes:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), whose hosted-only OAuth and static self-host token give way to one authorization server in every deployment; [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md), whose self-host composes neither Better Auth nor Postgres; [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), whose self-host is a separate single-partition app behind an operator-supplied bearer.
+- **Supersedes:** ADR-0071, whose hosted-only OAuth and static self-host token give way to one authorization server in every deployment; ADR-0076, whose self-host composes neither Better Auth nor Postgres; ADR-0075, whose self-host is a separate single-partition app behind an operator-supplied bearer.
 - **Amends:** [ADR-0331](0331-whispering-authenticates-with-an-oauth-bearer-on-every-surface.md) at its web-grant hardening (a refresh token in `localStorage`, refresh rotation in the browser) and its self-host `createInstanceTokenAuth` sentence; [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) at its clause that a custom instance still requires a token.
-- **Amended by:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) at the desktop row, at an installed app using the desktop grant "through the host's broker", and at "the desktop's Bun host in process": the `epicenter` CLI holds and refreshes the desktop refresh token under its file lock and caches access tokens beside it, while the client, grant, redirect, and "WebViews hold none" are unchanged.
-- **Amended by:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at the command names, which are `epicenter auth login` and `epicenter auth git-credential`, and at the refusal of loopback login for the CLI: `epicenter auth login --loopback` is the desktop client `so.epicenter` signing in from the bundled binary, its grant serves only commands Rust runs, and `so.epicenter.cli` keeps only the device grant.
-- **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at "The desktop shell registers the same helper for its `git` runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
+- **Amended by:** ADR-0556 at the desktop row, at an installed app using the desktop grant "through the host's broker", and at "the desktop's Bun host in process": the `epicenter` CLI holds and refreshes the desktop refresh token under its file lock and caches access tokens beside it, while the client, grant, redirect, and "WebViews hold none" are unchanged.
+- **Amended by:** ADR-0558 at the command names, which are `epicenter auth login` and `epicenter auth git-credential`, and at the refusal of loopback login for the CLI: `epicenter auth login --loopback` is the desktop client `so.epicenter` signing in from the bundled binary, its grant serves only commands Rust runs, and `so.epicenter.cli` keeps only the device grant.
+- **Amended by:** ADR-0559 at "The desktop shell registers the same helper for its `git` runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
 - **Amended by:** [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) at "A refresh family is one grant's lineage", the resource table, two consequences, the Unbuilt line, the `so.epicenter.cli` row, and the self-host resources: a refresh family is every grant of one client for one person, a replay after 60 seconds ends all of them, and the desktop and the CLI are separate families; the vendored patch, "A refresh row without a lineage is an error", "No other installation is affected", "The patch is re-verified on every Better Auth upgrade", and "sending the lineage patch upstream" are withdrawn; `api` and `git` accept every first-party scope and only `mcp` limits scopes, so a refresh never narrows the grant while each access token stays bound to its audience; `so.epicenter.cli` includes `openid`; and a deployment other than the hosted one serves `<origin>`, `<origin>/git`, and `<origin>/mcp`, resolved by `resolveOAuthAudiences`.
 - **Amended by:** [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) at the third-party MCP client row, the `https://mcp.epicenter.so/mcp` resource row, the MCP uses of `folders:read` and `folders:write`, and `cimd(...)`: there is no `mcp` audience, and every client is a registered first-party row.
-- **Amended by:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "A grant targets `*` or one namespace", the target column of the client table, the `referenceId` and `namespace_member` clauses of the access statement, and the target on the device approval page: a grant has no target, and a token reaches its person's own namespace.
-- **Amended by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md) at the `ai` scope and the `/v1/*` rows of its resource and scope tables: the API serves no `/v1/*`, and no `ai` scope exists.
-- **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at the browser row's "no `offline_access`" and the access statement's "this resource's audience": a browser app with more than one resource asks for `offline_access` in its one redirect only to mint an access token per audience at the callback (exchange the code for the first, refresh once for each other), keeps no refresh token at rest, and its grant stays bound to the authorization server's session; a resource admits a token only when its audience is exactly that resource.
-- **Amended by:** [ADR-0720](0720-you-sign-in-a-machine-not-an-app.md) at the client table's desktop and CLI rows: `so.epicenter` is the one first-party client for a machine, accepting the loopback authorization code and device authorization, its refresh token is the machine's one session, and `so.epicenter.cli` retires.
-- **Amended by:** [ADR-0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) at the `https://git.epicenter.so` resource and ADR-0565's `<origin>/git`: the folders audience is `folders`, at `<api origin>/folders` on every deployment.
+- **Amended by:** ADR-0594 at "A grant targets `*` or one namespace", the target column of the client table, the `referenceId` and `namespace_member` clauses of the access statement, and the target on the device approval page: a grant has no target, and a token reaches its person's own namespace.
+- **Amended by:** ADR-0618 at the `ai` scope and the `/v1/*` rows of its resource and scope tables: the API serves no `/v1/*`, and no `ai` scope exists.
+- **Amended by:** ADR-0700 at the browser row's "no `offline_access`" and the access statement's "this resource's audience": a browser app with more than one resource asks for `offline_access` in its one redirect only to mint an access token per audience at the callback (exchange the code for the first, refresh once for each other), keeps no refresh token at rest, and its grant stays bound to the authorization server's session; a resource admits a token only when its audience is exactly that resource.
+- **Amended by:** ADR-0720 at the client table's desktop and CLI rows: `so.epicenter` is the one first-party client for a machine, accepting the loopback authorization code and device authorization, its refresh token is the machine's one session, and `so.epicenter.cli` retires.
+- **Amended by:** ADR-0828 at the `https://git.epicenter.so` resource and ADR-0565's `<origin>/git`: the folders audience is `folders`, at `<api origin>/folders` on every deployment.
 - **Unbuilt:** LFS at the Git audience (ADR-0546); the devices and grants list; the requesting address on the device approval page; the scheduled delete of expired tokens.
 - **Amended by:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at the client table: every app's client is its origin, `so.epicenter` is the Epicenter app and its engine, and `so.epicenter.cli` retires; [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) at "A browser app keeps its access token in `localStorage` and holds no refresh token" and its `prompt=none` renewal: a browser app keeps a rotated refresh token beside its access tokens and renews without navigating.
 
@@ -28,7 +28,7 @@ day of use (`session-policy.ts`). Every session can do everything the person
 can, including account changes within `freshAge` ([ADR-0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md)).
 Self-hosting is `apps/api`'s Bun entry (`apps/api/server.ts`) on Postgres,
 which composes the same `createServerApp` and `createAuth` as the Worker.
-[ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)
+ADR-0546
 planned the device's session as its Git credential, with Better Auth's core
 `deviceAuthorization()` behind `epicenter login` and its API key package for
 narrower keys.
@@ -94,9 +94,9 @@ removed: bearer(), sessionHandoff
 | A first-party app's browser build (Todos, Whispering) | The app id, e.g. `so.epicenter.todos`; public, pre-registered | Authorization code with S256 PKCE; no `offline_access` | `https://<app origin>/auth/callback`, exact | One access token in `localStorage`, shared by the origin's tabs | Skipped; target `*` |
 | The Epicenter desktop app | `so.epicenter`; public, pre-registered | Authorization code with PKCE and `offline_access` | `http://127.0.0.1:<any port>/callback`, port ignored | Refresh token in the OS keychain; access tokens in the Bun host's memory; WebViews hold none ([ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md)) | Skipped; target `*` |
 | The `epicenter` CLI and agents on the person's machine | `so.epicenter.cli`; public, pre-registered; the only client allowed the device grant | Device authorization (RFC 8628) only | None | Refresh token in the OS keychain | Device approval page, every time |
-| A third-party MCP client | The HTTPS URL of its client ID metadata document | Authorization code with PKCE and `offline_access` | Exactly those its document lists; loopback port ignored | Its own storage | Consent page, every time; reaches only the MCP resource ([ADR-0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)) |
+| A third-party MCP client | The HTTPS URL of its client ID metadata document | Authorization code with PKCE and `offline_access` | Exactly those its document lists; loopback port ignored | Its own storage | Consent page, every time; reaches only the MCP resource (ADR-0550) |
 
-An installed app ([ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md))
+An installed app (ADR-0540)
 is not a client: it runs in Epicenter's origin and uses the desktop app's grant
 through the host's broker. First-party clients and the resources are seeded by
 migrations, not by an admin session.
@@ -106,7 +106,7 @@ migrations, not by an admin session.
 | Resource (`resource`, the token's audience) | Serves | `allowedScopes` |
 | --- | --- | --- |
 | `https://api.epicenter.so` | `/v1/*` inference and transcription, `GET /api/repos`, the profile and usage reads | `ai`, `profile`, `folders:read` |
-| `https://git.epicenter.so` | Git smart HTTP and LFS ([ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md), [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)) | `folders:read`, `folders:write` |
+| `https://git.epicenter.so` | Git smart HTTP and LFS (ADR-0546, ADR-0544) | `folders:read`, `folders:write` |
 | `https://mcp.epicenter.so/mcp` | The folder MCP server (ADR-0550) | `folders:read`, `folders:write` |
 
 **Every client's access tokens last eight hours, GitHub's lifetime for user
@@ -152,7 +152,7 @@ changes the account: linking a provider, deleting the account, and billing
 happen only on the authorization server's own pages, with its session cookie.
 
 **A grant targets `*` or one namespace, `ns:<id>`
-([ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).**
+(ADR-0547).**
 `*` is every namespace the person is a member of, now and later. The person
 picks the target on the consent page or the device approval page from "All
 folders", "Personal", and each group by its title. `postLogin.consentReferenceId`
@@ -186,7 +186,7 @@ minutes of expiry, the app navigates top level to
 session cookie exists, that returns a code without a page; otherwise it
 answers `login_required` and the app shows sign-in. There is no hidden iframe:
 the cookie is `SameSite=Lax`. Work held only in page memory, such as a browser
-recording ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)),
+recording (ADR-0543),
 is lost to that navigation.
 
 **The authorization server's session cookie works only on its own pages.**

@@ -4,7 +4,7 @@
 - **Date:** 2026-09-12
 - **Amends:** [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md) at the active-model clause only: a request names an installed model, so "there is no per-request `modelId`" and "an application requests transcription; it does not request a model" are withdrawn. Host-owned residency, model administration in Epicenter Home, the exact model on every transcript, and model files never syncing all stand.
 - **Amends:** [ADR-0012](0012-transcription-settings-are-read-at-use-not-mirrored-into-rust.md) at the model-identity boundary, restoring what ADR-0180 withdrew: the model name is again a per-call value, read at use like the language and the prompt.
-- **Relates:** [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md), [ADR-0362](0362-inference-connections-do-not-require-runtime-management.md), [ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md)
+- **Relates:** ADR-0363, [ADR-0362](0362-inference-connections-do-not-require-runtime-management.md), [ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md)
 - **Unbuilt:** The picker's "This device" group, and the deletion of `transcribe_recording`. The explicit path existed until commit `e06a42c039` dropped the runtime inference source: `0320d9980b89:packages/ai/src/runtime-transcriber.ts` refused a request without an exact model id and invoked `transcribe_audio_bytes`, which calls `ModelCache::transcribe_explicit`.
 
 ## Context
@@ -39,7 +39,7 @@ requests naming the same installed model name the same model on the transcript.
 
 **Epicenter Home still administers installs and unload policy.**
 Downloading and the idle clock stay host-owned and stay in Home. Epicenter never
-deletes a model ([ADR-0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md)). An application cannot install a model or ask
+deletes a model (ADR-0579). An application cannot install a model or ask
 for one to be loaded; it can only name one that is already installed.
 
 **The installed list is the runtime connection's model list, not a download

@@ -2,14 +2,14 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
-- **Amended by:** [ADR-0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) at its decision: its two halves become two roots of Epicenter's doctrine, "programs meet in shared places, never by calling each other" and "speak the standard; invent only what none covers"; [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) at "Open, not decided": the agent loop speaks the OpenAI vocabulary and keeps only its stream type, `EngineChunk`.
-- **Relates:** [ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) (its outward form: Epicenter adapts to what you already have), [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) (an app declares what it is and what it needs), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (programs meet in the folder), [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) (programs meet in the model cache; an endpoint is a Fetch API function).
-- **Amended by:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at history being Git and stock `git` working unchanged: history leaves as Git, and stock Git reads an export but writes nothing.
-- **Unbuilt:** the standards and places ADR-0757 adopts (`endpoint.fetch`, the Hugging Face cache as every app's model store) and `settle` in the Rust sync core ([ADR-0751](0751-every-native-app-carries-one-sync-core.md)).
+- **Amended by:** ADR-0763 at its decision: its two halves become two roots of Epicenter's doctrine, "programs meet in shared places, never by calling each other" and "speak the standard; invent only what none covers"; [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) at "Open, not decided": the agent loop speaks the OpenAI vocabulary and keeps only its stream type, `EngineChunk`.
+- **Relates:** ADR-0758 (its outward form: Epicenter adapts to what you already have), ADR-0753 (an app declares what it is and what it needs), ADR-0750 (programs meet in the folder), [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) (programs meet in the model cache; an endpoint is a Fetch API function).
+- **Amended by:** ADR-0824 at history being Git and stock `git` working unchanged: history leaves as Git, and stock Git reads an export but writes nothing.
+- **Unbuilt:** the standards and places ADR-0757 adopts (`endpoint.fetch`, the Hugging Face cache as every app's model store) and `settle` in the Rust sync core (ADR-0751).
 
 ## Context
 
-[ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md)
+ADR-0758
 states what Epicenter owns from the person's side: syncing folders and the
 merge rule, and nothing a tool they already have does. It does not say what
 Epicenter's own parts are made of, or how they reach each other.
@@ -20,7 +20,7 @@ vocabulary ([ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cac
 Sync stopped being a role one program plays for the others and became an
 operation any program runs on a folder, meeting the others only in its lock
 and its `.git`
-([ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)).
+(ADR-0750).
 Apps share model files through the Hugging Face cache instead of a model
 server (ADR-0757).
 
@@ -41,16 +41,16 @@ programs meet only in shared places, never by calling each other.**
 
 | Shared place | Who meets there | Record |
 | --- | --- | --- |
-| an app's folder: its files, `.git`, and `.git/epicenter-sync.lock` | every program that syncs it | [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) |
+| an app's folder: its files, `.git`, and `.git/epicenter-sync.lock` | every program that syncs it | ADR-0750 |
 | the Hugging Face cache | every app and tool that runs a local model | [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) |
 
 **Epicenter invents only what no standard covers:** the names derived from
 an app's site
-([ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md)), the merge
+(ADR-0722), the merge
 rule `settle`
-([ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md)),
+(ADR-0734),
 and the sync core
-([ADR-0751](0751-every-native-app-carries-one-sync-core.md)).
+(ADR-0751).
 
 **A new design answers two questions: which standard, and which shared
 place?** A design that adds an interface of Epicenter's own names the

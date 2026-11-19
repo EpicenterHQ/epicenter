@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-16
-- **Relates:** [ADR-0121](0121-background-sync-resolves-key-conflicts-by-server-order.md), [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), [ADR-0131](0131-row-sync-folds-sealed-row-intent-rounds-without-refusal.md), [ADR-0134](0134-replicas-store-confirmed-state-and-compacted-row-intents.md)
+- **Relates:** [ADR-0121](0121-background-sync-resolves-key-conflicts-by-server-order.md), [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), ADR-0131, ADR-0134
 
 ## Context
 

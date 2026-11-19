@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-30
 - **Relates:** [ADR-0480](0480-file-tables-own-only-their-markdown-row-files.md) proposes single-file rows; [ADR-0477](0477-file-folder-operations-tolerate-repairable-layout-disorder.md) bounds native layout guarantees.
-- **Implementation:** literal stem addressing under the shared path rule of [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), stem-addressed byte-preserving `rename(stem, nextStem, options)`, and the one read pipeline of ADR-0518 in `@epicenter/folder`, consumed by Todos, Whispering, Honeycrisp, Capture, and Vocab.
+- **Implementation:** literal stem addressing under the shared path rule of ADR-0531, stem-addressed byte-preserving `rename(stem, nextStem, options)`, and the one read pipeline of ADR-0518 in `@epicenter/folder`, consumed by Todos, Whispering, Honeycrisp, Capture, and Vocab.
 - **Unbuilt:** nothing in `@epicenter/folder`. Reference repair stays a separate application capability, as below.
 
 ## Context
@@ -71,7 +71,7 @@ paths underneath. Whether an application allows a readable stem at creation is
 a separate creation-policy decision. The format uses a literal filename segment
 admitted by the scoped file boundary and representable on its backing filesystem. It may be readable or generated.
 Creation and rename follow the folder's one path rule
-([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)),
+(ADR-0531),
 which refuses a name that does not mean only itself on every disk, such as
 `a: b` or `con`; there is no rule beyond it.
 A readable stem may become less descriptive as its content changes.

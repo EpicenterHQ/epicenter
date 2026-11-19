@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
-- **Supersedes:** [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md).
+- **Supersedes:** ADR-0456.
 
 Retired source files below use their last tracked Git snapshot (`commit:path`);
 inspect one with `git show commit:path`.

@@ -4,7 +4,7 @@
 - **Date:** 2026-07-15
 - **Amended by:** [ADR-0175](0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md) (replaces `list()` with the complete `entries()` traversal and its `scan()` fold)
 - **Amended by:** [ADR-0253](0253-schema-lenses-interpret-stored-json-on-read-and-writes-admit-storage-valid-facts.md) at write admission. Withdrawn: declaration-level value and known-field rejection on ordinary writes; read conformance, field presence, and explicit repair remain.
-- **Relates:** [ADR-0119](0119-complete-record-maps-sync-through-schema-blind-server-ordered-patches.md), [ADR-0124](0124-workspace-documents-are-top-level-parameterized-resources.md), [ADR-0129](0129-matter-and-workspace-share-fields-not-authority-policy.md)
+- **Relates:** ADR-0119, ADR-0124, ADR-0129
 
 ## Context
 

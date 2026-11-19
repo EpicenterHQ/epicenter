@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-07
-- **Relates:** [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md), [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md)
+- **Relates:** ADR-0076, ADR-0088
 
 ## Context
 
@@ -19,7 +19,7 @@ The visual direction for the hosted sign-in page was intentionally shaped by two
 
 The references matter for their shared traits: a compact centered card, low-noise hierarchy, provider-first action, little or no marketing copy, and a page that feels operational rather than promotional.
 
-This matches [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md): sign-in adds hosted capabilities to a local-first app, but it is not the primary product surface.
+This matches ADR-0088: sign-in adds hosted capabilities to a local-first app, but it is not the primary product surface.
 
 ## Decision
 

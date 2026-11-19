@@ -16,7 +16,7 @@ own terminal boundary without moving physical cleanup into product code.
 
 **A resource handle closes what it acquired; its product owner coordinates use.**
 
-The resource API in [ADR-0423](0423-app-resources-open-as-independent-handles.md)
+The resource API in ADR-0423
 returns usable handles with `signal` and terminal, idempotent `close()`. Borrowing
 a handle does not transfer ownership. A shorter-lived component closes its own
 acquisitions; it does not close page roots or shared resources on behalf of

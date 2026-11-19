@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-20
 - **Amends:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md) at the scalar application-document grammar; [ADR-0216](0216-a-name-addressed-location-is-the-only-safe-place-for-a-write-two-devices-both-make.md) at the physical KV root; [ADR-0252](0252-kv-is-one-structured-value-with-whole-value-reads-and-conformance-results.md) at the KV root's name and ownership
-- **Relates to:** [ADR-0248](0248-a-row-owns-an-independent-yjs-document-at-a-derived-address.md), [ADR-0258](0258-row-documents-are-opened-through-their-owning-table.md), [ADR-0255](0255-data-definitions-use-one-data-first-public-vocabulary.md)
+- **Relates to:** ADR-0248, [ADR-0258](0258-row-documents-are-opened-through-their-owning-table.md), [ADR-0255](0255-data-definitions-use-one-data-first-public-vocabulary.md)
 
 ## Decision
 

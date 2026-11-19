@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Relates:** [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md) defines file-versus-baseline Push; [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) establishes the readable working copy.
+- **Relates:** [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md) defines file-versus-baseline Push; ADR-0337 establishes the readable working copy.
 - **Unbuilt:** The revised baseline and inspection behavior. Current checkout still uses live-store previews, confirmation callbacks, and partial-result bookkeeping.
 
 ## Context

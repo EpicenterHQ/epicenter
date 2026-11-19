@@ -4,7 +4,7 @@
 - **Date:** 2026-08-31
 - **Built.** The binding is required rather than sniffed, and the composition is `openData`, `openSqlite`, and `secrets`, with no `durable` flag: a browser answers `null` from `secrets.get` after a reload, which is the same answer a new desktop device gives.
 - **Amends:** [ADR-0303](0303-an-application-opens-epicenter-data-and-app-owned-sqlite-through-one-scoped-client.md) at the constructor name and the meaning of the application-facing handle. The two openers, their scoping, and their storage refusals stand.
-- **Relates:** [ADR-0181](0181-every-app-receives-one-portable-epicenter-capability-handle.md) (one portable handle), [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) (the secret capability), [ADR-0312](0312-a-sqlite-handle-is-all-run-and-batch-and-a-transaction-never-crosses-a-process-boundary.md) (the SQLite handle), and [ADR-0313](0313-a-data-definition-ships-as-typescript-and-a-host-that-needs-one-imports-it.md) (the typed definition)
+- **Relates:** [ADR-0181](0181-every-app-receives-one-portable-epicenter-capability-handle.md) (one portable handle), [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) (the secret capability), ADR-0312 (the SQLite handle), and [ADR-0313](0313-a-data-definition-ships-as-typescript-and-a-host-that-needs-one-imports-it.md) (the typed definition)
 
 ## Context
 

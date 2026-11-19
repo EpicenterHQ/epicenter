@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-07
   this branch. Reconcile at merge time (`docs/adr/README.md`).
-- **Relates:** [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
+- **Relates:** ADR-0215
   (the document model this rule governs),
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)
   (the lens and the application surface).

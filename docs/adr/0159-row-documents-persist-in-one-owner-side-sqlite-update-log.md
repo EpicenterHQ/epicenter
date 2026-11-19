@@ -4,8 +4,8 @@
 - **Date:** 2026-07-19
 - **Relates:** [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md) (`Proposed`), which revives this record rather than amending it. An earlier `Proposed` draft withdrew the append log on the grounds that "append admission and compaction stop being concepts"; that withdrawal never reached an accepted record and is itself withdrawn. This decision governs again unchanged. ADR-0214 adds two things and changes none: the lens projection is written in the same transaction as the append, and compaction copies the rows it supersedes into a history file before deleting them.
 - **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (the private update log is a bounded baseline-plus-tail representation of one logical row document cell on every live owner)
-- **Amends:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md) (the browser document owner is no longer IndexedDB), [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md) (the per-runtime store contract collapses to one shared implementation over one seam)
-- **Relates:** [ADR-0110](0110-edit-write-timing-follows-the-value-owner-there-is-no-debounce-tier.md), [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md), [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md), [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md)
+- **Amends:** ADR-0144 (the browser document owner is no longer IndexedDB), [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md) (the per-runtime store contract collapses to one shared implementation over one seam)
+- **Relates:** [ADR-0110](0110-edit-write-timing-follows-the-value-owner-there-is-no-debounce-tier.md), ADR-0142, ADR-0145, [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md)
 
 ## Context
 

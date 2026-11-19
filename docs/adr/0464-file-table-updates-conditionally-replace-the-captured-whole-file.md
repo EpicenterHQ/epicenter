@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (the capture-guarded row writes this condition governs), [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (an edit session's saves), ADR-0522 (the one scoped retry; replaced by [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) and deleted)
+- **Relates:** ADR-0518 (the capture-guarded row writes this condition governs), ADR-0515 (an edit session's saves), ADR-0522 (the one scoped retry; replaced by ADR-0576 and deleted)
 
 ## Context
 

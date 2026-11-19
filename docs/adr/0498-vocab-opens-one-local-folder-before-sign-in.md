@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-03
-- **Supersedes:** [ADR-0445](0445-vocab-saves-local-chats-and-syncs-saved-entries.md)
+- **Supersedes:** ADR-0445
 - **Unbuilt:** Native Vocab distribution, physical local directory placement, and configured remote synchronization.
 
 ## Context

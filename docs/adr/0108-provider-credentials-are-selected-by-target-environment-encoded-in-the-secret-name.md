@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-03
-- **Relates:** [ADR-0069](0069-epicenter-is-one-runnable-star-plus-services-called-by-url-and-token.md) (the `{baseUrl, token?}` service floor and injected-resolver posture), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) and [ADR-0092](0092-identity-is-the-partition.md) (the principal bearer is a different job from a provider credential; see the boundary note below)
+- **Relates:** [ADR-0069](0069-epicenter-is-one-runnable-star-plus-services-called-by-url-and-token.md) (the `{baseUrl, token?}` service floor and injected-resolver posture), ADR-0075 and [ADR-0092](0092-identity-is-the-partition.md) (the principal bearer is a different job from a provider credential; see the boundary note below)
 
 ## Context
 

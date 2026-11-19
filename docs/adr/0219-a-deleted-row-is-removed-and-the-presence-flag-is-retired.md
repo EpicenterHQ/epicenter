@@ -9,7 +9,7 @@
   absent address revives it. What survives untouched is everything else 0212
   decided: one root per table, rows nested beneath, the reserved `!` prefix, and
   a row's document as an inherent container Epicenter never reads.
-- **Amends:** [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
+- **Amends:** ADR-0215
   at one clause, its listing of `!presence` as part of the surviving grammar.
 - **Amended by:** [ADR-0231](0231-rebuilding-replaces-a-workspaces-current-yjs-document.md)
   at workspace replacement: a rebuild copies live rows into a fresh document

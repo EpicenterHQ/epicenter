@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
-- **Related history:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) and [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md), both superseded, describe earlier placement and capture decisions. This record replaces the explicit-path convention with a clean break.
+- **Related history:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) and ADR-0543, both superseded, describe earlier placement and capture decisions. This record replaces the explicit-path convention with a clean break.
 - **Amended:** 2026-10-21. The initial implementation retained explicit audio links; the user chose to remove that compatibility path entirely.
 
 ## Decision

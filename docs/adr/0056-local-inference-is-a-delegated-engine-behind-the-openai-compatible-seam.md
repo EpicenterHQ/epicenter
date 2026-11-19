@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-22
-- **Relates:** [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible wire this seam is built on), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (hosted-vs-custom backend, the seam this generalizes from chat to voice), [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the audience-scoped bearer that makes a base-URL swap safe), [ADR-0049](0049-inference-is-its-own-box-the-daemon-never-infers.md) (inference is its own swappable box)
+- **Relates:** ADR-0050 (the OpenAI-compatible wire this seam is built on), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (hosted-vs-custom backend, the seam this generalizes from chat to voice), [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the audience-scoped bearer that makes a base-URL swap safe), ADR-0049 (inference is its own swappable box)
 
 ## Context
 

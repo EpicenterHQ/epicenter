@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-30
-- **Relates:** [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md) (the box holds immovable, sensitive resources; this names which resources are actually forced to be box-only), [ADR-0061](0061-local-books-reads-facts-from-the-mirror-reports-live-and-writes-through-one-approved-verb.md) (Local Books serves facts from the mirror), [ADR-0064](0064-the-local-books-mirror-keeps-one-realm-cdc-cursor-table-existence-is-the-per-entity-init-latch.md) (one realm CDC cursor), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) (self-host removes the third-party-operator constraint that would otherwise block replicating a mirror to other devices)
+- **Relates:** [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md) (the box holds immovable, sensitive resources; this names which resources are actually forced to be box-only), ADR-0061 (Local Books serves facts from the mirror), ADR-0064 (one realm CDC cursor), ADR-0075 (self-host removes the third-party-operator constraint that would otherwise block replicating a mirror to other devices)
 
 ## Context
 

@@ -2,11 +2,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
-- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md), and [ADR-0154](0154-blob-access-is-address-only.md)
+- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), ADR-0148, and [ADR-0154](0154-blob-access-is-address-only.md)
 
 > **2026-07-02 amendment:** Blob keys now use `principals/<principalId>/blobs/<sha256>`. The bucket-only index and presigned-S3 kernel decision are unchanged.
 
-- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs used the fixed `device/no-account` path, which nothing builds now because a blob is a file in its folder ([ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)); copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target. Mandatory presigned upload and the fixed 5 GiB ceiling are also withdrawn; implementation must establish and verify its supported transport and payload limits.
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs used the fixed `device/no-account` path, which nothing builds now because a blob is a file in its folder (ADR-0544); copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target. Mandatory presigned upload and the fixed 5 GiB ceiling are also withdrawn; implementation must establish and verify its supported transport and payload limits.
 
 - **Amended by:** [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at media delivery: plaintext and a locator alone do not establish authenticated range playback. The mandatory presigned/redirect transport is not retained; encryption ownership is unchanged.
 

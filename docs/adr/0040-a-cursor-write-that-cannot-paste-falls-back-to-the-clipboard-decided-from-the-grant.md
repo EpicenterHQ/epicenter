@@ -14,7 +14,7 @@ clipboard, so the transcript survives only in its recordings row).
 
 The reach was inferred by **observing the cursor write's result**. But a cursor
 write is a synthetic ⌘V, which on macOS requires the Accessibility grant
-([ADR-0019](0019-global-shortcuts-have-a-permission-free-floor-and-accessibility-is-an-opt-in-tier.md),
+(ADR-0019,
 [ADR-0011](0011-rust-owns-the-macos-dictation-capability.md)). When the grant is
 absent the keystroke **silently no-ops**: the OS delivers no event, but the
 synthetic-input call still reports success. The clipboard sandwich

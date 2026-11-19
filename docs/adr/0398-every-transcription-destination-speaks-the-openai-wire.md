@@ -2,12 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Amended by:** [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md) assigns destination binding and request lifetime to independent inference handles; SDK operations and wire compatibility remain.
+- **Amended by:** ADR-0365 assigns destination binding and request lifetime to independent inference handles; SDK operations and wire compatibility remain.
 - **Amends:** [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) at its two named transcription exceptions: direct Deepgram and ElevenLabs protocols are unsupported.
-- **Relates:** [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (chat uses the same SDK), [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) (credential ownership), [ADR-0104](0104-hosted-models-are-a-build-time-seed-not-discovered-the-runtime-overlay-is-deferred.md) (authored hosted model inventory)
+- **Relates:** ADR-0050 (chat uses the same SDK), [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) (credential ownership), [ADR-0104](0104-hosted-models-are-a-build-time-seed-not-discovered-the-runtime-overlay-is-deferred.md) (authored hosted model inventory)
 - **Unbuilt:** A Mistral preset requires verification of the application's full request, including `prompt`; it is not a prerequisite for using a custom compatible endpoint.
 - **Amended by:** [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md) withdraws the native synthetic HTTP transport; network inference continues to use actual OpenAI SDK clients.
-- **Amended by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md) at "Account inference uses the captured Account transport" and "The hosted transcription model id is a single authored product constant": no Epicenter account inference exists, and `HOSTED_TRANSCRIPTION_MODEL` goes.
+- **Amended by:** ADR-0618 at "Account inference uses the captured Account transport" and "The hosted transcription model id is a single authored product constant": no Epicenter account inference exists, and `HOSTED_TRANSCRIPTION_MODEL` goes.
 
 <!-- doc-path-check: ignore-file (Accepted record; its Decision names paths as they were when it was accepted) -->
 

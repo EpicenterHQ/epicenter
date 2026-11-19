@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
-- **Amends:** [ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) at its `app.ts` example and its consequence "an edit to `app.ts` reopens its capabilities, and its `import.meta.hot?.dispose(...)` closes the old ones": no app writes a hot-reload line; [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at its `folder.state()` and `folder.retry()` lines and at `<Opening>`: the states are `opening`, `open`, `failed` and `closed`, `retry()` is on the failed state, and the root is `<WhenOpen>`.
+- **Amends:** ADR-0766 at its `app.ts` example and its consequence "an edit to `app.ts` reopens its capabilities, and its `import.meta.hot?.dispose(...)` closes the old ones": no app writes a hot-reload line; [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at its `folder.state()` and `folder.retry()` lines and at `<Opening>`: the states are `opening`, `open`, `failed` and `closed`, `retry()` is on the failed state, and the root is `<WhenOpen>`.
 - **Relates:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (a change of world is a reload).
 
 ## Context

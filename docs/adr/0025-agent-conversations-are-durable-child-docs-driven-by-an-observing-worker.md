@@ -1,9 +1,9 @@
 # 0025. Agent conversations are durable child docs driven by an observing worker
 
-- **Status:** Accepted (amended 2026-06-19; amended 2026-06-20 by [ADR-0041](0041-every-answerer-is-a-worker-the-browser-never-answers.md), corrected same day by [ADR-0043](0043-an-agent-answers-where-its-capability-lives.md))
+- **Status:** Accepted (amended 2026-06-19; amended 2026-06-20 by ADR-0041, corrected same day by ADR-0043)
 - **Date:** 2026-06-16
 - **Amendment (2026-06-20):** The **ephemeral writer** is removed. ADR-0041 makes every answerer a worker (Epicenter-hosted or a user daemon), so the open browser tab is no longer a writer of any kind, and the `epicenter-cloud` / `this-device` ephemeral binding dissolves into a *managed* (hosted-worker) agent. Every binding is now a **durable** writer distinguished only by trust location (managed vs the user's box). Everything else here stands: the immutable per-conversation agent binding, the unanswered turn as the work queue, existence-is-the-claim, the durable client-owned cancel, and approval as a durable doc record any device resolves.
-- **Correction (2026-06-20) by [ADR-0043](0043-an-agent-answers-where-its-capability-lives.md):** the amendment above is reversed the same day. A capability-free agent **is** answered by the open browser tab (the `this-device` binding, since renamed `client`), and there is no hosted "managed" worker. So the **ephemeral writer is restored** for the client agent (its answer stops when the tab closes; for stateless chat, re-asking is free), and bindings are no longer all-durable: the client agent is ephemeral, a daemon-bound agent is durable. The "everything else here stands" list above is unaffected.
+- **Correction (2026-06-20) by ADR-0043:** the amendment above is reversed the same day. A capability-free agent **is** answered by the open browser tab (the `this-device` binding, since renamed `client`), and there is no hosted "managed" worker. So the **ephemeral writer is restored** for the client agent (its answer stops when the tab closes; for stateless chat, re-asking is free), and bindings are no longer all-durable: the client agent is ephemeral, a daemon-bound agent is durable. The "everything else here stands" list above is unaffected.
 
 ## Context
 
@@ -13,7 +13,7 @@ refresh-resume fall out of one source of truth rather than separate features. Bu
 it still needs an HTTP kickoff carrying the turn id, model, and prompts; the worker
 snapshots the prompt once and never reads the doc back; cancellation is request
 abort; and interactive tools are excluded. None of that survives moving the worker
-to a user-owned always-on device (see [ADR-0024](0024-an-always-on-worker-runs-app-semantics-beside-the-app-blind-anchor.md))
+to a user-owned always-on device (see ADR-0024)
 or running it as a durable background service.
 
 ## Decision
@@ -28,7 +28,7 @@ single immutable `agent: AgentId`, set once by the client that creates it. An
 hosted cloud agent, an always-on home daemon, a laptop daemon), not a per-install
 node id and not a Yjs `clientID`. The agent is the address; the *worker* is the
 process that answers as it (the role distinction is pinned in
-[ADR-0024](0024-an-always-on-worker-runs-app-semantics-beside-the-app-blind-anchor.md)).
+ADR-0024).
 Presence can decorate the configured agent list
 with live/offline status and capabilities, but it is not durable routing truth.
 The binding is the row field, and it names a *writer* of the transcript, not a
@@ -42,7 +42,7 @@ stops when it closes. The cloud is never a writer and never an owner:
 answering with Epicenter's metered inference as its engine. Which engine a writer
 uses (a local key, the user's metered account, a proxied cloud stream) is an
 orthogonal sub-choice it resolves for itself
-([ADR-0038](0038-a-daemon-answers-through-the-first-inference-backend-it-can-satisfy.md)),
+(ADR-0038),
 and the metered route streams tokens while writing no doc
 ([ADR-0033](0033-a-conversation-has-one-transport-and-two-triggers.md)). Whether
 the writer survives you leaving is the whole reason the choice matters, and it is
@@ -105,7 +105,7 @@ doorbell), never the durable queue (the doc is the mailbox).
   `agent` equals the agent the daemon answers as, so the worker is built and runs only
   for those: filtering the open set, not abstaining after the fact, is what keeps the
   app-aware worker out of the app-blind anchor's availability job
-  ([ADR-0024](0024-an-always-on-worker-runs-app-semantics-beside-the-app-blind-anchor.md)).
+  (ADR-0024).
   The worker itself carries no designation concept. The browser supplies the
   complementary half by deriving the same fact from the same field: for an
   ephemeral (`epicenter-cloud`) binding the open tab answers in-process, calling

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) defines transient folder query sessions; [ADR-0501](0501-store-checkout-push-pull-and-its-baseline-are-removed.md) removes store checkout and withdraws query export work.
+- **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) defines transient folder query sessions; ADR-0501 removes store checkout and withdraws query export work.
 - **Unbuilt:** SQL export has no implementation or caller and is not planned work. A future consumer must establish its own output contract.
 
 ## Context

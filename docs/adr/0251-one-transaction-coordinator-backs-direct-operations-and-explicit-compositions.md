@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-19
   open ADRs before merge.
-- **Amends:** [ADR-0250](0250-a-database-exposes-documents-as-first-class-members-and-applications-compose-their-lifecycles.md)
+- **Amends:** ADR-0250
   at the transaction entry surface. Withdrawn: requiring callers to wrap every
   one-operation mutation, and flattening transaction tables into names such as
   `tx.pages`.

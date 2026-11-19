@@ -5,7 +5,7 @@
 
 ## Context
 
-[ADR-0008](0008-rdev-backs-the-desktop-global-trigger.md) put a raw `rdev`
+ADR-0008 put a raw `rdev`
 keyboard tap behind the desktop global trigger and left "the accessibility-grant
 and listener-liveness handling that implies on macOS" as a deferred concern. The
 frontend grew into that gap: a tri-state permission probe (calling

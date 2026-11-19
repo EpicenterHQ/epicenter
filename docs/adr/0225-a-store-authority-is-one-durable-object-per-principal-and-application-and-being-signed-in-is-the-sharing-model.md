@@ -3,11 +3,11 @@
 - **Status:** Accepted
 - **Date:** 2026-08-08
   this branch. Reconcile at merge time (`docs/adr/README.md`).
-- **Relates:** [ADR-0220](0220-the-authority-keeps-a-snapshot-and-a-tail-and-a-deletion-becomes-real.md)
+- **Relates:** ADR-0220
   (what the authority holds),
-  [ADR-0218](0218-the-authority-reads-nothing-and-a-poison-entry-is-repaired-rather-than-prevented.md)
+  ADR-0218
   (it reads nothing),
-  [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md)
+  ADR-0222
   (the client half),
   [ADR-0092](0092-identity-is-the-partition.md) (identity is the partition),
   [ADR-0095](0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md)

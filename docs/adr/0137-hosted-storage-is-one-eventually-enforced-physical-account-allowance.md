@@ -6,7 +6,7 @@
   The allowance gates creation of new storage-producing capabilities (replica
   enrollment, hosted workspace creation, new blob upload grants) and never
   participates in row synchronization or semantic row folding (ADR-0131).
-- **Relates:** [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md), [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md), [ADR-0131](0131-row-sync-folds-sealed-row-intent-rounds-without-refusal.md)
+- **Relates:** ADR-0075, ADR-0076, [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md), ADR-0131
 
 ## Context
 

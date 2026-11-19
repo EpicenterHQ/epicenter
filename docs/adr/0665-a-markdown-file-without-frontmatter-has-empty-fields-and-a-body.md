@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-21
-- **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at the `.md` merge unit: a headerless Markdown side also has empty fields and a body, rather than falling back solely because its fence is absent.
-- **Implementation:** File and table reads, edits, listings and Git synchronization merges use one framing rule. The required/optional policy is removed from the codec and edit input. Local publication follows [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md); it does not merge or retry against an observed source. The decision remains Proposed.
+- **Amends:** ADR-0622 at the `.md` merge unit: a headerless Markdown side also has empty fields and a body, rather than falling back solely because its fence is absent.
+- **Implementation:** File and table reads, edits, listings and Git synchronization merges use one framing rule. The required/optional policy is removed from the codec and edit input. Local publication follows ADR-0668; it does not merge or retry against an observed source. The decision remains Proposed.
 
 ## Context
 

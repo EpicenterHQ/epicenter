@@ -4,7 +4,7 @@
 - **Date:** 2026-09-04
 <!-- doc-path-check: ignore-next-line -->
 - **Unbuilt:** nothing. Built in `packages/sync/src/transport.ts`, `packages/sync/src/store-route.ts`, `packages/app/src/data/sync/attach.ts`, `packages/auth`, and `packages/server/src/store-sync/browser-dial.test.ts`.
-- **Relates:** [ADR-0095](0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md) (why the bearer is a subprotocol at all), [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md) (the host supplies the dial, the library owns what is done with the socket), [ADR-0340](0340-an-opened-store-knows-its-own-address-and-its-own-connection.md) (where `dataId`, `generation`, and `baseURL` are read from), [ADR-0092](0092-identity-is-the-partition.md) (why no partition ever reaches the query string)
+- **Relates:** [ADR-0095](0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md) (why the bearer is a subprotocol at all), ADR-0222 (the host supplies the dial, the library owns what is done with the socket), [ADR-0340](0340-an-opened-store-knows-its-own-address-and-its-own-connection.md) (where `dataId`, `generation`, and `baseURL` are read from), [ADR-0092](0092-identity-is-the-partition.md) (why no partition ever reaches the query string)
 
 ## Context
 

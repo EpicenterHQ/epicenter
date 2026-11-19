@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-29
-- **Relates:** [ADR-0450](0450-current-files-own-portable-document-data.md) proposes authoritative document files; [ADR-0436](0436-stores-own-local-sqlite-namespaces.md) defines current SQL acquisition and account scoping.
+- **Relates:** [ADR-0450](0450-current-files-own-portable-document-data.md) proposes authoritative document files; ADR-0436 defines current SQL acquisition and account scoping.
 - **Unbuilt:** file-backed tables and KV as the default application store, rebuildable indexes over those files, and consumer migration to this storage-selection rule.
 
 ## Context
@@ -78,7 +78,7 @@ transactions internally without becoming authoritative.
 
 Account scoping selects local ownership; it does not synchronize the database.
 Private database files and their WAL/journal companions do not enter data folder sync.
-[ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
+ADR-0497
 stores browser authored folders in scoped OPFS directories, copied once from
 their earlier IndexedDB databases, and keeps private OPFS SQL in a separate
 namespace with captured channel and account addresses. Native address changes

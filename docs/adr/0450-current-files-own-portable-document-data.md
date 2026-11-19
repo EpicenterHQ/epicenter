@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-28
-- **Relates:** [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md) at definitions as interpretations; [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) at the existing Yjs checkout; [ADR-0268](0268-a-row-exports-as-one-markdown-file-and-its-codec-is-mandatory.md) at Markdown as an export artifact.
+- **Relates:** [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md) at definitions as interpretations; ADR-0337 at the existing Yjs checkout; [ADR-0268](0268-a-row-exports-as-one-markdown-file-and-its-codec-is-mandatory.md) at Markdown as an export artifact.
 - **Unbuilt:** file-authoritative document data in the live applications, app-owned attachment lifetimes, and complete current-state recovery.
 
 ## Context
@@ -23,7 +23,7 @@ In a browser, those paths cannot be ordinary operating-system files. A shell age
 
 Definitions interpret the source for an application. They do not decide whether a file exists or rewrite it merely because this release cannot understand it. Opening, reading, and indexing preserve malformed documents, unknown fields, unsupported bodies, and unrecognized files. Derived indexes, typed views, and editor models do not become another authority over saved content. A temporary Yjs editor is possible, but its unsaved state cannot replace newer source without an explicit edit decision.
 
-**Applications create and delete a row together with its owned attachment in the current file set.** [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) specifies zero or one same-stem sibling attachment and refusal of ambiguous app deletion. A reference to another row's file does not transfer ownership. An external edit changes the files directly; a missing row does not authorize an automatic sweep of remaining files.
+**Applications create and delete a row together with its owned attachment in the current file set.** ADR-0456 specifies zero or one same-stem sibling attachment and refusal of ambiguous app deletion. A reference to another row's file does not transfer ownership. An external edit changes the files directly; a missing row does not authorize an automatic sweep of remaining files.
 
 **A complete copy of a data folder's saved current state contains the actual bytes of every file that folder owns.** It can be opened without the original application database, account, service, or history. A media pointer alone is not a complete copy. A link to another data folder remains an external reference; copying both folders preserves the linked bytes and their relative path. This rule does not prescribe a ZIP format, a snapshot procedure, or whether a device keeps every attachment materialized at all times.
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-15
-- **Reaffirmed by:** [ADR-0277](0277-the-authority-reads-the-bytes-and-sync-becomes-the-yjs-protocol.md), which returns to this decision after ADR-0217 and ADR-0218 drifted from it without citing it.
+- **Reaffirmed by:** ADR-0277, which returns to this decision after ADR-0217 and ADR-0218 drifted from it without citing it.
 
 ## Context
 

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-28
-- **Amends:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) at mandatory shared desktop packaging; [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) at the refusal of standalone desktop products; [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md) at machine-wide engine ownership; [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md) at mandatory Epicenter ownership of standalone products' background work.
+- **Amends:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) at mandatory shared desktop packaging; [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) at the refusal of standalone desktop products; [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md) at machine-wide engine ownership; ADR-0323 at mandatory Epicenter ownership of standalone products' background work.
 - **Relates:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) preserves client-owned replicas and authority synchronization; [ADR-0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) preserves explicit deployment as trust in the code.
 - **Unbuilt:** general installed-tool folder registration and access to multiple folders, a verified local save barrier for every tool, replica addressing for concurrent products, and the synchronized-data inspector described below.
 
@@ -26,7 +26,7 @@ Today `apps/epicenter` packages a Tauri core and Bun sidecar. Its
 The local installer accepts built releases. Product windows share native
 capabilities. Todos and Capture register separate desktop folders, each
 granted to one window, whose pages run the folder engine over them
-([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)). Installed tools are parked.
+(ADR-0531). Installed tools are parked.
 
 The shared native core reduces distribution work, but couples product releases
 and native failures. A useful personal tool need not become a native product

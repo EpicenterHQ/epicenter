@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-20
 - **Amended by:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md) (`Proposed`) at the storage inventory only. Withdrawn: "scalar state and pending intents" (`:24`), since the intent queue is deleted, and "accepted nullable blob digests" (`:27`), since a blob digest becomes an ordinary cell. The division of labour this record decides, SQLite for convergent facts and raw files for blob bytes, is untouched.
-- **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication stores exact retry evidence rather than authority vectors), [ADR-0178](0178-row-facts-and-value-facts-are-separate-relations-keyed-by-structured-coordinates.md) (convergent facts split into row and value relations, and document relations key on structured row coordinates)
+- **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication stores exact retry evidence rather than authority vectors), ADR-0178 (convergent facts split into row and value relations, and document relations key on structured row coordinates)
 - **Amends:** [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md)
 - **Relates:** [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 

@@ -9,7 +9,7 @@
 
 Whispering saves Local audio through its store's `.blobs` handle and writes the
 returned BlobId into a recording row. The former Save to Personal flow copied
-bytes and created a separate Personal row. [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
+bytes and created a separate Personal row. ADR-0438
 establishes an authority URL as the hosted object's durable address. No current
 application row cites one yet.
 
@@ -19,7 +19,7 @@ application row cites one yet.
 
 These rules apply to independently stored blobs in current Yjs-backed stores
 and to hosted URL references. Data folders instead use the owned sibling
-attachments defined by [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md).
+attachments defined by ADR-0456.
 Deleting an owning row deletes its attachment; a link to another row's file
 remains a reference and does not acquire that ownership.
 

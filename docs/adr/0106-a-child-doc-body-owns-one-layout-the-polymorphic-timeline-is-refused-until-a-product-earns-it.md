@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-03
 - **Amended by:** [ADR-0135](0135-row-documents-have-application-owned-roots.md) for the row-document layout; the refusal of runtime body modes survives
-- **Relates:** [ADR-0046](0046-a-capability-free-agent-persists-finished-messages-not-live-doc-streams.md) (the earned `attachRecords` body layout, the model this follows), [ADR-0005](0005-child-docs-are-bound-through-the-workspace.md) (child docs are bound through the workspace)
+- **Relates:** ADR-0046 (the earned `attachRecords` body layout, the model this follows), ADR-0005 (child docs are bound through the workspace)
 
 ## Context
 
