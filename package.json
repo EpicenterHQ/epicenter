@@ -6,14 +6,9 @@
 	"description": "Where one person's software lives: small apps as folders of plain files, run by the epicenter command on a computer you control.",
 	"keywords": [
 		"local-first",
-		"personal knowledge base",
-		"PKM",
-		"second brain",
-		"SQLite",
 		"markdown",
 		"open-source",
-		"self-hosted",
-		"workspace"
+		"self-hosted"
 	],
 	"repository": {
 		"type": "git",
