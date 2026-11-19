@@ -1,15 +1,13 @@
 /**
  * `@epicenter/ai`: every source of models is an endpoint, and `openAi`
  * merges the endpoints an app passes (ADR-0757). Requests use the
- * OpenAI-compatible vocabulary: audio transcriptions and embeddings.
+ * OpenAI-compatible vocabulary for audio transcriptions.
  */
 
 export {
 	AiError,
 	type Client,
 	createClient,
-	type Embeddings,
-	type EmbeddingsRequest,
 	type Transcription,
 	type TranscriptionRequest,
 } from './client.js';

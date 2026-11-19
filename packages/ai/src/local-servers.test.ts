@@ -3,7 +3,6 @@
  * server, leave when a probe no longer does, and nothing waits on a probe.
  */
 import { expect, test } from 'bun:test';
-import { expectOk } from 'wellcrafted/testing';
 import { localServers } from './local-servers.js';
 import { openAi } from './open-ai.js';
 
@@ -119,35 +118,4 @@ test('no probe runs before a subscriber or a refresh, and an interval probes whi
 	const whileSubscribed = host.asked.length;
 	await severalTicks();
 	expect(host.asked.length).toBe(whileSubscribed);
-});
-
-test('a request naming Ollama reaches its embeddings endpoint', async () => {
-	const calls: { url: string; init?: RequestInit }[] = [];
-	const ai = openAi([
-		localServers({
-			fetch: async (url, init) => {
-				calls.push({ url, init });
-				return Response.json({
-					data: [{ index: 0, embedding: [0.25, 0.5] }],
-				});
-			},
-		}),
-	]);
-	const answer = expectOk(
-		await ai.embed({
-			endpoint: 'ollama',
-			model: 'nomic-embed-text',
-			input: 'a',
-		}),
-	);
-	expect(answer).toEqual({
-		data: [{ index: 0, embedding: [0.25, 0.5] }],
-	});
-	expect(calls.map(({ url }) => url)).toEqual([
-		'http://localhost:11434/v1/embeddings',
-	]);
-	expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
-		model: 'nomic-embed-text',
-		input: 'a',
-	});
 });

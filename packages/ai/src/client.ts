@@ -1,7 +1,7 @@
 /**
  * The one client: OpenAI-shaped requests posted through an endpoint's
- * `fetch`, OpenAI-shaped answers read back. Transcription, embeddings and the
- * model list each answer once.
+ * `fetch`, OpenAI-shaped answers read back: a transcription and the model
+ * list.
  *
  * Every ordinary failure is a `Result` error: an unreachable endpoint, a
  * refusal (any non-2xx answer, with the provider's message and code when it
@@ -55,10 +55,6 @@ export type TranscriptionRequest = {
 };
 
 export type Transcription = { text: string };
-
-export type EmbeddingsRequest = { model: string; input: string | string[] };
-
-export type Embeddings = { data: { index: number; embedding: number[] }[] };
 
 type Options = { signal?: AbortSignal };
 
@@ -141,37 +137,6 @@ export function createClient({ fetch }: { fetch: EndpointFetch }) {
 			if (!isRecord(body.data) || typeof body.data.text !== 'string')
 				return AiError.Malformed({ reason: 'no transcribed text' });
 			return Ok({ text: body.data.text });
-		},
-
-		/** Embed one input or several. */
-		async embed(
-			request: EmbeddingsRequest,
-			{ signal }: Options = {},
-		): Promise<Result<Embeddings, AiError>> {
-			const sent = await send(
-				'embeddings',
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(request),
-				},
-				signal,
-			);
-			if (sent.error !== null) return sent;
-			const body = await readJson(sent.data, signal);
-			if (body.error !== null) return body;
-			const data = isRecord(body.data) ? body.data.data : undefined;
-			if (
-				!Array.isArray(data) ||
-				data.some(
-					(entry) =>
-						!isRecord(entry) ||
-						typeof entry.index !== 'number' ||
-						!Array.isArray(entry.embedding),
-				)
-			)
-				return AiError.Malformed({ reason: 'no embeddings' });
-			return Ok({ data: data as Embeddings['data'] });
 		},
 
 		/** The ids the endpoint lists at `models`. */

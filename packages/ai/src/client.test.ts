@@ -85,15 +85,6 @@ test('transcribe without text is Malformed', async () => {
 	expect(error?.name).toBe('Malformed');
 });
 
-test('embed posts JSON and reads the vectors', async () => {
-	const { client, calls } = recording(() =>
-		Response.json({ data: [{ index: 0, embedding: [0.1, 0.2] }] }),
-	);
-	const { data } = await client.embed({ model: 'e', input: 'word' });
-	expect(data).toEqual({ data: [{ index: 0, embedding: [0.1, 0.2] }] });
-	expect(calls[0]?.path).toBe('embeddings');
-});
-
 test('listModels reads ids and refuses a list that is not OpenAI-shaped', async () => {
 	const good = recording(() =>
 		Response.json({ data: [{ id: 'a' }, { id: 'b' }] }),

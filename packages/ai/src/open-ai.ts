@@ -1,10 +1,5 @@
 import { createLogger } from 'wellcrafted/logger';
-import {
-	AiError,
-	createClient,
-	type EmbeddingsRequest,
-	type TranscriptionRequest,
-} from './client.js';
+import { AiError, createClient, type TranscriptionRequest } from './client.js';
 import { type CustomEndpoints, isCustomEndpoints } from './custom-endpoints.js';
 import type { Endpoint, EndpointModel, Source } from './endpoint.js';
 
@@ -174,15 +169,6 @@ export function openAi(entries: readonly EndpointEntry[]) {
 			const client = clientFor(endpoint);
 			if (!client) return Promise.resolve(AiError.NoEndpoint({ endpoint }));
 			return client.transcribe(request, options);
-		},
-		/** Embed at the named endpoint. */
-		embed(
-			{ endpoint, ...request }: EmbeddingsRequest & { endpoint: string },
-			options: Options = {},
-		) {
-			const client = clientFor(endpoint);
-			if (!client) return Promise.resolve(AiError.NoEndpoint({ endpoint }));
-			return client.embed(request, options);
 		},
 	};
 }
