@@ -36,14 +36,10 @@ Start apps from the repo root with `bun dev:<app>`. Do not cd into an app to sta
 - `bun dev:whispering:desktop` runs Whispering in its native Tauri window.
 - `scripts/README.md` explains the root scripts and their names.
 
-## Script suffix convention
+## Production scripts
 
-The suffix tells you whether a script touches production.
-
-| Suffix | Meaning |
-| --- | --- |
-| `:local` | works on a fresh clone without Infisical login; reads committed config like `wrangler.jsonc` |
-| `:remote` | wraps with `infisical run --env=prod` and requires Infisical auth. Treat as a production admin operation. |
+A script name ending in `:remote` runs with production secrets through
+`infisical run --env=prod`. Treat it as a production admin operation.
 
 ## Git hygiene
 
