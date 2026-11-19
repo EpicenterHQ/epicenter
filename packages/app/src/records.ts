@@ -1,16 +1,23 @@
 import { join, parse } from 'node:path';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import { Ok, type Result } from 'wellcrafted/result';
+import { type Err, Ok, type Result } from 'wellcrafted/result';
 import { isAnswer, isPlainObject } from './answer.ts';
-import { editFile, readText } from './disk.ts';
+import type { DataDef } from './data.ts';
+import {
+	filesIn,
+	notAFolder,
+	readBytes,
+	removeFile,
+	replaceFile,
+} from './disk.ts';
 import {
 	ActionError,
 	type Misfit,
 	type Problem,
 	type PublicError,
 } from './errors.ts';
-import { type Fields, isOptional, refKeyOf, whatFits } from './field.ts';
+import { type Fields, isOptional, whatFits } from './field.ts';
 import {
 	changeMarkdown,
 	type FieldValues,
@@ -51,31 +58,6 @@ export function isId(id: unknown): id is string {
 	return (
 		typeof id === 'string' && idOf(`${id}.md`) === id && !id.includes('\\')
 	);
-}
-
-/** One ref a value holds: the key it points into, the id, and where it sits. */
-type Ref = { target: string; id: string; at: string };
-
-/**
- * The refs `value` holds, read through `schema`: the value itself when the
- * schema is a ref, or each item when it is a list. A write checks these;
- * `defineData` refuses a ref in any other shape (`refTargets`).
- */
-function refsIn(schema: unknown, value: unknown, at: string): Ref[] {
-	const target = refKeyOf(schema);
-	if (target !== undefined)
-		return typeof value === 'string' ? [{ target, id: value, at }] : [];
-	const { items } = schema as { items?: unknown };
-	if (items === undefined || !Array.isArray(value)) return [];
-	return value.flatMap((item, index) => refsIn(items, item, `${at}[${index}]`));
-}
-
-/** The keys the refs in `schema` point into, walked as `refsIn` walks a value. */
-export function refTargets(schema: unknown): string[] {
-	const target = refKeyOf(schema);
-	if (target !== undefined) return [target];
-	const { items } = (schema ?? {}) as { items?: unknown };
-	return items === undefined ? [] : refTargets(items);
 }
 
 /** A problem with nothing file-specific in it, so its line is its kind. */
@@ -140,23 +122,27 @@ function inDeclaredOrder(values: FieldValues, fields: Fields) {
 	);
 }
 
-/** Read and write records of declared Markdown fields without changing undeclared lines. */
-export function createMarkdownRecords({
-	home,
-	base,
-	fields,
-	idsIn,
-}: {
-	/** The home's folder. */
-	home: string;
-	/** The folder under the home that holds one file per id, such as `data/notes`. */
-	base: string;
-	fields: Fields;
-	/** The ids `list` reads in the key `key`, for the refs a write sets. */
-	idsIn: (key: string) => string[];
-}) {
-	/** The file for `id`, as given. */
-	const pathOf = (id: string) => `${base}/${id}.md`;
+/**
+ * The handle for one data key: its definition, and calls that read and
+ * write `data/<key>/<id>.md` under `home` without changing undeclared lines.
+ * Every file call is synchronous (`disk.ts`), so a write reads, decides and
+ * replaces its file with nothing else in serve between.
+ */
+export function createHandle(home: string, key: string, def: DataDef) {
+	const { fields } = def;
+	const folder = `data/${key}`;
+	/** The file for `id`, from the home. */
+	const pathOf = (id: string) => `${folder}/${id}.md`;
+	/** The folder or link on the way to this key's records that is not a real folder. */
+	const linked = () => notAFolder(home, folder);
+	/** Throw unless the key's folder is real, before a write or a delete. */
+	function refuseLinked() {
+		const refused = linked();
+		if (refused !== undefined)
+			throw new Error(
+				`${refused} is a link or a file, not a folder; records are written and deleted only in real folders under data/`,
+			);
+	}
 
 	/** A change that does not fit the declared fields, as one problem. */
 	function unfit(id: string, line: string, kind = line) {
@@ -200,23 +186,21 @@ export function createMarkdownRecords({
 		return { record, result };
 	}
 
+	/** The text of `id`'s file, or undefined when there is none or its folder is a link. */
+	function textOf(id: string) {
+		const bytes = linked() ? undefined : readBytes(join(home, pathOf(id)));
+		return bytes && new TextDecoder().decode(bytes);
+	}
+
 	/** The record for `id`, or undefined when there is no file. */
-	async function read(
-		id: string,
-	): Promise<Result<AnyRecord | undefined, Misfit>> {
-		const text = await readText(join(home, pathOf(id)));
+	function read(id: string): Result<AnyRecord | undefined, Misfit> {
+		const text = textOf(id);
 		if (text === undefined) return Ok(undefined);
 		return project(id, readMarkdown(text)).result;
 	}
 
-	/**
-	 * Split a patch into fields to set and remove, and check each supplied
-	 * value. A ref is checked when this write changes it: one `old` already
-	 * holds in that field passes, so a caller that sends every field back can
-	 * save a record whose ref names a deleted record.
-	 */
-	function fieldsOf(id: string, given: Patch, old: FieldValues | undefined) {
-		const creating = old === undefined;
+	/** Split a patch into fields to set and remove, and check each supplied value. */
+	function fieldsOf(id: string, given: Patch, creating: boolean) {
 		const removed: string[] = [];
 		const set: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
@@ -230,22 +214,10 @@ export function createMarkdownRecords({
 			else set[key] = value as JsonValue;
 		}
 		const problems: Problem[] = [];
-		// The same names `list` reads.
-		const has = ({ target, id }: Ref) => isId(id) && idsIn(target).includes(id);
-		const same = (a: Ref) => (b: Ref) => a.target === b.target && a.id === b.id;
 		for (const [key, schema] of Object.entries(fields)) {
 			if (Object.hasOwn(set, key)) {
-				if (!Value.Check(schema, set[key])) {
+				if (!Value.Check(schema, set[key]))
 					problems.push(misfit(key, schema, set[key]));
-					continue;
-				}
-				const kept = old ? refsIn(schema, old[key], key) : [];
-				for (const ref of refsIn(schema, set[key], key))
-					if (!kept.some(same(ref)) && !has(ref))
-						problems.push({
-							line: `${ref.at} ${JSON.stringify(ref.id)} names no record in ${ref.target}`,
-							kind: `${ref.at} names no record in ${ref.target}`,
-						});
 			} else if (creating && !isOptional(schema))
 				problems.push(problem(`${key} is missing`));
 		}
@@ -260,72 +232,124 @@ export function createMarkdownRecords({
 	 * one with Exists. A patch may repair a record with problems; a
 	 * computed change sees only a record that fits.
 	 */
-	async function write(
+	function decide(
 		id: string,
 		need: Need,
 		change: Patch | Compute,
-	): Promise<Result<AnyRecord, PublicError>> {
+		before: string | undefined,
+	): Result<{ value: AnyRecord; text?: string }, PublicError> {
 		const path = pathOf(id);
-		return editFile<AnyRecord, PublicError>(home, path, (before) => {
-			if (before === undefined && need === 'present')
-				return ActionError.Missing({ path });
-			if (before !== undefined && need === 'absent')
-				return ActionError.Exists({ path });
+		if (before === undefined && need === 'present')
+			return ActionError.Missing({ path });
+		if (before !== undefined && need === 'absent')
+			return ActionError.Exists({ path });
 
-			const file = readMarkdown(before ?? '');
-			const current = before === undefined ? undefined : project(id, file);
-			const computed = typeof change === 'function';
-			if (current?.result.error && (computed || !file.readable))
-				return current.result;
+		const file = readMarkdown(before ?? '');
+		const current = before === undefined ? undefined : project(id, file);
+		const computed = typeof change === 'function';
+		if (current?.result.error && (computed || !file.readable))
+			return current.result;
 
-			let patch = change as Patch;
-			if (computed) {
-				const result = change(structuredClone(current?.record));
-				if (!isAnswer(result))
-					throw new Error(
-						'The change given to edit must return a Result: Ok(change) or Err(error)',
-					);
-				if (result.error !== null) return result;
-				if (!isPlainObject(result.data))
-					throw new Error(
-						'The change given to edit must return a record patch inside Ok',
-					);
-				patch = result.data;
-			}
-			// A spread of the record carries its path and id, which name it and are not fields.
-			const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
-			if (named.length)
-				return unfit(
-					id,
-					`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
-					'the change names the record, not only the fields that change',
+		let patch = change as Patch;
+		if (computed) {
+			const result = change(structuredClone(current?.record));
+			if (!isAnswer(result))
+				throw new Error(
+					'The change given to edit must return a Result: Ok(change) or Err(error)',
 				);
-
-			const { body, ...given } = patch;
-			if (body !== undefined && typeof body !== 'string')
-				return unfit(id, 'body must be text');
-			const checked = fieldsOf(
+			if (result.error !== null) return result;
+			if (!isPlainObject(result.data))
+				throw new Error(
+					'The change given to edit must return a record patch inside Ok',
+				);
+			patch = result.data;
+		}
+		// A spread of the record carries its path and id, which name it and are not fields.
+		const named = ['path', 'id'].filter((key) => Object.hasOwn(patch, key));
+		if (named.length)
+			return unfit(
 				id,
-				given,
-				before === undefined ? undefined : file.fields,
+				`the change names ${named.join(' and ')}, which name the record and are not fields; give only the fields that change, such as { done: true }`,
+				'the change names the record, not only the fields that change',
 			);
-			if (checked.error !== null) return checked;
-			const { set, removed } = checked.data;
-			const after = changeMarkdown(before ?? '', { set, removed, body });
-			// A file without front matter gains fences on any write, so an
-			// empty change is caught before its text is compared.
-			const empty =
-				!Object.keys(set).length && !removed.length && body === undefined;
-			if (current && (empty || after === before))
-				return current.result.error
-					? current.result
-					: Ok({ value: current.record });
-			const next = project(id, readMarkdown(after)).result;
-			if (next.error !== null)
-				return current?.result.error ? current.result : next;
-			return Ok({ value: next.data, text: after });
+
+		const { body, ...given } = patch;
+		if (body !== undefined && typeof body !== 'string')
+			return unfit(id, 'body must be text');
+		const checked = fieldsOf(id, given, before === undefined);
+		if (checked.error !== null) return checked;
+		const { set, removed } = checked.data;
+		const after = changeMarkdown(before ?? '', { set, removed, body });
+		// A file without front matter gains fences on any write, so an
+		// empty change is caught before its text is compared.
+		const empty =
+			!Object.keys(set).length && !removed.length && body === undefined;
+		if (current && (empty || after === before))
+			return current.result.error
+				? current.result
+				: Ok({ value: current.record });
+		const next = project(id, readMarkdown(after)).result;
+		if (next.error !== null)
+			return current?.result.error ? current.result : next;
+		return Ok({ value: next.data, text: after });
+	}
+
+	/**
+	 * Write `id` as `decide` says, from its file now. The bytes are compared,
+	 * not the text, since decoding drops a byte order mark.
+	 */
+	function write(id: string, need: Need, change: Patch | Compute) {
+		refuseLinked();
+		const before = readBytes(join(home, pathOf(id)));
+		const result = decide(
+			id,
+			need,
+			change,
+			before && new TextDecoder().decode(before),
+		);
+		if (result.error !== null) return result as Err<PublicError>;
+		const { value, text } = result.data;
+		if (text !== undefined) {
+			const bytes = new TextEncoder().encode(text);
+			if (!before || !Buffer.from(before).equals(bytes))
+				replaceFile(home, pathOf(id), bytes);
+		}
+		return Ok(value);
+	}
+
+	/** `run`'s answer, or a Misfit at the key's folder for an id that cannot be a file name. */
+	async function named<T>(id: string, run: () => T) {
+		if (isId(id)) return run();
+		const why = 'is not a file name: the id is the file name without .md';
+		return ActionError.Misfit({
+			path: folder,
+			id,
+			problems: [
+				{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
+			],
 		});
 	}
 
-	return { path: pathOf, read, write };
+	const handle = {
+		get: (id: string) => named(id, () => read(id)),
+		async list() {
+			const names = linked() ? [] : filesIn(join(home, folder));
+			return names
+				.flatMap((name) => idOf(name) ?? [])
+				.map(read)
+				.filter((each) => each.error || each.data);
+		},
+		create: (id: string, input: Record<string, unknown>) =>
+			named(id, () => write(id, 'absent', input)),
+		patch: (id: string, change: Record<string, unknown>) =>
+			named(id, () => write(id, 'present', change)),
+		edit: (id: string, change: (record: unknown) => unknown) =>
+			named(id, () => write(id, 'either', change)),
+		delete: (id: string) =>
+			named(id, () => {
+				refuseLinked();
+				return Ok(removeFile(join(home, pathOf(id))));
+			}),
+	};
+	return { ...def, ...handle };
 }

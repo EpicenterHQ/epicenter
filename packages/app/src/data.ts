@@ -19,16 +19,9 @@
  * temporary folder with `defineData(tmp, data)`.
  */
 import { isAbsolute } from 'node:path';
-import type { Static, TObject, TUnsafe } from 'typebox';
-import { Ok, type Result } from 'wellcrafted/result';
-import { deleteFile, filesIn } from './disk.ts';
-import {
-	ActionError,
-	type Exists,
-	type Misfit,
-	type Missing,
-	type PublicError,
-} from './errors.ts';
+import type { Static, TObject } from 'typebox';
+import type { Result } from 'wellcrafted/result';
+import type { Exists, Misfit, Missing, PublicError } from './errors.ts';
 import {
 	defaultIn,
 	type Fields,
@@ -36,9 +29,9 @@ import {
 	type OptionalKeys,
 	refKeyOf,
 } from './field.ts';
-import { isFieldKey, type JsonValue } from './markdown.ts';
+import { isFieldKey } from './markdown.ts';
 import { isName } from './name.ts';
-import { createMarkdownRecords, idOf, isId, refTargets } from './records.ts';
+import { createHandle } from './records.ts';
 
 /**
  * One data key: what one of its records is, as a noun ("trip idea"), and
@@ -109,12 +102,6 @@ export type Data<TSpec extends Spec> = {
 	[K in keyof TSpec & string]: TSpec[K] & Handle<TSpec[K]>;
 };
 
-/** Markdown yields JSON values, so a handle at runtime is typed by them. */
-type AnyHandle = Handle<{
-	description: string;
-	fields: Record<string, TUnsafe<JsonValue>>;
-}>;
-
 /**
  * The records under `<dir>/data/`, one handle per key of `spec`. `dir` is
  * the home's folder, `import.meta.dir` in its `epicenter.ts`. Given what an
@@ -151,12 +138,7 @@ export function defineData<const TSpec extends Spec>(
 				throw new Error(
 					`The data key ${key} has a default in field "${name}"; a read gives only what the file holds`,
 				);
-			const targets = refTargets(schema);
-			if (refsAnywhere(schema).length !== targets.length)
-				throw new Error(
-					`The data key ${key}'s field "${name}" holds a ref inside another shape; a ref is a field or the item of a list`,
-				);
-			for (const target of targets)
+			for (const target of refsIn(schema))
 				if (!Object.hasOwn(spec, target))
 					throw new Error(
 						`The data key ${key}'s field "${name}" refers to ${JSON.stringify(target)}, which must be a key in this defineData`,
@@ -168,61 +150,16 @@ export function defineData<const TSpec extends Spec>(
 			key,
 			createHandle(dir, key, { description, fields }),
 		]),
-	) as Data<TSpec>;
+		// A handle at runtime reads any JSON; `Data` types it by the spec.
+	) as unknown as Data<TSpec>;
 }
 
-/** Every ref annotation anywhere in `schema`, however deep. */
-function refsAnywhere(schema: unknown): string[] {
+/** The key each ref anywhere in `schema` names. */
+function refsIn(schema: unknown): string[] {
 	if (typeof schema !== 'object' || schema === null) return [];
 	const target = refKeyOf(schema);
 	return [
 		...(target === undefined ? [] : [target]),
-		...Object.values(schema).flatMap(refsAnywhere),
+		...Object.values(schema).flatMap(refsIn),
 	];
-}
-
-/** The handle for one data key: its definition and its calls. */
-function createHandle(dir: string, key: string, def: DataDef) {
-	const base = `data/${key}`;
-	/** The ids of the key `of`: each `.md` file directly in its folder. */
-	const idsIn = (of: string) =>
-		filesIn(dir, `data/${of}`).flatMap((name) => idOf(name) ?? []);
-	const records = createMarkdownRecords({
-		home: dir,
-		base,
-		fields: def.fields,
-		idsIn,
-	});
-	/** `run`'s answer, or a Misfit at the key's folder for an id that cannot be a file name. */
-	async function named<T>(id: string, run: () => Promise<T>) {
-		if (isId(id)) return run();
-		const why = 'is not a file name: the id is the file name without .md';
-		return ActionError.Misfit({
-			path: base,
-			id,
-			problems: [
-				{ line: `${JSON.stringify(id)} ${why}`, kind: `the id ${why}` },
-			],
-		});
-	}
-	const handle = {
-		get: (id: string) => named(id, () => records.read(id)),
-		async list() {
-			const found = [];
-			for (const id of idsIn(key)) {
-				const read = await records.read(id);
-				if (read.error || read.data) found.push(read);
-			}
-			return found;
-		},
-		create: (id: string, input: Record<string, unknown>) =>
-			named(id, () => records.write(id, 'absent', input)),
-		patch: (id: string, change: Record<string, unknown>) =>
-			named(id, () => records.write(id, 'present', change)),
-		edit: (id: string, change: (record: unknown) => unknown) =>
-			named(id, () => records.write(id, 'either', change)),
-		delete: (id: string) =>
-			named(id, async () => Ok(await deleteFile(dir, records.path(id)))),
-	} as AnyHandle;
-	return { ...def, ...handle };
 }

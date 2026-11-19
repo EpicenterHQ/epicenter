@@ -134,18 +134,6 @@ test('a write it refuses writes nothing: a value that does not fit, a record alr
 	);
 });
 
-test('a ref must name a record in its key', async () => {
-	const { watches, checks } = defineData(await tempHome(), data);
-	const dangling = await checks.create('c1', { watch: 'tokyo', fare: 900 });
-	expect(dangling.error?.message).toContain(
-		'watch "tokyo" names no record in watches',
-	);
-	await watches.create('tokyo', { to: 'Tokyo' });
-	expect(
-		(await checks.create('c1', { watch: 'tokyo', fare: 900 })).error,
-	).toBeNull();
-});
-
 test('edit computes a change from the record, or creates one, and its own Err writes nothing', async () => {
 	const { watches } = defineData(await tempHome(), data);
 	const made = await watches.edit('tokyo', (record) =>
@@ -195,8 +183,10 @@ test('a key folder that is a link is never read or written through', async () =>
 	await expect(watches.delete('tokyo')).rejects.toThrow(
 		'data/watches is a link',
 	);
-	expect(await readdir(away)).toEqual([]);
+	await writeFile(join(away, 'osaka.md'), '---\nto: "Osaka"\n---\n');
+	expect(await watches.get('osaka')).toEqual(Ok(undefined));
 	expect(await watches.list()).toEqual([]);
+	expect(await readdir(away)).toEqual(['osaka.md']);
 });
 
 test('a write leaves no temporary file under data/', async () => {
