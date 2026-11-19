@@ -19,4 +19,4 @@ import { tauriFiles } from './files/tauri';
 export const files = isTauri() ? tauriFiles() : opfsFiles();
 
 export const recordings = createRecordings(files);
-export const settingsFile = createSettings(files);
+export const settings = createSettings(files);

@@ -1,15 +1,15 @@
 /**
- * Recordings as TanStack Query observes them: one client, one rule that
- * every query goes stale after every write, the list as a query, and the
- * writes as mutations over the service, as it is.
+ * The data modules as TanStack Query sees them: one client, one rule that
+ * every query goes stale after every write, each read as a query, and each
+ * write as a mutation over the module as it is.
  *
- * Every write is keyed under `['recordings']` and shares one scope, so
- * writes run one at a time in the order made: a delete never races the
- * save it follows.
+ * Writes to one entity share one scope, so they run one at a time in the
+ * order made: a delete never races the save it follows, and two settings
+ * changes never write over each other.
  */
 import { MutationCache, QueryClient } from '@tanstack/svelte-query';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
-import { recordings } from './app';
+import { recordings, settings } from './app';
 
 export const queryClient = new QueryClient({
 	defaultOptions: {
@@ -32,11 +32,20 @@ export const recordingsQueries = resultQueries(['recordings'], {
 });
 
 export const recordingsMutations = resultMutations(['recordings'], {
-	addNote: recordings.addNote,
+	add: recordings.add,
 	setTranscript: recordings.setTranscript,
 	delete: recordings.delete,
+});
+
+export const settingsQueries = resultQueries(['settings'], {
+	read: settings.read,
+});
+
+export const settingsMutations = resultMutations(['settings'], {
+	update: settings.update,
 });
 
 queryClient.setMutationDefaults(['recordings'], {
 	scope: { id: 'recordings' },
 });
+queryClient.setMutationDefaults(['settings'], { scope: { id: 'settings' } });

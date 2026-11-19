@@ -11,7 +11,9 @@
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { HEARD, type Input, recorder } from '#lib/recorder.ts';
-	import { settings } from '#lib/settings.svelte.ts';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { runMutation } from 'wellcrafted/query';
+	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
 	import LevelMeter from '../LevelMeter.svelte';
 
 	/** The value the list gives the system default; a microphone's own id never looks like it. */
@@ -28,7 +30,9 @@
 	}
 	void refresh();
 
-	const chosen = $derived(settings.microphone ?? DEFAULT);
+	const settings = createQuery(() => settingsQueries.read());
+	const microphone = $derived(settings.data?.microphone);
+	const chosen = $derived(microphone ?? DEFAULT);
 	const systemDefault = $derived(inputs.find((input) => input.isDefault));
 	const label = $derived(
 		chosen === DEFAULT
@@ -43,7 +47,7 @@
 	// Listen to the chosen microphone while the page is open and nothing records.
 	$effect(() => {
 		if (dictation.status.kind !== 'idle') return;
-		const device = settings.microphone ?? null;
+		const device = microphone ?? null;
 		level = 0;
 		heard = false;
 		meterError = undefined;
@@ -66,7 +70,9 @@
 	});
 
 	async function choose(value: string) {
-		const saved = await settings.saveMicrophone(value === DEFAULT ? undefined : value);
+		const saved = await runMutation(queryClient, settingsMutations.update, {
+			microphone: value === DEFAULT ? undefined : value,
+		});
 		toastOnError(saved, 'Could not save the microphone');
 	}
 </script>

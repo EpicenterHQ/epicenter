@@ -10,12 +10,11 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { SvelteSet } from 'svelte/reactivity';
 import { toast } from 'svelte-sonner';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
-import { runMutation } from 'wellcrafted/query';
+import { runMutation, runQuery } from 'wellcrafted/query';
 import { tryAsync } from 'wellcrafted/result';
 import { goto } from '$app/navigation';
-import { queryClient, recordingsMutations } from './queries';
+import { queryClient, recordingsMutations, settingsQueries } from './queries';
 import { type EndedReason, HEARD, recorder } from './recorder';
-import { settings } from './settings.svelte';
 import { transcription } from './transcription';
 
 type Status =
@@ -37,6 +36,12 @@ const DictationError = defineErrors({
 		cause,
 	}),
 });
+
+/** The settings, from the cache once they are read; none set when they cannot be read. */
+async function currentSettings() {
+	const { data } = await runQuery(queryClient, settingsQueries.read());
+	return data ?? {};
+}
 
 const openSettings = {
 	label: 'Open settings',
@@ -67,8 +72,9 @@ function createDictation() {
 		status = { kind: 'starting' };
 		level = 0;
 		heardAt = undefined;
+		const { microphone } = await currentSettings();
 		const { error } = await recorder.start(timeId(), {
-			device: settings.microphone ?? null,
+			device: microphone ?? null,
 			onEnded: (reason) => {
 				toast.warning('Recording stopped', {
 					description: `${ENDED[reason]} What was recorded is kept.`,
@@ -101,11 +107,7 @@ function createDictation() {
 		status = { kind: 'idle' };
 		if (error) return toastOnError(error, 'Could not finish the recording');
 		openId = data.id;
-		const saved = await runMutation(
-			queryClient,
-			recordingsMutations.addNote,
-			data,
-		);
+		const saved = await runMutation(queryClient, recordingsMutations.add, data);
 		if (saved.error) return toastOnError(saved, 'Could not save the recording');
 		await transcribe(data.id);
 	}
@@ -115,7 +117,7 @@ function createDictation() {
 	 * it. With no server set, say the recording is kept and where to set one.
 	 */
 	async function transcribe(id: string) {
-		const server = settings.server;
+		const { server } = await currentSettings();
 		if (!server) {
 			toast.info('Recording kept', {
 				description:

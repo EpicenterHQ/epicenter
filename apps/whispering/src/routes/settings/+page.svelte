@@ -14,14 +14,19 @@
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import { originOf, PRESETS } from '#lib/transcription-server.ts';
-	import { settings } from '#lib/settings.svelte.ts';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { runMutation } from 'wellcrafted/query';
+	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
 	import { transcription } from '#lib/transcription.ts';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import RecordingBar from '../RecordingBar.svelte';
 	import MicrophoneSettings from './MicrophoneSettings.svelte';
 
-	let baseUrl = $state(settings.server?.baseUrl ?? '');
-	let model = $state(settings.server?.model ?? '');
+	// The layout read the settings before this page opened, so the form starts
+	// from what is saved.
+	const settings = createQuery(() => settingsQueries.read());
+	let baseUrl = $state(settings.data?.server?.baseUrl ?? '');
+	let model = $state(settings.data?.server?.model ?? '');
 	let key = $state('');
 	let saving = $state(false);
 	/** Errors show once Save was pressed, and each clears as its field is fixed. */
@@ -63,7 +68,7 @@
 				return toastOnError(kept, 'Could not save the API key');
 			}
 		}
-		const saved = await settings.saveServer(server);
+		const saved = await runMutation(queryClient, settingsMutations.update, { server });
 		saving = false;
 		if (saved.error) return toastOnError(saved, 'Could not save the settings');
 		toast.success('Saved');

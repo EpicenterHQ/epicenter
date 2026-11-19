@@ -32,16 +32,18 @@ test('writeSettings reads back as it was written', () => {
 	expect(JSON.parse(writeSettings({}))).toEqual({});
 });
 
-test('settings read back as written, and a missing file sets nothing', async () => {
-	const files = memoryFiles();
-	const settings = createSettings(files);
+test('update sets its fields and keeps the rest; a missing file sets nothing', async () => {
+	const settings = createSettings(memoryFiles());
 	expect((await settings.read()).data).toEqual({});
-	const written = {
-		server: { baseUrl: 'http://x', model: 'm' },
-		microphone: 'mic-1',
-	};
-	await settings.write(written);
-	expect((await settings.read()).data).toEqual(written);
+	const server = { baseUrl: 'http://x', model: 'm' };
+	await settings.update({ server });
+	await settings.update({ microphone: 'mic-1' });
+	expect((await settings.read()).data).toEqual({ server, microphone: 'mic-1' });
+	await settings.update({ microphone: undefined });
+	expect((await settings.read()).data).toEqual({
+		server,
+		microphone: undefined,
+	});
 });
 
 test('a settings file that is not JSON is a read failure', async () => {

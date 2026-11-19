@@ -121,11 +121,26 @@ export function createRecordings(files: Files) {
 			return url;
 		},
 
-		/** Write the note for a take the recorder just finished: its length, no transcript yet. */
-		async addNote({ id, durationMs }: { id: string; durationMs: number }) {
+		/**
+		 * Write the note of the recording `id`: its length, and its transcript
+		 * when there is one. After a take, the recorder has already written the
+		 * audio beside it.
+		 */
+		async add({
+			id,
+			durationMs,
+			transcript = '',
+		}: {
+			id: string;
+			durationMs: number;
+			transcript?: string;
+		}) {
 			const written = await files.write(
 				notePath(id),
-				changeMarkdown('', { set: { durationMs }, body: '' }),
+				changeMarkdown('', {
+					set: { durationMs },
+					body: transcript ? `${transcript}\n` : '',
+				}),
 			);
 			if (written.error)
 				return RecordingsError.WriteFailed({ id, cause: written.error });

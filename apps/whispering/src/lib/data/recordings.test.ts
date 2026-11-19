@@ -55,7 +55,7 @@ test('a missing folder lists nothing', async () => {
 test('setTranscript keeps the note’s fields and gives audio alone a note', async () => {
 	const files = memoryFiles({ [`recordings/${B}.webm`]: 'audio' });
 	const recordings = createRecordings(files);
-	await recordings.addNote({ id: A, durationMs: 900 });
+	await recordings.add({ id: A, durationMs: 900 });
 	await recordings.setTranscript({ id: A, transcript: 'first' });
 	await recordings.setTranscript({ id: B, transcript: 'second' });
 	const { data } = await recordings.list();

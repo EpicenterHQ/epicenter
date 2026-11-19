@@ -49,26 +49,34 @@ export function writeSettings({ server, microphone }: Settings): string {
 }
 
 export function createSettings(files: Files) {
-	return {
-		/** The settings kept; none set when the file is not there. */
-		async read() {
-			const read = await files.readMany([PATH]);
-			if (read.error) return SettingsError.ReadFailed({ cause: read.error });
-			const text = read.data.get(PATH);
-			if (text === undefined) return Ok<Settings>({});
-			try {
-				return Ok(readSettings(JSON.parse(text)));
-			} catch (cause) {
-				return SettingsError.ReadFailed({ cause });
-			}
-		},
+	/** The settings kept; none set when the file is not there. */
+	async function read() {
+		const read = await files.readMany([PATH]);
+		if (read.error) return SettingsError.ReadFailed({ cause: read.error });
+		const text = read.data.get(PATH);
+		if (text === undefined) return Ok<Settings>({});
+		try {
+			return Ok(readSettings(JSON.parse(text)));
+		} catch (cause) {
+			return SettingsError.ReadFailed({ cause });
+		}
+	}
 
-		/** Replace the settings kept with `settings`. */
-		async write(settings: Settings) {
-			const written = await files.write(PATH, writeSettings(settings));
+	return {
+		read,
+
+		/**
+		 * Set the fields of `change`, keeping the rest as the file holds them
+		 * now; a field set to undefined is removed. Answers the settings written.
+		 */
+		async update(change: Partial<Settings>) {
+			const before = await read();
+			if (before.error) return before;
+			const next = { ...before.data, ...change };
+			const written = await files.write(PATH, writeSettings(next));
 			if (written.error)
 				return SettingsError.WriteFailed({ cause: written.error });
-			return written;
+			return Ok(next);
 		},
 	};
 }

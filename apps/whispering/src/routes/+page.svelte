@@ -10,8 +10,8 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { groupByDay, matches } from '#lib/feed.ts';
-	import { recordingsQueries } from '#lib/queries.ts';
-	import { settings } from '#lib/settings.svelte.ts';
+	import { recordingsQueries, settingsQueries } from '#lib/queries.ts';
+	import AddSampleButton from './AddSampleButton.svelte';
 	import RecordButton from './RecordButton.svelte';
 	import RecordingBar from './RecordingBar.svelte';
 	import RecordingItem from './RecordingItem.svelte';
@@ -20,6 +20,8 @@
 	const PAGE = 100;
 
 	const list = createQuery(() => recordingsQueries.list());
+	const settings = createQuery(() => settingsQueries.read());
+	const server = $derived(settings.data?.server);
 
 	let search = $state('');
 	let shown = $state(PAGE);
@@ -55,6 +57,7 @@
 		<IconButton label="Settings" variant="ghost" href="/settings">
 			<SettingsIcon />
 		</IconButton>
+		{#if import.meta.env.DEV}<AddSampleButton />{/if}
 		<RecordButton />
 	</header>
 	{#if dictation.status.kind !== 'idle'}
@@ -62,7 +65,7 @@
 	{/if}
 
 	<main class="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-		{#if !settings.server}
+		{#if !server}
 			<Alert.Root>
 				<Alert.Description>Add a transcription server to get text after each recording.</Alert.Description>
 				<Alert.Action>
@@ -95,7 +98,7 @@
 				</p>
 				<p class="text-sm text-muted-foreground">
 					Or press <kbd class="font-sans font-medium text-foreground">⌘⇧;</kbd> in any app.
-					{settings.server ? 'The text is copied when you stop.' : ''}
+					{server ? 'The text is copied when you stop.' : ''}
 				</p>
 			</div>
 		{:else}
