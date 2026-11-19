@@ -7,6 +7,8 @@
 - **Relates:** [ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) (Whispering keeps its recordings itself and connects to paid models), [ADR-0951](0951-ai-credits-follow-what-a-call-uses-held-before-it-and-settled-after.md) (credits follow what a call uses; ships with this record), [ADR-0899](0899-the-folder-sync-product-is-retired.md) (the folder sync product is retired), [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (a connection is a base URL and an optional bearer key), [ADR-0949](0949-an-action-calls-a-model-with-plain-code-and-epicenter-adds-no-function-for-it.md) (a home's key is a line in its `.env`), [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) (Epicenter hosts no MCP server), [ADR-0943](0943-epicenters-core-invariants.md) (what a simplification removes, and who accepts it).
 - **Unbuilt:** all of it, beside ADR-0951. The first thing to exist is `apiKey()` from `@better-auth/api-key` in the hosted API's Better Auth plugins and the `/connect` handoff.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 The hosted API (`apps/api` and `packages/server`, a Cloudflare Worker)

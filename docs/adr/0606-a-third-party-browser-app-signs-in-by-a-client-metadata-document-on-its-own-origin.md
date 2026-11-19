@@ -7,6 +7,8 @@
 - **Relates:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (every app is a static site its author deploys), [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) (a token reaches every repository its owner holds).
 - **Unbuilt:** origin-identified clients and independent service consent under ADR-0614 and ADR-0634; no client metadata-document registration is required.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 Every OAuth client is a row `buildFirstPartyClients`

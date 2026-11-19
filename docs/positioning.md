@@ -73,9 +73,8 @@ Roadmap language stays out of heroes.
 
 ## What Epicenter is not
 
-- Not a hosted product: your Epicenter runs on your home. What the company
-  hosts, such as sign-in and paid models in `apps/api`, is a service, an
-  outside app like Gmail
+- Not a hosted product: your Epicenter runs on your home. A service the company
+  might host is an outside app like Gmail
   ([ADR-0901](adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md)).
 - Not sync: the person's other devices keep no copy and reach the one on the
   home. Epicenter never reconciles two writable copies

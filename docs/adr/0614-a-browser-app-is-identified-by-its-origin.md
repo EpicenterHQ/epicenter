@@ -7,6 +7,8 @@
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (a first-party app is an ordinary client), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (what a grant names).
 - **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name or offering to create a repository by it; a refresh token per grant that renews without leaving the page; the account grant `epicenter login` holds; and native app identity.
 
+<!-- doc-path-check: ignore-file (records the hosted API, retired by ADR-0970; its paths are as they were) -->
+
 ## Context
 
 Every OAuth client is a row that `buildFirstPartyClients` in

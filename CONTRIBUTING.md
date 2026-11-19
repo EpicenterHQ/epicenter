@@ -29,15 +29,6 @@ lists the other apps.
 
 [`scripts/README.md`](scripts/README.md) explains the other root commands.
 
-## Infisical
-
-Only `apps/api` needs Infisical, for its dev secrets. Everything else runs from
-a fresh clone. To work on the API without access, run its tests with
-PostgreSQL's `initdb` and `pg_ctl` on `PATH`
-(`bun run --cwd apps/api test`), or change the schema with the `:local`
-database scripts in `apps/api/package.json` and open a PR. A maintainer applies
-migrations with the `:remote` scripts.
-
 ## Making a change
 
 1. Branch from an up-to-date `main` (`git fetch upstream && git rebase upstream/main`).

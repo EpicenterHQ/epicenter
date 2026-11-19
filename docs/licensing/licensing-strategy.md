@@ -76,7 +76,7 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 root `LICENSE`, generated from the packages themselves.
 
 **Rationale:**
-- `apps/api` (the hosted service: sign-in, AI inference, billing, and the folder ledger of the folder sync product, which is retired; serves the same-origin dashboard SPA from its `ui/`) is the infrastructure a competitor would need to clone Epicenter's hosted services. AGPL section 13 means any hosted fork must publish source, including improvements, which destroys the economics of forking-and-hosting. Self-hosting runs the same app on Bun with Postgres (`apps/api/server.ts`); billing is hosted-only and lives in `apps/api/worker/billing/`.
+- Hosted services: the hosted API (`apps/api`) was AGPL so any hosted fork had to publish its source. It is retired ([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)); a hosted service added later takes the same tier for the same reason.
 - Consumer apps and the `epicenter` program: on a locally-run app AGPL reduces to GPL conveyance copyleft, which is what blocks a competitor forking a shipped app into a closed-source rebrand. That is real protection, not brand consistency. `epicenter serve` runs on its person's home, so §13 applies only when someone offers a modified copy to other people (scenario 5).
 - Libraries: they compose the product. None is offered for third-party embedding today, so AGPL costs no adoption.
 
@@ -98,12 +98,11 @@ This is the same pattern Bitwarden uses for `bitwarden_license/` and Sentry uses
 
 ## The self-host story, which is settled
 
-This document once planned an `apps/sync-server` split to give homelabbers something self-hostable without the cloud platform. That is answered: one shared library (`packages/server`) and one deployable, `apps/api`, that composes it on two runtimes. The Cloudflare Worker is the hosted service (Better Auth principals, Postgres, billing); the Bun entry (`apps/api/server.ts`) runs the same composition on Postgres for self-hosting, without billing. Both are AGPL, so the split was architectural rather than licensing, exactly as predicted.
-
-Nothing about that changes a license tier. It is recorded here because the trigger the old plan was waiting on has already fired.
-
-This story is about the hosted services only. A person's Epicenter needs none:
-it always runs on their home.
+This document once planned an `apps/sync-server` split to give homelabbers
+something self-hostable without the cloud platform. The hosted API that
+question was about is retired
+([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)). A person's Epicenter
+needs no hosted service: it always runs on their home.
 
 ## What MIT was, and why it went
 
