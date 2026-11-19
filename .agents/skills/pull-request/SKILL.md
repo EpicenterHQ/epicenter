@@ -30,7 +30,6 @@ Read the draft as that reader: can they tell what changed, why it was needed, an
 - Do not include `## Summary`, `## Changes`, `## Testing`, `## Test Plan`, or `## Verification` sections unless the user explicitly asks.
 - Report commands run, tests run, and verification gaps in the chat final response, not the PR body.
 - Do not list changed files. The diff tab already does that.
-- Do not include AI or tool attribution.
 - PR titles use the same conventional commit format as commits.
 - Include code examples for public API, CLI, HTTP, config, or type-signature changes.
 - Name breaking changes with old and new examples.
