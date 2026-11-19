@@ -154,9 +154,8 @@ There is no default grant. Every permission is prefixed
 ## Building an app
 
 A final app keeps a direct `transcribe-cpp` dependency so its build script
-receives the `DEP_TRANSCRIBE_CPP_*` metadata, and calls
-`epicenter_transcription_build::link_runtime()` from that build script (crate
-`packages/epicenter-transcription-build`). It bakes the Linux rpath and stages
+receives the `DEP_TRANSCRIBE_CPP_*` metadata. Whispering's build script
+(`src-tauri/build.rs`) then bakes the Linux rpath and stages
 transcribe-cpp's shared libraries and backend modules into the app's
 `transcribe-libs/` for Tauri's bundles. macOS links transcribe-cpp statically.
 
@@ -166,7 +165,6 @@ From the repository root:
 
 ```sh
 cargo test -p tauri-plugin-epicenter-transcription
-cargo check -p epicenter-transcription-build
 bun run --cwd packages/transcription typecheck
 bun run --cwd packages/transcription test
 ```
