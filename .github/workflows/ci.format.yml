@@ -12,7 +12,6 @@
 # Deliberately NOT in this gate:
 #   - Formatting. ci.autofix.yml runs `bun run format` and pushes the fix, so
 #     failing here would only tell a contributor what a bot is already doing.
-#     `bun run check` still runs `format:check` locally, before the push.
 #   - `bun run check:doc-hygiene`. Its ADR-staleness rule is time-based, so a
 #     PR that touched nothing can go red on a calendar day. It stays an explicit
 #     review command (see 91c4a87c1b), not a merge blocker.
