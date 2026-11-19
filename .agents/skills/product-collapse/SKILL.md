@@ -1,6 +1,6 @@
 ---
 name: product-collapse
-description: Develop simpler product behavior with the person by questioning assumed requirements and working backward from what they need. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment.
+description: Develop simpler product behavior with the person by questioning assumed requirements and working backward from what they need. Use when exploring simpler workflows, settings, modes, fidelity, or scope and the product direction needs judgment, or when judging asymmetric wins, meaning whether refusing a small promise would remove disproportionate complexity.
 ---
 
 # Product collapse
@@ -81,9 +81,27 @@ Use [collapse-pass](../collapse-pass/SKILL.md) to carry an authorized
 change through its callers, remove what it made unnecessary, and verify
 the result. Use disposable data for app experiments.
 
-Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when weighing whether
-giving up one small promise could remove much larger complexity.
-
 Read [the examples](references/examples.md) for illustrations of this
 judgment. They show questions worth examining, not changes to apply by
 keyword or a required number of alternatives.
+
+## Asymmetric wins
+
+An asymmetric win is a refusal that returns more complexity than it costs
+in capability: preserve the product sentence, refuse the small promise,
+delete the code family. It is not a quota. Look for the one promise (a fast
+path, old shape, rare mode, compatibility alias, fallback parser, exact
+reproduction) that owns a disproportionate code family, and decide whether
+refusing exactly that leaves the sentence true.
+
+For each candidate, name the capability lost and the machinery that
+disappears: methods, adapters, error variants, tests, docs branches, UI
+states, fixtures. Prefer the smallest loss that removes the second shape.
+Keep the feature, and say why, when the loss is load-bearing: exact detail
+that carries comprehension, accessibility, trust, brand, or a
+regression-sensitive state. Do not ship drift under "good enough", and do
+not count a deletion that only moves complexity somewhere harder to see.
+Name the refusal in the spec so it stays refused.
+
+Use the [clean-breaks reference](../rethink/references/clean-breaks.md) to
+carry out the replacement and delete the old path.
