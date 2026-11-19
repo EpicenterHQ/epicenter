@@ -137,17 +137,16 @@ function inputProblem(schema: ObjectSchema, value: unknown) {
 	if (unknown !== undefined)
 		return `${JSON.stringify(unknown)} is not a key this action takes; ${keys.length ? `it takes ${keys.join(', ')}` : 'it takes none'}`;
 	const first = Value.Errors(schema, value)[0];
-	const params = first?.params as { requiredProperties?: string[] } | undefined;
-	const at = (first?.instancePath.split('/').slice(1) ?? []).map((part) =>
-		part.replace(/~1/g, '/').replace(/~0/g, '~'),
-	);
-	const field = at[0] || params?.requiredProperties?.[0];
-	const name = field ?? 'input';
-	// A key missing inside an object is named by its path: `address.city is needed`.
-	if (first?.keyword === 'required')
-		return `${[...at, params?.requiredProperties?.[0]].filter(Boolean).join('.') || name} is needed`;
-	const fieldSchema = field ? schema.properties[field] : undefined;
-	const words = field && fieldSchema && whatFits(fieldSchema, value[field]);
-	if (words) return `${name} must be ${words}`;
-	return `${name}: ${first?.message ?? 'is not accepted'}`;
+	// The top-level key at fault: the one an error is inside, else the one missing.
+	const inside = first?.instancePath.split('/')[1];
+	const key =
+		inside?.replace(/~1/g, '/').replace(/~0/g, '~') ??
+		(first?.params as { requiredProperties?: string[] } | undefined)
+			?.requiredProperties?.[0];
+	if (key === undefined) return `input: ${first?.message ?? 'is not accepted'}`;
+	if (inside === undefined) return `${key} is needed`;
+	const field = schema.properties[key];
+	const words = field && whatFits(field, value[key]);
+	if (words) return `${key} must be ${words}`;
+	return `${key}: ${first?.message ?? 'is not accepted'}`;
 }
