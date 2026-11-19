@@ -88,7 +88,6 @@
 		"check:doc-paths": "bun run scripts/check-doc-paths.ts",
 		"check:boot-purity": "bun run scripts/check-boot-purity.ts",
 		"check:catalog-pins": "bun run scripts/check-catalog-pins.ts",
-		"check:vocabulary": "bun run scripts/check-vocabulary.ts",
 		"worktrees": "bun run scripts/worktree-audit.ts",
 		"clean": "bun run scripts/clean.ts",
 		"nuke": "bun run scripts/clean.ts --nuke",
