@@ -13,8 +13,9 @@ READMEs describe their contracts. Load only the context needed for the task.
 ## License
 
 Everything under `packages/` and `apps/` is AGPL-3.0-or-later. `@epicenter/app`,
-which holds the library and the `epicenter` command, is published so a home
-can depend on it; every other package is private. `@epicenter/cli` is retired
+which holds the library and the `epicenter` command, is the one package meant
+to be published, so a home can depend on it; it is not on npm yet. Every other
+package is private. `@epicenter/cli` is retired
 at its last published version.
 Previously published MIT versions remain MIT for those versions. Before adding
 an MIT package, read "If MIT returns" in
@@ -142,7 +143,7 @@ Audience decides vocabulary: what a person reads uses the word they already have
 - Formatting tells: sentence-case headings, no decorative emoji, no bold-label-colon bullets that restate the line, no chatbot phrases ("I hope this helps!", "Great question!").
 
 These conventions are the project's prose standard. Destination skills such as
-`documentation`, `specification-writing`, `technical-articles`, `pull-request`,
+`documentation`, `specification-writing`, `pull-request`,
 `github-issues`, `social-media`, and `ui-design` build on them and own the shape
 and register of their surfaces. A personal author-voice skill applies only when
 someone explicitly asks for prose in their own voice; project guidance must

@@ -49,51 +49,37 @@ For the command, MCP, and the routes serve answers, see
 
 ## How it works
 
-`~/Epicenter` is on a computer you control and keep on: the
-home. It holds a folder per app in `apps/`. Each app has a `code/epicenter.ts`
-that declares its data and actions, an optional UI under `code/ui/`,
-and a sibling `data/` folder of Markdown files you can read. One private Git
-repository holds the home, and you commit code and records together when you choose.
+`~/Epicenter` is on a computer you control and keep on: the home. It is one
+private Git repository and one program: its root `epicenter.ts` declares the
+records and composes the apps. Records are Markdown files you can read in the
+root `data/`, each app's code is in `apps/`, and caches are in the root
+`local/`, which Git ignores. You commit code and records together when you
+choose.
 
-```ts
-import { defineAction, defineApp, defineData, field, timeId } from '@epicenter/app';
+[A home](packages/app/README.md#a-home) shows the files and a complete app:
+one `epicenter.ts` that declares the records, and one function per app that
+returns its actions.
 
-export default defineApp(({ folder }) => {
-  const data = defineData(folder, {
-    notes: { description: 'note', fields: { source: field.text({ optional: true }) } },
-  });
-  const add = defineAction({
-    description: 'Save a note',
-    input: { body: field.text(), source: field.text({ optional: true }) },
-    run: ({ body, source }) => data.notes.create(timeId(), { body, source }),
-  });
-  return {
-    description: 'Notes I want to keep',
-    data,
-    actions: { ...data.notes.actions('list'), add },
-  };
-});
-```
-
-The `epicenter` command runs an app's actions on the home. Actions change files;
-Git records them when you commit:
+`epicenter serve` imports the home's program once and runs every action; restart it
+after changing code. The `epicenter` command sends each call to it. Actions
+change files; Git records them when you commit:
 
 ```sh
-epicenter notes add '{"body":"Call the bank","source":"Voicemail"}'
-epicenter notes list --json
 epicenter serve
+epicenter writing add '{"body":"Fares drop in late March"}'
 ```
 
-`epicenter serve` offers every app's actions over MCP, and each app's UI at
-`/apps/<app>/`, on the home. It listens only there; your private network, such as
-Tailscale, brings your other devices in. Nothing syncs and no one signs in:
-your phone, your laptop, and your agents reach the one copy on the home, and
-keep nothing of their own. The home's optional `origin` is its backup remote.
+`epicenter serve` offers every app's actions over MCP on the home. It listens
+only there; your private network, such as Tailscale, brings your other devices
+in. Nothing syncs and no one signs in: your phone, your laptop, and your agents
+reach the one copy on the home, and keep nothing of their own. The home's
+optional `origin` is its backup remote. Routines and an app's page in a browser
+are [not built yet](packages/app/README.md#not-built-yet).
 
 Software that works without an Epicenter is an outside app: Gmail, Todoist,
-Whispering. An inside app brings its data in through actions. Mail pulls a copy
-of your mailbox to the home, and an agent changes Gmail only through a proposal
-you apply.
+Whispering. An inside app brings its data in through actions. The author's
+Mail app pulls a copy of your mailbox to the home, and an agent changes Gmail
+only through a proposal you apply.
 
 [The vision](docs/vision.md) | [What a home imports, and the `epicenter` command](packages/app/README.md)
 
@@ -105,11 +91,10 @@ version it runs. Each app is ordinary editable source.
 `serve` is one process; keep it running as you would any program.
 
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Zhongwen)
-run on their home, outside this runtime source repository. Each app has
-`apps/<app>/code/` and sibling `data/` in the home's one private Git
-repository. Its owner commits code and records together; actions make no
-commits. App publication copies only code into a separate
-history.
+run on their home, outside this runtime source repository. Their code is in
+the home's `apps/` and their records in its root `data/`, in the home's one
+private Git repository. Its owner commits code and records together; actions
+make no commits. No command copies an app in or out.
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and
 needs no Epicenter. The hosted API is retired for now.
@@ -125,9 +110,9 @@ Your data is on the home, and whoever can read the home can read it.
 | --- | --- |
 | A home you own | You, and whatever you let reach it: devices on your tailnet, agents you give a shell. |
 | A home you rent | You and its provider, which can read the disk, sign-in files in `local/` included. |
-| Your other devices | Only what a UI or agent fetches while it reaches the home. They keep no copy. |
-| The home's private `origin` backup | Whoever hosts the backup repository can read all included apps and records. Nothing is pushed until you add an origin. |
-| A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a file in Mail's `local/` on the home, and never leaves it. |
+| Your other devices | Only what an agent fetches while it reaches the home. They keep no copy. |
+| The home's private `origin` backup | Whoever hosts the backup repository can read every committed app and record. Nothing is pushed until you add an origin. |
+| A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a file in the home's `local/`, and never leaves it. |
 
 `serve` signs no one in and listens only on the home, so which other devices
 reach it is your private network's decision. See the
@@ -149,7 +134,7 @@ Applications under `apps/` are outside apps
 
 | Package | What it is |
 | --- | --- |
-| [`@epicenter/app`](packages/app) | What a home's `epicenter.ts` imports (`defineData`, `defineAction`, `defineEpicenter`, fields), the client a page calls actions with, and the `epicenter` command, which serves every action to the command line and MCP. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Published. |
+| [`@epicenter/app`](packages/app) | What a home's `epicenter.ts` imports (`defineData`, `defineAction`, `defineEpicenter`, fields), the client a page calls actions with, and the `epicenter` command, which serves every action to the command line and MCP. A home depends on it and runs it with Bun. Git stores the home, one private root repository, and the command does not wrap it. Set up to publish; not on npm yet. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 
@@ -160,12 +145,12 @@ Whispering's own packages are under
 
 ```txt
 ~/Epicenter                    on the home
-  EPICENTER.md                 marks the folder as an Epicenter
+  package.json                 its "epicenter" key marks the home and names the port
+  epicenter.ts                 the program: data keys, and the apps composed from them
   AGENTS.md                    sent to every MCP client as instructions
-  apps/<app>/
-    code/epicenter.ts          data and actions
-    code/ui/                   the UI's source, built into code/ui/dist/
-    data/                      the app's records in the private root history
+  apps/<app>/                  an app's code: a function of the home's data
+  data/<key>/<id>.md           the records, in the private root history
+  local/                       caches and sign-ins, ignored by Git
 
 packages/app                   what epicenter.ts imports
 packages/app/src/command       epicenter: serve, MCP, and calls to serve
