@@ -183,7 +183,7 @@ context, renders the frame, and disposes both when it leaves.
 `opfsFiles` and the capabilities only in `app.ts`; `createWhispering` and
 `createLibrary` only in `WhisperingApp`; nothing from Node or Bun; Tauri
 only in the files it names, with every Tauri module but
-`@tauri-apps/api/core` loaded when first used. `apps/whispering/scripts/first-load.test.ts`
+`@tauri-apps/api/core` loaded when first used. `apps/whispering-old/scripts/first-load.test.ts`
 holds that the web's first load carries no desktop module.
 
 ## Recording

@@ -19,7 +19,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOTS = ['apps/whispering/src/lib'];
+const ROOTS = ['apps/whispering-old/src/lib'];
 
 function* walk(dir: string): Generator<string> {
 	for (const entry of readdirSync(dir)) {

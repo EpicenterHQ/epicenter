@@ -1,5 +1,5 @@
 [package]
-name = "whispering"
+name = "whispering-old"
 version = "7.11.1"
 description = "Whispering as a desktop window over the folder it keeps its recordings in, recorded into from the first sample"
 authors = ["Epicenter"]

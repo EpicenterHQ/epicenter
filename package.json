@@ -25,7 +25,7 @@
 	"workspaces": {
 		"packages": [
 			"apps/*",
-			"apps/whispering/packages/*",
+			"apps/whispering-old/packages/*",
 			"packages/*"
 		],
 		"catalog": {
@@ -83,11 +83,11 @@
 	"scripts": {
 		"epicenter": "bun --no-install packages/app/src/command/bin.ts",
 		"build": "bun run --filter '*' build",
-		"build:whispering:desktop": "bun run --cwd apps/whispering build:desktop",
+		"build:whispering-old:desktop": "bun run --cwd apps/whispering-old build:desktop",
 		"check": "bun run scripts/check.ts",
 		"dev:landing": "bun run --cwd apps/landing dev",
-		"dev:whispering": "bun run --cwd apps/whispering dev",
-		"dev:whispering:desktop": "bun run --cwd apps/whispering dev:desktop",
+		"dev:whispering-old": "bun run --cwd apps/whispering-old dev",
+		"dev:whispering-old:desktop": "bun run --cwd apps/whispering-old dev:desktop",
 		"format": "biome check --write --linter-enabled=false",
 		"lint": "biome lint --write",
 		"typecheck": "bun run scripts/typecheck.ts",

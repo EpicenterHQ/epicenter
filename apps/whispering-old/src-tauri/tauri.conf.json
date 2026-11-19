@@ -1,8 +1,8 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Whispering",
+	"productName": "Whispering Old",
 	"version": "7.11.1",
-	"identifier": "so.epicenter.whispering",
+	"identifier": "so.epicenter.whispering-old",
 	"build": {
 		"frontendDist": "../build",
 		"beforeBuildCommand": "bun run build"

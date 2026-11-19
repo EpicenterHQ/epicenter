@@ -192,7 +192,7 @@ mod tests {
         );
     }
 
-    /// The bundle is `so.epicenter.whispering`, and it loads the one build
+    /// The bundle is `so.epicenter.whispering-old`, and it loads the one build
     /// the web serves. The development configuration's
     /// identifier is the production one with `.dev`, so it has its own local
     /// data directory and folder. Neither configures the file system plugin:
@@ -201,13 +201,13 @@ mod tests {
     #[test]
     fn whispering_is_its_own_app() {
         let config = read(include_str!("../tauri.conf.json"));
-        assert_eq!(config["identifier"], "so.epicenter.whispering");
-        assert_eq!(config["productName"], "Whispering");
+        assert_eq!(config["identifier"], "so.epicenter.whispering-old");
+        assert_eq!(config["productName"], "Whispering Old");
         assert_eq!(config["build"]["frontendDist"], "../build");
         assert!(config.get("plugins").is_none());
         let dev = read(include_str!("../tauri.dev.conf.json"));
-        assert_eq!(dev["identifier"], "so.epicenter.whispering.dev");
-        assert_eq!(dev["productName"], "Whispering Dev");
+        assert_eq!(dev["identifier"], "so.epicenter.whispering-old.dev");
+        assert_eq!(dev["productName"], "Whispering Old Dev");
         for configuration in [&config, &dev] {
             assert_eq!(
                 configuration["app"]["security"]["capabilities"],

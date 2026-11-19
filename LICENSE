@@ -29,6 +29,7 @@ anyone who forks and distributes a modified binary shares the changes back.
   Apps:
     apps/landing                @epicenter/landing
     apps/whispering             @epicenter/whispering
+    apps/whispering-old         @epicenter/whispering-old
 
 ================================================================================
 2. MIT (historical, no longer a live tier)

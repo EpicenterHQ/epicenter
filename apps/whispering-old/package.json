@@ -1,5 +1,5 @@
 {
-	"name": "@epicenter/whispering",
+	"name": "@epicenter/whispering-old",
 	"private": true,
 	"version": "7.11.1",
 	"description": "Voice notes: recordings, transcripts, and transformations are files, kept in your Epicenter repository on the web or, in the desktop app, in a folder on this computer",

@@ -87,7 +87,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   A capability a place lacks is `null` there (`speech`, `shortcut`). Only
   the files named in `src/lib/page-boundary.test.ts` reach Tauri, and every
   Tauri module but `@tauri-apps/api/core` loads when first used;
-  `apps/whispering/scripts/first-load.test.ts` refuses one in the web's first load.
+  `apps/whispering-old/scripts/first-load.test.ts` refuses one in the web's first load.
 - **Capabilities are module values; product state is the app's own**
   (ADR-0766).
   `app.ts` exports them, opened once per page. `WhisperingApp` makes

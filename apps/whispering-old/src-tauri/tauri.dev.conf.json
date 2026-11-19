@@ -1,9 +1,9 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Whispering Dev",
-	"identifier": "so.epicenter.whispering.dev",
+	"productName": "Whispering Old Dev",
+	"identifier": "so.epicenter.whispering-old.dev",
 	"build": {
-		"devUrl": "http://localhost:1420",
+		"devUrl": "http://localhost:1421",
 		"beforeDevCommand": "bun run dev"
 	},
 	"app": {

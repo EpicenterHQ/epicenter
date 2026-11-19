@@ -11,7 +11,7 @@ Keep a component’s own props and state types in the component. Several files c
 
 ## Shared contracts
 
-The recorder package defines [`Recorder`](../../../../apps/whispering/packages/recorder/src/recording.ts) in `recording.ts`. The [browser](../../../../apps/whispering/packages/recorder/src/browser.ts) and [desktop](../../../../apps/whispering/packages/recorder/src/tauri.ts) implementations both check their objects against it with `satisfies Recorder`. The [package entry point](../../../../apps/whispering/packages/recorder/src/index.ts) exposes the same contract whichever recorder it selects:
+The recorder package defines [`Recorder`](../../../../apps/whispering-old/packages/recorder/src/recording.ts) in `recording.ts`. The [browser](../../../../apps/whispering-old/packages/recorder/src/browser.ts) and [desktop](../../../../apps/whispering-old/packages/recorder/src/tauri.ts) implementations both check their objects against it with `satisfies Recorder`. The [package entry point](../../../../apps/whispering-old/packages/recorder/src/index.ts) exposes the same contract whichever recorder it selects:
 
 ```typescript
 export const recorder: Recorder = isTauri() ? shellRecorder : pageRecorder;
@@ -21,7 +21,7 @@ export const recorder: Recorder = isTauri() ? shellRecorder : pageRecorder;
 
 When an exported type is the public handle returned by one `create*` factory, the factory return object is the source of truth.
 
-Whispering names [`Library`](../../../../apps/whispering/src/lib/library.svelte.ts) immediately after `createLibrary`, in the same file:
+Whispering names [`Library`](../../../../apps/whispering-old/src/lib/library.svelte.ts) immediately after `createLibrary`, in the same file:
 
 ```typescript
 export type Library = ReturnType<typeof createLibrary>;

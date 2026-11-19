@@ -6189,7 +6189,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "whispering"
+name = "whispering-files"
+version = "0.0.1"
+dependencies = [
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "whispering-old"
 version = "7.11.1"
 dependencies = [
  "keyring",
@@ -6210,17 +6221,6 @@ dependencies = [
  "tempfile",
  "transcribe-cpp",
  "whispering-files",
-]
-
-[[package]]
-name = "whispering-files"
-version = "0.0.1"
-dependencies = [
- "libc",
- "log",
- "serde",
- "serde_json",
- "tempfile",
 ]
 
 [[package]]

@@ -30,8 +30,8 @@
         "typescript": "catalog:",
       },
     },
-    "apps/whispering": {
-      "name": "@epicenter/whispering",
+    "apps/whispering-old": {
+      "name": "@epicenter/whispering-old",
       "version": "7.11.1",
       "dependencies": {
         "@epicenter/ai": "workspace:*",
@@ -70,7 +70,7 @@
         "vite-plugin-devtools-json": "^1.0.0",
       },
     },
-    "apps/whispering/packages/recorder": {
+    "apps/whispering-old/packages/recorder": {
       "name": "@epicenter/recorder",
       "version": "0.0.1",
       "dependencies": {
@@ -83,7 +83,7 @@
         "typescript": "catalog:",
       },
     },
-    "apps/whispering/packages/transcription": {
+    "apps/whispering-old/packages/transcription": {
       "name": "@epicenter/transcription",
       "version": "0.0.1",
       "dependencies": {
@@ -98,7 +98,7 @@
         "typescript": "catalog:",
       },
     },
-    "apps/whispering/packages/vite-config": {
+    "apps/whispering-old/packages/vite-config": {
       "name": "@epicenter/vite-config",
       "version": "0.1.1",
       "dependencies": {
@@ -329,15 +329,15 @@
 
     "@epicenter/landing": ["@epicenter/landing@workspace:apps/landing"],
 
-    "@epicenter/recorder": ["@epicenter/recorder@workspace:apps/whispering/packages/recorder"],
+    "@epicenter/recorder": ["@epicenter/recorder@workspace:apps/whispering-old/packages/recorder"],
 
-    "@epicenter/transcription": ["@epicenter/transcription@workspace:apps/whispering/packages/transcription"],
+    "@epicenter/transcription": ["@epicenter/transcription@workspace:apps/whispering-old/packages/transcription"],
 
     "@epicenter/ui": ["@epicenter/ui@workspace:packages/ui"],
 
-    "@epicenter/vite-config": ["@epicenter/vite-config@workspace:apps/whispering/packages/vite-config"],
+    "@epicenter/vite-config": ["@epicenter/vite-config@workspace:apps/whispering-old/packages/vite-config"],
 
-    "@epicenter/whispering": ["@epicenter/whispering@workspace:apps/whispering"],
+    "@epicenter/whispering-old": ["@epicenter/whispering-old@workspace:apps/whispering-old"],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.28.1", "", { "os": "aix", "cpu": "ppc64" }, "sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ=="],
 

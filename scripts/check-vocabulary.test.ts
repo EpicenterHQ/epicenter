@@ -130,7 +130,7 @@ test('dated records keep their words', () => {
 
 test('prose is refused inside the store and allowed outside it', () => {
 	withRepo((dir) => {
-		write(dir, 'apps/whispering/src/row.ts', "// the row's prose\n");
+		write(dir, 'apps/whispering-old/src/row.ts', "// the row's prose\n");
 		commitAll(dir);
 		expect(run(dir).code).toBe(1);
 	});
