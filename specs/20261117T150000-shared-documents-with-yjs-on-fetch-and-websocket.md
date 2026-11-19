@@ -4,6 +4,9 @@
 **Status**: Draft
 **Owner**: Braden
 
+The records this spec cites by number are deleted from `docs/adr/`; read one with
+`git show "adr-archive:$(git ls-tree --name-only adr-archive docs/adr/ | grep /NNNN-)"`.
+
 ## One Sentence
 
 An app could offer live shared editing by relaying Yjs updates over the

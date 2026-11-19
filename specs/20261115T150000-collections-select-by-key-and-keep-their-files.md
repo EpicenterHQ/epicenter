@@ -4,6 +4,9 @@
 **Status**: Draft
 **Owner**: Braden
 
+The records this spec cites by number are deleted from `docs/adr/`; read one with
+`git show "adr-archive:$(git ls-tree --name-only adr-archive docs/adr/ | grep /NNNN-)"`.
+
 The remaining work is missing-reference diagnostics, collection-owned files,
 and adopting collection records in the Vault's publishing model. Runtime 0.4.0 already implements
 selection by key, lists and references, record checks, literal front matter,

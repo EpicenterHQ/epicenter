@@ -236,11 +236,9 @@ a rule here in the same pull request as the code.
 
 ### Running the home
 
-- **After an action's words the command takes at most one more word: a JSON
-  object, or `-` to read one from stdin. No input means `{}`.** One grammar
-  covers every input shape.
-  Refused: flags spelling the same JSON; JSON5 or `key=value`; reading stdin
-  whenever it is piped, which can hang under an agent.
+- **After an action's words the command takes at most one more word, a JSON
+  object. No input means `{}`.** One grammar covers every input shape.
+  Refused: flags spelling the same JSON; JSON5 or `key=value`.
 - **The command exits 0 for success, 2 for `NotStarted` and 1 otherwise.**
   A script can retry what never started without guessing.
 - **One serve per home runs every action, and the port is its lock. The
