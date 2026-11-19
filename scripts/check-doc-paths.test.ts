@@ -220,3 +220,91 @@ test('excluded docs are not scanned', () => {
 		expect(out).toContain('all paths resolve');
 	});
 });
+
+test('relative link to a tracked file and heading passes', () => {
+	withRepo((dir) => {
+		write(
+			dir,
+			'docs/a.md',
+			'[b](./b.md#some-heading) and [self](#top)\n\n# Top\n',
+		);
+		write(dir, 'docs/b.md', '# Some heading\n\n## Repeat\n\n## Repeat\n');
+		write(dir, 'docs/c.md', '[dir](../docs/) [dup](b.md#repeat-1)\n');
+		commitAll(dir);
+
+		const { code, out } = run(dir);
+
+		expect(code).toBe(0);
+		expect(out).toContain('all links resolve');
+	});
+});
+
+test('relative link to a missing file fails', () => {
+	withRepo((dir) => {
+		write(
+			dir,
+			'docs/a.md',
+			'See [gone](./gone.md) and [abs](/Users/x/y.md).\n',
+		);
+		commitAll(dir);
+
+		const { code, out } = run(dir);
+
+		expect(code).toBe(1);
+		expect(out).toContain('docs/a.md:1  (./gone.md)  no such file');
+		expect(out).toContain('(/Users/x/y.md)');
+	});
+});
+
+test('link anchor with no matching heading fails', () => {
+	withRepo((dir) => {
+		write(dir, 'docs/a.md', '[x](b.md#nope) [y](#also-nope)\n');
+		write(dir, 'docs/b.md', '# Real\n');
+		commitAll(dir);
+
+		const { code, out } = run(dir);
+
+		expect(code).toBe(1);
+		expect(out).toContain('(b.md#nope)  no heading for #nope');
+		expect(out).toContain('(#also-nope)  no heading for #also-nope');
+	});
+});
+
+test('links in code, external links, specs and history are not checked', () => {
+	withRepo((dir) => {
+		write(
+			dir,
+			'docs/a.md',
+			'`[x](missing.md)` [web](https://example.com/a.md)\n\n```md\n[y](missing.md)\n```\n',
+		);
+		write(dir, 'specs/s.md', '[x](missing.md)\n');
+		write(dir, 'docs/history.md', '[x](missing.md)\n');
+		write(
+			dir,
+			'docs/ignored.md',
+			'<!-- doc-path-check: ignore-file -->\n[x](missing.md)\n',
+		);
+		write(
+			dir,
+			'docs/line.md',
+			'<!-- doc-path-check: ignore-next-line -->\n[x](missing.md)\n',
+		);
+		commitAll(dir);
+
+		const { code } = run(dir);
+
+		expect(code).toBe(0);
+	});
+});
+
+test('skill docs are checked for dead links', () => {
+	withRepo((dir) => {
+		write(dir, '.agents/skills/s/SKILL.md', '[r](references/gone.md)\n');
+		commitAll(dir);
+
+		const { code, out } = run(dir);
+
+		expect(code).toBe(1);
+		expect(out).toContain('.agents/skills/s/SKILL.md:1');
+	});
+});

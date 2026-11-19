@@ -451,19 +451,19 @@ The committed implementation also passed all 73 tests and both typechecks agains
 
 ## Evidence
 
-The local evidence archive is [whispering-file-desktop-20261001](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/independent-acceptance.md). It contains 22 native screenshots, endpoint uploads, filesystem assertions, build and test logs, the disposable native folder with its Git history, and a separate restored folder.
+The local evidence archive is the folder `whispering-file-desktop-20261001`, kept on the verifier's machine and not in this repository. It contains 22 native screenshots, endpoint uploads, filesystem assertions, build and test logs, the disposable native folder with its Git history, and a separate restored folder.
 
-- [Independent acceptance table](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/independent-acceptance.md)
-- [Native interaction observations](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/native-ui-notes.md)
-- [Final filesystem and Git restoration assertions](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/logs/native-final-filesystem-and-history.json)
-- [Yjs import and bundle evidence](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/logs/no-yjs-import-closure.json)
-- [Recording and result](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/screenshots/04-native-recording-result.png)
-- [Files explorer](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/screenshots/05-native-explorer-audio.png)
-- [Terminal and Git history](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/screenshots/06-native-terminal-git.png)
-- [Conflict recovery](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/screenshots/07-native-conflict-both-versions.png)
-- [Commit failure status](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/screenshots/09-native-git-failure-status.png)
-- [Unsaved close confirmation](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/screenshots/16-native-closeguard-command-q.png)
-- [Real microphone failure](/Users/braden/.codex/artifacts/whispering-file-desktop-20261001/screenshots/22-native-microphone-invalid-constraint.png)
+- Independent acceptance table: `independent-acceptance.md`
+- Native interaction observations: `native-ui-notes.md`
+- Final filesystem and Git restoration assertions: `logs/native-final-filesystem-and-history.json`
+- Yjs import and bundle evidence: `logs/no-yjs-import-closure.json`
+- Recording and result: `screenshots/04-native-recording-result.png`
+- Files explorer: `screenshots/05-native-explorer-audio.png`
+- Terminal and Git history: `screenshots/06-native-terminal-git.png`
+- Conflict recovery: `screenshots/07-native-conflict-both-versions.png`
+- Commit failure status: `screenshots/09-native-git-failure-status.png`
+- Unsaved close confirmation: `screenshots/16-native-closeguard-command-q.png`
+- Real microphone failure: `screenshots/22-native-microphone-invalid-constraint.png`
 
 ## Limits
 
