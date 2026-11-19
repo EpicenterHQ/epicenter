@@ -18,7 +18,7 @@
  * Serve alone loads app code and reads an action's input (ADR-0961). A page
  * and the `epicenter` command call an action the same way, and serve answers
  * "no such action" or "this input does not fit" itself. The listing at
- * `GET /actions/` feeds every view of the apps (`listing.ts`).
+ * `GET /actions/` feeds every view of the apps (`listApps` in `apps.ts`).
  *
  * Serve loads every app once, when it starts (ADR-0959): each entry in
  * `apps/` is either the app its code defines or its problems (`apps.ts`),

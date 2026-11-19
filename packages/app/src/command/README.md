@@ -71,9 +71,10 @@ version an Epicenter runs is one line in a file in Git
   `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
   no command rewrites the list.
 
-An entry in `apps/` that is a link is refused, not followed: the listing
-names it as a problem, and its app does not load. An app's folder is the
-folder itself, inside the Epicenter.
+`apps/`, an app's folder, and its `code/`, `data/` and `local/` are real
+folders. A link at any of them is refused, not followed: the listing names it
+as a problem and that app does not load, and a linked `apps/` stops serve
+before it loads any app.
 
 ## Install and try a writing inbox
 
@@ -246,8 +247,8 @@ Discovery lists `apps/` and skips dot entries and files. Every folder there
 is an app: its `code/epicenter.ts` must default-export
 `defineApp(({ folder }) => ...)`. The loader calls that function once with
 `folderOnDisk(<container>)` and lists what it returns. A folder with no
-declaration is listed with `no code/epicenter.ts`, and a link is listed with
-`apps/<name> is a link; an app is a folder in apps/, not a link to one`.
+declaration is listed with `no code/epicenter.ts`, and a link is listed as
+`apps/<name> is a link; apps/, an app's folder, and its code/, data/ and local/ must be real folders`.
 Discovery reads
 `apps/` only, never the `workspaces` list, so a package the owner added to
 that list is not taken for an app.
@@ -325,9 +326,9 @@ folder it took for its Epicenter and where that folder's marker is
 The serve on port 4747 is another Epicenter's. This command took /Users/ada/Epicenter/apps/vault/data for its Epicenter, from /Users/ada/Epicenter/apps/vault/data/EPICENTER.md: if that is not your Epicenter, remove that file; if it is, set a different `port` in it.
 ```
 
-An input past serve's 25 MB limit is refused with `413`; the command answers
-`NotStarted` (`The input is larger than serve takes`), exit 2, since nothing
-ran. Any other status is `Unreachable`, exit 1, with one message, since the
+An input past serve's 25 MiB limit is refused with `413`; the command answers
+`NotStarted` (`The input is larger than 25 MiB, the most serve takes`), exit
+2, since nothing ran. Any other status is `Unreachable`, exit 1, with one message, since the
 command does not probe what answered:
 
 ```txt
@@ -376,7 +377,9 @@ A page calls actions through `@epicenter/app/client`, at
 
 Serve commits nothing. Git stores the Epicenter, and its owner commits and pushes
 it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
-serve exits, and a call or routine still running is cut.
+serve closes every connection and exits, and a call or routine still running
+is cut. A write cut off leaves its target whole: the folder writes a
+temporary file and renames it over the target.
 
 ### Restart serve to run changed code
 

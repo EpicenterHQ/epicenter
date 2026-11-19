@@ -57,9 +57,17 @@ app may be named `check`.
     reads.
 - A person or agent asking "is my data sound?" calls each key's `list`
   action and reads the refusals. Nothing totals them across keys or apps.
+- A key whose app offers no `list` action cannot be checked from outside
+  the app at all.
+- Nothing checks an app or its data while serve is stopped, and nothing
+  gives a script a non-zero exit for bad data.
+- A routine due in the minute serve restarts is skipped that day
+  (ADR-0937). Restarting to change code (ADR-0959) makes restarts, and so
+  skipped routines, more common than ADR-0937 assumed. No catch-up is
+  built.
 - Trying changed code before a restart has no command. Restart serve.
 - A command's error no longer carries a `report` the presenter prints.
-  `ActionError.Problems` has no producer left in the command.
+  `ActionError.Problems`, whose one producer was check, is deleted.
 
 ## Considered alternatives
 

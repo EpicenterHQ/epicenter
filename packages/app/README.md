@@ -826,11 +826,17 @@ The compiler flags none of these.
 | a routine running a shell command or Git | not possible; write an action that does it, or use the computer's own scheduler |
 | a routine naming a missing action failed when it ran | refused when serve starts, printed beside the address, and listed by bare `epicenter` |
 | `EPICENTER.md` with no `port` used 4747 | `port` is required; a marker without one is refused |
-| an entry in `apps/` that is a link to a folder elsewhere loaded that folder | refused: `apps/<name> is a link; an app is a folder in apps/, not a link to one` |
+| a link in `apps/`, or at an app's `code/`, `data/` or `local/`, was followed | refused: `apps/<name>/data is a link; apps/, an app's folder, and its code/, data/ and local/ must be real folders`, and that app does not load; a linked `apps/` stops serve |
 | serve rewrote every error it sent, an action's included, showing the Epicenter's folder as `.` and your home folder as `~` | a problem serve makes names a path from the Epicenter's folder, such as `apps/<app>/code/epicenter.ts`; an action's own error is sent as written, full paths included |
 | a folder in `apps/` without `code/epicenter.ts` answered 404 at its address | it answers 500 with its problem, and is listed with `no code/epicenter.ts` |
 | a second serve on the port, or another program there, reached through a probe | a command naming another Epicenter is refused with 409, naming the folder it took and its marker; serve refuses to start on a port in use |
-| a refusal for a missing action named the app's actions only in its message | `--json` also carries them as `error.actions` |
+| a refusal for a missing action said only that it was missing | its message names the actions: `notes has no action "x"; its actions: list, get` |
+| bare `epicenter --json` routine rows carried `command`, a line to paste | they carry `app`, `action` and `input` |
+| bare `epicenter --json` problems were `{ entry, folder, problems }`, and `epicenter <app> --json` carried `folder` | problems are `{ entry, problems }` and an app has no `folder`; paths in a problem are from the Epicenter's folder, never `~` |
+| serve's answers carried `x-epicenter` (and, before that, `x-epicenter-home`) | no answer header names serve; only the command's request carries `x-epicenter-root` |
+| any status but 200 read as `serve answered <status>` | `The program on port <port> answered <status>`, with both fixes: restart an old serve, or set another `port` |
+| an MCP call to an action marked `mcp: false` said it is not offered | it gets the same refusal as any name `tools/list` does not offer |
+| `ActionError.Problems` | deleted |
 | `epicenter check [<app>]` read every data key and reported files that did not fit, stray names, broken references and old `data/<key>.md` files | deleted; `epicenter check` is refused like any unknown app, and an app may be named `check` |
 | `import { checkData } from '@epicenter/app'` | deleted; call a key's `list` action, which answers one Result per file, refusals included |
 | a command's error carrying `report` printed that report on stdout | an error prints its message and next step only |
@@ -847,6 +853,13 @@ The compiler flags none of these.
 - **Move a linked app into `apps/`.** Copy its folder in place of the link.
 - **Drop `epicenter check` and `checkData`** from scripts and tests. To see
   which records of a key do not fit, call its `list` action.
+- **Scripts that read `--json`** read routine rows' `app`, `action` and
+  `input`, and an app's folder as `apps/<name>/` under the `epicenter`
+  folder the report names.
+- **Stopping serve cuts what runs.** On SIGINT or SIGTERM serve closes every
+  connection and exits, so a call or routine still running is cut. A write
+  cut off leaves its target whole: the folder writes a temporary file and
+  renames it.
 
 ### Upgrade steps
 

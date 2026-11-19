@@ -37,9 +37,11 @@ what it loaded. To run changed code, stop serve and start it again.**
   and the launcher from what it loaded.
 - **Call.** A call looks up the app and action already loaded, checks the
   input, and runs it. Nothing is imported.
-- **Restart is stop.** Serve has no reload command. On a stop signal it takes
-  no new calls, starts no routine, and exits. A call or routine still running
-  is cut. Whatever keeps serve running starts it again (ADR-0941).
+- **Restart is stop.** Serve has no reload command. On a stop signal it
+  closes every connection and exits the process, even while an app's timer
+  would hold it, so a restarted serve never runs beside the old one. A call
+  or routine still running is cut. A write cut off leaves its target whole:
+  the folder writes a temporary file and renames it over the target. Whatever keeps serve running starts it again (ADR-0941).
 - **One rule for when a change takes effect.** Code, packages, `.env`,
   `AGENTS.md` and `routines/` are read when serve starts. Bun fills
   `process.env` from `.env` at start (ADR-0949), so a changed key already
@@ -68,8 +70,8 @@ on each bare `epicenter` is a cost paid to catch a forgotten restart.
 - A half-finished edit never reaches a call. Serve runs the code it loaded
   until someone restarts it on purpose.
 - An agent that edits code and does not restart sees the old behavior, and
-  nothing tells it so. `epicenter check` loads an app in its own process, so
-  it is how an agent tries new code before a restart.
+  nothing tells it so. Nothing tries new code before a restart: ADR-0968
+  deleted `epicenter check`, which did.
 - An app that failed to load stays failed until serve restarts, even once
   its file is fixed. Every path under its address answers 500 with its
   problems.

@@ -108,7 +108,7 @@ Each waits for a person who needs it, and building one needs the owner's yes.
 - An offline outbox for actions.
 - Moving a collection's truth between a folder and a service.
 - A published protocol for third parties. `serve` prints a contract as JSON
-  Schema (`packages/app/src/command/listing.ts:108`), unpromised.
+  Schema (`appListing` in `packages/app/src/command/apps.ts`), unpromised.
 - `serve` pulling cached collections on a clock. Mail catches up when asked;
   the vision refuses schedules.
 - A field declaring a collection's form.
