@@ -10,7 +10,7 @@
 - **Amends:** [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) at "the request arrives as the browser sent it": serve strips `/apps/<app>` and sets `X-Forwarded-Prefix`.
 - **Amends:** [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) at "each app inside its own guard": serve imports one module, and the whole program loads or none of it does.
 - **Relates:** [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md), [ADR-0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md) and [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) (Proposed; each is edited for the marker and for `ui(dir)` when 0970 is accepted), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (Proposed; an app becomes a function of the handles it is passed), [ADR-0968](0968-each-thing-is-checked-once-where-it-can-change-and-epicenter-check-is-deleted.md) (no `epicenter check` returns).
-- **Unbuilt:** all of it. `@epicenter/app` exports no `defineEpicenter`, `ui` or `Local`, and serve discovers `apps/*/code/epicenter.ts` in `packages/app/src/command/apps.ts`.
+- **Unbuilt:** all of it. `@epicenter/app` exports no `defineEpicenter` or `ui`, and serve discovers `apps/*/code/epicenter.ts` in `packages/app/src/command/apps.ts`.
 
 ## Context
 
@@ -90,7 +90,7 @@ const writingApp = writing({ notes: data.notes });
 const flightsApp = flights({
   watches: data.watches,
   checks: data.checks,
-  local: home.local('flights'),
+  folder: home,                     // for local/flights/settings.md and flighty.json
   saveNote: writingApp.actions.add,
 });
 
@@ -110,18 +110,18 @@ export default defineEpicenter({
 ```ts
 // ~/Epicenter/apps/flights/index.ts
 import { join } from 'node:path';
-import { defineAction, field, ui, type Local } from '@epicenter/app';
+import { defineAction, field, ui, type Folder } from '@epicenter/app';
 import { Hono } from 'hono';
 import type { Data } from '../../epicenter';
 import type { writing } from '../writing';
 
 type Needs = Pick<Data, 'watches' | 'checks'> & {
-  local: Local;
+  folder: Folder;
   saveNote: ReturnType<typeof writing>['actions']['add'];
 };
 
-export function flights({ watches, checks, local, saveNote }: Needs) {
-  const daily = defineAction({ /* reads settings.md and flighty.json through `local` */ });
+export function flights({ watches, checks, folder, saveNote }: Needs) {
+  const daily = defineAction({ /* reads and writes local/flights/ through `folder` */ });
   const page = ui(join(import.meta.dir, 'ui/dist'));
   const web = new Hono()
     .get('/feed.xml', async (c) => c.body(await feedOf(checks)))
@@ -150,10 +150,11 @@ export function flights({ watches, checks, local, saveNote }: Needs) {
   (`flights_daily`). `defineEpicenter` refuses a name that is not
   lowercase letters, digits and dashes, and refuses `serve`. A folder
   under `apps/` that `epicenter.ts` does not call does not run.
-- **`home.local('<app>')`** returns a `Local`: a folder at `local/<app>/`
-  with its own `path`, written with today's `write`, `edit` and `delete`,
-  files at `0600`, a link at the folder refused. An app that needs files
-  outside every data key is passed `home` or a subfolder of it.
+- **`local/`** is the one folder Git never sees: secrets, caches and this
+  computer's settings, by convention under `local/<app>/`. No API names it.
+  Today's `folderOnDisk` already treats the path: a new file under `local/`
+  is `0600`, and the first write there writes `local/.gitignore`. An app
+  that needs `local/` or files outside every data key is passed `home`.
 - **A routine** names an action and its input. `defineEpicenter` maps each
   action to its `{ app, action }` name and refuses two routines or apps
   whose action is ambiguous. Serve checks once a minute and runs each
@@ -189,7 +190,7 @@ export function flights({ watches, checks, local, saveNote }: Needs) {
   reading `EPICENTER.md` in `root.ts`, and `uiFile` in `serve.ts`.
   `defineApp` is deleted, and an app no longer returns `data`; the listing
   shows the home's keys once.
-- Added: `defineEpicenter`, `Local`, `ui`, the `BadInput` error, prefix
+- Added: `defineEpicenter`, `ui`, the `BadInput` error, prefix
   stripping, and the input checker moved from `command/input.ts` into the
   action. The library shrinks by a few hundred lines; the larger gain is
   fewer concepts.
