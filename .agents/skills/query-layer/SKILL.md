@@ -13,8 +13,22 @@ for UI to observe. Services stay TanStack-free and return Results; the layer
 adds cache identity, observation, and refresh after writes. Everything in it is
 plain TanStack options, so TanStack's own mechanisms do the composing.
 
-Related skills: `services-layer` for the services these consume, `svelte` for
-component-level hook use, `error-handling` for presenting a failure.
+Related skills: `svelte` for component-level hook use, `error-handling` for
+presenting a failure.
+
+## What a service is
+
+A service is a group of related functions for one job, usually methods on a
+plain object or a factory result. It is independent of the UI framework: it can
+make requests, write files, and keep state, but it does not import Svelte or
+React, read component state, or decide what the interface shows. Toasts,
+reporting, and TanStack observers stay outside it.
+
+Dependencies are explicit. Capture a stable resource at construction when
+several operations share it; pass per-call inputs to the operation. Expected
+failures return `Result<T, E>`; infallible work stays an ordinary value. Keep
+lower-layer tagged errors as they are and define a local one only for a failure
+the service owns.
 
 ## Ground before relying on memory
 
@@ -232,7 +246,7 @@ Service errors pass through the query layer unchanged as tagged errors.
 TanStack carries them in `error`, and the component or report boundary decides
 what a person sees. Add a local error only when the adapter discovers a failure
 no lower layer owns. Choosing an implementation from settings or platform
-belongs to the consuming operation (`services-layer`), not to a query entry.
+belongs to the consuming operation, not to a query entry.
 
 ## Name handles for what they hold
 

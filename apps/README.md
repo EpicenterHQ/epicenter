@@ -7,7 +7,6 @@ The apps in this folder are outside apps: each works without an Epicenter
 | App | What it is |
 | --- | --- |
 | [Whispering](whispering/README.md) | A voice recorder that runs on your device, in a browser tab or as a desktop app. |
-| [API](api/README.md) | The server behind it: accounts, paid models, and hosted-only billing. |
 | [Landing](landing) | The website at epicenter.so. |
 
 Personal apps such as Capture and Tasks live in the owner's Epicenter. One

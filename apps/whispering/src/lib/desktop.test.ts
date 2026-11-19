@@ -116,7 +116,7 @@ test('Ollama and LM Studio are looked for through Tauri’s HTTP plugin, which f
 			resolve();
 		});
 	});
-	expect(ollama.models()).toEqual([{ id: 'llama3', can: ['chat'] }]);
+	expect(ollama.models()).toEqual([{ id: 'llama3', can: [] }]);
 	const asked = fetched.find(
 		({ url }) => url === 'http://localhost:11434/v1/models',
 	);

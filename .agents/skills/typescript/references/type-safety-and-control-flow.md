@@ -67,7 +67,7 @@ Convention: namespace the key (`epicenter.action`, `epicenter.document-handle`),
 - **Single-or-function config**: `typeof baseURL === 'function'` to distinguish a value from a getter. A config API pattern, not a broken contract.
 - **Node error inspection**: `'code' in error` on `NodeJS.ErrnoException`. Upstream type genuinely requires it.
 
-**When a shape probe IS the smell, the fix is usually upstream.** If you're about to write `isFoo(x)` that shape-probes an internal factory's output, the factory should stamp a brand. If you're about to shape-probe user input or `JSON.parse` output, validate with arktype/typebox at the boundary: the probe accepts any object that happens to match; the schema rejects anything off-contract.
+**When a shape probe IS the smell, the fix is usually upstream.** If you're about to write `isFoo(x)` that shape-probes an internal factory's output, the factory should stamp a brand. If you're about to shape-probe user input or `JSON.parse` output, validate with a schema at the boundary: the probe accepts any object that happens to match; the schema rejects anything off-contract.
 
 ### Factory output: flat objects, not prototype delegation
 

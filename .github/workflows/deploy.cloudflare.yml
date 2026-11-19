@@ -91,19 +91,6 @@ jobs:
           url="$(jq -rs 'map(select(.type=="deploy")) | last | .targets[0] // empty' "${outdir}"/*.json || true)"
           echo "deployment-url=${url}" >> "${GITHUB_OUTPUT}"
 
-      - name: Deploy API
-        id: api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          outdir="$(mktemp -d)"
-          WRANGLER_OUTPUT_FILE_DIRECTORY="${outdir}" \
-            bunx --no-install wrangler --cwd apps/api deploy
-          url="$(jq -rs 'map(select(.type=="deploy")) | last | .targets[0] // empty' "${outdir}"/*.json || true)"
-          echo "deployment-url=${url}" >> "${GITHUB_OUTPUT}"
-
       - name: Deployment summary
         if: always()
         run: |
@@ -112,7 +99,6 @@ jobs:
           echo "| App | URL |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|-----|" >> $GITHUB_STEP_SUMMARY
           echo "| Landing | ${{ steps.landing.outputs.deployment-url }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| API | ${{ steps.api.outputs.deployment-url }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -134,11 +120,6 @@ jobs:
                 {
                   "name": "Landing",
                   "value": "${{ steps.landing.outputs.deployment-url }}",
-                  "inline": true
-                },
-                {
-                  "name": "API",
-                  "value": "${{ steps.api.outputs.deployment-url }}",
                   "inline": true
                 }
               ],

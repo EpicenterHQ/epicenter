@@ -1,148 +1,64 @@
 ---
 name: tsconfig
-description: 'TypeScript config conventions for this monorepo: the two-base layering, the seven leaf tiers, and the never-redeclare list. Use when adding or scaffolding a package, editing any tsconfig.json, picking a tier for a new app, or debugging module resolution.'
+description: 'TypeScript config conventions for this monorepo: the two base files, the leaf tiers, and what a leaf may set. Use when adding or scaffolding a package, editing any tsconfig.json, picking a tier for a new app, or debugging module resolution.'
 metadata:
   author: epicenter
-  version: '1.0'
+  version: '2.0'
 ---
 
 # tsconfig conventions
 
-Every package here is **source-only `.ts`**: `exports` point at `./src/*.ts`,
-there is no build step, and consumers (Bun, Vite, Tauri, the Cloudflare Worker)
-operate on raw `.ts`. That single fact decides the whole config. No package
-emits; do not add `outDir`, `declaration`, or `noEmit: false` to any leaf. A
-package that someday must emit puts those in a sibling `tsconfig.build.json`
-that extends its leaf.
+Every package is source-only `.ts`: `exports` point at `./src/*.ts`, nothing emits, and Bun, Vite, or Tauri read the source directly.
 
 ## The one rule
 
-A leaf `tsconfig.json` may set **only**: `types`, library-only strictness
-(`noUnusedLocals`/`noUnusedParameters`), `checkJs` (SvelteKit), and genuinely
-package-specific options (`jsx`, `paths`, `customConditions`, `include`).
-
-Anything else belongs in a base. If a leaf option repeats a base value or a
-TypeScript default, delete it.
+A leaf `tsconfig.json` sets only package-specific options: `types`, `noUnusedLocals` and `noUnusedParameters` for libraries, `checkJs` for SvelteKit, and a real need such as `include` or `exclude`. If a leaf option repeats a base value or a TypeScript default, delete it.
 
 ## Two base files
 
-```
-tsconfig.base.json   universal: target/lib[ESNext], module preserve, strict,
-                     noEmit, isolatedModules, verbatimModuleSyntax, types []
-tsconfig.dom.json    extends base; its ONLY job is lib [ESNext, DOM, DOM.Iterable]
-```
+- `tsconfig.base.json`: `target` and `lib` ESNext, `module: "preserve"`, `strict`, `noEmit`, `isolatedModules`, `verbatimModuleSyntax`, `types: []`.
+- `tsconfig.dom.json`: extends the base and only adds `lib: ["ESNext", "DOM", "DOM.Iterable"]`.
 
-There is no `tsconfig.base.lib.json` and no project `references`. Source-only
-packages never emit, so `composite`/`declaration`/`outDir` have no place in a
-leaf or a base.
+## Leaf tiers
 
-## Module strategy: one, repo-wide
+Pick the tier and copy its example.
 
-`module: "preserve"` + `moduleResolution: "bundler"`. `preserve` implies
-`bundler` (TS 5.4+); the explicit pair is kept for legibility. **Never use
-`NodeNext`** anywhere: nothing in this repo is published as emitted Node ESM,
-and `bundler` resolution already reads package.json `imports`/`exports`.
-
-## The seven leaf tiers
-
-Pick the tier, copy the shape, change nothing else.
-
-| Tier | `extends` | Leaf adds |
+| Tier | Extends | Copy |
 | --- | --- | --- |
-| Bun library | `"../../tsconfig.base.json"` | `types:["bun"]`, `noUnusedLocals`, `noUnusedParameters` |
-| Node library | `"../../tsconfig.base.json"` | `types:["node"]`, `noUnusedLocals`, `noUnusedParameters` |
-| Svelte library | `"../../tsconfig.dom.json"` | `types:["bun"]`, `noUnusedLocals`, `noUnusedParameters` |
-| SvelteKit app | `["../../tsconfig.base.json", "./.svelte-kit/tsconfig.json"]` | `checkJs:true`, `types:["bun"]` |
-| Cloudflare Worker | `"../../tsconfig.base.json"` | `jsx`, `jsxImportSource`, `types`, `include` |
-| Bun app | `"../../tsconfig.base.json"` | `types:["bun"]`, `include` |
-| Astro app | `["../../tsconfig.base.json", "astro/tsconfigs/strict"]` | astro `include`/`exclude` |
+| Bun library | `tsconfig.base.json` | `packages/app/tsconfig.json` |
+| Node library | `tsconfig.base.json` | `apps/whispering/packages/vite-config/tsconfig.json` |
+| Browser or Svelte library | `tsconfig.dom.json` | `packages/ai/tsconfig.json` |
+| Bun scripts | `tsconfig.base.json` | `scripts/tsconfig.json` |
+| SvelteKit app | base, then `./.svelte-kit/tsconfig.json` | `apps/whispering/tsconfig.json` |
+| Astro app | base, then `astro/tsconfigs/strict` | `apps/landing/tsconfig.json` |
 
-A generated config (`./.svelte-kit/tsconfig.json`) goes **last** in the array so
-its `lib`/`module` win where they must. Never hand-edit a generated config.
+A generated or framework config goes last in the `extends` array so its settings win. Never hand-edit a generated config.
 
-The two canonical library shapes in full:
+## `types` is opt-in
 
-```jsonc
-// bun library: packages/definition
-{
-	"extends": "../../tsconfig.base.json",
-	"compilerOptions": {
-		"types": ["bun"],
-		"noUnusedLocals": true,
-		"noUnusedParameters": true
-	}
-}
+The base sets `types: []` so TypeScript does not load every `@types` package in `node_modules`. Each leaf opts in with `["bun"]` or `["node"]`. Do not move `["bun"]` into a base: a package without `@types/bun` installed would fail with `Cannot find type definition`.
 
-// svelte library: packages/ui, packages/svelte, and the packages pages import
-// (account, ai, folder, recorder)
-{
-	"extends": "../../tsconfig.dom.json",
-	"compilerOptions": {
-		"types": ["bun"],
-		"noUnusedLocals": true,
-		"noUnusedParameters": true
-	}
-}
-```
+## `include` replaces, it does not merge
 
-## Never redeclare these (base value or TS default)
+A leaf `include` replaces the inherited one. In a SvelteKit app, do not set `include`, or you drop the generated `ambient.d.ts` and `$types` files. Set `include` only to narrow scope for a real reason.
 
-Putting any of these in a leaf is dead weight. Delete on sight.
+## Adding a package
 
-| Do not write in a leaf | Why |
-| --- | --- |
-| `module: "preserve"` | already in `tsconfig.base.json` |
-| `moduleResolution`, `target`, `noEmit`, `strict`, `isolatedModules` | already in the base |
-| `lib: ["ESNext"]` | the base default; use `tsconfig.dom.json` if you need DOM |
-| `noPropertyAccessFromIndexSignature: false` | that is already the TS default |
-| `useDefineForClassFields: true` | default when `target` >= ES2022 |
-| `forceConsistentCasingInFileNames` | default `true` since TS 5.0 |
-| `resolvePackageJsonExports` | default `true` under `moduleResolution: bundler` |
-| `sourceMap` | no-op under `noEmit` |
-| single-element `extends` array | use the string form: `"extends": "../../tsconfig.base.json"` |
-
-## `types` is opt-in, on purpose
-
-The base sets `types: []` to disable auto-inclusion of every `node_modules/@types`
-package. Each leaf opts in: `["bun"]` for almost everything, `["node"]` for the
-one package that uses `@types/node`. Do not hoist `["bun"]` to a base: a package
-without `@types/bun` installed would then fail with `Cannot find type definition`.
-
-## `include` rules
-
-- TypeScript does **not** merge `include` across `extends`. A leaf `include`
-  fully *replaces* the inherited one. For SvelteKit apps this means: do not set
-  your own `include`, or you drop the generated `ambient.d.ts`/`$types` globs.
-- Only set `include` when you must narrow scope for a real reason; comment why.
-
-## Adding a new package
-
-1. Pick a tier from the table above; copy that exact shape.
-2. Start `package.json` from this shape (a package in `packages/`):
+1. Copy the `tsconfig.json` of the matching tier.
+2. Start `package.json` from this shape:
 
    ```json
    {
-     "name": "@epicenter/<package-name>",
+     "name": "@epicenter/<name>",
      "version": "0.0.1",
-     "exports": { ".": "./src/index.ts" },
+     "private": true,
+     "type": "module",
      "license": "AGPL-3.0-or-later",
-     "scripts": { "typecheck": "tsc --noEmit" },
-     "dependencies": {},
+     "exports": { ".": "./src/index.ts" },
+     "scripts": { "typecheck": "tsc --noEmit", "test": "bun test" },
      "devDependencies": { "@types/bun": "catalog:", "typescript": "catalog:" }
    }
    ```
 
-   - `exports` only, no `main`/`types`. The entry point is `./src/index.ts`;
-     there is no build step, consumers import the source.
-   - Internal dependencies use `"workspace:*"`; shared versions use
-     `"catalog:"` from the root `package.json` catalogs.
-   - Use `peerDependencies` for packages a consumer must also install.
-   - Before adding an MIT package, read "If MIT returns" in
-     `docs/licensing/licensing-strategy.md`.
-3. `bun install` at the repo root to register the workspace, then `bun typecheck`.
-
-## Background
-
-The full rationale, the migration that established this layout, and the baseline
-typecheck state were in a spec, now deleted; recover it with
-`git log --all --full-history -- specs/20260522T190000-modernize-monorepo-tsconfig.md`.
+   Use `exports` only, with no `main` or `types`. Internal dependencies use `"workspace:*"`; shared versions use `"catalog:"`. A Svelte package typechecks with `svelte-check --tsconfig ./tsconfig.json` instead, as in `packages/ai`.
+3. Run `bun install` at the repo root, then `bun typecheck`.

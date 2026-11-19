@@ -1,12 +1,11 @@
 /**
  * The one client: OpenAI-shaped requests posted through an endpoint's
- * `fetch`, OpenAI-shaped answers read back. Chat always streams (server-sent
- * events); transcription, embeddings and the model list answer once.
+ * `fetch`, OpenAI-shaped answers read back: a transcription and the model
+ * list.
  *
  * Every ordinary failure is a `Result` error: an unreachable endpoint, a
  * refusal (any non-2xx answer, with the provider's message and code when it
- * sent them), an answer that does not read, and an error the provider sent
- * mid-stream. A chat stream ends after its first error.
+ * sent them), and an answer that does not read.
  */
 
 import {
@@ -39,10 +38,6 @@ export const AiError = defineErrors({
 		status,
 		code,
 	}),
-	Failed: ({ message, code }: { message: string; code?: string }) => ({
-		message,
-		code,
-	}),
 	Malformed: ({ reason }: { reason: string }) => ({
 		message: `The endpoint's answer did not read: ${reason}.`,
 		reason,
@@ -50,61 +45,6 @@ export const AiError = defineErrors({
 	Cancelled: () => ({ message: 'The request was cancelled.' }),
 });
 export type AiError = InferErrors<typeof AiError>;
-
-/** One tool call in a chat transcript. */
-export type ToolCall = {
-	id: string;
-	type: 'function';
-	function: { name: string; arguments: string };
-};
-
-export type ChatMessage =
-	| { role: 'system' | 'developer'; content: string }
-	| { role: 'user'; content: string }
-	| { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
-	| { role: 'tool'; tool_call_id: string; content: string };
-
-export type ChatTool = {
-	type: 'function';
-	function: {
-		name: string;
-		description?: string;
-		parameters: Record<string, unknown>;
-	};
-};
-
-export type ChatRequest = {
-	model: string;
-	messages: ChatMessage[];
-	tools?: ChatTool[];
-	temperature?: number;
-	max_completion_tokens?: number;
-};
-
-/** One fragment of a tool call as a stream sends it; some providers omit `index`. */
-export type ToolCallDelta = {
-	index?: number;
-	id?: string;
-	type?: 'function';
-	function?: { name?: string; arguments?: string };
-};
-
-/** One server-sent chat chunk. A usage-only chunk has no choices. */
-export type ChatChunk = {
-	id?: string;
-	model?: string;
-	choices: {
-		index?: number;
-		delta?: {
-			role?: string;
-			content?: string | null;
-			refusal?: string | null;
-			tool_calls?: ToolCallDelta[];
-		};
-		finish_reason?: string | null;
-	}[];
-	usage?: Record<string, unknown> | null;
-};
 
 /** Audio to transcribe, uploaded as `file` to every endpoint, as any OpenAI client sends it. */
 export type TranscriptionRequest = {
@@ -115,10 +55,6 @@ export type TranscriptionRequest = {
 };
 
 export type Transcription = { text: string };
-
-export type EmbeddingsRequest = { model: string; input: string | string[] };
-
-export type Embeddings = { data: { index: number; embedding: number[] }[] };
 
 type Options = { signal?: AbortSignal };
 
@@ -176,133 +112,6 @@ export function createClient({ fetch }: { fetch: EndpointFetch }) {
 	}
 
 	return {
-		/**
-		 * Stream a chat completion. Each item is a chunk or, last, the error
-		 * that ended the stream. Aborting `signal`, or leaving the loop, cancels
-		 * the response.
-		 */
-		async *chat(
-			request: ChatRequest,
-			{ signal }: Options = {},
-		): AsyncGenerator<Result<ChatChunk, AiError>> {
-			const sent = await send(
-				'chat/completions',
-				{
-					method: 'POST',
-					headers: {
-						'content-type': 'application/json',
-						accept: 'text/event-stream',
-					},
-					body: JSON.stringify({
-						...request,
-						stream: true,
-						stream_options: { include_usage: true },
-					}),
-				},
-				signal,
-			);
-			if (sent.error !== null) {
-				yield sent;
-				return;
-			}
-			const body = sent.data.body;
-			if (!body) {
-				yield AiError.Malformed({ reason: 'no stream' });
-				return;
-			}
-			const reader = body.getReader();
-			const cancel = () => void reader.cancel().catch(() => {});
-			signal?.addEventListener('abort', cancel, { once: true });
-			const decoder = new TextDecoder();
-			let buffer = '';
-			let data: string[] = [];
-			try {
-				for (;;) {
-					if (signal?.aborted) {
-						yield AiError.Cancelled();
-						return;
-					}
-					const { done, value } = await reader.read().catch((cause) => {
-						if (signal?.aborted) return { done: true, value: undefined };
-						throw cause;
-					});
-					if (signal?.aborted) {
-						yield AiError.Cancelled();
-						return;
-					}
-					buffer += done
-						? decoder.decode()
-						: decoder.decode(value, { stream: true });
-					const events: string[] = [];
-					for (;;) {
-						const end = /\r\n|\r|\n/.exec(buffer);
-						if (!end) break;
-						// A lone CR at the end of a chunk may be half of a CRLF.
-						if (end[0] === '\r' && end.index === buffer.length - 1 && !done)
-							break;
-						const line = buffer.slice(0, end.index);
-						buffer = buffer.slice(end.index + end[0].length);
-						if (line === '') {
-							if (data.length) events.push(data.join('\n'));
-							data = [];
-						} else if (line === 'data' || line.startsWith('data:')) {
-							const value = line.slice(5);
-							data.push(value.startsWith(' ') ? value.slice(1) : value);
-						}
-					}
-					if (done && data.length) events.push(data.join('\n'));
-					for (const event of events) {
-						if (event === '[DONE]') return;
-						let parsed: unknown;
-						try {
-							parsed = JSON.parse(event);
-						} catch {
-							yield AiError.Malformed({
-								reason: 'malformed server-sent event JSON',
-							});
-							return;
-						}
-						if (!isRecord(parsed)) {
-							yield AiError.Malformed({ reason: 'a chunk is not an object' });
-							return;
-						}
-						if (parsed.error !== undefined) {
-							const error = parsed.error;
-							yield AiError.Failed({
-								message:
-									isRecord(error) && typeof error.message === 'string'
-										? error.message
-										: typeof error === 'string'
-											? error
-											: 'The provider reported an error.',
-								code:
-									isRecord(error) && typeof error.code === 'string'
-										? error.code
-										: undefined,
-							});
-							return;
-						}
-						if (
-							parsed.choices !== undefined &&
-							!Array.isArray(parsed.choices)
-						) {
-							yield AiError.Malformed({ reason: 'choices is not a list' });
-							return;
-						}
-						yield Ok({ ...parsed, choices: parsed.choices ?? [] } as ChatChunk);
-					}
-					if (done) return;
-				}
-			} catch (cause) {
-				yield signal?.aborted
-					? AiError.Cancelled()
-					: AiError.Unreachable({ cause });
-			} finally {
-				signal?.removeEventListener('abort', cancel);
-				cancel();
-			}
-		},
-
 		/** Transcribe audio, posted as `multipart/form-data`. */
 		async transcribe(
 			request: TranscriptionRequest,
@@ -330,37 +139,6 @@ export function createClient({ fetch }: { fetch: EndpointFetch }) {
 			return Ok({ text: body.data.text });
 		},
 
-		/** Embed one input or several. */
-		async embed(
-			request: EmbeddingsRequest,
-			{ signal }: Options = {},
-		): Promise<Result<Embeddings, AiError>> {
-			const sent = await send(
-				'embeddings',
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(request),
-				},
-				signal,
-			);
-			if (sent.error !== null) return sent;
-			const body = await readJson(sent.data, signal);
-			if (body.error !== null) return body;
-			const data = isRecord(body.data) ? body.data.data : undefined;
-			if (
-				!Array.isArray(data) ||
-				data.some(
-					(entry) =>
-						!isRecord(entry) ||
-						typeof entry.index !== 'number' ||
-						!Array.isArray(entry.embedding),
-				)
-			)
-				return AiError.Malformed({ reason: 'no embeddings' });
-			return Ok({ data: data as Embeddings['data'] });
-		},
-
 		/** The ids the endpoint lists at `models`. */
 		async listModels({
 			signal,
@@ -379,4 +157,3 @@ export function createClient({ fetch }: { fetch: EndpointFetch }) {
 		},
 	};
 }
-export type Client = ReturnType<typeof createClient>;

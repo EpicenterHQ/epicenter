@@ -65,7 +65,6 @@ body:
         - Audio (recording/playback)
         - UI-App (desktop interface)
         - UI-Web (web interface)
-        - Backend (API/server)
         - System (shortcuts/permissions)
         - API Provider (OpenAI/Groq/etc)
         - File Upload
