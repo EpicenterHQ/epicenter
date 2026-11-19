@@ -540,7 +540,6 @@ Producers import the shared `ActionError` factories from `@epicenter/app`:
 - `Misfit` (`{ path, id?, problems, record? }`): a file, or a change to one, does not fit the declared fields. Each problem has its `line` and its `kind`; a read carries the partial `record`. The library answers it for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments.
 - `Missing` (`{ path }`): the file is not there.
 - `Refused` (`{ message, next? }`): the app said no. The library never answers it; it is a ready-made name for an app's own refusal.
-- `Problems` (`{ message, report, next? }`): it ran, `report` is what it found, and the job is not clean. The command line prints `report` on stdout, where data would be, and `message` on stderr.
 
 Three more belong to the platform's handling of a call, and each says whether
 the action ran:

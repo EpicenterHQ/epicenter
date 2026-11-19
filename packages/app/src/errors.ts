@@ -96,14 +96,6 @@ export const ActionError = defineErrors({
 	 */
 	Refused: (body: { message: string; next?: string }) => body,
 	/**
-	 * It ran, and `report` is what it found, but the job is not clean: a check
-	 * that found records with problems, or an export that left apps out.
-	 * `report` is any JSON value; a person reads it where success data would
-	 * be, and `message` says what is wrong, with `next` when a command repairs
-	 * it.
-	 */
-	Problems: (body: { message: string; report: unknown; next?: string }) => body,
-	/**
 	 * The call's outcome is unknown: the connection dropped after it was
 	 * sent, a line was not a valid frame, or the answer never came. Only a
 	 * caller answers it; serve turns an action's own into `Threw`.

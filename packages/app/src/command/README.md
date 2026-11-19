@@ -555,7 +555,6 @@ The error's name says whether the action ran:
 | --- | --- |
 | `NotStarted` | no; it is safe to call again once its cause is fixed |
 | an error about a record, `Missing`, `Changed` or `Misfit`, or the app's own, such as `Refused` | yes |
-| `Problems` | yes; `report` is what it found, and the job is not clean |
 | `Threw` | yes, partly |
 | `Unreachable` | unknown; reread the records before calling again |
 
