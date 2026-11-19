@@ -38,10 +38,4 @@ Read the draft as that reader: can they tell what changed, why it was needed, an
 
 ## References
 
-Load these on demand:
-
-- Guidance for openings, rationale, consequences, and structure: [references/body-patterns.md](references/body-patterns.md).
-- Diagram catalog (composition trees, before/after, journeys, flow, comparison tables) with when to use each: [references/visual-patterns.md](references/visual-patterns.md).
-- Worked bodies showing how the principle applies to different changes: [references/examples.md](references/examples.md).
-- Changelog entries for `feat:` or `fix:` PRs: [references/changelog-entries.md](references/changelog-entries.md).
-- Issue linking, username verification, CODEOWNERS, and merge strategy: [references/github-pr-operations.md](references/github-pr-operations.md).
+- Openings, rationale, consequences, and structure: [references/body-patterns.md](references/body-patterns.md).
