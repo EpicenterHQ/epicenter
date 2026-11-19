@@ -28,7 +28,7 @@ import {
 	readMarkdown,
 } from './markdown.ts';
 
-export type AnyRecord = Record<string, JsonValue> & {
+type AnyRecord = Record<string, JsonValue> & {
 	path: string;
 	id: string;
 	body: string;
@@ -44,7 +44,7 @@ type Need = 'absent' | 'present' | 'either';
  * extension `.md`, else undefined. `notes/.foo.md` is `.foo` and
  * `notes/...md` is `..`; `notes/.md` and `notes/x.md.bak` are no record.
  */
-export function idOf(path: string) {
+function idOf(path: string) {
 	const { ext, name } = parse(path);
 	return ext === '.md' ? name : undefined;
 }
@@ -55,7 +55,7 @@ export function idOf(path: string) {
  * `../x`, `x/`, `a\b` and any value that is not text do not, so every id `create` writes, `list`
  * reads back as the same id.
  */
-export function isId(id: unknown): id is string {
+function isId(id: unknown): id is string {
 	return (
 		typeof id === 'string' && idOf(`${id}.md`) === id && !id.includes('\\')
 	);
@@ -140,8 +140,8 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	 * The record `file` gives for `id`, and the result a read answers: the
 	 * record, or a Misfit with each problem and, when the front matter can be
 	 * read, the record for repair. Each field is its value if it fits, else
-	 * absent. `path`, `id`,
-	 * and `body` come from the file, and no field can be named as one of them.
+	 * absent. `path`, `id` and `body` come from the file, and no field can be
+	 * named as one of them.
 	 */
 	function recordFrom(id: string, file: MarkdownFile) {
 		const path = pathOf(id);
@@ -169,17 +169,14 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		return { record, result };
 	}
 
-	/** The text of `id`'s file, or undefined when there is none or its folder is a link. */
-	function textOf(id: string) {
-		const bytes = nonFolder() ? undefined : readBytes(join(home, pathOf(id)));
-		return bytes && new TextDecoder().decode(bytes);
-	}
-
-	/** The record for `id`, or undefined when there is no file. */
+	/**
+	 * The record for `id`, or undefined when there is no file. The caller has
+	 * checked that the key's folder is real.
+	 */
 	function read(id: string): Result<AnyRecord | undefined, Misfit> {
-		const text = textOf(id);
-		if (text === undefined) return Ok(undefined);
-		return recordFrom(id, readMarkdown(text)).result;
+		const bytes = readBytes(join(home, pathOf(id)));
+		if (bytes === undefined) return Ok(undefined);
+		return recordFrom(id, readMarkdown(new TextDecoder().decode(bytes))).result;
 	}
 
 	/** Split a patch into fields to set and remove, and check each supplied value. */
@@ -314,7 +311,8 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	const handle = {
-		get: (id: string) => withValidId(id, () => read(id)),
+		get: (id: string) =>
+			withValidId(id, () => (nonFolder() ? Ok(undefined) : read(id))),
 		async list() {
 			const names = nonFolder() ? [] : filesIn(join(home, folder));
 			return names
