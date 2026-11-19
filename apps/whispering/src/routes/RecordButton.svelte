@@ -3,8 +3,8 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import CircleIcon from '@lucide/svelte/icons/circle';
 	import SquareIcon from '@lucide/svelte/icons/square';
-	import { dictation } from '$lib/dictation.svelte';
-	import { formatDuration } from '$lib/feed';
+	import { dictation } from '#lib/dictation.svelte.ts';
+	import { formatDuration } from '#lib/feed.ts';
 
 	/** The clock, ticking only while a recording runs. */
 	let now = $state(Date.now());

@@ -10,10 +10,10 @@
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { runMutation } from 'wellcrafted/query';
-	import { dictation } from '$lib/dictation.svelte';
-	import { formatDuration } from '$lib/feed';
-	import { queryClient, recordingsMutations } from '$lib/queries';
-	import type { Recording } from '$lib/recordings';
+	import { dictation } from '#lib/dictation.svelte.ts';
+	import { formatDuration } from '#lib/feed.ts';
+	import { queryClient, recordingsMutations } from '#lib/queries.ts';
+	import type { Recording } from '#lib/recordings.ts';
 	import AudioPlayer from './AudioPlayer.svelte';
 
 	let {

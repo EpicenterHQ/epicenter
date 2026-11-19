@@ -4,8 +4,8 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import '@epicenter/ui/app.css';
-	import { dictation } from '$lib/dictation.svelte';
-	import { queryClient } from '$lib/queries';
+	import { dictation } from '#lib/dictation.svelte.ts';
+	import { queryClient } from '#lib/queries.ts';
 
 	let { children } = $props();
 </script>

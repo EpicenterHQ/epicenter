@@ -5,6 +5,9 @@
 	"description": "Dictation: press a shortcut, speak, and copy the text",
 	"type": "module",
 	"license": "AGPL-3.0-or-later",
+	"imports": {
+		"#lib/*": "./src/lib/*"
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -17,8 +20,8 @@
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"@sveltejs/adapter-static": "catalog:",
-		"@sveltejs/kit": "catalog:",
+		"@sveltejs/adapter-static": "4.0.1",
+		"@sveltejs/kit": "3.4.0",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",

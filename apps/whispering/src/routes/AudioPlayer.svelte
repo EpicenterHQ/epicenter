@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { recordings } from '$lib/recordings';
+	import { recordings } from '#lib/recordings.ts';
 
 	let { id }: { id: string } = $props();
 

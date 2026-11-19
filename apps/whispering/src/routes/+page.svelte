@@ -6,9 +6,9 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { createQuery } from '@tanstack/svelte-query';
 	import MicIcon from '@lucide/svelte/icons/mic';
-	import { dictation } from '$lib/dictation.svelte';
-	import { groupByDay, matches, type Sort, sortById } from '$lib/feed';
-	import { recordingsQueries } from '$lib/queries';
+	import { dictation } from '#lib/dictation.svelte.ts';
+	import { groupByDay, matches, type Sort, sortById } from '#lib/feed.ts';
+	import { recordingsQueries } from '#lib/queries.ts';
 	import RecordButton from './RecordButton.svelte';
 	import RecordingItem from './RecordingItem.svelte';
 

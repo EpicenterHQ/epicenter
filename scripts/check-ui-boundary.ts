@@ -23,11 +23,13 @@ const uiPrivateImportPattern =
 const uiSelfPackageImportPattern =
 	/^\s*import(?:\s+type)?(?:\s+[^'"]*\s+from)?\s+['"]@epicenter\/ui\/|\bimport\s*\(\s*['"]@epicenter\/ui\//;
 const uiSourcePathPattern = /packages\/ui\/src/;
-const privateUiConfigPattern = /["']#(?:\/\*|ui|utils|hooks|lib)/;
+// `#lib` is left out of the two consumer rules: SvelteKit 3 makes it each
+// app's own subpath import for its `src/lib`. UI source still may not use it.
+const privateUiConfigPattern = /["']#(?:\/\*|ui|utils|hooks)/;
 const consumerUiSourceImportPattern =
 	/^\s*import(?:\s+type)?(?:\s+[^'"]*\s+from)?\s+['"][^'"]*packages\/ui\/src|\bimport\s*\(\s*['"][^'"]*packages\/ui\/src/;
 const consumerPrivateUiImportPattern =
-	/^\s*import(?:\s+type)?(?:\s+[^'"]*\s+from)?\s+['"]#(?:ui|utils|hooks|lib)(?:\/|\.js|['"])|\bimport\s*\(\s*['"]#(?:ui|utils|hooks|lib)(?:\/|\.js|['"])/;
+	/^\s*import(?:\s+type)?(?:\s+[^'"]*\s+from)?\s+['"]#(?:ui|utils|hooks)(?:\/|\.js|['"])|\bimport\s*\(\s*['"]#(?:ui|utils|hooks)(?:\/|\.js|['"])/;
 
 const violations: Violation[] = [];
 
