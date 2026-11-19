@@ -2,13 +2,13 @@
 
 - **Status:** Superseded
 - **Date:** 2026-06-18
-- **Superseded by:** [ADR-0117](0117-global-shortcut-input-is-plugin-chords-only-and-the-macos-tap-is-just-the-paste-grant-watcher.md)
+- **Superseded by:** ADR-0117 (now in [Whispering's decisions](../../apps/whispering/README.md#decisions))
 
 ## Context
 
 [ADR-0008](0008-rdev-backs-the-desktop-global-trigger.md) put an `rdev`
 keyboard tap behind the desktop global trigger, and
-[ADR-0011](0011-rust-owns-the-macos-dictation-capability.md) made Rust own the
+ADR-0011 made Rust own the
 macOS Accessibility grant that tap needs. That left one question unanswered:
 does the whole global-shortcut feature sit behind the grant? It used to. Recording
 a global shortcut and firing it both leaned on the tap, so a user who declined
@@ -45,7 +45,7 @@ holds, never on which.
   through the tap. Granting Accessibility while the recorder is open upgrades it in
   place, because capture is itself a `TapIntent` reason that spins the tap up.
 - The trust oracle stays `AXIsProcessTrusted` in Rust beside the tap
-  ([ADR-0011](0011-rust-owns-the-macos-dictation-capability.md)), sampled by the
+  (ADR-0011), sampled by the
   bounded poll only while a Tier-1 intent is waiting on the grant. Tier-0 paths
   never consult it.
 - Two capture paths now exist, the webview chord recorder and the tap. They share

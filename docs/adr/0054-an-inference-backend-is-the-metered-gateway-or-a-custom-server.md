@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-06-22
-- **Amended by:** [ADR-0396](0396-transcription-operations-preserve-destinations-and-results.md) at model fallback: `connection.transcribe` sends a saved model as saved, the server refuses one it cannot serve, and nothing substitutes that backend's default. The hosted-or-custom split and the per-turn snapshot stand.
+- **Amended by:** ADR-0396 (now in [Whispering's decisions](../../apps/whispering/README.md#decisions)) at model fallback: `connection.transcribe` sends a saved model as saved, the server refuses one it cannot serve, and nothing substitutes that backend's default. The hosted-or-custom split and the per-turn snapshot stand.
 <!-- doc-path-check: ignore-next-line (the superseded spec is deleted by this decision) -->
 - **Supersedes:** the unbuilt spec `specs/20260223T160300-byok-api-key-settings.md` (a tab-manager body-`apiKey` BYOK plan, never implemented), deleted by this decision; git keeps the body recoverable.
 - **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.

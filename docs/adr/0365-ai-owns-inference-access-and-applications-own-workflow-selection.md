@@ -22,7 +22,7 @@ saved configuration.
 **Each inference source has a constructor with its own required inputs.**
 
 Network constructors exist. The runtime transcriber in this example is the
-target in [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md); verify
+target in ADR-0424; verify
 its final subpath and signature against implementation:
 
 ```ts

@@ -1,4 +1,4 @@
-//! How a file is written in Whispering's folder (ADR-0962): at its own
+//! How a file is written in Whispering's folder: at its own
 //! path, or beside it and renamed over it, never anywhere else.
 //!
 //! [`replace`] writes a note or `settings.md` whole: the bytes go to a

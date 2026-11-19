@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-03
-- **Relates:** [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md), [ADR-0181](0181-every-app-receives-one-portable-epicenter-capability-handle.md), [ADR-0184](0184-one-host-recorder-progressively-stages-each-claimable-recording-until-its-owner-stops-or-cancels-it.md), [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md), [ADR-0183](0183-epicenter-mediates-the-effects-it-owns-and-names-the-rest-unmediated.md), [ADR-0185](0185-trusted-app-http-uses-tauris-standard-transport-without-observation.md). Not in this tree, on open branches: ADR-0193 (durable authorities and disposable materializations), ADR-0201 (one app-data root), ADR-0202 (a provider account belongs to the app whose durable state it names).
+- **Relates:** ADR-0180, [ADR-0181](0181-every-app-receives-one-portable-epicenter-capability-handle.md), [ADR-0184](0184-one-host-recorder-progressively-stages-each-claimable-recording-until-its-owner-stops-or-cancels-it.md), [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md), [ADR-0183](0183-epicenter-mediates-the-effects-it-owns-and-names-the-rest-unmediated.md), [ADR-0185](0185-trusted-app-http-uses-tauris-standard-transport-without-observation.md). Not in this tree, on open branches: ADR-0193 (durable authorities and disposable materializations), ADR-0201 (one app-data root), ADR-0202 (a provider account belongs to the app whose durable state it names).
 
 ## Context
 

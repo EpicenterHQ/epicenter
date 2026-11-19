@@ -63,7 +63,7 @@ it**, since its window opens to `HostMissing`.
   it on the desktop.
 - Deleted: `apps/whispering/src-tauri/` and its release, and the plan to port
   each native service to Rust for a second shell.
-- Model administration ([ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md))
+- Model administration (ADR-0180)
   and Whispering share one process and one active model.
 - A future standalone shell would be a thin Tauri app registering the same
   plugins (`tauri-plugin-epicenter-folder`, `tauri-plugin-epicenter-recorder`)

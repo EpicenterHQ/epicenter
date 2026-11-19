@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Amended by:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) moves required inputs to product boundaries. [ADR-0423](0423-app-resources-open-as-independent-handles.md) moves ownership into independent handles; consumers borrow explicit resources. [ADR-0396](0396-transcription-operations-preserve-destinations-and-results.md) assigns destination capture and outcome propagation to application operations.
+- **Amended by:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) moves required inputs to product boundaries. [ADR-0423](0423-app-resources-open-as-independent-handles.md) moves ownership into independent handles; consumers borrow explicit resources. ADR-0396 (now in [Whispering's decisions](../../apps/whispering/README.md#decisions)) assigns destination capture and outcome propagation to application operations.
 
 ## Context
 

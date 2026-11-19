@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-24
-- **Relates:** [ADR-0441](0441-whispering-keeps-speech-evidence-local-and-syncs-only-its-speech-profile.md) (recording and transcript ownership), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (hosted and custom inference connections), [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (current hosted billing)
+- **Relates:** ADR-0441 (recording and transcript ownership), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (hosted and custom inference connections), [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (current hosted billing)
 - **Unbuilt:** The subscriber-facing offer and launch presentation, and the separate hosted AI project that would offer hosted transcription ([ADR-0618](0618-epicenter-hosts-no-ai-service.md)); its price and allowance are not decided by this record.
 
 ## Context

@@ -1,7 +1,7 @@
 # Whispering App
 
 Whispering keeps its recordings on the device it runs on
-([ADR-0894](../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)).
+([Whispering's decisions](README.md#the-folder)).
 One build serves two places: in the desktop app (`src-tauri/`) the folder
 is `data/` in the app's local data directory unless the person moved it,
 and in a browser it is `data/` in the Origin Private File System. Both hold
@@ -19,8 +19,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   conformance suite (`src/lib/files/conformance.ts`). On the desktop
   `tauriFiles` calls Whispering's own `files_*` commands; the page holds
   none of `@tauri-apps/plugin-fs`'s commands.
-- **Every file is written inside the folder, at or beside its path**
-  ([ADR-0962](../../docs/adr/0962-whispering-8-writes-every-file-inside-its-folder-at-or-beside-its-final-path.md)).
+- **Every file is written inside the folder, at or beside its path.**
   A take is `recordings/<id>.webm` from its first second and is finished
   there; nothing repairs one a crash cut off. A note or `settings.md` is
   written to a hidden `.<name>.<random>.tmp` beside it, flushed, and renamed over it; the
@@ -84,7 +83,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
 - **Provider requests are explicit.** Nothing is sent at launch or after a
   recording without the person asking.
 - **Branch on what a capability offers**
-  ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
+  ([Whispering's decisions](README.md#web-and-desktop)).
   A capability a place lacks is `null` there (`speech`, `shortcut`). Only
   the files named in `src/lib/page-boundary.test.ts` reach Tauri, and every
   Tauri module but `@tauri-apps/api/core` loads when first used;

@@ -1,5 +1,5 @@
 /**
- * Whispering's folder (ADR-0894): its notes, each recording's audio beside
+ * Whispering's folder: its notes, each recording's audio beside
  * its note, and `settings.md`, over one `Files` that `app.ts` chose (the
  * data folder on the desktop, the Origin Private File System in a browser,
  * memory in tests). Nothing here knows which, and nothing here is Svelte:

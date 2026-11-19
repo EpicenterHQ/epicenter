@@ -24,7 +24,7 @@
   its fictional-data prototypes do not change this record.
 - **Amended by:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) at the open question this record left, "a
   separate question about who tells the recorder where blobs live, and it is not
-  decided here": [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md)
+  decided here": ADR-0366
   makes the recorder borrow a LocalBlobs handle. Its namespace selected
   `<root>/apps/<namespace>/device/no-account/blobs/<blobId>`, which nothing
   builds now ([ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)). The root question

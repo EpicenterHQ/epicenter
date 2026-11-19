@@ -23,8 +23,8 @@ so a transcript's `recordingId` never breaks.
 
 ## Where the files are
 
-Whispering keeps its files on the device it runs on
-([ADR-0894](../../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)):
+Whispering keeps its files on the device it runs on (see
+[The folder](#the-folder) under Decisions):
 
 - **The desktop app** keeps them in `data/` in its local data directory
   (on macOS, `~/Library/Application Support/so.epicenter.whispering/data`).
@@ -90,8 +90,8 @@ recording fails and says why; if only the note cannot, the audio lists as
 an untitled recording. While a take runs, leaving the page asks first.
 
 The web app does not promise to keep a take through a crash or a closed
-tab: one cut off that way is lost. The desktop app keeps it
-([ADR-0780](../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
+tab: one cut off that way is lost. The desktop app keeps it (see
+[Web and desktop](#web-and-desktop)).
 
 ### Recordings
 
@@ -140,7 +140,7 @@ Two controls sit beside the microphone on Home:
 ### Models and connections
 
 Settings chooses the **Transcription** model from every endpoint
-Whispering can reach (ADR-0757): each connection you saved (a
+Whispering can reach (see [Models and keys](#models-and-keys)): each connection you saved (a
 provider's base URL and an optional key), Ollama and LM Studio when they run
 on this computer, and on the desktop transcription in the app itself. The
 same picker adds, edits and removes a connection. The choices and the
@@ -184,8 +184,7 @@ bun build:whispering:desktop   # a local, unsigned macOS app bundle
 ```
 
 The page is the web's own build (`build/`, the dev server in development).
-One build serves both
-([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)),
+One build serves both (see [Web and desktop](#web-and-desktop)),
 and `src/lib/app.ts` makes every capability once, for the page's life:
 
 | Capability | In a browser | In a Tauri window |
@@ -256,3 +255,99 @@ and the commands the build script declares, and how an accelerator parses.
 - Windows and Linux are untested.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit.
+
+## Decisions
+
+These are the rules an agent or a contributor would most likely undo by
+mistake. Each says why, and names a tempting alternative that lost. Change
+a rule here in the same pull request as the code. `AGENTS.md` holds how the
+code is arranged.
+
+### The folder
+
+- **Whispering keeps everything in one folder on the device it runs on, and
+  needs no account, server, Git, or Epicenter.** It commits only to its
+  file format, and a browser tab or a phone has no Git to clone into.
+  Refused: a Git clone of an Epicenter's data; IndexedDB in the browser.
+- **Whispering is the folder's one writer.** The desktop app is
+  single-instance, and a second browser tab waits for the first one's Web
+  Lock and never takes it. With one writer there is nothing to merge.
+  Refused: several tabs with per-file locks.
+- **Whispering reads the folder again when its window regains focus, and
+  never writes over a note that changed since it was shown.** A file syncer
+  or Git may change the folder while the app runs.
+  Refused: a file watcher.
+
+### Recording
+
+- **Nothing repairs a take a crash cut off.** On the desktop a take is
+  written at its final path from its first second, and an unfinished WebM
+  of whole blocks already plays, so it stays as it is and lists as an
+  untitled recording.
+  Refused: recovering cut-off takes at launch; a `.part` file renamed at
+  Stop.
+- **A recording's length is its note's `durationMs`, written at Stop.** A
+  take with no note is rare, and parsing length from audio was a large
+  amount of WebM code for it.
+  Refused: reading the length from the audio bytes.
+
+### Transcription
+
+- **A transcription goes only to the endpoint and model chosen when it was
+  prepared.** A removed, moved, or unset choice refuses it with nothing
+  sent. Changing a setting must never send audio somewhere the person did
+  not choose for it.
+  Refused: falling back to another endpoint or model.
+- **A request to transcription on this computer names its model every
+  time, and the plugin refuses one that is not downloaded.** The transcript
+  records exactly which model made it, and a copy of the app's choice kept
+  in Rust went stale.
+  Refused: one active model that the picker sets.
+- **The plugin's Rust side owns the model files and the clock that unloads
+  an idle model.** A backgrounded page throttles its timers exactly when an
+  idle model should unload.
+  Refused: the page reading the models folder; a page-owned unload timer.
+
+### Models and keys
+
+- **Every source of models is an endpoint in one `openAi([...])`: saved
+  connections, Ollama and LM Studio when they run, and on the desktop
+  transcription in the app.** One OpenAI-compatible request reaches every
+  source, so adding a source is one entry.
+  Refused: routing per provider in the app.
+- **A connection's key is sent only to the base URL it was entered for,
+  and a request follows no redirect.** `settings.md` is portable and other
+  programs may edit it, so a file must never be able to send a key to a new
+  host.
+  Refused: one key bound to whatever URL is configured.
+- **A key stays on this computer: a Keychain item on the desktop and
+  `localStorage` in a browser, never in the folder, a log, or an error.**
+  The folder may sit in Git or a file syncer, and the desktop's
+  `localStorage` is a plain file any program can read.
+  Refused: keys in the folder; encrypting browser keys with WebCrypto,
+  since the page that reads them can decrypt them.
+- **The page sends every request itself and loads no remote script.** Code
+  on the page can read a key the page holds, and a browser has no shell to
+  relay through.
+  Refused: the desktop shell sending every request that carries a key.
+- **Whispering is free and has no sign-in.** A local model needs no
+  service, and payment buys an operated service, not the software.
+  Refused: a sign-in every person passes.
+
+### Web and desktop
+
+- **Whispering branches on what a capability offers, never on the
+  platform, and one build serves the browser and the Tauri window.** A fix
+  tried on one is the fix shipped to the other. A capability a place lacks
+  is `null` there.
+  Refused: a second desktop build; `#platform/*` files per surface.
+- **The web app and the desktop app each use what their platform gives,
+  and parity is not a goal.** Keeping a take through a crash, the global
+  shortcut, and transcription on this computer are the desktop's. Stating
+  the web's limits keeps the browser build small.
+  Refused: browser machinery that imitates a desktop guarantee.
+- **The desktop's global shortcut is one chord held by
+  `tauri-plugin-global-shortcut`.** One backend works on every platform
+  with no Accessibility grant.
+  Refused: a raw keyboard listener (`rdev`, a macOS `CGEventTap`); Fn or a
+  modifier alone as a binding.

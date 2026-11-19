@@ -8,7 +8,7 @@
 - **Restated by:** [ADR-0263](0263-a-connection-is-one-server-at-a-time-and-a-replica-is-derived-from-it.md) as the reader-facing connection and switching contract
 - **Supersedes:** [ADR-0260](0260-the-desktop-host-owns-the-profile-registry-and-active-profile.md)
 - **Amends:** [ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md) at the selected deployment's identity: the host owns one active connection, not a registry of profiles.
-- **Relates:** [ADR-0109](0109-hosted-tauri-auth-keeps-app-owned-keyring-edges-until-three-real-callers-earn-sharing.md), [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md), [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md), [ADR-0232](0232-a-page-lifetime-is-one-auth-generation-and-a-permanently-denied-sync-stops-for-good.md), [ADR-0261](0261-a-local-account-replica-is-addressed-by-its-application-server-url-and-verified-principal.md)
+- **Relates:** ADR-0109, [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md), [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md), [ADR-0232](0232-a-page-lifetime-is-one-auth-generation-and-a-permanently-denied-sync-stops-for-good.md), [ADR-0261](0261-a-local-account-replica-is-addressed-by-its-application-server-url-and-verified-principal.md)
 - **Implemented in part:** The host and WebView now share one connection
   snapshot. A future connection-selection UI remains host-owned and still
   reloads the next auth generation.

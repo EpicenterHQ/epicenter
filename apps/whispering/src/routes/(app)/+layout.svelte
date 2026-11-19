@@ -1,5 +1,5 @@
 <!--
-	Whispering's root (ADR-0894). In a browser only one tab runs it: a second
+	Whispering's root. In a browser only one tab runs it: a second
 	tab says so and waits until the first closes (`holdOneTab`). The folder
 	and `settings.md` are read before the app renders, and read again
 	whenever the window regains focus, since another program may write them

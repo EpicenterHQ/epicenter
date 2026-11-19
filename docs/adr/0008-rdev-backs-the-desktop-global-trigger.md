@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-06-13
-- **Superseded by:** [ADR-0117](0117-global-shortcut-input-is-plugin-chords-only-and-the-macos-tap-is-just-the-paste-grant-watcher.md)
+- **Superseded by:** ADR-0117 (now in [Whispering's decisions](../../apps/whispering/README.md#decisions))
 
 ## Context
 
@@ -16,7 +16,7 @@ and cannot express any of these.
 The desktop global trigger is backed by `rdev::listen`, not the Tauri
 global-shortcut plugin. The Rust side listens to the raw key event stream and the
 frontend matches gestures against it (see
-[ADR-0007](0007-local-shortcuts-sync-global-shortcuts-stay-per-device.md) for the
+ADR-0007 for the
 gesture model). The `rdev` fork in use is pinned in `src-tauri/Cargo.toml`.
 
 ## Consequences

@@ -6,7 +6,7 @@
  * only when the stream closes, so a reader sees the old bytes or the new
  * ones. A write that fails aborts its stream and leaves the file as it was.
  * `readMany` reads a few files at a time. The build runs where a page has
- * `createWritable()`: Chrome, Firefox, and Safari 26 or later (ADR-0894).
+ * `createWritable()`: Chrome, Firefox, and Safari 26 or later.
  */
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';

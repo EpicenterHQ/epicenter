@@ -1,11 +1,10 @@
-//! How bytes reach Whispering's folder on the desktop (ADR-0894), shared by
+//! How bytes reach Whispering's folder on the desktop, shared by
 //! Whispering's shell and its recorder plugin so both keep one rule.
 //!
 //! - `path.rs`: the plain-name path rule, and where a path that passes it
 //!   is in a folder, refusing a symbolic link on the way.
 //! - `beside.rs`: a file is replaced through a temporary file beside it,
-//!   and what a crash left of one is removed when the folder opens
-//!   (ADR-0962).
+//!   and what a crash left of one is removed when the folder opens.
 //! - `ops.rs`: `read`, `read_many`, `write`, `list`, and `remove`, the
 //!   operations the page's `Files` makes.
 //! - `change.rs`: "Change…", which moves the recordings into an empty

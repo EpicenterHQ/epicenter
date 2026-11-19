@@ -33,7 +33,7 @@ folder's name opens it in the grid in place.
 
 **Home becomes Settings.** The window labelled `home` keeps Chat and Settings
 and loses its Apps pane. It is opened from the Folders window and the tray, and
-keeps model administration ([ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md)),
+keeps model administration (ADR-0180),
 which the Folders window does not hold. The two windows keep separate
 capabilities: `folders` holds folder access, `home` holds model administration,
 and both open windows: the Folders window opens installed apps with

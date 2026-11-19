@@ -7,7 +7,7 @@
 - **Amended by:** [ADR-0260](0260-the-desktop-host-owns-the-profile-registry-and-active-profile.md) at profile selection and retained profile state. **Superseded by ADR-0262.** One active runtime, credential-free windows, and host-owned auth remain.
 - **Amended by:** [ADR-0262](0262-the-desktop-host-owns-one-active-connection-and-no-connection-registry.md) at the selected connection. One active runtime, credential-free windows, and host-owned auth remain.
 - **Amended by:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) at "one Bun authority": the authority is the `epicenter` CLI, and windows stay credential-free.
-- **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md), [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), [ADR-0109](0109-hosted-tauri-auth-keeps-app-owned-keyring-edges-until-three-real-callers-earn-sharing.md), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md), [ADR-0153](0153-trusted-apps-are-source-built-static-catalog-members.md), [ADR-0154](0154-blob-access-is-address-only.md)
+- **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md), [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), ADR-0109, [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md), [ADR-0153](0153-trusted-apps-are-source-built-static-catalog-members.md), [ADR-0154](0154-blob-access-is-address-only.md)
 
 ## Context
 

@@ -14,7 +14,7 @@ multiple connections. Whispering also resolves custom completion endpoints in
 
 Native transcription already has host-owned model administration in
 `apps/whispering/packages/transcription/src/transcription/mod.rs`, governed by
-[ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md).
+ADR-0180.
 The optional integrations below concern external inference servers; they do not
 turn that existing native capability into an HTTP connection. The native
 transport in `eb8c8631f9:packages/app/src/native-ai.ts` presents it as an OpenAI-wire
@@ -53,7 +53,7 @@ requires a separate decision. Native transcription keeps host-owned model
 administration: Epicenter Home installs, deletes, and unloads. It no longer keeps
 one host-owned active model, because an application names an installed model in
 its request like any other connection
-([ADR-0397](0397-native-inference-selects-an-installed-model-explicitly.md)).
+(ADR-0397 (now in [Whispering's decisions](../../apps/whispering/README.md#decisions))).
 
 **Each workflow step selects an operation that its endpoint supports.**
 

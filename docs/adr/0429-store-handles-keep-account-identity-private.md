@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-23
-- **Relates:** [ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
+- **Relates:** ADR-0428.
 
 ## Context
 

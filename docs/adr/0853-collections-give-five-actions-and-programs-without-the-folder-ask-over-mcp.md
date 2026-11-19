@@ -110,7 +110,7 @@ starter, which a person installs as the `whispering` app ([ADR-0889](0889-an-app
 recording it writes its note and audio, the audio named `<id>.local.<ext>`
 when the person keeps it on that computer (ADR-0858). Once connected, its
 folder is a clone of the app's data repository: it commits those paths and
-pushes them to the Studio when it can ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md)). It never needs `epicenter`.
+pushes them to the Studio when it can (ADR-0887). It never needs `epicenter`.
 Every program that asks lists, reads, and edits its recordings on your
 server without Whispering knowing. Recording, the shortcut, and pasting need the device and are never
 actions.

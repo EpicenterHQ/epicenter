@@ -6,7 +6,7 @@
  * in-process by calling this plugin's commands, so there is no port another
  * program could call, and `openAi` lists its installed models beside every
  * other endpoint's. The plugin's bindings load with the first command, so a
- * browser never loads them (ADR-0781).
+ * browser never loads them.
  *
  * A transcription uploads its audio as `file`, as any OpenAI client does (a
  * dictation's blob, or a recording read from the folder), and the plugin
