@@ -98,14 +98,7 @@ ADR-0523.
 
 ### Loading and empty states
 
-Use `Loading` for a page or panel loading state with an optional caption:
-
-```svelte
-<Loading class="flex-1" label="Loading recordings..." />
-```
-
-Use `Empty` for empty, error, or prompt states, and for pending states that need
-custom media or actions. Use `Spinner` for spinning affordances and `Skeleton`
+Use `Empty` for empty, error, pending, or prompt states. Use `Spinner` for spinning affordances and `Skeleton`
 for known content shapes rather than rebuilding them in an app.
 
 ## Updating upstream components

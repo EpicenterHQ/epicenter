@@ -19,8 +19,7 @@ patch, `patches/<name>.diff`, which opens with its reason (`Epicenter: …`).
 Upstream's `.ts` files are compared as Biome commits them; `.svelte` files are
 compared as the CLI wrote them. `packages/ui/scripts/upstream.test.ts` fails when a
 component differs from upstream plus its patch. The kit's own components
-(`icon-button`, `confirmation-dialog`, `loading` and the rest without a
-snapshot) are not checked.
+(`icon-button`, `confirmation-dialog` and the rest without a snapshot) are not checked.
 
 ```sh
 bun scripts/upstream.ts refresh [<name>...]   # install the CLI's current output as snapshots
