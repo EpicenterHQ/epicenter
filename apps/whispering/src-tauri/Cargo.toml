@@ -9,7 +9,6 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [build-dependencies]
-epicenter-transcription-build = { path = "../packages/epicenter-transcription-build" }
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
@@ -37,7 +36,7 @@ tauri-plugin-single-instance = "2.3"
 # beside a target the file commands make.
 whispering-files = { path = "../packages/whispering-files" }
 # A direct dependency gives this final app's build script the
-# DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.
+# DEP_TRANSCRIBE_CPP_* metadata `build.rs` reads.
 transcribe-cpp = { version = "0.1.0", default-features = false }
 
 [dev-dependencies]

@@ -71,8 +71,8 @@ fn name(refusal: &Value) -> &str {
     refusal["name"].as_str().unwrap_or_default()
 }
 
-fn state(app: &App<MockRuntime>) -> tauri::State<'_, PluginState<MockRuntime>> {
-    app.state::<PluginState<MockRuntime>>()
+fn state(app: &App<MockRuntime>) -> tauri::State<'_, PluginState> {
+    app.state::<PluginState>()
 }
 
 #[test]
@@ -87,30 +87,9 @@ fn settings_live_in_the_app_s_local_directory_and_the_cache_is_lazy() {
     );
     assert!(state(app).cache.lock().unwrap().is_none());
 
-    // Navigation refuses by default and creates no cache.
-    let main = window(app, "main");
-    assert_eq!(
-        invoke(&main, "open_model_settings", json!({})).unwrap_err(),
-        json!("This app has no model settings.")
-    );
-    assert!(state(app).cache.lock().unwrap().is_none());
-
     let first = model_cache(app.handle()).unwrap();
     let second = model_cache(app.handle()).unwrap();
     assert!(std::ptr::eq(first.settings(), second.settings()));
-}
-
-#[test]
-fn the_open_settings_callback_is_the_app_s() {
-    let app = mock_builder()
-        .plugin(Builder::new().open_settings(|_| Ok(())).build())
-        .build(context(true))
-        .unwrap();
-    let main = window(&app, "main");
-    assert_eq!(
-        invoke(&main, "open_model_settings", json!({})).unwrap(),
-        Value::Null
-    );
 }
 
 #[test]
@@ -151,19 +130,7 @@ fn uploaded_audio_is_refused_before_any_model_runs() {
     assert_eq!(name(&refused), "AudioReadError", "{refused}");
     // An unknown model is refused before the bytes are decoded as audio.
     let refused = upload("unknown-model", "bm90IGF1ZGlv");
-    assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");
-}
-
-#[test]
-fn loading_an_unknown_model_is_refused_and_unloading_one_is_a_no_op() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    let refused = invoke(&main, "load_model", json!({ "modelId": "unknown-model" })).unwrap_err();
-    assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");
-    assert_eq!(
-        invoke(&main, "unload_model", json!({ "modelId": "unknown-model" })).unwrap(),
-        Value::Null
-    );
+    assert_eq!(name(&refused), "ModelUnavailable", "{refused}");
 }
 
 #[test]

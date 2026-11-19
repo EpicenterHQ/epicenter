@@ -1,6 +1,6 @@
 /**
- * Capabilities for tests: Whispering's files in memory, a fixture capture
- * device that keeps a generated tone as every recording, and one saved
+ * Capabilities for tests: Whispering's files in memory, a fixture recorder
+ * that keeps a generated tone as every recording, and one saved
  * connection whose `fetch` is a stub. Nothing here reaches a network, a
  * microphone, or a provider.
  *
@@ -16,16 +16,16 @@
  * request while the request itself is built and read as in the app.
  */
 import { customEndpoints, openAi } from '@epicenter/ai';
-import { RecorderError } from '@epicenter/recorder';
+import { type Recorder, RecorderError } from '@epicenter/recorder';
 import { QueryObserver } from '@tanstack/query-core';
 import { runMutation, runQuery } from 'wellcrafted/query';
 import { Ok, type Result } from 'wellcrafted/result';
-import { extensionOf } from './audio-format.js';
-import type { CaptureDevice } from './capture.js';
 import { encode, type Files, failed } from './files/files.js';
 import { memoryFiles } from './files/memory.js';
 import { openFolder } from './folder.js';
 import { createFolderQuery } from './folder-query.js';
+import { extensionOf } from './format/audio.js';
+import { audioPath } from './format/layout.js';
 import type { WhisperingCapabilities } from './whispering.svelte.js';
 
 type FixtureAudio = {
@@ -36,37 +36,31 @@ type FixtureAudio = {
 };
 
 /** Inputs with no microphone behind them: nothing is listed, and a test is refused. */
-const NO_INPUTS: CaptureDevice['inputs'] = {
+const NO_INPUTS: Omit<Recorder, 'start'> = {
 	listInputs: async () => Ok({ inputs: [] }),
 	openMeter: async () =>
 		RecorderError.Unavailable({ reason: 'no microphone is behind this test' }),
 };
 
 /**
- * A capture device that keeps the same fixture bytes as every recording,
- * under the fixture's own extension, written into `audio` when it stops,
- * over `NO_INPUTS`. `load` runs
- * at stop, so a missing or unreadable fixture fails that recording instead
- * of the session.
+ * A recorder that keeps the same fixture bytes as every recording, under
+ * the fixture's own extension, written into the files it is given when it
+ * stops, over `NO_INPUTS`. `load` runs at stop, so a missing or unreadable
+ * fixture fails that recording instead of the session.
  */
-export function createFixtureDevice({
-	files,
+export function createFixtureRecorder({
 	name,
 	load,
 }: {
-	/** Whispering's files, which the audio is written into at `recordings/<id>.<ext>`. */
-	files: Files;
 	name: string;
 	load: () => Promise<FixtureAudio>;
-}): CaptureDevice {
+}): Recorder {
 	const ext = extensionOf(name) || 'wav';
 	return {
-		inputs: NO_INPUTS,
-		async start({ id }) {
-			const startedAt = performance.now();
+		...NO_INPUTS,
+		async start({ files, id }) {
 			let stopped = false;
 			return Ok({
-				startedAt,
 				onEnded: () => () => {},
 				async stop() {
 					if (stopped) return RecorderError.Empty();
@@ -79,15 +73,10 @@ export function createFixtureDevice({
 					}
 					if (fixture.bytes.byteLength === 0) return RecorderError.Empty();
 					// The audio lands before Stop answers, as the recorder's does.
-					const written = await files.write(
-						`recordings/${id}.${ext}`,
-						fixture.bytes,
-					);
+					const written = await files.write(audioPath(id, ext), fixture.bytes);
 					if (written.error !== null)
 						return RecorderError.Failed({ cause: written.error });
-					return Ok({
-						durationMs: fixture.durationMs,
-					});
+					return Ok({ id, durationMs: fixture.durationMs });
 				},
 			});
 		},
@@ -356,8 +345,11 @@ export async function openTestServices({
 	if (chosen.error !== null) throw chosen.error;
 
 	const services: TestCapabilities = {
-		capture: createFixtureDevice({
-			files,
+		audioFiles: {
+			location: null,
+			write: (path, bytes) => files.write(path, bytes),
+		},
+		recorder: createFixtureRecorder({
 			name: 'tone.wav',
 			load: async () => ({
 				name: 'tone.wav',

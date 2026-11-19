@@ -1,4 +1,3 @@
-use super::UnavailableReason;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -8,23 +7,15 @@ pub enum TranscriptionError {
     #[error("Audio read error: {message}")]
     AudioReadError { message: String },
 
-    /// The local route cannot run: no model is active, or the selected or
-    /// explicitly requested model is unknown or not installed on this computer.
+    /// The requested model is unknown, or not installed on this computer.
     ///
-    /// Callers show the refusal and offer this app's model settings.
-    /// Explicit inference may name the requested catalog model in its message.
-    ///
-    /// Failing here changes nothing. No model is adopted, downloaded,
-    /// substituted, or routed to the cloud on the caller's behalf.
+    /// Failing here changes nothing. No model is downloaded, substituted, or
+    /// routed to the cloud on the caller's behalf.
     #[error("Local transcription unavailable: {message}")]
-    LocalRouteUnavailable {
-        reason: UnavailableReason,
-        message: String,
-    },
+    ModelUnavailable { message: String },
 
-    /// Operational, not a precondition: the active model was resolvable but the
-    /// runtime could not load it. Kept distinct so a broken install does not
-    /// read as "you have not set this up".
+    /// Operational: the model is installed but the runtime could not load it.
+    /// Kept distinct so a broken install does not read as a missing model.
     #[error("Model load error: {message}")]
     ModelLoadError { message: String },
 

@@ -33,10 +33,9 @@ const instant = Type.String({
 /** A model chosen for a job: the endpoint that offers it, and its id there. */
 const choice = Type.Object({ endpoint: Type.String(), model: Type.String() });
 
-/** Each kind of note with an id: the directory its notes are in, as `<dir>/<id>.md`, and their fields. */
+/** Each kind of note with an id, by the directory its notes are in, and their fields. */
 export const NOTES = {
 	recordings: {
-		dir: 'recordings',
 		fields: Type.Object({
 			title: Type.String(),
 			recordedAt: instant,
@@ -44,7 +43,6 @@ export const NOTES = {
 		}),
 	},
 	transcriptions: {
-		dir: 'transcriptions',
 		fields: Type.Object({
 			recordingId: Type.String(),
 			createdAt: instant,
@@ -53,6 +51,24 @@ export const NOTES = {
 		}),
 	},
 } as const;
+
+/** A kind of note, which is also the directory its notes are in. */
+type Collection = keyof typeof NOTES;
+
+/** The directories Whispering writes. */
+export const DIRECTORIES = Object.keys(NOTES) as Collection[];
+
+/** A note's file, `<collection>/<id>.md`. */
+export const notePath = ({
+	collection,
+	id,
+}: {
+	readonly collection: Collection;
+	readonly id: string;
+}) => `${collection}/${id}.md`;
+
+/** A recording's audio file, `recordings/<id>.<ext>`, beside its note. */
+export const audioPath = (id: string, ext: string) => `recordings/${id}.${ext}`;
 
 /** `settings.md`, at the top of the folder: every field optional. */
 export const SETTINGS = {

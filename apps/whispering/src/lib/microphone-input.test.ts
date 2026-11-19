@@ -2,7 +2,7 @@
  * Microphone input tests
  *
  * Drives the session's microphone choice and test, and Whispering's
- * recorder over them, with a scripted capture device that counts what is
+ * recorder over them, with a scripted recorder that counts what is
  * open. Whispering's files are in memory; no microphone is involved.
  *
  * Key behaviors:
@@ -33,13 +33,15 @@ import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import {
 	type Meter,
+	type Recorder,
 	RecorderError,
+	type Recording,
 	type RecordingEndedReason,
 	type RecordingInput,
+	type StartRecordingOptions,
 } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import type { Capture, CaptureDevice, CaptureStart } from './capture.js';
 
 import type { MicrophonePreferences } from './microphone-preference.js';
 import {
@@ -63,7 +65,7 @@ function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 		list: 0,
 		allow: 0,
 		meter: [] as (RecordingInput | undefined)[],
-		start: [] as CaptureStart[],
+		start: [] as StartRecordingOptions[],
 	};
 	let meterStops = 0;
 	const open = { meters: 0, captures: 0 };
@@ -92,56 +94,54 @@ function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 		return Ok(undefined);
 	}
 
-	const device: CaptureDevice = {
-		inputs: {
-			async listInputs() {
-				calls.list += 1;
-				return Ok({
-					inputs: state.named ? state.connected : [],
-					namesWithheld: !state.named && state.connected.length > 0,
-				});
-			},
-			async allow({ signal } = {}) {
-				calls.allow += 1;
-				if (signal !== undefined) calls.allowSignals.push(signal);
-				// The default microphone opens and is released at once; a withdrawn request keeps nothing.
-				const { error: openError } = await opening(undefined, signal);
-				if (openError !== null) return Err(openError);
-				state.named = true;
-				return Ok(undefined);
-			},
-			async openMeter({
-				input,
-				signal,
-			} = {}): Promise<Result<Meter, RecorderError>> {
-				calls.meter.push(input);
-				const { error: openError } = await opening(input, signal);
-				if (openError !== null) return Err(openError);
-				open.meters += 1;
-				let stopped = false;
-				return Ok({
-					microphone: input?.label ?? '',
-					onLevel(listener) {
-						listener(0.5);
-						return () => {};
-					},
-					onEnded(listener) {
-						meterEndings.add(listener);
-						return () => meterEndings.delete(listener);
-					},
-					async close() {
-						meterStops += 1;
-						if (!stopped) open.meters -= 1;
-						stopped = true;
-					},
-				});
-			},
-			onInputsChange(listener) {
-				changeListeners.add(listener);
-				return () => changeListeners.delete(listener);
-			},
+	const device: Recorder = {
+		async listInputs() {
+			calls.list += 1;
+			return Ok({
+				inputs: state.named ? state.connected : [],
+				namesWithheld: !state.named && state.connected.length > 0,
+			});
 		},
-		async start(options): Promise<Result<Capture, RecorderError>> {
+		async allow({ signal } = {}) {
+			calls.allow += 1;
+			if (signal !== undefined) calls.allowSignals.push(signal);
+			// The default microphone opens and is released at once; a withdrawn request keeps nothing.
+			const { error: openError } = await opening(undefined, signal);
+			if (openError !== null) return Err(openError);
+			state.named = true;
+			return Ok(undefined);
+		},
+		async openMeter({
+			input,
+			signal,
+		} = {}): Promise<Result<Meter, RecorderError>> {
+			calls.meter.push(input);
+			const { error: openError } = await opening(input, signal);
+			if (openError !== null) return Err(openError);
+			open.meters += 1;
+			let stopped = false;
+			return Ok({
+				microphone: input?.label ?? '',
+				onLevel(listener) {
+					listener(0.5);
+					return () => {};
+				},
+				onEnded(listener) {
+					meterEndings.add(listener);
+					return () => meterEndings.delete(listener);
+				},
+				async close() {
+					meterStops += 1;
+					if (!stopped) open.meters -= 1;
+					stopped = true;
+				},
+			});
+		},
+		onInputsChange(listener) {
+			changeListeners.add(listener);
+			return () => changeListeners.delete(listener);
+		},
+		async start(options): Promise<Result<Recording, RecorderError>> {
 			calls.start.push(options);
 			const { error: openError } = await opening(options.input, options.signal);
 			if (openError !== null) return Err(openError);
@@ -152,11 +152,10 @@ function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 				stopped = true;
 			};
 			return Ok({
-				startedAt: performance.now(),
 				onEnded: () => () => {},
 				async stop() {
 					release();
-					return Ok({ durationMs: 1000 });
+					return Ok({ id: options.id, durationMs: 1000 });
 				},
 			});
 		},
@@ -180,17 +179,15 @@ function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
  */
 function shellMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 	const microphone = scriptedMicrophone(connected);
-	const inputs = microphone.device.inputs;
+	const { listInputs, openMeter, start } = microphone.device;
 	microphone.device = {
-		...microphone.device,
-		inputs: {
-			async listInputs() {
-				const { data, error } = await inputs.listInputs();
-				if (error !== null) return Err(error);
-				return Ok({ inputs: data.inputs });
-			},
-			openMeter: inputs.openMeter,
+		async listInputs() {
+			const { data, error } = await listInputs();
+			if (error !== null) return Err(error);
+			return Ok({ inputs: data.inputs });
 		},
+		openMeter,
+		start,
 	};
 	return microphone;
 }
@@ -221,7 +218,7 @@ async function open({
 		files: test.files,
 		services: {
 			...test.services,
-			capture: microphone.device,
+			recorder: microphone.device,
 			preferences: device.preferences,
 		},
 	});
@@ -636,7 +633,7 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 			files: test.files,
 			services: {
 				...test.services,
-				capture: microphone.device,
+				recorder: microphone.device,
 			},
 		});
 		cleanups.push(async () => {
@@ -739,7 +736,7 @@ test('closing while a choice is being saved releases the microphone at once and 
 		files: test.files,
 		services: {
 			...test.services,
-			capture: microphone.device,
+			recorder: microphone.device,
 			preferences: held.preferences,
 		},
 	});
@@ -821,21 +818,18 @@ test('on the desktop there is no enabling, and listing never clears a denial', a
 
 test('a meter that has ended before subscription ends the test at once and says why', async () => {
 	const microphone = scriptedMicrophone();
-	const inputs = microphone.device.inputs;
+	const { openMeter } = microphone.device;
 	microphone.device = {
 		...microphone.device,
-		inputs: {
-			...inputs,
-			async openMeter(options) {
-				const opened = expectOk(await inputs.openMeter(options));
-				return Ok({
-					...opened,
-					onEnded(listener) {
-						listener('deviceDisconnected');
-						return () => {};
-					},
-				});
-			},
+		async openMeter(options) {
+			const opened = expectOk(await openMeter(options));
+			return Ok({
+				...opened,
+				onEnded(listener) {
+					listener('deviceDisconnected');
+					return () => {};
+				},
+			});
 		},
 	};
 	const { input } = await open({

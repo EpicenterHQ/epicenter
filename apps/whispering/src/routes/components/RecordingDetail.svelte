@@ -20,6 +20,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { folderLocation } from '$lib/app.js';
 	import { timeOf } from '$lib/format/ids.js';
+	import { audioPath, notePath } from '$lib/format/layout.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
@@ -191,7 +192,7 @@
 						<dd class="min-w-0 font-mono text-xs break-all">{own}</dd>
 						<dt class="text-muted-foreground">Files</dt>
 						<dd class="min-w-0 font-mono text-xs break-all">
-							{#if recording.exists()}recordings/{own}.md<br />{/if}{#if audio.kind === 'here'}recordings/{own}.{audio.file.ext}{/if}{#each transcripts as transcript (transcript.id)}<br />transcriptions/{transcript.id}.md{/each}
+							{#if recording.exists()}{notePath({ collection: 'recordings', id: own })}<br />{/if}{#if audio.kind === 'here'}{audioPath(own, audio.file.ext)}{/if}{#each transcripts as transcript (transcript.id)}<br />{notePath({ collection: 'transcriptions', id: transcript.id })}{/each}
 						</dd>
 					</dl>
 				</Collapsible.Content>

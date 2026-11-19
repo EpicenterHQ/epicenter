@@ -1286,10 +1286,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "epicenter-transcription-build"
-version = "0.0.1"
-
-[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6196,7 +6192,6 @@ dependencies = [
 name = "whispering"
 version = "7.11.1"
 dependencies = [
- "epicenter-transcription-build",
  "keyring",
  "log",
  "percent-encoding",

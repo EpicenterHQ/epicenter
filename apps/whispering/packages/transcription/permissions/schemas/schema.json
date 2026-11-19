@@ -307,18 +307,6 @@
           "markdownDescription": "Denies the download_model command without any pre-configured scope."
         },
         {
-          "description": "Enables the get_active_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-get-active-model",
-          "markdownDescription": "Enables the get_active_model command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the get_active_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-get-active-model",
-          "markdownDescription": "Denies the get_active_model command without any pre-configured scope."
-        },
-        {
           "description": "Enables the get_unload_policy command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-unload-policy",
@@ -355,30 +343,6 @@
           "markdownDescription": "Denies the list_models command without any pre-configured scope."
         },
         {
-          "description": "Enables the load_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-load-model",
-          "markdownDescription": "Enables the load_model command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the load_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-load-model",
-          "markdownDescription": "Denies the load_model command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the open_model_settings command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-open-model-settings",
-          "markdownDescription": "Enables the open_model_settings command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the open_model_settings command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-open-model-settings",
-          "markdownDescription": "Denies the open_model_settings command without any pre-configured scope."
-        },
-        {
           "description": "Enables the remove_model command without any pre-configured scope.",
           "type": "string",
           "const": "allow-remove-model",
@@ -403,18 +367,6 @@
           "markdownDescription": "Denies the reveal_model command without any pre-configured scope."
         },
         {
-          "description": "Enables the set_active_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-set-active-model",
-          "markdownDescription": "Enables the set_active_model command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the set_active_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-set-active-model",
-          "markdownDescription": "Denies the set_active_model command without any pre-configured scope."
-        },
-        {
           "description": "Enables the set_unload_policy command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-unload-policy",
@@ -437,18 +389,6 @@
           "type": "string",
           "const": "deny-transcribe-audio",
           "markdownDescription": "Denies the transcribe_audio command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the unload_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-unload-model",
-          "markdownDescription": "Enables the unload_model command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the unload_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-unload-model",
-          "markdownDescription": "Denies the unload_model command without any pre-configured scope."
         }
       ]
     }

@@ -3,31 +3,11 @@
  * with each model's download state, downloads with progress, removal, and
  * the unload policy. Rust owns downloads; the handle reaches them. Which
  * model the app uses is its own choice (`LocalModelChoice`), never state of
- * this page's: Whispering's is its transcription model choice; an app whose
- * shell transcribes by itself keeps the shell's active model
- * (`createNativeChoice`).
+ * this page's: Whispering's is its transcription model choice.
  */
 import { SvelteMap } from 'svelte/reactivity';
-import type {
-	commands as bindings,
-	CatalogError,
-	ModelInfo,
-	UnloadPolicy,
-} from './bindings.gen.js';
+import type { CatalogError, ModelInfo, UnloadPolicy } from './bindings.gen.js';
 import type { LocalSpeech } from './local-speech.js';
-
-type ActiveModelCommands = Pick<
-	typeof bindings,
-	'getActiveModel' | 'setActiveModel'
->;
-
-/** The shell's active model commands, the plugin's bindings loaded with the first call. */
-const plugin = () =>
-	import('./bindings.gen.js').then((module) => module.commands);
-const activeModel: ActiveModelCommands = {
-	getActiveModel: async () => (await plugin()).getActiveModel(),
-	setActiveModel: async (modelId) => (await plugin()).setActiveModel(modelId),
-};
 
 /** What administration does through the handle. */
 export type LocalModelHandle = Pick<
@@ -67,34 +47,6 @@ function downloadFailure(error: CatalogError): string {
 
 const message = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
-
-/**
- * The model the app's shell transcribes with by itself (its active model,
- * kept in the shell's settings), as a choice: for an app with no model
- * choices of its own, such as the Epicenter app's dictation.
- */
-export function createNativeChoice(
-	commands: ActiveModelCommands = activeModel,
-): LocalModelChoice {
-	let chosen = $state.raw<string | null>(null);
-	const read = async () => {
-		chosen = (await commands.getActiveModel())?.id ?? null;
-	};
-	void read().catch(() => {});
-	return {
-		chosen: () => chosen,
-		async choose(modelId) {
-			try {
-				const { error } = await commands.setActiveModel(modelId);
-				if (error !== null) return error.message;
-				await read();
-				return undefined;
-			} catch (cause) {
-				return message(cause);
-			}
-		},
-	};
-}
 
 export function createLocalModels({
 	speech,

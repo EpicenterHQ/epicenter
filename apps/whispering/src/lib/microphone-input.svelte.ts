@@ -25,12 +25,12 @@
 import {
 	type InputListing,
 	type Meter,
+	type Recorder,
 	RecorderError,
 	type RecordingEndedReason,
 	type RecordingInput,
 } from '@epicenter/recorder';
 import { extractErrorMessage } from 'wellcrafted/error';
-import type { CaptureDevice } from './capture.js';
 import type { MicrophonePreferences } from './microphone-preference.js';
 
 export type MicrophoneInput = ReturnType<typeof createMicrophoneInput>;
@@ -68,16 +68,19 @@ const endedError = (reason: RecordingEndedReason, label: string) =>
 				}).error;
 
 export function createMicrophoneInput({
-	capture,
+	inputs,
 	preferences,
 	recording,
 }: {
-	capture: Pick<CaptureDevice, 'inputs'>;
+	/** The recorder's inputs, to list, allow and test. */
+	inputs: Pick<
+		Recorder,
+		'listInputs' | 'openMeter' | 'allow' | 'onInputsChange'
+	>;
 	preferences: MicrophonePreferences;
 	/** Whether a recording is starting, running, or finishing. */
 	recording: () => boolean;
 }) {
-	const inputs = capture.inputs;
 	let choice = $state.raw<RecordingInput | undefined>();
 	let list = $state.raw<InputList>({ kind: 'unread' });
 	let listing = $state(false);

@@ -2,7 +2,7 @@
 
 `tauri-plugin-epicenter-transcription` gives a standalone desktop app local
 transcription: a curated model catalog, downloads into the shared Hugging Face
-cache, the app's active-model and unload-policy settings, audio decoding, and a
+cache, the app's unload-policy setting, audio decoding, and a
 resident inference cache over transcribe.cpp (whisper.cpp). Only apps that
 transcribe depend on it; other standalone apps stay free of transcribe-cpp and
 model downloads.
@@ -17,20 +17,13 @@ Install the plugin, and run the built app through this crate's `run`:
 
 ```rust
 let app = tauri::Builder::default()
-    .plugin(tauri_plugin_epicenter_transcription::Builder::new().build())
+    .plugin(tauri_plugin_epicenter_transcription::init())
     .build(tauri::generate_context!())?;
 tauri_plugin_epicenter_transcription::run(app, |_handle, _event| {});
 ```
 
-`Builder::new().open_settings(callback)` supplies what the
-`open_model_settings` command does, for an app with somewhere to navigate. The
-default callback refuses with "This app has no model settings."; an app whose
-model settings are a page route keeps the default and navigates in the page.
-`init()` is `Builder::new().build()`.
-
-`model_cache(app)` returns the app's `ModelCache` for Rust callers, such as
-`prewarm` at capture start or `readiness`. The cache is created on first use,
-with its idle watcher; installing the plugin downloads and loads nothing.
+The model cache is created on first use, with its idle watcher; installing
+the plugin downloads and loads nothing.
 
 `run(app, callback)` matters on macOS. After plugin exit hooks, the app's
 callback, and Tauri cleanup have run, it exits without running C++ static
@@ -46,12 +39,9 @@ Each app owns its settings in its local data directory's `local/`,
 app keeps what belongs to this computer alone (ADR-0894): the directory named
 by the app's bundle identifier, so `so.epicenter.whispering` and
 `so.epicenter.whispering.dev` keep separate choices. Plugin setup fails if that
-directory cannot be resolved. The file holds the active model and the unload
-policy; both are device-local and never synchronize. The active model is
-what the shell transcribes with by itself (`ModelCache::transcribe`,
-`prewarm`), for an app whose dictation runs in Rust; an app that transcribes
-through `localSpeech()` names its model on every request and keeps its own
-choice with its other model choices.
+directory cannot be resolved. The file holds the unload policy, which is
+device-local and never synchronizes. The app names its model on every request
+and keeps that choice with its other model choices.
 
 Model files live in the shared Hugging Face cache (`~/.cache/huggingface/hub`,
 or under `HF_HOME`), so every app and Hugging Face tool on the machine reuses
@@ -73,23 +63,20 @@ refusal is a typed `TranscriptionError`:
 | Check | Refusal |
 | --- | --- |
 | `audio` is base64 | `AudioReadError` |
-| `model_id` is a catalog model installed on this machine | `LocalRouteUnavailable` |
+| `model_id` is a catalog model installed on this machine | `ModelUnavailable` |
 | The bytes decode as audio | `AudioReadError` |
 
-The model is always named explicitly: `transcribe_audio` neither reads nor
-changes the active model, and an unknown or uninstalled model is refused before
-the bytes are decoded. Audio with no samples answers `empty-audio` without
+The model is always named explicitly, and an unknown or uninstalled model is
+refused before the bytes are decoded. Audio with no samples answers `empty-audio` without
 loading a model. Otherwise the answer is `transcribed`, naming the exact model
 that ran and which hints it applied. The inference job owns its input until it
 finishes, even when the page stops waiting.
 
 ## Memory
 
-A transcription loads its model on first use and keeps it resident under the
-unload policy. `load_model(model_id)` loads a catalog model now so the next
-transcription with it starts warm, replacing any other resident model;
-`unload_model(model_id)` drops it once a transcription with it finishes. Its
-file stays in the cache.
+A transcription loads its model on first use, replacing any other resident
+model, and keeps it resident under the unload policy. Removing a model unloads
+it first, once a transcription with it finishes.
 
 Downloads work the same way: stopping the page's wait does not stop the
 transfer. The worker keeps a per-model reservation until it finishes, so another
@@ -105,13 +92,10 @@ There is no default grant. Every permission is prefixed
 | --- | --- | --- |
 | Inference | `list_inference_models` | `allow-list-inference-models` |
 | Inference | `transcribe_audio` | `allow-transcribe-audio` |
-| Memory | `load_model`, `unload_model` | `allow-load-model`, `allow-unload-model` |
-| Navigation | `open_model_settings` | `allow-open-model-settings` |
 | Administration | `list_models` | `allow-list-models` |
 | Administration | `download_model` | `allow-download-model` |
 | Administration | `remove_model` | `allow-remove-model` |
 | Administration | `reveal_model` | `allow-reveal-model` |
-| Administration | `get_active_model`, `set_active_model` | `allow-get-active-model`, `allow-set-active-model` |
 | Administration | `get_unload_policy`, `set_unload_policy` | `allow-get-unload-policy`, `allow-set-unload-policy` |
 
 ## TypeScript package
@@ -129,14 +113,13 @@ There is no default grant. Every permission is prefixed
   controller over a `localSpeech()` handle and the app's choice of model
   (`LocalModelChoice`). Rust owns downloads; the page owns only its intent to
   use a model after one finishes. Stopping waiting withdraws that intent and
-  calls nothing native. `createNativeChoice()` is the shell's active model as
-  that choice.
+  calls nothing native.
 - `./local-model-administration`: `LocalModelAdministration.svelte`, the model
   settings card built on `createLocalModels` and `@epicenter/ui`: download,
   use, show the folder, remove, and the unload policy. It takes the app's
   handle (`speech`, the same value its `openAi` merges, so a download reaches
-  the picker) and its choice (`choice`); with neither, it opens its own handle
-  (`openLocalSpeech()`) and administers the shell's active model. It is a
+  the picker) and its choice (`choice`); without a handle it opens its own
+  (`openLocalSpeech()`). It is a
   Tauri window's view: an app shows it where `localSpeech()` is not null.
 - `localSpeech()` (the `.` export): this app's transcribe.cpp as an
   `@epicenter/ai` endpoint (ADR-0757), or `null` in a browser. Its `fetch`
@@ -147,16 +130,14 @@ There is no default grant. Every permission is prefixed
   `catalog()` lists every model with whether it is downloaded;
   `download(id)` and `remove(id)` run `download_model` and `remove_model`
   and then list the models again; `reveal(id)` shows a model's folder;
-  `load(id)` and `unload(id)` run `load_model` and `unload_model`; and
   `unloadPolicy()` and `setUnloadPolicy(policy)` read and set when an idle
   model leaves memory. It imports only types from `@epicenter/ai`.
 
 ## Building an app
 
 A final app keeps a direct `transcribe-cpp` dependency so its build script
-receives the `DEP_TRANSCRIBE_CPP_*` metadata, and calls
-`epicenter_transcription_build::link_runtime()` from that build script (crate
-`packages/epicenter-transcription-build`). It bakes the Linux rpath and stages
+receives the `DEP_TRANSCRIBE_CPP_*` metadata. Whispering's build script
+(`src-tauri/build.rs`) then bakes the Linux rpath and stages
 transcribe-cpp's shared libraries and backend modules into the app's
 `transcribe-libs/` for Tauri's bundles. macOS links transcribe-cpp statically.
 
@@ -166,7 +147,6 @@ From the repository root:
 
 ```sh
 cargo test -p tauri-plugin-epicenter-transcription
-cargo check -p epicenter-transcription-build
 bun run --cwd packages/transcription typecheck
 bun run --cwd packages/transcription test
 ```

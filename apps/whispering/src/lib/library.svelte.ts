@@ -29,7 +29,6 @@ import {
 	type Deletion,
 	deletedNote,
 	recordingDeleted,
-	runDeletion,
 } from './deletion.js';
 import {
 	audioById,
@@ -372,17 +371,18 @@ export function createLibrary({
 			if (refusal) return refusal;
 			if (recording) busy.set(recording, 'deleting');
 			try {
-				const problem = await runDeletion(
-					{
-						deleteNote: (note) =>
-							runMutation(client, folderMutations.notes.delete, note),
-						deleteAudio: (id) =>
-							runMutation(client, folderMutations.audio.delete, { id }),
-					},
-					snapshot,
-					deletion,
-				);
-				if (problem !== undefined) return problem;
+				const { error } =
+					deletion.kind === 'recording'
+						? await runMutation(client, folderMutations.recordings.delete, {
+								id: deletion.id,
+								transcripts: deletion.transcripts.map(({ id }) => id),
+							})
+						: await runMutation(
+								client,
+								folderMutations.notes.delete,
+								deletion.note,
+							);
+				if (error !== null) return error.message;
 			} finally {
 				if (recording) busy.delete(recording);
 			}

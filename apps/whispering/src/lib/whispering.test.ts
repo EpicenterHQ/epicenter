@@ -33,12 +33,11 @@
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { RecorderError } from '@epicenter/recorder';
+import { type Recorder, RecorderError } from '@epicenter/recorder';
 import { MutationObserver } from '@tanstack/query-core';
 import { runMutation } from 'wellcrafted/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { CaptureDevice } from './capture.js';
 import {
 	deferred,
 	eventually,
@@ -81,14 +80,14 @@ async function record({
 }
 
 /**
- * `capture`, whose every Stop calls `after` once it has answered, before
+ * `recorder`, whose every Stop calls `after` once it has answered, before
  * the app writes the recording's note.
  */
-function afterStop(capture: CaptureDevice, after: () => void): CaptureDevice {
+function afterStop(recorder: Recorder, after: () => void): Recorder {
 	return {
-		...capture,
+		...recorder,
 		async start(options) {
-			const started = await capture.start(options);
+			const started = await recorder.start(options);
 			if (started.error !== null) return started;
 			return Ok({
 				...started.data,
@@ -108,7 +107,7 @@ test('a recording’s audio lands at Stop, and its note, with its length', async
 	const opened = await createTestWhispering({
 		services: {
 			...test.services,
-			capture: afterStop(test.services.capture, () => {
+			recorder: afterStop(test.services.recorder, () => {
 				whenStopped = test.outside.paths('recordings');
 			}),
 		},
@@ -138,23 +137,22 @@ test('a take is on the record screen, not in the library, until Stop answers, th
 	// The desktop's shape: the take is at its path from its first second,
 	// and Stop finishes it there, then answers.
 	const stopping = deferred<void>();
-	const capture: CaptureDevice = {
-		...test.services.capture,
+	const recorder: Recorder = {
+		...test.services.recorder,
 		async start({ id }) {
 			await test.outside.write(`recordings/${id}.webm`, 'a take as it grows');
 			return Ok({
-				startedAt: 0,
 				onEnded: () => () => {},
 				async stop() {
 					await stopping.promise;
 					await test.outside.write(`recordings/${id}.webm`, 'finished');
-					return Ok({ durationMs: 1500 });
+					return Ok({ id, durationMs: 1500 });
 				},
 			});
 		},
 	};
 	const { whispering, library, query } = await createTestWhispering({
-		services: { ...test.services, capture },
+		services: { ...test.services, recorder },
 		files: test.files,
 	});
 	cleanups.push(() => whispering.dispose());
@@ -200,7 +198,7 @@ test('a recording whose note cannot be written lists as an untitled recording, a
 	const opened = await createTestWhispering({
 		services: {
 			...test.services,
-			capture: afterStop(test.services.capture, () => {
+			recorder: afterStop(test.services.recorder, () => {
 				// The audio is at its path; every write after it is refused.
 				test.outside.refuse('The disk is full', { under: 'recordings' });
 			}),
@@ -229,12 +227,11 @@ test('a take whose Stop failed stays at its path as it is, and lists as an untit
 	const test = await openTestServices();
 	// The desktop's shape: the take is at its path from its first second,
 	// and a Stop that cannot finish it leaves it as it is.
-	const capture: CaptureDevice = {
-		...test.services.capture,
+	const recorder: Recorder = {
+		...test.services.recorder,
 		async start({ id }) {
 			await test.outside.write(`recordings/${id}.wav`, toneWav({ seconds: 1 }));
 			return Ok({
-				startedAt: 0,
 				onEnded: () => () => {},
 				async stop() {
 					return RecorderError.Failed({
@@ -245,7 +242,7 @@ test('a take whose Stop failed stays at its path as it is, and lists as an untit
 		},
 	};
 	const opened = await createTestWhispering({
-		services: { ...test.services, capture },
+		services: { ...test.services, recorder },
 		files: test.files,
 	});
 	cleanups.push(opened.close);
@@ -379,9 +376,9 @@ test('an answer that arrives after the pages closed is still kept', async () => 
 	expect(await test.outside.read(kept!)).toContain('late but kept\n');
 });
 
-test('deleting a recording deletes its transcripts and its audio', async () => {
+test('deleting a recording deletes its transcripts and its audio in one write', async () => {
 	const opened = await fixture();
-	const { test, library } = opened;
+	const { test, query, library } = opened;
 	const recording = await record(opened);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	await library.transcribe(recording.id);
@@ -396,7 +393,10 @@ test('deleting a recording deletes its transcripts and its audio', async () => {
 		audio: `recordings/${recording.id}.wav`,
 	});
 	expect(deletion.kind === 'recording' && deletion.transcripts).toHaveLength(2);
+	const mutations = query.queryClient.getMutationCache();
+	const before = mutations.getAll().length;
 	expect(await library.delete(deletion)).toBeUndefined();
+	expect(mutations.getAll().length - before).toBe(1);
 
 	await eventually(() => library.entries.length === 0);
 	expect(test.outside.paths()).toEqual(['settings.md']);
@@ -404,7 +404,7 @@ test('deleting a recording deletes its transcripts and its audio', async () => {
 
 test('a recording is kept when a transcript for it was saved after the person was asked', async () => {
 	const opened = await fixture();
-	const { test, query, library } = opened;
+	const { test, library } = opened;
 	const recording = await record(opened);
 	const deletion = expectOk(
 		library.deletionFor({ collection: 'recordings', id: recording.id }),
@@ -415,9 +415,7 @@ test('a recording is kept when a transcript for it was saved after the person wa
 		'transcriptions/2026-10-31T09-31-00-000Z-latecomer.md',
 		`---\nrecordingId: "${recording.id}"\ncreatedAt: "2026-10-31T09:31:00.000Z"\nmodel: "whisper-1"\nendpoint: "https://api.openai.com/v1"\n---\nlate\n`,
 	);
-	await query.reread();
-	await eventually(() => library.transcriptsFor(recording.id).length === 1);
-
+	// The lists have not read it yet; the deletion reads the folder itself.
 	expect(await library.delete(deletion)).toContain(
 		'A new transcript was saved for this recording after you were asked.',
 	);

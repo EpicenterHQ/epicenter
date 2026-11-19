@@ -21,13 +21,8 @@
 	import { exportFolder, folderLocation, query } from '$lib/app.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import {
-		changeFolder,
-		type FolderGit,
-		folderGit,
-		folderPath,
-		previousFolderPath,
-	} from '$lib/this-computer.js';
+	import { changeFolder, type FolderGit, folderGit } from '$lib/files/tauri.js';
+	import { folderPath, previousFolderPath } from '$lib/this-computer.js';
 
 	const whispering = getWhispering();
 	const path = folderLocation();

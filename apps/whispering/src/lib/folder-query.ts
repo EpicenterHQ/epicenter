@@ -83,8 +83,10 @@ export function createFolderQuery(folder: WhisperingFolder) {
 		settings: resultMutations(['folder', 'settings'], {
 			set: folder.settings.set,
 		}),
+		recordings: resultMutations(['folder', 'recordings'], {
+			delete: folder.deleteRecording,
+		}),
 		audio: resultMutations(['folder', 'audio'], {
-			delete: folder.deleteAudio,
 			deleteBefore: folder.deleteAudioBefore,
 		}),
 	};

@@ -1,11 +1,8 @@
-//! The host's device-local local-transcription settings: which model is
-//! **active**, and when to drop it from memory.
+//! The host's device-local local-transcription settings: when to drop the
+//! resident model from memory.
 //!
-//! Each app that installs the plugin owns one active model and unload policy,
-//! stored in `local/` in its local data directory. Its model settings
-//! administer them.
-//! Explicit inference names a recorded catalog model but never changes the
-//! active choice.
+//! Each app that installs the plugin owns one unload policy, stored in `local/`
+//! in its local data directory. Every transcription names its model.
 //!
 //! Device-local on purpose, and durable here rather than in any workspace: the
 //! value names model files and an accelerator that exist on *this* machine. A
@@ -18,7 +15,6 @@
 //! record closed (a frontend pushing a copy Rust then re-read) cannot appear.
 //! Language and prompt remain application-owned and still travel per call.
 
-use super::catalog;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -43,33 +39,24 @@ pub enum UnloadPolicy {
     AfterThirtyMinutes,
 }
 
-/// The on-disk shape. Both fields tolerate absence so a settings file written by
-/// an older build, or one a user hand-edited, still loads.
+/// The on-disk shape. A missing field reads as its default, and a key this
+/// build does not know is ignored, so a file an older build wrote still loads.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Stored {
-    /// The active model's catalog id, or `None` when nobody has chosen one.
-    /// Absence is a real state with an explicit error, never a silent default.
-    #[serde(default)]
-    active_model_id: Option<String>,
     #[serde(default)]
     unload_policy: UnloadPolicy,
 }
 
-/// Failures model administration commands can report. Both are actionable:
-/// the id is not a model this build knows, or the choice could not be made
-/// durable.
+/// Why a setting could not be made durable.
 #[derive(Error, Debug, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "name")]
 pub enum SettingsError {
-    #[error("Unknown model: {message}")]
-    UnknownModel { message: String },
-
     #[error("Could not save: {message}")]
     SaveFailed { message: String },
 }
 
-/// The one host-owned store for the active model and the unload policy.
+/// The one host-owned store for the unload policy.
 ///
 /// The in-memory value is authoritative for the running process and every write
 /// is flushed to disk before it is reported successful, so a choice the user
@@ -80,8 +67,8 @@ pub struct LocalTranscriptionSettings {
 }
 
 impl LocalTranscriptionSettings {
-    /// Load the settings file, falling back to the defaults (no active model,
-    /// default unload policy) when it is missing or unreadable. A corrupt file
+    /// Load the settings file, falling back to the default unload policy when
+    /// it is missing or unreadable. A corrupt file
     /// is a warning, not a startup failure: the user re-picks in model settings, and the
     /// next successful write replaces it.
     pub fn load(path: PathBuf) -> Self {
@@ -106,26 +93,6 @@ impl LocalTranscriptionSettings {
             path,
             state: RwLock::new(state),
         }
-    }
-
-    /// The active model's catalog id, or `None` when nobody has chosen one.
-    /// Read at the point of use by every transcribe and prewarm.
-    pub fn active_model_id(&self) -> Option<String> {
-        self.read().active_model_id
-    }
-
-    /// Make `model_id` the active model, or clear the choice with `None`.
-    /// A non-`None` id must name a model in this build's catalog: an id nothing
-    /// can resolve is refused here rather than stored and failed later.
-    pub fn set_active_model_id(&self, model_id: Option<String>) -> Result<(), SettingsError> {
-        if let Some(id) = &model_id {
-            if catalog::describe(id).is_none() {
-                return Err(SettingsError::UnknownModel {
-                    message: format!("\"{id}\" is not a model this app knows about."),
-                });
-            }
-        }
-        self.update(|stored| stored.active_model_id = model_id)
     }
 
     /// When the host drops the resident model.
@@ -219,66 +186,20 @@ mod tests {
         dir.join("local-transcription.json")
     }
 
-    /// The catalog id used wherever a test needs a real, resolvable model
-    /// identity. Taken from the live catalog so the test cannot drift from it.
-    fn a_catalog_model_id() -> String {
-        catalog::model_ids()
-            .first()
-            .expect("the catalog ships at least one model")
-            .clone()
-    }
-
     #[test]
-    fn absent_file_starts_with_no_active_model() {
+    fn absent_file_starts_with_the_default_policy() {
         let settings = LocalTranscriptionSettings::load(temp_path("absent"));
-        assert_eq!(settings.active_model_id(), None);
         assert_eq!(settings.unload_policy(), UnloadPolicy::default());
     }
 
     #[test]
-    fn active_model_survives_a_reload() {
+    fn the_policy_survives_a_reload() {
         let path = temp_path("durable");
-        let id = a_catalog_model_id();
-
         let settings = LocalTranscriptionSettings::load(path.clone());
-        settings.set_active_model_id(Some(id.clone())).unwrap();
         settings.set_unload_policy(UnloadPolicy::Never).unwrap();
 
         let reloaded = LocalTranscriptionSettings::load(path.clone());
-        assert_eq!(reloaded.active_model_id(), Some(id));
         assert_eq!(reloaded.unload_policy(), UnloadPolicy::Never);
-
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn clearing_the_active_model_is_a_real_state() {
-        let path = temp_path("cleared");
-        let settings = LocalTranscriptionSettings::load(path.clone());
-        settings
-            .set_active_model_id(Some(a_catalog_model_id()))
-            .unwrap();
-        settings.set_active_model_id(None).unwrap();
-
-        let reloaded = LocalTranscriptionSettings::load(path.clone());
-        assert_eq!(reloaded.active_model_id(), None);
-
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn an_unknown_id_is_refused_rather_than_stored() {
-        let path = temp_path("unknown");
-        let settings = LocalTranscriptionSettings::load(path.clone());
-        let error = settings
-            .set_active_model_id(Some("not-a-model".to_string()))
-            .expect_err("an id outside the catalog is refused");
-        assert!(matches!(error, SettingsError::UnknownModel { .. }));
-        assert_eq!(
-            settings.active_model_id(),
-            None,
-            "a refused choice leaves the previous state untouched"
-        );
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
@@ -288,19 +209,13 @@ mod tests {
     #[test]
     fn successive_writes_replace_the_file_and_leave_no_litter() {
         let path = temp_path("successive");
-        let ids = catalog::model_ids();
         let settings = LocalTranscriptionSettings::load(path.clone());
-
-        for id in &ids {
-            settings.set_active_model_id(Some(id.clone())).unwrap();
-        }
         settings
             .set_unload_policy(UnloadPolicy::Immediately)
             .unwrap();
         settings.set_unload_policy(UnloadPolicy::Never).unwrap();
 
         let reloaded = LocalTranscriptionSettings::load(path.clone());
-        assert_eq!(reloaded.active_model_id().as_ref(), ids.last());
         assert_eq!(reloaded.unload_policy(), UnloadPolicy::Never);
 
         let dir = path.parent().unwrap();
@@ -325,8 +240,25 @@ mod tests {
         std::fs::write(&path, b"{ not json").unwrap();
 
         let settings = LocalTranscriptionSettings::load(path.clone());
-        assert_eq!(settings.active_model_id(), None);
         assert_eq!(settings.unload_policy(), UnloadPolicy::default());
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    /// A file an older build wrote, with the model it once kept as active, still
+    /// loads its policy.
+    #[test]
+    fn a_key_this_build_does_not_know_is_ignored() {
+        let path = temp_path("older");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            br#"{"activeModelId":"whisper-tiny","unloadPolicy":"never"}"#,
+        )
+        .unwrap();
+
+        let settings = LocalTranscriptionSettings::load(path.clone());
+        assert_eq!(settings.unload_policy(), UnloadPolicy::Never);
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }

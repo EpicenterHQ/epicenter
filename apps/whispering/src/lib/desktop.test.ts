@@ -4,8 +4,7 @@
  * What each capability gives `src/lib/app.ts` when the page runs in a
  * Tauri window (`isTauri()`), composed as `app.ts` composes them, over a
  * stand-in shell: Tauri's `invoke` answers from memory, Tauri's HTTP
- * plugin is one function here, and the shell's recorder is a stand-in for
- * its module.
+ * plugin is one function here.
  *
  * Key behaviors:
  * - A connection's key is a Keychain item the shell keeps (`secret_get`,
@@ -13,10 +12,8 @@
  * - Requests go through Tauri's HTTP plugin, which follows no redirect
  * - Ollama and LM Studio are looked for through it with no key
  * - Transcription on this computer takes the uploaded audio
- * - The shell's microphone records `recordings/<id>` in the data folder
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import type { AudioFiles } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -78,36 +75,8 @@ mock.module('@tauri-apps/api/event', () => ({
 	listen: async () => () => {},
 }));
 
-/** The data folder's audio files; the microphone only hands them to the recorder. */
-const audioFiles = {} as AudioFiles;
-
-/** What the recorder was asked to start or repair. */
-const started: unknown[] = [];
-// The shell's recorder, which `@epicenter/recorder` loads in a Tauri window.
-mock.module(
-	new URL('../../packages/recorder/src/tauri.ts', import.meta.url).pathname,
-	() => ({
-		recorder: {
-			listInputs: async () =>
-				Ok({ inputs: [{ deviceId: 'coreaudio:usb', label: 'USB' }] }),
-			openMeter: async () => {
-				throw new Error('not opened');
-			},
-			start: async (options: { files: unknown; id: string }) => {
-				started.push(options);
-				return Ok({
-					onEnded: () => () => {},
-					stop: async () => Ok({ id: options.id, durationMs: 1500 }),
-				});
-			},
-		},
-	}),
-);
-
 const { localServers, openAi } = await import('@epicenter/ai');
-const { recorder: microphone } = await import('@epicenter/recorder');
 const { localSpeech } = await import('@epicenter/transcription');
-const { createMicrophoneDevice } = await import('./microphone.js');
 const { requestFetch, secrets } = await import('./this-computer.js');
 
 /** The models `app.ts` merges in a Tauri window, but the saved connections, which `@epicenter/ai` tests. */
@@ -118,7 +87,6 @@ function openModels() {
 afterEach(() => {
 	sent.length = 0;
 	fetched.length = 0;
-	started.length = 0;
 });
 
 const upload = () =>
@@ -175,24 +143,4 @@ test('transcription on this computer takes the uploaded audio', async () => {
 			hints: { language: null, initialPrompt: null },
 		},
 	});
-});
-
-test('the shell’s microphone records a take by id', async () => {
-	const capture = createMicrophoneDevice({
-		files: audioFiles,
-		recorder: microphone,
-	});
-	expect(expectOk(await capture.inputs.listInputs()).inputs).toEqual([
-		{ deviceId: 'coreaudio:usb', label: 'USB' },
-	]);
-	const recording = expectOk(await capture.start({ id: '20261031T093000000' }));
-	expect(started).toEqual([
-		{
-			files: audioFiles,
-			id: '20261031T093000000',
-			input: undefined,
-			signal: undefined,
-		},
-	]);
-	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
 });

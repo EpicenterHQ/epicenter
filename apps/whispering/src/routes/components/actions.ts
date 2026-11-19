@@ -6,7 +6,8 @@
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from 'svelte-sonner';
 import { describeDeletion } from '$lib/deletion.js';
-import { type NoteRef, notePath } from '$lib/folder.js';
+import type { NoteRef } from '$lib/folder.js';
+import { notePath } from '$lib/format/layout.js';
 import type { Library } from '$lib/library.svelte.js';
 
 /** Copy text the person asked for. `what` names it: "the transcript". */

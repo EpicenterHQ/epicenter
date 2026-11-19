@@ -19,12 +19,12 @@
  *   Nothing sends a request until the person asks.
  * - `speech` is transcription in this app's process, null in a browser.
  * - `recorder` records from the microphone into the folder's
- *   `recordings/`: the shell's in a Tauri window, the page's own in a
- *   browser.
+ *   `recordings/` (`audioFiles`): the shell's in a Tauri window, the
+ *   page's own in a browser. It lists and tests the inputs too.
  * - `shortcut` is the global shortcut, null in a browser.
  */
 import { customEndpoints, localServers, openAi } from '@epicenter/ai';
-import { type AudioFiles, recorder as microphone } from '@epicenter/recorder';
+import type { AudioFiles } from '@epicenter/recorder';
 import { localSpeech } from '@epicenter/transcription';
 import { focusManager } from '@tanstack/query-core';
 import { isTauri } from '@tauri-apps/api/core';
@@ -35,7 +35,6 @@ import { opfsFiles } from './files/opfs.js';
 import { tauriFiles } from './files/tauri.js';
 import { openFolder } from './folder.js';
 import { createFolderQuery } from './folder-query.js';
-import { createMicrophoneDevice } from './microphone.js';
 import { reactive } from './reactive.js';
 import { openShortcut } from './shortcut.js';
 import { folderPath, requestFetch, secrets } from './this-computer.js';
@@ -63,7 +62,7 @@ const files: Files = isTauri()
 	: opfsFiles(DATA);
 
 /** The folder as the recorder writes audio into it, where the shell may write it itself. */
-const audioFiles: AudioFiles = {
+export const audioFiles: AudioFiles = {
 	get location() {
 		return desktopFolder;
 	},
@@ -112,10 +111,9 @@ export const ai = reactive(
 		speech,
 	]),
 );
-export const recorder = createMicrophoneDevice({
-	files: audioFiles,
-	recorder: microphone,
-});
+/** The microphone, which `@epicenter/recorder` chose: the shell's in a Tauri window, the page's own in a browser. */
+export { recorder } from '@epicenter/recorder';
+
 const held = openShortcut(query.settings.shortcut);
 export const shortcut = held && reactive(held);
 /** Start holding the global shortcut, once the folder was first read. */

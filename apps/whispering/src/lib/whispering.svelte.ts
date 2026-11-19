@@ -24,12 +24,12 @@
  */
 
 import type { Ai, ModelChoice } from '@epicenter/ai';
+import type { AudioFiles, Recorder, Recording } from '@epicenter/recorder';
 import { createQuery } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { runMutation } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { Capture, CaptureDevice } from './capture.js';
 import type { FolderQuery } from './folder-query.js';
 import { timeId } from './format/ids.js';
 import {
@@ -70,8 +70,10 @@ export type WhisperingCapabilities = {
 	>;
 	/** Every model this page reaches, in the picker's order. */
 	readonly ai: Ai;
-	/** What records each recording into the folder. */
-	readonly capture: CaptureDevice;
+	/** The microphone: it lists and tests the inputs, and records each take into `audioFiles`. */
+	readonly recorder: Recorder;
+	/** The folder as the recorder writes a take's audio into it. */
+	readonly audioFiles: AudioFiles;
 	/**
 	 * What this device remembers that is neither a file nor a secret: the
 	 * microphone chosen. It is never written to Whispering's files.
@@ -80,9 +82,7 @@ export type WhisperingCapabilities = {
 };
 
 export function createWhispering(capabilities: WhisperingCapabilities) {
-	const { query, capture, preferences } = capabilities;
-	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
-	let sidebarOpen = $state(false);
+	const { query, recorder, audioFiles, preferences } = capabilities;
 
 	/** Cleanup also fences new work and late replies. */
 	let disposed = false;
@@ -151,8 +151,13 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	const transcribe = (target: Target, audio: Audio) =>
 		transcribeAt(() => ai, target, audio);
 
-	/** A capture under way, writing recording `id`'s audio. */
-	type Take = { id: string; capture: Capture };
+	/** A take under way, writing recording `id`'s audio. */
+	type Take = {
+		id: string;
+		recording: Recording;
+		/** `performance.now()` when it began, for the elapsed-time display. */
+		startedAt: number;
+	};
 	type CaptureState =
 		| { phase: 'idle' }
 		| { phase: 'starting'; attempt: AbortController }
@@ -170,7 +175,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	let recorderError = $state<string | undefined>();
 
 	const input = createMicrophoneInput({
-		capture,
+		inputs: recorder,
 		preferences,
 		recording: () => captureState.phase !== 'idle',
 	});
@@ -202,7 +207,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		at,
 		take,
 	}: Extract<CaptureState, { phase: 'recording' }>) {
-		const { data: stopped, error } = await take.capture
+		const { data: stopped, error } = await take.recording
 			.stop()
 			.catch((cause) => ({
 				data: null,
@@ -252,13 +257,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	}
 
 	return {
-		/** Whether the sidebar is open on a wide window. */
-		get sidebarOpen() {
-			return sidebarOpen;
-		},
-		set sidebarOpen(open: boolean) {
-			sidebarOpen = open;
-		},
 		/** Every model this page can reach now, with the person's connections, for the picker; tracks in Svelte. */
 		ai,
 		/** The transcription model chosen, or null when none is. */
@@ -321,7 +319,7 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 		get recorder(): RecorderState {
 			return captureState.phase === 'recording'
-				? { phase: 'recording', startedAt: captureState.take.capture.startedAt }
+				? { phase: 'recording', startedAt: captureState.take.startedAt }
 				: { phase: captureState.phase };
 		},
 		get recorderError() {
@@ -346,7 +344,8 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			captureState = { phase: 'starting', attempt };
 			takeInProgress = id;
 			input.release();
-			const { data: started, error } = await capture.start({
+			const { data: recording, error } = await recorder.start({
+				files: audioFiles,
 				id,
 				input: input.choice,
 				signal: attempt.signal,
@@ -364,9 +363,9 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 				input.noteRecordingError(error);
 				return;
 			}
-			const take = { id, capture: started };
+			const take = { id, recording, startedAt: performance.now() };
 			captureState = { phase: 'recording', at, take };
-			take.capture.onEnded((reason) => {
+			take.recording.onEnded((reason) => {
 				if (captureState.phase !== 'recording' || captureState.take !== take)
 					return;
 				recorderError = {

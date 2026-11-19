@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { Separator } from '@epicenter/ui/separator';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { query, shortcut, speech } from '$lib/app.js';
-	import FolderSettings from './settings/FolderSettings.svelte';
-	import ShortcutSettings from './settings/ShortcutSettings.svelte';
-	import SpeechSettings from './settings/SpeechSettings.svelte';
-	import { connectionsNote } from '$lib/connections-note.js';
+	import { keysKept, query, shortcut, speech } from '$lib/app.js';
+	import FolderSettings from './FolderSettings.svelte';
+	import ShortcutSettings from './ShortcutSettings.svelte';
+	import SpeechSettings from './SpeechSettings.svelte';
 	import ModelSetting from './ModelSetting.svelte';
 
 	/**
@@ -21,6 +20,12 @@
 	/** `settings.md` as its query last read it. */
 	const settings = createQuery(() => query.settingsQueries.get());
 	const problem = $derived(settings.data?.problem);
+
+	/** Where a connection's key is kept and where its requests leave from, in the person's words. */
+	const connectionsNote =
+		keysKept === 'keychain'
+			? "A connection's key is kept in this computer's Keychain, never in your folder. Whispering reads it when a request needs it and sends the request itself, so any endpoint works, including one on this computer or your network."
+			: `A connection's key is kept in this browser's storage for this site, where code running on the site can read it, and never in your folder. Its requests leave this browser tab, so its endpoint must allow requests from ${location.origin} (CORS).`;
 </script>
 
 <div class="flex flex-col gap-4 text-sm">
@@ -35,5 +40,5 @@
 		</p>
 	{/if}
 	<ModelSetting />
-	<p class="text-xs text-muted-foreground" data-testid="connections-note">{connectionsNote()}</p>
+	<p class="text-xs text-muted-foreground" data-testid="connections-note">{connectionsNote}</p>
 </div>
