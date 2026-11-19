@@ -69,9 +69,12 @@ Wellcrafted Result:
 - `edit` computes a change from the record and writes it with nothing else
   in this process changing the file between the read and the write.
 - A write replaces the whole file at once, changes only the lines it names,
-  keeps every other line byte for byte, and lands only under `data/`.
-- `field.ref('watches')` names any key of the same `defineData`; a write
-  refuses an id with no record there.
+  keeps every other line byte for byte, and lands only in a real folder
+  under `data/`: a key folder that is a link is neither read nor written.
+- `field.ref('watches')` is text that holds the id of a record in another
+  key of the same `defineData`, which refuses a key it does not define. A
+  write does not check that the record is there: deleting one can leave a
+  ref to nothing, so an app that needs the record checks for it.
 
 `defineData` touches no file. A handle generates no actions.
 
@@ -90,8 +93,8 @@ async run({ recheck = false }, update: Update<{ checked: number }>) {
 
 An app is a function of `Data` returning `{ description, actions }`. Its
 name is its key in `defineEpicenter({ apps })`, which refuses a name that
-is not lowercase letters, digits and dashes, starting with a letter, and
-refuses `serve`.
+is not lowercase letters, digits and dashes, starting with a letter. Its
+type refuses `serve`, the command's own word.
 
 ## The command and serve
 
@@ -119,7 +122,8 @@ throws on import leaves serve answering that one problem with no apps.
 
 An answer's error names whether the action ran: `NotStarted` (it never
 began), `Threw` (it began and threw), `Unreachable` (the outcome is
-unknown), or the action's own error. The command exits 0 for success, 2
+unknown), or the action's own error. A request serve refuses, and a
+serve that is not running, is `NotStarted`. The command exits 0 for success, 2
 for `NotStarted` and 1 otherwise.
 
 ## A page's client

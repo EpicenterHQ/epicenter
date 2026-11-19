@@ -1,6 +1,7 @@
 /**
- * A data file as fields and body (ADR-0796). The grammar
- * is copied from the waiting product's front matter without its merge.
+ * A Markdown file as front matter fields and a body, read and changed line
+ * by line. The data handles use it, and Whispering imports it as
+ * `@epicenter/app/markdown`.
  *
  * A file has front matter when its first line is `---` and a later line is
  * `---`. Each line between them is `key: <text>`, each key once: a key is a
@@ -19,14 +20,9 @@
  * closing fence, and removes a deleted key's line. Every other line stays
  * byte for byte, a line whose text is not JSON included.
  */
-/** A JSON value. */
-export type JsonValue =
-	| string
-	| number
-	| boolean
-	| null
-	| JsonValue[]
-	| { [key: string]: JsonValue };
+import { type JsonValue, parseJson } from './json.ts';
+
+export type { JsonValue };
 
 export type FieldValues = Record<string, JsonValue>;
 
@@ -56,15 +52,6 @@ type Parts = { open: string; fields: Field[]; close: string; body: string };
 
 /** The line ending `line` ends with. */
 const endingOf = (line: string) => (line.endsWith('\r\n') ? '\r\n' : '\n');
-
-/** `text` as JSON, or undefined when it is not JSON. */
-function parseJson(text: string): JsonValue | undefined {
-	try {
-		return JSON.parse(text) as JsonValue;
-	} catch {
-		return undefined;
-	}
-}
 
 /** The file's pieces, or `'unreadable'` when its front matter cannot be read. */
 function split(text: string): Parts | 'unreadable' {
@@ -142,7 +129,7 @@ export function readMarkdown(text: string): MarkdownFile {
 }
 
 /** What a write changes: the fields it sets, the keys it removes, and the body that replaces the file's. */
-export type MarkdownChange = {
+type MarkdownChange = {
 	set: FieldValues;
 	removed?: readonly string[];
 	body?: string;
@@ -165,14 +152,13 @@ export function changeMarkdown(
 		throw new TypeError('Front matter that cannot be read is not rewritten');
 	const lineOf = (key: string, ending: string) =>
 		`${key}: ${stringifyValue(set[key] as JsonValue)}${ending}`;
-	const present = new Set(parts.fields.map((field) => field.key));
 	const lines = [
 		...parts.fields.flatMap(({ key, line }) => {
 			if (Object.hasOwn(set, key)) return [lineOf(key, endingOf(line))];
 			return removed.includes(key) ? [] : [line];
 		}),
 		...Object.keys(set)
-			.filter((key) => !present.has(key))
+			.filter((key) => !parts.fields.some((field) => field.key === key))
 			.map((key) => lineOf(key, endingOf(parts.open))),
 	];
 	return parts.open + lines.join('') + parts.close + (body ?? parts.body);

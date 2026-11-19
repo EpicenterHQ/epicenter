@@ -51,10 +51,7 @@ const home = defineEpicenter({ apps: { flights: flights(data) } });
 const server = Bun.serve({
 	hostname: '127.0.0.1',
 	port: 0,
-	fetch: createHandler(
-		{ folder, port: 0 },
-		{ epicenter: home, instructions: undefined },
-	),
+	fetch: createHandler({ folder, port: 0 }, { apps: home.apps }),
 });
 afterAll(async () => {
 	await server.stop(true);
@@ -93,10 +90,10 @@ test('the client and its apps are never thenable, so awaiting them is safe', asy
 	expect(await epicenter.flights).toBe(epicenter.flights);
 });
 
-test('no serve to reach is Unreachable', async () => {
+test('nothing listening is NotStarted', async () => {
 	const nowhere = connect<typeof home>({ url: 'http://127.0.0.1:9/' });
 	expect((await nowhere.flights.idea({ id: 'x' })).error?.name).toBe(
-		'Unreachable',
+		'NotStarted',
 	);
 });
 

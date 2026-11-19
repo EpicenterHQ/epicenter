@@ -15,12 +15,11 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./client": "./src/client.ts",
-		"./markdown": "./src/front-matter.ts"
+		"./markdown": "./src/markdown.ts"
 	},
 	"files": [
 		"src",
-		"!src/**/*.test.ts",
-		"!src/**/*.test-support.ts"
+		"!src/**/*.test.ts"
 	],
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json",

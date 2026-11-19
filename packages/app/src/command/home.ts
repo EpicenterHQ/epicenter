@@ -15,7 +15,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Ok, type Result } from 'wellcrafted/result';
 import { ActionError, type NotStarted } from '../errors.ts';
-import { isPlainObject } from '../result.ts';
+import { isPlainObject } from '../json.ts';
 
 /** A home, found once and passed to everything that reads it. */
 export type Home = {
@@ -27,14 +27,8 @@ export type Home = {
 
 /** The parsed `package.json` in `folder`, or undefined when there is none or it is not JSON. */
 function packageIn(folder: string): unknown {
-	let text: string;
 	try {
-		text = readFileSync(join(folder, 'package.json'), 'utf8');
-	} catch {
-		return undefined;
-	}
-	try {
-		return JSON.parse(text);
+		return JSON.parse(readFileSync(join(folder, 'package.json'), 'utf8'));
 	} catch {
 		return undefined;
 	}

@@ -11,19 +11,19 @@ import {
 	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
-import type { JsonValue } from './front-matter.ts';
+import type { JsonValue } from './json.ts';
 
 /** What every action error is: a name and a message, plus fields of its own. */
 export type PublicError = { name: string; message: string };
+
+/** A tagged error an action threw: a name and a message, plus anything else. */
+export type Thrown = PublicError & Record<string, unknown>;
 
 /**
  * One reason a file or a change does not fit its fields. `line` names the
  * value; `kind` leaves it out, so many files can share one.
  */
 export type Problem = { line: string; kind: string };
-
-/** The names only Epicenter answers. An action that returns one answers `Threw` instead. */
-export const RESERVED_NAMES: readonly string[] = ['NotStarted', 'Unreachable'];
 
 export const ActionError = defineErrors({
 	/**
@@ -64,10 +64,7 @@ export const ActionError = defineErrors({
 	/** The action said no. Epicenter never answers it. */
 	Refused: (body: { message: string }) => body,
 	/** The action began and threw, with what it threw when that survives JSON. */
-	Threw: (body: {
-		message: string;
-		thrown?: { name: string; message: string } & Record<string, unknown>;
-	}) => body,
+	Threw: (body: { message: string; thrown?: Thrown }) => body,
 	/**
 	 * The outcome is unknown: the connection dropped after the call was sent,
 	 * or the answer never came. Only a caller answers it.
@@ -79,6 +76,13 @@ export const ActionError = defineErrors({
 	 */
 	NotStarted: (body: { message: string; next?: string }) => body,
 });
+/** The names only Epicenter answers: they say whether an action ran. */
+export const PLATFORM_NAMES: readonly string[] = [
+	'NotStarted',
+	'Threw',
+	'Unreachable',
+] satisfies (keyof typeof ActionError)[];
+
 export type ActionError = InferErrors<typeof ActionError>;
 export type Misfit = InferError<typeof ActionError.Misfit>;
 export type Exists = InferError<typeof ActionError.Exists>;
