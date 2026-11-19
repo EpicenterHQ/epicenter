@@ -37,10 +37,8 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 			tailwindcss(),
 			reloadWhenAppChanges(),
 		] as UserConfig['plugins'],
-		// No `resolve.dedupe` here. It named `yjs` for a long time, which no
-		// workspace member depends on since the store moved to `@y/y`, so it was
-		// inert. One install is what keeps a package's identity, and the lockfile
-		// is where that is enforced.
+		// No `resolve.dedupe`: one install is what keeps a package's identity,
+		// and the lockfile is where that is enforced.
 		server: {
 			port: app.port,
 			strictPort: true,
