@@ -120,7 +120,6 @@ return {
 };
 ```
 
-A later key replaces an earlier one, as in any object:
 `{ ...data.words.actions('list', 'get', 'create'), create: learn }` gives
 `create` from `learn`. An action is a function, so `{ ...learn, description: 'x' }`
 drops its call; `defineApp` refuses it and says to use `defineAction`.
@@ -542,8 +541,8 @@ and whether the front matter could be read. `changeMarkdown(text, change)`
 writes the lines of the keys in `set`, removes those in `removed`, replaces
 the body when `body` is given, keeps every other line byte for byte, and
 throws on front matter that cannot be read. An app relies on these two and
-their types, `MarkdownFile`, `MarkdownChange` and `JsonValue`. The module's
-other exports are what the library uses itself and may change.
+their types, `MarkdownFile`, `MarkdownChange`, `NotJson`, `FieldValues` and
+`JsonValue`. `isFieldKey` is the library's own and may change.
 
 An action changes files and makes no Git commit. Its writes remain pending,
 including when it returns an Err, throws, or stops. Git stores the Epicenter, and its
@@ -668,7 +667,7 @@ exhaustive, and comparing a name the action cannot return is a compile error.
 Producers import the shared `ActionError` factories from `@epicenter/app`:
 
 - `Changed` (`{ path, cause }`): a quoted passage changed or is there twice, or a new record's file is already there.
-- `Misfit` (`{ path, id?, problems, record? }`): a file, or a change to one, does not fit the declared fields. Each problem has its `line` and its `kind`; a read carries the partial `record`. The library answers it for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments.
+- `Misfit` (`{ path, id, problems, record? }`): a file, or a change to one, does not fit the declared fields. Each problem has its `line` and its `kind`; a read carries the partial `record`. The library answers it for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments.
 - `Missing` (`{ path }`): the file is not there.
 - `Refused` (`{ message, next? }`): the app said no. The library never answers it; it is a ready-made name for an app's own refusal.
 
@@ -851,9 +850,8 @@ and pages and calls move to new addresses
 
 The sections below follow the order you meet the changes: install, the app
 function, data and files, actions, the page, serve and the command, and
-tests. In each table, TypeScript flags a row unless it says otherwise, so
-run the type-check in each app and fix what it names; the bullets under a
-table are what it cannot see. [Upgrade steps](#upgrade-steps) lists the
+tests. Run the type-check in each app and fix what it names: it flags most
+table rows, and each row or bullet it misses says so. [Upgrade steps](#upgrade-steps) lists the
 steps in order.
 
 ### Install
@@ -861,7 +859,7 @@ steps in order.
 | 0.7.0 | 0.8.0 |
 | --- | --- |
 | `@epicenter/app` and `@epicenter/cli` in the root `package.json` | `@epicenter/app` alone, which carries the `epicenter` command |
-| `expectOk`, `expectErr` from `@epicenter/app/testing` | the same functions from `wellcrafted/testing` |
+| `expectOk`, `expectErr` from `@epicenter/app/testing` | the same functions from `wellcrafted/testing`; if the app's `package.json` does not list `wellcrafted`, add it with `bun add -d wellcrafted` in `code/` |
 
 ### The app function
 
@@ -909,13 +907,8 @@ export default defineApp(({ folder }) => {
 - The function must return a plain object, written `{ ... }`. A class
   instance, or an object made with `Object.create(base)`, is refused with
   "An app returns an object".
-- Serve calls the function once, when it starts. A cache or counter kept in
-  the function body lasts until serve restarts. Keep what must last in a
-  file, and read and write inside actions, not in the function body.
-- An app's folder is the one serve gives it. Data handles and `folder`
-  write there, and an environment variable the app read to find its root
-  no longer moves them; read through `folder.path` too, so reads and writes
-  agree.
+- An app that read `EPICENTER_ROOT`, or another variable, to find its own
+  folder reads `folder.path`.
 
 ### Data and files
 
@@ -934,7 +927,6 @@ value. A `Folder` is `path`, `write`, `edit` and `delete` (see
 | `edit(id, (record) => Ok({ ...record, done: true }))` | `edit(id, () => Ok({ done: true }))`. Not flagged: a patch naming `path` or `id` is refused with `Misfit` |
 | `data.notes.edit(id, { old, new })` | `data.notes.edit(id, (note) => ...)` with the replacement written in the function, or the generated `edit` action, which still takes `{ id, old, new }` |
 | `DataRecord<'words', typeof data.words>` | `DataRecord<typeof data.words>` |
-| `Misfit<typeof data.notes>` | `Misfit`, which takes no type argument. A `list` row's `Misfit` always has `id`; from another method, `id` is absent for an id that names no file, so check it before passing it on |
 | `error.record.title` typed as the field's type on a `Misfit` | typed as a JSON value, as on a page; check it before use, as `String(error.record.title ?? '')`. Not flagged where the code only compares or joins the value |
 | `field.ref('missing')` a type error | not flagged; `defineData` throws when it runs |
 | `field.integer({ default: 50 })` a type error | not flagged; the helper throws when the field is made |
@@ -942,8 +934,13 @@ value. A `Folder` is `path`, `write`, `edit` and `delete` (see
 | `folder.readBytes(path)` | the same with `await file.bytes()` |
 | `folder.list(dir)`: every file under `dir`, at any depth, as paths from the app's folder, sorted, `[]` when `dir` is missing | the scan below. `readdir` lists one level, names only, and throws `ENOENT` for a missing folder |
 | `folder.writeBytes(path, bytes)` | `folder.write(path, bytes)`, which takes text or bytes |
+| `folder.edit(path, decide)` whose `decide` returned `Ok({ value, text? })` and which answered `Result<T, E>` | `value` is optional, and the answer is `Result<T \| undefined, E>` |
 | `folder.update(path, (before) => text)`, or `textUpdate(edit)` | `folder.edit(path, (before) => Ok({ text }))` |
-| `readMarkdown` from `@epicenter/app` | the same from `@epicenter/app/markdown`; see [Markdown files outside data keys](#markdown-files-outside-data-keys) |
+| `readMarkdown` from `@epicenter/app` | `readMarkdown` from `@epicenter/app/markdown`, where each `notJson` entry's `line` is now `lineNumber`; see [Markdown files outside data keys](#markdown-files-outside-data-keys) |
+
+The scan differs in what it skips: 0.7.0 skipped `.git` and `node_modules`
+and listed a linked file, and the scan lists files in both folders and skips
+a link. An app that lists its own `data/` or `local/` folders meets neither.
 
 ```ts
 // folder.list(dir) in 0.7.0
@@ -1001,8 +998,8 @@ const files = (
 | --- | --- |
 | actions nested in groups, `actions: { words: { create } }` | one flat name each, `actions: { 'create-word': create }`. Change the scripts, routines and playbooks that name it |
 | `create({ title })` through the generated action, named by the moment | the generated `create` takes the caller's `id`, so an agent can no longer make a record named by the moment; an app that wants one writes its own action that calls `data.<key>.create(timeId(), ...)`. See [Data](#data) |
-| `encodeActionResult(result)` | `JSON.stringify(result)` for a plain result |
-| `isUnderLocal`, `normalizePath`, `isAction`, `isActionResult`, `whatFits`, `whatTakes`, `RESERVED_NAMES` | nothing; they were the library's own helpers |
+| `encodeActionResult(result)`, which copied a result to JSON values and threw `TypeError` on a value JSON cannot hold, such as a `Date`, `NaN` or a cycle | gone, and nothing checks a result's values any more; `JSON.parse(JSON.stringify(result))` copies a plain result to JSON values |
+| `isUnderLocal`, `normalizePath`, `isAction`, `isActionResult`, `whatFits`, `whatTakes`, `RESERVED_NAMES`, `NotStartedCause` | nothing; they were the library's own helpers |
 
 - The generated `create` declares `idempotentHint: true`, where 0.7.0
   declared `false`: it takes an id, so a repeat answers `Changed` (`there`)
@@ -1024,7 +1021,7 @@ which now answers 404.
 | a page calls `app.list(input)`, `app.words.create(input)` | `app.call('list', input)`, or `app.action('list')` held as a function |
 | `(typeof app)['actions']` in a page | `ReturnType<typeof app>['actions']` |
 | a refused call: a 400 whose body is `{ data: null, error }` | a 200 whose one line is `{"answer": { data: null, error }}`. Not flagged |
-| `NotStarted` with `cause`, and `app` and `problems` for an app that does not load | `{ message, next? }`; an app's problems are the message's lines after the first. Whether a call began is still `error.name === 'NotStarted'` |
+| `NotStarted` with `cause`, and `app` and `problems` for an app that does not load | `{ message, next? }`. For an app that does not load, the first line is the app's name, each problem is on its own line indented two spaces, and the last line is `Fix its code, then restart serve.` Whether a call began is still `error.name === 'NotStarted'` |
 
 - A redirect address registered with someone else, such as an OAuth
   callback, moves with the page: `https://<host>/mail/oauth/callback`
@@ -1036,9 +1033,7 @@ which now answers 404.
   Run `epicenter` for the list, or read `GET /actions/`.
 - A page that calls `connect()` with no `app` reads its app from
   `/apps/<app>/` with no change. A page served elsewhere passes `{ app }`.
-- A script or test that posts to serve directly, or fakes its URLs, uses
-  `/actions/<app>/<action>`, and reads a refusal from the `answer` line of a
-  200. Any status other than 200 means serve did not take the call.
+- Any status other than 200 means serve did not take the call.
 - Serve refuses a request from another origin that does not open a page.
   Another site, or a page on another port of this computer, that loaded an
   app's icon or framed its page gets 403.
@@ -1055,13 +1050,17 @@ The compiler sees none of these.
 | an app that failed to load stayed failed until serve restarted, even once fixed | the same, and so does every app: serve loads once |
 | `AGENTS.md` read on each MCP initialize | read once, when serve starts |
 | `routines/` read once a minute | read once, when serve starts; restart after adding or changing one |
-| a routine with `run: ["epicenter", "flights", "daily", "run", {"recheck": false}]` | `action: "flights daily"` and `input: {"recheck": false}`; a file with `run` is refused |
+| a routine with `run: ["epicenter", "flights", "daily", "run", {"recheck": false}]`, which ran the action `run` in the group `daily` | `action: "flights run-daily"`, naming the action by its new flat name, and `input: {"recheck": false}`; a file with `run` is refused |
 | a routine running a shell command or Git | not possible; write an action that does it, or use the computer's own scheduler |
 | a routine naming a missing action failed when it ran | refused when serve starts, printed beside the address, and listed by bare `epicenter` |
 | `EPICENTER.md` with no `port` used 4747 | `port` is required; a marker without one is refused |
 | a link in `apps/`, or at an app's `code/`, `data/` or `local/`, was followed | refused: `apps/<name>/data is a link; apps/, an app's folder, and its code/, data/ and local/ must be real folders`, and that app does not load; a linked `apps/` stops serve |
 | a `.env` at the root of the Epicenter | serve will not start while Git tracks it or does not ignore it ([ADR-0963](../../docs/adr/0963-local-ignores-itself-and-serve-refuses-a-dotenv-that-git-would-commit.md)); it says which, and the fix: `git rm --cached .env`, or add `.env*` to `.gitignore` |
 | a `local/` without `local/.gitignore` | the folder writes that file when it makes `local/`; a `local/` made another way runs, and is listed as a problem with the one-line fix |
+| `epicenter init` | gone; make the folder by hand, as [Make an Epicenter](src/command/README.md#make-an-epicenter) lists |
+| `epicenter new <name>` | gone; make `apps/<name>/` by hand, as [What an app holds](src/command/README.md#what-an-app-holds) lists, or copy another app's `code/` |
+| `epicenter export <app> <directory>` | gone; copy an app's committed `code/` with Git, such as `git archive HEAD apps/<app>/code` |
+| bare `epicenter` reported the repository, and `--json` carried `repository` | it reports no repository and `--json` has no `repository`; run `git status -sb` at the top of the Epicenter |
 | `epicenter check [<app>]` and `checkData` | deleted; call a key's `list` action, which answers one Result per file, refusals included. `epicenter check` is refused like any unknown app, and an app may be named `check` |
 | `ActionError.Problems` | deleted |
 | serve rewrote every error it sent, showing the Epicenter's folder as `.` and your home folder as `~` | a problem serve makes names a path from the Epicenter's folder, such as `apps/<app>/code/epicenter.ts`; an action's own error is sent as written, full paths included |
@@ -1113,8 +1112,9 @@ Two results look like bugs and are not:
 
 - An id of `.git` is a file name like any other, so `create('.git', ...)`
   writes `data/<key>/.git.md`.
-- A Mac writes `._name.md` beside each file on a USB or network drive, and
-  `list` shows each as a `Misfit`.
+- A Mac writes `._name.md` beside each file on a USB or network drive.
+  `list` shows each as a `Misfit` when the key has a required field, and as
+  a record with the id `._name` when every field is optional.
 
 ### Upgrade steps
 
@@ -1122,10 +1122,13 @@ Two results look like bugs and are not:
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass, and rename its grouped actions.
 4. Run `bun run build` in each app that has a UI.
-5. Name `port` in `EPICENTER.md`, rewrite each routine to `action`, move a linked app into `apps/`, and add your restart command to `AGENTS.md`.
-6. Change each redirect address registered with a provider to `/apps/<app>/`.
-7. Restart `epicenter serve`. Until you do, the old serve does not answer the command's addresses, and the command runs nothing.
-8. Commit the result as one commit, so reverting it returns everything to 0.7.0.
+5. Move each one-file record, such as `data/settings.md` to `data/settings/settings.md`. Tests on temporary folders pass without this, and the app reads nothing.
+6. Name `port` in `EPICENTER.md`, rewrite each routine to `action`, move a linked app into `apps/`, and add your restart command to `AGENTS.md`.
+7. Change each redirect address registered with a provider to `/apps/<app>/`.
+8. Set the working directory of the job that keeps serve running to your Epicenter (see [Serve and the command](#serve-and-the-command)): one that relied on `EPICENTER_ROOT` or `~/Epicenter` now exits and restarts in a loop.
+9. Restart `epicenter serve`. Until you do, the old serve does not answer the command's addresses, and the command runs nothing.
+10. Call each data key's `list` action and fix every `Misfit`: a file without a line for a required boolean or list no longer fits.
+11. Commit the result as one commit, so reverting it returns everything to 0.7.0.
 
 ## Upgrading from 0.6
 
