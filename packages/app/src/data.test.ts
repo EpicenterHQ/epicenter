@@ -109,6 +109,17 @@ test('a read reports each line that does not fit, and the record for repair', as
 	expect((await watches.list()).map((each) => each.error)).toEqual([
 		read.error,
 	]);
+	// A patch that fixes one problem but leaves another writes nothing, and
+	// names what is still wrong.
+	const partial = await watches.patch('bad', { nights: 2 });
+	expect(partial.error).toMatchObject({
+		name: 'Misfit',
+		problems: ['to is missing'],
+	});
+	expect(partial.error && 'record' in partial.error).toBe(false);
+	expect(await readFile(join(home, 'data/watches/bad.md'), 'utf8')).toBe(
+		'---\nnights: 0\n---\n',
+	);
 });
 
 test('a write it refuses writes nothing: a value that does not fit, a record already there, or one missing', async () => {
@@ -184,8 +195,8 @@ test('a key folder that is a link is never read or written through', async () =>
 		'data/watches is a link',
 	);
 	await writeFile(join(away, 'osaka.md'), '---\nto: "Osaka"\n---\n');
-	expect(await watches.get('osaka')).toEqual(Ok(undefined));
-	expect(await watches.list()).toEqual([]);
+	await expect(watches.get('osaka')).rejects.toThrow('data/watches is a link');
+	await expect(watches.list()).rejects.toThrow('data/watches is a link');
 	expect(await readdir(away)).toEqual(['osaka.md']);
 });
 

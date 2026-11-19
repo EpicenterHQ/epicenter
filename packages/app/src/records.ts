@@ -117,14 +117,15 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	const folder = `data/${key}`;
 	/** The file for `id`, from the home. */
 	const pathOf = (id: string) => `${folder}/${id}.md`;
-	/** The folder or link on the way to this key's records that is not a real folder. */
-	const nonFolder = () => firstNonFolder(home, folder);
-	/** Throw unless the key's folder is real, before a write or a delete. */
+	/**
+	 * Throw unless the key's folder is real, before any file call: a read
+	 * through a link would show records a write cannot reach.
+	 */
 	function refuseLinked() {
-		const refused = nonFolder();
+		const refused = firstNonFolder(home, folder);
 		if (refused !== undefined)
 			throw new Error(
-				`${refused} is a link or a file, not a folder; records are written and deleted only in real folders under data/`,
+				`${refused} is a link or a file, not a folder; records are read and written only in real folders under data/`,
 			);
 	}
 
@@ -265,8 +266,10 @@ export function createHandle(home: string, key: string, def: DataDef) {
 				? current.result
 				: Ok({ value: current.record });
 		const next = recordFrom(id, readMarkdown(after)).result;
+		// Nothing is written: say what the change would still leave wrong, and
+		// carry no record, since none was written.
 		if (next.error !== null)
-			return current?.result.error ? current.result : next;
+			return ActionError.Misfit({ path, id, problems: next.error.problems });
 		return Ok({ value: next.data, text: after });
 	}
 
@@ -307,10 +310,13 @@ export function createHandle(home: string, key: string, def: DataDef) {
 
 	const handle = {
 		get: (id: string) =>
-			withValidId(id, () => (nonFolder() ? Ok(undefined) : read(id))),
+			withValidId(id, () => {
+				refuseLinked();
+				return read(id);
+			}),
 		async list() {
-			const names = nonFolder() ? [] : filesIn(join(home, folder));
-			return names
+			refuseLinked();
+			return filesIn(join(home, folder))
 				.flatMap((name) => idOf(name) ?? [])
 				.map(read)
 				.filter((each) => each.error || each.data);
