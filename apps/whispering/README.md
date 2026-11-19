@@ -18,7 +18,9 @@ Run both from the repository root.
 
 The desktop app keeps its files in the app's local data directory. A browser
 keeps the same files in its Origin Private File System, which belongs to the
-page's origin and is not visible in Finder.
+page's origin and is not visible in Finder. Whispering asks the browser to
+keep them when space runs low (`navigator.storage.persist()`); a browser
+that says no may clear them.
 
 ```txt
 settings.json           the transcription server and the chosen microphone

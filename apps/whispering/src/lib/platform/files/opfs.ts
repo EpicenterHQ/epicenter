@@ -86,6 +86,9 @@ async function io<T>(
 
 export function opfsFiles(): Files {
 	const urls = new Map<string, string>();
+	// Without this, a browser low on space may clear these files to make
+	// room. It may still say no; the files then stay as they would without it.
+	void navigator.storage.persist();
 
 	return {
 		list: (dir) =>
