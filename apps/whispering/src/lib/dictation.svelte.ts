@@ -14,7 +14,7 @@ import { runMutation } from 'wellcrafted/query';
 import { tryAsync } from 'wellcrafted/result';
 import { goto } from '$app/navigation';
 import { queryClient, recordingsMutations } from './queries';
-import { type EndedReason, recorder } from './recorder';
+import { type EndedReason, HEARD, recorder } from './recorder';
 import { settings } from './settings.svelte';
 import { transcription } from './transcription';
 
@@ -30,12 +30,6 @@ const ENDED: Record<EndedReason, string> = {
 	streamFailed: 'The microphone stopped working.',
 	storageFailed: 'The disk could not take any more audio.',
 };
-
-/**
- * A level above this is sound. A microphone that sends nothing louder (a
- * muted one, or one that sends digital silence) is worth pointing out.
- */
-const HEARD = 0.0005;
 
 const DictationError = defineErrors({
 	CopyFailed: ({ cause }: { cause: unknown }) => ({
@@ -74,6 +68,7 @@ function createDictation() {
 		level = 0;
 		heardAt = undefined;
 		const { error } = await recorder.start(timeId(), {
+			device: settings.microphone ?? null,
 			onEnded: (reason) => {
 				toast.warning('Recording stopped', {
 					description: `${ENDED[reason]} What was recorded is kept.`,
@@ -87,6 +82,13 @@ function createDictation() {
 		});
 		if (error) {
 			status = { kind: 'idle' };
+			// A chosen microphone that is unplugged is refused, never swapped
+			// for another, so point to where another can be chosen.
+			if (error.name === 'NoInputDevice' || error.name === 'InputUnavailable')
+				return toast.error('Could not start recording', {
+					description: error.message,
+					action: openSettings,
+				});
 			return toastOnError(error, 'Could not start recording');
 		}
 		status = { kind: 'recording', startedAt: Date.now() };

@@ -16,6 +16,9 @@
 	import { originOf, PRESETS } from '#lib/transcription-server.ts';
 	import { settings } from '#lib/settings.svelte.ts';
 	import { transcription } from '#lib/transcription.ts';
+	import { dictation } from '#lib/dictation.svelte.ts';
+	import RecordingBar from '../RecordingBar.svelte';
+	import MicrophoneSettings from './MicrophoneSettings.svelte';
 
 	let baseUrl = $state(settings.server?.baseUrl ?? '');
 	let model = $state(settings.server?.model ?? '');
@@ -60,7 +63,7 @@
 				return toastOnError(kept, 'Could not save the API key');
 			}
 		}
-		const saved = await settings.save(server);
+		const saved = await settings.saveServer(server);
 		saving = false;
 		if (saved.error) return toastOnError(saved, 'Could not save the settings');
 		toast.success('Saved');
@@ -83,8 +86,13 @@
 		</Button>
 		<h1 class="text-base font-semibold">Settings</h1>
 	</header>
+	<!-- The shortcut works from here too, so a recording shows here as it does on the feed. -->
+	{#if dictation.status.kind !== 'idle'}
+		<RecordingBar />
+	{/if}
 
-	<main class="mx-auto flex w-full max-w-xl min-h-0 flex-1 flex-col overflow-y-auto p-4">
+	<main class="mx-auto flex w-full max-w-xl min-h-0 flex-1 flex-col gap-10 overflow-y-auto p-4">
+		<MicrophoneSettings />
 		<form class="flex flex-col gap-6" onsubmit={save} novalidate>
 			<Field.Set>
 				<Field.Legend>Transcription server</Field.Legend>
