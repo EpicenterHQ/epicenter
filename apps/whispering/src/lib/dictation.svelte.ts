@@ -31,6 +31,12 @@ const ENDED: Record<EndedReason, string> = {
 	storageFailed: 'The disk could not take any more audio.',
 };
 
+/**
+ * A level above this is sound. A microphone that sends nothing louder (a
+ * muted one, or one that sends digital silence) is worth pointing out.
+ */
+const HEARD = 0.0005;
+
 const DictationError = defineErrors({
 	CopyFailed: ({ cause }: { cause: unknown }) => ({
 		message: `The transcript is saved, but it could not be copied: ${extractErrorMessage(cause)}`,
@@ -58,14 +64,26 @@ function createDictation() {
 	 * an id no longer here is dropped.
 	 */
 	const transcribing = new SvelteSet<string>();
+	/** The microphone's latest level while recording, from 0 to 1. */
+	let level = $state(0);
+	/** When the microphone last sent anything above silence during this recording. */
+	let heardAt = $state<number>();
 
 	async function start() {
 		status = { kind: 'starting' };
-		const { error } = await recorder.start(timeId(), (reason) => {
-			toast.warning('Recording stopped', {
-				description: `${ENDED[reason]} What was recorded is kept.`,
-			});
-			void stop();
+		level = 0;
+		heardAt = undefined;
+		const { error } = await recorder.start(timeId(), {
+			onEnded: (reason) => {
+				toast.warning('Recording stopped', {
+					description: `${ENDED[reason]} What was recorded is kept.`,
+				});
+				void stop();
+			},
+			onLevel: (next) => {
+				level = next;
+				if (next > HEARD) heardAt = Date.now();
+			},
 		});
 		if (error) {
 			status = { kind: 'idle' };
@@ -148,6 +166,14 @@ function createDictation() {
 		},
 		get openId() {
 			return openId;
+		},
+		/** The microphone's latest level while recording, from 0 to 1. */
+		get level() {
+			return level;
+		},
+		/** When the microphone last sent sound during this recording; undefined until it does. */
+		get heardAt() {
+			return heardAt;
 		},
 
 		/** Start recording, or stop the recording that is running. */

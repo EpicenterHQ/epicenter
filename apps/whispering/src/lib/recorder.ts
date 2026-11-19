@@ -15,14 +15,25 @@ export type { EndedReason } from '@epicenter/recorder/native';
 
 export const recorder = {
 	/**
-	 * Start recording `id` from the system's default microphone. `onEnded`
-	 * hears a capture that ends on its own (a microphone unplugged); what was
-	 * captured is still there for `stop` to finish.
+	 * Start recording `id` from the system's default microphone. `onLevel`
+	 * hears its level, from 0 to 1, about twenty times a second while it
+	 * captures. `onEnded` hears a capture that ends on its own (a microphone
+	 * unplugged); what was captured is still there for `stop` to finish.
 	 */
-	async start(id: string, onEnded: (reason: EndedReason) => void) {
+	async start(
+		id: string,
+		{
+			onEnded,
+			onLevel,
+		}: {
+			onEnded: (reason: EndedReason) => void;
+			onLevel: (level: number) => void;
+		},
+	) {
 		const signals = new Channel<RecordingSignal>();
 		signals.onmessage = (signal) => {
-			if (signal.kind === 'ended') onEnded(signal.reason);
+			if (signal.kind === 'level') onLevel(signal.level ?? 0);
+			else onEnded(signal.reason);
 		};
 		return commands.start(await appLocalDataDir(), id, null, signals);
 	},

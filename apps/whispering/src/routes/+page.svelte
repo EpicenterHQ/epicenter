@@ -1,18 +1,19 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import * as Empty from '@epicenter/ui/empty';
 	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Input } from '@epicenter/ui/input';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { createQuery } from '@tanstack/svelte-query';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import SquareIcon from '@lucide/svelte/icons/square';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { groupByDay, matches } from '#lib/feed.ts';
 	import { recordingsQueries } from '#lib/queries.ts';
 	import { settings } from '#lib/settings.svelte.ts';
 	import RecordButton from './RecordButton.svelte';
+	import RecordingBar from './RecordingBar.svelte';
 	import RecordingItem from './RecordingItem.svelte';
 
 	/** How many rows render at a time; a person can have 15,000 recordings. */
@@ -56,6 +57,9 @@
 		</IconButton>
 		<RecordButton />
 	</header>
+	{#if dictation.status.kind !== 'idle'}
+		<RecordingBar />
+	{/if}
 
 	<main class="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
 		{#if !settings.server}
@@ -71,13 +75,29 @@
 		{:else if list.isError}
 			<p class="text-sm text-destructive">{list.error.message}</p>
 		{:else if list.data.length === 0}
-			<Empty.Root>
-				<Empty.Header>
-					<Empty.Media variant="icon"><MicIcon /></Empty.Media>
-					<Empty.Title>No recordings yet</Empty.Title>
-					<Empty.Description>Press Record and start talking.</Empty.Description>
-				</Empty.Header>
-			</Empty.Root>
+			<!-- With nothing recorded yet, recording is the one thing to do here. -->
+			<div class="flex flex-1 flex-col items-center justify-center gap-4 pb-16 text-center">
+				<button
+					type="button"
+					class="flex size-28 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 motion-reduce:transition-none"
+					aria-label={dictation.status.kind === 'recording' ? 'Stop recording' : 'Start recording'}
+					disabled={dictation.status.kind === 'starting' || dictation.status.kind === 'stopping'}
+					onclick={() => dictation.toggle()}
+				>
+					{#if dictation.status.kind === 'recording'}
+						<SquareIcon class="size-10 fill-current" />
+					{:else}
+						<MicIcon class="size-12" />
+					{/if}
+				</button>
+				<p class="text-base font-medium">
+					{dictation.status.kind === 'recording' ? 'Press again to stop' : 'Press to start talking'}
+				</p>
+				<p class="text-sm text-muted-foreground">
+					Or press <kbd class="font-sans font-medium text-foreground">⌘⇧;</kbd> in any app.
+					{settings.server ? 'The text is copied when you stop.' : ''}
+				</p>
+			</div>
 		{:else}
 			<Input type="search" placeholder="Search transcripts" bind:value={search} />
 			<p class="-mt-2 px-1 text-xs text-muted-foreground tabular-nums">
