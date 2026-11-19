@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { realpathSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +10,7 @@ import { defineData } from '../data.ts';
 import { defineEpicenter } from '../epicenter.ts';
 import { field } from '../field.ts';
 import type { Program } from './program.ts';
-import { createHandler } from './serve.ts';
+import { createHandler, serveHome } from './serve.ts';
 
 const homes: string[] = [];
 afterEach(async () => {
@@ -340,4 +341,26 @@ test('a home whose program did not load answers that one problem', async () => {
 		})
 	).json()) as { error: { message: string } };
 	expect(listed.error.message).toContain('boom');
+});
+
+test('serve that cannot listen answers NotStarted, never a throw', async () => {
+	const folder = realpathSync(process.cwd());
+	// A port this test holds, so serve finds it taken.
+	const holder = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		fetch: () => new Response(),
+	});
+	const port = holder.port as number;
+	try {
+		const taken = await serveHome({ folder, port });
+		expect(taken.error?.name).toBe('NotStarted');
+		expect(taken.error?.message).toContain(`Port ${port} is in use`);
+	} finally {
+		await holder.stop(true);
+	}
+	// A port no socket can have fails another way, and is NotStarted too.
+	const refused = await serveHome({ folder, port: 70000 });
+	expect(refused.error?.name).toBe('NotStarted');
+	expect(refused.error?.message).toContain('serve could not listen');
 });
