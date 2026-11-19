@@ -13,9 +13,12 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import {
 	CallToolRequestSchema,
+	ErrorCode,
 	ListToolsRequestSchema,
+	McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { Answer, Listing } from '../call.ts';
+import type { Answer } from '../answer.ts';
+import type { Listing } from '../call.ts';
 import { errorText } from './output.ts';
 import type { Program } from './program.ts';
 import { answerCall } from './run.ts';
@@ -52,14 +55,17 @@ export function createMcp(program: Program, listing: Listing) {
 	return async (request: Request) => {
 		const server = new Server(
 			{ name: 'epicenter', version: listing.version },
-			{
-				capabilities: { tools: {} },
-				...(program.instructions === undefined
-					? {}
-					: { instructions: program.instructions }),
-			},
+			{ capabilities: { tools: {} } },
 		);
-		server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
+		// A program that did not load has no tools; say why rather than list none.
+		server.setRequestHandler(ListToolsRequestSchema, () => {
+			if (program.problem)
+				throw new McpError(
+					ErrorCode.InternalError,
+					`${program.problem}\nFix it, then restart serve.`,
+				);
+			return { tools };
+		});
 		server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
 			const [app = '', ...action] = params.name.split('_');
 			return toolResult(

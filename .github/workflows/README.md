@@ -16,8 +16,8 @@ The landing site is the one web app; it deploys as a Cloudflare Worker. Its buil
 ### Package releases
 
 No workflow builds or publishes `@epicenter/app`. It holds the library and
-the `epicenter` command, and is the one package a home depends on; it is not
-on npm yet.
+the `epicenter` command, and is the one package an Epicenter depends on; it is
+not on npm yet.
 
 ### Web Deployment (Cloudflare Workers)
 

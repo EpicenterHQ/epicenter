@@ -49,15 +49,15 @@ sentence carries:
   adjacent copy count)
 
 Whispering is an outside app: it works without an Epicenter. The proof line
-says the company ships, not that Whispering runs on a home.
+says the company ships, not that Whispering runs on a computer.
 
 Roadmap language stays out of heroes.
 
 ## What Epicenter is
 
-- A folder on the home, `~/Epicenter`, that is one program: its root
-  `epicenter.ts` declares the records and composes the apps. The home is a
-  computer its person controls, owned or rented.
+- A folder on your computer, `~/Epicenter`, that is one program: its root
+  `epicenter.ts` declares the records and composes the apps. That computer is one its
+  person controls, owned or rented.
 - Records are Markdown files in the root `data/`, and each app is code in
   `apps/` that reads and writes them through actions; one private Git
   repository holds the program, the apps and the records.
@@ -68,15 +68,15 @@ Roadmap language stays out of heroes.
 
 ## What Epicenter is not
 
-- Not a hosted product: your Epicenter runs on your home. A service the company
+- Not a hosted product: your Epicenter runs on your computer. A service the company
   might host is an outside app like Gmail.
 - Not sync: the person's other devices keep no copy and reach the one on the
-  home. Epicenter never reconciles two writable copies
+  computer. Epicenter never reconciles two writable copies
   ([the vision's core invariants](vision.md#core-invariants)).
 - Not a sandbox: `serve` runs every app's code in its one process, with no
   sandbox, and signs no one in; who reaches it is the tailnet's decision.
-- Not encrypted: whoever can read the home's disk can read the files, and a
-  rented home's provider can. See the [trust model](trust-model.md).
+- Not encrypted: whoever can read your computer's disk can read the files, and a
+  rented computer's provider can. See the [trust model](trust-model.md).
 
 ## Verifiable claims
 
@@ -85,7 +85,7 @@ Every public claim must be provable by inspecting the repository:
 | Claim | Proof |
 | --- | --- |
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Plain files" | A home's records are Markdown files under its root `data/`, one folder per data key (`packages/app/src/data.ts`), and Git stores them: no `epicenter` command commits, so the owner's own Git commits do ([actions' rules](../packages/app/README.md#actions)). |
+| "Plain files" | An Epicenter's records are Markdown files under its root `data/`, one folder per data key (`packages/app/src/data.ts`), and Git stores them: no `epicenter` command commits, so the owner's own Git commits do ([actions' rules](../packages/app/README.md#actions)). |
 | "On one computer you control" | A command runs on the computer it is typed on, and `serve` listens only on `127.0.0.1` and takes no flags (`packages/app/src/command/serve.ts`). Nothing in this repository runs a person's Epicenter for them. |
 | "Every device you own, and your agents, reach them" | `serve` answers MCP at `/` and actions at `/actions/<app>/<action>` (`packages/app/src/command/serve.ts`, `mcp.ts`); a reverse proxy such as `tailscale serve` puts it on the tailnet. |
 | "Any tool can edit them" | Direct edits and action writes are ordinary file changes, which stay pending until the owner commits them with Git ([actions' rules](../packages/app/README.md#actions)). |
@@ -101,11 +101,11 @@ without their own systemd unit or LaunchAgent
 ## Vocabulary
 
 Use the word a person already has on public surfaces: app, file, folder, your
-computer. Developer docs use the vision's words: the home, an inside app, an
+computer. Developer docs use the vision's words: the Epicenter, an inside app, an
 outside app, a program, a service ([vision](vision.md), "The pieces").
 
 - "Server" means someone else's computer, and "hosted" means someone else runs
-  it. A person's own computer is the home, never their server.
+  it. A person's own computer is where the Epicenter lives, never their server.
 - "Local-first" is only for a product whose devices sync. Epicenter's devices
   do not, so it is not local-first.
 - Do not say Epicenter syncs, or name a hosted, cloud, or self-hosted

@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Date:** 2026-04-28
-**Revised:** 2026-11-14: revenue is services Epicenter hosts; the home is its person's
+**Revised:** 2026-11-14: revenue is services Epicenter hosts; the computer is its person's
 **Owner:** Braden Wong
 <!-- doc-path-check: ignore-next-line -->
 **Promoted from:** `specs/20260428T120000-licensing-strategy.md` (spec deleted in PR #2248)
@@ -36,7 +36,7 @@ the part that is easy to get wrong.
 
 ## What the license protects
 
-Epicenter supplies the program, and the person supplies the home: a computer
+Epicenter supplies the program, and the person supplies the computer, one
 they control, owned or rented ([vision](../vision.md)).
 Revenue is meant to come from services Epicenter hosts. None runs today: the
 hosted API is retired for now, and hosted Notes is not built yet.
@@ -58,7 +58,7 @@ We sort this into five scenarios:
 | 2 | A developer forks an Epicenter library to build their own app | Allowed | Their app must also be AGPL (kills adoption) | Forbidden |
 | 3 | A company forks an Epicenter app and ships it under a new brand, closed-source | **Allowed** | Forbidden (must publish source) | Forbidden |
 | 4 | A company forks one of Epicenter's hosted services and runs it as a competitor | **Allowed** | Forbidden (§13 forces publishing source of running version) | Forbidden |
-| 5 | A company rents out homes, running `epicenter serve` for each person | Allowed | Allowed (§13 forces publishing any changes it makes) | Forbidden |
+| 5 | A company rents out Epicenters, running `epicenter serve` for each person | Allowed | Allowed (§13 forces publishing any changes it makes) | Forbidden |
 
 Scenarios 3 and 4 are the threat. Scenario 5 is allowed on purpose: a provider
 runs the same program, a person can leave with their repositories, and §13
@@ -99,7 +99,7 @@ This is the same pattern Bitwarden uses for `bitwarden_license/` and Sentry uses
 This document once planned an `apps/sync-server` split to give homelabbers
 something self-hostable without the cloud platform. The hosted API that
 question was about is retired. A person's Epicenter
-needs no hosted service: it always runs on their home.
+needs no hosted service: it always runs on their computer.
 
 ## What MIT was, and why it went
 

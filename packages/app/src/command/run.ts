@@ -1,7 +1,9 @@
 /**
  * Answer one call in serve: find `action` of `app` in the program, check
  * `input` against its schema, run it, and answer what it did. The route, MCP
- * and every caller through them share this one call.
+ * and every caller through them share this one call, so a page, an agent and
+ * the command get the one input check. Nothing is filled: an
+ * absent key stays absent, and an action's `run` writes its own default.
  *
  * A call that cannot begin is `NotStarted`. A run answers its own Result as
  * JSON, or `Threw` when it throws, returns what JSON cannot carry, or returns
@@ -11,13 +13,17 @@
  * which can hold personal data.
  */
 
+import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Ok, trySync } from 'wellcrafted/result';
-import type { Answer } from '../call.ts';
-import { ActionError, PLATFORM_NAMES, type Thrown } from '../errors.ts';
+import {
+	ActionError,
+	type Answer,
+	isResult,
+	PLATFORM_NAMES,
+} from '../answer.ts';
+import { type ObjectSchema, whyNot } from '../field.ts';
 import { isPlainObject } from '../json.ts';
-import { inputProblem } from './input.ts';
 import { stderrJsonLines } from './output.ts';
 import type { Program } from './program.ts';
 
@@ -60,10 +66,13 @@ export async function answerCall(
 			next: `epicenter ${app}`,
 		});
 	const started = performance.now();
-	// defineAction checked that it returned a Result (`isAction`).
 	const answer: Answer = await run(input, { onUpdate })
 		.then((result) => {
-			const { data, error } = result as Answer;
+			if (!isResult(result))
+				return ActionError.Threw({
+					message: `The action "${action}" must return Ok(data) or Err(error)`,
+				});
+			const { data, error } = result;
 			if (error && PLATFORM_NAMES.includes(error.name))
 				return ActionError.Threw({
 					message: `The action "${action}" returned ${error.name}, a name only Epicenter answers`,
@@ -73,7 +82,9 @@ export async function answerCall(
 				JSON.stringify({ data: data ?? null, error }),
 			) as Answer;
 		})
-		.catch((cause) => ActionError.Threw(describeThrown(cause)));
+		.catch((cause) =>
+			ActionError.Threw({ message: extractErrorMessage(cause) }),
+		);
 	try {
 		runLog.info('action run ended', {
 			app,
@@ -90,29 +101,22 @@ export async function answerCall(
 }
 
 /**
- * What a thrown value becomes in `Threw`: its message, and the value itself
- * when it is a tagged error (`{ name, message, ... }`) that survives JSON.
- * Reading a hostile value never stops the answer.
+ * Why `value` is not an input `schema` takes, in words a caller reads, or
+ * undefined when it is one. A key the action does not take is refused,
+ * naming the keys it does.
  */
-function describeThrown(cause: unknown): { message: string; thrown?: Thrown } {
-	// Even extracting a message can fail, for a cyclic array or a getter.
-	const { data: message } = trySync({
-		try: () => extractErrorMessage(cause).slice(0, 4096),
-		catch: () => Ok('The action threw a value that could not be read'),
-	});
-	try {
-		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
-			return { message };
-		const json = JSON.stringify(cause);
-		const copy: unknown = json.length > 4096 ? undefined : JSON.parse(json);
-		if (
-			isPlainObject(copy) &&
-			typeof copy.name === 'string' &&
-			typeof copy.message === 'string'
-		)
-			return { message, thrown: copy as Thrown };
-	} catch {
-		// Details are best effort.
+function inputProblem(schema: ObjectSchema, value: unknown) {
+	if (Value.Check(schema, value)) return undefined;
+	if (!isPlainObject(value)) return 'The input is not one JSON object';
+	const keys = Object.keys(schema.properties);
+	const unknown = Object.keys(value).find((key) => !keys.includes(key));
+	if (unknown !== undefined)
+		return `${JSON.stringify(unknown)} is not a key this action takes; ${keys.length ? `it takes ${keys.join(', ')}` : 'it takes none'}`;
+	for (const [key, field] of Object.entries(schema.properties)) {
+		if (!Object.hasOwn(value, key)) {
+			if (schema.required.includes(key)) return `${key} is needed`;
+		} else if (!Value.Check(field, value[key]))
+			return whyNot(key, field, value[key]);
 	}
-	return { message };
+	return 'The input does not fit';
 }

@@ -6,12 +6,12 @@
  * (`folder-query.ts`) lists again after every write and when the window
  * regains focus. There is no watcher.
  *
- * Notes are read and written in the home's Markdown grammar
+ * Notes are read and written in the Epicenter's Markdown grammar
  * (`format/note.ts`, from `@epicenter/app/markdown`); each kind's fields
  * are declared in `format/layout.ts`.
  *
  * Another program may write the folder (a file syncer, a Git command in a
- * home). A change to a note's fields rewrites only those lines of the file
+ * Epicenter). A change to a note's fields rewrites only those lines of the file
  * as it is now, so it never loses what another program wrote. Only a write
  * that replaces text the person typed (a body, or a repair's whole text)
  * says what it replaces (`seen`), and when the file differs it writes

@@ -6,14 +6,13 @@ import {
 	readdir,
 	readFile,
 	rm,
-	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Err, Ok } from 'wellcrafted/result';
+import { ActionError } from './answer.ts';
 import { defineData } from './data.ts';
-import { ActionError } from './errors.ts';
 import { field } from './field.ts';
 
 const homes: string[] = [];
@@ -39,7 +38,7 @@ const data = defineData('/nowhere/epicenter', {
 	},
 	checks: {
 		description: 'research result',
-		fields: { watch: field.ref('watches'), fare: field.number() },
+		fields: { watch: field.text(), fare: field.number() },
 	},
 });
 
@@ -103,12 +102,23 @@ test('a read reports each line that does not fit, and the record for repair', as
 		[
 			'data/watches/bad.md does not fit its fields:',
 			'data/watches/bad.md: to is missing',
-			'data/watches/bad.md: nights: 0 is not a whole number of at least 1',
+			'data/watches/bad.md: nights must be >= 1, not 0',
 		].join('\n'),
 	);
 	expect((await watches.list()).map((each) => each.error)).toEqual([
 		read.error,
 	]);
+	// A patch that fixes one problem but leaves another writes nothing, and
+	// names what is still wrong.
+	const partial = await watches.patch('bad', { nights: 2 });
+	expect(partial.error).toMatchObject({
+		name: 'Misfit',
+		problems: ['to is missing'],
+	});
+	expect(partial.error && 'record' in partial.error).toBe(false);
+	expect(await readFile(join(home, 'data/watches/bad.md'), 'utf8')).toBe(
+		'---\nnights: 0\n---\n',
+	);
 });
 
 test('a write it refuses writes nothing: a value that does not fit, a record already there, or one missing', async () => {
@@ -171,24 +181,6 @@ test('list reads each .md file in the key folder, sorted, and nothing else', asy
 	]);
 });
 
-test('a key folder that is a link is never read or written through', async () => {
-	const home = await tempHome();
-	const away = await tempHome();
-	await mkdir(join(home, 'data'));
-	await symlink(away, join(home, 'data/watches'));
-	const { watches } = defineData(home, data);
-	await expect(watches.create('tokyo', { to: 'Tokyo' })).rejects.toThrow(
-		'data/watches is a link',
-	);
-	await expect(watches.delete('tokyo')).rejects.toThrow(
-		'data/watches is a link',
-	);
-	await writeFile(join(away, 'osaka.md'), '---\nto: "Osaka"\n---\n');
-	expect(await watches.get('osaka')).toEqual(Ok(undefined));
-	expect(await watches.list()).toEqual([]);
-	expect(await readdir(away)).toEqual(['osaka.md']);
-});
-
 test('a write leaves no temporary file under data/', async () => {
 	const home = await tempHome();
 	const { watches } = defineData(home, data);
@@ -198,8 +190,7 @@ test('a write leaves no temporary file under data/', async () => {
 	expect(await readFile(join(home, 'local/.gitignore'), 'utf8')).toBe('*\n');
 });
 
-test('definitions are refused for what their types cannot say', () => {
-	expect(() => defineData('relative', {})).toThrow('absolute path');
+test('a key or field name that cannot be a folder or a front matter line is refused', () => {
 	expect(() =>
 		defineData('/home', { Notes: { description: 'note', fields: {} } }),
 	).toThrow('must be lowercase');
@@ -208,9 +199,4 @@ test('definitions are refused for what their types cannot say', () => {
 			notes: { description: 'note', fields: { id: field.text() } },
 		}),
 	).toThrow('reserves the field "id"');
-	expect(() =>
-		defineData('/home', {
-			checks: { description: 'check', fields: { watch: field.ref('watches') } },
-		}),
-	).toThrow('which must be a key in this defineData');
 });

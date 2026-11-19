@@ -37,3 +37,11 @@ test('no marker above is refused', () => {
 		'no package.json with an "epicenter" key',
 	);
 });
+
+test('a package.json that is not JSON is refused, not walked past to an outer home', async () => {
+	const folder = await home({ epicenter: { port: 4747 } });
+	const inner = join(folder, 'other');
+	await mkdir(inner);
+	await writeFile(join(inner, 'package.json'), '{ "epicenter": ');
+	expect(findHome(inner).error?.message).toContain('is not JSON');
+});
