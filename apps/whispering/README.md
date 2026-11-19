@@ -334,6 +334,16 @@ code is arranged.
   service, and payment buys an operated service, not the software.
   Refused: a sign-in every person passes.
 
+### Capabilities
+
+- **A capability package takes what it needs as values and never imports
+  another capability's code; `src/lib/app.ts` is the one file that composes
+  them.** It may import the type of a value it receives. A test builds a
+  capability from plain values, and building one never builds another's
+  platform code.
+  Refused: capabilities importing each other, as the browser recorder once
+  imported the folder's `deviceFiles`.
+
 ### Web and desktop
 
 - **Whispering branches on what a capability offers, never on the

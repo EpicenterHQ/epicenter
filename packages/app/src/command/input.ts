@@ -1,6 +1,6 @@
 /**
  * Check an action's input, in serve: the one check a page, an agent and the
- * command share (ADR-0953). Nothing is filled: an absent key stays absent,
+ * command share. Nothing is filled: an absent key stays absent,
  * and an action's `run` writes its own default.
  */
 

@@ -76,7 +76,7 @@ export type ObjectSchema = {
 /**
  * The `ObjectSchema` of `fields`. TypeBox marks an optional field with a
  * property `JSON.stringify` skips, so the one record of which keys are
- * required is `required`, written here once (ADR-0953).
+ * required is `required`, written here once.
  */
 export function objectSchema(fields: Record<string, TSchema>): ObjectSchema {
 	const schema = Type.Object(fields, { additionalProperties: false });

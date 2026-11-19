@@ -4,6 +4,9 @@
 **Status**: Draft
 **Owner**: Braden
 
+The records this spec cites by number are deleted from `docs/adr/`; read one with
+`git show "adr-archive:$(git ls-tree --name-only adr-archive docs/adr/ | grep /NNNN-)"`.
+
 ## One Sentence
 
 An app could offer live shared editing by relaying Yjs updates over the
@@ -35,8 +38,9 @@ Read when building:
   the first or is refused.
 - An app offers only actions. ADR-0945 (Proposed, unbuilt) adds `fetch`,
   `websocket` and `publish`.
-- ADR-0943 allows a CRDT to own live edits with one exporter writing a saved
-  copy into the home, and refuses a CRDT built into the platform.
+- [The vision](../docs/vision.md#core-invariants) allows a CRDT to own live
+  edits with one exporter writing a saved copy into the home, and refuses a
+  CRDT built into the platform.
 
 ## Sketch
 

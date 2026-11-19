@@ -74,7 +74,7 @@ jobs:
           # abort the loop on the first app that fails to build or upload.
           set -uo pipefail
 
-          # No whispering: ADR-0227 refused its hosted web runtime, so it has no
+          # No whispering: its hosted web runtime was refused, so it has no
           # wrangler.jsonc to preview from.
           apps=(landing)
           preview_alias="pr-${PR_NUMBER}"

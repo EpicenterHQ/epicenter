@@ -37,13 +37,9 @@ the part that is easy to get wrong.
 ## What the license protects
 
 Epicenter supplies the program, and the person supplies the home: a computer
-they control, owned or rented ([vision](../vision.md),
-[ADR-0903](../adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)).
+they control, owned or rented ([vision](../vision.md)).
 Revenue is meant to come from services Epicenter hosts. None runs today: the
-hosted API is retired for now
-([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)), and hosted Notes is not
-built yet
-([ADR-0897](../adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md)).
+hosted API is retired for now, and hosted Notes is not built yet.
 To a person's Epicenter each one is an outside app, like Gmail.
 
 So the license has two jobs. On the hosted services it is the revenue
@@ -78,7 +74,7 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 root `LICENSE`, generated from the packages themselves.
 
 **Rationale:**
-- Hosted services: the hosted API (`apps/api`) was AGPL so any hosted fork had to publish its source. It is retired ([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)); a hosted service added later takes the same tier for the same reason.
+- Hosted services: the hosted API (`apps/api`) was AGPL so any hosted fork had to publish its source. It is retired; a hosted service added later takes the same tier for the same reason.
 - Consumer apps and the `epicenter` program: on a locally-run app AGPL reduces to GPL conveyance copyleft, which is what blocks a competitor forking a shipped app into a closed-source rebrand. That is real protection, not brand consistency. `epicenter serve` runs on its person's home, so §13 applies only when someone offers a modified copy to other people (scenario 5).
 - Libraries: they compose the product. None is offered for third-party embedding today, so AGPL costs no adoption.
 
@@ -102,8 +98,7 @@ This is the same pattern Bitwarden uses for `bitwarden_license/` and Sentry uses
 
 This document once planned an `apps/sync-server` split to give homelabbers
 something self-hostable without the cloud platform. The hosted API that
-question was about is retired
-([ADR-0970](../adr/0970-the-hosted-api-is-retired.md)). A person's Epicenter
+question was about is retired. A person's Epicenter
 needs no hosted service: it always runs on their home.
 
 ## What MIT was, and why it went

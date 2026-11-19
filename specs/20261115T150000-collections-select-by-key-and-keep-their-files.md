@@ -4,6 +4,9 @@
 **Status**: Draft
 **Owner**: Braden
 
+The records this spec cites by number are deleted from `docs/adr/`; read one with
+`git show "adr-archive:$(git ls-tree --name-only adr-archive docs/adr/ | grep /NNNN-)"`.
+
 The remaining work is missing-reference diagnostics, collection-owned files,
 and adopting collection records in the Vault's publishing model. Runtime 0.4.0 already implements
 selection by key, lists and references, record checks, literal front matter,
@@ -13,8 +16,8 @@ the earlier implementation waves and rollout notes.
 
 ## Decisions still proposed
 
-- [ADR-0919](../docs/adr/0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) proposes named file slots owned by a collection record.
-- [ADR-0930](../docs/adr/0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) proposes sending a file as base64 text in JSON input, with no file inputs or uploads.
+- ADR-0919 proposes named file slots owned by a collection record.
+- ADR-0930 proposes sending a file as base64 text in JSON input, with no file inputs or uploads.
 
 Both records remain Proposed. The current temporary upload API is
 `field.file()`; it does not implement collection-owned files.

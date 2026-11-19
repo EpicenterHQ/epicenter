@@ -150,7 +150,7 @@ reads.
 ## The capabilities and the root
 
 `src/lib/app.ts` opens every capability once, for the page's life
-([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+(ADR-0766).
 Code imports what it uses from there, never through context.
 
 - `folder`: `openFolder(isTauri() ? tauriFiles(desktopFolderPath) :
@@ -248,7 +248,7 @@ for a later release; the last version of their pages is at the tag
 ## Models and connections
 
 Every model is an endpoint
-([ADR-0757](../../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
+([Whispering's model rules](README.md#models-and-keys)).
 `app.ts` makes one `openAi` (`ai`) from, in order, `customEndpoints` (one
 endpoint per connection in `settings.md`), `localServers` (Ollama and LM
 Studio), and on the desktop `localSpeech()` from `@epicenter/transcription`

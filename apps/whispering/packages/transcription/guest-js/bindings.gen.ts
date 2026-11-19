@@ -16,7 +16,7 @@ export const commands = {
 	downloadModel: (modelId: string, onProgress: Channel<DownloadProgress>) => typedError<null, CatalogError>(__TAURI_INVOKE("plugin:epicenter-transcription|download_model", { modelId, onProgress })),
 	/**
 	 *  Remove a model's file from the shared Hugging Face cache, which is a
-	 *  cache (ADR-0757): any app or Hugging Face tool that used the file
+	 *  cache: any app or Hugging Face tool that used the file
 	 *  downloads it again. The model is unloaded first, after any transcription
 	 *  with it finishes, and a model still downloading is refused `Busy`.
 	 *  Removing a model that is not there succeeds.

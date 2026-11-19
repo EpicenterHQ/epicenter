@@ -13,7 +13,7 @@
  * (`takeInProgress`). Audio whose note was not written, or that a crash cut
  * off, lists as an untitled recording.
  *
- * The models are the page's one merge of endpoints (`ai`, ADR-0757): the
+ * The models are the page's one merge of endpoints (`ai`): the
  * connections the person saved, then what runs on this computer, each
  * followed as it changes. The person chooses one model for transcription,
  * in `settings.md`; a request captures that choice when it is prepared and

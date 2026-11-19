@@ -5,9 +5,8 @@ Nothing is encrypted, nothing syncs, and `epicenter serve` signs no one in.
 That is the trust model, and everything below follows from it.
 
 This page describes what the code does today, in `packages/app`
-and its command, `packages/app/src/command`. [The vision](vision.md) names the pieces, and
-[ADR-0903](adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)
-decides that the home is a computer its person controls, owned or rented.
+and its command, `packages/app/src/command`. [The vision](vision.md) names the pieces. The home is a computer its person
+controls, owned or rented.
 
 ## The home
 
@@ -28,14 +27,13 @@ which agents get a shell is.
 
 `epicenter serve` offers every app's actions over MCP at `/`, and each app's
 UI at `/apps/<app>/` (`packages/app/src/command/serve.ts`). It signs no one in: it trusts
-this computer and the tailnet, and who reaches it is the home's decision
-([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
+this computer and the tailnet, and who reaches it is the home's decision.
 Anything that reaches it can call every action of every app.
 
 - It listens only on `127.0.0.1`, and it has no flag to listen anywhere else.
   Another device reaches it through a private proxy on this computer, such as
   `tailscale serve`, which also adds HTTPS
-  ([ADR-0927](adr/0927-serve-listens-only-on-this-computer.md)).
+  ([serve's rules](../packages/app/README.md#running-the-home)).
 - It answers only a `Host` that is `localhost`, an IP address, or a `*.ts.net`
   name, so a DNS rebinding name gets 403, and an `Origin`, when sent, must
   match the `Host`.
@@ -52,8 +50,7 @@ instructions, so anything written there reaches each agent that connects.
 ## The code you run
 
 `serve` and `epicenter` run each app's `code/epicenter.ts` with your privileges,
-in one process, with no sandbox
-([ADR-0880](adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)).
+in one process, with no sandbox.
 An action can read any file you can, and `folder` is a convenience, not a
 boundary. An app you copy into your home runs its author's code. The copy
 has no upstream or automatic merge. Inspect incoming code before copying later changes. Trust it as you
@@ -62,11 +59,11 @@ would any program you install.
 ## Sign-ins are files that stay on the home
 
 An app keeps a sign-in, such as Mail's Google token, in a file in its `local/`
-folder, such as `apps/mail/local/`
-([ADR-0939](adr/0939-what-stays-on-this-computer-lives-in-an-apps-local-folder.md)).
+folder, such as `apps/mail/local/`.
 The home's root `.gitignore` keeps every app's `local/` folder out of every
 commit with one line, `/apps/*/local/`. That line is the only guard:
-Epicenter has no command that commits (ADR-0940). A new file written under
+Epicenter has no command that commits
+([actions' rules](../packages/app/README.md#actions)). A new file written under
 `local/` through `folder` is `0600`. So a file there reaches a backup or a clone
 only if that ignore line is removed or the file is added by force. It is a plain
 file, though: anyone who can read the home can read it, the provider of a
@@ -75,8 +72,7 @@ rented home included.
 ## Backups
 
 The home has one private root Git repository holding every app's code and
-included records. Its `origin` is an optional push-only backup
-([ADR-0910](adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
+included records. Its `origin` is an optional push-only backup.
 Agents edit the working files; the commits you make record them. Publishing an app copies only its code into a separate history.
 Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
 your own Git server, can read what is pushed: every committed file and its
@@ -88,28 +84,24 @@ A service such as Gmail already holds its own data. An inside app brings it to
 the home only by a pull, which copies items inward and never writes the
 source; Mail keeps its mailbox as a SQLite cache in its `local/` folder on the home. A change
 to the service is an action you run, such as `epicenter mail apply`, which
-changes Gmail through your own sign-in
-([ADR-0882](adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md),
-[ADR-0898](adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md)).
+changes Gmail through your own sign-in.
 
 ## A model sees what you send it
 
-An inference connection is `{ baseUrl, apiKey? }` (ADR-0060). Whispering sends
+An inference connection is `{ baseUrl, apiKey? }`
+(`packages/ai/src/custom-endpoints.ts`). Whispering sends
 your prompt or audio to the endpoint you configure: a provider you hold a key
 for, or a server you run, such as Ollama for chat or a local Speaches server for
 transcription. With a local server the bytes never leave your machine.
-Epicenter runs no inference gateway of its own
-([ADR-0970](adr/0970-the-hosted-api-is-retired.md)).
+Epicenter runs no inference gateway of its own.
 
 ## What came before
 
 The folder sync product kept every device's folder in step through an
 Epicenter server, hosted or self-hosted, that held each folder's history in
-plaintext. It is retired
-([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)), and so is its
+plaintext. It is retired, and so is its
 trust model: a choice of server and of who a folder was shared with. Its server
-code was deleted with the hosted API
-([ADR-0970](adr/0970-the-hosted-api-is-retired.md)).
+code was deleted with the hosted API.
 
 Before that, Epicenter encrypted every value in a synced Yjs document under a
 key derived from a root its servers held. That still trusted the server, so it

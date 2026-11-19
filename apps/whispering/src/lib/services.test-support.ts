@@ -12,7 +12,7 @@
  *
  * The endpoint is a connection saved in `settings.md`, its key kept in
  * memory, its requests answered by a plain function standing where `fetch`
- * would be (ADR-0757), so a test decides each answer and counts each
+ * would be, so a test decides each answer and counts each
  * request while the request itself is built and read as in the app.
  */
 import { customEndpoints, openAi } from '@epicenter/ai';
