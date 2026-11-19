@@ -73,13 +73,10 @@ Keeping a capability is a good outcome when it is worth what it costs.
 Once the direction is understood, work out what needs to exist to
 support it. Use what already does the job before adding something new.
 
-Before calling something redundant, find out what it remembers.
-Unfinished work, the only copy of someone's input, a reviewed decision,
-or an action whose outcome is still uncertain may need to survive.
-
-Keep that information until something else reliably holds it or the
-chosen experience makes it unnecessary. Check that complexity disappears
-rather than moving elsewhere or becoming work the person must do.
+Before calling something redundant, check what it still does for the
+person (see "Keep what still has a job" in
+[code-collapse](../code-collapse/SKILL.md)). Check that complexity
+disappears rather than moving elsewhere or becoming work the person must do.
 
 Carry settled choices forward without reconfirming each detail. Bring
 back consequential choices that remain unresolved. Agreement on a
@@ -90,8 +87,7 @@ change through its callers, remove what it made unnecessary, and verify
 the result. Use disposable data for app experiments.
 
 Read [the examples](references/examples.md) for illustrations of this
-judgment. They show questions worth examining, not changes to apply by
-keyword or a required number of alternatives.
+judgment.
 
 ## Asymmetric wins
 
@@ -102,7 +98,7 @@ Look for one small promise that drags a lot of code along with it: a fast
 path, an old format, a rare mode, a compatibility alias, a fallback parser,
 exact reproduction. Write down what people lose and the deletion prize, the
 code that goes away with it. Then check that the product still does what
-its sentence says. A second way of doing something looks cheap to add, but
+it is for. A second way of doing something looks cheap to add, but
 it has to be kept working forever.
 
 Be careful with a promise that touches data already stored or an API other
