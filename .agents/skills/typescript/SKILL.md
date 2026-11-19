@@ -20,8 +20,7 @@ Use [services-layer](../services-layer/SKILL.md) when deciding which operations
 belong together and what their callers should supply. Use
 [query-layer](../query-layer/SKILL.md) when adapting those operations for caching
 and observable execution state. Schema libraries and tests have their own
-skills: [arktype](../arktype/SKILL.md), [typebox](../typebox/SKILL.md), and
-[testing](../testing/SKILL.md).
+skills: [arktype](../arktype/SKILL.md) and [testing](../testing/SKILL.md).
 
 ## Core rules
 
