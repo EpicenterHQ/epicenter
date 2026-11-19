@@ -3,15 +3,12 @@
  * reads, decides and replaces a file with no `await` in between, and two
  * requests serve runs at once never interleave on one file.
  *
- * - A write replaces a whole file at once, so a reader never sees half of it.
- * - A record's folder must be a real folder, not a link, so a write lands
- *   where a read looks, and never outside the home.
+ * A write replaces a whole file at once, so a reader never sees half of it.
  */
 
 import { randomUUID } from 'node:crypto';
 import {
 	chmodSync,
-	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -33,43 +30,19 @@ function unlessMissing<T>(run: () => T) {
 	}
 }
 
-/**
- * The first part of the folder `relative` under `home` that is there but is
- * not a real folder, such as a link; undefined when every part present is
- * one. A missing part is fine: a write makes it.
- */
-export function firstNonFolder(home: string, relative: string) {
-	const parts = relative.split('/');
-	for (let end = 1; end <= parts.length; end++) {
-		const part = parts.slice(0, end).join('/');
-		const entry = lstatSync(join(home, part), { throwIfNoEntry: false });
-		if (entry === undefined) return undefined;
-		if (!entry.isDirectory()) return part;
-	}
-	return undefined;
-}
-
 /** The bytes of the file at `path`, or `undefined` when there is none. */
 export const readBytes = (path: string) =>
 	unlessMissing(() => readFileSync(path));
 
 /**
- * The names of the files directly in `folder`, a link to a file counting as
- * one, sorted; none when the folder is missing.
+ * The names of the files and links directly in `folder`, sorted; none when
+ * the folder is missing.
  */
 export function filesIn(folder: string) {
 	const entries =
 		unlessMissing(() => readdirSync(folder, { withFileTypes: true })) ?? [];
 	return entries
-		.filter(
-			(entry) =>
-				entry.isFile() ||
-				// A broken link has no target, so it is no file.
-				(entry.isSymbolicLink() &&
-					statSync(join(folder, entry.name), {
-						throwIfNoEntry: false,
-					})?.isFile()),
-		)
+		.filter((entry) => entry.isFile() || entry.isSymbolicLink())
 		.map((entry) => entry.name)
 		.sort();
 }

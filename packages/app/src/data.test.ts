@@ -6,7 +6,6 @@ import {
 	readdir,
 	readFile,
 	rm,
-	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -180,24 +179,6 @@ test('list reads each .md file in the key folder, sorted, and nothing else', asy
 		'a',
 		'b',
 	]);
-});
-
-test('a key folder that is a link is never read or written through', async () => {
-	const home = await tempHome();
-	const away = await tempHome();
-	await mkdir(join(home, 'data'));
-	await symlink(away, join(home, 'data/watches'));
-	const { watches } = defineData(home, data);
-	await expect(watches.create('tokyo', { to: 'Tokyo' })).rejects.toThrow(
-		'data/watches is a link',
-	);
-	await expect(watches.delete('tokyo')).rejects.toThrow(
-		'data/watches is a link',
-	);
-	await writeFile(join(away, 'osaka.md'), '---\nto: "Osaka"\n---\n');
-	await expect(watches.get('osaka')).rejects.toThrow('data/watches is a link');
-	await expect(watches.list()).rejects.toThrow('data/watches is a link');
-	expect(await readdir(away)).toEqual(['osaka.md']);
 });
 
 test('a write leaves no temporary file under data/', async () => {

@@ -9,13 +9,7 @@ import {
 	type PublicError,
 } from './answer.ts';
 import type { DataDef } from './data.ts';
-import {
-	filesIn,
-	firstNonFolder,
-	readBytes,
-	removeFile,
-	replaceFile,
-} from './disk.ts';
+import { filesIn, readBytes, removeFile, replaceFile } from './disk.ts';
 import { type Fields, isOptional, whyNot } from './field.ts';
 import { isPlainObject } from './json.ts';
 import {
@@ -102,17 +96,6 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	const folder = `data/${key}`;
 	/** The file for `id`, from the home. */
 	const pathOf = (id: string) => `${folder}/${id}.md`;
-	/**
-	 * Throw unless the key's folder is real, before any file call: a read
-	 * through a link would show records a write cannot reach.
-	 */
-	function refuseLinked() {
-		const refused = firstNonFolder(home, folder);
-		if (refused !== undefined)
-			throw new Error(
-				`${refused} is a link or a file, not a folder; records are read and written only in real folders under data/`,
-			);
-	}
 
 	/** A change that does not fit the declared fields, as one problem. */
 	function misfitFor(id: string, problem: string) {
@@ -153,8 +136,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	/**
-	 * The record for `id`, or undefined when there is no file. The caller has
-	 * checked that the key's folder is real.
+	 * The record for `id`, or undefined when there is no file.
 	 */
 	function read(id: string): Result<AnyRecord | undefined, Misfit> {
 		const bytes = readBytes(join(home, pathOf(id)));
@@ -263,7 +245,6 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	 * not the text, since decoding drops a byte order mark.
 	 */
 	function write(id: string, need: Need, change: Patch | Compute) {
-		refuseLinked();
 		const before = readBytes(join(home, pathOf(id)));
 		const result = planWrite(
 			id,
@@ -294,13 +275,8 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	const handle = {
-		get: (id: string) =>
-			withValidId(id, () => {
-				refuseLinked();
-				return read(id);
-			}),
+		get: (id: string) => withValidId(id, () => read(id)),
 		async list() {
-			refuseLinked();
 			return filesIn(join(home, folder))
 				.flatMap((name) => idOf(name) ?? [])
 				.map(read)
@@ -313,10 +289,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		edit: (id: string, change: (record: unknown) => unknown) =>
 			withValidId(id, () => write(id, 'either', change)),
 		delete: (id: string) =>
-			withValidId(id, () => {
-				refuseLinked();
-				return Ok(removeFile(join(home, pathOf(id))));
-			}),
+			withValidId(id, () => Ok(removeFile(join(home, pathOf(id))))),
 	};
 	return { ...def, ...handle };
 }

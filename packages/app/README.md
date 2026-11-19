@@ -69,8 +69,8 @@ Wellcrafted Result:
 - `edit` computes a change from the record and writes it with nothing else
   in this process changing the file between the read and the write.
 - A write replaces the whole file at once, changes only the lines it names,
-  keeps every other line byte for byte, and lands only in a real folder
-  under `data/`: a key folder that is a link is neither read nor written.
+  keeps every other line byte for byte. A link under `data/` is followed,
+  for reads and writes alike.
 - `field.ref('watches')` is text that holds the id of a record in another
   key of the same `defineData`, which refuses a key it does not define. A
   write does not check that the record is there: deleting one can leave a
