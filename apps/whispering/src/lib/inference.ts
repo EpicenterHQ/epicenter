@@ -89,11 +89,6 @@ export const InferenceError = defineErrors({
 		status,
 		detail,
 	}),
-	/** The endpoint reported an error while it answered. */
-	Failed: ({ name, detail }: { name: string; detail: string }) => ({
-		message: `${name} stopped with an error: ${detail}`,
-		detail,
-	}),
 	/** The answer did not read as the request's answer. */
 	Malformed: ({ name, reason }: { name: string; reason: string }) => ({
 		message: `${name}’s answer did not read: ${reason}`,
@@ -177,11 +172,6 @@ function failureOf(target: Target, error: AiError): InferenceError {
 				name: target.name,
 				status: error.status,
 				detail: error.message.slice(0, 300).trim(),
-			}).error;
-		case 'Failed':
-			return InferenceError.Failed({
-				name: target.name,
-				detail: error.message,
 			}).error;
 		case 'Malformed':
 			return InferenceError.Malformed({

@@ -179,14 +179,6 @@ test('a request goes to the endpoint it names, and an unknown one is NoEndpoint'
 		file: new Blob(['x']),
 	});
 	expect(missing.error).toMatchObject({ name: 'NoEndpoint', endpoint: 'gone' });
-	const chat = [];
-	for await (const item of ai.chat({
-		endpoint: 'gone',
-		model: 'm',
-		messages: [],
-	}))
-		chat.push(item);
-	expect(chat.map(({ error }) => error?.name)).toEqual(['NoEndpoint']);
 });
 
 test('a live entry is read at every use: a connection added reaches the merge it is in, and nested merges', async () => {

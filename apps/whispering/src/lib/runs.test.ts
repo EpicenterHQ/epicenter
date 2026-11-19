@@ -62,7 +62,6 @@ test('a request that was made says why in its own words, never that nothing was 
 	for (const { error } of [
 		InferenceError.OutcomeUnknown({ name: 'Provider', reason: 'reset' }),
 		InferenceError.Rejected({ name: 'Provider', status: 429, detail: 'busy' }),
-		InferenceError.Failed({ name: 'Provider', detail: 'overloaded' }),
 		InferenceError.Malformed({ name: 'Provider', reason: 'no text' }),
 	]) {
 		const failed = expectErr(await runWith(error));

@@ -1,7 +1,6 @@
 import { createLogger } from 'wellcrafted/logger';
 import {
 	AiError,
-	type ChatRequest,
 	createClient,
 	type EmbeddingsRequest,
 	type TranscriptionRequest,
@@ -53,7 +52,7 @@ const isLive = (entry: Endpoint | LiveEndpoints): entry is LiveEndpoints =>
  *
  * ```ts
  * export const ai = openAi([customEndpoints({ store, keys }), localServers()]);
- * for await (const { data, error } of ai.chat({ endpoint: 'ollama', model, messages })) …
+ * const { data, error } = await ai.transcribe({ endpoint: 'ollama', model, file });
  * ```
  */
 export function openAi(entries: readonly EndpointEntry[]) {
@@ -166,18 +165,6 @@ export function openAi(entries: readonly EndpointEntry[]) {
 		/** Ask every endpoint that probes to look again, such as when a picker opens; answers once every look is done. */
 		async refresh(): Promise<void> {
 			await Promise.all(endpoints().map((endpoint) => endpoint.refresh?.()));
-		},
-		/** Stream a chat completion from the named endpoint. */
-		async *chat(
-			{ endpoint, ...request }: ChatRequest & { endpoint: string },
-			options: Options = {},
-		) {
-			const client = clientFor(endpoint);
-			if (!client) {
-				yield AiError.NoEndpoint({ endpoint });
-				return;
-			}
-			yield* client.chat(request, options);
 		},
 		/** Transcribe audio at the named endpoint. */
 		transcribe(
