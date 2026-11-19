@@ -1,9 +1,9 @@
 # Billing and the Autumn boundary
 
-A map of how cloud billing works in `apps/api/worker/billing/`, written so the
-next person (or the next you) does not have to reverse-engineer it from the
-source files. If you are about to change anything in this folder, read this
-first.
+This folder is the hosted API's billing: it meters and gates paid AI usage
+against Autumn and serves the dashboard's billing pages. Billing is hosted-only
+and stays here; the self-hosted server has none of it. If you are about to
+change anything in this folder, read this first.
 
 ## The one sentence
 
@@ -12,8 +12,8 @@ first.
 > permanently charge for work that did not happen, and never leak provider
 > internals to the user.
 >
-> (Storage is unmetered in v1: the opaque-ID blob store makes no Autumn
-> call. The billed era is sketched at the end of this guide.)
+> (Storage is unmetered: Epicenter hosts no blob store, so nothing writes
+> storage usage to Autumn. See "Storage" below.)
 
 Every design choice below is a consequence of that second clause. If a piece of
 code does not serve "treat the provider as fallible and untrusted," it is
@@ -37,9 +37,12 @@ autumn.ts        the ONLY file that imports autumn-js. builds the client with
 Autumn (external, fallible)
 ```
 
-`policies.ts` sits to the side: it wraps the AI inference route (which lives in
-`@epicenter/server`) with the same `service.ts`, to reserve credits around work
-the library does not know is billable.
+`policies.ts` sits to the side. `@epicenter/server` provides the AI gateways
+(`mountInferenceApp` for `/v1/chat/completions`, `mountTranscriptionApp` for
+`/v1/audio/transcriptions`), and `apps/api/worker/index.ts` mounts each with a
+policy from this folder: `chargeOpenAiCreditsWithAutumn` and
+`chargeOpenAiTranscriptionCredits`. Both call the same `service.ts`, so the
+library stays unaware that its work is billable.
 
 Be precise about the boundary. `autumn.ts` is not a full provider-swapping
 adapter. `service.ts` still speaks Autumn-shaped concepts: `check`, balances,
@@ -67,7 +70,7 @@ inconsistent until you see why.
 
 ```
 DASHBOARD READS                        USAGE GUARDS
-getOverview, listPlans, listUsage…     reserveAiChat
+getOverview, listPlans, listUsage…     reserveAiChat, checkAiCredits
         │                                      │
  Autumn provider error throws           tryAutumn catches provider error
         │                                      │
@@ -110,7 +113,8 @@ reserveAiChat ─► autumn.check({ requiredBalance: N,
 
 `confirm` and `release` are the same one line (`finalizeLock(lockId, action)`)
 with the action flipped. `confirm` commits the held balance, `release` returns
-it.
+it. The `lockId` never leaves `service.ts`; the policy sees only the
+reservation's two methods. The hold lasts 15 minutes (`LOCK_TTL_MS`).
 
 ### Why a lock and not Autumn's lighter `check({ sendEvent })`
 
@@ -135,33 +139,37 @@ work that failed or could not be settled. For AI streams, once the stream has
 started the HTTP status is already 200, so a later model/provider failure still
 confirms by design: provider tokens were consumed and cannot be refunded.
 
-## Storage accounting: unmetered in v1
+## Transcription: gate, then charge what was used
 
-Storage is **not metered today**, and Epicenter hosts no blob store
-(ADR-0577). The old assets surface (a Postgres `asset` table + an
-`ASSETS_BUCKET` R2 binding) was retired into an opaque-ID blob store, which
-was itself deleted; neither made an Autumn call, so there is no upload guard
-and no usage sync. The asset-table-coupled
-wiring (`syncAssetStorageWithAutumn` policy, `checkAssetStorageUpload` /
-`syncAssetStorageUsageTotal` service methods) is gone.
+Transcription takes no lock, because its cost is unknown until the call
+returns. `chargeOpenAiTranscriptionCredits` runs a cheap gate first
+(`checkAiCredits`), which denies an empty wallet with
+`InsufficientCredits`. On a 200 it reads the audio `duration` from the
+response and pushes `trackAiTranscription` onto the after-response queue to
+charge per minute. Concurrent calls can each pass the gate before any usage
+posts, so overspend is bounded by the largest single call and the number of
+calls in flight; [ADR-0100](../../../../docs/adr/0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md)
+records why the charge shape follows when the cost is known.
 
-What survives is the **plan shape**, kept for the billed era: `getOverview()`
-still reports `storage: { usedBytes, includedBytes }` (the dashboard's allowance
-card), the catalog still carries `storage.includedBytes` per plan, and
-`FEATURE_IDS.storageBytes` still names the Autumn feature. In v1 nothing writes
-usage, so `usedBytes` reads as the unwritten balance (effectively 0).
+## Storage: unmetered
 
-When storage is billed (deleted blob spec `20260623T220000` decision 10,
-recoverable via git history; kernel is ADR-0089 as amended by ADR-0148), the meter
-will be a **stock sync, not event deltas**: the opaque-ID object store is its
-own index, so an occasional `ListObjectsV2` SUM over `principals/<principalId>/blobs/`
-drives one absolute `autumn.balances.update({ usage })`. That is self-correcting
-(a missed update is overwritten by the next sweep) and needs no second ledger,
-which is exactly why the retired asset path also synced an absolute total rather
-than upload/delete deltas. A `syncBlobStorageWithAutumn` policy will carry it
-(`apps/api/worker/index.ts`, beside `chargeOpenAiCreditsWithAutumn`);
-`mountBlobsApp` takes no `policies` today, so that change adds the seam and the
-policy together.
+Storage is **not metered**. Epicenter hosts no blob store, so there is no
+upload guard and no usage sync, and nothing writes storage usage to Autumn.
+
+What survives is the **plan shape**: `getOverview()` still reports
+`storage: { usedBytes, includedBytes }` (the dashboard's allowance card), the
+catalog still carries `storage.includedBytes` per plan
+([ADR-0137](../../../../docs/adr/0137-hosted-storage-is-one-eventually-enforced-physical-account-allowance.md)),
+`getStorageIncludedBytes()` reads the active plan's allowance, and
+`FEATURE_IDS.storageBytes` still names the Autumn feature. Since nothing writes
+usage, `usedBytes` reads as the unwritten balance (effectively 0).
+
+If storage is billed again, sync an absolute total with one
+`autumn.balances.update({ usage })` computed from wherever the bytes live,
+rather than sending upload and delete deltas. A missed absolute update is
+overwritten by the next one; a missed delta drifts forever. The retired blob
+store was designed this way
+([ADR-0089](../../../../docs/adr/0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md)).
 
 ## Errors: opaque on the wire, fat in the logs
 
@@ -223,23 +231,23 @@ delete with zero behavior change.
 
 ## The real caveat
 
-Post-response billing work (the AI `confirm()`/`release()` settlement, and any
-future storage sync) is fire-and-forget on the after-response queue. If it
-cannot reach Autumn, the provider's projection can drift from reality. The AI
-lock self-heals at its TTL. The deferred storage meter is designed to be
-self-correcting the same way: an absolute LIST-SUM sync, where the next sweep
-overwrites any drift, rather than replayed upload/delete deltas that compound a
-missed event.
+Post-response billing work (the AI `confirm()`/`release()` settlement and the
+transcription `trackAiTranscription` charge) is fire-and-forget on the
+after-response queue. Each returns a `Result` and `autumn.ts` logs a provider
+failure at its source, so a failure is recorded, not swallowed. If it cannot
+reach Autumn, the provider's projection can drift from reality. The AI lock
+self-heals at its TTL. A failed transcription charge is lost: the user is not
+charged for that call.
 
 ## If you are changing this folder
 
 - Adding a new billable operation: it goes through `service.ts`, which calls
   Autumn only via `autumn.ts`. Do not import `autumn-js` anywhere else.
-- A new fallible-work guard: follow `reserveAiChat`: reserve a lock, return a
-  reservation the policy settles around `next()`.
-- Metering blob storage: drive one absolute `autumn.balances.update({ usage })`
-  from a blob-store LIST-SUM (the store is its own index); do not reintroduce a
-  Postgres table or upload/delete deltas.
+- A new fallible-work guard: follow `reserveAiChat` when the cost is known up
+  front (reserve a lock, return a reservation the policy settles around
+  `next()`), or `checkAiCredits` plus an after-response charge when it is not.
+- Metering storage: sync one absolute `autumn.balances.update({ usage })`; do
+  not send upload and delete deltas.
 - A new dashboard read: let Autumn throw; `routes.ts` `onError` turns a provider
   failure into the opaque 503 and rethrows real bugs to a 500.
 - A new post-response billing operation without a lock needs an explicit

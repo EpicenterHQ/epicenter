@@ -1,6 +1,6 @@
 # Documentation
 
-This directory holds the vision, the decision records, and a few operating guides for Epicenter.
+This directory holds the vision, the decision records, and one operating guide for Epicenter.
 
 ## Start here
 
@@ -17,7 +17,7 @@ This directory holds the vision, the decision records, and a few operating guide
 Architecture Decision Records: the authoritative, immutable record of durable decisions. See [adr/README.md](adr/README.md) for the template and rules.
 
 ### `/guides`
-Two operating guides for live systems: [Whispering redirects](guides/whispering-redirects.md) (the legacy domains and where they point) and [billing and the Autumn boundary](guides/billing-autumn-boundary.md).
+One operating guide for a live system: [Whispering redirects](guides/whispering-redirects.md) (the legacy domains and where they point). Billing and the Autumn boundary are explained beside their code, in [`apps/api/worker/billing/README.md`](../apps/api/worker/billing/README.md).
 
 ### `/licensing`
 [Licensing strategy](licensing/licensing-strategy.md): the license, the threat model, and "If MIT returns".
