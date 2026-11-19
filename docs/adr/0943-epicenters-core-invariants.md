@@ -60,8 +60,7 @@ work, the feature is a line of documentation, not code.
 | 5. The code is yours. The only setting is the port. | The fifth commitment |
 | 6. Epicenter does only what needs an app's declaration or the running serve. Everything else is a line in the README. One exception: where a skipped step fails silently and cannot be undone, Epicenter refuses or reports. It never repairs. | The sixth commitment; [ADR-0955](0955-no-command-makes-or-copies-an-app.md), [ADR-0958](0958-no-command-makes-an-epicenter.md) |
 
-Rule 2's second sentence holds once ADR-0959 is built; until then serve
-re-imports an app's own code on each call. Rule 4 holds once ADR-0963 is
+Rule 4 holds once ADR-0963 is
 built; until then the owner's `.gitignore` is the only guard.
 
 ### Why six rules replaced eight

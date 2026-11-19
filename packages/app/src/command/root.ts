@@ -1,29 +1,30 @@
 /**
  * Find the Epicenter a command runs in and read its marker, `EPICENTER.md`
- * (ADR-0868, ADR-0965): a note for people whose optional front matter says the port
- * `serve` listens on:
+ * (ADR-0868, ADR-0965): a note for people whose front matter says the port
+ * `serve` listens on, which every Epicenter names:
  *
  * ```yaml
+ * ---
  * port: 4747
+ * ---
  * ```
  *
  * Commands validate the marker's settings before running.
  */
 import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { Ok, type Result } from 'wellcrafted/result';
-import { readMarkdown } from '../front-matter.ts';
+import { type MarkdownFile, readMarkdown } from '../front-matter.ts';
 import { ActionError, type NotStarted } from '../index.ts';
 
 export const MARKER = 'EPICENTER.md';
-const DEFAULT_PORT = 4747;
 
 /** The Epicenter a command acts on, found once and passed to everything that reads it. */
 export type EpicenterRoot = {
 	/** Its real path. */
 	folder: string;
-	/** The port `serve` listens on: the marker's, else 4747. */
+	/** The port `serve` listens on: the marker's. */
 	port: number;
 };
 
@@ -64,10 +65,17 @@ function isPort(value: unknown): value is number {
 }
 
 /** What is wrong with the marker's front matter, one line each, quoting each value. */
-function markerProblems(fields: Record<string, unknown>): string[] {
+function markerProblems({ fields, notJson }: MarkdownFile): string[] {
 	const { port, ...rest } = fields;
-	const problems: string[] = [];
-	if (port !== undefined && !isPort(port))
+	const problems = notJson.map(
+		({ key, lineNumber }) => `${key} on line ${lineNumber} is not JSON`,
+	);
+	if (port === undefined) {
+		if (!notJson.some(({ key }) => key === 'port'))
+			problems.push(
+				'port is missing; name one in front matter, a line such as port: 4747 between two --- lines',
+			);
+	} else if (!isPort(port))
 		problems.push(
 			`port: ${JSON.stringify(port)} is not a whole number from 1 to 65535`,
 		);
@@ -84,22 +92,16 @@ function readRoot(folder: string): Result<EpicenterRoot, NotStarted> {
 	// Decoded as an app's files are, which drops a byte order mark an editor saved.
 	const read = readMarkdown(new TextDecoder().decode(readFileSync(marker)));
 	const problems = read.readable
-		? [
-				...read.notJson.map(
-					({ key, lineNumber }) => `${key} on line ${lineNumber} is not JSON`,
-				),
-				...markerProblems(read.fields),
-			]
+		? markerProblems(read)
 		: [
 				'its front matter is not key: value lines between two --- lines, each key once',
 			];
 	if (problems.length)
 		return ActionError.NotStarted({
-			cause: 'usage',
 			message: problems.map((problem) => `${marker}: ${problem}`).join('\n'),
 		});
-	const { port } = read.fields as { port?: number };
-	return Ok({ folder, port: port ?? DEFAULT_PORT });
+	const { port } = read.fields as { port: number };
+	return Ok({ folder, port });
 }
 
 /**
@@ -114,7 +116,6 @@ export function epicenterRoot(
 	const folder = ancestorWithMarker(start);
 	if (folder === undefined)
 		return ActionError.NotStarted({
-			cause: 'usage',
 			message: `There is no ${MARKER} here or above; cd into your Epicenter`,
 		});
 	return readRoot(realpathSync(folder));
@@ -133,6 +134,17 @@ export async function rootInstructions({
 		throw error;
 	}
 }
+
+/**
+ * `message` with every path inside the Epicenter written from its folder,
+ * as `apps/notes/code/x.ts`, so a problem reads the same on every computer.
+ * Serve makes each problem once, at start, through this. A path outside the
+ * Epicenter is left as written.
+ */
+export const fromRoot = (
+	{ folder }: Pick<EpicenterRoot, 'folder'>,
+	message: string,
+) => message.replaceAll(`${folder}${sep}`, '');
 
 /** The app `name`'s folder from the Epicenter's, as messages name it. */
 export const appDir = (name: string) => `apps/${name}`;

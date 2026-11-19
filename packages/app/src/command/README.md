@@ -56,10 +56,10 @@ version an Epicenter runs is one line in a file in Git
 - `bun install` at the top of the Epicenter installs every app's packages and
   Epicenter. Epicenter has no install command, and calls and listings never
   install.
-- Restart `serve` after changing packages: stop `epicenter serve` and start
-  it again. An edit to an app's own files
-  shows on the next call. A package lives in the Epicenter's top `node_modules/`,
-  outside the app's folder, and `serve` keeps the packages it has loaded.
+- Restart `serve` after changing an app's code or packages: stop
+  `epicenter serve` and start it again. Serve loads each app once, when it
+  starts, so an edit to an app's own files and a changed package both take
+  effect at the restart. See [Restart serve to run changed code](#restart-serve-to-run-changed-code).
 - To upgrade, edit the version in the Epicenter's `package.json`, then run
   `bun install && bun run build`, commit `package.json` and `bun.lock`, and
   restart `serve`. The build gives every UI the new client; reload open pages.
@@ -71,12 +71,10 @@ version an Epicenter runs is one line in a file in Git
   `"workspaces": ["apps/*/code", "apps/films/code/render"]`. Add it by hand;
   no command rewrites the list.
 
-An entry in `apps/` may be a link; Epicenter treats it as the folder it leads
-to. Bun finds packages from where a file really is, so a link to code outside
-the Epicenter finds no `@epicenter/app`, and the listing gives Bun's reason. Keep
-an app's code inside the Epicenter. A command also starts from the folder it
-really runs in, so one run inside a linked app's folder finds no Epicenter;
-run it from the Epicenter's folder.
+`apps/`, an app's folder, and its `code/`, `data/` and `local/` are real
+folders. A link at any of them is refused, not followed: the listing names it
+as a problem and that app does not load, and a linked `apps/` stops serve
+before it loads any app.
 
 ## Install and try a writing inbox
 
@@ -104,7 +102,7 @@ epicenter writing add '{"body":"An observation I want to return to","source":"My
 epicenter writing search '{"query":"observation"}'
 ```
 
-Open `http://127.0.0.1:4747/writing/`. Save a real note, search for it, and open
+Open `http://127.0.0.1:4747/apps/writing/`. Save a real note, search for it, and open
 it to edit. Your notes are in `apps/writing/data/notes/`. Closing the terminal
 stops the server; the files remain. Keep unsubmitted text open until saved.
 
@@ -208,14 +206,14 @@ Outside any Epicenter it refuses and says to `cd` into one. An agent working
 in another repository changes folder first, for example
 `(cd ~/Epicenter && epicenter reading log '{"minutes":30}')`
 ([ADR-0965](../../../../docs/adr/0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md)).
-The marker's optional front matter
-accepts only `port`, an integer from 1 to 65535; the default is 4747. An empty
-marker is valid. Nothing refuses an Epicenter inside another: a command uses
+The marker's front matter
+names `port`, an integer from 1 to 65535, and nothing else; a marker with no
+`port` is refused, naming the file. Below the front matter, the marker is a
+note for people. Nothing refuses an Epicenter inside another: a command uses
 the nearest marked folder at or above where it runs. So a file named
 `EPICENTER.md` below your Epicenter, even in an app's `data/`, makes commands
 run under it look for an Epicenter there; when that one's port is your serve's,
-the refusal names the folder it took, such as `Port 4747 is in use by another
-Epicenter's serve, not the one for /Users/ada/Epicenter/apps/vault/data`.
+the refusal names the folder it took and its marker, as below.
 
 ```sh
 epicenter
@@ -223,12 +221,11 @@ epicenter reading
 epicenter reading log '{"minutes":30,"book":"Dune"}'
 epicenter reading log '{"minutes":30}' --json
 epicenter reading patch '{"id":"dune","finished":null}'
-epicenter check
 epicenter serve
 epicenter --version
 ```
 
-The commands are `check` and `serve`. Their usage and help live in
+The one command is `serve`. Its usage and help live in
 `cli.ts`. No command makes an Epicenter, makes an app, or copies
 one: [Make an Epicenter](#make-an-epicenter) and
 [What an app holds](#what-an-app-holds) list the files
@@ -246,12 +243,13 @@ with its usage line and its help command as the next step.
 
 ## Discover and load an app
 
-Discovery lists `apps/`, skips dot entries, and accepts a directory or a link
-to one with `code/epicenter.ts`. The file must default-export
+Discovery lists `apps/` and skips dot entries and files. Every folder there
+is an app: its `code/epicenter.ts` must default-export
 `defineApp(({ folder }) => ...)`. The loader calls that function once with
-`folderOnDisk(<container>)` and lists what it returns.
-An entry with `code/` or `data/` but no declaration is listed with
-`code/epicenter.ts is missing`. Other folders are skipped. Discovery reads
+`folderOnDisk(<container>)` and lists what it returns. A folder with no
+declaration is listed with `no code/epicenter.ts`, and a link is listed as
+`apps/<name> is a link; apps/, an app's folder, and its code/, data/ and local/ must be real folders`.
+Discovery reads
 `apps/` only, never the `workspaces` list, so a package the owner added to
 that list is not taken for an app.
 
@@ -262,14 +260,12 @@ does not hide the others. Listings include container locations, data keys,
 schemas, and actions. The listing's `Version` is the one serve runs. They carry no per-app Git status. An
 empty Epicenter says `No apps yet. An app is apps/<name>/code/epicenter.ts`.
 
-The container's real path is `folder.path`. Contracts address `data/...`
-from that container. A separate real `codePath` is used for module imports
-and invalidation, and for UI builds and serving. Replacing `code/` leaves
-record paths intact.
+The container's path is `folder.path`. Contracts address `data/...`
+from that container. Replacing `code/` leaves record paths intact.
 
 An action's input is one argument after its name, `epicenter <app> <action>
 [<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
-stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
+stdin. No input is `{}`. Stdin is read only for `-`, so a script with stdin
 closed and an agent whose shell holds it open both run. An action has one
 name, so the command takes the word after the app as the action and the
 word after that as the input; more than one word after the action is refused
@@ -307,7 +303,7 @@ command prints the updates and the answer it reads back. Bare `epicenter`,
 disagree about one.
 
 While serve is stopped, an action is refused with exit 2 and nothing runs. Its
-answer is `NotStarted` with cause `unavailable`:
+answer is `NotStarted`:
 
 ```txt
 $ epicenter reading log '{"minutes":30}'
@@ -316,67 +312,54 @@ Run: epicenter serve
 ```
 
 Bare `epicenter`, `epicenter <app>` and an action's `--help` are refused the
-same way. Only `check`, and `--help` or `--version` on their own, work while
-serve is stopped: `check` loads each app as it is on disk, in its own
-process, so it also tries changed code before a restart.
+same way. Only `serve`, and `--help` or `--version` on their own, work while
+serve is stopped.
 
 The port is the Epicenter's name. A command names its Epicenter on every request in
 an `x-epicenter-root` header: its real path, sent only to `127.0.0.1`, so it
 never leaves the computer. Serve refuses a request naming another root with
-`409` and a body that does not name its own. Every answer to a request it
-accepts, its `500` included, carries `x-epicenter: 1` and no path; a
-tunnelled request's `403` and Bun's own `413` carry nothing
-([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)).
-
-What serve sends hides this computer's folders in its messages: the error
-of every HTTP and MCP answer, a refusal before a call, and the problems and
-routines in the listing. The Epicenter's real path reads `.` and the home
-folder reads `~`, whether written as a path or a `file://` URL, so
-`EACCES: permission denied, stat '/Users/ada/Epicenter/apps/notes'` reads
-`stat './apps/notes'`. A path outside both is left as it is, and so is what
-an action returns as data or sends as an update. Serve's own log on stderr
-keeps the full paths.
-
-A command whose port answers for something else runs nothing, and a second
-serve does not start; both say the same:
+`409` and a body that does not name its own, and the command says which
+folder it took for its Epicenter and where that folder's marker is
+([ADR-0961](../../../../docs/adr/0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md)):
 
 ```txt
-Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
+The serve on port 4747 is another Epicenter's. This command took /Users/ada/Epicenter/apps/vault/data for its Epicenter, from /Users/ada/Epicenter/apps/vault/data/EPICENTER.md: if that is not your Epicenter, remove that file; if it is, set a different `port` in it.
 ```
 
-It says `another program` when what answers is not an Epicenter's serve,
-and adds that a serve from before an upgrade is stopped and started again:
-one from before 0.8 sets no `x-epicenter`, and nothing tells it apart. Two
-Epicenters on one computer each need their own `port`, a whole number from 1 to
-65535.
-
-The port is also the lock. A second `epicenter serve` for an Epicenter that is
-already served exits 2 and changes nothing:
+An input past serve's 25 MiB limit is refused with `413`; the command answers
+`NotStarted` (`The input is larger than 25 MiB, the most serve takes`), exit
+2, since nothing ran. Any other status is `Unreachable`, exit 1, with one message, since the
+command does not probe what answered:
 
 ```txt
-serve is already running for this Epicenter on port 4747.
+The program on port 4747 answered 404 Not Found. If it is this Epicenter's serve from before an upgrade, restart it; if it is another program, set another `port` in /Users/ada/Epicenter/EPICENTER.md.
 ```
+ Two Epicenters on one
+computer each need their own `port`, a whole number from 1 to 65535.
 
-When something else holds the port, it says who, asking as a command does:
+The port is also the lock. A second `epicenter serve`, for this Epicenter or
+another, cannot bind a port in use; it exits 2 before it loads any app:
 
 ```txt
-Port 4747 is in use by another Epicenter's serve, not the one for /Users/ada/Epicenter. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md.
-Port 4747 is in use by another program. Set a different `port` in /Users/ada/Epicenter/EPICENTER.md. If it is an epicenter serve from before an upgrade, stop it and start it again.
+Port 4747 is in use. If that is not this Epicenter's serve, set another `port` in /Users/ada/Epicenter/EPICENTER.md.
 ```
 
 After an upgrade, the serve that was already running is still the old
 version until you restart it. Nothing warns you: restart serve after every
 upgrade.
 
+An app's and a routine's problems are made once, when serve starts, and a
+path inside the Epicenter in them is written from its folder, so
+`Cannot find module './missing.ts' imported from apps/notes/code/epicenter.ts`
+names no folder above the Epicenter. Nothing else is rewritten. What an
+action returns, sends as an update, or says in an error it throws reaches
+its caller as the action wrote it, so a message such as
+`EACCES: permission denied, open '/Users/ada/Epicenter/apps/notes/data/a.md'`
+can show a path of this computer to your own devices.
+
 An action runs in serve's environment: it does not see variables exported in
 the caller's shell, and what it prints goes to serve's output, not to the
-command. Each load drops cached modules under `codePath`, dependencies
-included, then imports `code/epicenter.ts`. The next call reads edits to code
-or its imports without restarting serve, with one exception: Bun keeps a
-module whose code threw while it ran, or that imported a missing file, so
-that failure stays until serve restarts, even once the file is fixed. Restart
-serve after fixing an app that failed to load; `epicenter check` tries the
-fixed code without one.
+command.
 
 An action shares its process with other calls. `process.exit` ends serve:
 every call then running is cut off, and a command that sent one answers
@@ -385,18 +368,40 @@ to `process.env` affect other apps too.
 An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, the launcher at `GET /`, each app's actions at `POST /actions/<app>/<action>`, the listing as JSON at `GET /actions/`, and each app at `/apps/<app>/`: a file from its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)), then the app's own `fetch` ([ADR-0945](../../../../docs/adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md)), then 404. The launcher links to apps with a built page; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. A later route of the server's own takes its own first segment, beside `actions` and `apps`, so no app name is reserved ([ADR-0967](../../../../docs/adr/0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)). The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A request a browser marks `Sec-Fetch-Site: cross-site` is refused with 403 unless it is a top-level `GET` navigation (`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document`), such as a link or an OAuth redirect back; another site's image, script, `fetch()` or frame is refused. A browser sends these headers only to `localhost`, `127.0.0.1` or `https`, so reach serve from another device at its `https://<machine>.<tailnet>.ts.net` address, not a plain `http` tailnet IP. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`. It takes no flags and listens nowhere else: another device reaches it through a private proxy on this computer, such as `tailscale serve --bg 4747`. It serves MCP at `POST /`, each app's actions at `POST /actions/<app>/<action>`, the listing as JSON at `GET /actions/`, and each app at `/apps/<app>/`: a file from its `code/ui/dist/` ([ADR-0860](../../../../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)), then the app's own `fetch` ([ADR-0945](../../../../docs/adr/0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md)), then 404. Any other method at `/` gets 405, including MCP's `GET` for an event stream, since the server keeps no MCP session. Serve has no page at `/`: `epicenter` prints what the Epicenter has, `GET /actions/` gives it as JSON, and an app's page is at `/apps/<app>/`. When it starts, serve prints its address, the listing's, and the address of each app with a built page. A later route of the server's own takes its own first segment, beside `actions` and `apps`, so no app name is reserved ([ADR-0967](../../../../docs/adr/0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md)). The listener answers only a `Host` that is `localhost` (or `*.localhost`), an IP address, or a `*.ts.net` name, so a DNS rebinding name gets 403; it also refuses, with 403, any request carrying `Tailscale-Funnel-Request` or `Cf-Connecting-IP`, which a Tailscale Funnel or Cloudflare Tunnel adds. An Origin must match the request Host; requests without Origin are accepted. A request a browser marks `Sec-Fetch-Site` other than `same-origin` or `none` is refused with 403 unless it is a top-level `GET` navigation (`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document`), such as a link or an OAuth redirect back; another origin's image, script, `fetch()` or frame is refused, including a page on another port of this computer, which a browser counts as the same site. A browser sends these headers only to `localhost`, `127.0.0.1` or `https`, so reach serve from another device at its `https://<machine>.<tailnet>.ts.net` address, not a plain `http` tailnet IP. A reverse proxy such as `tailscale serve` can provide HTTPS. `serve` signs no one in: it trusts this computer and the tailnet, and who reaches it is its host's decision ([ADR-0883](../../../../docs/adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)). A Funnel or Cloudflare Tunnel aimed at this port by mistake reaches only 403s: each sets its header on every request, and Funnel deletes a copy the client sent. `Host` is no defence there, since Funnel forwards the client's own. Another tunnel that adds no such header and forwards an allowed `Host` would reach `serve` with no sign-in, so never tunnel its port.
 
-MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions, read again on each initialize so an edit reaches the next client without a restart. `tools/list` offers the actions of serve's listing, which loads each app as it is now; an app that fails to load loses only its own tools and says why on stderr. `tools/call` decodes the tool name and runs the action, so an edit between calls is seen by the next. What an action yields is not sent over MCP; a client gets its answer.
+MCP offers every app action as a tool and sends the Epicenter's `AGENTS.md`, when present, as server instructions. Serve reads `AGENTS.md` and builds the tools once, when it starts. An app that fails to load has no tools, and serve prints why when it starts. `tools/call` decodes the tool name and runs the loaded action. What an action yields is not sent over MCP; a client gets its answer.
 
 A page calls actions through `@epicenter/app/client`, at
 `POST /actions/<app>/<action>`. See [A call over HTTP](#a-call-over-http).
 
 Serve commits nothing. Git stores the Epicenter, and its owner commits and pushes
 it with Git; nothing is committed or pushed on its own. On SIGINT or SIGTERM
-serve exits. Its routine commands share its process group, so Ctrl-C in its
-terminal, or a service manager that stops the group, stops them too; a
-signal sent to serve's process alone leaves them running.
+serve closes every connection and exits, and a call or routine still running
+is cut. A write cut off leaves its target whole: the folder writes a
+temporary file and renames it over the target.
+
+### Restart serve to run changed code
+
+Serve loads every app once, when it starts, and answers every call from that
+load until it stops ([ADR-0959](../../../../docs/adr/0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md)).
+It reads `AGENTS.md` and `routines/` in the same pass. An edit to an app's
+code, to a package, to `.env`, to `AGENTS.md` or to a routine takes effect
+when serve restarts; until then serve runs what it loaded, and nothing says
+the code on disk is newer. Records and `code/ui/dist/` are read when they are
+needed, so an edited record or a new build needs no restart.
+
+Serve has no reload command. Stop it and start it again, however you keep it
+running. Since that differs by computer, the Epicenter's `AGENTS.md` should
+carry the owner's restart command, so every agent that edits code can run it.
+For serve kept running by launchd:
+
+```md
+After editing an app's code, restart serve:
+launchctl kickstart -k gui/$(id -u)/<label>
+```
+
+A stop cuts every call and routine run still going.
 
 ## Keep serve running
 
@@ -414,18 +419,16 @@ including its `PATH` ([ADR-0941](../../../../docs/adr/0941-epicenter-serve-is-a-
 ## Routines
 
 The Epicenter opts into recurring work with `routines/<name>.md`, outside `apps/`.
-A routine is an instruction to this computer, so sharing an app schedules
-nothing. Once a minute, `serve` reads `routines/` and starts each routine
-whose schedule had an occurrence since its last check. It keeps that one
-moment in memory, starting from when serve started, so nothing runs at
-startup:
+A routine runs one action of one of its apps on a schedule. It is an
+instruction to this computer, so sharing an app schedules nothing:
 
 ```yaml
 ---
 cron: "0 8 * * *"
-run: ["epicenter", "my-app", "review"]
+action: "flights daily"
+input: {"recheck": false}
 ---
-Prepare my morning review.
+Check my flights each morning.
 ```
 
 `cron` is a five-field expression or nickname such as `@hourly`, read in the
@@ -433,40 +436,35 @@ computer's local time by `Bun.cron.parse`. A skipped clock time moves forward
 through the gap. Occurrences missed while the computer sleeps run once on
 wake. An occurrence that passes while `serve` is not running does not run; a
 routine that must not miss a day uses a wider schedule, such as
-`0 8-22 * * *`, and a command that exits when today's work is done.
+`0 8-22 * * *`, and an action that returns early when today's work is done.
 
-`run` is a program and its arguments, with no shell. The program is text. An
-argument is text or any other JSON value, which reaches the command as one
-word of JSON text, so an action's input needs no escaping:
+`action` is an app's name and one of its action's names, separated by a
+space. `input` is one JSON object, the action's input; with none it is `{}`.
+Each value on a front-matter line is JSON, so `action` is quoted.
 
-```yaml
-run: ["epicenter", "flights", "daily", "run", {"recheck": false}]
-```
+Serve reads `routines/` once, when it starts, as it loads apps, and checks
+each file against the apps it loaded. A file with another field, an unknown
+app or action, or an input that does not fit is refused: serve prints
+`routines/<name>.md: <why>` when it starts, and bare `epicenter` lists the
+same reason. To change a routine, edit its file and restart serve; to stop
+one, remove its file. The Epicenter's history keeps it.
 
-The working directory is the Epicenter folder. A routine finds its program the
-way a terminal in the Epicenter would after `bun install`: its `PATH` is serve's,
-with the Epicenter's `node_modules/.bin` and the folder of the Bun running serve in
-front. So `epicenter` and `bun` work in `run` and in any script a routine
-starts. Unknown fields and malformed declarations are refused. To stop a
-routine, remove its file; the Epicenter's history keeps it.
+Once a minute serve runs each routine whose schedule had an occurrence since
+its last check, keeping that one moment in memory from when it started, so
+nothing runs at startup. A routine runs in serve as a call does, through the
+same `runAction`, so its run writes the same record to serve's stderr: the
+app, the action, the outcome and how long it took. Its result is what the
+action leaves in the Epicenter. Runs may overlap; an action that must not
+overlap itself, or needs a deadline, keeps its own. Actions must tolerate
+repetition; there is no exactly-once guarantee.
 
 `epicenter` on its own lists each routine's schedule, next occurrence, and
-command as one shell-quoted line to copy into a terminal, or why its file is
-refused. It asks `serve`, like every command but `check`.
+action with its input, or why its file is refused.
 
-A person or their agent writes the file. Installing or importing an app
-schedules nothing.
-
-`serve` records nothing about a routine. It starts the command and does not
-wait for it, time it, stop it, or note how it ended. Runs may overlap. A
-command that needs a deadline sets its own; one that must not overlap itself
-takes a lock, for example with `/usr/bin/lockf -t 0 <file> <command>`. A
-command's output goes where `serve`'s does, and its result is whatever it
-leaves in the Epicenter. `serve` writes to its stderr only a routine file it cannot
-read and a command it cannot start. Commands share `serve`'s process group, so
-stopping that group (Ctrl-C in a terminal, or the job that runs serve) stops
-them. Commands must tolerate repetition;
-there is no exactly-once guarantee.
+A routine runs an action, nothing else. A script or any other program on a
+schedule is cron's or launchd's job, or an action in a personal app that
+runs it. A person or their agent writes the file. Installing or importing an
+app schedules nothing.
 
 See [ADR-0908](../../../../docs/adr/0908-serve-runs-the-homes-daily-routines.md) and
 [ADR-0937](../../../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md).
@@ -477,14 +475,14 @@ See [ADR-0908](../../../../docs/adr/0908-serve-runs-the-homes-daily-routines.md)
 `epicenter` command alike: `epicenter flights search-watches` is
 `POST /actions/flights/search-watches`. The body is the input as one JSON
 object, at most 25 MiB. The route uses the Host, Origin, tunnel and
-cross-site guards every request passes.
+other-origin guards every request passes.
 
 | Outcome | Response |
 | --- | --- |
 | The action ran | 200, `application/x-ndjson`: `{"update": value}` for each update, then `{"answer": { data, error }}` |
 | No such app or action, an address that is not `/actions/<app>/<action>`, the app cannot load, or the input is not JSON, not an object, or does not fit | 200, one line: `{"answer": { data: null, error: { name: "NotStarted", ... } }}` |
 | A method other than `POST` (other than `GET /actions/`, the listing) | 405 |
-| The body is larger than 25 MiB | 413 from Bun, with no body and no `x-epicenter`; the command refuses such an input before sending it |
+| The body is larger than 25 MiB | 413 from Bun, with no body; the command reads it as `Unreachable` |
 
 A stream that ends with no `answer` line was cut off, and its outcome is
 unknown: the action may still be running or may have finished. A page and
@@ -524,7 +522,7 @@ What is in an app's `local/` stays on this computer. When `folder` makes
 folder whatever the root `.gitignore` says. The root line `/apps/*/local/`
 stays as a second guard, for a `local/` an app made itself with `node:fs`
 or SQLite. Such a `local/` without its own `.gitignore` is listed as a
-problem by the Epicenter listing, `epicenter check` and serve's start, with
+problem by the Epicenter listing and serve's start, with
 the fix:
 
 ```txt
@@ -551,7 +549,7 @@ any error; HTTP sends it in the last line, `{"answer": ...}`.
 { "data": null, "error": { "name": "NoRoute", "message": ... } }    exit 1, the action's own error
 { "data": null, "error": { "name": "Threw", "message": ... } }      exit 1, the action began and threw
 { "data": null, "error": { "name": "Unreachable", "message": ... } } exit 1, the outcome is unknown
-{ "data": null, "error": { "name": "NotStarted", "message": ..., "cause": "usage" } }  exit 2
+{ "data": null, "error": { "name": "NotStarted", "message": ..., "next": ... } }   exit 2
 ```
 
 The error's name says whether the action ran:
@@ -560,16 +558,13 @@ The error's name says whether the action ran:
 | --- | --- |
 | `NotStarted` | no; it is safe to call again once its cause is fixed |
 | an error about a record, `Missing`, `Changed` or `Misfit`, or the app's own, such as `Refused` | yes |
-| `Problems` | yes; `report` is what it found, and the job is not clean |
 | `Threw` | yes, partly |
 | `Unreachable` | unknown; reread the records before calling again |
 
-`NotStarted` carries `cause`: `usage` (the words or input do not fit),
-`app-problems` (the app
-cannot load, with its `app` and `problems`), `internal` (Epicenter failed
-before it began), or `unavailable` (no serve for this Epicenter answers, or
-another program holds its port). `usage` and `unavailable` have a `next` step
-when there is one. `Threw` carries the thrown tagged value as `thrown` when
+`NotStarted` carries a `message` that says why: the words or input do not
+fit, the app cannot load (its name, then each problem on its own line),
+Epicenter failed before it began, or no serve for this Epicenter answers.
+It has a `next` step when there is one. `Threw` carries the thrown tagged value as `thrown` when
 it survives JSON. An error carries no marker of who made it: the name says.
 
 An action cannot answer `NotStarted` or `Unreachable`. One that returns
@@ -579,7 +574,7 @@ including one forwarded from another action.
 
 `Ok(undefined)` arrives with null data. Human output puts success data on
 stdout and an error's message, and `Run: <next>` when there is one, on
-stderr. The CLI's own commands (`check`, the listings, `--version` and
+stderr. The CLI's own commands (the listings, `--version` and
 `--help`) answer the same way: with `--json`,
 stdout is their `{ data, error }`, and the exit code follows the same rule.
 `serve` prints no answer while it serves; a serve that cannot start answers
@@ -612,55 +607,6 @@ body: |
 
 `id` prints as a field: the command reads only the answer. A data key's `get`, `create`, `patch`, `edit`, and `delete` take `id` flat in the input object, beside the fields. `create` needs the `id` the caller chooses; a repeat with the same `id` answers `Changed` (`there`) and writes nothing.
 
-## Check records
-
-`epicenter check [<app>]` reads every data key an app declares, or every
-app's, and reports the files that do not fit their key's fields. A `get`
-returns a tagged `Misfit` for such a file. A generated `list` succeeds with
-one Result per file, including the individual refusals. The check command
-collects those diagnostics for the whole app so a person or agent can repair
-the records or the declaration.
-
-It runs `checkData` from `@epicenter/app` in a run of the app's folder and
-writes nothing. Besides files that do not fit, it reports a file in a folder
-key whose name is not a record id, names that are one file on a disk that
-ignores case, a `field.ref` that names no file in its target key, and a
-`data/<key>.md` for a declared key: a one-file record from before every key
-was a folder, read by nothing until it moves to `data/<key>/<key>.md`
-(listed with the app's problems). Every other file or folder directly under
-`data/` is the app's own and is not reported. Front
-matter no field declares is not a problem: a read does not give it, every
-write keeps it, and the check does not report it.
-
-For each key the report gives how many files it holds and how many have
-problems, then each file's path under `data/` and its problem lines.
-
-```txt
-$ epicenter check flights
-flights
-  watches  2 files, none with problems
-  checks  3 files, 1 with problems
-    checks/bad.md
-      watch: 3 is not text
-      day: "soon" is not a day like 2026-11-12
-  settings  0 files, none with problems
-```
-
-With `--json` its `data` is
-`{ "apps": { <app>: { <key>: { path, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
-A kind is a problem line without the value it quotes, so `due: "next week"`
-and `due: "soon"` are one kind; when most files share one kind, the
-declaration is often too narrow, and one change to `epicenter.ts` repairs
-them all. `records` holds only files with problems. Without an app named, an
-app that does not load is listed under `problems`, as in the Epicenter
-listing, and the other apps are still checked; a read that fails lists its
-app there too, and so does an app whose `local/` has no `.gitignore`, with
-the command that adds one. A named app that does not load did not run:
-`NotStarted`, exit 2. A clean report is `data`, exit 0. When a file or an
-app has a problem, the answer is `Problems`, exit 1, carrying the same
-report as `error.report` and a one-line summary as its message. Without
-`--json` the report prints on stdout either way, and the summary on stderr.
-
 ## The Epicenter's report
 
 `epicenter` on its own prints serve's listing: the version serve runs, the
@@ -669,7 +615,7 @@ one its `packages/app/package.json` states. `--json` answers the report as
 apps serve loaded and any problems loading them, then
 each routine with its cron and next occurrence or the reason its file is
 refused. `--json` adds them as
-`routines: [{ name, cron, next } | { name, problem }]`, and the Epicenter's
+`routines: [{ name, cron, next, app, action, input } | { name, problem }]`, and the Epicenter's
 folder and each app's, which the command adds. The report reads only and
 starts nothing; while serve is stopped it is refused as a call is. It exits
 0 when it could report, even when an app or a routine file has a problem.
@@ -684,13 +630,14 @@ git log -1 --format=%cr      # how long ago the last commit was
 ```
 
 A commit that is days old, or files that stay uncommitted, mean whatever
-commits the Epicenter stopped. A routine's error is in serve's output.
+commits the Epicenter stopped. A routine's outcome is in serve's output, one
+record per run.
 
 ## Git stores the Epicenter
 
 Epicenter runs actions and serves pages. Git stores the Epicenter, and Epicenter
 does not wrap Git: no `epicenter` command commits or pushes. Commit and push
-with Git, by hand or from a [routine](#routines) that runs a script of your
+with Git, by hand or from a cron or launchd job that runs a script of your
 own. A commit made while serve runs samples files, not intent: it can hold a
 partial edit or part of a running action's writes. Keep origin private: it
 receives every app's records. Git's ignore rules alone decide what is
@@ -703,7 +650,7 @@ No command makes one. An Epicenter is a folder that holds:
 
 | Path | Holds |
 | --- | --- |
-| `EPICENTER.md` | The marker: empty, or front matter with `port` |
+| `EPICENTER.md` | The marker: front matter with `port`, such as `---`, `port: 4747`, `---` on three lines |
 | `package.json` | The workspace in [An Epicenter is a Bun workspace](#an-epicenter-is-a-bun-workspace) |
 | `.gitignore` | At least `/apps/*/local/`, `.env*`, `!.env.example` and `node_modules/` |
 | `apps/` | One folder per app |
@@ -745,7 +692,7 @@ that holds:
 | `local/` | What this computer can rebuild or sign in again, or must keep to itself: sign-ins, caches, databases. The root `.gitignore` keeps it out of Git |
 
 `<name>` is lowercase letters, digits, and dashes, starts with a letter, and
-is not `check` or `serve`. Two packages in one Bun workspace cannot share a
+is not `serve`. Two packages in one Bun workspace cannot share a
 name, so `bun install` refuses a `package.json` whose name another app has.
 After `package.json` changes, run `bun install` at the top of the Epicenter; after
 `ui/` changes, `bun run build`. The bare `epicenter` lists an app that does

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
-- **Amended:** 2026-11-11: a call runs in the process that received it, the command line's or `serve`'s, not in a child `epicenter` per call; each load first drops the modules the process loaded from under the app's folder, so the next import reads the files as they are now. Deleted with the child: its report file, the `--report` and `--read-only-call` flags, signal forwarding, its IPC channel for yields, and `serve --stdio`. Given up: a call that outlives the `serve` that started it, and isolation from an action that exits, hangs, or changes the process's working directory or environment; the code is its owner's (ADR-0864), and `serve`'s job restarts it.
+- **Amended:** 2026-11-11: a call runs in the process that received it, the command line's or `serve`'s, not in a child `epicenter` per call; each load first drops the modules the process loaded from under the app's folder, so the next import reads the files as they are now. 2026-11-18: superseded by [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md): serve loads each app once, when it starts. Deleted with the child: its report file, the `--report` and `--read-only-call` flags, signal forwarding, its IPC channel for yields, and `serve --stdio`. Given up: a call that outlives the `serve` that started it, and isolation from an action that exits, hangs, or changes the process's working directory or environment; the code is its owner's (ADR-0864), and `serve`'s job restarts it.
 - **Built:** imports and module invalidation under code/, code-package installation, the compiled app package, the container write lock, and root checkpoints in packages/cli.
 - **Migrated:** the live Epicenter history import and code/data directory cutover described in [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md).
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call's commit; the lock; the clock), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's UI), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app`), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (historical repository split).
@@ -62,14 +62,13 @@ sharing, never deployment.**
   where it is served. `bun run build` at the top of the home runs every app's
   build, which is how UIs pick up a new client after an upgrade.
   - The word for it is UI; "view" is retired.
-- **A call runs where it arrives, from the files as they are.** The command
-  line runs a call itself, and so does `serve`. Each load of an app first
-  drops every module the process loaded from under the app's `code/`, its
-  `node_modules` included, then imports `code/epicenter.ts`, so an edit to it, or
-  to anything it imports, reaches the next call. Measured 2026-11-11 on Bun
-  1.4.3: an edit to `epicenter.ts`, a file it imports, and a package in its
-  `node_modules` each reached the next import, and 300 reloads grew the
-  process by 8 MB. A run already holding the old modules keeps them.
+- **Serve runs a call from the code it loaded when it started.** This
+  bullet first said each call reloaded the app, dropping every module under
+  `code/` so an edit reached the next call. ADR-0959 replaced that: serve
+  imports each app once, and an edit to `epicenter.ts`, to anything it
+  imports, or to a package takes effect when serve restarts. Measured
+  2026-11-11 on Bun 1.4.3, before that change: 300 reloads grew the process
+  by 8 MB.
 - **Reads reach the whole Epicenter.** An action reads any file under the
   Epicenter with `node:fs` or any library, another app's records included:
   `../tasks/data/tasks/<time>.md`.

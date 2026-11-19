@@ -34,8 +34,10 @@ Epicenter.app/Contents/MacOS/
 - The app starts no process of its own. `serve` runs under a LaunchAgent the
   app registers for `~/Epicenter` through `SMAppService.agent` (ADR-0941). If
   that job is already registered, the app shows it.
-- The window shows the launcher at `http://localhost:<port>/`, the page a phone
-  sees at `/`.
+- The window showed the launcher at `http://localhost:<port>/`. Serve no
+  longer has a page at `/` (amended 2026-11-18, ADR-0961), so what the
+  window shows is open; the listing at `GET /actions/` names the apps and
+  each app's page is at `/apps/<app>/`.
 - A menu bar item shows whether `serve` is running and restarts it; closing
   the window or quitting the app leaves it running.
 - Its one setting is "Run Epicenter", which registers or unregisters the job.

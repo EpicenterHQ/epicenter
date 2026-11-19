@@ -3,14 +3,7 @@
  * grammar, output, and the folder and cache on disk. Broken apps must not block healthy apps.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { fixture, reading, vault } from './runner.test-support.ts';
@@ -32,7 +25,7 @@ async function setup() {
 	return f;
 }
 
-test('listing isolates broken imports, invalid apps and folders that cannot name an app, and lists a linked app like any other', async () => {
+test('listing isolates broken imports, invalid apps, folders that cannot name an app, and a link', async () => {
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
 	await f.app('serve', reading);
@@ -41,13 +34,6 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 		'spaced',
 		`export default defineApp(() => ({ description: 'The spaced app', actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } }));`,
 	);
-	const linked = await f.app(
-		'linked',
-		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
-		// Inside the Epicenter: linked code finds packages from where it really is.
-		join(f.epicenter, 'shelf'),
-	);
-	await symlink(linked, join(f.apps, 'linked'));
 	await mkdir(join(f.apps, '.hidden'));
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
@@ -55,11 +41,10 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	const value = JSON.parse(result.stdout).data;
 	expect(value.epicenter).toBe(f.epicenter);
 	expect(value.apps.map((app: { name: string }) => app.name)).toEqual([
-		'linked',
 		'reading',
 		'vault',
 	]);
-	expect(value.apps[1].actions[0]).toMatchObject({
+	expect(value.apps[0].actions[0]).toMatchObject({
 		name: 'reading_log',
 		inputSchema: {
 			type: 'object',
@@ -93,12 +78,11 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	});
 	expect(value.problems[2]).toMatchObject({
 		entry: 'serve',
-		folder: join(f.apps, 'serve'),
 	});
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toEndWith(
-		'\nNo routines. Add routines/<name>.md with cron and run.\n',
+		'\nNo routines. Add routines/<name>.md with cron and action.\n',
 	);
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).not.toContain('epicenter reading');
@@ -138,10 +122,10 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 	const f = await setup();
 	const cases: [string[], string][] = [
 		[['nope'], 'nope'],
-		[['reading', 'nope'], 'reading has no action "nope". Its actions:'],
+		[['reading', 'nope'], 'reading has no action "nope"; its actions: log,'],
 		[
 			['reading', 'lgo', '{"minutes":3}'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week-summary\n',
+			'reading has no action "lgo"; its actions: log, week-summary,',
 		],
 		[['reading', 'log', '{"minutes":3,"nope":1}'], '"nope" is not a key'],
 		[['reading', 'log'], 'minutes is needed'],
@@ -158,7 +142,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		// --help answers a mistyped action as a call does.
 		[
 			['reading', 'lgo', '--help'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week-summary\n',
+			'reading has no action "lgo"; its actions: log, week-summary,',
 		],
 		// Not names: sent as they are, they would reach / or the root.
 		[['..', 'add'], 'Unknown app ".."'],
@@ -177,7 +161,6 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 			error: {
 				name: 'NotStarted',
 				message: expect.stringContaining(message),
-				cause: 'usage',
 				next: expect.any(String),
 			},
 		});
@@ -193,10 +176,8 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 		[['reading', 'log', '--help'], 0],
 		[['--version'], 0],
 		[['--help'], 0],
-		[['check', '--help'], 0],
-		[['check'], 0],
 		[['nope'], 2],
-		[['check', 'nope'], 2],
+		[['check'], 2],
 		[['serve'], 2],
 	];
 	for (const [words, code] of answered) {
@@ -217,12 +198,17 @@ test("every command's --json is one { data, error } answer, and its exit code fo
 	}
 });
 
-test('bare epicenter reports routines after the apps, and changes nothing', async () => {
+test('bare epicenter reports routines after the apps, each checked when serve started, and changes nothing', async () => {
 	const f = await setup();
 	await f.folder(f.epicenter, {
 		'routines/review.md':
-			'---\ncron: "0 8 * * *"\nrun: ["epicenter", "reading", "week-summary", {"note": "it\'s here"}, "two words"]\n---\n',
-		'routines/broken.md': '---\ncron: "61 * * * *"\nrun: ["true"]\n---\n',
+			'---\ncron: "0 8 * * *"\naction: "reading log"\ninput: {"minutes": 30, "book": "it\'s here"}\n---\n',
+		'routines/broken.md':
+			'---\ncron: "61 * * * *"\naction: "reading log"\n---\n',
+		'routines/old.md': '---\ncron: "0 8 * * *"\nrun: ["true"]\n---\n',
+		'routines/sing.md': '---\ncron: "0 8 * * *"\naction: "reading sing"\n---\n',
+		'routines/unfit.md':
+			'---\ncron: "0 8 * * *"\naction: "reading log"\ninput: {"minutes": "many"}\n---\n',
 	});
 	// Every file in the Epicenter outside its install, with its text.
 	const state = async () => {
@@ -250,14 +236,27 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 		{
 			name: 'broken',
 			problem:
-				'broken.md cron must be a five-field cron expression such as "0 8 * * *" with a future occurrence',
+				'cron must be a five-field cron expression such as "0 8 * * *" with a future occurrence',
+		},
+		{
+			name: 'old',
+			problem:
+				'needs exactly cron: "<minute hour day month weekday>" and action: "<app> <action>", and may have input: {...}',
 		},
 		{
 			name: 'review',
 			cron: '0 8 * * *',
 			next: expect.any(String),
-			command: `epicenter reading week-summary '{"note":"it'\\''s here"}' 'two words'`,
+			app: 'reading',
+			action: 'log',
+			input: { minutes: 30, book: "it's here" },
 		},
+		{
+			name: 'sing',
+			problem:
+				'reading has no action "sing"; its actions: log, week-summary, tag, collect, inspect, explode',
+		},
+		{ name: 'unfit', problem: 'input: minutes must be a number' },
 	]);
 	// The version the Epicenter has installed, read from its node_modules.
 	expect(value.version).toBe(packageJson.version);
@@ -268,7 +267,7 @@ test('bare epicenter reports routines after the apps, and changes nothing', asyn
 		'problems',
 		'routines',
 	]);
-	expect(Date.parse(value.routines[1].next)).toBeGreaterThan(Date.now());
+	expect(Date.parse(value.routines[2].next)).toBeGreaterThan(Date.now());
 
 	const human = await f.run();
 	expect(human.code).toBe(0);
@@ -281,8 +280,11 @@ Run: epicenter <app>
 
 Routines:
   broken: ${value.routines[0].problem}
-  review: cron 0 8 * * *, next ${value.routines[1].next}
-    ${value.routines[1].command}
+  old: ${value.routines[1].problem}
+  review: cron 0 8 * * *, next ${value.routines[2].next}
+    reading log {"minutes":30,"book":"it's here"}
+  sing: reading has no action "sing"; its actions: log, week-summary, tag, collect, inspect, explode
+  unfit: input: minutes must be a number
 `,
 	);
 	expect(await state()).toEqual(before);
@@ -290,32 +292,24 @@ Routines:
 
 test('a misused command answers its usage line, with its help as the next step', async () => {
 	const f = await setup();
-	const check = 'epicenter check [<app>] [--json]';
-	for (const words of [
-		['reading', 'vault'],
-		['--from', './x'],
-	]) {
-		const result = await f.run('check', ...words, '--json');
+	for (const words of [['reading'], ['--from', './x']]) {
+		const result = await f.run('serve', ...words, '--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout)).toEqual({
 			data: null,
 			error: {
 				name: 'NotStarted',
-				cause: 'usage',
-				message: `Usage: ${check}`,
-				next: 'epicenter check --help',
+				message: 'Usage: epicenter serve',
+				next: 'epicenter serve --help',
 			},
 		});
 	}
 	expect(JSON.parse((await f.run('serve', '--json')).stdout)).toMatchObject({
 		data: null,
-		error: { name: 'NotStarted', cause: 'usage' },
+		error: { name: 'NotStarted' },
 	});
 	expect((await f.run('serve', '--help')).stdout).toContain(
 		'POST /actions/<app>/<action>',
-	);
-	expect((await f.run('check', '--help')).stdout).toStartWith(
-		`${check}\nReads every data key`,
 	);
 });
 
@@ -387,7 +381,7 @@ test('a failed stdout write after the action runs never emits a refusal or retri
 	expect(await readFile(join(f.apps, 'counts/local/count'), 'utf8')).toBe('1');
 });
 
-test('a run uses its own app folder and local files, and a linked app loads from where it really is', async () => {
+test('a run uses its own app folder and local files', async () => {
 	const f = await setup();
 	const result = await f.run('reading', 'inspect', '--json');
 	expect(result.code).toBe(0);
@@ -396,15 +390,6 @@ test('a run uses its own app folder and local files, and a linked app loads from
 	expect(
 		await Bun.file(join(f.apps, 'reading', 'local/index.json')).exists(),
 	).toBe(true);
-	const target = await f.app(
-		'linked',
-		`export default defineApp(() => ({ description: 'The linked app', actions: {} }));`,
-		// Inside the Epicenter: linked code finds packages from where it really is.
-		join(f.epicenter, 'shelf'),
-	);
-	await symlink(target, join(f.apps, 'linked'));
-	// A link is a folder: the app runs from where it really is.
-	expect((await f.run('linked', '--json')).code).toBe(0);
 });
 
 test('app and action views include locations, schemas, field help and version', async () => {

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-16
 - **Amends:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md) on the schedule (`daily` becomes `cron`), what makes a routine due, interrupted attempts, `paused`, `timeout`, the routine lock and process-group supervision, local state and logs, `routines run`, and `routines.set`. Its folder and command argv stand. [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) on the checkpoint clock: `serve` keeps none, and a home checkpoints only if it has a routine that does.
-- **Amended by:** [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md): routine commands start in their own process group, and serve waits for them on stop as it waits for calls.
+- **Amended:** 2026-11-18: a routine names one action and its input (`action: "<app> <action>"`, `input: {...}`), not a command. Serve reads `routines/` once, when it starts, checks each file against the apps it loaded, and runs a due routine through the same runner as a call. `run`, the spawned command, its process group and its PATH are removed. See "Amendment: a routine is an action" below. [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) holds the stop rule: a run still going when serve stops is cut.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (actions make no commits).
 
 ## Context
@@ -157,3 +157,40 @@ for an agent to add when the person wants history and backup.
   private records out up to 288 times a day, reads mail bodies that can
   carry injected instructions, and stops backups when the model is
   unavailable. A home may still choose it.
+
+## Amendment: a routine is an action
+
+2026-11-18. Every routine the owner kept ran `epicenter <app> <action>`,
+which is a client sending a call back to the serve that started it. Serve now
+runs that call itself.
+
+```yaml
+---
+cron: "0 8 * * *"
+action: "flights daily"
+input: {"recheck": false}
+---
+Research flights each morning.
+```
+
+- **The file names an action.** `cron` is unchanged. `action` is the app and
+  the action, separated by one space. `input` is optional and defaults to
+  `{}`. Any other field, `run` included, refuses the file.
+- **Serve reads `routines/` once, when it starts** (ADR-0959). A routine
+  naming an unknown app or action, or an input that does not fit, is refused
+  then, and serve prints it beside the address it serves. Bare `epicenter`
+  lists it with its problem. A routine added or changed takes effect at the
+  next restart, like code.
+- **A due routine runs through `runAction`**, the runner a call uses, so its
+  run leaves the same line on stderr as a call. Serve does not wait for it,
+  and runs may still overlap.
+- **Nothing is spawned.** No `PATH`, no process group, no `Bun.spawn`. A stop
+  signal cuts a running routine as it cuts a running call.
+- **A shell command on a schedule is out of scope.** A home that wants Git
+  checkpoints or a script on a clock writes an action that runs it, or uses
+  the computer's own scheduler. The checkpoint example above no longer runs
+  as written.
+
+Considered: keeping `run` beside `action`. It keeps shell routines, but it
+keeps the spawn, its environment and its process group for a case no current
+routine uses, and a routine file then has two forms.

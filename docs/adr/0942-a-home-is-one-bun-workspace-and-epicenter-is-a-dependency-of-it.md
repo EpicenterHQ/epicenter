@@ -75,7 +75,8 @@ it.**
   run from inside the home.
 - A changed dependency shows after serve restarts: packages are now outside
   the app folder serve forgets before each call. An edit to an app's own
-  code still shows on the next call.
+  code still shows on the next call. (Amended by ADR-0959: serve loads each
+  app once, so an edit to its own code also shows after a restart.)
 - An app whose folder is a link to code outside the home does not load. Bun
   resolves a package from where a file really is, so that code cannot find
   the home's install. Keep an app's code inside the home.

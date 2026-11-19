@@ -192,41 +192,20 @@ test('an error renders its message and next step, and exits 2 only for NotStarte
 	expect(
 		present(ActionError.Unreachable({ message: 'The connection ended' })),
 	).toEqual({ stdout: '', stderr: 'The connection ended\n', code: 1 });
-	for (const cause of ['usage', 'unavailable'] as const)
-		expect(
-			present(ActionError.NotStarted({ message: 'm', cause, next: 'n' })),
-		).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
-	for (const error of [
-		ActionError.NotStarted({ message: 'm', cause: 'internal' }),
-		ActionError.NotStarted({
-			message: 'm',
-			cause: 'app-problems',
-			app: 'a',
-			problems: ['p'],
-		}),
-	])
-		expect(present(error)).toEqual({
-			stdout: '',
-			stderr: 'm\n',
-			code: 2,
-		});
-	// An error that carries a report renders it where data would be, by the
-	// field and not the name, and its message still goes to stderr.
-	expect(
-		present(
-			ActionError.Problems({
-				message: '1 file has problems',
-				report: { checked: 3, bad: ['a.md'] },
-			}),
-		),
-	).toEqual({
-		stdout: 'checked: 3\nbad: ["a.md"]\n',
-		stderr: '1 file has problems\n',
-		code: 1,
+	expect(present(ActionError.NotStarted({ message: 'm', next: 'n' }))).toEqual({
+		stdout: '',
+		stderr: 'm\nRun: n\n',
+		code: 2,
 	});
+	expect(present(ActionError.NotStarted({ message: 'm' }))).toEqual({
+		stdout: '',
+		stderr: 'm\n',
+		code: 2,
+	});
+	// A field beside the message, such as an action's own `report`, is not printed.
 	expect(
 		present(Err({ name: 'Partial', message: 'm', report: 'what it did' })),
-	).toEqual({ stdout: 'what it did\n', stderr: 'm\n', code: 1 });
+	).toEqual({ stdout: '', stderr: 'm\n', code: 1 });
 	// The name is what counts: an app's own `NotStarted` never reaches here,
 	// because serve answers it as `Threw`.
 	expect(present(Err({ name: 'Refused', message: 'm' })).code).toBe(1);

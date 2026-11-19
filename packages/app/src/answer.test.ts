@@ -24,19 +24,8 @@ test('an answer is data, the error itself, or a platform error with its fields',
 			message: 'bad',
 			thrown: { name: 'Custom', message: 'bad', id: 7 },
 		}).error,
-		...(['usage', 'unavailable'] as const).map(
-			(cause) =>
-				ActionError.NotStarted({ message: 'no', cause, next: 'epicenter' })
-					.error,
-		),
-		ActionError.NotStarted({ message: 'no', cause: 'usage' }).error,
-		ActionError.NotStarted({ message: 'no', cause: 'internal' }).error,
-		ActionError.NotStarted({
-			message: 'no',
-			cause: 'app-problems',
-			app: 'notes',
-			problems: ['a'],
-		}).error,
+		ActionError.NotStarted({ message: 'no', next: 'epicenter' }).error,
+		ActionError.NotStarted({ message: 'no' }).error,
 		ActionError.Unreachable({ message: 'lost' }).error,
 	])
 		expect(expectErr(checkAnswer({ data: null, error }))).toEqual(error);
@@ -62,39 +51,9 @@ test('a value of the wrong shape is Unreachable', () => {
 			error: { kind: 'returned', reason: { name: 'E', message: 'm' } },
 		},
 		{ data: null, error: { ...platform, name: 'Threw', thrown: {} } },
-		{ data: null, error: { ...platform, name: 'NotStarted' } },
-		{ data: null, error: { ...platform, name: 'NotStarted', cause: 'other' } },
 		{
 			data: null,
-			error: { ...platform, name: 'NotStarted', cause: 'usage', next: 42 },
-		},
-		{
-			data: null,
-			error: { ...platform, name: 'NotStarted', cause: 'unavailable', next: 1 },
-		},
-		{
-			data: null,
-			error: { ...platform, name: 'NotStarted', cause: 'refused' },
-		},
-		// Each cause carries its own fields.
-		{
-			data: null,
-			error: {
-				...platform,
-				name: 'NotStarted',
-				cause: 'app-problems',
-				app: 'notes',
-				problems: [1],
-			},
-		},
-		{
-			data: null,
-			error: {
-				...platform,
-				name: 'NotStarted',
-				cause: 'app-problems',
-				problems: ['a'],
-			},
+			error: { ...platform, name: 'NotStarted', next: 42 },
 		},
 	])
 		expect(expectErr(checkAnswer(value))).toEqual(invalid);
@@ -130,7 +89,7 @@ test('a stream that ends with no answer is Unreachable, after its updates', asyn
 });
 
 test('any status but 200 is Unreachable, whatever its body says', async () => {
-	const refusal = ActionError.NotStarted({ message: 'no', cause: 'usage' });
+	const refusal = ActionError.NotStarted({ message: 'no' });
 	for (const body of [
 		'Not found',
 		'',

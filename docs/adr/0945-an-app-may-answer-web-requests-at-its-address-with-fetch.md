@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-17
+- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md): the launcher is deleted, so nothing lists apps with a built page.
 - **Relates:** [ADR-0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) (an app's address is `/apps/<app>/`), [ADR-0960](0960-an-app-is-a-function-of-its-folder-and-a-call-has-no-hidden-context.md) (an app is a function of its folder), [ADR-0959](0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md) (when an app is loaded), [ADR-0927](0927-serve-listens-only-on-this-computer.md) (who reaches serve), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a page calls actions).
 
 ## Context
@@ -38,6 +39,8 @@ import { Hono } from 'hono';
 export default defineApp(({ folder }) => {
   const web = new Hono({ strict: false }).basePath('/apps/mail');
   web.get('/oauth/callback', async (c) => {
+    // Check c.req.query('state') against the one /oauth/start wrote to a
+    // file in local/; the packages/app README shows the whole flow.
     await folder.write('local/token.json', JSON.stringify({ code: c.req.query('code') }));
     return c.redirect('../');
   });
@@ -62,40 +65,56 @@ export default defineApp(({ folder }) => {
   app is `new Hono({ strict: false }).basePath('/apps/mail')`; serve
   redirects `/apps/mail` to `/apps/mail/`, and `strict: false` lets a page
   route `'/'` match it.
-- **The body limit is serve's.** Bun refuses any request body over 25 MB
-  (`MAX_INPUT_BYTES` in `packages/app/src/command/protocol.ts`) with 413, for
+- **The body limit is serve's.** Bun refuses any request body over 25 MiB
+  (`MAX_BODY_BYTES` in `packages/app/src/command/serve.ts`) with 413, for
   `fetch` as for actions.
 - **A failure is a 500.** A `fetch` that throws, or returns something that is
   not a `Response`, answers 500, and serve logs one line naming the app. An
-  app that does not load answers 500 with its problems, for a path no file
-  answers.
-- **`fetch` is loaded like an action.** Serve loads the app for each request
-  that reaches `fetch`, as it does for each call, until ADR-0959 loads each
-  app once.
+  app that does not load answers 500 with its problems for every path under
+  its address, its built files included.
+- **`fetch` is loaded like an action.** Serve loads each app once, when it
+  starts (ADR-0959), and every request that reaches `fetch` calls the
+  function that load returned.
 
 **`fetch` is for protocols someone else defined. Anything a person or an
 agent should be able to do is an action.** The command line and MCP do not
 list `fetch` routes, their input is not checked, and their answers are not
 Results, and the listing does not say which apps have `fetch`.
 
-**The launcher lists an app with a built `code/ui/dist/index.html`.** An app
-with no build step can still answer its page from `fetch` at `/apps/<app>/`;
-the launcher does not guess that it does.
+**Serve does not guess which apps have a page.** An app with no build step
+can still answer its page from `fetch` at `/apps/<app>/`. (The launcher that
+listed only apps with a built `code/ui/dist/index.html` is deleted, per
+ADR-0961.)
 
-**Serve refuses a cross-site request unless it opens a page.** Before any
-route, serve reads the `Sec-Fetch-*` headers a browser sends (Fetch
-Metadata):
+**Serve refuses a request from another origin unless it opens a page.**
+Before any route, serve reads the `Sec-Fetch-*` headers a browser sends
+(Fetch Metadata):
 
 | `Sec-Fetch-Site` | Answer |
 | --- | --- |
 | absent (curl, the command, an agent) | allowed |
-| `same-origin`, `same-site`, `none` (typed, a bookmark) | allowed |
-| `cross-site`, with `Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document` and method `GET` | allowed: a link or redirect that opens a page |
-| `cross-site`, anything else | 403 |
+| `same-origin`, `none` (typed, a bookmark) | allowed |
+| `same-site` or `cross-site`, with `Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document` and method `GET` | allowed: a link or redirect that opens a page |
+| `same-site` or `cross-site`, anything else | 403 |
 
-The `Origin` and `Host` checks stay. An OAuth provider's redirect back is a
-top-level `GET` navigation, so it is allowed. A cross-site `<img>`, `<script>`,
-`fetch()` or `<iframe>` is refused.
+`same-site` is another origin: a site ignores the port, so a page on
+`http://127.0.0.1:3000` is same-site with serve on 4747. The `Origin` and `Host` checks stay. An OAuth
+provider's redirect back is a top-level `GET` navigation, so it is allowed.
+Another origin's `<img>`, `<script>`, `fetch()` or `<iframe>` is refused.
+
+**Every app shares serve's origin.** A page or a `fetch` answer from one app
+can call any app's actions and MCP at `POST /`; serve does not ask which
+app's page made a call. An app whose `fetch` renders outside content, such
+as an email, escapes it, since one injected script in one app reaches every
+action. A `fetch` that serves a service worker with
+`Service-Worker-Allowed: /` lets it answer for every app's pages until it is
+removed, so an app does not send that header. Giving each app its own origin would need a host name per app, which
+`tailscale serve` and a bookmark on `127.0.0.1` do not give.
+
+**An OAuth callback checks `state`.** Serve allows any site's top-level
+`GET`, so another site can send the browser to a callback with its own
+`code`. The app writes `state` to a file when it starts the sign-in and
+compares it in the callback; memory does not last between requests.
 
 ## Consequences
 

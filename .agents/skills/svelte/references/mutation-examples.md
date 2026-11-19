@@ -16,8 +16,8 @@ reserved for cache invalidation, retry policy, or shared mutation keys. Use it
 when the template observes the operation's pending, error, success, or data.
 
 The download and export examples below both show pending state. Only the
-download has a second consumer for its mutation entry. See [query-layer](../../query-layer/SKILL.md#compose-a-service-in-two-maps)
-for choosing local or shared options.
+download has a second consumer for its mutation entry, so only it belongs in a
+shared [map](../../query-layer/SKILL.md#compose-a-service-into-two-maps).
 
 ## Async download button
 
