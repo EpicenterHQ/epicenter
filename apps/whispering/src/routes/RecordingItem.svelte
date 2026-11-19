@@ -20,7 +20,8 @@
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { formatDuration } from '#lib/feed.ts';
 	import { queryClient, recordingsMutations } from '#lib/queries.ts';
-	import { type Recording, recordings } from '#lib/recordings.ts';
+	import { recordings } from '#lib/app.ts';
+	import type { Recording } from '#lib/data/recordings.ts';
 
 	let {
 		recording,
@@ -30,12 +31,12 @@
 
 	let draft = $state<string>();
 	/**
-	 * The URL the player streams from. It hangs on the id alone, not on the
-	 * whole recording, so a refetch of the list does not reload the player
-	 * mid-play.
+	 * The URL the player streams from. It hangs on the audio's path alone, a
+	 * string, not on the whole recording, so a refetch of the list does not
+	 * reload the player mid-play.
 	 */
-	const audioId = $derived(recording.audio ? recording.id : undefined);
-	const audioUrl = $derived(audioId && recordings.audioUrl(audioId));
+	const audio = $derived(recording.audio);
+	const audioUrl = $derived(audio && recordings.audioUrl(recording.id, audio));
 
 	const transcript = $derived(draft ?? recording.transcript);
 	const transcribing = $derived(dictation.isTranscribing(recording.id));

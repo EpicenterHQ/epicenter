@@ -10,7 +10,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Runtime};
 
-use crate::{keys, recordings};
+use crate::{files, keys};
 
 /// How long a transcription may take in all: a long recording on a slow
 /// server takes minutes.
@@ -55,7 +55,7 @@ pub async fn transcribe<R: Runtime>(
         });
     }
     keys::origin(&base_url).map_err(|message| TranscribeError::Unreachable { message })?;
-    let path = recordings::dir(&app)
+    let path = files::recordings_dir(&app)
         .map_err(|message| TranscribeError::NoAudio { message })?
         .join(format!("{id}.webm"));
     let endpoint = endpoint(&base_url);

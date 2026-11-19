@@ -9,7 +9,7 @@
  */
 import { MutationCache, QueryClient } from '@tanstack/svelte-query';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
-import { recordings } from './recordings';
+import { recordings } from './app';
 
 export const queryClient = new QueryClient({
 	defaultOptions: {

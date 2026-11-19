@@ -12,8 +12,8 @@
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod files;
 mod keys;
-mod recordings;
 mod transcribe;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
@@ -38,7 +38,7 @@ fn main() {
         .plugin(tauri_plugin_epicenter_recorder::init())
         .setup(|app| Ok(start(app.handle())?))
         .invoke_handler(tauri::generate_handler![
-            recordings::recordings_list,
+            files::files_read,
             keys::key_set,
             keys::key_exists,
             transcribe::transcribe
@@ -52,7 +52,7 @@ fn main() {
 /// file system plugin's commands check the same scope. The asset protocol,
 /// which the page's audio player streams from, may read `recordings/` only.
 fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let folder = recordings::dir(app)?;
+    let folder = files::recordings_dir(app)?;
     std::fs::create_dir_all(&folder)
         .map_err(|error| format!("{} could not be made: {error}", folder.display()))?;
     let data = folder.parent().unwrap_or(&folder).to_path_buf();

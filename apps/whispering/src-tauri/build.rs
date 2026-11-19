@@ -2,7 +2,7 @@ fn main() {
     // Declaring the app's own commands makes each `allow-<command>` the one
     // permission that lets a window call it (`capabilities/whispering.json`).
     let manifest = tauri_build::AppManifest::new().commands(&[
-        "recordings_list",
+        "files_read",
         "key_set",
         "key_exists",
         "transcribe",

@@ -3,6 +3,7 @@
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
+	import { isTauri } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
 	import '@epicenter/ui/app.css';
 	import { dictation } from '#lib/dictation.svelte.ts';
@@ -12,8 +13,9 @@
 	let { children } = $props();
 
 	// The global shortcut (⌘⇧;) is held in Rust (`main.rs`), which sends each
-	// press here; it does what the Record button does.
+	// press here; it does what the Record button does. A browser has none.
 	$effect(() => {
+		if (!isTauri()) return;
 		const unlisten = listen('toggle-recording', () => dictation.toggle());
 		return () => {
 			void unlisten.then((stop) => stop());
