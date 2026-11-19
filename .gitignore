@@ -41,16 +41,14 @@ tsconfig.tsbuildinfo
 
 # Wrangler (Cloudflare Workers local state)
 .wrangler
-.conductor/
 
 # Temporary search clones (development only)
 .tmp/
 
 # Editor / agent tooling state (machine-local)
-.opencode/
-.sisyphus/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
 
 test-results/
 
