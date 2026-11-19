@@ -23,8 +23,9 @@ here. Run everything from the repository root.
 | `:local` | works on a fresh clone, no Infisical login |
 | `:remote` | wraps Infisical's `prod` environment; a production admin operation |
 
-`check` is the local merge gate and `check:structure` groups the structural
-checks. Both are scripts here that call other root scripts in order.
+`check` is the local merge gate and the one step CI runs. It is a script here
+that calls other root scripts in order; add or remove a check in
+`scripts/check.ts`.
 
 ## Adding a script
 

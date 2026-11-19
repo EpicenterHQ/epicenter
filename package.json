@@ -152,7 +152,6 @@
 		"check:api-paths": "bun run scripts/check-api-paths.ts",
 		"check:vocabulary": "bun run scripts/check-vocabulary.ts",
 		"worktrees": "bun run scripts/worktree-audit.ts",
-		"check:structure": "bun run scripts/check-structure.ts",
 		"gen:spec-history": "bun run scripts/generate-spec-history.ts",
 		"clean": "bun run scripts/clean.ts",
 		"nuke": "bun run scripts/clean.ts --nuke",

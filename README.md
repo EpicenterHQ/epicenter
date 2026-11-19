@@ -215,7 +215,7 @@ bun run format          # rewrite formatting (CI autofixes this for you)
 bun run lint:check
 bun run typecheck
 bun run test
-bun run check:structure # doc paths, catalog pins, API paths, UI boundary, boot purity, vocabulary, state paths
+bun run check          # the whole merge gate: the above plus doc paths, catalog pins, API paths, UI boundary, boot purity, vocabulary
 ```
 
 One check sits outside the gate on purpose. `bun run check:doc-hygiene` flags specs and ADRs that time has made stale, so it belongs to review rather than to merge.
