@@ -234,9 +234,8 @@ export function createMarkdownRecords({
 		// One listing per target key per write, the same names `list` reads.
 		const listed = new Map<string, Set<string>>();
 		const has = ({ target, id }: Ref) => {
-			let ids = listed.get(target);
-			if (!ids) listed.set(target, (ids = new Set(idsIn(target))));
-			return ids.has(id);
+			if (!listed.has(target)) listed.set(target, new Set(idsIn(target)));
+			return listed.get(target)?.has(id) === true;
 		};
 		const same = (a: Ref) => (b: Ref) => a.target === b.target && a.id === b.id;
 		for (const [key, schema] of Object.entries(fields)) {
