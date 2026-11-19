@@ -16,13 +16,7 @@
 import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Ok, trySync } from 'wellcrafted/result';
-import {
-	ActionError,
-	type Answer,
-	PLATFORM_NAMES,
-	type Thrown,
-} from '../answer.ts';
+import { ActionError, type Answer, PLATFORM_NAMES } from '../answer.ts';
 import { type ObjectSchema, whyNot } from '../field.ts';
 import { isPlainObject } from '../json.ts';
 import { stderrJsonLines } from './output.ts';
@@ -80,7 +74,9 @@ export async function answerCall(
 				JSON.stringify({ data: data ?? null, error }),
 			) as Answer;
 		})
-		.catch((cause) => ActionError.Threw(describeThrown(cause)));
+		.catch((cause) =>
+			ActionError.Threw({ message: extractErrorMessage(cause) }),
+		);
 	try {
 		runLog.info('action run ended', {
 			app,
@@ -94,34 +90,6 @@ export async function answerCall(
 		// The record is for the owner; it must not change the caller's answer.
 	}
 	return answer;
-}
-
-/**
- * What a thrown value becomes in `Threw`: its message, and the value itself
- * when it is a tagged error (`{ name, message, ... }`) that survives JSON.
- * Reading a hostile value never stops the answer.
- */
-function describeThrown(cause: unknown): { message: string; thrown?: Thrown } {
-	// Even extracting a message can fail, for a cyclic array or a getter.
-	const { data: message } = trySync({
-		try: () => extractErrorMessage(cause).slice(0, 4096),
-		catch: () => Ok('The action threw a value that could not be read'),
-	});
-	try {
-		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
-			return { message };
-		const json = JSON.stringify(cause);
-		const copy: unknown = json.length > 4096 ? undefined : JSON.parse(json);
-		if (
-			isPlainObject(copy) &&
-			typeof copy.name === 'string' &&
-			typeof copy.message === 'string'
-		)
-			return { message, thrown: copy as Thrown };
-	} catch {
-		// Details are best effort.
-	}
-	return { message };
 }
 
 /**

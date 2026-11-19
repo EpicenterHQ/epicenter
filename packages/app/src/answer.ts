@@ -40,9 +40,6 @@ export function isResult(value: unknown): value is Answer {
 	);
 }
 
-/** A tagged error an action threw: a name and a message, plus anything else. */
-export type Thrown = PublicError & Record<string, unknown>;
-
 export const ActionError = defineErrors({
 	/**
 	 * A record, or a change to one, does not fit its declared fields. A read
@@ -82,8 +79,8 @@ export const ActionError = defineErrors({
 	}),
 	/** The action said no. Epicenter never answers it. */
 	Refused: (body: { message: string }) => body,
-	/** The action began and threw, with what it threw when that survives JSON. */
-	Threw: (body: { message: string; thrown?: Thrown }) => body,
+	/** The action began and threw; `message` is what it threw. */
+	Threw: (body: { message: string }) => body,
 	/**
 	 * The outcome is unknown: the connection dropped after the call was sent,
 	 * or the answer never came. Only a caller answers it.
