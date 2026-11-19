@@ -32,6 +32,8 @@ The monorepo uses consistent script naming conventions.
 
 ## Dev Scripts
 
+A root script is one tool call or one `bun run scripts/<file>.ts`; chaining and setup live in [`scripts/`](../../../scripts/README.md), which also explains the naming.
+
 Run these scripts from the repository root. The [root manifest](../../../package.json) lists the available targets.
 
 | Command | What starts |
