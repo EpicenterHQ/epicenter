@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import * as Select from '@epicenter/ui/select';
@@ -31,6 +30,18 @@
 	);
 	const openId = $derived(opened ?? dictation.latest ?? sortById(list.data ?? [], 'newest')[0]?.id);
 	const groups = $derived(groupByDay(found.slice(0, shown), (recording) => recording.recordedAt));
+
+	/** Show the next page once `node` comes within a screen of the bottom of the feed. */
+	function loadMoreWhenSeen(node: HTMLElement) {
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (entry?.isIntersecting) shown += PAGE;
+			},
+			{ root: node.closest('main'), rootMargin: '0px 0px 100% 0px' },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}
 </script>
 
 <div class="flex h-dvh flex-col">
@@ -64,6 +75,11 @@
 					</Select.Content>
 				</Select.Root>
 			</div>
+			<p class="-mt-2 px-1 text-xs text-muted-foreground tabular-nums">
+				{search.trim()
+					? `${found.length.toLocaleString()} of ${list.data.length.toLocaleString()} match`
+					: `${list.data.length.toLocaleString()} ${list.data.length === 1 ? 'recording' : 'recordings'}`}
+			</p>
 
 			{#each groups as group (group.label)}
 				<section class="flex flex-col gap-1">
@@ -83,9 +99,13 @@
 			{/each}
 
 			{#if found.length > shown}
-				<Button variant="outline" class="self-center" onclick={() => (shown += PAGE)}>
-					Show more
-				</Button>
+				<!--
+					Reaching this adds the next page. It is made again for each page,
+					so a page too short to scroll past it still loads the next one.
+				-->
+				{#key shown}
+					<div {@attach loadMoreWhenSeen} class="flex justify-center py-4"><Spinner /></div>
+				{/key}
 			{/if}
 		{/if}
 	</main>
