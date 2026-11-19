@@ -36,8 +36,8 @@ const SERVE = {
 	usage: 'epicenter serve',
 	help: `Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
 built UI, then its fetch), and each action at POST /actions/<app>/<action>,
-on 127.0.0.1 at the port in
-EPICENTER.md (default 4747). It starts in the Epicenter's folder. An
+on 127.0.0.1 at the port EPICENTER.md
+names, which every Epicenter must. It starts in the Epicenter's folder. An
 Epicenter has one serve, and only serve loads app code: epicenter <app> and
 bare epicenter ask it, and are refused while it is stopped. Each call runs
 from the app's code as it is on disk then, to its end, and serve keeps

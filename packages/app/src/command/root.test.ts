@@ -28,7 +28,10 @@ test('a command acts on the nearest Epicenter at or above it, and refuses outsid
 		'code/epicenter.ts': bareApp('reading'),
 	});
 	const other = join(f.userDir, 'other');
-	await f.folder(other, { 'EPICENTER.md': '', 'package.json': rootPackage });
+	await f.folder(other, {
+		'EPICENTER.md': '---\nport: 4800\n---\n',
+		'package.json': rootPackage,
+	});
 	await installPackages(other);
 	await f.folder(join(other, 'apps', 'tasks'), {
 		'code/epicenter.ts': bareApp('tasks'),
@@ -105,13 +108,28 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	).toBe('There is no EPICENTER.md here or above; cd into your Epicenter');
 
 	const marker = join(f.epicenter, 'EPICENTER.md');
-	await writeFile(marker, '\uFEFF---\nprot: 4748\n---\n');
+	await writeFile(marker, '\uFEFF---\nport: 4800\nprot: 4748\n---\n');
 	expect(
 		JSON.parse((await f.runIn(f.epicenter, '--json')).stdout).error.message,
 	).toBe(`${marker}: prot is not a field; the only field is port`);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
 	// check asks no serve, so it shows the marker reads alone.
 	expect((await f.runIn(f.epicenter, 'check', '--json')).code).toBe(0);
+});
+
+test('a marker with no port is refused, naming the file, by serve and by every command', async () => {
+	const f = await setup();
+	const marker = join(f.epicenter, 'EPICENTER.md');
+	for (const text of ['', 'Notes for people.\n', '---\n---\n']) {
+		await writeFile(marker, text);
+		for (const words of [['serve'], ['--json'], ['check', '--json']]) {
+			const refused = await f.run(...words);
+			expect(refused.code).toBe(2);
+			expect(refused.stdout + refused.stderr).toContain(
+				`${marker}: port is missing; name one in front matter, a line such as port: 4747 between two --- lines`,
+			);
+		}
+	}
 });
 
 test('port 0 names no port a command could find serve at, so the marker refuses it', async () => {

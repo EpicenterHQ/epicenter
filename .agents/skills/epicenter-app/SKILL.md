@@ -15,8 +15,8 @@ holds records and settings. The source and live Epicenter use this layout
 mean, so a temporary one for testing stays apart from the person's own.
 `epicenter serve` starts only in the Epicenter's own folder and listens only on this
 computer and offers MCP at `/`, each app at `/apps/<app>/`, and each action at
-`POST /actions/<app>/<action>`, on the marker's `port`
-or 4747 when absent. Other devices reach it through the owner's private network,
+`POST /actions/<app>/<action>`, on the port the marker names; a marker
+without `port` is refused. Other devices reach it through the owner's private network,
 such as `tailscale serve`.
 
 ```txt

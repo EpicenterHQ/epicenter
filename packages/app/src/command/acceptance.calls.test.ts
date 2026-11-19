@@ -459,8 +459,8 @@ test('every answer of serve says it is an Epicenter and names no path, and a cal
 test('a stray EPICENTER.md below the root is an Epicenter, and the refusal names it', async () => {
 	const f = await setup();
 	// A command finds the nearest marker, as Git finds the nearest .git, so one
-	// in an app's data is a root of its own. Real strays take the default port,
-	// the one the real serve holds; this one names the fixture's port to match.
+	// in an app's data is a root of its own. A stray copied from the real root
+	// names the port the real serve holds.
 	const stray = f.data;
 	await mkdir(stray, { recursive: true });
 	await writeFile(join(stray, 'EPICENTER.md'), `---\nport: ${f.port}\n---\n`);
