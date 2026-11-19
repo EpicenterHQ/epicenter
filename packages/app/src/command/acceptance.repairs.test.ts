@@ -81,7 +81,6 @@ test('F1 a marker that is not a file is no Epicenter', async () => {
 	expect(listed.code).toBe(2);
 	expect(listed.report.error).toMatchObject({
 		name: 'NotStarted',
-		cause: 'usage',
 	});
 });
 
@@ -121,16 +120,16 @@ export default defineApp(() => ({ description: 'The loud app', actions: { hello:
 		expect(unknown.isError).toBe(true);
 		expect(unknown.structuredContent).toMatchObject({
 			data: null,
-			error: { name: 'NotStarted', cause: 'usage' },
+			error: { name: 'NotStarted' },
 		});
+		// A broken app offers no tools, so a call to one is refused as no tool.
 		const broken = await client.callTool({ name: 'broken_x', arguments: {} });
 		expect(broken.isError).toBe(true);
 		expect(broken.structuredContent).toMatchObject({
 			data: null,
 			error: {
 				name: 'NotStarted',
-				cause: 'app-problems',
-				problems: [expect.any(String)],
+				message: 'No tool "broken_x"; tools/list names them',
 			},
 		});
 	} finally {

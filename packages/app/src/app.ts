@@ -86,10 +86,19 @@ export function defineApp<const TApp extends App>(
 			'An app is a function of its folder: defineApp(({ folder }) => ({ description, data, actions }))',
 		);
 	return (given) => {
-		const made = app(given);
+		const made: unknown = app(given);
+		if (made instanceof Promise) {
+			// The refused function has already run once, up to its first await,
+			// so a timer it set is already running. Its rejection is caught here,
+			// so a refused app cannot end the process.
+			made.catch(() => {});
+			throw new Error(
+				"An app's function must not be async: return { description, data, actions } at once, and await inside an action's run",
+			);
+		}
 		const problems = appProblems(made);
 		if (problems.length) throw new Error(problems.join('\n'));
-		return made;
+		return made as TApp;
 	};
 }
 

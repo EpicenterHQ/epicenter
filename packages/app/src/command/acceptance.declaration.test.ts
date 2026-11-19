@@ -5,7 +5,7 @@
 
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { connectMcp, fixture, readingApp } from './runner.test-support.ts';
 
@@ -26,7 +26,7 @@ async function setup() {
 /** Vocab's words data key, as epicenter.ts source. */
 const words = `const data = defineData(folder, { words: { description: 'word', fields: { stage: field.select(['new', 'known']) } } });\n`;
 
-test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and names each problem', async () => {
+test('D1 the listing shows each folder in apps/ as an app or its problems, refusing a link', async () => {
 	const f = await setup();
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await f.app(
@@ -35,13 +35,8 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 ${words}return { description: 'The vocab app', data, actions: {} };
 });\n`,
 	);
-	const linked = await f.app(
-		'journal',
-		`export default defineApp(() => ({ description: 'The journal app', actions: {} }));\n`,
-		// Inside the Epicenter: linked code finds packages from where it really is.
-		join(f.epicenter, 'elsewhere'),
-	);
-	await symlink(linked, join(f.apps, 'journal'));
+	// A file in apps/ is not an app folder, and is not listed.
+	await Bun.write(join(f.apps, 'README.md'), 'my apps\n');
 	await f.folder(join(f.apps, 'readme-only'), { 'README.md': 'not an app\n' });
 	await f.folder(join(f.apps, 'json-only'), {
 		'epicenter.json': JSON.stringify({ description: 'Before epicenter.ts' }),
@@ -104,7 +99,6 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 	expect(listing.epicenter).toBe(f.epicenter);
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'clash',
-		'journal',
 		'reading',
 		'vocab',
 	]);
@@ -126,6 +120,8 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 		grouped: [
 			"code/epicenter.ts: actions.week is not an action: each action has one name, such as actions: { 'create-word': createWord }",
 		],
+		'json-only': ['no code/epicenter.ts'],
+		'readme-only': ['no code/epicenter.ts'],
 		nodefault: ['code/epicenter.ts does not export defineApp(...) by default'],
 		nullactions: [
 			'code/epicenter.ts: An app needs actions: an object of defineAction(...), {} for none',
@@ -141,8 +137,7 @@ export default defineApp(() => ({ description: 'The misplaced app', actions: { s
 	// A later key replaces an earlier one: the written patch replaces the data key's.
 	const clash = await f.run('clash', 'patch', '{"stem":"serendipity"}');
 	expect(clash.stdout).toBe('mine: serendipity\n');
-	expect(JSON.stringify(listing)).not.toContain('readme-only');
-	expect(JSON.stringify(listing)).not.toContain('json-only');
+	expect(JSON.stringify(listing)).not.toContain('README.md');
 
 	const human = await f.run();
 	expect(human.stdout).toMatch(/^vocab +The vocab app$/m);
@@ -168,7 +163,6 @@ ${words}return { description: 'The vocab app', data, actions: {} };
 	expect(reading).toMatchObject({
 		name: 'reading',
 		description: 'How much I read each week',
-		folder: join(f.apps, 'reading'),
 		data: {
 			books: {
 				path: 'data/books/',

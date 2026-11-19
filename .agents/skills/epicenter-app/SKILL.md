@@ -15,8 +15,8 @@ holds records and settings. The source and live Epicenter use this layout
 mean, so a temporary one for testing stays apart from the person's own.
 `epicenter serve` starts only in the Epicenter's own folder and listens only on this
 computer and offers MCP at `/`, each app at `/apps/<app>/`, and each action at
-`POST /actions/<app>/<action>`, on the marker's `port`
-or 4747 when absent. Other devices reach it through the owner's private network,
+`POST /actions/<app>/<action>`, on the port the marker names; a marker
+without `port` is refused. Other devices reach it through the owner's private network,
 such as `tailscale serve`.
 
 ```txt
@@ -46,7 +46,7 @@ a `package.json` holding `"name": "<app>"` and `"private": true`, and a
 `.gitignore` holding `node_modules/` and `ui/dist/`. `data/` is made by the
 first write. Then run `bun install && bun run build` at the top of the Epicenter.
 `<app>` is lowercase letters, digits, and dashes, starts with a letter, and
-is not `check` or `serve`; the bare `epicenter` reports an app that does not
+is not `serve`; the bare `epicenter` reports an app that does not
 load, with what is wrong.
 
 An app can also start as a copy of another app's `code/` folder, made with
@@ -184,7 +184,8 @@ one is refused, so write the default where the value is read (`limit ?? 50`).
   disagreement: undeclared keys are kept by every write and left out of a
   read, and a missing optional field is no problem. Rename or tighten a field
   in two steps: change the code, then repair records with an action or agent.
-  Run `epicenter check <app>` afterward to see any remaining file diagnostics.
+  Call the key's `list` action afterward: it answers one Result per file, so
+  each record that still does not fit shows as a refusal.
   Commit code and repairs together.
   There is no global migration gate. Explain any repair when sharing code;
   another person's records change only when they run it.
@@ -200,9 +201,9 @@ description, data, actions }))` (ADR-0960). The app is a function of its
 folder: `epicenter` calls it with `apps/<app>/`, and the data and
 actions declared inside it reach the files through `folder`. A helper
 outside the function that touches files takes the folder as a parameter.
-`epicenter` imports the app afresh and calls the function each time it
-loads the app, which today is on every call, so a value kept in the
-function body does not survive between calls: keep it in a file.
+Serve imports the app and calls the function once, when it starts, so a
+value kept in the function body lasts until serve restarts and no longer:
+keep anything the app must remember in a file.
 
 ```ts
 export default defineApp(({ folder }) => {
@@ -241,11 +242,13 @@ such as `apps/films/code/render/` with its own `package.json`, gets its
 packages only once its path is added by hand to `workspaces` in the Epicenter's
 `package.json`. `bun install` at the top of the Epicenter installs its packages;
 no command runs it, and a call never installs.
-Restart `serve` after packages change, by stopping and starting it: an edit
-to an app's own files shows on the next call, a changed package only after
-the restart. Restart it too after fixing an app that failed to load because
-its code threw or imported a missing file: serve keeps that failure until it
-restarts, while `epicenter check` already tries the fixed code. Upgrade Epicenter by editing the `@epicenter/app` version in the
+Restart `serve` after editing an app's code or changing packages, by
+stopping and starting it: serve loads every app once, when it starts, and
+runs that code until it stops. Nothing says the code on disk is newer, so an
+agent that skips the restart tests the old code. The Epicenter's `AGENTS.md`
+should name the owner's restart command, such as
+`launchctl kickstart -k gui/$(id -u)/<label>`; add it when it is missing and
+the owner tells you how serve is kept running. Upgrade Epicenter by editing the `@epicenter/app` version in the
 Epicenter's `package.json`, then running `bun install && bun run build` at the top.
 That one package is the library and the `epicenter` command.
 Write each action with `defineAction`, which types its
@@ -284,12 +287,11 @@ did not listen needs. Serve runs the action to its end even when the page
 closes, and keeps nothing about the call, so save what a reload must show
 (the person's submitted input first, then completed output) in records.
 
-Actions run inside `epicenter serve` itself, from the files as they are when
-the call arrives, so an edit takes effect on the next call. The command line
+Actions run inside `epicenter serve` itself, from the code serve loaded when
+it started, so an edit takes effect when serve restarts. The command line
 loads no app code: `epicenter`, `epicenter <app>`, an action's `--help` and
 `epicenter <app> <action>` all ask serve, and are refused with exit 2 while
-serve is stopped. `epicenter check` loads each app in its own process, so it
-tries changed code with serve stopped. Never call
+serve is stopped. Never call
 `process.exit`, `process.chdir`, or set `process.env` in an action: each
 reaches every app `serve` runs.
 
@@ -379,12 +381,26 @@ the Epicenter on its own: what is not committed is in neither its history nor it
 backup. The branch and index are shared, and a commit made while serve runs
 can capture a partial edit or part of a running action. Make a named commit before a risky change.
 
-A routine's `run` is a program and its arguments. An argument may be a JSON
-value, which reaches the command as one word of JSON text:
-`run: ["epicenter", "flights", "daily", "run", {"recheck": false}]`.
+A routine is a file in `routines/` that runs one action on a cron schedule.
+Its front matter values are JSON, so the action is quoted:
 
-`epicenter` on its own shows each routine with its next occurrence and its
-command as a line to copy into a terminal. For the repository, run Git at the
+```md
+---
+cron: "0 8 * * *"
+action: "flights daily"
+input: {"recheck": false}
+---
+Research flights each morning.
+```
+
+`input` is optional. Serve reads routines when it starts, so restart serve
+after adding or changing one. A routine naming an unknown action, or an input
+that does not fit, is refused then: serve prints it, and `epicenter` lists it
+with its problem. A routine runs an action and nothing else; to run Git or a
+script on a schedule, write an action that does it.
+
+`epicenter` on its own shows each routine with its next occurrence and the
+action and input it runs. For the repository, run Git at the
 top of the Epicenter: `git status -sb` shows the branch, commits not on origin and
 each uncommitted file, and `git log -1 --format=%cr` how long ago the last
 commit was.
@@ -411,8 +427,8 @@ When recovering a bad write, inspect history and restore the relevant known
 version rather than retype its previous content, then record the repair in a
 named commit so history says what happened. A field change and its record
 repair belong together. Restoring only code or only data can leave the
-declaration and records disagreeing. Run `epicenter check <app>` and inspect
-the diagnostics for the affected paths. Make a named commit before
+declaration and records disagreeing. Call the affected key's `list` action
+and inspect the refusals for those paths. Make a named commit before
 risky work so the original files remain recoverable.
 
 ## Build the UI as a client
@@ -477,15 +493,13 @@ route.
 On the wire, every surface answers exactly `{ data, error }`, where `error`
 is `null` or the error object itself (ADR-0953). The name says whether the
 action ran: `NotStarted` means serve or the CLI refused it before it began,
-so it is safe to call again once its `cause` is fixed; `Threw` means it began
+so it is safe to call again once what its `message` names is fixed; `Threw` means it began
 and threw, with a tagged exception in `thrown`; `Unreachable` means the
 outcome is unknown; any other name is the action's own error, so it ran.
 Actions use the shared `ActionError` factories from `@epicenter/app`. The
-CLI's own commands answer the same way: `epicenter --json` and `check`
-with `--json` print `{ data, error }`, and every command
-exits 0 for no error, 2 for `NotStarted` and 1 for any other error. A
-`check` that finds problems answers `Problems`, exit 1, with what it found
-under `error.report`.
+CLI's own commands answer the same way: `epicenter --json` prints
+`{ data, error }`, and every command exits 0 for no error, 2 for
+`NotStarted` and 1 for any other error.
 
 A page's call error is exactly the action's own errors and `NotStarted`,
 `Threw` and `Unreachable`, so a `switch` on `error.name` is exhaustive and a
@@ -671,5 +685,6 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - Run from inside the app's Epicenter. Another person's Epicenter is a
   different folder with its own port.
 
-A running serve loads edited code on the next call. It serves code/ui/dist/
+A running serve runs the code it loaded when it started; restart it after
+editing code. It serves code/ui/dist/
 as the app's last `bun run build` left it.

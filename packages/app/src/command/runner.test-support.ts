@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { COMMAND_WORDS } from './apps.ts';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
 
@@ -87,7 +86,7 @@ export async function stopFixtureServes() {
 
 /**
  * Whether `args` ask `epicenter` something only serve answers: every command
- * but `check`, `serve`, and help or the version on their own (ADR-0961).
+ * but `serve`, and help or the version on their own (ADR-0961).
  */
 function needsServe(args: string[]) {
 	const words = args.filter((arg) => arg !== '--json');
@@ -96,7 +95,7 @@ function needsServe(args: string[]) {
 		return !args.some((arg) =>
 			['--help', '-h', '--version', '-V'].includes(arg),
 		);
-	return !(COMMAND_WORDS as readonly string[]).includes(first);
+	return first !== 'serve';
 }
 
 /**
@@ -108,6 +107,8 @@ function needsServe(args: string[]) {
  *
  * Only serve loads app code, so a `run` of any command that asks it starts
  * `epicenter serve` for this Epicenter unless one is running, and it is stopped when the test ends.
+ * Serve loads the apps once, when it starts: a test that changes an app
+ * after a `run` calls `restartServe` before the next.
  * `serve` starts it without a `run`, for a test that spawns the command
  * itself. While a serve from `startServe` runs, the fixture starts none, and
  * after `stopServe` it starts none again.
@@ -171,6 +172,15 @@ export async function fixture() {
 		// A serve that does not start leaves the command to say why.
 		await serving.own.catch(() => undefined);
 	}
+	/**
+	 * Stop the serve the fixture started, so the next command that asks serve
+	 * starts one that loads the apps as they are now (ADR-0959).
+	 */
+	async function restartServe() {
+		const own = serving.own;
+		serving.own = undefined;
+		await (await own?.catch(() => undefined))?.kill();
+	}
 	/** Stop the serve the fixture started, and start no other. */
 	async function stopServe() {
 		serving.off = true;
@@ -208,6 +218,7 @@ export async function fixture() {
 		run,
 		runIn,
 		serve,
+		restartServe,
 		stopServe,
 		serving,
 	};
@@ -260,7 +271,7 @@ async function spawnServe(
 			const { value: chunk, done } = await reader.read();
 			if (done) break;
 			output += new TextDecoder().decode(chunk);
-			const port = /Serving your apps at http:\/\/127\.0\.0\.1:(\d+)\./.exec(
+			const port = /Listening on http:\/\/127\.0\.0\.1:(\d+)\./.exec(
 				output,
 			)?.[1];
 			if (port) ready.resolve(`http://127.0.0.1:${port}`);

@@ -46,9 +46,9 @@ The app is a function of its folder
 `epicenter` calls it with the folder of `apps/reading/`, and everything
 inside it, data and actions alike, reaches the files through that argument.
 A helper outside the function that touches files takes the folder as a
-parameter. `epicenter` imports the app afresh and calls the function each
-time it loads the app, which today is on every call, so a value kept in the
-function body does not survive from one call to the next: keep it in a file.
+parameter. Serve imports the app and calls the function once, when it
+starts, so a value kept in the function body lasts until serve restarts:
+keep anything the app must remember in a file.
 
 `epicenter reading log '{"minutes":30,"book":"Dune"}'` runs `log`;
 `epicenter reading patch '{"id":"dune","finished":"2026-11-10"}'`
@@ -73,6 +73,10 @@ given and throw when it is wrong in a way the types cannot say. `epicenter`
 lists an app whose `epicenter.ts` throws while loading, or whose default
 export `defineApp` refuses, with those lines as its problems, and does not
 run it.
+
+Once an app is running, a throw nothing catches does not stop serve. An app
+whose timer callback throws, or whose action throws after it answered, has
+the error logged on serve's stderr, and every app keeps answering.
 
 - `defineData` returns one handle per key: methods an action calls
   (`data.books.get('dune')`) and `actions(...)`, which gives the verbs it
@@ -253,11 +257,6 @@ the fields that fit, for a repair form. `partitionResults(await data.watches.lis
 from `@epicenter/app` separates fitting records from files that need repair.
 UI code can import the same helper from `@epicenter/app/client`.
 
-`checkData(folder.path, data)`, which `epicenter check` runs, reads every key
-and reports each file that does not fit, each name that is not an id, names
-that are one file on a disk that ignores case, and each reference that names
-no file, each as one line.
-
 ### What a definition may say
 
 `defineData` refuses:
@@ -305,8 +304,8 @@ same `defineData`: `"essays"` for `data/shelves/essays.md`, never the path.
 whose target is not a key beside it when it runs; the types do not check it.
 
 - A write takes a ref as given and opens no other file, so a ref may name a
-  record that is not there. `epicenter check` reports each one, such as
-  `shelf "poems" names no file in shelves/`.
+  record that is not there, and nothing reports it until an action follows
+  it.
 - A read returns the id and opens no other file, so an id whose record was
   deleted since still reads as that id.
 - In an action's `input`, a reference is text. The action finds out whether
@@ -545,34 +544,28 @@ Producers import the shared `ActionError` factories from `@epicenter/app`:
 - `Misfit` (`{ path, id?, problems, record? }`): a file, or a change to one, does not fit the declared fields. Each problem has its `line` and its `kind`; a read carries the partial `record`. The library answers it for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments.
 - `Missing` (`{ path }`): the file is not there.
 - `Refused` (`{ message, next? }`): the app said no. The library never answers it; it is a ready-made name for an app's own refusal.
-- `Problems` (`{ message, report, next? }`): it ran, `report` is what it found, and the job is not clean. The command line prints `report` on stdout, where data would be, and `message` on stderr.
 
 Three more belong to the platform's handling of a call, and each says whether
 the action ran:
 
 | Error | Did the action run? |
 | --- | --- |
-| `NotStarted` (`{ message, cause, ... }`, fields by `cause`) | no: serve or the CLI refused it before it began |
+| `NotStarted` (`{ message, next? }`) | no: serve or the CLI refused it before it began |
 | any other error, the action's own | yes |
 | `Threw` (`{ message, thrown? }`) | yes, and it threw; a tagged value that survives JSON is kept as `thrown` |
 | `Unreachable` (`{ message }`) | unknown: the connection dropped, a line was not a frame, or no answer came |
 
-`NotStarted` is one name whose fields depend on its `cause`, so narrowing on
-`cause` types them:
-
-| `cause` | Why it never began | Its fields |
-| --- | --- | --- |
-| `usage` | the words, input or target do not fit | `next?` |
-| `app-problems` | the app cannot load | `app`, `problems` |
-| `internal` | Epicenter failed before it ran | none |
-| `unavailable` | no serve for this Epicenter answers | `next?` |
+`NotStarted`'s message says why the call never began: the input or target
+does not fit, the app does not load (its name, then each problem on its own
+line), Epicenter failed before it ran, or no serve for this Epicenter
+answers. `next` is the command that helps, when there is one.
 
 An action cannot answer `NotStarted` or
 `Unreachable`: serve turns an action's own into `Threw`, by its name alone. An action may still return `Threw`.
 
 An error is its name, its message and its own fields, with no marker of who
-made it: the name says. The client checks the fields of `Threw` and of each
-`NotStarted` cause, and returns every error whole, preserving its message
+made it: the name says. The client checks the fields of `Threw` and that
+`NotStarted`'s `next` is text, and returns every error whole, preserving its message
 and extra fields. App-defined errors keep their names and public
 fields. `readAnswer` and `checkAnswer`, exported from `@epicenter/app`, are
 the one reader of serve's answer the client and the CLI share; anything that
@@ -677,8 +670,9 @@ redirects `/apps/mail` to `/apps/mail/`, so a page route `'/'` needs
 `fetch` is for protocols someone else defined: an OAuth redirect, a file
 download, a feed, a form upload, or an app's own page when it has no build
 step. The command line and MCP never see its routes, so anything a person or
-an agent should be able to do is an action. The launcher links only to an
-app with a built page.
+an agent should be able to do is an action. Serve has no page at `/` that
+lists apps: `epicenter` prints them, `GET /actions/` gives them as JSON, and
+an app's page is at `/apps/<app>/`.
 
 Serve refuses a request a browser marks as coming from another origin
 (`Sec-Fetch-Site` other than `same-origin` or `none`) unless it opens a page:
@@ -766,7 +760,7 @@ cannot see are in the next section.
 
 | 0.7.0 | 0.8.0 |
 | --- | --- |
-| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings record', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md`. Not flagged by the compiler for the key itself, only for the calls; a file left at `data/settings.md` is read by nothing, and `epicenter check` lists it |
+| `'settings.md': { fields }`, then `data['settings.md'].get()` | `settings: { description: 'settings record', fields }`, then `data.settings.get('settings')`; move `data/settings.md` to `data/settings/settings.md`. Not flagged by the compiler for the key itself, only for the calls; a file left at `data/settings.md` is read by nothing, and nothing lists it |
 | one-file `data['settings.md'].patch(change)`, which made the file and repaired one that did not fit | no one call does both now: `data.settings.edit('settings', () => Ok(change))` makes an absent record but answers the `Misfit` for one that does not fit, and `data.settings.patch('settings', change)` repairs one that does not fit but answers `Missing` for an absent one |
 | `tasks: { fields }` | `tasks: { description: 'task', fields }`: a description is required, a noun without "a" or "the" |
 | `create({ title })` through the generated action, named by the moment | `create({ id: timeId(), title })` |
@@ -780,8 +774,7 @@ cannot see are in the next section.
 
 ### Changes the compiler does not flag
 
-- `epicenter` imports the app and calls its function each time it loads the app, today on every call. A cache or counter kept in the function body starts over each time; keep it in a file.
-- Listing apps calls the function too, so read and write inside actions, not in the function body.
+- Serve calls the app's function once, when it starts. A cache or counter kept in the function body lasts until serve restarts; keep what must last in a file. Read and write inside actions, not in the function body.
 - A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
 - The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
 - `checkAnswer` refuses a `Threw` whose `thrown` is not a plain object, such as an `Error` instance a test passes in, and answers `Unreachable`. An answer read from serve is parsed JSON, so it is unaffected.
@@ -813,7 +806,7 @@ cannot see are in the next section.
 
 - A command finds its Epicenter only by walking up from the folder it runs in. `EPICENTER_ROOT` and the `~/Epicenter` fallback are gone: `cd` into your Epicenter, or set a script's working directory there.
 - `epicenter serve` starts only in the Epicenter's own folder. Started anywhere else it refuses and exits, so a job that restarts it on exit fails again each time. Set the job's working directory to your Epicenter: `WorkingDirectory` in a launchd LaunchAgent's plist, `WorkingDirectory=` in a systemd unit.
-- Bare `epicenter`, `epicenter <app>` and an action's `--help` ask serve, and are refused while it is stopped. `epicenter check` still works without it.
+- Bare `epicenter`, `epicenter <app>` and an action's `--help` ask serve, and are refused while it is stopped.
 
 
 ### Addresses and action names
@@ -847,14 +840,76 @@ must be rebuilt
   Another site, or a page on another port of this computer, that loaded an
   app's icon or framed its page gets 403.
 
+### Serve loads once, and routines run actions
+
+Serve loads every app once, when it starts
+([ADR-0959](../../docs/adr/0959-serve-loads-each-app-once-and-an-apps-code-changes-when-serve-restarts.md)),
+and a routine names an action instead of a command
+([ADR-0937](../../docs/adr/0937-everything-periodic-is-a-routine-file-with-a-cron-schedule.md)).
+The compiler flags none of these.
+
+| 0.7.0 | After |
+| --- | --- |
+| an edit to an app's code shows on the next call | it shows after serve restarts; nothing says the code on disk is newer |
+| an app that failed to load stayed failed until serve restarted, even once fixed | the same, and so does every app: serve loads once |
+| `AGENTS.md` read on each MCP initialize | read once, when serve starts |
+| `routines/` read once a minute | read once, when serve starts; restart after adding or changing one |
+| a routine with `run: ["epicenter", "flights", "daily", "run", {"recheck": false}]` | `action: "flights daily"` and `input: {"recheck": false}`; a file with `run` is refused |
+| a routine running a shell command or Git | not possible; write an action that does it, or use the computer's own scheduler |
+| a routine naming a missing action failed when it ran | refused when serve starts, printed beside the address, and listed by bare `epicenter` |
+| `EPICENTER.md` with no `port` used 4747 | `port` is required; a marker without one is refused |
+| a link in `apps/`, or at an app's `code/`, `data/` or `local/`, was followed | refused: `apps/<name>/data is a link; apps/, an app's folder, and its code/, data/ and local/ must be real folders`, and that app does not load; a linked `apps/` stops serve |
+| serve rewrote every error it sent, an action's included, showing the Epicenter's folder as `.` and your home folder as `~` | a problem serve makes names a path from the Epicenter's folder, such as `apps/<app>/code/epicenter.ts`; an action's own error is sent as written, full paths included |
+| a folder in `apps/` without `code/epicenter.ts` answered 404 at its address | it answers 500 with its problem, and is listed with `no code/epicenter.ts` |
+| a second serve on the port, or another program there, reached through a probe | a command naming another Epicenter is refused with 409, naming the folder it took and its marker; serve refuses to start on a port in use |
+| a refusal for a missing action said only that it was missing | its message names the actions: `notes has no action "x"; its actions: list, get` |
+| bare `epicenter --json` routine rows carried `command`, a line to paste | they carry `app`, `action` and `input` |
+| bare `epicenter --json` problems were `{ entry, folder, problems }`, and `epicenter <app> --json` carried `folder` | problems are `{ entry, problems }` and an app has no `folder`; paths in a problem are from the Epicenter's folder, never `~` |
+| serve's answers carried `x-epicenter` (and, before that, `x-epicenter-home`) | no answer header names serve; only the command's request carries `x-epicenter-root` |
+| any status but 200 read as `serve answered <status>` | `The program on port <port> answered <status>`, with both fixes: restart an old serve, or set another `port` |
+| an MCP call to an action marked `mcp: false` said it is not offered | it gets the same refusal as any name `tools/list` does not offer |
+| `ActionError.Problems` | deleted |
+| `epicenter check [<app>]` read every data key and reported files that did not fit, stray names, broken references and old `data/<key>.md` files | deleted; `epicenter check` is refused like any unknown app, and an app may be named `check` |
+| `import { checkData } from '@epicenter/app'` | deleted; call a key's `list` action, which answers one Result per file, refusals included |
+| a command's error carrying `report` printed that report on stdout | an error prints its message and next step only |
+
+- **Add the restart command to your `AGENTS.md`.** Agents that edit code
+  must restart serve to run it. Write how, for this computer, in the
+  Epicenter's `AGENTS.md`, such as
+  `After editing an app's code, restart serve: launchctl kickstart -k gui/$(id -u)/<label>`.
+- **Rewrite each routine** from `run` to `action` and `input`. A routine
+  that ran something other than `epicenter <app> <action>` becomes an
+  action, or moves to the computer's scheduler.
+- **Add `port` to `EPICENTER.md`** if it has none: `port: 4747` between two
+  `---` lines.
+- **Move a linked app into `apps/`.** Copy its folder in place of the link.
+- **Drop `epicenter check` and `checkData`** from scripts and tests. To see
+  which records of a key do not fit, call its `list` action.
+- **Scripts that read `--json`** read routine rows' `app`, `action` and
+  `input`, and an app's folder as `apps/<name>/` under the `epicenter`
+  folder the report names.
+- **Opening the root address shows no page.** The launcher at `/` is gone;
+  `/` answers MCP only, and a browser gets 405. Bookmark an app at
+  `/apps/<app>/`, run `epicenter` for the list, or read `GET /actions/`.
+- **`NotStarted` is `{ message, next? }`.** Its `cause`, and the `app` and
+  `problems` of an app that does not load, are gone. A page or script that
+  read them reads `message`; an app's problems are its lines after the
+  first. Whether a call began is still `error.name === 'NotStarted'`, and
+  the command still exits 2 for it.
+- **Stopping serve cuts what runs.** On SIGINT or SIGTERM serve closes every
+  connection and exits, so a call or routine still running is cut. A write
+  cut off leaves its target whole: the folder writes a temporary file and
+  renames it.
+
 ### Upgrade steps
 
 1. In the root `package.json`, remove `@epicenter/cli` and set `@epicenter/app` to the new version.
 2. Run `bun install`.
 3. Fix each app until `bun run typecheck` and `bun test` pass, and rename its grouped actions.
 4. Run `bun run build` in each app that has a UI.
-5. Restart `epicenter serve`. Until you do, the command reads the old serve as another program on the port and runs nothing.
-6. Commit the result as one commit, so reverting it returns everything to 0.7.0.
+5. Name `port` in `EPICENTER.md`, rewrite each routine to `action`, and add your restart command to `AGENTS.md`.
+6. Restart `epicenter serve`. Until you do, the old serve does not answer the command's addresses, and the command runs nothing.
+7. Commit the result as one commit, so reverting it returns everything to 0.7.0.
 
 ## Upgrading from 0.6
 
@@ -899,7 +954,7 @@ gives the error object itself:
 - **A page that matched `Refused` to catch a call that never ran** matches `NotStarted`. `Refused` now comes only from an action.
 - **An action that returned `ActionError.Unreachable`**, or its own error named `NotStarted` or `Unreachable`, now answers `Threw`. Return another name, or `Ok` with a field saying the result was not confirmed.
 - **Exit codes:** 2 is exactly `NotStarted`. A connection that dropped after the call was sent still exits 1, now as `Unreachable`.
-- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, `epicenter <app> --json` or `check --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word, answers `NotStarted` and exits 2. A `check` that finds problems ran and still exits 1: it answers `Problems`, and the report that was `data` is `.error.report`, so a script that read `jq .apps` reads `jq '.data // .error.report | .apps'`.
+- **The CLI's own commands answer the same way.** A script that reads `epicenter --json`, or `epicenter <app> --json` reads the result under `.data`, and a failure under `.error`: `epicenter --json | jq .apps` becomes `jq .data.apps`. A command that never began, such as a misused word, answers `NotStarted` and exits 2.
 - **A page or test that matched `Refused` from a library write** matches `Misfit`. A data handle or generated verb answers `Misfit` for a value that does not fit, an unknown field, removing a required field, a body that is not text, an id that cannot name a file, and bad `edit` arguments; the problem is in `problems[].line`, and the message now begins `<path> does not fit its fields:`. `Refused` from your own action is unchanged.
 - **`Changed.why` is `Changed.cause`**, with the same values: `there`, `quote` and `twice`.
 - **Errors no longer carry `namespace`.** A test that faked an error with `namespace: "epicenter/action-error"` drops the field; the name says which error it is.

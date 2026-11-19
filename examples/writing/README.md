@@ -51,7 +51,7 @@ capture form, and include it in search. Keep existing notes readable."
 
 `epicenter.ts` declares the fields and actions. `ui/main.ts` calls them through
 `@epicenter/app/client`; `ui/index.html` and `ui/style.css` define the interface.
-The next action call loads your changed code. After changing `ui/`, run
+Restart `epicenter serve` to run changed code. After changing `ui/`, run
 `bun run build` in `code/` and reload the page.
 
 This app has no third-party app dependencies. `@epicenter/app` comes from

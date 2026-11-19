@@ -67,7 +67,8 @@ must go on offline keeps a clone and pushes to it (ADR-0887).**
 - Who may ask, clone, and push is the tailnet (ADR-0883).
 - `epicenter serve` serves an app's built UI, `ui/dist/`, at `/apps/<app>/` and MCP at `/`, one
   origin and one address for people and agents, so a view asks with no sign-in
-  of its own beyond the server's. A `GET /` from a browser is the launcher. A
+  of its own beyond the server's. `/` answers only MCP; serve has no page
+  there (amended 2026-11-18, ADR-0961). A
   view is static files with hash routes (`#/c/<id>`); the server routes
   nothing. The server's own routes take their own first segment, such as
   `/actions/`, and apps live under `/apps/`, so no app name is reserved

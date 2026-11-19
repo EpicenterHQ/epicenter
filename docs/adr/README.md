@@ -1169,3 +1169,4 @@ When you add an ADR, add its row here.
 | [0964](0964-a-folder-is-on-disk-and-it-holds-a-path-and-the-calls-that-change-files.md) | A folder is on disk, and it holds a path and the calls that change files | Proposed (amends 0841 and 0844) |
 | [0965](0965-the-command-finds-its-epicenter-by-walking-up-and-serve-starts-in-its-folder.md) | The command finds its Epicenter by walking up, and serve starts in its folder | Proposed |
 | [0967](0967-serve-keeps-action-calls-outside-an-apps-address-which-is-apps-name.md) | Serve keeps action calls outside an app's address, which is `/apps/<app>/` | Proposed (amends 0930, 0936 and 0953; edits 0961 in place) |
+| [0968](0968-each-thing-is-checked-once-where-it-can-change-and-epicenter-check-is-deleted.md) | Each thing is checked once, where it can change, and `epicenter check` is deleted | Proposed (supersedes on this point 0921, 0933, 0934, 0935, 0940, 0953 and 0963) |

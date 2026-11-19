@@ -7,6 +7,7 @@
  * `EPICENTER.md`; a command never starts it and never runs an action in its
  * place.
  */
+import { join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	ActionError,
@@ -14,18 +15,25 @@ import {
 	type PublicError,
 	readAnswer,
 } from '../index.ts';
-import type { Listing } from './listing.ts';
-import {
-	answeredBy,
-	portHeld,
-	ROOT_HEADER,
-	rootHeaderValue,
-} from './protocol.ts';
-import type { EpicenterRoot } from './root.ts';
+import { type Listing, ROOT_HEADER, rootHeaderValue } from './protocol.ts';
+import { type EpicenterRoot, MARKER } from './root.ts';
+
+/**
+ * The command's refusal when serve at `root`'s port answered 409: it serves
+ * another Epicenter. It names the folder the command took for its
+ * Epicenter and that folder's marker, since a stray `EPICENTER.md` below the
+ * real one is the usual cause. Only this computer's terminal prints it.
+ */
+function anotherEpicenter({ folder, port }: EpicenterRoot) {
+	const marker = join(folder, MARKER);
+	return ActionError.NotStarted({
+		message: `The serve on port ${port} is another Epicenter's. This command took ${folder} for its Epicenter, from ${marker}: if that is not your Epicenter, remove that file; if it is, set a different \`port\` in it.`,
+	});
+}
 
 /**
  * Send one request to this Epicenter's serve and give its response. With no serve
- * of this Epicenter to take it, the answer is `NotStarted` (`unavailable`); a
+ * of this Epicenter to take it, the answer is `NotStarted`; a
  * connection that ends after it was taken is `Unreachable`, saying `ended`.
  * The command sets no time limit: an action owns its own, and a serve that
  * stops answering is the caller's to give up on.
@@ -48,18 +56,23 @@ async function reach(
 		const { code } = error as { code?: string };
 		if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
 			return ActionError.NotStarted({
-				cause: 'unavailable',
 				message: 'serve is not running; if it stopped, its output says why',
 				next: 'epicenter serve',
 			});
 		return ActionError.Unreachable({ message: ended });
 	}
-	const holder = answeredBy(response);
-	if (holder !== 'its serve') {
-		await response.body?.cancel().catch(() => undefined);
-		return portHeld(root, holder);
-	}
-	return Ok(response);
+	if (response.status === 200) return Ok(response);
+	await response.body?.cancel().catch(() => undefined);
+	if (response.status === 409) return anotherEpicenter(root);
+	// Serve refuses a body past its limit before reading it, so nothing ran.
+	if (response.status === 413)
+		return ActionError.NotStarted({
+			message: 'The input is larger than 25 MiB, the most serve takes',
+		});
+	// No probe: what answered may be an older serve or another program.
+	return ActionError.Unreachable({
+		message: `The program on port ${root.port} answered ${`${response.status} ${response.statusText}`.trim()}. If it is this Epicenter's serve from before an upgrade, restart it; if it is another program, set another \`port\` in ${join(root.folder, MARKER)}.`,
+	});
 }
 
 /** The listing serve answers at `GET /actions/`: every app it loaded, their problems, and the routines. */
@@ -73,9 +86,6 @@ export async function fetchListing(
 		'The connection to serve ended before its listing',
 	);
 	if (error) return Err(error);
-	// Any status but 200 is serve not answering, as for a call.
-	if (response.status !== 200)
-		return (await readAnswer(response)) as Result<never, PublicError>;
 	try {
 		const listing = (await response.json()) as Listing;
 		if (Array.isArray(listing?.apps) && Array.isArray(listing.problems))
@@ -87,20 +97,20 @@ export async function fetchListing(
 }
 
 /**
- * Call the action `key` of `app` with `input`, its JSON text as typed, and
+ * Call the action `action` of `app` with `input`, its JSON text as typed, and
  * give serve's answer. Serve reads and checks the input (ADR-0961). Each
  * update goes to `onUpdate` as it arrives.
  */
 export async function callAction(
 	root: EpicenterRoot,
 	app: string,
-	key: string,
+	action: string,
 	input: string,
 	onUpdate: (value: unknown) => void,
 ): Promise<Answer> {
 	const { data: response, error } = await reach(
 		root,
-		`/actions/${encodeURIComponent(app)}/${encodeURIComponent(key)}`,
+		`/actions/${encodeURIComponent(app)}/${encodeURIComponent(action)}`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },

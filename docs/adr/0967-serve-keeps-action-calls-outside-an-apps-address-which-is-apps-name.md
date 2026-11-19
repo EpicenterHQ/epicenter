@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-18
 - **Amends:** [ADR-0930](0930-an-action-call-is-a-function-call-and-serve-keeps-nothing-about-it.md) at "One route per action": the route is `POST /actions/<app>/<action>`, and the UI is at `/apps/<app>/`; its considered alternative "Move the UI and calls under `/apps/<app>/`" is taken. [ADR-0936](0936-one-serve-per-home-runs-every-action.md) at the route the command posts to. [ADR-0953](0953-an-actions-answer-is-data-or-error-and-its-input-is-one-json-schema.md) at the HTTP row of its answer table: a refusal is a 200 with one answer line. [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md) at the listing's address, now `GET /actions/`. ADR-0860, ADR-0864, ADR-0880 and ADR-0945 are Proposed and were edited in place.
+- **Amended:** 2026-11-18 by [ADR-0961](0961-the-command-sends-an-actions-input-to-serve-and-serve-alone-reads-it.md): `GET /` is no page; `/` answers only MCP's `POST`, and any other method 405.
 - **Relates:** [ADR-0945](0945-an-app-may-answer-web-requests-at-its-address-with-fetch.md) (an app's `fetch` answers under its address), [ADR-0944](0944-an-app-builds-its-own-ui-and-serve-only-serves-it.md) (serve serves `code/ui/dist/` as built), [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) (an app is the folder `apps/<app>/`).
 
 ## Context
@@ -34,8 +35,7 @@ The app's own `fetch` is the collision it did not have.
 `/apps/<app>/` belongs to the app.**
 
 ```txt
-GET  /                          the launcher
-POST /                          MCP
+POST /                          MCP; any other method 405
 GET  /actions/                  the listing as JSON
 POST /actions/<app>/<action>    an action call
 ANY  /apps/<app>/<path>         the app: a file in code/ui/dist/, else its fetch, else 404
@@ -55,8 +55,8 @@ GET  /apps/<app>                308 to /apps/<app>/
   reader no longer parses an error body: `readAnswer` reads any status but
   200 as `Unreachable`. A method other than `POST` under `/actions/<app>/`
   answers 405, and so does one other than `GET` at `/actions/`.
-- **The listing is `GET /actions/`.** `GET /` is only the launcher and MCP's
-  stream refusal, so no `Accept` header decides what `/` answers.
+- **The listing is `GET /actions/`.** `/` answers only MCP, so no `Accept`
+  header decides what `/` answers.
 - **`/apps/<app>/` matches the folder `apps/<app>/`.** The address has no
   period and no name the app cannot use. ADR-0945 says what serve does with
   a path under it that is not a file.
@@ -67,13 +67,13 @@ GET  /apps/<app>                308 to /apps/<app>/
   function, for a query or a mutation. The name is typed as one of the app's
   action names. The client has no Proxy, so an action may be named `then`.
   `callAction` in `packages/app/src/command/send.ts` posts to the same route.
-- **The launcher links to `/apps/<app>/`.**
 - **No old address is answered.** `/<app>/` and `POST /<app>/<action>`
   answer 404. Nothing redirects.
-- **An app folder with no `code/epicenter.ts` answers 404 under
-  `/apps/<app>/`,** as a missing folder does. An app that throws while
-  loading answers 500 with its problems only when a request reaches its
-  `fetch`.
+- **A folder in `apps/` that did not load answers 500 with its problems
+  for every path under `/apps/<app>/`,** whether it has no
+  `code/epicenter.ts` or its code threw (amended 2026-11-18 with
+  ADR-0959: serve loads every entry once, when it starts). A name with no
+  folder answers 404.
 
 ## Consequences
 

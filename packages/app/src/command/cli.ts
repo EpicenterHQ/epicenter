@@ -3,8 +3,8 @@
  * app code (ADR-0961). It finds its Epicenter once, by walking up. The
  * listing feeds bare `epicenter`, `epicenter <app>` and an action's
  * `--help`; a call goes to serve as a page's does, with the action's name
- * and the input as typed, and serve reads the input and runs the action. `check` reads the apps in
- * this process; `serve` is the process. Every command ends in one answer,
+ * and the input as typed, and serve reads the input and runs the action.
+ * `serve` is the process. Every command ends in one answer,
  * `{ data, error }`, which `runCli` presents in one place (ADR-0953). Serve
  * prints no answer while it runs.
  */
@@ -13,56 +13,42 @@ import { realpathSync } from 'node:fs';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../../package.json' with { type: 'json' };
 import { ActionError, type Answer, Err, isName, Ok } from '../index.ts';
-import { noSuchAction } from './input.ts';
 import { presentAnswer, writeErr } from './output.ts';
-import { MAX_INPUT_BYTES, unknownApp } from './protocol.ts';
-import { appReport, helpReport, missingAction, rootReport } from './report.ts';
+import { unknownApp } from './protocol.ts';
+import { appReport, helpReport, rootReport } from './report.ts';
 import { epicenterRoot } from './root.ts';
 import { callAction, fetchListing } from './send.ts';
 
-/** The commands `epicenter` keeps for itself: each one's usage, and what its `--help` says beneath it. */
-const CHECK = {
-	usage: 'epicenter check [<app>] [--json]',
-	help: `Reads every data key of every app, or one app's, and reports each file that
-does not fit its key's fields. Each key shows how many files it holds and how
-many have problems, then each file's problems. Many files with one kind of
-problem usually mean the declaration is too narrow, not the files. It reads
-only, and loads each app's code as it is on disk, so it tries changed code
-before serve restarts. An app whose local/ has no .gitignore is listed with
-the command that adds one. Exit 0 when nothing has a problem, 1 when a file
-or an app has one, and 2 when a named app does not load.`,
-};
-const SERVE = {
-	usage: 'epicenter serve',
-	help: `Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
+/** What `epicenter serve --help` says. */
+const SERVE_HELP = `epicenter serve
+Offers every app's actions over MCP at /, each app at /apps/<app>/ (its
 built UI, then its fetch), and each action at POST /actions/<app>/<action>,
-on 127.0.0.1 at the port in
-EPICENTER.md (default 4747). It starts in the Epicenter's folder. An
+on 127.0.0.1 at the port EPICENTER.md
+names, which every Epicenter must. It starts in the Epicenter's folder. An
 Epicenter has one serve, and only serve loads app code: epicenter <app> and
-bare epicenter ask it, and are refused while it is stopped. Each call runs
-from the app's code as it is on disk then, to its end, and serve keeps
-nothing about it. An app whose code threw while loading, or imported a file
-that was missing, keeps that failure until serve restarts, even once fixed;
-epicenter check tries the fixed code. It runs the Epicenter's routines: a routines/<name>.md
-declares cron: "0 8 * * *" and run: [executable, ...arguments], and once a
-minute serve starts each routine whose schedule had an occurrence since its
-last check. It records nothing about them, and epicenter on its own lists
+bare epicenter ask it, and are refused while it is stopped. Serve loads every
+app, AGENTS.md and routines/ once, when it starts, and runs each call to its
+end from that load, keeping nothing about it. Restart serve after editing an
+app's code. It runs the
+Epicenter's routines: a routines/<name>.md
+declares cron: "0 8 * * *", action: "<app> <action>" and an optional
+input: {...}. Serve reads them when it starts, refuses one whose action or
+input does not fit, and once a minute runs each routine whose schedule had
+an occurrence since its last check, as a call. epicenter on its own lists
 them. Serve commits nothing: Git stores the Epicenter, and its owner commits
 it. It has no sign-in and answers only this computer. To reach it from your
 other devices, run a private proxy such as:
-tailscale serve --bg 4747`,
-};
+tailscale serve --bg <port>`;
 
 const HELP = `epicenter                              your apps and routines
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<input>]
-${CHECK.usage}
-${SERVE.usage}
+epicenter serve
 epicenter --version
 
 Acts on the Epicenter it runs in: the nearest folder at or above this one
-that holds EPICENTER.md. serve starts in that folder, and every command but
-check asks it.
+that holds EPICENTER.md. serve starts in that folder, and every other
+command asks it.
 An action's input is one JSON object, such as '{"title":"Call the bank"}',
 or - to read it from stdin; null removes a field that takes it.
 --json prints every command's answer as one JSON value, {"data": ..., "error": ...},
@@ -70,7 +56,7 @@ and --help (-h) explains anything; both go anywhere.
 Exit codes: 0 done, 1 failed, ran in part or may have run, 2 did not run.`;
 
 const usage = (message: string, next: string) =>
-	ActionError.NotStarted({ cause: 'usage', message, next });
+	ActionError.NotStarted({ message, next });
 
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
@@ -84,24 +70,19 @@ export async function runCli(argv: string[]): Promise<number> {
 		else if (token === '--version' || token === '-V') version = true;
 		else words.push(token);
 	}
-	// A throw after a command began is `Threw`; after an action call was sent, its outcome is unknown.
-	let begun = false;
+	// A throw after an action call was sent leaves its outcome unknown.
 	let sent = false;
 	async function answer(): Promise<Answer | undefined> {
-		const [name, ...rest] = words;
+		const [app, ...rest] = words;
 		// No word starts with -: names are lowercase and an input is {...}, or - alone for stdin.
 		const flag = words.find((word) => word.startsWith('-') && word !== '-');
-		if (version && name !== undefined)
+		if (version && app !== undefined)
 			return usage('--version stands alone', 'epicenter --help');
-		if (name === 'check' || name === 'serve') {
-			const command = name === 'check' ? CHECK : SERVE;
-			if (help) return Ok(`${command.usage}\n${command.help}`);
-			const misused = usage(
-				`Usage: ${command.usage}`,
-				`epicenter ${name} --help`,
-			);
-			if (flag || rest.length > (name === 'check' ? 1 : 0)) return misused;
-			if (name === 'serve' && json)
+		if (app === 'serve') {
+			if (help) return Ok(SERVE_HELP);
+			if (flag || rest.length)
+				return usage('Usage: epicenter serve', 'epicenter serve --help');
+			if (json)
 				return usage(
 					'serve prints no answer; --json does not apply',
 					'epicenter serve --help',
@@ -111,7 +92,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				`${flag} is not an option; the options are --json, --help and --version`,
 				'epicenter --help',
 			);
-		if (name === undefined) {
+		if (app === undefined) {
 			if (version)
 				return Ok(
 					json
@@ -122,13 +103,8 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const { data: root, error: noRoot } = epicenterRoot();
 		if (noRoot) return Err(noRoot);
-		// check and serve load what the other commands do not, so only they import it.
-		if (name === 'check') {
-			const { checkCommand } = await import('./check.ts');
-			begun = true;
-			return checkCommand(root, rest[0], json);
-		}
-		if (name === 'serve') {
+		// serve loads what the other commands do not, so only it imports it.
+		if (app === 'serve') {
 			// Bun reads .env from the folder a process starts in, so serve starts in the root's (ADR-0965).
 			if (realpathSync(process.cwd()) !== root.folder)
 				return usage(
@@ -136,52 +112,42 @@ export async function runCli(argv: string[]): Promise<number> {
 					`cd ${root.folder} && epicenter serve`,
 				);
 			const { serveHttp } = await import('./serve.ts');
-			begun = true;
 			return serveHttp(root);
 		}
 		// A word that is no name names no app, and would not reach POST /actions/<app>/<action>: `..` is `/`.
-		if (name !== undefined && !isName(name)) return unknownApp(name);
-		if (name === undefined || !rest.length) {
+		if (app !== undefined && !isName(app)) return unknownApp(app);
+		if (app === undefined || !rest.length) {
 			const { data: listing, error } = await fetchListing(root);
 			if (error) return Err(error);
-			return name === undefined
+			return app === undefined
 				? Ok(rootReport(listing, root, json))
-				: appReport(listing, root, name, json);
+				: appReport(listing, app, json);
 		}
 		// The action is one name; the input after it is {...} or -, never one.
-		const [key = '', ...after] = rest;
-		if (!isName(key))
+		const [action = '', ...after] = rest;
+		if (!isName(action))
 			return usage(
-				`Name an action of ${name} before its input`,
-				`epicenter ${name}`,
+				`Name an action of ${app} before its input`,
+				`epicenter ${app}`,
 			);
 		if (help) {
 			const { data: listing, error } = await fetchListing(root);
 			if (error) return Err(error);
-			return helpReport(listing, name, key, json);
+			return helpReport(listing, app, action, json);
 		}
 		if (after.length > 1)
 			return usage(
 				'The input is one argument, a JSON object; quote it whole',
-				`epicenter ${name} ${key} --help`,
+				`epicenter ${app} ${action} --help`,
 			);
 		// Only this process can read its stdin, so it reads `-` and sends the text.
 		const [typed = '{}'] = after;
 		const input = typed === '-' ? await Bun.stdin.text() : typed;
-		if (Buffer.byteLength(input) > MAX_INPUT_BYTES)
-			return usage(
-				`The input is larger than ${MAX_INPUT_BYTES / 1024 / 1024} MiB`,
-				`epicenter ${name} ${key} --help`,
-			);
 		// Each update is one line of JSON on stderr, as it arrives.
 		const onUpdate = (value: unknown) => writeErr(JSON.stringify(value));
 		// Serve reads the input and runs the action; this process only sends the call.
 		sent = true;
-		const answered = await callAction(root, name, key, input, onUpdate);
-		// Serve states that the action is missing; the command lists what to type instead.
-		if (answered.error?.message !== noSuchAction(name, key)) return answered;
-		const { data: listing } = await fetchListing(root);
-		return listing ? missingAction(listing, name, key) : answered;
+		return callAction(root, app, action, input, onUpdate);
 	}
 	let answered: Answer | undefined;
 	try {
@@ -192,8 +158,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			answered = ActionError.Unreachable({
 				message: `serve took the action, but its outcome could not be reported: ${message}`,
 			});
-		else if (begun) answered = ActionError.Threw({ message });
-		else answered = ActionError.NotStarted({ cause: 'internal', message });
+		else answered = ActionError.NotStarted({ message });
 	}
 	if (answered === undefined) return 0;
 	try {

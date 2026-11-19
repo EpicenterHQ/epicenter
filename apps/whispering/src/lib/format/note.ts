@@ -2,7 +2,7 @@
  * A note's text, read and written in the home's Markdown grammar from its
  * one owner, `@epicenter/app/markdown` (ADR-0894, ADR-0924): front matter of
  * `key: <JSON>` lines between `---` fences, then the body. A note Whispering
- * writes is one `epicenter check` reads, and both builds share this reader.
+ * writes is one an Epicenter app reads, and both builds share this reader.
  *
  * A change rewrites only the lines of the keys it names (`changeMarkdown`), so
  * a key Whispering does not know and a line whose text is not JSON stay as

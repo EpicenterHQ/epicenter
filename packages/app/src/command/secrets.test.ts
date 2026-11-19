@@ -7,7 +7,7 @@
  *
  * Key behaviors:
  * - An app whose `local/` has no `.gitignore` still runs, and the listing,
- *   `epicenter check` and serve's start each name it with the fix.
+ *   and serve's start each name it with the fix.
  * - Serve refuses to start when Git tracks the root `.env` or would not
  *   ignore it, and starts when Git ignores it or the folder is not a
  *   repository.
@@ -55,7 +55,7 @@ async function git(cwd: string, ...args: string[]) {
 const fix =
 	"apps/notes/local has no .gitignore; run: echo '*' > apps/notes/local/.gitignore";
 
-test('an app whose local/ has no .gitignore runs, and the listing, check and serve name the fix', async () => {
+test('an app whose local/ has no .gitignore runs, and the listing and serve name the fix', async () => {
 	const f = await setup();
 	await mkdir(join(f.apps, 'notes', 'local'));
 
@@ -63,28 +63,19 @@ test('an app whose local/ has no .gitignore runs, and the listing, check and ser
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'notes',
 	]);
-	expect(listed.problems).toEqual([
-		{ entry: 'notes', folder: join(f.apps, 'notes'), problems: [fix] },
-	]);
-
-	const checked = await f.run('check', 'notes', '--json');
-	expect(checked.code).toBe(1);
-	expect(JSON.parse(checked.stdout).error.report.problems).toEqual([
-		{ entry: 'notes', folder: join(f.apps, 'notes'), problems: [fix] },
-	]);
+	expect(listed.problems).toEqual([{ entry: 'notes', problems: [fix] }]);
 
 	const served = await startServe(f);
 	try {
 		for (let tries = 0; !served.stderr().includes(fix) && tries < 50; tries++)
 			await Bun.sleep(20);
-		expect(served.stderr()).toContain(`\n${fix}\n`);
+		expect(served.stderr()).toContain(`\nnotes: ${fix}\n`);
 	} finally {
 		await served.stop();
 	}
 
 	await writeFile(join(f.apps, 'notes', 'local', '.gitignore'), '*\n');
 	expect(JSON.parse((await f.run('--json')).stdout).data.problems).toEqual([]);
-	expect((await f.run('check', 'notes')).code).toBe(0);
 });
 
 test('serve refuses to start while Git would commit the root .env, and says the fix', async () => {

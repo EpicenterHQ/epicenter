@@ -122,7 +122,6 @@ test('an error in the answer is the error itself, whole', async () => {
 		}).error,
 		ActionError.NotStarted({
 			message: 'title is needed',
-			cause: 'usage',
 			next: 'epicenter tasks add --help',
 		}).error,
 	]) {
@@ -133,10 +132,7 @@ test('an error in the answer is the error itself, whole', async () => {
 
 test('a call serve refused is a 200 with its NotStarted answer, and any other status is Unreachable', async () => {
 	const refusal = ActionError.NotStarted({
-		message: 'tasks: epicenter.ts does not load',
-		cause: 'app-problems',
-		app: 'tasks',
-		problems: ['epicenter.ts does not load'],
+		message: 'tasks:\n  epicenter.ts does not load',
 	});
 	respond(line({ answer: refusal }));
 	expect(expectErr(await app.call('count'))).toEqual(refusal.error);

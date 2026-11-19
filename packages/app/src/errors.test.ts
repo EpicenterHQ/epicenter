@@ -25,13 +25,9 @@ test('every shared factory is its name, message and fields, unchanged through JS
 			thrown: { name: 'Custom', message: 'custom', id: 7 },
 		}),
 		ActionError.Refused({ message: 'declined', next: 'Try another input' }),
-		ActionError.Problems({ message: 'one problem', report: { checked: 1 } }),
 		ActionError.Unreachable({ message: 'The connection dropped' }),
 		ActionError.NotStarted({
-			message: 'notes: epicenter.ts does not load',
-			cause: 'app-problems',
-			app: 'notes',
-			problems: ['epicenter.ts does not load'],
+			message: 'notes:\n  epicenter.ts does not load',
 		}),
 	]) {
 		expect(error).not.toHaveProperty('namespace');

@@ -62,11 +62,11 @@ function checkInput(
  * `[<input>]` when no key is required, and nothing for an action with no input.
  */
 export function usageLine(
-	appName: string,
-	key: string,
+	app: string,
+	action: string,
 	input: ObjectSchema,
 ): string {
-	const command = `epicenter ${appName} ${key}`;
+	const command = `epicenter ${app} ${action}`;
 	if (!Object.keys(input.properties).length) return command;
 	return input.required.length ? `${command} <input>` : `${command} [<input>]`;
 }
@@ -139,11 +139,11 @@ function quoted(text: string): string {
 
 /** The command to copy for an action, its example input written as the shell takes it. */
 export function exampleCommand(
-	appName: string,
-	key: string,
+	app: string,
+	action: string,
 	input: ObjectSchema,
 ): string {
-	const command = `epicenter ${appName} ${key}`;
+	const command = `epicenter ${app} ${action}`;
 	return `${command} ${quoted(exampleInput(input))}`;
 }
 
@@ -177,10 +177,3 @@ export function checkObject(
 		};
 	return checkInput(schema, raw);
 }
-
-/**
- * The refusal of an action `app` does not have, as serve states it to every
- * caller. The command adds the app's actions beneath it from the listing.
- */
-export const noSuchAction = (app: string, key: string) =>
-	`${app} has no action ${JSON.stringify(key)}`;
