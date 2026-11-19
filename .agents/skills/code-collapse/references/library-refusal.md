@@ -21,8 +21,8 @@ A library's public surface defines the behavior it supports, including details
 a local wrapper can silently omit. Its documentation and installed source
 establish that contract; they do not decide which model the product needs.
 
-Yjs has thought about CRDT replicas. Better Auth has thought about session
-lifecycle. Drizzle has thought about query composition. Read those decisions before building a second
+Svelte has thought about component lifetimes. Standard Schema has thought
+about the contract between validators and their callers. Read those decisions before building a second
 version of the protocol; their authority over that protocol does not require
 the product to adopt every part of the library's model.
 
@@ -68,15 +68,9 @@ dependencies or a reason to introduce a library.
 
 | Upstream repository | Concern to investigate |
 |---|---|
-| `yjs/yjs` | CRDT types, observer lifetimes, transactions, and subdocument identities when the affected source uses Yjs. |
-| `yjs/y-indexeddb` | Browser persistence and its lifecycle when that adapter is present. |
 | `standard-schema/standard-schema` | The shared contract between validator libraries and their consumers. |
 | `sveltejs/svelte` and `sveltejs/kit` | Runes, stores, component lifetimes, routing, and adapters. |
-| `honojs/hono` | HTTP routing, middleware composition, and error handling. |
-| `better-auth/better-auth` | Session, plugin, and adapter contracts. |
-| `drizzle-team/drizzle-orm` | Schema, query, and migration contracts. |
 | `huntabyte/shadcn-svelte` and `ieedan/shadcn-svelte-extras` | UI primitive composition; compare with the local component source and overlay. |
-| `useautumn/autumn` | Hosted billing primitives. |
 | `jsrepojs/jsrepo` | Installable-block packaging. |
 | `TanStack/query`, `TanStack/table`, and `TanStack/ai` | The options, observers, data contracts, and framework adapters of the family actually in use. |
 

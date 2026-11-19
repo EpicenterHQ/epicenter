@@ -131,7 +131,6 @@ Your data is on the home, and whoever can read the home can read it.
 | Your other devices | Only what a UI or agent fetches while it reaches the home. They keep no copy. |
 | The home's private `origin` backup | Whoever hosts the backup repository can read all included apps and records. Nothing is pushed until you add an origin. |
 | A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a file in Mail's `local/` on the home, and never leaves it. |
-| Epicenter's hosted services | What you send them: a prompt or audio for a paid model, and your account. They hold no part of your Epicenter. |
 
 `serve` signs no one in and listens only on the home, so which other devices
 reach it is your private network's decision. See the
@@ -157,9 +156,8 @@ Applications under `apps/` are outside apps
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 
-Whispering's own packages, and the folder sync product's code it still imports
-(`@epicenter/folder`, `@epicenter/definition`, `@epicenter/local`), are under
-[packages/](packages).
+Whispering's own packages are under
+[apps/whispering/packages/](apps/whispering/packages).
 
 ## Architecture
 
