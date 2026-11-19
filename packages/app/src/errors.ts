@@ -11,6 +11,7 @@ import {
 	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
+import type { JsonValue } from './front-matter.ts';
 
 export type Problem = { line: string; kind: string };
 
@@ -42,7 +43,7 @@ export const ActionError = defineErrors({
 		path: string;
 		id?: string;
 		problems: Problem[];
-		record?: Record<string, unknown>;
+		record?: Record<string, JsonValue>;
 	}) => ({
 		message: [
 			`${path} does not fit its fields:`,
@@ -102,3 +103,9 @@ export type NotStarted = InferError<typeof ActionError.NotStarted>;
 export type Threw = InferError<typeof ActionError.Threw>;
 /** The call's outcome is unknown. */
 export type Unreachable = InferError<typeof ActionError.Unreachable>;
+/** A file or change that does not fit; a read's carries the fields that do as `record`. */
+export type Misfit = InferError<typeof ActionError.Misfit>;
+/** The file is not as the write needed it. */
+export type Changed = InferError<typeof ActionError.Changed>;
+/** There is no file for the id. */
+export type Missing = InferError<typeof ActionError.Missing>;

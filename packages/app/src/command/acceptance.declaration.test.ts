@@ -465,16 +465,11 @@ test("D8 an app of one data key's verbs creates, reads, changes, and deletes its
 			'data/items/dune.md is already there',
 		],
 		[
-			['create', { id: '..', kind: 'link', added: '2026-11-09' }],
-			1,
-			'items: \\"..\\": an id cannot start with .',
-		],
-		[
 			['patch', { id: 'new-one', kind: 'link' }],
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[['patch', { id: 'a\\b', kind: 'link' }], 1, 'an id cannot contain / or'],
+		[['patch', { id: 'a\\b', kind: 'link' }], 1, 'is not a file name'],
 		[['patch', { id: 'dune', kind: null }], 2, 'kind'],
 		[['patch', { id: 'dune', added: null }], 2, 'added'],
 		[

@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
+import type { JsonValue } from './front-matter.ts';
 import type { ActionUpdate, DataRecord } from './index.ts';
 import { defineData, field } from './index.ts';
 import {
@@ -132,19 +133,7 @@ test('action answers retain precise record, absence, and error types', () => {
 			NonNullable<
 				Answer<typeof actions.get>['error'] & { name: 'Misfit' }
 			>['record'],
-			| {
-					path: string;
-					id: string;
-					body: string;
-					meaning?: string;
-					note?: string;
-					rank?: number;
-					done?: boolean;
-					tags?: string[];
-					choice?: 'yes' | 'no';
-					raw?: number;
-			  }
-			| undefined
+			Record<string, JsonValue> | undefined
 		>
 	>();
 });

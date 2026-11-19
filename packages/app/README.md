@@ -116,7 +116,11 @@ drops its call; `defineApp` refuses it and says to use `defineAction`.
 
 `defineData(folder, { ... })` declares an app's records, inside the app's
 function. Each key is a folder under `data/`: `notes` holds every `.md` file
-directly in `data/notes/`, and a record's id is its file name without `.md`.
+directly in `data/notes/`, and the id is the file name without `.md`;
+renaming the file changes it. Everything else in a key's folder belongs to
+the app: a subfolder such as `data/pages/intro/` beside `intro.md`, a file
+with another extension, `x.md.bak`, or a file named just `.md`. No handle
+reads or reports them.
 A key is a name (lowercase letters, digits, and dashes, starting with a
 letter). Each key gives a `description`, what one record is as a singular
 noun without "a" or "the", such as `"task"` (not `"tasks"`), which its verbs'
@@ -127,15 +131,32 @@ the key `settings` and the id `settings` are the file
 `data/settings/settings.md`, read with `data.settings.get('settings')` and
 made with `data.settings.edit('settings', (now) => Ok({ ... }))`.
 
-An id is the file's name exactly as it is on disk: non-empty NFC text of at
-most 200 UTF-8 bytes, without `/`, `\`, control characters, a leading dot,
-or whitespace at either end (ADR-0933). No method or generated verb changes
-an id: one that does not fit returns `Misfit` at the key's folder, quoting
-the id with the reason and, when trimming or NFC would fix it, the name to send instead.
-An app trims or normalises what a person typed before it passes it on.
-`list` skips a file whose name is not an id. An action that takes an id
-takes it as `field.text()`; the handle refuses one that cannot name a file
-when the action reads or writes it. A new record's id comes from the caller
+An id is Node's name for the file. Writing, a handle takes an id when
+`node:path`'s `parse` gives it back as the name of `data/<key>/<id>.md`;
+reading, `list` takes each file whose extension `parse` calls `.md` and uses
+its name. So whatever `create` writes, `list` reads back as the same id.
+`2026-06-26-messi`, `.foo`, `..`, `café`, and `Dune ` with its trailing
+space are ids; `''`, `a/b`, `../x`, and `x/` are not, since Node would name
+the file something else, and neither is `a\b`, since the folder will not
+write a name with `\`, which Windows reads as a separator. No method changes
+an id: one that names no file returns `Misfit` at the key's folder, quoting
+the id, from every verb and in a ref.
+
+An id the operating system cannot store as a file name, one with a NUL byte
+or one longer than the system allows, makes a write throw, and the action
+answers `Threw` with Node's own message. Neither writes a file.
+
+Spaces are part of the name, so an app trims what a person typed before it
+passes it on: `" Dune"` and `"Dune"` are two records. Case and Unicode form
+are part of the name only where the disk keeps them. On a Mac's disk they
+are not: `Dune` and `dune`, or `café` in its two Unicode forms, are one
+file. `get`, `patch` and `delete` find it under either spelling and answer
+with the spelling the caller sent, while `list()` gives the file's real
+name, so `list()` is where true ids come from. Git on a Mac records a name
+in one Unicode form, so a ref stored in the other form can stop matching
+after a clone. An action that takes an id takes it as `field.text()`; a
+caller that sends something other than text is refused by the input schema
+before the action runs. A new record's id comes from the caller
 or the app: the method and the generated `create` both require one, and
 `timeId()` names a record by the moment it is made, as
 `create({ id: timeId(), title })`.
@@ -174,7 +195,6 @@ second.
 | `create(id, record)` | creates the file, or returns `Changed` (`there`) when it exists |
 | `patch(id, change)` | merges a change into an existing record; an absent id returns `Missing` |
 | `edit(id, fn)` | computes a patch from a fitting record, or from `undefined` when the file is absent, and may create it. The patch holds only the fields that change: one that names `path` or `id`, as a spread of the record does, is refused with `Misfit` |
-| `edit(id, { old, new })` | replaces the one passage `old` of the body with `new`; `Changed` (`quote` or `twice`) unless `old` is there exactly once, and `Missing` when the file is absent |
 | `delete(id)` | returns whether a file existed |
 | `path(id)` | the record's path for the id as given, without checking it or the disk |
 
@@ -194,16 +214,18 @@ absent uses `edit` with a function.
 `create`, `patch`, `edit`, and `delete`. A verb's input is its method's
 arguments folded into one object: the id as `id`, and the change's keys
 beside it, so `epicenter vocab patch '{"id":"serendipity","meaning":"a lucky find"}'`
-calls `patch('serendipity', { meaning: 'a lucky find' })`. The function form
-of `edit` stays in code, since a caller cannot send a function. One verb
-differs from its method: `get` returns `Missing` for an absent id where the
-method returns `Ok(undefined)`. `list` returns `Ok(rows)`, one Result per
+calls `patch('serendipity', { meaning: 'a lucky find' })`. Two verbs differ
+from their methods: `get` returns `Missing` for an absent id where the
+method returns `Ok(undefined)`, and `edit` takes a passage, since a caller
+cannot send a function, and hands the handle's `edit` a function that
+replaces it. `list` returns `Ok(rows)`, one Result per
 file, bodies included; `delete` returns the boolean in Ok.
 
 The `edit` verb takes `id`, `old`, and `new`, and no fields. `old` is a
 non-empty passage of the body the caller last saw, and `new` replaces it.
 When `old` is not in the body now, or is there twice, the answer is `Changed`
-with `cause` `quote` or `twice`, and nothing is written. A caller that changes
+with `cause` `quote` or `twice`, and nothing is written; an absent record is
+`Missing`. A caller that changes
 fields and a passage makes two calls:
 
 ```sh
@@ -253,7 +275,9 @@ return Ok(read.data.from);
 `Misfit` carries the file path, the record's `id`, and its diagnostic lines
 and kinds. When
 front matter is readable, it also carries `record`: the path, id, body, and
-the fields that fit, for a repair form. `partitionResults(await data.watches.list())`
+the fields that fit, for a repair form. It is typed as JSON values by name,
+`Record<string, JsonValue>`, the same in code and on a page, so repair code
+checks a field before using it: `String(error.record.title ?? '')`. `partitionResults(await data.watches.list())`
 from `@epicenter/app` separates fitting records from files that need repair.
 UI code can import the same helper from `@epicenter/app/client`.
 
@@ -300,16 +324,34 @@ when it is given: its schema has `minItems`. `min: 0` is the same as none.
 
 `field.ref('shelves')` holds the id of a record in the key `shelves` of the
 same `defineData`: `"essays"` for `data/shelves/essays.md`, never the path.
-`field.list(field.ref('shelves'))` holds several. `defineData` refuses a ref
-whose target is not a key beside it when it runs; the types do not check it.
+`field.list(field.ref('shelves'))` holds several. A ref is a field or the
+item of a list; `defineData` refuses one inside any other shape, such as an
+object or a union, and one whose target is not a key beside it, when it
+runs. The types do not check either.
 
-- A write takes a ref as given and opens no other file, so a ref may name a
-  record that is not there, and nothing reports it until an action follows
-  it.
-- A read returns the id and opens no other file, so an id whose record was
-  deleted since still reads as that id.
-- In an action's `input`, a reference is text. The action finds out whether
-  the record exists, and whether the id can name a file, when it reads it.
+- `create`, `patch`, and `edit` refuse a write that changes a ref to name a
+  record that is not there: a `Misfit` naming the field, the key, and the id,
+  such as `shelf "poems" names no record in shelves`, and nothing is written.
+  Each ref in a list is checked. An absent optional ref, or `null`, is fine.
+  The write lists the target key's folder once, as `list()` does, and a ref
+  passes only when it is one of those ids. A disk error while listing it
+  throws.
+- A ref the record already holds is not checked again, so a form or an agent
+  that sends every field back can save the record after its target was
+  deleted. `create` checks every ref.
+- So a record must exist before another can name it. For two records that
+  name each other, create the first without its ref (the field must be
+  optional), create the second naming the first, then patch the first to
+  name the second. The same holds for a ref to the key's own records: a
+  required one can never be satisfied for the first record, and a record
+  cannot name itself on `create`. Make the field optional and set it with a
+  later `patch`.
+- Deleting or renaming a ref's target, or editing the file by hand, leaves
+  the ref naming nothing. Code that follows a ref reads the target and
+  handles it being absent.
+- A read returns the id and opens no other file.
+- In an action's `input`, a reference is text. The write that stores it
+  finds out whether the record exists.
 
 A reference's JSON Schema is text with its target key, which the app
 listing prints with the rest of the schema:
@@ -771,9 +813,38 @@ cannot see are in the next section.
 | `field.ref('missing')` a type error | not flagged by the compiler; `defineData` still throws when it runs |
 | `field.integer({ default: 50 })` a type error | not flagged by the compiler; the helper still throws when the field is made |
 | `DataRecord<'words', typeof data.words>` | `DataRecord<typeof data.words>` |
+| `data.notes.edit(id, { old, new })` | `data.notes.edit(id, (note) => ...)` with the replacement written in the function, or the generated `edit` action, which still takes `{ id, old, new }` |
+| `error.record.title` typed as the field's type on a `Misfit` from a handle | `error.record.title` typed as a JSON value, as on a page; check it before use, as `String(error.record.title ?? '')`. Not flagged where the code only compares or joins the value |
+| `Misfit<typeof data.notes>`, and `data.notes.patch(error.id, change)` from a handle's `Misfit` | `Misfit` takes no type argument, and its `id` is optional: a `Misfit` for an id that names no file has none. Check `error.id` before passing it on |
 
 ### Changes the compiler does not flag
 
+- An id is the file name as Node reads it, with no other rule: `.foo`,
+  `..`, `Dune `, a decomposed `café`, and ids with control characters, tabs
+  or newlines were refused and are ids now, and the 200-byte limit is gone.
+  An app that relied on the handle to refuse them trims or normalises first.
+- The `Misfit` for an id that names no file no longer suggests a tidy id to
+  send. A page that showed "send \"Dune\"" from it has nothing to show, and
+  an agent that sends `"Dune\n"` or `" Dune"` now creates a second record
+  beside `"Dune"` where 0.7.0 refused it with that hint.
+- An id with `\` is still refused with `Misfit`, now as "is not a file
+  name", the same as `a/b`.
+- An id with a NUL byte, or longer than the system allows, was a `Misfit`;
+  a write of one now throws, and the action answers `Threw` with Node's
+  message.
+- `list` returns every `.md` file directly in the key's folder, including
+  names that start with a dot, such as `.draft.md`, which 0.7.0 skipped.
+  On a USB or network drive a Mac may write `._name.md` beside each file;
+  each shows as a `Misfit`.
+- A write that changes a `field.ref` to name a record that is not there is a
+  `Misfit` and writes nothing. In 0.7.0 it was written as given. Create a
+  target before the record that names it; two records that name each other
+  take a create without the ref and a patch after. A ref the record already
+  holds is not checked again.
+- The generated `edit` action's `run`, called directly in code with an empty
+  `old`, answers `Changed` (`twice`) where it answered `Misfit`. Through
+  serve, the input schema refuses an empty `old` before the action runs, as
+  before.
 - Serve calls the app's function once, when it starts. A cache or counter kept in the function body lasts until serve restarts; keep what must last in a file. Read and write inside actions, not in the function body.
 - A test that relied on memory for speed or isolation writes to its own temporary directory instead, and removes it afterward.
 - The function must return a plain object, written `{ ... }`. A class instance, or an object made with `Object.create(base)`, is refused with "An app returns an object".
@@ -921,7 +992,7 @@ The compiler flags none of these.
 | `data.books.set(id, change)`, one-file `set(change)` | `data.books.patch(id, change)`, one-file `patch(change)` |
 | `data.books.update(id, fn)`, one-file `update(fn)` | `data.books.edit(id, fn)`, one-file `edit(fn)` |
 | `data.books.pathOf(id)`, one-file `pathOf()` | `data.books.path(id)`, one-file `path()` |
-| the generated `set` given `{ id, edit: { old, new } }` | the generated `edit` given `{ id, old, new }`, or `data.books.edit(id, { old, new })` in code |
+| the generated `set` given `{ id, edit: { old, new } }` | the generated `edit` given `{ id, old, new }`; in code, `data.books.edit(id, fn)` (0.8.0 removed the handle's passage form) |
 
 ### What the compiler does not catch
 

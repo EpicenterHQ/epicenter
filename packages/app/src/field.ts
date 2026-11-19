@@ -263,9 +263,10 @@ export const field = {
 	},
 
 	/**
-	 * One id in another key of the same `defineData`: text meant to name a
-	 * file there, which nothing confirms. Reads open no other file. `defineData`
-	 * refuses a target that is not one of its keys.
+	 * One id in another key of the same `defineData`. A write that sets it
+	 * refuses an id with no record there; nothing checks it again, so a
+	 * later delete can leave it naming nothing. Reads open no other file.
+	 * `defineData` refuses a target that is not one of its keys.
 	 */
 	ref: <const O extends Options>(target: string, options?: O) => {
 		only('ref', options, OPTIONS);
