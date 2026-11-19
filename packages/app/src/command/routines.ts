@@ -34,16 +34,11 @@ export type Routine =
 	| { name: string; cron: string; call: Call }
 	| { name: string; problem: string };
 
-/** Each routine file's name in `routines/`, without `.md`, in name order; none when there is no folder. */
+/** Each `.md` file's name in `routines/`, without `.md`, in name order; none when there is no folder. */
 async function routineNames(directory: string) {
 	try {
 		return (await readdir(directory, { withFileTypes: true }))
-			.filter(
-				(entry) =>
-					entry.isFile() &&
-					entry.name.endsWith('.md') &&
-					isName(entry.name.slice(0, -3)),
-			)
+			.filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
 			.map((entry) => entry.name.slice(0, -3))
 			.sort();
 	} catch (error) {
@@ -55,13 +50,25 @@ async function routineNames(directory: string) {
 /** The routine file `name`, checked against `apps`. */
 function readRoutine(apps: Apps, name: string, text: string): Routine {
 	const refused = (problem: string) => ({ name, problem });
+	if (!isName(name))
+		return refused(
+			'its file name is not lowercase letters, digits, and dashes, starting with a letter',
+		);
 	const parsed = readMarkdown(text);
+	if (parsed.notJson.length)
+		return refused(
+			parsed.notJson
+				.map(
+					({ key, lineNumber }) =>
+						`${key} on line ${lineNumber} is not JSON, such as ${key}: "..."`,
+				)
+				.join('; '),
+		);
 	const { cron, action, input = {}, ...other } = parsed.fields;
 	const [app = '', named = '', ...more] =
 		typeof action === 'string' ? action.split(' ') : [];
 	if (
 		!parsed.readable ||
-		parsed.notJson.length ||
 		Object.keys(other).length ||
 		typeof cron !== 'string' ||
 		more.length ||

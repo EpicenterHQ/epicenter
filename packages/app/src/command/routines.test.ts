@@ -124,8 +124,19 @@ test('a routine naming an unknown action, or an input that does not fit, is refu
 			'---\nCount',
 			'timeout: "1m"\n---\nCount',
 		),
+		bare: routine('counter add').replace('"counter add"', 'counter add'),
+		Morning: routine('counter add'),
 	});
 	expect(f.read.map((each) => ('problem' in each ? each : each.name))).toEqual([
+		{
+			name: 'Morning',
+			problem:
+				'its file name is not lowercase letters, digits, and dashes, starting with a letter',
+		},
+		{
+			name: 'bare',
+			problem: 'action on line 3 is not JSON, such as action: "..."',
+		},
 		'count',
 		{ name: 'elsewhere', problem: 'Unknown app "nowhere"' },
 		{
