@@ -17,8 +17,8 @@ autocomplete offer, what does hover explain, and where does Go to Definition
 lead?
 
 Use [query-layer](../query-layer/SKILL.md) when adapting Result-returning
-operations for caching and observable execution state. Schemas and tests have their own
-skills: [typebox](../typebox/SKILL.md) and [testing](../testing/SKILL.md).
+operations for caching and observable execution state. Tests have their own
+skill: [testing](../testing/SKILL.md).
 
 ## Core rules
 

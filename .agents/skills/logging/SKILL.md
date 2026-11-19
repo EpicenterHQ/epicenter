@@ -231,5 +231,4 @@ Serialize at the sink. A host that wants searchable records uses a sink that wri
 ## See also
 
 - `error-handling` skill: `trySync`/`tryAsync` patterns and the [error variants reference](../error-handling/references/error-variants.md) for the typed failures the logger consumes
-- `rust-errors` skill: full `tracing` ↔ `Logger` mapping
 - `tapErr` (from `wellcrafted/result`): Result-chain combinator that logs on the Err branch and passes the Result through. Rare in epicenter, since most call sites branch on `result.error` directly to use the data on the Ok branch. Reach for it only when the Result flows out of the function in a `.then(...)` chain.
