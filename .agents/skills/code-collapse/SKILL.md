@@ -30,9 +30,12 @@ takes almost none, because startup already knows how.
   rebinding while every `db` reference keeps working, reload the page and
   let startup make a new one.
 
-Each trades a brief interruption, and sometimes unsaved work, for deleting
-everything that kept the old thing in step. When that changes what the
-person experiences, such as an editor window that can no longer switch
+Restarting is safe only if shutdown finishes pending work and startup
+recovers whatever must survive: in-flight requests, queued writes,
+half-written files, open connections. Where those can't be drained, such as
+a long-running server with work in flight, keep the live handle. Otherwise
+each case trades a brief interruption for deleting everything that kept the
+old thing in step. When that changes what the person experiences, such as an editor window that can no longer switch
 folders, develop the choice with them in
 [product-collapse](../product-collapse/SKILL.md) unless it is already
 settled.
@@ -129,10 +132,13 @@ separate product.
 2. With the settings actually in use (gcTime: Infinity):
    "Looks up by id. Nothing is ever destroyed." The counting does nothing.
 3. For what the caller needs: the caller has one id and one lifetime, so
-   the lookup does nothing either. The wrapper adds nothing. Delete it.
+   the lookup does nothing either. The wrapper adds nothing for this caller.
 ```
 
-If the honest sentence is "it does nothing," delete it.
+If the honest sentence is "it does nothing," it is probably safe to delete,
+once you have checked who else uses it: other settings, platforms, tests,
+and exports (`@epicenter/app` is published). Today's settings are not the
+contract.
 
 ## Carry the change through
 
@@ -158,6 +164,13 @@ guarantee must not leave an old path that silently loses it. Use
 [clean breaks](../rethink/references/clean-breaks.md) to retire superseded
 paths. Keep temporary compatibility only for a named consumer or
 migration, with a retirement condition.
+
+Before deleting code, confirm tests cover what it does, and add one first if
+they don't. Keep checks that protect auth, rate limits, locks, and retries
+with idempotency even when they look redundant. A search that finds no
+callers does not prove code is unused: string-keyed access, Tauri command
+names, and Svelte templates escape grep. Commit behavior-preserving cleanup
+separately from behavior changes.
 
 Preserve stored data, unfinished input, unrelated work, and real consumer
 contracts. Applied migrations are durable history. Read
