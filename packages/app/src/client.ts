@@ -41,7 +41,7 @@ export type {
 	Threw,
 	Unreachable,
 } from './answer.ts';
-export { timeId } from './time.ts';
+export { localTime, timeId } from './time.ts';
 
 /** What action `A` takes from a caller. */
 export type ActionInput<A> = A extends (input: infer In) => unknown
