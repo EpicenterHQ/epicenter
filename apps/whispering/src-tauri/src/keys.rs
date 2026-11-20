@@ -3,7 +3,7 @@
 //! server origin: switching servers and back keeps each server's key.
 //!
 //! The page can set a key and ask whether one is kept; it never reads one
-//! back. `transcribe.rs` reads it in Rust when it sends a recording.
+//! back. `servers.rs` reads it in Rust when it sends a request.
 
 use tauri::{AppHandle, Runtime};
 

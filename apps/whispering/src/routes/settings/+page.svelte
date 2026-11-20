@@ -2,7 +2,7 @@
 	The transcription server: one form, one Save. A preset only fills the
 	fields. There is no Test button: the next recording is the test.
 
-	The API key is kept where `transcription` keeps it (the Keychain on the
+	The API key is kept where `servers` keeps it (the Keychain on the
 	desktop, the browser's storage in a browser) and is never read back; when
 	one is kept for the address's server, the field says so instead.
 -->
@@ -18,7 +18,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
 	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
-	import { transcription } from '#lib/platform/index.ts';
+	import { servers } from '#lib/platform/index.ts';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import RecordingBar from '../RecordingBar.svelte';
 	import MicrophoneSettings from './MicrophoneSettings.svelte';
@@ -48,7 +48,7 @@
 		keySaved = false;
 		if (!asked) return;
 		let gone = false;
-		void transcription.hasKey(asked).then(({ data }) => {
+		void servers.hasKey(asked).then(({ data }) => {
 			if (!gone) keySaved = data ?? false;
 		});
 		return () => {
@@ -63,7 +63,7 @@
 		const server = { baseUrl: baseUrl.trim(), model: model.trim() };
 		saving = true;
 		if (key.trim()) {
-			const kept = await transcription.setKey(server.baseUrl, key.trim());
+			const kept = await servers.setKey(server.baseUrl, key.trim());
 			if (kept.error) {
 				saving = false;
 				return toastOnError(kept, 'Could not save the API key');
@@ -78,7 +78,7 @@
 
 	async function forgetKey() {
 		if (!origin) return;
-		const forgotten = await transcription.setKey(origin, '');
+		const forgotten = await servers.setKey(origin, '');
 		if (forgotten.error) return toastOnError(forgotten, 'Could not remove the API key');
 		keySaved = false;
 	}
@@ -160,7 +160,7 @@
 							bind:value={key}
 						/>
 						<Field.Description>
-							Kept in {transcription.keyKeptIn} for this server.
+							Kept in {servers.keyKeptIn} for this server.
 							{#if keySaved}
 								<Button variant="link" size="sm" class="h-auto p-0" onclick={forgetKey}>
 									Remove the saved key

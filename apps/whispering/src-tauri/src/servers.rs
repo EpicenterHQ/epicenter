@@ -1,7 +1,9 @@
-//! Sends a recording's audio to the person's transcription server, an
-//! OpenAI-compatible `POST <base>/audio/transcriptions`, and answers its text.
+//! Asks the person's OpenAI-compatible servers: `transcribe` sends a
+//! recording's audio to `POST <base>/audio/transcriptions`, and `complete`
+//! sends text and instructions to `POST <base>/chat/completions`, which
+//! cleanup uses. Each answers the text the server gave.
 //!
-//! The request is made here rather than in the page: the API key stays in
+//! The requests are made here rather than in the page: the API key stays in
 //! Rust (`keys.rs`), and the page's content security policy keeps allowing
 //! no network origin.
 
@@ -20,11 +22,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// How much of a body that is not JSON an error quotes.
 const EXCERPT: usize = 200;
 
-/// Why a recording has no text. The page switches on `name`; `message`
+/// Why a server gave no text. The page switches on `name`; `message`
 /// says it for a person. No variant carries the API key.
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(tag = "name")]
-pub enum TranscribeError {
+pub enum ServerError {
     /// The recording's audio is not there to send.
     NoAudio { message: String },
     /// The server refused the API key, or wanted one (401 or 403).
@@ -40,48 +42,85 @@ pub enum TranscribeError {
 }
 
 /// The transcript of the recording `id`, from the server at `base_url`
-/// with `model`. Its key, when one is kept for the server, goes as a
-/// bearer token.
+/// with `model`. `prompt`, when given, is sent as the request's `prompt`:
+/// words the server should spell as written. The server's key, when one is
+/// kept, goes as a bearer token.
 #[tauri::command]
 pub async fn transcribe<R: Runtime>(
     app: AppHandle<R>,
     id: String,
     base_url: String,
     model: String,
-) -> Result<String, TranscribeError> {
+    prompt: Option<String>,
+) -> Result<String, ServerError> {
     if !is_bare_name(&id) {
-        return Err(TranscribeError::NoAudio {
+        return Err(ServerError::NoAudio {
             message: format!("{id:?} is not a recording"),
         });
     }
-    keys::origin(&base_url).map_err(|message| TranscribeError::Unreachable { message })?;
+    keys::origin(&base_url).map_err(|message| ServerError::Unreachable { message })?;
     let path = files::recordings_dir(&app)
-        .map_err(|message| TranscribeError::NoAudio { message })?
+        .map_err(|message| ServerError::NoAudio { message })?
         .join(format!("{id}.webm"));
     let endpoint = endpoint(&base_url);
     let (audio, key) = tauri::async_runtime::spawn_blocking(move || {
-        let audio = std::fs::read(&path).map_err(|error| TranscribeError::NoAudio {
+        let audio = std::fs::read(&path).map_err(|error| ServerError::NoAudio {
             message: match error.kind() {
                 std::io::ErrorKind::NotFound => "This recording's audio is gone.".to_string(),
                 _ => format!("This recording's audio could not be read: {error}"),
             },
         })?;
         let key = keys::read(&app, &base_url)
-            .map_err(|message| TranscribeError::KeyUnreadable { message })?;
+            .map_err(|message| ServerError::KeyUnreadable { message })?;
         Ok((audio, key))
     })
     .await
     // The read stopped without finishing (it panicked); say so rather than
     // claim the audio is gone.
-    .map_err(|error| TranscribeError::NoAudio {
+    .map_err(|error| ServerError::NoAudio {
         message: format!("Reading the recording stopped: {error}"),
     })??;
     send(
         &endpoint,
         &model,
+        prompt.as_deref(),
         key.as_deref(),
         audio,
         format!("{id}.webm"),
+    )
+    .await
+}
+
+/// The answer of the chat model `model` at `base_url` to `instructions`
+/// (the system message) and `text` (the user message), trimmed. The request
+/// is given up after `timeout_ms`: cleanup waits only so long before the
+/// person gets the text without it.
+#[tauri::command]
+pub async fn complete<R: Runtime>(
+    app: AppHandle<R>,
+    base_url: String,
+    model: String,
+    instructions: String,
+    text: String,
+    timeout_ms: u64,
+) -> Result<String, ServerError> {
+    keys::origin(&base_url).map_err(|message| ServerError::Unreachable { message })?;
+    let key = {
+        let base_url = base_url.clone();
+        tauri::async_runtime::spawn_blocking(move || keys::read(&app, &base_url))
+            .await
+            .map_err(|error| ServerError::KeyUnreadable {
+                message: format!("Reading the key stopped: {error}"),
+            })?
+            .map_err(|message| ServerError::KeyUnreadable { message })?
+    };
+    chat(
+        &chat_endpoint(&base_url),
+        &model,
+        &instructions,
+        &text,
+        key.as_deref(),
+        Duration::from_millis(timeout_ms),
     )
     .await
 }
@@ -100,64 +139,138 @@ fn endpoint(base_url: &str) -> String {
     format!("{}/audio/transcriptions", base_url.trim_end_matches('/'))
 }
 
-/// Post `audio` as `file_name` to `endpoint` and read the answer.
-async fn send(
-    endpoint: &str,
-    model: &str,
-    key: Option<&str>,
-    audio: Vec<u8>,
-    file_name: String,
-) -> Result<String, TranscribeError> {
-    let unreachable = |error: reqwest::Error| TranscribeError::Unreachable {
+/// Where a server at `base_url` takes a chat request.
+fn chat_endpoint(base_url: &str) -> String {
+    format!("{}/chat/completions", base_url.trim_end_matches('/'))
+}
+
+/// The error for a request to `endpoint` that failed before an answer.
+fn unreachable(endpoint: &str) -> impl Fn(reqwest::Error) -> ServerError + '_ {
+    move |error| ServerError::Unreachable {
         message: if error.is_timeout() {
             format!("{endpoint} did not answer in time.")
         } else {
             format!("{endpoint} could not be reached: {}", error.without_url())
         },
+    }
+}
+
+/// Send `request` with `key`, when there is one, and read the answer's
+/// status and body.
+async fn post(
+    endpoint: &str,
+    request: reqwest::RequestBuilder,
+    key: Option<&str>,
+) -> Result<(u16, Vec<u8>), ServerError> {
+    let request = match key {
+        Some(key) => request.bearer_auth(key),
+        None => request,
     };
+    let response = request.send().await.map_err(unreachable(endpoint))?;
+    let status = response.status().as_u16();
+    let body = response.bytes().await.map_err(unreachable(endpoint))?;
+    Ok((status, body.to_vec()))
+}
+
+/// Post `audio` as `file_name` to `endpoint`, with `prompt` when given,
+/// and read the answer.
+async fn send(
+    endpoint: &str,
+    model: &str,
+    prompt: Option<&str>,
+    key: Option<&str>,
+    audio: Vec<u8>,
+    file_name: String,
+) -> Result<String, ServerError> {
     let client = reqwest::Client::builder()
         .timeout(TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)
         .build()
-        .map_err(unreachable)?;
+        .map_err(unreachable(endpoint))?;
     let file = reqwest::multipart::Part::bytes(audio)
         .file_name(file_name)
         .mime_str("audio/webm")
-        .map_err(unreachable)?;
-    let form = reqwest::multipart::Form::new()
-        .text("model", model.to_string())
-        .part("file", file);
-    let mut request = client.post(endpoint).multipart(form);
-    if let Some(key) = key {
-        request = request.bearer_auth(key);
+        .map_err(unreachable(endpoint))?;
+    let mut form = reqwest::multipart::Form::new().text("model", model.to_string());
+    if let Some(prompt) = prompt.filter(|prompt| !prompt.is_empty()) {
+        form = form.text("prompt", prompt.to_string());
     }
-    let response = request.send().await.map_err(unreachable)?;
-    let status = response.status().as_u16();
-    let body = response.bytes().await.map_err(unreachable)?;
-    answer(status, &body)
+    let form = form.part("file", file);
+    let (status, body) = post(endpoint, client.post(endpoint).multipart(form), key).await?;
+    answer(status, &body, transcription_text)
 }
 
-/// The text in a server's answer, or why it gave none.
-fn answer(status: u16, body: &[u8]) -> Result<String, TranscribeError> {
+/// The `text` of a transcription's answer.
+fn transcription_text(body: &[u8]) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Transcription {
+        text: String,
+    }
+    serde_json::from_slice::<Transcription>(body)
+        .ok()
+        .map(|transcription| transcription.text)
+}
+
+/// Post a chat request to `endpoint` and read the first choice's message.
+async fn chat(
+    endpoint: &str,
+    model: &str,
+    instructions: &str,
+    text: &str,
+    key: Option<&str>,
+    timeout: Duration,
+) -> Result<String, ServerError> {
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .connect_timeout(timeout.min(CONNECT_TIMEOUT))
+        .build()
+        .map_err(unreachable(endpoint))?;
+    let request = serde_json::json!({
+        "model": model,
+        "temperature": 0,
+        "messages": [
+            { "role": "system", "content": instructions },
+            { "role": "user", "content": text },
+        ],
+    });
+    let request = client
+        .post(endpoint)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(request.to_string());
+    let (status, body) = post(endpoint, request, key).await?;
+    answer(status, &body, chat_text)
+}
+
+/// The first choice's message in a chat answer.
+fn chat_text(body: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    Some(
+        value
+            .pointer("/choices/0/message/content")?
+            .as_str()?
+            .to_string(),
+    )
+}
+
+/// The text `read` finds in a server's answer, trimmed, or why it gave none.
+fn answer(
+    status: u16,
+    body: &[u8],
+    read: impl FnOnce(&[u8]) -> Option<String>,
+) -> Result<String, ServerError> {
     match status {
-        200..=299 => {
-            #[derive(serde::Deserialize)]
-            struct Transcription {
-                text: String,
-            }
-            serde_json::from_slice::<Transcription>(body)
-                .map(|transcription| transcription.text.trim().to_string())
-                .map_err(|_| TranscribeError::BadResponse {
-                    message: format!("The server's answer had no text: {}", excerpt(body)),
-                })
-        }
-        401 | 403 => Err(TranscribeError::Unauthorized {
+        200..=299 => read(body)
+            .map(|text| text.trim().to_string())
+            .ok_or_else(|| ServerError::BadResponse {
+                message: format!("The server's answer had no text: {}", excerpt(body)),
+            }),
+        401 | 403 => Err(ServerError::Unauthorized {
             message: match server_message(body) {
                 Some(reason) => format!("The server did not accept the API key: {reason}"),
                 None => format!("The server did not accept the API key ({status})."),
             },
         }),
-        _ => Err(TranscribeError::Rejected {
+        _ => Err(ServerError::Rejected {
             status,
             message: format!(
                 "The server answered {status}: {}",
@@ -201,6 +314,10 @@ mod tests {
 
     use super::*;
 
+    fn answer_text(status: u16, body: &[u8]) -> Result<String, ServerError> {
+        answer(status, body, transcription_text)
+    }
+
     #[test]
     fn a_recording_id_is_a_bare_name() {
         assert!(is_bare_name("2026-10-30T22-41-05-123Z-k3x9a2f8"));
@@ -224,16 +341,16 @@ mod tests {
     #[test]
     fn success_answers_the_trimmed_text() {
         assert_eq!(
-            answer(200, br#"{"text":" Hello there. "}"#),
+            answer_text(200, br#"{"text":" Hello there. "}"#),
             Ok("Hello there.".to_string())
         );
         assert!(matches!(
-            answer(200, b"{}"),
-            Err(TranscribeError::BadResponse { .. })
+            answer_text(200, b"{}"),
+            Err(ServerError::BadResponse { .. })
         ));
         assert!(matches!(
-            answer(200, b"<html>"),
-            Err(TranscribeError::BadResponse { .. })
+            answer_text(200, b"<html>"),
+            Err(ServerError::BadResponse { .. })
         ));
     }
 
@@ -242,36 +359,36 @@ mod tests {
         let body =
             br#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}"#;
         assert_eq!(
-            answer(401, body),
-            Err(TranscribeError::Unauthorized {
+            answer_text(401, body),
+            Err(ServerError::Unauthorized {
                 message: "The server did not accept the API key: Incorrect API key provided"
                     .to_string()
             })
         );
         assert!(matches!(
-            answer(403, b""),
-            Err(TranscribeError::Unauthorized { .. })
+            answer_text(403, b""),
+            Err(ServerError::Unauthorized { .. })
         ));
     }
 
     #[test]
     fn another_error_quotes_the_server() {
         assert_eq!(
-            answer(400, br#"{"error":{"message":"Invalid file format."}}"#),
-            Err(TranscribeError::Rejected {
+            answer_text(400, br#"{"error":{"message":"Invalid file format."}}"#),
+            Err(ServerError::Rejected {
                 status: 400,
                 message: "The server answered 400: Invalid file format.".to_string()
             })
         );
         assert_eq!(
-            answer(422, br#"{"detail":"Model not found"}"#),
-            Err(TranscribeError::Rejected {
+            answer_text(422, br#"{"detail":"Model not found"}"#),
+            Err(ServerError::Rejected {
                 status: 422,
                 message: "The server answered 422: Model not found".to_string()
             })
         );
-        let Err(TranscribeError::Rejected { message, .. }) =
-            answer(502, "x".repeat(500).as_bytes())
+        let Err(ServerError::Rejected { message, .. }) =
+            answer_text(502, "x".repeat(500).as_bytes())
         else {
             panic!("a 502 is rejected");
         };
@@ -280,14 +397,14 @@ mod tests {
             format!("The server answered 502: {}...", "x".repeat(EXCERPT))
         );
         assert!(matches!(
-            answer(500, b""),
-            Err(TranscribeError::Rejected { status: 500, .. })
+            answer_text(500, b""),
+            Err(ServerError::Rejected { status: 500, .. })
         ));
     }
 
     #[test]
     fn an_error_serializes_with_its_name() {
-        let json = serde_json::to_value(TranscribeError::Rejected {
+        let json = serde_json::to_value(ServerError::Rejected {
             status: 400,
             message: "m".to_string(),
         })
@@ -333,10 +450,11 @@ mod tests {
         (base, received)
     }
 
-    fn send_to(base: &str, key: Option<&str>) -> Result<String, TranscribeError> {
+    fn send_to(base: &str, key: Option<&str>) -> Result<String, ServerError> {
         tauri::async_runtime::block_on(send(
             &endpoint(base),
             "whisper-1",
+            None,
             key,
             b"AUDIO".to_vec(),
             "a.webm".to_string(),
@@ -369,6 +487,59 @@ mod tests {
     }
 
     #[test]
+    fn hints_go_as_the_prompt() {
+        let (base, request) = serve_once("200 OK", r#"{"text":"Hi."}"#);
+        let sent = tauri::async_runtime::block_on(send(
+            &endpoint(&base),
+            "whisper-1",
+            Some("Epicenter, Whispering."),
+            None,
+            b"AUDIO".to_vec(),
+            "a.webm".to_string(),
+        ));
+        assert_eq!(sent, Ok("Hi.".to_string()));
+        let request = request.recv().unwrap();
+        assert!(
+            request.contains("name=\"prompt\"\r\n\r\nEpicenter, Whispering.\r\n"),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn a_chat_answers_the_first_message() {
+        let (base, request) = serve_once(
+            "200 OK",
+            r#"{"choices":[{"message":{"role":"assistant","content":" Ship it Friday. "}}]}"#,
+        );
+        let answered = tauri::async_runtime::block_on(chat(
+            &chat_endpoint(&base),
+            "llama",
+            "Clean this up.",
+            "ship it tomorrow no friday",
+            Some("sk-test"),
+            Duration::from_secs(5),
+        ));
+        assert_eq!(answered, Ok("Ship it Friday.".to_string()));
+        let request = request.recv().unwrap();
+        assert!(
+            request.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(
+            request.contains(r#"{"content":"Clean this up.","role":"system"}"#),
+            "{request}"
+        );
+        assert!(
+            request.contains(r#"{"content":"ship it tomorrow no friday","role":"user"}"#),
+            "{request}"
+        );
+        assert!(matches!(
+            answer(200, b"{}", chat_text),
+            Err(ServerError::BadResponse { .. })
+        ),);
+    }
+
+    #[test]
     fn no_key_sends_no_authorization() {
         let (base, request) = serve_once("200 OK", r#"{"text":"Hi."}"#);
         assert_eq!(send_to(&base, None), Ok("Hi.".to_string()));
@@ -387,7 +558,7 @@ mod tests {
         );
         assert!(matches!(
             send_to(&base, Some("sk-wrong")),
-            Err(TranscribeError::Unauthorized { .. })
+            Err(ServerError::Unauthorized { .. })
         ));
     }
 
@@ -399,7 +570,7 @@ mod tests {
         );
         assert_eq!(
             send_to(&base, None),
-            Err(TranscribeError::Rejected {
+            Err(ServerError::Rejected {
                 status: 400,
                 message: "The server answered 400: Invalid file format.".to_string()
             })
@@ -414,7 +585,7 @@ mod tests {
             .unwrap()
             .port();
         let refused = send_to(&format!("http://127.0.0.1:{port}/v1"), Some("sk-secret"));
-        let Err(TranscribeError::Unreachable { message }) = refused else {
+        let Err(ServerError::Unreachable { message }) = refused else {
             panic!("{refused:?}");
         };
         assert!(!message.contains("sk-secret"), "{message}");

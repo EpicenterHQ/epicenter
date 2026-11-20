@@ -6,7 +6,7 @@
  * | --- | --- | --- |
  * | `files` | the app's local data directory | the Origin Private File System |
  * | `recorder` | the native recorder, writing each second | `MediaRecorder`, writing on Stop |
- * | `transcription` | Rust sends it; the key is in the Keychain | `fetch` sends it; the key is in `localStorage` |
+ * | `servers` | Rust sends each request; keys are in the Keychain | `fetch` sends it; keys are in `localStorage` |
  * | `copyText` | the clipboard plugin, which works while another app is in front | the page's clipboard |
  * | `onShortcut` | ⌘⇧; from any app, held in Rust (`main.rs`) | none |
  *
@@ -23,16 +23,14 @@ import { opfsFiles } from './files/opfs';
 import { tauriFiles } from './files/tauri';
 import { createBrowserRecorder } from './recorder/browser';
 import { nativeRecorder } from './recorder/native';
-import { createBrowserTranscription } from './transcription/browser';
-import { nativeTranscription } from './transcription/native';
+import { createBrowserServers } from './servers/browser';
+import { nativeServers } from './servers/native';
 
 const desktop = isTauri();
 
 export const files = desktop ? tauriFiles() : opfsFiles();
 export const recorder = desktop ? nativeRecorder : createBrowserRecorder(files);
-export const transcription = desktop
-	? nativeTranscription
-	: createBrowserTranscription(files);
+export const servers = desktop ? nativeServers : createBrowserServers(files);
 export const copyText = desktop
 	? writeText
 	: (text: string) => navigator.clipboard.writeText(text);

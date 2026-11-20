@@ -57,7 +57,7 @@ src/
 src-tauri/src/
   files.rs                   reads many files in one call
   keys.rs                    the Keychain
-  transcribe.rs              sends audio to the server with the key
+  servers.rs                 transcription and cleanup requests, with the key
   main.rs                    commands, plugins, and the global shortcut
 ```
 

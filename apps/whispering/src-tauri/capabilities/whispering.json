@@ -17,6 +17,7 @@
 		"allow-key-set",
 		"allow-key-exists",
 		"allow-transcribe",
+		"allow-complete",
 		"clipboard-manager:allow-write-text"
 	]
 }

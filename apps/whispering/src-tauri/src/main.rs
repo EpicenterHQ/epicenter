@@ -5,8 +5,8 @@
 //! system scope, which allows only that directory. A second launch focuses
 //! the open window, so the app is the directory's one writer.
 //!
-//! Transcription runs here too (`transcribe.rs`), with the server's API key
-//! read from the Keychain (`keys.rs`), and one fixed global shortcut asks the
+//! Requests to the person's servers run here too (`servers.rs`), with each
+//! server's API key read from the Keychain (`keys.rs`), and one fixed global shortcut asks the
 //! page to start or stop a recording.
 
 // Keeps a console window from opening beside the app in a Windows release build.
@@ -14,7 +14,7 @@
 
 mod files;
 mod keys;
-mod transcribe;
+mod servers;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_fs::FsExt;
@@ -41,7 +41,8 @@ fn main() {
             files::files_read,
             keys::key_set,
             keys::key_exists,
-            transcribe::transcribe
+            servers::transcribe,
+            servers::complete
         ])
         .run(tauri::generate_context!())
         .expect("Whispering could not start");

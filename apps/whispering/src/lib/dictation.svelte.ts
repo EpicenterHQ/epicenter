@@ -12,7 +12,7 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { runMutation, runQuery } from 'wellcrafted/query';
 import { tryAsync } from 'wellcrafted/result';
 import { goto } from '$app/navigation';
-import { copyText, recorder, transcription } from './platform';
+import { copyText, recorder, servers } from './platform';
 import { type EndedReason, HEARD } from './platform/recorder/recorder';
 import { queryClient, recordingsMutations, settingsQueries } from './queries';
 
@@ -127,7 +127,7 @@ function createDictation() {
 		}
 		if (transcribing.has(id)) return;
 		transcribing.add(id);
-		const { data: text, error } = await transcription.transcribe(id, server);
+		const { data: text, error } = await servers.transcribe(id, server, []);
 		// The id is gone from the set only if the recording was deleted while
 		// the server had it. A delete confirmed after this line queues behind
 		// the save below: both run in the one recordings mutation scope.

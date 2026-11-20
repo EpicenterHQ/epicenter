@@ -1,6 +1,6 @@
 /**
  * The transcription server: an OpenAI-compatible address and model. Its API
- * key is not here; `platform/transcription` keeps one per origin.
+ * key is not here; `platform/servers` keeps one per origin.
  */
 import { Ok, trySync } from 'wellcrafted/result';
 
