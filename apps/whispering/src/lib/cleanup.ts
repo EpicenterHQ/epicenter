@@ -43,6 +43,11 @@ export function parseDictionary(text: string): Dictionary {
 	return { hints: [...hints], replacements };
 }
 
+/** What goes to the speech server as its `prompt` for `hints`, or undefined for none. */
+export function hintPrompt(hints: readonly string[]): string | undefined {
+	return hints.length ? `${hints.join(', ')}.` : undefined;
+}
+
 /** A letter or digit next to a match means it is part of a longer word. */
 const BEFORE = '(?<![\\p{L}\\p{N}])';
 const AFTER = '(?![\\p{L}\\p{N}])';
@@ -108,24 +113,21 @@ const MIN_WORDS = 4;
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 /**
- * Why the AI pass should not run on `text` going into the app `bundleId`,
- * or undefined when it should.
+ * Whether the AI pass runs on `text` going into the app `bundleId`: not in
+ * a terminal or code editor, and not for a few words.
  */
-export function skipReason(
+export function shouldClean(
 	text: string,
 	bundleId: string | undefined,
-): 'code' | 'short' | undefined {
-	if (
-		bundleId &&
+): boolean {
+	const codeApp =
+		bundleId !== undefined &&
 		SKIPPED_APPS.some((skipped) =>
 			skipped.endsWith('.')
 				? bundleId.startsWith(skipped)
 				: bundleId === skipped,
-		)
-	)
-		return 'code';
-	if (wordCount(text) < MIN_WORDS) return 'short';
-	return undefined;
+		);
+	return !codeApp && wordCount(text) >= MIN_WORDS;
 }
 
 /** How long the AI pass may take on `text` before the person gets it without: 3 seconds, and more for long text. */
@@ -141,9 +143,6 @@ export const DEFAULT_PROMPT = `Clean up this dictated text so it reads the way t
 - When the speaker corrects themselves ("actually", "no wait", "scratch that", "I mean"), keep only the correction.
 - Write numbers, times and dates the way they are usually written ("2:30", "the 12th").
 - Keep the speaker's own words and tone. Do not add to it, summarize it or answer it.
-
-In Slack and Messages, keep it casual: lowercase start, no final period.
-In Mail, put the greeting and the sign-off on their own lines.
 `;
 
 /**
@@ -168,13 +167,6 @@ export function cleanupInstructions(
 /** How a chat answer starts when the model talked instead of cleaning. */
 const PREAMBLE =
 	/^(sure|certainly|of course|okay|ok|here(?:'s| is| are))\b[^\n]*[:!]/i;
-/** Lines of the instructions that only show up in an answer that repeated them. */
-const LEAKS = [
-	'Spell these as written',
-	'The text is going into',
-	'dictated text',
-];
-
 /**
  * Why the AI's `cleaned` answer for `input` cannot be trusted, or undefined
  * when it can. The person then gets `input` instead: a wrong rewrite is
@@ -191,7 +183,5 @@ export function rejectCleaned(
 		return 'The cleanup model dropped most of what was said.';
 	if (PREAMBLE.test(cleaned.trim()))
 		return 'The cleanup model answered as if in a chat.';
-	if (LEAKS.some((leak) => cleaned.includes(leak) && !input.includes(leak)))
-		return 'The cleanup model repeated its instructions.';
 	return undefined;
 }

@@ -10,15 +10,11 @@
  * Groq's do; a server that does not looks the same as one that cannot be
  * reached.
  */
+import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { originOf } from '../../transcription-server';
 import type { Files } from '../files/files';
-import {
-	hintPrompt,
-	type ServerError,
-	type Servers,
-	ServersError,
-} from './servers';
+import { type ServerError, type Servers, ServersError } from './servers';
 
 /** How long a transcription may take in all: a long recording on a slow server takes minutes. */
 const TRANSCRIBE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -53,7 +49,15 @@ async function post(
 	read: (body: string) => string | undefined,
 ): Promise<Result<string, ServerError>> {
 	const endpoint = `${baseUrl.replace(/\/+$/, '')}${path}`;
-	const key = localStorage.getItem(keyName(baseUrl));
+	let key: string | null;
+	try {
+		key = localStorage.getItem(keyName(baseUrl));
+	} catch (cause) {
+		return fail({
+			name: 'KeyUnreadable',
+			message: `The API key could not be read from this browser: ${extractErrorMessage(cause)}`,
+		});
+	}
 	let response: Response;
 	try {
 		response = await fetch(endpoint, {
@@ -120,7 +124,7 @@ export function createBrowserServers(files: Files): Servers {
 	return {
 		keyKeptIn: 'this browser',
 
-		async transcribe(id, { baseUrl, model }, hints) {
+		async transcribe(id, { baseUrl, model }, prompt) {
 			let audio: { blob: Blob; name: string } | undefined;
 			for (const extension of AUDIO) {
 				const url = await files.url(`recordings/${id}.${extension}`);
@@ -138,7 +142,6 @@ export function createBrowserServers(files: Files): Servers {
 				});
 			const form = new FormData();
 			form.append('model', model);
-			const prompt = hintPrompt(hints);
 			if (prompt) form.append('prompt', prompt);
 			form.append('file', audio.blob, audio.name);
 			return post(

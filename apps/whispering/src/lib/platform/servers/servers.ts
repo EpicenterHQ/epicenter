@@ -56,13 +56,13 @@ export type Servers = {
 	/** Where a key is kept, as a person reads it: "the macOS Keychain". */
 	keyKeptIn: string;
 	/**
-	 * The text of the recording `id`, from `server`. `hints` are words to
-	 * spell as given, sent as the request's `prompt`.
+	 * The text of the recording `id`, from `server`. `prompt`, when given,
+	 * goes as the request's `prompt`: words the server should spell as given.
 	 */
 	transcribe(
 		id: string,
 		server: Server,
-		hints: readonly string[],
+		prompt: string | undefined,
 	): Promise<Result<string, ServerError | ServersError>>;
 	/** The answer of the chat model `server` to `completion`, trimmed. */
 	complete(
@@ -74,8 +74,3 @@ export type Servers = {
 	/** Whether a key is kept for the server at `baseUrl`. */
 	hasKey(baseUrl: string): Promise<Result<boolean, ServersError>>;
 };
-
-/** What `transcribe` sends as `prompt` for `hints`, or undefined for none. */
-export function hintPrompt(hints: readonly string[]): string | undefined {
-	return hints.length ? `${hints.join(', ')}.` : undefined;
-}

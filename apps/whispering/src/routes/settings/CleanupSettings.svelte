@@ -47,9 +47,18 @@
 
 	const kept = $derived(prompt.data ?? DEFAULT_PROMPT);
 	const ownPrompt = $derived(typeof prompt.data === 'string');
-	const otherOrigin = $derived(baseUrl.trim() ? originOf(baseUrl) : undefined);
+	const cleanupOrigin = $derived(baseUrl.trim() ? originOf(baseUrl) : undefined);
+	/**
+	 * The cleanup server's origin when it is not the transcription server's,
+	 * whose key the main form keeps: only then does this form ask for a key.
+	 */
+	const otherOrigin = $derived(
+		cleanupOrigin && cleanupOrigin !== originOf(settings.data?.server?.baseUrl ?? '')
+			? cleanupOrigin
+			: undefined,
+	);
 	const urlError = $derived(
-		triedToSave && baseUrl.trim() && !otherOrigin
+		triedToSave && baseUrl.trim() && !cleanupOrigin
 			? 'Enter an address that starts with http:// or https://, or leave it blank.'
 			: undefined,
 	);
@@ -76,14 +85,16 @@
 			if (keptKey.error) return toastOnError(keptKey, 'Could not save the API key');
 			key = '';
 		}
+		// Saving the model keeps cleanup on or off as it was.
 		const saved = await runMutation(queryClient, settingsMutations.update, {
 			cleanup: {
 				model: model.trim(),
 				...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+				...(cleanup?.off ? { off: true } : {}),
 			},
 		});
 		if (saved.error) return toastOnError(saved, 'Could not save cleanup');
-		toast.success('Cleanup is on');
+		toast.success(cleanup ? 'Cleanup saved' : 'Cleanup is on');
 	}
 
 	async function setOn(on: boolean) {
@@ -142,8 +153,8 @@
 		<Field.Legend>Clean up</Field.Legend>
 		<Field.Description>
 			A chat model fixes punctuation, removes filler and false starts, and keeps your words. It
-			is skipped in terminals and code editors, for a few words, and when it takes too long; you
-			can always copy the original.
+			is skipped in terminals and code editors, for fewer than four words, and when it takes too
+			long; you can always copy the original.
 		</Field.Description>
 		<Field.Group>
 			{#if cleanup}
@@ -212,7 +223,7 @@
 	<Field.Description>
 		{ownPrompt
 			? 'Your own prompt, kept in cleanup.md.'
-			: 'The built-in prompt. Edit it to make it yours; per-app lines like "In Slack…" use the app you dictate into.'}
+			: 'The built-in prompt. Edit it to make it yours. When the shortcut starts a recording on the desktop, cleanup is told the app you dictate into, so a line like "In Slack, keep it casual" works.'}
 	</Field.Description>
 	<Field.Group>
 		<Textarea

@@ -16,10 +16,11 @@ import {
 	cleanupInstructions,
 	cleanupTimeoutMs,
 	DEFAULT_PROMPT,
+	hintPrompt,
 	parseDictionary,
 	rejectCleaned,
 	replaceWords,
-	skipReason,
+	shouldClean,
 } from './cleanup';
 import { cleanupServer } from './data/settings';
 import { copyText, type FrontApp, recorder, servers } from './platform';
@@ -34,7 +35,8 @@ import {
 type Status =
 	| { kind: 'idle' }
 	| { kind: 'starting' }
-	| { kind: 'recording'; startedAt: number }
+	/** `app` is the app in front when the shortcut started it: where the text goes. */
+	| { kind: 'recording'; startedAt: number; app: FrontApp | undefined }
 	| { kind: 'stopping' };
 
 const ENDED: Record<EndedReason, string> = {
@@ -79,8 +81,6 @@ function createDictation() {
 	const transcribing = new SvelteSet<string>();
 	/** The recordings whose text is with the cleanup model now; each is also in `transcribing`. */
 	const cleaning = new SvelteSet<string>();
-	/** The app the recording under way is going into, when the shortcut started it. */
-	let takeApp: FrontApp | undefined;
 	/** The microphone's latest level while recording, from 0 to 1. */
 	let level = $state(0);
 	/** When the microphone last sent anything above silence during this recording. */
@@ -88,7 +88,6 @@ function createDictation() {
 
 	async function start(app: FrontApp | undefined) {
 		status = { kind: 'starting' };
-		takeApp = app;
 		level = 0;
 		heardAt = undefined;
 		const { microphone } = await currentSettings();
@@ -116,11 +115,12 @@ function createDictation() {
 				});
 			return toastOnError(error, 'Could not start recording');
 		}
-		status = { kind: 'recording', startedAt: Date.now() };
+		status = { kind: 'recording', startedAt: Date.now(), app };
 	}
 
 	async function stop() {
 		if (status.kind !== 'recording') return;
+		const { app } = status;
 		status = { kind: 'stopping' };
 		const { data, error } = await recorder.stop();
 		status = { kind: 'idle' };
@@ -128,7 +128,7 @@ function createDictation() {
 		openId = data.id;
 		const saved = await runMutation(queryClient, recordingsMutations.add, data);
 		if (saved.error) return toastOnError(saved, 'Could not save the recording');
-		await transcribe(data.id, takeApp);
+		await transcribe(data.id, app);
 	}
 
 	/**
@@ -166,7 +166,7 @@ function createDictation() {
 			const { data: heard, error } = await servers.transcribe(
 				id,
 				server,
-				words.hints,
+				hintPrompt(words.hints),
 			);
 			if (gone()) return;
 			if (error) {
@@ -186,9 +186,11 @@ function createDictation() {
 				return toastOnError(saved, 'Could not save the transcript');
 
 			let delivered = replaced;
-			let notCleaned: { reason: string; unauthorized: boolean } | undefined;
+			/** Why the text went out without cleanup, when cleanup was asked to run. */
+			let notCleaned: string | undefined;
+			let unauthorized = false;
 			const cleanup = cleanupServer(settings);
-			if (cleanup && !skipReason(replaced, app?.bundleId)) {
+			if (cleanup && shouldClean(replaced, app?.bundleId)) {
 				cleaning.add(id);
 				const prompt =
 					(await runQuery(queryClient, cleanupQueries.prompt())).data ??
@@ -203,25 +205,21 @@ function createDictation() {
 				});
 				cleaning.delete(id);
 				if (gone()) return;
-				const distrusted = error ? undefined : rejectCleaned(cleaned, replaced);
-				if (error)
-					notCleaned = {
-						reason: error.message,
-						unauthorized: error.name === 'Unauthorized',
-					};
-				else if (distrusted)
-					notCleaned = { reason: distrusted, unauthorized: false };
-				else {
-					const final = replaceWords(cleaned, words.replacements);
+				if (error) {
+					notCleaned = error.message;
+					unauthorized = error.name === 'Unauthorized';
+				} else notCleaned = rejectCleaned(cleaned, replaced);
+				if (!error && !notCleaned) {
+					delivered = replaceWords(cleaned, words.replacements);
+					// The text without cleanup is already saved; copy the cleaned-up
+					// text even when saving it fails, and say so.
 					const saved = await save({
 						id,
-						transcript: final,
+						transcript: delivered,
 						original: heard,
-						app: app?.name,
 					});
 					if (saved.error)
-						return toastOnError(saved, 'Could not save the cleaned-up text');
-					delivered = final;
+						toastOnError(saved, 'Could not save the cleaned-up text');
 				}
 			}
 
@@ -233,8 +231,8 @@ function createDictation() {
 				return toastOnError(copied, 'Could not copy the transcript');
 			if (notCleaned)
 				return toast.success('Copied without cleanup', {
-					description: notCleaned.reason,
-					action: notCleaned.unauthorized ? openSettings : undefined,
+					description: notCleaned,
+					action: unauthorized ? openSettings : undefined,
 				});
 			toast.success('Copied', {
 				action:
@@ -253,7 +251,6 @@ function createDictation() {
 		id: string;
 		transcript: string;
 		original?: string;
-		app?: string;
 	}) => runMutation(queryClient, recordingsMutations.setTranscript, change);
 
 	/** Copy `text`, the server's own words, instead of the cleaned-up text. */

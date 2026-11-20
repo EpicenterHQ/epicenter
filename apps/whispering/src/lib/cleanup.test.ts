@@ -4,7 +4,7 @@ import {
 	parseDictionary,
 	rejectCleaned,
 	replaceWords,
-	skipReason,
+	shouldClean,
 } from './cleanup';
 
 describe('parseDictionary', () => {
@@ -68,18 +68,18 @@ describe('replaceWords', () => {
 	});
 });
 
-describe('skipReason', () => {
+describe('shouldClean', () => {
 	test('skips terminals and code editors by bundle id', () => {
 		const said = 'git commit dash m fix the tests';
-		expect(skipReason(said, 'com.apple.Terminal')).toBe('code');
-		expect(skipReason(said, 'com.jetbrains.WebStorm')).toBe('code');
-		expect(skipReason(said, 'com.tinyspeck.slackmacgap')).toBeUndefined();
-		expect(skipReason(said, undefined)).toBeUndefined();
+		expect(shouldClean(said, 'com.apple.Terminal')).toBe(false);
+		expect(shouldClean(said, 'com.jetbrains.WebStorm')).toBe(false);
+		expect(shouldClean(said, 'com.tinyspeck.slackmacgap')).toBe(true);
+		expect(shouldClean(said, undefined)).toBe(true);
 	});
 
 	test('skips a few words', () => {
-		expect(skipReason('ok thanks', undefined)).toBe('short');
-		expect(skipReason('ship it on friday', undefined)).toBeUndefined();
+		expect(shouldClean('ok thanks', undefined)).toBe(false);
+		expect(shouldClean('ship it on friday', undefined)).toBe(true);
 	});
 });
 
@@ -110,18 +110,12 @@ describe('rejectCleaned', () => {
 		).toBeUndefined();
 	});
 
-	test('refuses an empty, chatty, padded or leaking answer', () => {
+	test('refuses an empty, chatty or padded answer', () => {
 		expect(rejectCleaned('  ', said)).toBeDefined();
 		expect(
 			rejectCleaned("Sure! Here's the cleaned text: ship it Friday", said),
 		).toBeDefined();
 		expect(rejectCleaned(said.repeat(3), said)).toBeDefined();
 		expect(rejectCleaned('ok', said)).toBeDefined();
-		expect(
-			rejectCleaned(
-				'Spell these as written: Epicenter. Ship it Friday, I think.',
-				said,
-			),
-		).toBeDefined();
 	});
 });

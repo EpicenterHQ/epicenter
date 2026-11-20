@@ -3,8 +3,8 @@
  * `<id>.webm` from the desktop recorder or `<id>.m4a` from Safari's, and its
  * note, `<id>.md`, whose front matter holds `durationMs` and whose body is
  * the transcript: the text the person got. When cleanup changed that text,
- * front matter also holds `original`, the server's own words, and `app`,
- * the app it went into. Either can be missing: a take that crashed before its note
+ * front matter also holds `original`, the server's own words. Either file
+ * can be missing: a take that crashed before its note
  * was written is audio alone. Its time is in its id (`recordedAt` in
  * `feed.ts`), so the note does not repeat it.
  *
@@ -155,32 +155,29 @@ export const recordings = {
 	 * Replace the transcript of the recording `id`, keeping every other front
 	 * matter line as it is. A recording with audio and no note gets one.
 	 *
-	 * `original` is what the server wrote, when cleanup changed it, and `app`
-	 * the app it went into. Each is written when given and kept as it is when
-	 * not, so an edit by hand keeps the original.
+	 * `original` is what the server wrote. Given, it is kept when cleanup
+	 * changed the text and removed when it did not, so a transcript never
+	 * carries an older take's original. Not given, as in an edit by hand, the
+	 * original stays as it is.
 	 */
 	async setTranscript({
 		id,
 		transcript,
 		original,
-		app,
 	}: {
 		id: string;
 		transcript: string;
 		original?: string;
-		app?: string;
 	}) {
 		const read = await files.readMany([notePath(id)]);
 		if (read.error)
 			return RecordingsError.ReadFailed({ id, cause: read.error });
-		const set: Record<string, string> = {};
-		if (original !== undefined && original !== transcript)
-			set.original = original;
-		if (app) set.app = app;
+		const changed = original !== undefined && original !== transcript;
 		const written = await files.write(
 			notePath(id),
 			changeMarkdown(read.data.get(notePath(id)) ?? '', {
-				set,
+				set: changed ? { original } : {},
+				removed: original !== undefined && !changed ? ['original'] : [],
 				body: transcript ? `${transcript}\n` : '',
 			}),
 		);

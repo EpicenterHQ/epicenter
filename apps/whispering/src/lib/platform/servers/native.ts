@@ -6,12 +6,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { Err, tryAsync } from 'wellcrafted/result';
-import {
-	hintPrompt,
-	type ServerError,
-	type Servers,
-	ServersError,
-} from './servers';
+import { type ServerError, type Servers, ServersError } from './servers';
 
 /**
  * Whether `cause` is the error a command rejected with. Tauri rejects a
@@ -36,12 +31,12 @@ const asked = <T>(command: string, args: Record<string, unknown>) =>
 export const nativeServers: Servers = {
 	keyKeptIn: 'the macOS Keychain',
 
-	transcribe: (id, { baseUrl, model }, hints) =>
+	transcribe: (id, { baseUrl, model }, prompt) =>
 		asked<string>('transcribe', {
 			id,
 			baseUrl,
 			model,
-			prompt: hintPrompt(hints) ?? null,
+			prompt: prompt ?? null,
 		}),
 
 	complete: ({ baseUrl, model }, { instructions, text, timeoutMs }) =>

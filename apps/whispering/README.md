@@ -28,7 +28,7 @@ settings.json           the transcription server, the microphone, and the cleanu
 dictionary.txt          words to spell as written, and `heard -> written` fixes
 cleanup.md              your own cleanup prompt; without it, the built-in one
 recordings/<id>.md      the note: the text you got as the body; front matter holds
-                        durationMs, and `original` and `app` when cleanup changed it
+                        durationMs, and `original` when cleanup changed the text
 recordings/<id>.webm    the audio (.m4a when the recorder made MP4)
 ```
 
@@ -115,8 +115,9 @@ cleanup model gets a few seconds to clean it up, and the replacements apply
 again so the model cannot undo them.
 
 - **Cleanup fixes the text and never reshapes it.** One prompt, run on
-  every transcript; per-app behavior is prose in that prompt ("In Slack,
-  keep it casual"), and the model is told which app the text is going into.
+  every transcript. The model is told which app the text is going into, so
+  per-app behavior is a line the person adds to their prompt ("In Slack,
+  keep it casual"); the built-in prompt has none, since style is taste.
   Refused: chains of steps and several prompts to choose from, which were
   Whispering's transformations and recipes, removed because they fused
   fixing a transcript with turning it into something else.
@@ -134,12 +135,20 @@ again so the model cannot undo them.
 - **The person gets the text without cleanup rather than a wrong rewrite.**
   Cleanup is skipped in terminals and code editors (by bundle id), for fewer
   than four words, after its timeout, and when its answer is empty, padded,
-  chatty or repeats its instructions. The text is saved before cleanup
+  or chatty. The text is saved before cleanup
   starts. Refused: waiting on a slow model, which stands between the person
   and their clipboard.
 - **The note's body is the text the person got; `original` is the server's
   own words.** Search finds what was pasted, and a hand edit keeps the
-  original. Refused: a second file beside the note.
+  original; a new transcript removes an `original` that no longer applies.
+  The app the text went into is not stored: it only steers cleanup.
+  Refused: a second file beside the note.
+- **The dictionary is `dictionary.txt`, one entry per line.** The extension
+  says what the parser reads. As `.md`, a bullet or a heading would invite
+  `- Epicenter` and `# Names`, which become hints spelled with the marker,
+  and a Markdown view runs the lines together. Prose for a model is
+  `cleanup.md`. Refused: `dictionary.md` with list and heading syntax
+  stripped, a second syntax to keep.
 - **The app in front is read when the shortcut is pressed, without a
   permission.** macOS names the front app freely; window titles and field
   text would need Screen Recording or Accessibility. Clicking Record in
