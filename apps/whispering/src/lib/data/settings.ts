@@ -1,10 +1,16 @@
 /**
  * The person's settings, in `settings.json`: the transcription server, when
- * one is set, and the microphone, when they chose one over the system
- * default. One document, read and replaced whole.
+ * one is set; the microphone, when they chose one over the system default;
+ * and the cleanup model, when they set one up. One document, read and
+ * replaced whole.
  *
- * `{ "baseUrl": ..., "model": ..., "microphone": ... }`, each optional. A
- * microphone's id means something only on the computer that listed it.
+ * ```json
+ * { "baseUrl": ..., "model": ..., "microphone": ...,
+ *   "cleanup": { "model": ..., "baseUrl": ..., "off": true } }
+ * ```
+ *
+ * Each is optional. A microphone's id means something only on the computer
+ * that listed it.
  */
 import {
 	defineErrors,
@@ -17,7 +23,41 @@ import { readServer, type Server } from '../transcription-server';
 
 const PATH = 'settings.json';
 
-export type Settings = { server?: Server; microphone?: string };
+/**
+ * The chat model cleanup sends each transcript to. Its server is the
+ * transcription server unless `baseUrl` names another, so a provider that
+ * does both needs one address and one key. `off` is set only while the
+ * person has turned cleanup off, so turning it back on loses nothing.
+ */
+export type Cleanup = { model: string; baseUrl?: string; off?: true };
+
+export type Settings = {
+	server?: Server;
+	microphone?: string;
+	cleanup?: Cleanup;
+};
+
+/** The server cleanup asks with `settings`, or undefined when cleanup is not set up or is off. */
+export function cleanupServer({
+	server,
+	cleanup,
+}: Settings): Server | undefined {
+	if (!cleanup || cleanup.off) return undefined;
+	const baseUrl = cleanup.baseUrl ?? server?.baseUrl;
+	return baseUrl ? { baseUrl, model: cleanup.model } : undefined;
+}
+
+/** The cleanup settings `json` holds, or undefined when they are missing or not readable. */
+function readCleanup(json: unknown): Cleanup | undefined {
+	if (typeof json !== 'object' || json === null) return undefined;
+	const { model, baseUrl, off } = json as Record<string, unknown>;
+	if (typeof model !== 'string' || !model.trim()) return undefined;
+	return {
+		model,
+		...(typeof baseUrl === 'string' && baseUrl.trim() ? { baseUrl } : {}),
+		...(off === true ? { off } : {}),
+	};
+}
 
 export const SettingsError = defineErrors({
 	ReadFailed: ({ cause }: { cause: unknown }) => ({
@@ -40,12 +80,16 @@ function readSettings(json: unknown): Settings {
 		typeof json.microphone === 'string'
 			? json.microphone
 			: undefined;
-	return { server: readServer(json), microphone };
+	const cleanup =
+		typeof json === 'object' && json !== null && 'cleanup' in json
+			? readCleanup(json.cleanup)
+			: undefined;
+	return { server: readServer(json), microphone, cleanup };
 }
 
 /** `settings` as the text of `settings.json`. */
-function writeSettings({ server, microphone }: Settings): string {
-	return `${JSON.stringify({ ...server, microphone }, null, '\t')}\n`;
+function writeSettings({ server, microphone, cleanup }: Settings): string {
+	return `${JSON.stringify({ ...server, microphone, cleanup }, null, '\t')}\n`;
 }
 
 /** The settings kept; none set when the file is not there. */

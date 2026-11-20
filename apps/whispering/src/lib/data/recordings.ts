@@ -2,7 +2,9 @@
  * Recordings, in `recordings/`. A recording is two files by id: its audio,
  * `<id>.webm` from the desktop recorder or `<id>.m4a` from Safari's, and its
  * note, `<id>.md`, whose front matter holds `durationMs` and whose body is
- * the transcript. Either can be missing: a take that crashed before its note
+ * the transcript: the text the person got. When cleanup changed that text,
+ * front matter also holds `original`, the server's own words, and `app`,
+ * the app it went into. Either can be missing: a take that crashed before its note
  * was written is audio alone. Its time is in its id (`recordedAt` in
  * `feed.ts`), so the note does not repeat it.
  *
@@ -31,7 +33,10 @@ export type Recording = {
 	/** When it was made, read from its id, so audio with no note still has a time. */
 	at: Date | undefined;
 	durationMs: number | undefined;
+	/** The text the person got: the transcript after cleanup, when it ran. */
 	transcript: string;
+	/** What the transcription server wrote, when cleanup changed it; undefined otherwise. */
+	original: string | undefined;
 	/** The path of its audio, when it has any. */
 	audio: string | undefined;
 };
@@ -105,6 +110,8 @@ export const recordings = {
 								? fields.durationMs
 								: undefined,
 						transcript: body.trim(),
+						original:
+							typeof fields.original === 'string' ? fields.original : undefined,
 						audio,
 					};
 				}),
@@ -145,17 +152,35 @@ export const recordings = {
 	},
 
 	/**
-	 * Replace the transcript of the recording `id`, keeping every front
+	 * Replace the transcript of the recording `id`, keeping every other front
 	 * matter line as it is. A recording with audio and no note gets one.
+	 *
+	 * `original` is what the server wrote, when cleanup changed it, and `app`
+	 * the app it went into. Each is written when given and kept as it is when
+	 * not, so an edit by hand keeps the original.
 	 */
-	async setTranscript({ id, transcript }: { id: string; transcript: string }) {
+	async setTranscript({
+		id,
+		transcript,
+		original,
+		app,
+	}: {
+		id: string;
+		transcript: string;
+		original?: string;
+		app?: string;
+	}) {
 		const read = await files.readMany([notePath(id)]);
 		if (read.error)
 			return RecordingsError.ReadFailed({ id, cause: read.error });
+		const set: Record<string, string> = {};
+		if (original !== undefined && original !== transcript)
+			set.original = original;
+		if (app) set.app = app;
 		const written = await files.write(
 			notePath(id),
 			changeMarkdown(read.data.get(notePath(id)) ?? '', {
-				set: {},
+				set,
 				body: transcript ? `${transcript}\n` : '',
 			}),
 		);

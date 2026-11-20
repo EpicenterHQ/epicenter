@@ -2,7 +2,8 @@
 	One recording in the feed. Closed, it is one line with Copy; open, its
 	transcript is edited in place, with Play and Delete. A recording with audio
 	and no transcript offers Transcribe; while the server has it, the row shows
-	a spinner and its transcript cannot be edited.
+	a spinner and its transcript cannot be edited. When cleanup changed the
+	text, the open row shows what the server wrote, to copy instead.
 
 	An edit is a draft here until its save lands: a refetch of the list never
 	overwrites it, and an edit made while the save was in flight stays.
@@ -39,6 +40,7 @@
 
 	const transcript = $derived(draft ?? recording.transcript);
 	const transcribing = $derived(dictation.isTranscribing(recording.id));
+	const cleaning = $derived(dictation.isCleaning(recording.id));
 	/** Offered only when nothing would be overwritten: no saved transcript and no draft. */
 	const canTranscribe = $derived(recording.audio && !transcribing && !transcript);
 	const time = $derived(
@@ -100,6 +102,17 @@
 			bind:value={() => transcript, (text) => (draft = text)}
 			onblur={save}
 		/>
+		{#if cleaning}
+			<p class="text-sm text-muted-foreground">Cleaning up...</p>
+		{:else if recording.original}
+			<details class="text-sm">
+				<summary class="cursor-pointer text-muted-foreground">Original, before cleanup</summary>
+				<div class="mt-2 flex items-start gap-2">
+					<p class="flex-1 whitespace-pre-wrap text-muted-foreground">{recording.original}</p>
+					<CopyButton text={recording.original} size="sm" variant="ghost">Copy</CopyButton>
+				</div>
+			</details>
+		{/if}
 		{#if audioUrl}
 			<!-- `preload="none"`: nothing is read until the person presses play. -->
 			{#await audioUrl then { data: src }}

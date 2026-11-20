@@ -1,8 +1,8 @@
 /**
  * What is happening right now: whether a recording is running, which
- * recordings are being transcribed, and which recording the feed shows open.
- * This is the one place the record, stop, save, transcribe, copy sequence is
- * written.
+ * recordings are being transcribed or cleaned up, and which recording the
+ * feed shows open. This is the one place the record, stop, save,
+ * transcribe, clean up, copy sequence is written.
  */
 import { timeId } from '@epicenter/app/time';
 import { toastOnError } from '@epicenter/ui/toast-on-error';
@@ -12,9 +12,24 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { runMutation, runQuery } from 'wellcrafted/query';
 import { tryAsync } from 'wellcrafted/result';
 import { goto } from '$app/navigation';
-import { copyText, recorder, servers } from './platform';
+import {
+	cleanupInstructions,
+	cleanupTimeoutMs,
+	DEFAULT_PROMPT,
+	parseDictionary,
+	rejectCleaned,
+	replaceWords,
+	skipReason,
+} from './cleanup';
+import { cleanupServer } from './data/settings';
+import { copyText, type FrontApp, recorder, servers } from './platform';
 import { type EndedReason, HEARD } from './platform/recorder/recorder';
-import { queryClient, recordingsMutations, settingsQueries } from './queries';
+import {
+	cleanupQueries,
+	queryClient,
+	recordingsMutations,
+	settingsQueries,
+} from './queries';
 
 type Status =
 	| { kind: 'idle' }
@@ -62,13 +77,18 @@ function createDictation() {
 	 * an id no longer here is dropped.
 	 */
 	const transcribing = new SvelteSet<string>();
+	/** The recordings whose text is with the cleanup model now; each is also in `transcribing`. */
+	const cleaning = new SvelteSet<string>();
+	/** The app the recording under way is going into, when the shortcut started it. */
+	let takeApp: FrontApp | undefined;
 	/** The microphone's latest level while recording, from 0 to 1. */
 	let level = $state(0);
 	/** When the microphone last sent anything above silence during this recording. */
 	let heardAt = $state<number>();
 
-	async function start() {
+	async function start(app: FrontApp | undefined) {
 		status = { kind: 'starting' };
+		takeApp = app;
 		level = 0;
 		heardAt = undefined;
 		const { microphone } = await currentSettings();
@@ -108,15 +128,24 @@ function createDictation() {
 		openId = data.id;
 		const saved = await runMutation(queryClient, recordingsMutations.add, data);
 		if (saved.error) return toastOnError(saved, 'Could not save the recording');
-		await transcribe(data.id);
+		await transcribe(data.id, takeApp);
 	}
 
 	/**
-	 * Send the recording `id` to the server, save its transcript and copy
-	 * it. With no server set, say the recording is kept and where to set one.
+	 * Send the recording `id` to the server, clean up its transcript, save it
+	 * and copy it. With no server set, say the recording is kept and where
+	 * to set one.
+	 *
+	 * The order is fixed: the dictionary's words go as hints, its
+	 * replacements apply to the text, which is saved before anything else;
+	 * then the cleanup model, when set up, gets a few seconds to clean it up,
+	 * and the replacements apply again. When cleanup is skipped, fails, or
+	 * answers something it cannot trust, the person gets the text without it.
+	 * `app` is the app the text is going into, when the shortcut said.
 	 */
-	async function transcribe(id: string) {
-		const { server } = await currentSettings();
+	async function transcribe(id: string, app?: FrontApp) {
+		const settings = await currentSettings();
+		const { server } = settings;
 		if (!server) {
 			toast.info('Recording kept', {
 				description:
@@ -127,40 +156,115 @@ function createDictation() {
 		}
 		if (transcribing.has(id)) return;
 		transcribing.add(id);
-		const { data: text, error } = await servers.transcribe(id, server, []);
-		// The id is gone from the set only if the recording was deleted while
-		// the server had it. A delete confirmed after this line queues behind
-		// the save below: both run in the one recordings mutation scope.
-		const deleted = !transcribing.delete(id);
-		if (deleted) return;
-		if (error) {
-			toast.error('Could not transcribe', {
-				description: error.message,
-				action: error.name === 'Unauthorized' ? openSettings : undefined,
-			});
-			return;
-		}
-		if (!text) {
-			toast.info('No speech was heard');
-			return;
-		}
-		const saved = await runMutation(
-			queryClient,
-			recordingsMutations.setTranscript,
-			{
+		// Deleting the recording takes its id out of `transcribing`; nothing
+		// is written for it after that.
+		const gone = () => !transcribing.has(id);
+		try {
+			const words = parseDictionary(
+				(await runQuery(queryClient, cleanupQueries.dictionary())).data ?? '',
+			);
+			const { data: heard, error } = await servers.transcribe(
 				id,
-				transcript: text,
-			},
-		);
-		if (saved.error)
-			return toastOnError(saved, 'Could not save the transcript');
+				server,
+				words.hints,
+			);
+			if (gone()) return;
+			if (error) {
+				toast.error('Could not transcribe', {
+					description: error.message,
+					action: error.name === 'Unauthorized' ? openSettings : undefined,
+				});
+				return;
+			}
+			if (!heard) {
+				toast.info('No speech was heard');
+				return;
+			}
+			const replaced = replaceWords(heard, words.replacements);
+			const saved = await save({ id, transcript: replaced, original: heard });
+			if (saved.error)
+				return toastOnError(saved, 'Could not save the transcript');
+
+			let delivered = replaced;
+			let notCleaned: { reason: string; unauthorized: boolean } | undefined;
+			const cleanup = cleanupServer(settings);
+			if (cleanup && !skipReason(replaced, app?.bundleId)) {
+				cleaning.add(id);
+				const prompt =
+					(await runQuery(queryClient, cleanupQueries.prompt())).data ??
+					DEFAULT_PROMPT;
+				const { data: cleaned, error } = await servers.complete(cleanup, {
+					instructions: cleanupInstructions(prompt, {
+						hints: words.hints,
+						app: app?.name,
+					}),
+					text: replaced,
+					timeoutMs: cleanupTimeoutMs(replaced),
+				});
+				cleaning.delete(id);
+				if (gone()) return;
+				const distrusted = error ? undefined : rejectCleaned(cleaned, replaced);
+				if (error)
+					notCleaned = {
+						reason: error.message,
+						unauthorized: error.name === 'Unauthorized',
+					};
+				else if (distrusted)
+					notCleaned = { reason: distrusted, unauthorized: false };
+				else {
+					const final = replaceWords(cleaned, words.replacements);
+					const saved = await save({
+						id,
+						transcript: final,
+						original: heard,
+						app: app?.name,
+					});
+					if (saved.error)
+						return toastOnError(saved, 'Could not save the cleaned-up text');
+					delivered = final;
+				}
+			}
+
+			const copied = await tryAsync({
+				try: () => copyText(delivered),
+				catch: (cause) => DictationError.CopyFailed({ cause }),
+			});
+			if (copied.error)
+				return toastOnError(copied, 'Could not copy the transcript');
+			if (notCleaned)
+				return toast.success('Copied without cleanup', {
+					description: notCleaned.reason,
+					action: notCleaned.unauthorized ? openSettings : undefined,
+				});
+			toast.success('Copied', {
+				action:
+					delivered === heard
+						? undefined
+						: { label: 'Use original', onClick: () => copyOriginal(heard) },
+			});
+		} finally {
+			transcribing.delete(id);
+			cleaning.delete(id);
+		}
+	}
+
+	/** Save a transcript of a recording, in the recordings' one write queue. */
+	const save = (change: {
+		id: string;
+		transcript: string;
+		original?: string;
+		app?: string;
+	}) => runMutation(queryClient, recordingsMutations.setTranscript, change);
+
+	/** Copy `text`, the server's own words, instead of the cleaned-up text. */
+	async function copyOriginal(text: string) {
 		const copied = await tryAsync({
 			try: () => copyText(text),
 			catch: (cause) => DictationError.CopyFailed({ cause }),
 		});
 		if (copied.error)
-			return toastOnError(copied, 'Could not copy the transcript');
-		toast.success('Copied');
+			return toastOnError(copied, 'Could not copy the original');
+		toast.success('Copied the original');
 	}
 
 	return {
@@ -179,9 +283,12 @@ function createDictation() {
 			return heardAt;
 		},
 
-		/** Start recording, or stop the recording that is running. */
-		toggle() {
-			if (status.kind === 'idle') return start();
+		/**
+		 * Start recording, or stop the recording that is running. `app` is the
+		 * app in front when the shortcut was pressed: where the text will go.
+		 */
+		toggle(app?: FrontApp) {
+			if (status.kind === 'idle') return start(app);
 			if (status.kind === 'recording') return stop();
 		},
 
@@ -195,8 +302,13 @@ function createDictation() {
 			return transcribing.has(id);
 		},
 
-		/** Transcribe the recording `id`, then save and copy its text. */
-		transcribe,
+		/** Whether the recording `id`'s text is with the cleanup model now. */
+		isCleaning(id: string) {
+			return cleaning.has(id);
+		},
+
+		/** Transcribe the recording `id`, then clean up, save and copy its text. */
+		transcribe: (id: string) => transcribe(id),
 
 		/**
 		 * Drop the transcription of `id` under way, if any, so its text is

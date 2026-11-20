@@ -13,6 +13,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod files;
+mod front_app;
 mod keys;
 mod servers;
 
@@ -25,7 +26,8 @@ const WINDOW: &str = "main";
 
 /// The global shortcut that starts and stops a recording from any app: ⌘⇧; on a Mac.
 const SHORTCUT: &str = "CommandOrControl+Shift+Semicolon";
-/// What the window hears when the shortcut is pressed; the page decides what it does.
+/// What the window hears when the shortcut is pressed, with the app in
+/// front (`front_app.rs`); the page decides what it does.
 const TOGGLE_RECORDING: &str = "toggle-recording";
 
 fn main() {
@@ -80,7 +82,7 @@ fn listen_for_shortcut<R: Runtime>(app: &AppHandle<R>) {
         .global_shortcut()
         .on_shortcut(SHORTCUT, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
-                let _ = app.emit_to(WINDOW, TOGGLE_RECORDING, ());
+                let _ = app.emit_to(WINDOW, TOGGLE_RECORDING, front_app::front_app());
             }
         });
     if let Err(error) = held {

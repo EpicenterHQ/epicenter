@@ -21,6 +21,7 @@
 	import { servers } from '#lib/platform/index.ts';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import RecordingBar from '../RecordingBar.svelte';
+	import CleanupSettings from './CleanupSettings.svelte';
 	import MicrophoneSettings from './MicrophoneSettings.svelte';
 
 	// The layout read the settings before this page opened, so the form starts
@@ -173,5 +174,6 @@
 
 			<Button type="submit" class="self-start" disabled={saving}>Save</Button>
 		</form>
+		<CleanupSettings />
 	</main>
 </div>

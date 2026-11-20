@@ -100,8 +100,14 @@ async function post(
 	return Ok(text);
 }
 
-/** `read` applied to `body` as JSON, or undefined when it is not JSON. */
-function fromJson(body: string, read: (value: any) => unknown) {
+/** The fields of a transcription's or a chat's answer this page reads. */
+type Answer = {
+	text?: unknown;
+	choices?: { message?: { content?: unknown } }[];
+};
+
+/** `read` applied to `body` as JSON, trimmed, or undefined when it is not text. */
+function fromJson(body: string, read: (value: Answer) => unknown) {
 	try {
 		const text = read(JSON.parse(body));
 		return typeof text === 'string' ? text.trim() : undefined;
