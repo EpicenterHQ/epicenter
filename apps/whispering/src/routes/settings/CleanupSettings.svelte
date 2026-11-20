@@ -6,47 +6,34 @@
 	the text that comes back. The cleanup model is a chat model; its server is
 	the transcription server unless another address is given, so one provider
 	needs one key. Turning cleanup off keeps the model, so turning it back on
-	is one click. The prompt shown is the person's `cleanup.md` when there is
-	one, and the built-in prompt when there is not; Reset goes back to it.
+	is one click. The dictionary and the prompt are files, each edited by
+	`TextFileEditor`.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
-	import { Textarea } from '@epicenter/ui/textarea';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import { runMutation } from 'wellcrafted/query';
 	import { DEFAULT_PROMPT } from '#lib/cleanup.ts';
+	import { CLEANUP_PROMPT, DICTIONARY } from '#lib/data/text-files.ts';
 	import { servers } from '#lib/platform/index.ts';
-	import {
-		cleanupMutations,
-		cleanupQueries,
-		queryClient,
-		settingsMutations,
-		settingsQueries,
-	} from '#lib/queries.ts';
+	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
 	import { originOf } from '#lib/transcription-server.ts';
+	import TextFileEditor from './TextFileEditor.svelte';
 
 	const settings = createQuery(() => settingsQueries.read());
-	const dictionary = createQuery(() => cleanupQueries.dictionary());
-	const prompt = createQuery(() => cleanupQueries.prompt());
 
 	const cleanup = $derived(settings.data?.cleanup);
 
-	// Drafts hold what the person typed until it is saved; until then each
-	// field shows what is kept.
-	let dictionaryDraft = $state<string>();
-	let promptDraft = $state<string>();
 	let model = $state(settings.data?.cleanup?.model ?? '');
 	let baseUrl = $state(settings.data?.cleanup?.baseUrl ?? '');
 	let key = $state('');
 	let triedToSave = $state(false);
 
-	const kept = $derived(prompt.data ?? DEFAULT_PROMPT);
-	const ownPrompt = $derived(typeof prompt.data === 'string');
 	const cleanupOrigin = $derived(baseUrl.trim() ? originOf(baseUrl) : undefined);
 	/**
 	 * The cleanup server's origin when it is not the transcription server's,
@@ -65,16 +52,6 @@
 	const modelError = $derived(
 		triedToSave && !model.trim() ? 'Enter the chat model that cleans up.' : undefined,
 	);
-
-	async function saveDictionary() {
-		if (dictionaryDraft === undefined) return;
-		const saved = await runMutation(queryClient, cleanupMutations.writeDictionary, {
-			text: dictionaryDraft,
-		});
-		if (saved.error) return toastOnError(saved, 'Could not save the dictionary');
-		dictionaryDraft = undefined;
-		toast.success('Dictionary saved');
-	}
 
 	async function saveModel(event: SubmitEvent) {
 		event.preventDefault();
@@ -105,48 +82,17 @@
 		});
 		if (saved.error) toastOnError(saved, 'Could not change cleanup');
 	}
-
-	async function savePrompt() {
-		if (promptDraft === undefined) return;
-		const saved =
-			promptDraft.trim() === DEFAULT_PROMPT.trim()
-				? await runMutation(queryClient, cleanupMutations.resetPrompt, undefined)
-				: await runMutation(queryClient, cleanupMutations.writePrompt, { text: promptDraft });
-		if (saved.error) return toastOnError(saved, 'Could not save the prompt');
-		promptDraft = undefined;
-		toast.success('Prompt saved');
-	}
-
-	async function resetPrompt() {
-		const reset = await runMutation(queryClient, cleanupMutations.resetPrompt, undefined);
-		if (reset.error) return toastOnError(reset, 'Could not reset the prompt');
-		promptDraft = undefined;
-	}
 </script>
 
-<Field.Set>
-	<Field.Legend>Dictionary</Field.Legend>
-	<Field.Description>
-		One entry per line. A word on its own is spelled as written. <code>heard -> written</code>
-		replaces what the server wrote, and <code>um -></code> with nothing after the arrow deletes it.
-	</Field.Description>
-	<Field.Group>
-		<Textarea
-			rows={6}
-			spellcheck="false"
-			placeholder={'Epicenter\nwhisper ring -> Whispering\num ->'}
-			bind:value={() => dictionaryDraft ?? dictionary.data ?? '', (text) => (dictionaryDraft = text)}
-		/>
-		<Button
-			variant="outline"
-			class="self-start"
-			disabled={dictionaryDraft === undefined}
-			onclick={saveDictionary}
-		>
-			Save dictionary
-		</Button>
-	</Field.Group>
-</Field.Set>
+<TextFileEditor
+	path={DICTIONARY}
+	legend="Dictionary"
+	rows={6}
+	placeholder={'Epicenter\nwhisper ring -> Whispering\num ->'}
+>
+	One entry per line. A word on its own is spelled as written. <code>heard -> written</code>
+	replaces what the server wrote, and <code>um -></code> with nothing after the arrow deletes it.
+</TextFileEditor>
 
 <form class="flex flex-col gap-6" onsubmit={saveModel} novalidate>
 	<Field.Set>
@@ -218,25 +164,7 @@
 	</Button>
 </form>
 
-<Field.Set>
-	<Field.Legend>Cleanup prompt</Field.Legend>
-	<Field.Description>
-		{ownPrompt
-			? 'Your own prompt, kept in cleanup.md.'
-			: 'The built-in prompt. Edit it to make it yours. When the shortcut starts a recording on the desktop, cleanup is told the app you dictate into, so a line like "In Slack, keep it casual" works.'}
-	</Field.Description>
-	<Field.Group>
-		<Textarea
-			rows={12}
-			bind:value={() => promptDraft ?? kept, (text) => (promptDraft = text)}
-		/>
-		<div class="flex gap-2">
-			<Button variant="outline" disabled={promptDraft === undefined} onclick={savePrompt}>
-				Save prompt
-			</Button>
-			{#if ownPrompt || promptDraft !== undefined}
-				<Button variant="ghost" onclick={resetPrompt}>Reset to built-in</Button>
-			{/if}
-		</div>
-	</Field.Group>
-</Field.Set>
+<TextFileEditor path={CLEANUP_PROMPT} legend="Cleanup prompt" fallback={DEFAULT_PROMPT} rows={12}>
+	What the cleanup model is told, kept in cleanup.md once you change it. It is also given your
+	dictionary's words.
+</TextFileEditor>

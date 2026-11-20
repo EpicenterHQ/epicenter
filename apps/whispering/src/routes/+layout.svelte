@@ -22,7 +22,7 @@
 	});
 
 	// The global shortcut (⌘⇧;) does what the Record button does.
-	$effect(() => onShortcut((app) => dictation.toggle(app)));
+	$effect(() => onShortcut(() => dictation.toggle()));
 </script>
 
 <QueryClientProvider client={queryClient}>

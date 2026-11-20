@@ -23,20 +23,20 @@ import {
 	shouldClean,
 } from './cleanup';
 import { cleanupServer } from './data/settings';
-import { copyText, type FrontApp, recorder, servers } from './platform';
+import { CLEANUP_PROMPT, DICTIONARY } from './data/text-files';
+import { copyText, recorder, servers } from './platform';
 import { type EndedReason, HEARD } from './platform/recorder/recorder';
 import {
-	cleanupQueries,
 	queryClient,
 	recordingsMutations,
 	settingsQueries,
+	textFilesQueries,
 } from './queries';
 
 type Status =
 	| { kind: 'idle' }
 	| { kind: 'starting' }
-	/** `app` is the app in front when the shortcut started it: where the text goes. */
-	| { kind: 'recording'; startedAt: number; app: FrontApp | undefined }
+	| { kind: 'recording'; startedAt: number }
 	| { kind: 'stopping' };
 
 const ENDED: Record<EndedReason, string> = {
@@ -86,7 +86,7 @@ function createDictation() {
 	/** When the microphone last sent anything above silence during this recording. */
 	let heardAt = $state<number>();
 
-	async function start(app: FrontApp | undefined) {
+	async function start() {
 		status = { kind: 'starting' };
 		level = 0;
 		heardAt = undefined;
@@ -115,12 +115,11 @@ function createDictation() {
 				});
 			return toastOnError(error, 'Could not start recording');
 		}
-		status = { kind: 'recording', startedAt: Date.now(), app };
+		status = { kind: 'recording', startedAt: Date.now() };
 	}
 
 	async function stop() {
 		if (status.kind !== 'recording') return;
-		const { app } = status;
 		status = { kind: 'stopping' };
 		const { data, error } = await recorder.stop();
 		status = { kind: 'idle' };
@@ -128,7 +127,7 @@ function createDictation() {
 		openId = data.id;
 		const saved = await runMutation(queryClient, recordingsMutations.add, data);
 		if (saved.error) return toastOnError(saved, 'Could not save the recording');
-		await transcribe(data.id, app);
+		await transcribe(data.id);
 	}
 
 	/**
@@ -141,9 +140,8 @@ function createDictation() {
 	 * then the cleanup model, when set up, gets a few seconds to clean it up,
 	 * and the replacements apply again. When cleanup is skipped, fails, or
 	 * answers something it cannot trust, the person gets the text without it.
-	 * `app` is the app the text is going into, when the shortcut said.
 	 */
-	async function transcribe(id: string, app?: FrontApp) {
+	async function transcribe(id: string) {
 		const settings = await currentSettings();
 		const { server } = settings;
 		if (!server) {
@@ -161,7 +159,8 @@ function createDictation() {
 		const gone = () => !transcribing.has(id);
 		try {
 			const words = parseDictionary(
-				(await runQuery(queryClient, cleanupQueries.dictionary())).data ?? '',
+				(await runQuery(queryClient, textFilesQueries.read(DICTIONARY))).data ??
+					'',
 			);
 			const { data: heard, error } = await servers.transcribe(
 				id,
@@ -190,16 +189,13 @@ function createDictation() {
 			let notCleaned: string | undefined;
 			let unauthorized = false;
 			const cleanup = cleanupServer(settings);
-			if (cleanup && shouldClean(replaced, app?.bundleId)) {
+			if (cleanup && shouldClean(replaced)) {
 				cleaning.add(id);
 				const prompt =
-					(await runQuery(queryClient, cleanupQueries.prompt())).data ??
-					DEFAULT_PROMPT;
+					(await runQuery(queryClient, textFilesQueries.read(CLEANUP_PROMPT)))
+						.data ?? DEFAULT_PROMPT;
 				const { data: cleaned, error } = await servers.complete(cleanup, {
-					instructions: cleanupInstructions(prompt, {
-						hints: words.hints,
-						app: app?.name,
-					}),
+					instructions: cleanupInstructions(prompt, words.hints),
 					text: replaced,
 					timeoutMs: cleanupTimeoutMs(replaced),
 				});
@@ -280,12 +276,9 @@ function createDictation() {
 			return heardAt;
 		},
 
-		/**
-		 * Start recording, or stop the recording that is running. `app` is the
-		 * app in front when the shortcut was pressed: where the text will go.
-		 */
-		toggle(app?: FrontApp) {
-			if (status.kind === 'idle') return start(app);
+		/** Start recording, or stop the recording that is running. */
+		toggle() {
+			if (status.kind === 'idle') return start();
 			if (status.kind === 'recording') return stop();
 		},
 
@@ -305,7 +298,7 @@ function createDictation() {
 		},
 
 		/** Transcribe the recording `id`, then clean up, save and copy its text. */
-		transcribe: (id: string) => transcribe(id),
+		transcribe,
 
 		/**
 		 * Drop the transcription of `id` under way, if any, so its text is

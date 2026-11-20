@@ -8,7 +8,7 @@
  * | `recorder` | the native recorder, writing each second | `MediaRecorder`, writing on Stop |
  * | `servers` | Rust sends each request; keys are in the Keychain | `fetch` sends it; keys are in `localStorage` |
  * | `copyText` | the clipboard plugin, which works while another app is in front | the page's clipboard |
- * | `onShortcut` | ⌘⇧; from any app, held in Rust (`main.rs`), with the app in front | none |
+ * | `onShortcut` | ⌘⇧; from any app, held in Rust (`main.rs`) | none |
  *
  * ```txt
  * settings.json
@@ -35,24 +35,13 @@ export const copyText = desktop
 	? writeText
 	: (text: string) => navigator.clipboard.writeText(text);
 
-/** An app on the computer, as `front_app.rs` names it. */
-export type FrontApp = { bundleId: string; name: string };
-
 /**
  * Call `run` on each press of the global shortcut until the returned
- * function is called, with the app that was in front when it was pressed:
- * the app the person is dictating into. It is undefined when Whispering
- * itself was in front or the system could not say.
- *
- * Rust holds the shortcut and sends each press here; a browser has no
- * global shortcut, so it never calls `run`.
+ * function is called. Rust holds the shortcut and sends each press here; a
+ * browser has no global shortcut, so it never calls `run`.
  */
-export function onShortcut(
-	run: (app: FrontApp | undefined) => void,
-): () => void {
+export function onShortcut(run: () => void): () => void {
 	if (!desktop) return () => {};
-	const listening = listen<FrontApp | null>('toggle-recording', (event) =>
-		run(event.payload ?? undefined),
-	);
+	const listening = listen('toggle-recording', run);
 	return () => void listening.then((stop) => stop());
 }

@@ -9,9 +9,9 @@
  */
 import { MutationCache, QueryClient } from '@tanstack/svelte-query';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
-import { cleanupPrompt, dictionary } from './data/cleanup';
 import { recordings } from './data/recordings';
 import { settings } from './data/settings';
+import { textFiles } from './data/text-files';
 
 export const queryClient = new QueryClient({
 	defaultOptions: {
@@ -47,19 +47,19 @@ export const settingsMutations = resultMutations(['settings'], {
 	update: settings.update,
 });
 
-export const cleanupQueries = resultQueries(['cleanup'], {
-	dictionary: dictionary.read,
-	prompt: cleanupPrompt.read,
+export const textFilesQueries = resultQueries(['textFiles'], {
+	read: textFiles.read,
 });
 
-export const cleanupMutations = resultMutations(['cleanup'], {
-	writeDictionary: dictionary.write,
-	writePrompt: cleanupPrompt.write,
-	resetPrompt: cleanupPrompt.reset,
+export const textFilesMutations = resultMutations(['textFiles'], {
+	write: textFiles.write,
+	remove: textFiles.remove,
 });
 
 queryClient.setMutationDefaults(['recordings'], {
 	scope: { id: 'recordings' },
 });
 queryClient.setMutationDefaults(['settings'], { scope: { id: 'settings' } });
-queryClient.setMutationDefaults(['cleanup'], { scope: { id: 'cleanup' } });
+queryClient.setMutationDefaults(['textFiles'], {
+	scope: { id: 'textFiles' },
+});

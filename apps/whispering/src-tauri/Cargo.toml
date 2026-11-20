@@ -28,11 +28,5 @@ tauri-plugin-fs = "2.7"
 tauri-plugin-global-shortcut = "2.4"
 tauri-plugin-single-instance = "2.5"
 
-# Which app is in front when the shortcut is pressed, for cleanup (`front_app.rs`).
-# Both are already built for Tauri on macOS.
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
-
 [dev-dependencies]
 tempfile = "3.8"

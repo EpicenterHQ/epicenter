@@ -51,7 +51,7 @@ src/
     data/
       recordings.ts          the rules for recordings/ (no cache)
       settings.ts            the rules for settings.json (no cache)
-      cleanup.ts             the rules for dictionary.txt and cleanup.md (no cache)
+      text-files.ts          dictionary.txt and cleanup.md, read and written whole (no cache)
     platform/
       index.ts               chooses desktop or browser, once
       files/                 files.ts (contract), tauri.ts, opfs.ts
@@ -63,7 +63,6 @@ src/
 src-tauri/src/
   files.rs                   reads many files in one call
   keys.rs                    the Keychain
-  front_app.rs               the app in front when the shortcut is pressed
   servers.rs                 transcription and cleanup requests, with the key
   main.rs                    commands, plugins, and the global shortcut
 ```
@@ -114,13 +113,14 @@ hints, its replacements fix what comes back, that text is saved, then the
 cleanup model gets a few seconds to clean it up, and the replacements apply
 again so the model cannot undo them.
 
-- **Cleanup fixes the text and never reshapes it.** One prompt, run on
-  every transcript. The model is told which app the text is going into, so
-  per-app behavior is a line the person adds to their prompt ("In Slack,
-  keep it casual"); the built-in prompt has none, since style is taste.
-  Refused: chains of steps and several prompts to choose from, which were
-  Whispering's transformations and recipes, removed because they fused
-  fixing a transcript with turning it into something else.
+- **Cleanup fixes the text and never reshapes it.** One prompt, run the
+  same way on every transcript, whatever app it is going into. Refused: reading
+  the app in front to skip terminals and code editors or to steer style
+  per app, because much dictation into a terminal or editor is prose to an
+  agent, and a list of app ids needs keeping forever. Also refused: chains
+  of steps and several prompts to choose from, which were Whispering's
+  transformations and recipes, removed because they fused fixing a
+  transcript with turning it into something else.
 - **The person's prompt is `cleanup.md`; without it, the built-in prompt.**
   Nothing points at a file, so nothing can point at a missing one, and the
   built-in prompt improves with each release. The rules every prompt needs
@@ -133,15 +133,14 @@ again so the model cannot undo them.
   model. Refused: cleanup on whenever a model is saved, and a second
   shortcut for a raw transcript; "Use original" after the fact covers that.
 - **The person gets the text without cleanup rather than a wrong rewrite.**
-  Cleanup is skipped in terminals and code editors (by bundle id), for fewer
-  than four words, after its timeout, and when its answer is empty, padded,
-  or chatty. The text is saved before cleanup
+  Cleanup is skipped for fewer than four words, after its timeout, and when
+  its answer is empty, padded, chatty, or repeats a line the app added to its
+  instructions. The text is saved before cleanup
   starts. Refused: waiting on a slow model, which stands between the person
   and their clipboard.
 - **The note's body is the text the person got; `original` is the server's
   own words.** Search finds what was pasted, and a hand edit keeps the
   original; a new transcript removes an `original` that no longer applies.
-  The app the text went into is not stored: it only steers cleanup.
   Refused: a second file beside the note.
 - **The dictionary is `dictionary.txt`, one entry per line.** The extension
   says what the parser reads. As `.md`, a bullet or a heading would invite
@@ -149,10 +148,10 @@ again so the model cannot undo them.
   and a Markdown view runs the lines together. Prose for a model is
   `cleanup.md`. Refused: `dictionary.md` with list and heading syntax
   stripped, a second syntax to keep.
-- **The app in front is read when the shortcut is pressed, without a
-  permission.** macOS names the front app freely; window titles and field
-  text would need Screen Recording or Accessibility. Clicking Record in
-  Whispering's own window, a browser build, and other systems name no app.
+- **The dictionary and the prompt are plain text files with one editor.**
+  `data/text-files.ts` reads, writes, and removes a file by path, and
+  `TextFileEditor.svelte` edits either; a missing file falls back to an empty
+  dictionary or the built-in prompt. Refused: a module and form per file.
 
 ### Cache
 
