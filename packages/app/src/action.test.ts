@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
 import { defineEpicenter } from './epicenter.ts';
 import { field } from './field.ts';
@@ -28,4 +28,32 @@ export function typed() {
 	const app = { description: 'Counts', actions: { count } };
 	// @ts-expect-error: serve is the command's own word.
 	defineEpicenter({ apps: { serve: app } });
+
+	const fixed = defineAction({
+		description: 'Names its refusal',
+		input: { n: field.integer() },
+		run: ({ n }) =>
+			n > 0 ? Ok(n) : Err({ name: 'NotPositive' as const, message: 'n <= 0' }),
+	});
+	defineEpicenter({
+		apps: { counter: { description: 'Counts', actions: { fixed } } },
+	});
+
+	const loose = defineAction({
+		description: 'A name that is any string',
+		input: {},
+		run: () => Err({ name: 'Loose' as string, message: 'x' }),
+	});
+	defineEpicenter({
+		// @ts-expect-error: a loose name would make every name a page sees a string.
+		apps: { counter: { description: 'Counts', actions: { loose } } },
+	});
+
+	defineAction({
+		description: 'A cause cannot cross JSON',
+		input: {},
+		run: () =>
+			// @ts-expect-error: an Error as cause arrives as {}.
+			Err({ name: 'Broke' as const, message: 'x', cause: new Error('e') }),
+	});
 }

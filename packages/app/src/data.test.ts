@@ -11,7 +11,6 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Err, Ok } from 'wellcrafted/result';
-import { ActionError } from './answer.ts';
 import { defineData } from './data.ts';
 import { field } from './field.ts';
 
@@ -150,14 +149,23 @@ test('edit computes a change from the record, or creates one, and its own Err wr
 		Ok({ to: record?.to ?? 'Tokyo', nights: (record?.nights ?? 0) + 1 }),
 	);
 	expect(made.data?.nights).toBe(1);
+	// A change that only returns Ok adds no error name, so the names stay fixed.
+	if (made.error) {
+		const name: 'Misfit' = made.error.name;
+		void name;
+	}
 	const again = await watches.edit('tokyo', (record) =>
 		Ok({ nights: (record?.nights ?? 0) + 1 }),
 	);
 	expect(again.data?.nights).toBe(2);
 	const refused = await watches.edit('tokyo', () =>
-		ActionError.Refused({ message: 'not today' }),
+		Err({ name: 'NotToday' as const, message: 'not today' }),
 	);
-	expect(refused).toEqual(Err({ name: 'Refused', message: 'not today' }));
+	expect(refused).toEqual(Err({ name: 'NotToday', message: 'not today' }));
+	if (refused.error) {
+		const name: 'Misfit' | 'NotToday' = refused.error.name;
+		void name;
+	}
 	expect((await watches.get('tokyo')).data?.nights).toBe(2);
 });
 

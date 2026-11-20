@@ -54,6 +54,8 @@ return Ok(response);
 
 `defineErrors` factories already return `Err(...)`. Pass the raw `cause` into the factory and let the factory compose its message with `extractErrorMessage`. Do not use raw `Err(cause)` at a catch boundary: thrown values may be `null` or `undefined`, and an untyped cause loses the domain failure.
 
+An error that crosses JSON, such as an Epicenter action's answer, keeps the message and leaves `cause` behind: an `Error` arrives as `{}`. Compose the message from the cause in the factory and return only JSON fields.
+
 ## Cross a deliberate throwing boundary
 
 Keep a `Result` as data while the caller can still recover, report, retry, or

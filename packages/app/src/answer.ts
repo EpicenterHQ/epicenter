@@ -3,9 +3,9 @@
  * Epicenter itself answers. Three names belong to the platform and say
  * whether an action ran: `NotStarted` (it never began), `Threw` (it began and
  * threw) and `Unreachable` (the outcome is unknown). The data handles answer
- * `Misfit`, `Exists` and `Missing`. `Refused` is a ready-made name for an
- * action's own refusal. Any other name is the action's own. This module uses
- * only web APIs, so a page's bundle can carry it.
+ * `Misfit`, `Exists` and `Missing`. Any other name is the action's own, made
+ * with `defineErrors`, so a caller tells one failure from another by name.
+ * This module uses only web APIs, so a page's bundle can carry it.
  */
 import {
 	defineErrors,
@@ -15,8 +15,12 @@ import {
 import type { Result } from 'wellcrafted/result';
 import { isPlainObject, type JsonValue } from './json.ts';
 
-/** What every action error is: a name and a message, plus fields of its own. */
-export type PublicError = { name: string; message: string };
+/**
+ * What every action error is: a name and a message, plus fields of its own.
+ * `next` is a command that helps, on any error; the command prints it as
+ * `Run: <next>` below the message.
+ */
+export type PublicError = { name: string; message: string; next?: string };
 
 /** An action's answer on every surface: what it returned, or the error itself. */
 export type Answer = Result<unknown, PublicError>;
@@ -77,8 +81,6 @@ export const ActionError = defineErrors({
 		message: `There is no ${path}`,
 		path,
 	}),
-	/** The action said no. Epicenter never answers it. */
-	Refused: (body: { message: string }) => body,
 	/** The action began and threw; `message` is what it threw. */
 	Threw: (body: { message: string }) => body,
 	/**
