@@ -116,6 +116,31 @@ export async function fetchServe(
 	return statusFailed(response);
 }
 
+/**
+ * Put `body` at `url`, a path under `/data/` nothing holds yet. A refusal
+ * carries serve's reason and wrote nothing. A dropped connection is
+ * `Unreachable`, since the file may have landed.
+ */
+export async function putBytes(
+	url: string,
+	body: Blob,
+): Promise<Result<null, NotStarted | Unreachable>> {
+	const { data: response, error } = await tryAsync({
+		try: () => fetch(url, { method: 'PUT', body }),
+		catch: (cause) =>
+			fetchFailed(
+				cause,
+				'The connection ended before the answer; the file may or may not have landed',
+			),
+	});
+	if (error !== null) return Err(error);
+	if (response.status === 201) return Ok(null);
+	const message = await response.text().catch(() => response.statusText);
+	return response.status >= 400 && response.status < 500
+		? ActionError.NotStarted({ message })
+		: ActionError.Unreachable({ message });
+}
+
 /** Tell the page about a listener's failure without ending the call. */
 const report = (cause: unknown) =>
 	queueMicrotask(() => {
