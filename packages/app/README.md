@@ -89,9 +89,11 @@ export default defineEpicenter({ apps: { mail: mail(data, local('mail')) } });
 ```
 
 A `Folder` has `readText`, `write`, `delete` and `list` for files the app
-replaces whole, and `path` for files that manage themselves, such as a
-SQLite database. Opening one makes it. Nothing in it is a record, and no
-file is checked: the names come from the app's code.
+replaces whole, and `path()` for files that manage themselves, such as a
+SQLite database; `path()` makes the folder and answers where it is. Opening
+a folder touches no file, so importing `epicenter.ts` changes nothing on
+disk. Nothing in it is a record, and no file is checked: the names come from
+the app's code.
 
 - A write replaces the whole file at once.
 - `local/` is readable by its owner alone (0700).
@@ -214,7 +216,7 @@ a rule here in the same pull request as the code.
   silently, and Bun reads `.env` from the folder serve starts in.
   Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
 - **`local/` carries its own `.gitignore` and is readable by its owner
-  alone, and the library makes both true whenever it opens or writes
+  alone, and the library makes both true whenever it makes or writes
   there, in a home made earlier too.** It stays out of Git whatever the
   root `.gitignore` says, with no Git process to check it, and a private
   folder covers every file in it, SQLite's own files included.

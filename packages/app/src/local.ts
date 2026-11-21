@@ -29,8 +29,8 @@ import { filesIn, prepareLocal, removeFile, replaceFile } from './disk.ts';
 
 /** An app's folder under `local/`, and the calls that read and change its files. */
 export type Folder = {
-	/** The folder on disk, which exists: for files that manage themselves, such as SQLite or an append-only log. */
-	readonly path: string;
+	/** The folder on disk, made if missing: for files that manage themselves, such as SQLite or an append-only log. */
+	path(): string;
 	/** The text of the file `name`, or `undefined` when there is none. */
 	readText(name: string): string | undefined;
 	/** The names of the files directly in `dir` (the folder itself when absent), sorted; none when `dir` is missing. */
@@ -42,17 +42,22 @@ export type Folder = {
 };
 
 /**
- * The folders under `<home>/local/`: `local('mail')` is `local/mail/`, made
- * when it is opened. `home` is the home's folder, `import.meta.dir` in its
- * `epicenter.ts`; a test passes a temporary one.
+ * The folders under `<home>/local/`: `local('mail')` is `local/mail/`.
+ * `home` is the home's folder, `import.meta.dir` in its `epicenter.ts`; a
+ * test passes a temporary one. Opening one touches no file, so importing
+ * `epicenter.ts` changes nothing on disk; `path` and `write` make what they
+ * need.
  */
 export function defineLocal(home: string) {
 	return (app: string): Folder => {
-		const path = join(prepareLocal(home), app);
-		mkdirSync(path, { recursive: true });
-		const at = (name: string) => join(path, name);
+		const folder = join(home, 'local', app);
+		const at = (name: string) => join(folder, name);
 		return {
-			path,
+			path() {
+				prepareLocal(home);
+				mkdirSync(folder, { recursive: true });
+				return folder;
+			},
 			readText(name) {
 				try {
 					return readFileSync(at(name), 'utf8');
@@ -63,7 +68,7 @@ export function defineLocal(home: string) {
 				}
 			},
 			list(dir) {
-				const names = filesIn(dir === undefined ? path : at(dir));
+				const names = filesIn(dir === undefined ? folder : at(dir));
 				return dir === undefined
 					? names
 					: names.map((name) => `${dir}/${name}`);
