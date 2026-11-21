@@ -6,6 +6,8 @@
  * GET  /actions/                every app, action, description and input schema
  * POST /actions/<app>/<action>  run one action; the body is its input as JSON
  * GET  /apps/<app>/<file>       the app's built page, from apps/<app>/ui/dist/
+ * GET  /data/<path>             a file's bytes
+ * PUT  /data/<path>             new bytes at a path nothing holds yet
  * ```
  *
  * Serve imports the home's `epicenter.ts` once, when it starts, and answers
@@ -33,9 +35,9 @@
  */
 
 import { realpathSync } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
+import { link, mkdir, open, realpath, rm, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, tryAsync, trySync } from 'wellcrafted/result';
@@ -54,8 +56,11 @@ import { answerCall } from './run.ts';
 /** Serve listens only here. */
 const LOOPBACK = '127.0.0.1';
 
-/** The largest request body serve takes, in bytes. */
-const MAX_BODY_BYTES = 25 * 1024 * 1024;
+/** The largest JSON body an action or MCP call may send, in bytes. */
+const MAX_JSON_BYTES = 25 * 1024 * 1024;
+
+/** Bun's limit covers every route, so it only stops what no disk would hold. */
+const MAX_UPLOAD_BYTES = 2 ** 50;
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
@@ -193,24 +198,117 @@ const FILE_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 async function answerPage(folder: string, app: string, segments: string[]) {
 	const names =
 		segments.length === 1 && segments[0] === '' ? ['index.html'] : segments;
+	return answerFile(join(folder, 'apps', app, 'ui', 'dist'), names, {
+		'cache-control': 'no-cache',
+	});
+}
+
+/** The file at `names` under `root`, or 404 unless it is a plain name inside `root`. */
+async function answerFile(
+	root: string,
+	names: string[],
+	headers: Record<string, string>,
+) {
 	if (!names.every((name) => FILE_SEGMENT.test(name))) return notFound();
-	const dist = join(folder, 'apps', app, 'ui', 'dist');
 	const { data: path } = await tryAsync({
 		try: async () => {
-			const [root, file] = await Promise.all([
-				realpath(dist),
-				realpath(join(dist, ...names)),
+			const [realRoot, file] = await Promise.all([
+				realpath(root),
+				realpath(join(root, ...names)),
 			]);
-			if (!file.startsWith(root + sep)) return undefined;
+			if (!file.startsWith(realRoot + sep)) return undefined;
 			return (await stat(file)).isFile() ? file : undefined;
 		},
 		catch: () => Ok(undefined),
 	});
 	if (path === undefined) return notFound();
-	return new Response(Bun.file(path), {
-		headers: { 'cache-control': 'no-cache' },
-	});
+	return new Response(Bun.file(path), { headers });
 }
+
+/**
+ * What a file under `data/` is sent with. Anyone's bytes may land there, so
+ * a browser must not run one as a page on serve's origin, where it could
+ * call every action.
+ */
+const DATA_HEADERS = {
+	'cache-control': 'no-cache',
+	'content-security-policy': 'sandbox allow-same-origin',
+	'x-content-type-options': 'nosniff',
+};
+
+/** Whether `path`, or the nearest folder of it that exists, is inside `root`. */
+async function staysInside(root: string, path: string) {
+	const realRoot = await realpath(root);
+	for (let at = path; ; at = dirname(at)) {
+		const { data: real } = await tryAsync({
+			try: (): Promise<string | undefined> => realpath(at),
+			catch: () => Ok(undefined),
+		});
+		if (real) return real === realRoot || real.startsWith(realRoot + sep);
+	}
+}
+
+/**
+ * Bring new bytes to `names` under `data/`. The body streams to a hidden
+ * file in the same folder, and a hard link publishes it whole, so a reader
+ * never sees half a file and two uploads to one path cannot both win. It
+ * never replaces a file, and never writes a record: those are an action's.
+ */
+async function putDataFile(root: string, names: string[], request: Request) {
+	if (!names.every((name) => FILE_SEGMENT.test(name)))
+		return new Response('Each part of the path must be a plain file name', {
+			status: 400,
+		});
+	if (names.at(-1)?.toLowerCase().endsWith('.md'))
+		return new Response('A record changes through an action', { status: 403 });
+	const target = join(root, ...names);
+	const parent = dirname(target);
+	await mkdir(root, { recursive: true });
+	if (!(await staysInside(root, parent)))
+		return new Response('That path leaves data/', { status: 403 });
+	const exists = () =>
+		new Response(`${names.join('/')} already exists`, { status: 409 });
+	const { error: noFolder } = await tryAsync({
+		try: () => mkdir(parent, { recursive: true }),
+		catch: (cause) => Err(cause),
+	});
+	if (noFolder !== null) return exists();
+	const temp = join(parent, `.put-${crypto.randomUUID()}`);
+	try {
+		const file = await open(temp, 'wx');
+		try {
+			for await (const chunk of request.body ?? []) {
+				for (let at = 0; at < chunk.length; ) {
+					at += (await file.write(chunk, at)).bytesWritten;
+				}
+			}
+			await file.sync();
+		} finally {
+			await file.close();
+		}
+		await link(temp, target);
+		return new Response(null, { status: 201 });
+	} catch (cause) {
+		if ((cause as NodeJS.ErrnoException).code === 'EEXIST') return exists();
+		throw cause;
+	} finally {
+		await rm(temp, { force: true });
+	}
+}
+
+/** The whole body of `request`, or undefined past the limit for JSON. */
+async function readCapped(request: Request) {
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for await (const chunk of request.body ?? []) {
+		size += chunk.length;
+		if (size > MAX_JSON_BYTES) return undefined;
+		chunks.push(chunk);
+	}
+	return Buffer.concat(chunks);
+}
+
+const tooLarge = () => new Response('Too large', { status: 413 });
 
 /**
  * Every route for `program`, read from the path, with the listing and the
@@ -224,8 +322,18 @@ function createRoute(program: Program, folder: string) {
 	return async (request: Request) => {
 		const { method } = request;
 		const { pathname } = new URL(request.url);
-		if (pathname === '/')
-			return method === 'POST' ? mcp(request) : methodNotAllowed('POST');
+		if (pathname === '/') {
+			if (method !== 'POST') return methodNotAllowed('POST');
+			const body = await readCapped(request);
+			if (body === undefined) return tooLarge();
+			return mcp(
+				new Request(request.url, {
+					method,
+					headers: request.headers,
+					body,
+				}),
+			);
+		}
 		if (pathname === '/actions/')
 			return method === 'GET' || method === 'HEAD'
 				? Response.json(listing, {
@@ -245,6 +353,14 @@ function createRoute(program: Program, folder: string) {
 				});
 			return answerPage(folder, app, [action, ...rest]);
 		}
+		if (first === 'data') {
+			const root = join(folder, 'data');
+			const names = pathname.slice('/data/'.length).split('/');
+			if (method === 'GET' || method === 'HEAD')
+				return answerFile(root, names, DATA_HEADERS);
+			if (method === 'PUT') return putDataFile(root, names, request);
+			return methodNotAllowed('GET, HEAD, PUT');
+		}
 		if (first !== 'actions' || app === undefined) return notFound();
 		if (method !== 'POST') return methodNotAllowed('POST');
 		if (rest.length || !isName(app) || !isName(action))
@@ -254,7 +370,9 @@ function createRoute(program: Program, folder: string) {
 					next: 'epicenter',
 				}),
 			);
-		const input = parseJson(await request.text());
+		const body = await readCapped(request);
+		if (body === undefined) return tooLarge();
+		const input = parseJson(new TextDecoder().decode(body));
 		return streamCall((onUpdate) =>
 			answerCall(program, app, action, input, onUpdate),
 		);
@@ -346,7 +464,7 @@ export async function serveHome(home: Home): Promise<Answer> {
 				hostname: LOOPBACK,
 				port: home.port,
 				idleTimeout: 0,
-				maxRequestBodySize: MAX_BODY_BYTES,
+				maxRequestBodySize: MAX_UPLOAD_BYTES,
 				// Bun's development mode answers a throw with its stack.
 				development: false,
 				// The port is serve's lock, so a second serve must not share it.

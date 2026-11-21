@@ -418,3 +418,72 @@ test("an app's page is its built files, and nothing outside them", async () => {
 		).status,
 	).toBe(403);
 });
+
+test('a file comes in by PUT once, whatever layout the app chose', async () => {
+	const { folder, request } = await setup();
+	const put = (path: string, body: string) =>
+		request(path, { method: 'PUT', body });
+
+	// A folder of videos beside a page, and one video named like a page.
+	expect((await put('/data/pages-1/intro/take-1.mp4', 'one')).status).toBe(201);
+	expect((await put('/data/pages-1/intro/take-2.mp4', 'two')).status).toBe(201);
+	expect((await put('/data/pages-2/intro.mp4', 'solo')).status).toBe(201);
+	expect(await readdir(join(folder, 'data/pages-1/intro'))).toEqual([
+		'take-1.mp4',
+		'take-2.mp4',
+	]);
+
+	const read = await request('/data/pages-2/intro.mp4');
+	expect(await read.text()).toBe('solo');
+	expect(read.headers.get('content-security-policy')).toContain('sandbox');
+	expect(read.headers.get('x-content-type-options')).toBe('nosniff');
+
+	const again = await put('/data/pages-2/intro.mp4', 'other');
+	expect(again.status).toBe(409);
+	expect(await readFile(join(folder, 'data/pages-2/intro.mp4'), 'utf8')).toBe(
+		'solo',
+	);
+	expect((await put('/data/pages-2/intro.mp4/x', 'no')).status).toBe(409);
+	expect((await put('/data/notes/a.md', 'no')).status).toBe(403);
+	expect((await put('/data/notes/a.MD', 'no')).status).toBe(403);
+	expect((await put('/data/notes/.hidden', 'no')).status).toBe(400);
+	expect((await put('/data/notes/..%2Fx', 'no')).status).toBe(400);
+	expect((await request('/data/x.mp4', { method: 'DELETE' })).status).toBe(405);
+	expect(
+		(
+			await request('/data/evil.mp4', {
+				method: 'PUT',
+				body: 'no',
+				headers: { origin: 'https://evil.example' },
+			})
+		).status,
+	).toBe(403);
+});
+
+test('a PUT cannot leave data/ through a link, and leaves no temp file', async () => {
+	const { folder, request } = await setup();
+	const outside = join(folder, 'outside');
+	await mkdir(outside);
+	await mkdir(join(folder, 'data'));
+	await symlink(outside, join(folder, 'data', 'out'));
+	const put = await request('/data/out/x.mp4', { method: 'PUT', body: 'no' });
+	expect(put.status).toBe(403);
+	expect(await readdir(outside)).toEqual([]);
+
+	await request('/data/a/x.mp4', { method: 'PUT', body: 'yes' });
+	expect(await readdir(join(folder, 'data/a'))).toEqual(['x.mp4']);
+});
+
+test('an action or MCP body past the JSON limit is 413, though a file may be larger', async () => {
+	const { request } = await setup();
+	const big = 'x'.repeat(25 * 1024 * 1024 + 1);
+	const action = await request('/actions/writing/add', {
+		method: 'POST',
+		body: big,
+	});
+	expect(action.status).toBe(413);
+	expect((await request('/', { method: 'POST', body: big })).status).toBe(413);
+	expect(
+		(await request('/data/big.bin', { method: 'PUT', body: big })).status,
+	).toBe(201);
+});

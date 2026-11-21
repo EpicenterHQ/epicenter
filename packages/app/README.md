@@ -120,6 +120,8 @@ changing code. Every other command asks serve and runs no app code.
 | --- | --- |
 | `POST /actions/<app>/<action>` | JSON lines: `{"update": ...}` for each update, then `{"answer": {data, error}}` |
 | `GET /apps/<app>/<file>` | the app's built page, from `apps/<app>/ui/dist/` |
+| `GET /data/<path>` | a file's bytes, with range requests for video and audio |
+| `PUT /data/<path>` | stores new bytes at a path nothing holds yet: 201, or 409 if one does |
 | `POST /` | MCP, one tool per action not marked `mcp: false`, named `<app>_<action>` |
 | `GET /actions/` | every app, action, description and input schema |
 
@@ -149,6 +151,29 @@ const added = await epicenter.writing.add({ body: 'Fares drop in late March' });
 Each call resolves to a Result typed by the action. Pass
 `{ onUpdate }` as the second argument to hear its updates.
 
+## Files
+
+Epicenter moves bytes to and from paths under `data/`. An app decides where
+its files go, how many a record has, and what replacing or deleting one
+means:
+
+```ts
+import { putFile } from '@epicenter/app/client';
+
+// One video beside each page.
+const videoPath = (id: string) => `pages/${id}.mp4`;
+
+await putFile(videoPath(id), file);
+await epicenter.pages.add({ id, title });
+// <video src={`/data/${videoPath(id)}`} />
+```
+
+```ts
+// The page's delete action removes what this layout put there.
+await rm(join(import.meta.dir, '../../data', videoPath(id)), { force: true });
+return pages.delete(id);
+```
+
 ## Tests
 
 A test rebinds the home's data to a temporary folder and calls the app
@@ -172,7 +197,6 @@ design taught each one must keep:
 - **An app's `fetch`.** A handler for OAuth, a feed or a webhook must sit
   behind serve's guards, and must learn its public address without
   `epicenter.ts` passing it.
-- **Files beside a record,** such as a recording's audio or a book's cover.
 
 ## Decisions
 
@@ -293,6 +317,13 @@ a rule here in the same pull request as the code.
   service worker.
   Refused: a setting naming each app's folder; decoding escaped paths;
   long-lived caching of hashed files.
+- **`PUT /data/<path>` only creates, and never writes a `.md`. Everything
+  else about a file is an action's.** Some files exist only on this disk, so
+  an upload must not replace one, and a record's rules live in its actions.
+  Epicenter knows paths, and each app owns its layout, so `records.delete`
+  removes only the `.md`.
+  Refused: a framework rule for which files belong to a record; a pointer
+  field; base64 in JSON; overwriting with `PUT`.
 - **MCP offers one tool per action and sends no instructions.** An agent
   learns each tool from its action's description. A home's `AGENTS.md`
   guides an agent working in the home's files, with steps an MCP client

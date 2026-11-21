@@ -32,7 +32,7 @@ import {
 	type Threw,
 	type Unreachable,
 } from './answer.ts';
-import { actionPath, postAction } from './call.ts';
+import { actionPath, postAction, putBytes } from './call.ts';
 import type { Epicenter } from './epicenter.ts';
 
 export type {
@@ -118,6 +118,24 @@ function lazyKeys<T>(make: (name: string) => T) {
 			return made.get(key);
 		},
 	});
+}
+
+/**
+ * Bring a file to `path` under the home's `data/`, streaming it, so it may
+ * be larger than an action's input. It refuses a path that already holds a
+ * file and any `.md`; the app's actions decide what a path means.
+ *
+ * ```ts
+ * await putFile(`recordings/${id}.mp4`, file);
+ * ```
+ */
+export function putFile(
+	path: string,
+	file: Blob,
+	{ url = '/' }: { url?: string } = {},
+) {
+	const encoded = path.split('/').map(encodeURIComponent).join('/');
+	return putBytes(`${url.replace(/\/$/, '')}/data/${encoded}`, file);
 }
 
 /**
