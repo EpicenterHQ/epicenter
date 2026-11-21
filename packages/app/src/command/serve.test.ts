@@ -1,6 +1,14 @@
 import { afterEach, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
@@ -361,4 +369,52 @@ test('serve that cannot listen answers NotStarted, never a throw', async () => {
 	const refused = await serveHome({ folder, port: 70000 });
 	expect(refused.error?.name).toBe('NotStarted');
 	expect(refused.error?.message).toContain('serve could not listen');
+});
+
+test("an app's page is its built files, and nothing outside them", async () => {
+	const { folder, request } = await setup();
+	const dist = join(folder, 'apps', 'writing', 'ui', 'dist');
+	await mkdir(join(dist, 'fonts'), { recursive: true });
+	await writeFile(join(dist, 'index.html'), '<h1>Writing</h1>');
+	await writeFile(join(dist, 'fonts', 'geist.woff2'), 'font');
+	await writeFile(join(dist, '.env'), 'SECRET=1');
+	await writeFile(join(folder, 'apps', 'writing', 'secret.txt'), 'outside');
+	await symlink(
+		join(folder, 'apps', 'writing', 'secret.txt'),
+		join(dist, 'link.txt'),
+	);
+
+	const page = await request('/apps/writing/');
+	expect(page.status).toBe(200);
+	expect(page.headers.get('content-type')).toContain('text/html');
+	expect(page.headers.get('cache-control')).toBe('no-cache');
+	expect(await page.text()).toBe('<h1>Writing</h1>');
+	expect(await (await request('/apps/writing/fonts/geist.woff2')).text()).toBe(
+		'font',
+	);
+
+	const bare = await request('/apps/writing');
+	expect(bare.status).toBe(308);
+	expect(bare.headers.get('location')).toBe('/apps/writing/');
+
+	const status = async (path: string) => (await request(path)).status;
+	expect(await status('/apps/writing/.env')).toBe(404);
+	expect(await status('/apps/writing/..%2Fsecret.txt')).toBe(404);
+	expect(await status('/apps/writing/fonts/..%2F..%2F..%2Fsecret.txt')).toBe(
+		404,
+	);
+	expect(await status('/apps/writing/link.txt')).toBe(404);
+	expect(await status('/apps/writing/fonts')).toBe(404);
+	expect(await status('/apps/writing/missing.js')).toBe(404);
+	expect(await status('/apps/nobody/')).toBe(404);
+	expect((await request('/apps/writing/', { method: 'POST' })).status).toBe(
+		405,
+	);
+	expect(
+		(
+			await request('/apps/writing/', {
+				headers: { 'sec-fetch-site': 'cross-site' },
+			})
+		).status,
+	).toBe(403);
 });

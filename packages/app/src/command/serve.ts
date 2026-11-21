@@ -5,6 +5,7 @@
  * POST /                        MCP, one tool per action
  * GET  /actions/                every app, action, description and input schema
  * POST /actions/<app>/<action>  run one action; the body is its input as JSON
+ * GET  /apps/<app>/<file>       the app's built page, from apps/<app>/ui/dist/
  * ```
  *
  * Serve imports the home's `epicenter.ts` once, when it starts, and answers
@@ -32,10 +33,12 @@
  */
 
 import { realpathSync } from 'node:fs';
+import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
+import { join, sep } from 'node:path';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, trySync } from 'wellcrafted/result';
+import { Err, Ok, tryAsync, trySync } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { Answer } from '../answer.ts';
 import { ActionError } from '../answer.ts';
@@ -173,11 +176,48 @@ function offeredToMcp(program: Program): Program {
 }
 
 /**
+ * A built file's name, one path segment at a time. A segment may not start
+ * with a dot, so `..` and hidden files are never names, and `%` is refused
+ * rather than decoded: a bundler writes no name that needs it.
+ */
+const FILE_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * One file of an app's page, from `apps/<app>/ui/dist/` in the home, with
+ * `index.html` for the folder itself. A name that is not a plain file name,
+ * and a file whose real path leaves `dist/` through a link, is not found.
+ * Every file is `no-cache`: a page that must open with no network keeps its
+ * own copy in a service worker, and over loopback or a tailnet a revalidation
+ * costs nothing.
+ */
+async function answerPage(folder: string, app: string, segments: string[]) {
+	const names =
+		segments.length === 1 && segments[0] === '' ? ['index.html'] : segments;
+	if (!names.every((name) => FILE_SEGMENT.test(name))) return notFound();
+	const dist = join(folder, 'apps', app, 'ui', 'dist');
+	const { data: path } = await tryAsync({
+		try: async () => {
+			const [root, file] = await Promise.all([
+				realpath(dist),
+				realpath(join(dist, ...names)),
+			]);
+			if (!file.startsWith(root + sep)) return undefined;
+			return (await stat(file)).isFile() ? file : undefined;
+		},
+		catch: () => Ok(undefined),
+	});
+	if (path === undefined) return notFound();
+	return new Response(Bun.file(path), {
+		headers: { 'cache-control': 'no-cache' },
+	});
+}
+
+/**
  * Every route for `program`, read from the path, with the listing and the
  * MCP tools made once. A name is `[a-z0-9-]`, which no percent-encoding
  * spells, so a segment is not decoded.
  */
-function createRoute(program: Program) {
+function createRoute(program: Program, folder: string) {
 	const listing = listingOf(program);
 	const offered = offeredToMcp(program);
 	const mcp = createMcp(offered, listingOf(offered));
@@ -193,6 +233,18 @@ function createRoute(program: Program) {
 					})
 				: methodNotAllowed('GET, HEAD');
 		const [first, app, action, ...rest] = pathname.slice(1).split('/');
+		if (first === 'apps' && app !== undefined) {
+			if (method !== 'GET' && method !== 'HEAD')
+				return methodNotAllowed('GET, HEAD');
+			if (!isName(app) || !Object.hasOwn(program.apps, app)) return notFound();
+			// A page's URLs are relative, so they resolve only under the slash.
+			if (action === undefined)
+				return new Response(null, {
+					status: 308,
+					headers: { location: `/apps/${app}/` },
+				});
+			return answerPage(folder, app, [action, ...rest]);
+		}
 		if (first !== 'actions' || app === undefined) return notFound();
 		if (method !== 'POST') return methodNotAllowed('POST');
 		if (rest.length || !isName(app) || !isName(action))
@@ -258,7 +310,9 @@ function guard(request: Request, home: Home) {
  * waits for it.
  */
 export function createHandler(home: Home, program: Promise<Program> | Program) {
-	const route = Promise.resolve(program).then(createRoute);
+	const route = Promise.resolve(program).then((loaded) =>
+		createRoute(loaded, home.folder),
+	);
 	return async (request: Request) =>
 		guard(request, home) ?? (await route)(request);
 }
