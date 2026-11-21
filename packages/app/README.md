@@ -17,7 +17,7 @@ keeps are under [Decisions](#decisions).
   .env             secrets and this computer's settings, read through process.env
   data/            the records, plain Markdown, one folder per key
   apps/            code only: each app is a function of the home's data
-  local/           caches an app can rebuild, ignored by Git
+  local/           what this computer can lose, private and ignored by Git
 ```
 
 ```ts
@@ -76,6 +76,28 @@ Wellcrafted Result:
   points to nothing, so an app that needs the record checks for it.
 
 `defineData` touches no file. A handle generates no actions.
+
+## Local
+
+`defineLocal(dir)` opens an app's folder under `local/`: caches it can
+rebuild, sign-ins you can redo, and private text that must never reach Git.
+`epicenter.ts` hands each app its folder, as it hands over `data`:
+
+```ts
+const local = defineLocal(import.meta.dir);
+export default defineEpicenter({ apps: { mail: mail(data, local('mail')) } });
+```
+
+A `Folder` has `readText`, `write`, `delete` and `list` for files the app
+replaces whole, and `path()` for files that manage themselves, such as a
+SQLite database; `path()` makes the folder and answers where it is. Opening
+a folder touches no file, so importing `epicenter.ts` changes nothing on
+disk. Nothing in it is a record, and no file is checked: the names come from
+the app's code.
+
+- A write replaces the whole file at once.
+- `local/` is readable by its owner alone (0700).
+- `local/` has a `.gitignore`.
 
 ## Actions and apps
 
@@ -152,11 +174,12 @@ Each call resolves to a Result typed by the action. Pass
 ## Tests
 
 A test rebinds the home's data to a temporary folder and calls the app
-function with it:
+function with it, with that folder's `local/` when the app takes one:
 
 ```ts
 const app = writing(defineData(tmp, data));
 await app.actions.add({ body: 'hello' });
+const mailApp = mail(defineData(tmp, data), defineLocal(tmp)('mail'));
 ```
 
 `defineData(tmp, data)` takes an earlier result as its spec and returns
@@ -192,9 +215,18 @@ a rule here in the same pull request as the code.
   folder.** A command run in an unrelated project must not act on a home
   silently, and Bun reads `.env` from the folder serve starts in.
   Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
-- **`local/` carries its own `.gitignore`.** It stays out of Git whatever
-  the root `.gitignore` says, with no Git process to check it.
-  Refused: a Git check for each `local/` at start.
+- **`local/` carries its own `.gitignore` and is readable by its owner
+  alone, and the library makes both true whenever it makes or writes
+  there, in a home made earlier too.** It stays out of Git whatever the
+  root `.gitignore` says, with no Git process to check it, and a private
+  folder covers every file in it, SQLite's own files included.
+  Refused: a Git check for each `local/` at start; a mode on each file.
+- **The library makes `local/` private and ignored, and checks nothing
+  else there.** Only the app writes it, from names in its code, so a
+  record's checks would protect nothing. An action that puts input in a
+  name checks it in its input schema, where an agent's call arrives.
+  Refused: `local/` keys declared like `data`; a bare path with each app
+  writing its own safe writes.
 - **No command makes a home or an app, or copies an app in or out, and the
   package ships no template.** Each happens once per owner, and the owner's
   agent already knows how; a command or a template is one more thing to

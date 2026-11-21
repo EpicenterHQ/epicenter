@@ -19,4 +19,5 @@ export {
 } from './data.ts';
 export { type App, defineEpicenter, type Epicenter } from './epicenter.ts';
 export { field } from './field.ts';
+export { defineLocal, type Folder } from './local.ts';
 export { localDay, localTime, timeId } from './time.ts';
