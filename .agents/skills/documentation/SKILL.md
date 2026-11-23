@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: 'In-code documentation, folder READMEs, code comments. Use when: "document this", "add JSDoc", "write a README", "explain this code", or writing README.md/JSDoc.'
+description: 'In-code documentation, folder READMEs, code comments. Use when: "document this", "add JSDoc", "write a README", "explain this code", writing README.md/JSDoc, updating docs after a change, or removing duplicate or conflicting docs.'
 metadata:
   author: epicenter
   version: '1.0'
@@ -11,6 +11,16 @@ metadata:
 Follow the [project writing conventions](../../../AGENTS.md#writing-conventions). For architecture walkthroughs, folder mental models, or newcomer explanations, lead with the owner, boundary, or flow; ground the model in code and name the likely misconception when it helps.
 
 Documentation explains **why**, not **what**. Users can read code to see what it does. They need you to explain the reasoning.
+
+## Don't over-document
+
+Write something down only if a future reader would get it wrong without it.
+
+Give each idea one canonical location, usually the README beside what it
+governs. Everywhere else links there instead of restating it. When you find
+another copy, remove it. When a copy conflicts, work out which is true from the
+code and the user's intent, correct the canonical version, and delete the
+conflicting one. Archives and `docs/history.md` are records, so leave them.
 
 ## Folder READMEs
 
