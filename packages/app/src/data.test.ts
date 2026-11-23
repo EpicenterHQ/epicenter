@@ -195,7 +195,9 @@ test('a write leaves no temporary file under data/', async () => {
 	await watches.create('tokyo', { to: 'Tokyo' });
 	await watches.patch('tokyo', { to: 'Kyoto' });
 	expect(await readdir(join(home, 'data/watches'))).toEqual(['tokyo.md']);
-	expect(await readFile(join(home, 'local/.gitignore'), 'utf8')).toBe('*\n');
+	expect(await readFile(join(home, '.epicenter/.gitignore'), 'utf8')).toBe(
+		'*\n',
+	);
 });
 
 test('a key or field name that cannot be a folder or a front matter line is refused', () => {

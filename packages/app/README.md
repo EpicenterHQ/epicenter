@@ -17,7 +17,7 @@ keeps are under [Decisions](#decisions).
   .env             secrets and this computer's settings, read through process.env
   data/            the records, plain Markdown, one folder per key
   apps/            code only: each app is a function of the home's data
-  local/           caches an app can rebuild, ignored by Git
+  .epicenter/      this computer's working state, private and ignored by Git
 ```
 
 ```ts
@@ -76,6 +76,39 @@ Wellcrafted Result:
   points to nothing, so an app that needs the record checks for it.
 
 `defineData` touches no file. A handle generates no actions.
+
+## This computer's state
+
+Visible folders are yours. `.epicenter/` is this computer's:
+
+```txt
+.epicenter/
+  apps/<app>/   an app's sign-ins, caches and scratch files
+  tmp/          writes in progress
+```
+
+Deleting `.epicenter/` costs you time: you sign in again and caches
+rebuild. Your code, records and Git history are outside it.
+
+`folderAt(...path)` opens a folder an app replaces files in. It knows nothing
+about this layout: `epicenter.ts` chooses each path and hands the app its
+folder, as it hands over `data`:
+
+```ts
+export default defineEpicenter({
+  apps: { mail: mail(data, folderAt(import.meta.dir, '.epicenter/apps/mail')) },
+});
+```
+
+A `Folder` has `readText`, `write`, `delete` and `list` for files the app
+replaces whole, and `path()` for files that manage themselves, such as a
+SQLite database; `path()` makes the folder and answers where it is. Opening
+a folder touches no file, so importing `epicenter.ts` changes nothing on
+disk. Nothing in it is a record, and no file is checked: the names come from
+the app's code. A write replaces the whole file at once.
+
+Serve makes `.epicenter/` readable by its owner alone (0700), with its own
+`.gitignore`, before any app runs.
 
 ## Actions and apps
 
@@ -177,11 +210,12 @@ return pages.delete(id);
 ## Tests
 
 A test rebinds the home's data to a temporary folder and calls the app
-function with it:
+function with it, and a temporary folder when the app takes one:
 
 ```ts
 const app = writing(defineData(tmp, data));
 await app.actions.add({ body: 'hello' });
+const mailApp = mail(defineData(tmp, data), folderAt(tmp, 'mail'));
 ```
 
 `defineData(tmp, data)` takes an earlier result as its spec and returns
@@ -216,9 +250,22 @@ a rule here in the same pull request as the code.
   folder.** A command run in an unrelated project must not act on a home
   silently, and Bun reads `.env` from the folder serve starts in.
   Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
-- **`local/` carries its own `.gitignore`.** It stays out of Git whatever
-  the root `.gitignore` says, with no Git process to check it.
-  Refused: a Git check for each `local/` at start.
+- **`.epicenter/` is the one folder Epicenter owns in a home. It is private,
+  carries its own `.gitignore`, and holds nothing you cannot recreate.**
+  The name says whose it is, where `local/` did not, since every folder in a
+  home is local. Other tools keep their own dot folders, so a leading dot
+  alone does not mean Epicenter.
+  Refused: `local/`; treating every dot name as Epicenter's; separate state,
+  cache and secrets folders; state under `~/Library`, which a renamed home
+  would orphan.
+- **The library gives an app a `Folder` and does not choose its path.**
+  `epicenter.ts` chooses it, so an app cannot reach another's sign-ins by
+  default, each path is visible where the app is composed, and a test passes
+  a temporary folder. `Folder` stays because five
+  apps need the same atomic writes and missing-file handling.
+  Refused: `local/` keys declared like `data`; `defineLocal`, which fixed the
+  layout inside the library; a helper naming the path by app; a bare path with each app
+  writing its own safe writes.
 - **No command makes a home or an app, or copies an app in or out, and the
   package ships no template.** Each happens once per owner, and the owner's
   agent already knows how; a command or a template is one more thing to
