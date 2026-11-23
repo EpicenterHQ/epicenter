@@ -32,7 +32,7 @@ import {
 	type Threw,
 	type Unreachable,
 } from './answer.ts';
-import { actionPath, postAction, putBytes } from './call.ts';
+import { actionPath, postAction } from './call.ts';
 import type { Epicenter } from './epicenter.ts';
 
 export type {
@@ -121,22 +121,16 @@ function lazyKeys<T>(make: (name: string) => T) {
 }
 
 /**
- * Bring a file to `path` under the home's `data/`, streaming it, so it may
- * be larger than an action's input. It refuses a path that already holds a
- * file and any `.md`; the app's actions decide what a path means.
+ * The URL of `path` under the home's `data/`, with each name encoded so a
+ * space, `#` or `?` stays part of it. Read it with `<video src>` or
+ * `fetch`; `PUT` a new file to it.
  *
  * ```ts
- * await putFile(`recordings/${id}.mp4`, file);
+ * await fetch(dataUrl(`recordings/${id}.mp4`), { method: 'PUT', body: file });
  * ```
  */
-export function putFile(
-	path: string,
-	file: Blob,
-	{ url = '/' }: { url?: string } = {},
-) {
-	const encoded = path.split('/').map(encodeURIComponent).join('/');
-	return putBytes(`${url.replace(/\/$/, '')}/data/${encoded}`, file);
-}
+export const dataUrl = (path: string) =>
+	`/data/${path.split('/').map(encodeURIComponent).join('/')}`;
 
 /**
  * A client for the home whose `epicenter.ts` default export is `H`. `url` is

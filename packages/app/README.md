@@ -125,9 +125,9 @@ changing code. Every other command asks serve and runs no app code.
 | `POST /` | MCP, one tool per action not marked `mcp: false`, named `<app>_<action>` |
 | `GET /actions/` | every app, action, description and input schema |
 
-Serve refuses a request a tunnel delivered, a `Host` that is not loopback,
-an IP literal or `*.ts.net`, an `Origin` on another host, and a browser
-request `Sec-Fetch-Site` marks as from another origin. A program that
+Serve refuses a request Tailscale Funnel delivered, a `Host` that is not
+loopback, an IP literal or `*.ts.net`, and an `Origin` on another host. A
+program that
 throws on import leaves serve answering that one problem with no apps.
 
 An answer's error names whether the action ran: `NotStarted` (it never
@@ -158,14 +158,14 @@ its files go, how many a record has, and what replacing or deleting one
 means:
 
 ```ts
-import { putFile } from '@epicenter/app/client';
+import { dataUrl } from '@epicenter/app/client';
 
 // One video beside each page.
 const videoPath = (id: string) => `pages/${id}.mp4`;
 
-await putFile(videoPath(id), file);
+await fetch(dataUrl(videoPath(id)), { method: 'PUT', body: file });
 await epicenter.pages.add({ id, title });
-// <video src={`/data/${videoPath(id)}`} />
+// <video src={dataUrl(videoPath(id))} />
 ```
 
 ```ts
@@ -309,19 +309,21 @@ a rule here in the same pull request as the code.
   Refused: `epicenter service` with a LaunchAgent; a parent process that
   restarts serve.
 - **Serve answers `/apps/<app>/` from `apps/<app>/ui/dist/` for an app in
-  `epicenter.ts`, and every file is `no-cache`.** Guards refuse a page from
-  another origin, so a page must come from serve itself, and the folder is
-  found by the layout every home already has. A path segment must be a plain
-  file name (no leading dot, no `%`), and a file whose real path leaves
-  `dist/` is not found. A page that must open offline keeps its own copy in a
-  service worker.
-  Refused: a setting naming each app's folder; decoding escaped paths;
-  long-lived caching of hashed files.
-- **`PUT /data/<path>` only creates, and never writes a `.md`. Everything
-  else about a file is an action's.** Some files exist only on this disk, so
-  an upload must not replace one, and a record's rules live in its actions.
-  Epicenter knows paths, and each app owns its layout, so `records.delete`
-  removes only the `.md`.
+  `epicenter.ts`.** Guards refuse a page's calls from another origin, so a
+  page must come from serve itself, and the folder is found by the layout
+  every home already has.
+  Refused: a setting naming each app's folder.
+- **Serve has one owner, so it checks only what stops a website in that
+  owner's browser or an unrecoverable loss.** It keeps `Host`, `Origin`, the
+  Funnel check, one path check that stays inside the served folder, the
+  sandbox on `/data`, and create-only `PUT`. Each stopped a demonstrated
+  attack or protects bytes Git does not hold.
+  Refused: file name rules; refusing links the owner made; body size caps;
+  `Sec-Fetch-Site`, which blocked links to the owner's own pages.
+- **`PUT /data/<path>` only creates. Everything else about a file is an
+  action's.** Some files exist only on this disk, so an upload must not
+  replace one. Epicenter knows paths, and each app owns its layout, so
+  `records.delete` removes only the `.md`.
   Refused: a framework rule for which files belong to a record; a pointer
   field; base64 in JSON; overwriting with `PUT`.
 - **MCP offers one tool per action and sends no instructions.** An agent
