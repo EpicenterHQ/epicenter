@@ -7,7 +7,7 @@
  * POST /actions/<app>/<action>  run one action; the body is its input as JSON
  * GET  /apps/<app>/<file>       the app's built page, from apps/<app>/ui/dist/
  * GET  /data/<path>             a file's bytes
- * PUT  /data/<path>             a new file at a path nothing holds yet
+ * PUT  /data/<path>             a file's bytes, keeping any previous version
  * ```
  *
  * Serve imports the home's `epicenter.ts` once, when it starts, and answers
@@ -34,10 +34,10 @@
  * another home with 409.
  */
 
-import { realpathSync } from 'node:fs';
-import { link, rm, stat } from 'node:fs/promises';
+import { constants, realpathSync } from 'node:fs';
+import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, trySync } from 'wellcrafted/result';
@@ -48,6 +48,7 @@ import { HOME_HEADER, type Listing } from '../call.ts';
 import { prepareEpicenter } from '../disk.ts';
 import { parseJson } from '../json.ts';
 import { isName } from '../name.ts';
+import { timeId } from '../time.ts';
 import type { Home } from './home.ts';
 import { createMcp } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
@@ -216,21 +217,39 @@ async function sendFile(
 }
 
 /**
- * Store a request's body as a new file at `path`. It streams to a temporary
- * file, and a hard link publishes it whole, so a reader never sees half a
- * file. It never replaces one, since some media exists only on this disk:
- * replacing and deleting are an app's actions.
+ * Store a request's body at `path` under `home`. It streams to a temporary
+ * file, so a cut upload changes nothing. A file already there is first copied
+ * to `.epicenter/replaced/<time>/<path>`, since some media exists only on this
+ * disk and Git cannot bring it back. A clone makes that copy instant on APFS.
  */
-async function putFile(path: string | undefined, request: Request) {
+async function putFile(
+	home: string,
+	path: string | undefined,
+	request: Request,
+) {
 	if (path === undefined) return notFound();
 	const part = `${path}.${crypto.randomUUID()}.part`;
 	try {
 		await Bun.write(part, new Response(request.body));
-		await link(part, path);
-		return new Response(null, { status: 201 });
-	} catch (cause) {
-		if ((cause as NodeJS.ErrnoException).code !== 'EEXIST') throw cause;
-		return new Response('A file is already there', { status: 409 });
+		const found = await stat(path).catch(() => undefined);
+		if (found && !found.isFile())
+			return new Response('A folder is already there', { status: 409 });
+		if (found) {
+			const saved = join(
+				home,
+				'.epicenter/replaced',
+				timeId(),
+				relative(home, path),
+			);
+			await mkdir(dirname(saved), { recursive: true });
+			await copyFile(
+				path,
+				saved,
+				constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
+			);
+		}
+		await rename(part, path);
+		return new Response(null, { status: found ? 204 : 201 });
 	} finally {
 		await rm(part, { force: true });
 	}
@@ -278,7 +297,7 @@ function createRoute(program: Program, folder: string) {
 			);
 			if (method === 'GET' || method === 'HEAD')
 				return sendFile(path, DATA_HEADERS);
-			if (method === 'PUT') return putFile(path, request);
+			if (method === 'PUT') return putFile(folder, path, request);
 			return methodNotAllowed('GET, HEAD, PUT');
 		}
 		if (first !== 'actions' || app === undefined) return notFound();
