@@ -61,9 +61,8 @@ export const actionPath = (app: string, action: string) =>
 
 /** What a refusal status says, where serve's reason is known. */
 const REFUSED: Record<number, string> = {
-	403: 'serve refused the request: it came through a tunnel, or from another host or site',
+	403: 'serve refused the request: it came through Funnel, or from another host or site',
 	409: "The serve on this port is another home's; give this home another port in its package.json",
-	413: 'The input is larger than 25 MiB, the most serve takes',
 };
 
 /**
