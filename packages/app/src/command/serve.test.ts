@@ -402,7 +402,7 @@ test("an app's page is its built files, and nothing outside them", async () => {
 	);
 });
 
-test('a file comes in by PUT once, whatever layout the app chose', async () => {
+test('a PUT stores a file whatever the layout, and keeps what it replaces', async () => {
 	const { folder, request } = await setup();
 	const put = (path: string, body: string) =>
 		request(path, { method: 'PUT', body });
@@ -423,11 +423,20 @@ test('a file comes in by PUT once, whatever layout the app chose', async () => {
 	expect(read.headers.get('content-security-policy')).toContain('sandbox');
 	expect(read.headers.get('cross-origin-resource-policy')).toBe('same-origin');
 
-	expect((await put('/data/pages-2/intro.mp4', 'other')).status).toBe(409);
+	expect((await put('/data/pages-2/intro.mp4', 'other')).status).toBe(204);
+	expect((await put('/data/pages-2/intro.mp4', 'third')).status).toBe(204);
 	expect(await readFile(join(folder, 'data/pages-2/intro.mp4'), 'utf8')).toBe(
-		'solo',
+		'third',
 	);
 	expect(await readdir(join(folder, 'data/pages-2'))).toEqual(['intro.mp4']);
+	const replaced = join(folder, '.epicenter/replaced');
+	const saved = await Promise.all(
+		(await readdir(replaced)).map((time) =>
+			readFile(join(replaced, time, 'data/pages-2/intro.mp4'), 'utf8'),
+		),
+	);
+	expect(saved.sort()).toEqual(['other', 'solo']);
+	expect((await put('/data/pages-1/intro', 'no')).status).toBe(409);
 	expect((await request('/data/x.mp4', { method: 'DELETE' })).status).toBe(405);
 	expect(
 		(

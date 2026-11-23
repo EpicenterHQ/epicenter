@@ -123,7 +123,7 @@ function lazyKeys<T>(make: (name: string) => T) {
 /**
  * The URL of `path` under the home's `data/`, with each name encoded so a
  * space, `#` or `?` stays part of it. Read it with `<video src>` or
- * `fetch`; `PUT` a new file to it.
+ * `fetch`; `PUT` a file to it.
  *
  * ```ts
  * await fetch(dataUrl(`recordings/${id}.mp4`), { method: 'PUT', body: file });

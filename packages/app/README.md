@@ -84,11 +84,13 @@ Visible folders are yours. `.epicenter/` is this computer's:
 ```txt
 .epicenter/
   apps/<app>/   an app's sign-ins, caches and scratch files
+  replaced/     files an upload replaced, by time and path
   tmp/          writes in progress
 ```
 
-Deleting `.epicenter/` costs you time: you sign in again and caches
-rebuild. Your code, records and Git history are outside it.
+Deleting `.epicenter/` costs you time, plus the saved copies of files an
+upload replaced: you sign in again and caches rebuild. Your code, records
+and Git history are outside it, so a committed version can still be restored.
 
 `folderAt(path)` opens a folder an app replaces files in. It knows nothing
 about this layout: `epicenter.ts` chooses each path and hands the app its
@@ -155,7 +157,7 @@ changing code. Every other command asks serve and runs no app code.
 | `POST /actions/<app>/<action>` | JSON lines: `{"update": ...}` for each update, then `{"answer": {data, error}}` |
 | `GET /apps/<app>/<file>` | the app's built page, from `apps/<app>/ui/dist/` |
 | `GET /data/<path>` | a file's bytes, with range requests for video and audio |
-| `PUT /data/<path>` | stores new bytes at a path nothing holds yet: 201, or 409 if one does |
+| `PUT /data/<path>` | stores a file: 201 when new, 204 when it replaced one and kept the old copy |
 | `POST /` | MCP, one tool per action not marked `mcp: false`, named `<app>_<action>` |
 | `GET /actions/` | every app, action, description and input schema |
 
@@ -252,7 +254,7 @@ a rule here in the same pull request as the code.
   silently, and Bun reads `.env` from the folder serve starts in.
   Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
 - **`.epicenter/` is the one folder Epicenter owns in a home. It is private,
-  carries its own `.gitignore`, and holds nothing you cannot recreate.**
+  carries its own `.gitignore`, and holds no primary copy of your work.**
   The name says whose it is, where `local/` did not, since every folder in a
   home is local. Other tools keep their own dot folders, so a leading dot
   alone does not mean Epicenter.
@@ -363,16 +365,19 @@ a rule here in the same pull request as the code.
 - **Serve has one owner, so it checks only what stops a website in that
   owner's browser or an unrecoverable loss.** It keeps `Host`, `Origin`, the
   Funnel check, one path check that stays inside the served folder, the
-  sandbox on `/data`, and create-only `PUT`. Each stopped a demonstrated
+  sandbox on `/data`, and the saved copy `PUT` keeps. Each stopped a demonstrated
   attack or protects bytes Git does not hold.
   Refused: file name rules; refusing links the owner made; body size caps;
   `Sec-Fetch-Site`, which blocked links to the owner's own pages.
-- **`PUT /data/<path>` only creates. Everything else about a file is an
-  action's.** Some files exist only on this disk, so an upload must not
-  replace one. Epicenter knows paths, and each app owns its layout, so
+- **`PUT /data/<path>` replaces a file and keeps the old one in
+  `.epicenter/replaced/<time>/<path>`. Everything else about a file is an
+  action's.** A retry just works and a page needs no conflict prompt, while a
+  bad upload over media Git does not hold can still be undone by copying it
+  back. Epicenter knows paths, and each app owns its layout, so
   `records.delete` removes only the `.md`.
-  Refused: a framework rule for which files belong to a record; a pointer
-  field; base64 in JSON; overwriting with `PUT`.
+  Refused: create-only `PUT`; replacing with no saved copy; committing each
+  upload or sending media through Git LFS; a framework rule for which files
+  belong to a record; a pointer field; base64 in JSON.
 - **MCP offers one tool per action and sends no instructions.** An agent
   learns each tool from its action's description. A home's `AGENTS.md`
   guides an agent working in the home's files, with steps an MCP client
