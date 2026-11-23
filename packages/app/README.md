@@ -119,6 +119,7 @@ changing code. Every other command asks serve and runs no app code.
 | Route | What it answers |
 | --- | --- |
 | `POST /actions/<app>/<action>` | JSON lines: `{"update": ...}` for each update, then `{"answer": {data, error}}` |
+| `GET /apps/<app>/<file>` | the app's built page, from `apps/<app>/ui/dist/` |
 | `POST /` | MCP, one tool per action not marked `mcp: false`, named `<app>_<action>` |
 | `GET /actions/` | every app, action, description and input schema |
 
@@ -168,8 +169,6 @@ design taught each one must keep:
 
 - **Routines.** A schedule that runs an action must appear in the listing
   and be checked when serve starts.
-- **An app's page.** Serving built files must refuse dot names and any
-  file or folder that resolves outside the app.
 - **An app's `fetch`.** A handler for OAuth, a feed or a webhook must sit
   behind serve's guards, and must learn its public address without
   `epicenter.ts` passing it.
@@ -285,6 +284,15 @@ a rule here in the same pull request as the code.
   answer, and a restart would hide the rest.
   Refused: `epicenter service` with a LaunchAgent; a parent process that
   restarts serve.
+- **Serve answers `/apps/<app>/` from `apps/<app>/ui/dist/` for an app in
+  `epicenter.ts`, and every file is `no-cache`.** Guards refuse a page from
+  another origin, so a page must come from serve itself, and the folder is
+  found by the layout every home already has. A path segment must be a plain
+  file name (no leading dot, no `%`), and a file whose real path leaves
+  `dist/` is not found. A page that must open offline keeps its own copy in a
+  service worker.
+  Refused: a setting naming each app's folder; decoding escaped paths;
+  long-lived caching of hashed files.
 - **MCP offers one tool per action and sends no instructions.** An agent
   learns each tool from its action's description. A home's `AGENTS.md`
   guides an agent working in the home's files, with steps an MCP client
