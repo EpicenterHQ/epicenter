@@ -88,9 +88,10 @@ Visible folders are yours. `.epicenter/` is this computer's:
   tmp/          writes in progress
 ```
 
-Deleting `.epicenter/` costs you time, plus the saved copies of files an
-upload replaced: you sign in again and caches rebuild. Your code, records
-and Git history are outside it, so a committed version can still be restored.
+Deleting `.epicenter/` costs you sign-ins, rebuildable caches, and the saved
+copies of files an upload replaced. Git history is untouched, so anything
+committed can still be restored. `replaced/` matters only for files Git never
+had, such as ignored recordings.
 
 `folderAt(...path)` opens a folder an app replaces files in. It knows nothing
 about this layout: `epicenter.ts` chooses each path and hands the app its
