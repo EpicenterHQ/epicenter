@@ -92,15 +92,14 @@ Deleting `.epicenter/` costs you time, plus the saved copies of files an
 upload replaced: you sign in again and caches rebuild. Your code, records
 and Git history are outside it, so a committed version can still be restored.
 
-`folderAt(path)` opens a folder an app replaces files in. It knows nothing
+`folderAt(...path)` opens a folder an app replaces files in. It knows nothing
 about this layout: `epicenter.ts` chooses each path and hands the app its
 folder, as it hands over `data`:
 
 ```ts
-const machine = (app: string) =>
-  folderAt(join(import.meta.dir, '.epicenter/apps', app));
-
-export default defineEpicenter({ apps: { mail: mail(data, machine('mail')) } });
+export default defineEpicenter({
+  apps: { mail: mail(data, folderAt(import.meta.dir, '.epicenter/apps/mail')) },
+});
 ```
 
 A `Folder` has `readText`, `write`, `delete` and `list` for files the app
@@ -218,7 +217,7 @@ function with it, and a temporary folder when the app takes one:
 ```ts
 const app = writing(defineData(tmp, data));
 await app.actions.add({ body: 'hello' });
-const mailApp = mail(defineData(tmp, data), folderAt(join(tmp, 'mail')));
+const mailApp = mail(defineData(tmp, data), folderAt(tmp, 'mail'));
 ```
 
 `defineData(tmp, data)` takes an earlier result as its spec and returns
@@ -263,10 +262,11 @@ a rule here in the same pull request as the code.
   would orphan.
 - **The library gives an app a `Folder` and does not choose its path.**
   `epicenter.ts` chooses it, so an app cannot reach another's sign-ins by
-  default and a test passes a temporary folder. `Folder` stays because five
+  default, each path is visible where the app is composed, and a test passes
+  a temporary folder. `Folder` stays because five
   apps need the same atomic writes and missing-file handling.
   Refused: `local/` keys declared like `data`; `defineLocal`, which fixed the
-  layout inside the library; a bare path with each app
+  layout inside the library; a helper naming the path by app; a bare path with each app
   writing its own safe writes.
 - **No command makes a home or an app, or copies an app in or out, and the
   package ships no template.** Each happens once per owner, and the owner's

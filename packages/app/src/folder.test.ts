@@ -21,7 +21,7 @@ const mode = (path: string) => statSync(path).mode & 0o777;
 
 test('opening a folder and reading it touch no file', async () => {
 	const home = await tempFolder();
-	const mail = folderAt(join(home, 'mail'));
+	const mail = folderAt(home, 'mail');
 	expect(mail.readText('a.md')).toBeUndefined();
 	expect(mail.list()).toEqual([]);
 	mail.delete('a.md');
@@ -50,7 +50,7 @@ test('an existing .gitignore is kept', async () => {
 });
 
 test('write replaces a file, making its folder, and leaves nothing in .tmp', async () => {
-	const codex = folderAt(join(await tempFolder(), 'codex'));
+	const codex = folderAt(await tempFolder(), 'codex');
 	codex.write('drafts/a.md', 'first');
 	codex.write('drafts/a.md', 'second');
 	codex.write('log.bin', new Uint8Array([1, 2]));
@@ -62,7 +62,7 @@ test('write replaces a file, making its folder, and leaves nothing in .tmp', asy
 });
 
 test('a missing file reads as undefined, and deleting one is not an error', async () => {
-	const folder = folderAt(join(await tempFolder(), 'flights'));
+	const folder = folderAt(await tempFolder(), 'flights');
 	expect(folder.readText('settings.md')).toBeUndefined();
 	folder.delete('settings.md');
 	folder.write('settings.md', 'x');
@@ -71,7 +71,7 @@ test('a missing file reads as undefined, and deleting one is not an error', asyn
 });
 
 test('list names the files directly in a folder, sorted, and none for a missing one', async () => {
-	const folder = folderAt(join(await tempFolder(), 'messages'));
+	const folder = folderAt(await tempFolder(), 'messages');
 	folder.write('drafts/b.md', 'b');
 	folder.write('drafts/a.md', 'a');
 	folder.write('drafts/old/c.md', 'c');
@@ -82,7 +82,7 @@ test('list names the files directly in a folder, sorted, and none for a missing 
 });
 
 test('a file that manages itself opens at the folder path with no setup', async () => {
-	const folder = folderAt(join(await tempFolder(), 'mail'));
+	const folder = folderAt(await tempFolder(), 'mail');
 	const db = new Database(join(folder.path(), 'a.sqlite'), {
 		create: true,
 		strict: true,

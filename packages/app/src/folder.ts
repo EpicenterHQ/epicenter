@@ -5,9 +5,9 @@
  *
  * ```ts
  * // epicenter.ts
- * const machine = (app: string) =>
- *   folderAt(join(import.meta.dir, '.epicenter/apps', app));
- * export default defineEpicenter({ apps: { mail: mail(data, machine('mail')) } });
+ * export default defineEpicenter({
+ *   apps: { mail: mail(data, folderAt(import.meta.dir, '.epicenter/apps/mail')) },
+ * });
  * ```
  *
  * `write` replaces a whole file at once, so a reader never sees half of it.
@@ -35,11 +35,13 @@ export type Folder = {
 };
 
 /**
- * The folder at `folder`. Opening one touches no file, so importing
+ * The folder at `path`, whose parts are joined as `path.join` joins them.
+ * Opening one touches no file, so importing
  * `epicenter.ts` changes nothing on disk; `path` and `write` make what they
  * need.
  */
-export function folderAt(folder: string): Folder {
+export function folderAt(...path: string[]): Folder {
+	const folder = join(...path);
 	const at = (name: string) => join(folder, name);
 	return {
 		path() {
