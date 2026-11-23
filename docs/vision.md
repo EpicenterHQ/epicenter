@@ -11,7 +11,7 @@ you control and keep on. Today that is a computer you own; a rented
 one you control is allowed and gets its own setup later. Your Epicenter, the
 folder, is one private Git repository and one program: its root `epicenter.ts`
 declares the records and composes the apps. Records live in root `data/`,
-mostly Markdown; app code lives in `apps/`; caches live in root `local/`.
+mostly Markdown; app code lives in `apps/`; caches live in `.epicenter/`.
 One command, `epicenter serve`, offers every app's actions over MCP on that
 computer; your private network brings your other devices in. Nothing syncs
 and no one signs in: your other devices are thin clients of the one copy,
@@ -80,7 +80,7 @@ work, the feature is a line of documentation, not code.
    pages, and agents are its clients.
 3. An action takes JSON and answers `{ data, error }`, and it is described
    in plain JSON. What must outlast the call goes in a file.
-4. `local/` keeps itself out of Git. Serve does not yet refuse a `.env` that
+4. `.epicenter/` keeps itself out of Git. Serve does not yet refuse a `.env` that
    Git would commit, so the owner's `.gitignore` guards it.
 5. The code is yours. The only setting is the port.
 6. Epicenter does only what needs an app's declaration or the running serve.
@@ -113,7 +113,7 @@ or receipt without making every app inherit that machinery.
 writes the documented shape is a valid writer and needs no Epicenter. Actions exist for reach, rules, and sign-ins.
 
 **Commit what the person made.** A copy of data whose truth is elsewhere is
-written only by its pull, whoever runs it. Keep it under your Epicenter's `local/`
+written only by its pull, whoever runs it. Keep it under your Epicenter's `.epicenter/`
 when the source can send it again; commit it as Markdown when the person
 would want it after the source is gone.
 
@@ -122,7 +122,7 @@ would want it after the source is gone.
 | Form | Where a write counts | How Epicenter's copy keeps up | Records today, in the author's setup |
 | --- | --- | --- | --- |
 | Kept | this Epicenter's folder | it is the truth | Tasks, Reading, Vocab, Capture, Mail's proposals, Messages' drafts |
-| Cached | a source: a service, or a program's folder | its pull copies it | Mail's mailbox (SQLite in `local/`) |
+| Cached | a source: a service, or a program's folder | its pull copies it | Mail's mailbox (SQLite in `.epicenter/`) |
 | Live | a service | nothing is copied; the app asks each time | Messages' conversations in Beeper |
 
 These words describe; they are not API. No data key declares its form, and
@@ -190,7 +190,7 @@ For the author, the computer is a Mac Studio.
 An agent on another device keeps no copy; it sees the current files each time
 it calls your computer. `epicenter serve` imports your Epicenter's one `epicenter.ts`, which
 composes the apps you trust, and no sign-in leaves the computer: Mail's Google
-sign-in is a file under `local/`, on the computer that runs Mail's actions.
+sign-in is a file under `.epicenter/`, on the computer that runs Mail's actions.
 
 Agents make apps: you start Claude Code on that computer, ask for an app, and it
 writes its code in `apps/`, its data keys in `epicenter.ts`, and its records.
@@ -270,7 +270,7 @@ Gmail. "Local-first" is only for a product whose devices sync.
 
 App code lives in `apps/`. Records belong to your Epicenter, not to an app, so a record any app or no app writes still has a
 place. `data/` is what you would want back if this computer were lost, and
-Git keeps its history. `local/` is what this computer can rebuild or sign
+Git keeps its history. `.epicenter/` is what this computer can rebuild or sign
 in again, such as a sign-in or a copy of a mailbox, and it never leaves
 this computer. [The package README](../packages/app/README.md#a-home) shows the layout
 and a complete app; that README is the one place the mechanics are written

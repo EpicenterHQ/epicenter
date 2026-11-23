@@ -81,8 +81,25 @@ type Returned =
 	| readonly Returned[]
 	| { readonly [key: string]: Returned | undefined };
 
-/** What `run` returns: a Result whose data is JSON. */
-type RunResult = Result<Returned, PublicError>;
+/**
+ * What `run` may return as an error: a name, a message and JSON fields, so
+ * the error crosses to a caller whole. A `cause` that is an `Error` does not:
+ * JSON makes it `{}`, so it stays inside the action.
+ */
+type ReturnedError = PublicError & {
+	readonly [key: string]: Returned | undefined;
+};
+
+/** What `run` returns: a Result whose data and error are JSON. */
+type RunResult = Result<Returned, ReturnedError>;
+
+/** Every error name `run`'s Result can carry, `never` when it returns none. */
+type ErrorName<Out> =
+	Awaited<Out> extends infer R
+		? R extends { error: { name: infer N } }
+			? N
+			: never
+		: never;
 
 /** The value of `input`, as a caller gives it and `run` receives it. */
 type InputOf<I extends Input> = Flat<Static<TObject<I>>>;
@@ -119,10 +136,19 @@ export function defineAction<
 	const I extends Input,
 	Out extends RunResult | Promise<RunResult>,
 	U extends Returned = never,
->(def: ActionDef<I, Out, U>): Action<InputOf<I>, Out, U>;
+>(
+	def: ActionDef<I, Out, U>,
+): string extends ErrorName<Out>
+	? // When an error name is any string, every name a page sees would be
+		// `string`. The app listing this gets the sentence in its type error,
+		// written inline so TypeScript prints it rather than an alias.
+		{
+			readonly 'Each error name must be fixed text: make the error with defineErrors, or write its name `as const`': never;
+		}
+	: Action<InputOf<I>, Out, U>;
 export function defineAction(
 	def: ActionDef<Input, RunResult | Promise<RunResult>, Returned>,
-): Action {
+): unknown {
 	const { description, mcp, run } = def;
 	const action = async (
 		given: unknown,

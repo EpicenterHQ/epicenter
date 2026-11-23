@@ -17,7 +17,7 @@ keeps are under [Decisions](#decisions).
   .env             secrets and this computer's settings, read through process.env
   data/            the records, plain Markdown, one folder per key
   apps/            code only: each app is a function of the home's data
-  local/           caches an app can rebuild, ignored by Git
+  .epicenter/      this computer's working state, private and ignored by Git
 ```
 
 ```ts
@@ -77,6 +77,47 @@ Wellcrafted Result:
 
 `defineData` touches no file. A handle generates no actions.
 
+## This computer's state
+
+Visible folders are yours. `.epicenter/` is this computer's:
+
+```txt
+.epicenter/
+  apps/<app>/   an app's sign-ins, caches and scratch files
+  replaced/     files an upload replaced, by time and path
+  tmp/          writes in progress
+```
+
+Deleting `.epicenter/` costs you sign-ins, rebuildable caches, and the saved
+copies of files an upload replaced. Git history is untouched, so anything
+committed can still be restored. `replaced/` matters only for files Git never
+had, such as ignored recordings.
+
+`epicenter.ts` is the only file that knows where the home is. It builds each
+path and hands an app exactly what it touches, so one file shows everything
+each app can reach on disk:
+
+```ts
+const home = import.meta.dir;
+
+export default defineEpicenter({
+  apps: { mail: mail(data, join(home, '.epicenter/apps/mail')) },
+});
+```
+
+An app reads and changes its files with Node and Bun. The library adds one
+call, because Node has no safe whole-file write:
+
+```ts
+import { replaceFile } from '@epicenter/app';
+
+replaceFile(join(state, 'settings.md'), text);
+new Database(join(state, 'cache.sqlite'), { create: true });
+```
+
+Serve makes `.epicenter/` readable by its owner alone (0700), with its own
+`.gitignore`, before any app runs.
+
 ## Actions and apps
 
 `defineAction({ description, input, run })` types `run`'s input by its
@@ -119,12 +160,15 @@ changing code. Every other command asks serve and runs no app code.
 | Route | What it answers |
 | --- | --- |
 | `POST /actions/<app>/<action>` | JSON lines: `{"update": ...}` for each update, then `{"answer": {data, error}}` |
+| `GET /apps/<app>/<file>` | the app's built page, from `apps/<app>/ui/dist/` |
+| `GET /data/<path>` | a file's bytes, with range requests for video and audio |
+| `PUT /data/<path>` | stores a file: 201 when new, 204 when it replaced one and kept the old copy |
 | `POST /` | MCP, one tool per action not marked `mcp: false`, named `<app>_<action>` |
 | `GET /actions/` | every app, action, description and input schema |
 
-Serve refuses a request a tunnel delivered, a `Host` that is not loopback,
-an IP literal or `*.ts.net`, an `Origin` on another host, and a browser
-request `Sec-Fetch-Site` marks as from another origin. A program that
+Serve refuses a request Tailscale Funnel delivered, a `Host` that is not
+loopback, an IP literal or `*.ts.net`, and an `Origin` on another host. A
+program that
 throws on import leaves serve answering that one problem with no apps.
 
 An answer's error names whether the action ran: `NotStarted` (it never
@@ -148,14 +192,38 @@ const added = await epicenter.writing.add({ body: 'Fares drop in late March' });
 Each call resolves to a Result typed by the action. Pass
 `{ onUpdate }` as the second argument to hear its updates.
 
+## Files
+
+Epicenter moves bytes to and from paths under `data/`. An app decides where
+its files go, how many a record has, and what replacing or deleting one
+means:
+
+```ts
+import { dataUrl } from '@epicenter/app/client';
+
+// One video beside each page.
+const videoPath = (id: string) => `pages/${id}.mp4`;
+
+await fetch(dataUrl(videoPath(id)), { method: 'PUT', body: file });
+await epicenter.pages.add({ id, title });
+// <video src={dataUrl(videoPath(id))} />
+```
+
+```ts
+// The page's delete action removes what this layout put there.
+await rm(join(import.meta.dir, '../../data', videoPath(id)), { force: true });
+return pages.delete(id);
+```
+
 ## Tests
 
 A test rebinds the home's data to a temporary folder and calls the app
-function with it:
+function with it, and a temporary folder when the app takes one:
 
 ```ts
 const app = writing(defineData(tmp, data));
 await app.actions.add({ body: 'hello' });
+const mailApp = mail(defineData(tmp, data), join(tmp, 'mail'));
 ```
 
 `defineData(tmp, data)` takes an earlier result as its spec and returns
@@ -168,12 +236,9 @@ design taught each one must keep:
 
 - **Routines.** A schedule that runs an action must appear in the listing
   and be checked when serve starts.
-- **An app's page.** Serving built files must refuse dot names and any
-  file or folder that resolves outside the app.
 - **An app's `fetch`.** A handler for OAuth, a feed or a webhook must sit
   behind serve's guards, and must learn its public address without
   `epicenter.ts` passing it.
-- **Files beside a record,** such as a recording's audio or a book's cover.
 
 ## Decisions
 
@@ -193,9 +258,21 @@ a rule here in the same pull request as the code.
   folder.** A command run in an unrelated project must not act on a home
   silently, and Bun reads `.env` from the folder serve starts in.
   Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
-- **`local/` carries its own `.gitignore`.** It stays out of Git whatever
-  the root `.gitignore` says, with no Git process to check it.
-  Refused: a Git check for each `local/` at start.
+- **`.epicenter/` is the one folder Epicenter owns in a home. It is private,
+  carries its own `.gitignore`, and holds no primary copy of your work.**
+  The name says whose it is, where `local/` did not, since every folder in a
+  home is local. Other tools keep their own dot folders, so a leading dot
+  alone does not mean Epicenter.
+  Refused: `local/`; treating every dot name as Epicenter's; separate state,
+  cache and secrets folders; state under `~/Library`, which a renamed home
+  would orphan.
+- **`epicenter.ts` builds every path and passes an app plain strings. An app
+  never receives the home.** One file then shows what each app can reach, and
+  a test passes a temporary folder. The library exports only `replaceFile`,
+  the one file operation Node lacks.
+  Refused: a `Folder` object or `defineLocal`, which wrapped paths without
+  limiting them; passing `home` for each app to assemble paths; paths relative
+  to the working directory, which a test run elsewhere would misplace.
 - **No command makes a home or an app, or copies an app in or out, and the
   package ships no template.** Each happens once per owner, and the owner's
   agent already knows how; a command or a template is one more thing to
@@ -230,6 +307,17 @@ a rule here in the same pull request as the code.
   Schema.** One shape means a business object with `data` and `error` keys
   is never ambiguous, and the error's name is what a caller recovers by.
   Refused: plain values beside Results; a `kind` field beside the error.
+- **An action names each of its errors with fixed text, and an error's
+  fields are JSON; any error may carry `next`, a command that helps.** A
+  name that is any string turns every name a page sees into `string`, so
+  `defineAction` refuses it, and a `cause` that is an `Error` arrives as
+  `{}`, so it stays inside the action. Epicenter names no refusal for an
+  app: a check the input schema can make belongs there, and answers
+  `NotStarted`.
+  Refused: a ready-made `Refused` name (removed: a caller could not tell
+  one refusal from another, and catch-alls hid crashes behind it); an
+  `errors` list on each action (a page already infers the names from
+  `run`, and an agent reads the description).
 - **An action call is a function call: serve keeps no run history, receipt
   or replay, only one line on stderr when a run ends (app, action, outcome,
   duration; never the input or the result).** What must outlast a call goes
@@ -274,6 +362,27 @@ a rule here in the same pull request as the code.
   answer, and a restart would hide the rest.
   Refused: `epicenter service` with a LaunchAgent; a parent process that
   restarts serve.
+- **Serve answers `/apps/<app>/` from `apps/<app>/ui/dist/` for an app in
+  `epicenter.ts`.** Guards refuse a page's calls from another origin, so a
+  page must come from serve itself, and the folder is found by the layout
+  every home already has.
+  Refused: a setting naming each app's folder.
+- **Serve has one owner, so it checks only what stops a website in that
+  owner's browser or an unrecoverable loss.** It keeps `Host`, `Origin`, the
+  Funnel check, one path check that stays inside the served folder, the
+  sandbox on `/data`, and the saved copy `PUT` keeps. Each stopped a demonstrated
+  attack or protects bytes Git does not hold.
+  Refused: file name rules; refusing links the owner made; body size caps;
+  `Sec-Fetch-Site`, which blocked links to the owner's own pages.
+- **`PUT /data/<path>` replaces a file and keeps the old one in
+  `.epicenter/replaced/<time>/<path>`. Everything else about a file is an
+  action's.** A retry just works and a page needs no conflict prompt, while a
+  bad upload over media Git does not hold can still be undone by copying it
+  back. Epicenter knows paths, and each app owns its layout, so
+  `records.delete` removes only the `.md`.
+  Refused: create-only `PUT`; replacing with no saved copy; committing each
+  upload or sending media through Git LFS; a framework rule for which files
+  belong to a record; a pointer field; base64 in JSON.
 - **MCP offers one tool per action and sends no instructions.** An agent
   learns each tool from its action's description. A home's `AGENTS.md`
   guides an agent working in the home's files, with steps an MCP client

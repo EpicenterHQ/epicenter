@@ -2,7 +2,7 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
 import { ActionError } from './answer.ts';
 import { connect } from './client.ts';
@@ -29,7 +29,7 @@ function flights({ watches }: Data) {
 		input: { id: field.text() },
 		async run({ id }) {
 			const { data: found, error } = await watches.get(id);
-			if (error) return ActionError.Refused({ message: error.message });
+			if (error) return Err(error);
 			if (!found) return ActionError.Missing({ path: `data/watches/${id}.md` });
 			// @ts-expect-error: watches has no field price, so typecheck fails.
 			found.price;
@@ -116,7 +116,7 @@ export function typed() {
 	void epicenter.flights.idea({ id: 'x' }).then(({ data, error }) => {
 		if (error) {
 			const name:
-				| 'Refused'
+				| 'Misfit'
 				| 'Missing'
 				| 'NotStarted'
 				| 'Threw'

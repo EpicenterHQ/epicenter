@@ -8,6 +8,8 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+	chmodSync,
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -46,23 +48,40 @@ export function filesIn(folder: string) {
 }
 
 /**
- * Replace the file at `path` under `home` with `bytes` at once. The bytes go
- * to a file in `local/.tmp/` and are renamed over the target, so a commit
- * made meanwhile finds nothing unfinished under `data/`. When the write
- * makes `local/`, it also writes `local/.gitignore`, so the temporary files
- * stay out of Git whatever the root `.gitignore` says.
+ * Make `home`'s `.epicenter/` ready: there, readable by its owner alone
+ * (0700), with a `.gitignore` that keeps it out of Git whatever the root
+ * `.gitignore` says, and with `tmp/` for writes in progress. Answers its path.
  */
-export function replaceFile(home: string, path: string, bytes: Uint8Array) {
-	if (mkdirSync(join(home, 'local'), { recursive: true }) !== undefined)
-		writeFileSync(join(home, 'local', '.gitignore'), '*\n');
-	const temp = join(home, 'local', '.tmp');
+export function prepareEpicenter(home: string) {
+	const folder = join(home, '.epicenter');
+	mkdirSync(join(folder, 'tmp'), { recursive: true });
+	chmodSync(folder, 0o700);
+	const ignore = join(folder, '.gitignore');
+	if (!existsSync(ignore)) writeFileSync(ignore, '*\n');
+	return folder;
+}
+
+/**
+ * Replace the file at `path` all at once, making its folder, so a reader or a
+ * crash never finds half a file. Node's `writeFileSync` can leave one.
+ *
+ * ```ts
+ * replaceFile(join(state, 'settings.md'), text);
+ * ```
+ *
+ * The bytes wait in `temp`, which must be on the same disk as `path`.
+ */
+export function replaceFile(
+	path: string,
+	content: string | Uint8Array,
+	temp = join(dirname(path), '.tmp'),
+) {
 	mkdirSync(temp, { recursive: true });
-	const target = join(home, path);
-	mkdirSync(dirname(target), { recursive: true });
+	mkdirSync(dirname(path), { recursive: true });
 	const held = join(temp, randomUUID());
 	try {
-		writeFileSync(held, bytes);
-		renameSync(held, target);
+		writeFileSync(held, content);
+		renameSync(held, path);
 	} catch (error) {
 		rmSync(held, { force: true });
 		throw error;

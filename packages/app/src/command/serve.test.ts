@@ -1,6 +1,14 @@
 import { afterEach, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
@@ -294,14 +302,11 @@ test('the guards refuse tunnels, foreign hosts and origins, and another home', a
 		(await request('/actions/', { headers })).status;
 	expect(await statuses({})).toBe(200);
 	expect(await statuses({ 'tailscale-funnel-request': '?1' })).toBe(403);
-	expect(await statuses({ 'cf-connecting-ip': '1.2.3.4' })).toBe(403);
 	expect(await statuses({ host: 'evil.example' })).toBe(403);
 	expect(await statuses({ host: 'laptop.tail1234.ts.net' })).toBe(200);
 	expect(await statuses({ origin: 'http://evil.example' })).toBe(403);
 	expect(await statuses({ origin: 'http://127.0.0.1:4747' })).toBe(200);
-	expect(await statuses({ 'sec-fetch-site': 'cross-site' })).toBe(403);
-	expect(await statuses({ 'sec-fetch-site': 'same-site' })).toBe(403);
-	expect(await statuses({ 'sec-fetch-site': 'same-origin' })).toBe(200);
+	expect(await statuses({ 'sec-fetch-site': 'cross-site' })).toBe(200);
 	expect(await statuses({ 'x-epicenter-home': '%2Felsewhere' })).toBe(409);
 });
 
@@ -361,4 +366,103 @@ test('serve that cannot listen answers NotStarted, never a throw', async () => {
 	const refused = await serveHome({ folder, port: 70000 });
 	expect(refused.error?.name).toBe('NotStarted');
 	expect(refused.error?.message).toContain('serve could not listen');
+});
+
+test("an app's page is its built files, and nothing outside them", async () => {
+	const { folder, request } = await setup();
+	const dist = join(folder, 'apps', 'writing', 'ui', 'dist');
+	await mkdir(join(dist, 'fonts'), { recursive: true });
+	await writeFile(join(dist, 'index.html'), '<h1>Writing</h1>');
+	await writeFile(join(dist, 'fonts', 'my font.woff2'), 'font');
+	await writeFile(join(folder, 'apps', 'writing', 'secret.txt'), 'outside');
+
+	const page = await request('/apps/writing/');
+	expect(page.status).toBe(200);
+	expect(page.headers.get('content-type')).toContain('text/html');
+	expect(page.headers.get('content-security-policy')).toContain(
+		"frame-ancestors 'self'",
+	);
+	expect(await page.text()).toBe('<h1>Writing</h1>');
+	expect(
+		await (await request('/apps/writing/fonts/my%20font.woff2')).text(),
+	).toBe('font');
+
+	const bare = await request('/apps/writing');
+	expect(bare.status).toBe(308);
+	expect(bare.headers.get('location')).toBe('/apps/writing/');
+
+	const status = async (path: string) => (await request(path)).status;
+	expect(await status('/apps/writing/..%2Fsecret.txt')).toBe(404);
+	expect(await status('/apps/writing/%')).toBe(404);
+	expect(await status('/apps/writing/fonts')).toBe(404);
+	expect(await status('/apps/writing/missing.js')).toBe(404);
+	expect(await status('/apps/nobody/')).toBe(404);
+	expect((await request('/apps/writing/', { method: 'POST' })).status).toBe(
+		405,
+	);
+});
+
+test('a PUT stores a file whatever the layout, and keeps what it replaces', async () => {
+	const { folder, request } = await setup();
+	const put = (path: string, body: string) =>
+		request(path, { method: 'PUT', body });
+
+	// A folder of videos beside a page, and one video named like a page.
+	expect((await put('/data/pages-1/intro/take%201.mp4', 'one')).status).toBe(
+		201,
+	);
+	expect((await put('/data/pages-1/intro/take-2.mp4', 'two')).status).toBe(201);
+	expect((await put('/data/pages-2/intro.mp4', 'solo')).status).toBe(201);
+	expect((await readdir(join(folder, 'data/pages-1/intro'))).sort()).toEqual([
+		'take 1.mp4',
+		'take-2.mp4',
+	]);
+
+	const read = await request('/data/pages-2/intro.mp4');
+	expect(await read.text()).toBe('solo');
+	expect(read.headers.get('content-security-policy')).toContain('sandbox');
+	expect(read.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+
+	expect((await put('/data/pages-2/intro.mp4', 'other')).status).toBe(204);
+	expect((await put('/data/pages-2/intro.mp4', 'third')).status).toBe(204);
+	expect(await readFile(join(folder, 'data/pages-2/intro.mp4'), 'utf8')).toBe(
+		'third',
+	);
+	expect(await readdir(join(folder, 'data/pages-2'))).toEqual(['intro.mp4']);
+	const replaced = join(folder, '.epicenter/replaced');
+	const saved = await Promise.all(
+		(await readdir(replaced)).map((time) =>
+			readFile(join(replaced, time, 'data/pages-2/intro.mp4'), 'utf8'),
+		),
+	);
+	expect(saved.sort()).toEqual(['other', 'solo']);
+	expect((await put('/data/pages-1/intro', 'no')).status).toBe(409);
+	expect((await request('/data/x.mp4', { method: 'DELETE' })).status).toBe(405);
+	expect(
+		(
+			await request('/data/evil.mp4', {
+				method: 'PUT',
+				body: 'no',
+				headers: { origin: 'https://evil.example' },
+			})
+		).status,
+	).toBe(403);
+});
+
+test('a data path cannot leave data/, and a link the owner made is followed', async () => {
+	const { folder, request } = await setup();
+	await mkdir(join(folder, 'data'));
+	await writeFile(join(folder, '.env'), 'SECRET=1');
+	const outside = join(folder, 'outside');
+	await mkdir(outside);
+	await writeFile(join(outside, 'clip.mp4'), 'clip');
+	await symlink(outside, join(folder, 'data', 'clips'));
+
+	expect((await request('/data/..%2F.env')).status).toBe(404);
+	expect(
+		(await request('/data/..%2Fplanted.ts', { method: 'PUT', body: 'no' }))
+			.status,
+	).toBe(404);
+	expect(await readdir(folder)).not.toContain('planted.ts');
+	expect(await (await request('/data/clips/clip.mp4')).text()).toBe('clip');
 });

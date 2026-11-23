@@ -41,7 +41,7 @@ export type {
 	Threw,
 	Unreachable,
 } from './answer.ts';
-export { timeId } from './time.ts';
+export { localTime, timeId } from './time.ts';
 
 /** What action `A` takes from a caller. */
 export type ActionInput<A> = A extends (input: infer In) => unknown
@@ -119,6 +119,18 @@ function lazyKeys<T>(make: (name: string) => T) {
 		},
 	});
 }
+
+/**
+ * The URL of `path` under the home's `data/`, with each name encoded so a
+ * space, `#` or `?` stays part of it. Read it with `<video src>` or
+ * `fetch`; `PUT` a file to it.
+ *
+ * ```ts
+ * await fetch(dataUrl(`recordings/${id}.mp4`), { method: 'PUT', body: file });
+ * ```
+ */
+export const dataUrl = (path: string) =>
+	`/data/${path.split('/').map(encodeURIComponent).join('/')}`;
 
 /**
  * A client for the home whose `epicenter.ts` default export is `H`. `url` is

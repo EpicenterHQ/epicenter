@@ -33,6 +33,13 @@ import { createHandle } from './records.ts';
 export type DataDef = { description: string; fields: Fields };
 type Spec = Record<string, DataDef>;
 
+/**
+ * The error a change returns, `never` for one that only returns `Ok`. Read
+ * from the whole Result, since inferring the error alone from an `Ok` falls
+ * back to `PublicError`, whose name is any string.
+ */
+type ErrorOf<R> = R extends { error: infer E } ? Exclude<E, null> : never;
+
 /** What `patch` and `edit` take: each field to set, `null` to remove an optional one, and `body`. */
 export type Change<TFields extends Fields> = Flat<
 	{
@@ -76,12 +83,10 @@ export type Handle<TDef extends DataDef> = {
 	 * changes the file between the read and the write. `change` runs once,
 	 * and returns `Ok(change)` or its own `Err`, which writes nothing.
 	 */
-	edit<TError extends PublicError = never>(
+	edit<TChange extends Result<Change<TDef['fields']>, PublicError>>(
 		id: string,
-		change: (
-			record: DataRecord<TDef> | undefined,
-		) => Result<Change<TDef['fields']>, TError>,
-	): Promise<Result<DataRecord<TDef>, Misfit | TError>>;
+		change: (record: DataRecord<TDef> | undefined) => TChange,
+	): Promise<Result<DataRecord<TDef>, Misfit | ErrorOf<TChange>>>;
 	/** Delete a record, answering whether there was one. */
 	delete(id: string): Promise<Result<boolean, Misfit>>;
 };
