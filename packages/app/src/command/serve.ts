@@ -6,6 +6,8 @@
  * GET  /actions/                every app, action, description and input schema
  * POST /actions/<app>/<action>  run one action; the body is its input as JSON
  * GET  /apps/<app>/<file>       the app's built page, from apps/<app>/ui/dist/
+ * GET  /data/<path>             a file's bytes
+ * PUT  /data/<path>             a new file at a path nothing holds yet
  * ```
  *
  * Serve imports the home's `epicenter.ts` once, when it starts, and answers
@@ -18,27 +20,27 @@
  *
  * Serve has no sign-in: it listens only on 127.0.0.1, and another device
  * reaches it only through a proxy the owner runs on this computer, such as
- * `tailscale serve`. Every request passes four guards first:
+ * `tailscale serve`. The tailnet is trusted; a website open in the owner's
+ * browser is not, so every request passes three guards first:
  *
- * - A request a Tailscale Funnel or Cloudflare Tunnel delivered is refused.
- *   Both set their header on every request, and Funnel removes a copy the
- *   client sent, so a tunnel aimed at this port by mistake reaches nothing.
+ * - A request Tailscale Funnel delivered is refused, since its `Host` is a
+ *   `*.ts.net` name and would otherwise reach every action from the internet.
  * - Its `Host` must be a loopback name, an IP literal or a `*.ts.net` name,
  *   which a DNS rebinding name is not.
- * - An `Origin`, when there is one, must be that same host.
- * - A browser's `Sec-Fetch-Site` must not say another origin made it.
+ * - An `Origin`, when there is one, must be that same host, so another site
+ *   cannot run an action.
  *
  * A request from the command also names its home, and serve refuses one for
  * another home with 409.
  */
 
 import { realpathSync } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
+import { link, rm, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { join, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, tryAsync, trySync } from 'wellcrafted/result';
+import { Err, trySync } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { Answer } from '../answer.ts';
 import { ActionError } from '../answer.ts';
@@ -54,11 +56,8 @@ import { answerCall } from './run.ts';
 /** Serve listens only here. */
 const LOOPBACK = '127.0.0.1';
 
-/** The largest request body serve takes, in bytes. */
-const MAX_BODY_BYTES = 25 * 1024 * 1024;
-
-/** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
-const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
+/** Bun's limit covers every route, so it only stops what no disk would hold. */
+const MAX_BODY_BYTES = 2 ** 50;
 
 /** What serve could not do in the background. Nobody awaits it, so it is logged. */
 const ServeError = defineErrors({
@@ -176,46 +175,70 @@ function offeredToMcp(program: Program): Program {
 }
 
 /**
- * A built file's name, one path segment at a time. A segment may not start
- * with a dot, so `..` and hidden files are never names, and `%` is refused
- * rather than decoded: a bundler writes no name that needs it.
+ * The file an encoded URL path names under `root`, or undefined when it is
+ * malformed or leaves `root`. The URL parser removes a plain `..`, but
+ * decoding turns `..%2F` into one, so this check is what keeps `.env` out of
+ * reach. A link inside `root` is the owner's and is followed.
  */
-const FILE_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+function inside(root: string, encoded: string) {
+	try {
+		const path = resolve(root, decodeURIComponent(encoded));
+		return path.startsWith(root + sep) ? path : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Another site may not frame a page and trick a click. */
+const PAGE_HEADERS = { 'content-security-policy': "frame-ancestors 'self'" };
 
 /**
- * One file of an app's page, from `apps/<app>/ui/dist/` in the home, with
- * `index.html` for the folder itself. A name that is not a plain file name,
- * and a file whose real path leaves `dist/` through a link, is not found.
- * Every file is `no-cache`: a page that must open with no network keeps its
- * own copy in a service worker, and over loopback or a tailnet a revalidation
- * costs nothing.
+ * What a file under `data/` is sent with. A saved HTML file must not run on
+ * serve's origin, where it could call every action, and another site may not
+ * load a file as its own script or image.
  */
-async function answerPage(folder: string, app: string, segments: string[]) {
-	const names =
-		segments.length === 1 && segments[0] === '' ? ['index.html'] : segments;
-	if (!names.every((name) => FILE_SEGMENT.test(name))) return notFound();
-	const dist = join(folder, 'apps', app, 'ui', 'dist');
-	const { data: path } = await tryAsync({
-		try: async () => {
-			const [root, file] = await Promise.all([
-				realpath(dist),
-				realpath(join(dist, ...names)),
-			]);
-			if (!file.startsWith(root + sep)) return undefined;
-			return (await stat(file)).isFile() ? file : undefined;
-		},
-		catch: () => Ok(undefined),
-	});
+const DATA_HEADERS = {
+	'content-security-policy':
+		"sandbox allow-same-origin; frame-ancestors 'self'",
+	'cross-origin-resource-policy': 'same-origin',
+};
+
+/** The file at `path`, or 404 when there is none. */
+async function sendFile(
+	path: string | undefined,
+	headers: Record<string, string>,
+) {
 	if (path === undefined) return notFound();
-	return new Response(Bun.file(path), {
-		headers: { 'cache-control': 'no-cache' },
-	});
+	const found = await stat(path).catch(() => undefined);
+	if (!found?.isFile()) return notFound();
+	return new Response(Bun.file(path), { headers });
+}
+
+/**
+ * Store a request's body as a new file at `path`. It streams to a temporary
+ * file, and a hard link publishes it whole, so a reader never sees half a
+ * file. It never replaces one, since some media exists only on this disk:
+ * replacing and deleting are an app's actions.
+ */
+async function putFile(path: string | undefined, request: Request) {
+	if (path === undefined) return notFound();
+	const part = `${path}.${crypto.randomUUID()}.part`;
+	try {
+		await Bun.write(part, new Response(request.body));
+		await link(part, path);
+		return new Response(null, { status: 201 });
+	} catch (cause) {
+		if ((cause as NodeJS.ErrnoException).code !== 'EEXIST') throw cause;
+		return new Response('A file is already there', { status: 409 });
+	} finally {
+		await rm(part, { force: true });
+	}
 }
 
 /**
  * Every route for `program`, read from the path, with the listing and the
- * MCP tools made once. A name is `[a-z0-9-]`, which no percent-encoding
- * spells, so a segment is not decoded.
+ * MCP tools made once. An app or action name is `[a-z0-9-]`, which no
+ * percent-encoding spells, so only a file's path is decoded.
  */
 function createRoute(program: Program, folder: string) {
 	const listing = listingOf(program);
@@ -243,7 +266,19 @@ function createRoute(program: Program, folder: string) {
 					status: 308,
 					headers: { location: `/apps/${app}/` },
 				});
-			return answerPage(folder, app, [action, ...rest]);
+			const dist = join(folder, 'apps', app, 'ui', 'dist');
+			const file = pathname.slice(`/apps/${app}/`.length) || 'index.html';
+			return sendFile(inside(dist, file), PAGE_HEADERS);
+		}
+		if (first === 'data') {
+			const path = inside(
+				join(folder, 'data'),
+				pathname.slice('/data/'.length),
+			);
+			if (method === 'GET' || method === 'HEAD')
+				return sendFile(path, DATA_HEADERS);
+			if (method === 'PUT') return putFile(path, request);
+			return methodNotAllowed('GET, HEAD, PUT');
 		}
 		if (first !== 'actions' || app === undefined) return notFound();
 		if (method !== 'POST') return methodNotAllowed('POST');
@@ -273,22 +308,10 @@ function isAllowedHost(host: string | null) {
 	);
 }
 
-/**
- * Whether a browser marked `request` as made by another origin (Fetch
- * Metadata). `same-site` is another origin too: a site ignores the port, so
- * a page on `127.0.0.1:3000` is same-site with serve. A request with no
- * `Sec-Fetch-Site` comes from a program and is allowed, as is `none`, a
- * typed address.
- */
-function fromAnotherOrigin(request: Request) {
-	const site = request.headers.get('sec-fetch-site');
-	return site !== null && site !== 'same-origin' && site !== 'none';
-}
-
 /** The guards' refusal of `request`, or undefined when it may pass. */
 function guard(request: Request, home: Home) {
 	const { headers } = request;
-	if (TUNNEL_HEADERS.some((name) => headers.has(name))) return forbidden();
+	if (headers.has('tailscale-funnel-request')) return forbidden();
 	const host = headers.get('host');
 	if (!isAllowedHost(host)) return forbidden();
 	const origin = headers.get('origin');
@@ -297,7 +320,6 @@ function guard(request: Request, home: Home) {
 		URL.parse(origin)?.host.toLowerCase() !== host?.toLowerCase()
 	)
 		return forbidden();
-	if (fromAnotherOrigin(request)) return forbidden();
 	const meant = headers.get(HOME_HEADER);
 	if (meant !== null && meant !== encodeURIComponent(home.folder))
 		return new Response('This call is for another home', { status: 409 });
@@ -382,7 +404,7 @@ export async function serveHome(home: Home): Promise<Answer> {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	// A call still running is cut; every write renamed a whole file into place.
+	// A call still running is cut; every write published a whole file.
 	await server.stop(true);
 	return process.exit(0);
 }
