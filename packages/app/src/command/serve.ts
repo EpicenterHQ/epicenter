@@ -45,6 +45,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import type { Answer } from '../answer.ts';
 import { ActionError } from '../answer.ts';
 import { HOME_HEADER, type Listing } from '../call.ts';
+import { prepareEpicenter } from '../disk.ts';
 import { parseJson } from '../json.ts';
 import { isName } from '../name.ts';
 import type { Home } from './home.ts';
@@ -360,6 +361,15 @@ export async function serveHome(home: Home): Promise<Answer> {
 			message: `serve starts in your home's folder, ${home.folder}, so Bun reads its .env`,
 			next: `cd ${home.folder} && epicenter serve`,
 		});
+	// Before any app runs, so its private files land in a private folder.
+	const { error: unprepared } = trySync({
+		try: () => prepareEpicenter(home.folder),
+		catch: (cause) =>
+			ActionError.NotStarted({
+				message: `serve could not prepare .epicenter/: ${extractErrorMessage(cause)}`,
+			}),
+	});
+	if (unprepared !== null) return Err(unprepared);
 	const loading = Promise.withResolvers<Program>();
 	// Listen before loading, so a second serve fails here and runs no app code.
 	const { data: server, error: unheard } = trySync({

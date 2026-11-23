@@ -48,28 +48,25 @@ export function filesIn(folder: string) {
 }
 
 /**
- * Make `home`'s `local/` ready: there, readable by its owner alone (0700),
- * with a `.gitignore` that keeps it all out of Git whatever the root
- * `.gitignore` says, and with `local/.tmp/` for writes in progress. Each
- * holds for a home made before this release too. Answers `local/`'s path.
+ * Make `home`'s `.epicenter/` ready: there, readable by its owner alone
+ * (0700), with a `.gitignore` that keeps it out of Git whatever the root
+ * `.gitignore` says, and with `tmp/` for writes in progress. Answers its path.
  */
-export function prepareLocal(home: string) {
-	const local = join(home, 'local');
-	mkdirSync(join(local, '.tmp'), { recursive: true });
-	chmodSync(local, 0o700);
-	const ignore = join(local, '.gitignore');
+export function prepareEpicenter(home: string) {
+	const folder = join(home, '.epicenter');
+	mkdirSync(join(folder, 'tmp'), { recursive: true });
+	chmodSync(folder, 0o700);
+	const ignore = join(folder, '.gitignore');
 	if (!existsSync(ignore)) writeFileSync(ignore, '*\n');
-	return local;
+	return folder;
 }
 
 /**
- * Replace the file at `path` under `home` with `bytes` at once. The bytes go
- * to a file in `local/.tmp/` and are renamed over the target, so a commit
- * made meanwhile finds nothing unfinished under `data/`.
+ * Replace the file at `target` with `bytes` at once: they go to a file in
+ * `temp`, on the same disk, and are renamed over it.
  */
-export function replaceFile(home: string, path: string, bytes: Uint8Array) {
-	const temp = join(prepareLocal(home), '.tmp');
-	const target = join(home, path);
+export function replaceAt(target: string, bytes: Uint8Array, temp: string) {
+	mkdirSync(temp, { recursive: true });
 	mkdirSync(dirname(target), { recursive: true });
 	const held = join(temp, randomUUID());
 	try {
@@ -80,6 +77,14 @@ export function replaceFile(home: string, path: string, bytes: Uint8Array) {
 		throw error;
 	}
 }
+
+/**
+ * Replace the file at `path` under `home`. The bytes wait in
+ * `.epicenter/tmp/`, so a commit made meanwhile finds nothing unfinished
+ * under `data/`.
+ */
+export const replaceFile = (home: string, path: string, bytes: Uint8Array) =>
+	replaceAt(join(home, path), bytes, join(prepareEpicenter(home), 'tmp'));
 
 /** Delete the file at `path`, answering whether there was one. */
 export const removeFile = (path: string) =>
