@@ -93,22 +93,27 @@ copies of files an upload replaced. Git history is untouched, so anything
 committed can still be restored. `replaced/` matters only for files Git never
 had, such as ignored recordings.
 
-`folderAt(...path)` opens a folder an app replaces files in. It knows nothing
-about this layout: `epicenter.ts` chooses each path and hands the app its
-folder, as it hands over `data`:
+`epicenter.ts` is the only file that knows where the home is. It builds each
+path and hands an app exactly what it touches, so one file shows everything
+each app can reach on disk:
 
 ```ts
+const home = import.meta.dir;
+
 export default defineEpicenter({
-  apps: { mail: mail(data, folderAt(import.meta.dir, '.epicenter/apps/mail')) },
+  apps: { mail: mail(data, join(home, '.epicenter/apps/mail')) },
 });
 ```
 
-A `Folder` has `readText`, `write`, `delete` and `list` for files the app
-replaces whole, and `path()` for files that manage themselves, such as a
-SQLite database; `path()` makes the folder and answers where it is. Opening
-a folder touches no file, so importing `epicenter.ts` changes nothing on
-disk. Nothing in it is a record, and no file is checked: the names come from
-the app's code. A write replaces the whole file at once.
+An app reads and changes its files with Node and Bun. The library adds one
+call, because Node has no safe whole-file write:
+
+```ts
+import { replaceFile } from '@epicenter/app';
+
+replaceFile(join(state, 'settings.md'), text);
+new Database(join(state, 'cache.sqlite'), { create: true });
+```
 
 Serve makes `.epicenter/` readable by its owner alone (0700), with its own
 `.gitignore`, before any app runs.
@@ -218,7 +223,7 @@ function with it, and a temporary folder when the app takes one:
 ```ts
 const app = writing(defineData(tmp, data));
 await app.actions.add({ body: 'hello' });
-const mailApp = mail(defineData(tmp, data), folderAt(tmp, 'mail'));
+const mailApp = mail(defineData(tmp, data), join(tmp, 'mail'));
 ```
 
 `defineData(tmp, data)` takes an earlier result as its spec and returns
@@ -261,14 +266,13 @@ a rule here in the same pull request as the code.
   Refused: `local/`; treating every dot name as Epicenter's; separate state,
   cache and secrets folders; state under `~/Library`, which a renamed home
   would orphan.
-- **The library gives an app a `Folder` and does not choose its path.**
-  `epicenter.ts` chooses it, so an app cannot reach another's sign-ins by
-  default, each path is visible where the app is composed, and a test passes
-  a temporary folder. `Folder` stays because five
-  apps need the same atomic writes and missing-file handling.
-  Refused: `local/` keys declared like `data`; `defineLocal`, which fixed the
-  layout inside the library; a helper naming the path by app; a bare path with each app
-  writing its own safe writes.
+- **`epicenter.ts` builds every path and passes an app plain strings. An app
+  never receives the home.** One file then shows what each app can reach, and
+  a test passes a temporary folder. The library exports only `replaceFile`,
+  the one file operation Node lacks.
+  Refused: a `Folder` object or `defineLocal`, which wrapped paths without
+  limiting them; passing `home` for each app to assemble paths; paths relative
+  to the working directory, which a test run elsewhere would misplace.
 - **No command makes a home or an app, or copies an app in or out, and the
   package ships no template.** Each happens once per owner, and the owner's
   agent already knows how; a command or a template is one more thing to

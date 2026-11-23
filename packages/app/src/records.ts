@@ -4,7 +4,13 @@ import { Value } from 'typebox/value';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
 import { ActionError, type Misfit, type PublicError } from './answer.ts';
 import type { DataDef } from './data.ts';
-import { filesIn, readBytes, removeFile, replaceFile } from './disk.ts';
+import {
+	filesIn,
+	prepareEpicenter,
+	readBytes,
+	removeFile,
+	replaceFile,
+} from './disk.ts';
 import { type Fields, isOptional, whyNot } from './field.ts';
 import {
 	changeMarkdown,
@@ -233,7 +239,13 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		const { value, text } = result.data;
 		// planWrite gives text only when it differs from the file's.
 		if (text !== undefined)
-			replaceFile(home, pathOf(id), new TextEncoder().encode(text));
+			// The bytes wait outside data/, so a commit made meanwhile finds nothing
+			// unfinished there.
+			replaceFile(
+				join(home, pathOf(id)),
+				text,
+				join(prepareEpicenter(home), 'tmp'),
+			);
 		return Ok(value);
 	}
 
