@@ -14,13 +14,14 @@ Documentation explains **why**, not **what**. Users can read code to see what it
 
 ## Don't over-document
 
-Write something down only if a future reader would get it wrong without it.
-
 Give each idea one canonical location, usually the README beside what it
 governs. Everywhere else links there instead of restating it. When you find
 another copy, remove it. When a copy conflicts, work out which is true from the
 code and the user's intent, correct the canonical version, and delete the
 conflicting one. Archives and `docs/history.md` are records, so leave them.
+
+Sparse documentation is a failure too. Let the canonical version be as full as
+its reader needs, and use taste about what earns a place.
 
 ## Folder READMEs
 
