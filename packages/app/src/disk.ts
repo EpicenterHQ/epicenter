@@ -62,29 +62,31 @@ export function prepareEpicenter(home: string) {
 }
 
 /**
- * Replace the file at `target` with `bytes` at once: they go to a file in
- * `temp`, on the same disk, and are renamed over it.
+ * Replace the file at `path` all at once, making its folder, so a reader or a
+ * crash never finds half a file. Node's `writeFileSync` can leave one.
+ *
+ * ```ts
+ * replaceFile(join(state, 'settings.md'), text);
+ * ```
+ *
+ * The bytes wait in `temp`, which must be on the same disk as `path`.
  */
-export function replaceAt(target: string, bytes: Uint8Array, temp: string) {
+export function replaceFile(
+	path: string,
+	content: string | Uint8Array,
+	temp = join(dirname(path), '.tmp'),
+) {
 	mkdirSync(temp, { recursive: true });
-	mkdirSync(dirname(target), { recursive: true });
+	mkdirSync(dirname(path), { recursive: true });
 	const held = join(temp, randomUUID());
 	try {
-		writeFileSync(held, bytes);
-		renameSync(held, target);
+		writeFileSync(held, content);
+		renameSync(held, path);
 	} catch (error) {
 		rmSync(held, { force: true });
 		throw error;
 	}
 }
-
-/**
- * Replace the file at `path` under `home`. The bytes wait in
- * `.epicenter/tmp/`, so a commit made meanwhile finds nothing unfinished
- * under `data/`.
- */
-export const replaceFile = (home: string, path: string, bytes: Uint8Array) =>
-	replaceAt(join(home, path), bytes, join(prepareEpicenter(home), 'tmp'));
 
 /** Delete the file at `path`, answering whether there was one. */
 export const removeFile = (path: string) =>

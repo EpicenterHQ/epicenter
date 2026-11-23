@@ -17,7 +17,7 @@ export {
 	defineData,
 	type Handle,
 } from './data.ts';
+export { replaceFile } from './disk.ts';
 export { type App, defineEpicenter, type Epicenter } from './epicenter.ts';
 export { field } from './field.ts';
-export { type Folder, folderAt } from './folder.ts';
 export { localDay, localTime, timeId } from './time.ts';
