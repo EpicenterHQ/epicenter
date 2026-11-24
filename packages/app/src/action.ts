@@ -25,6 +25,20 @@
  * An update reports and is never the answer: a caller that does not listen
  * loses nothing. An action is also an async function, so a test awaits it
  * directly; a direct call skips the input check serve makes.
+ *
+ * `run`'s third argument, `signal`, aborts when the caller is gone: the page
+ * closed, the command was stopped, or the connection dropped. An action that
+ * ignores it runs to the end, so leaving never stops one by itself. One that
+ * only reports, such as a stream of changes, returns when it aborts:
+ *
+ * ```ts
+ * async run(_input, update: Update<string>, signal) {
+ *   const stop = onChange((change) => update(change));
+ *   await new Promise((gone) => signal.addEventListener('abort', gone, { once: true }));
+ *   stop();
+ *   return Ok(null);
+ * }
+ * ```
  */
 
 import type { Static, TObject, TSchema } from 'typebox';
@@ -38,10 +52,20 @@ export type Input = Record<string, TSchema>;
 /**
  * What `run` calls to report while it runs. Serve's listener returns at
  * once, never throws, and drops an update once the caller is gone, so no
- * caller can slow or stop the action. A test that passes its own `onUpdate`
+ * caller can slow the action, and leaving stops only one that listens to
+ * `signal`. A test that passes its own `onUpdate`
  * gets each value as `run` sends it.
  */
 export type Update<U> = (value: U) => void;
+
+/** How a caller calls an action directly: its updates, and a signal that aborts when it leaves. */
+export type CallOptions<U> = {
+	onUpdate?: (value: U) => unknown;
+	signal?: AbortSignal;
+};
+
+/** The signal a call without one gets: it never aborts. */
+const STAYING = new AbortController().signal;
 
 /**
  * An action: a function of its input that carries its description and its
@@ -51,7 +75,7 @@ export type Update<U> = (value: U) => void;
 // biome-ignore lint/suspicious/noExplicitAny: a bare Action is any action, whatever it takes and reports.
 export type Action<In = any, Out = unknown, U = any> = ((
 	input: In,
-	options?: { onUpdate?: (value: U) => unknown },
+	options?: CallOptions<U>,
 ) => Promise<Awaited<Out>>) & {
 	readonly description: string;
 	/**
@@ -122,8 +146,11 @@ type ActionDef<
 	 * through MCP.
 	 */
 	readonly mcp?: false;
-	/** Return `Ok(data)` or `Err(error)`; `data` must survive JSON. */
-	run(input: InputOf<I>, update: Update<U>): Out;
+	/**
+	 * Return `Ok(data)` or `Err(error)`; `data` must survive JSON. `signal`
+	 * aborts when the caller is gone; an action may ignore it.
+	 */
+	run(input: InputOf<I>, update: Update<U>, signal: AbortSignal): Out;
 };
 
 /**
@@ -150,13 +177,14 @@ export function defineAction(
 	def: ActionDef<Input, RunResult | Promise<RunResult>, Returned>,
 ): unknown {
 	const { description, mcp, run } = def;
-	const action = async (
-		given: unknown,
-		options?: { onUpdate?: (value: unknown) => unknown },
-	) =>
-		run(given as never, (value) => {
-			options?.onUpdate?.(value);
-		});
+	const action = async (given: unknown, options?: CallOptions<unknown>) =>
+		run(
+			given as never,
+			(value) => {
+				options?.onUpdate?.(value);
+			},
+			options?.signal ?? STAYING,
+		);
 	return Object.assign(action, {
 		description,
 		input: objectSchema(def.input),

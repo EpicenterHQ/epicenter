@@ -68,9 +68,14 @@ type Answered<A> = Promise<
 	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
 >;
 
-/** How a page listens to an action's updates. */
+/**
+ * How a page listens to an action's updates, and abandons the call with
+ * `signal`: the action's own `signal` aborts, and the call answers
+ * Unreachable.
+ */
 type CallOptions<A> = {
 	onUpdate?: (value: ActionUpdate<A>) => unknown;
+	signal?: AbortSignal;
 };
 
 /** An action's input argument, which may be left out when every key is optional. */
@@ -79,14 +84,14 @@ type InputArg<A> =
 		? [input?: ActionInput<A>]
 		: [input: ActionInput<A>];
 
-/** `{ onUpdate }`, for an action that sends updates. */
+/** `{ onUpdate, signal }`, for an action that sends updates. */
 type OptionsArg<A> = [ActionUpdate<A>] extends [never]
 	? []
 	: [options?: CallOptions<A>];
 
 /**
  * One action as a page calls it: a function of its input, and of
- * `{ onUpdate }` when the action sends updates. One that sends none takes
+ * `{ onUpdate, signal }` when the action sends updates. One that sends none takes
  * one argument, so a helper that takes a function of one argument, such as
  * Wellcrafted's `resultMutations`, accepts it.
  */
@@ -148,7 +153,10 @@ export function connect<H extends Epicenter>({
 			(action) =>
 				async (
 					input?: unknown,
-					options?: { onUpdate?: (value: unknown) => unknown },
+					options?: {
+						onUpdate?: (value: unknown) => unknown;
+						signal?: AbortSignal;
+					},
 				) => {
 					const { data: body, error } = trySync({
 						try: () => JSON.stringify(input ?? {}),
@@ -160,6 +168,7 @@ export function connect<H extends Epicenter>({
 					if (error !== null) return Err(error);
 					return postAction(`${base}${actionPath(app, action)}`, body, {
 						onUpdate: options?.onUpdate,
+						signal: options?.signal,
 					});
 				},
 		),

@@ -100,10 +100,21 @@ const methodNotAllowed = (allow: string) =>
  * wait in order for a slow caller, and are dropped once it is gone.
  */
 function streamCall(
-	answering: (onUpdate: (value: unknown) => void) => Promise<Answer>,
+	answering: (
+		onUpdate: (value: unknown) => void,
+		signal: AbortSignal,
+	) => Promise<Answer>,
+	request?: Request,
 ) {
 	const encoder = new TextEncoder();
 	let listening = true;
+	// Aborts when the caller is gone: its stream was canceled or its request aborted.
+	const gone = new AbortController();
+	const leave = () => {
+		listening = false;
+		gone.abort();
+	};
+	request?.signal.addEventListener('abort', leave, { once: true });
 	const body = new ReadableStream<Uint8Array>({
 		start(controller) {
 			const send = (line: object) => {
@@ -120,13 +131,15 @@ function streamCall(
 				try {
 					controller.enqueue(encoder.encode(`${text}\n`));
 				} catch {
-					listening = false;
+					leave();
 				}
 			};
 			// Every stream ends with an answer: a throw anywhere before it is
 			// Threw, since serve cannot say how far the call got.
 			void Promise.resolve()
-				.then(() => answering((update) => send({ update: update ?? null })))
+				.then(() =>
+					answering((update) => send({ update: update ?? null }), gone.signal),
+				)
 				.catch((cause: unknown) => {
 					serveLog.error(ServeError.Unanswered({ cause }).error);
 					return ActionError.Threw({ message: extractErrorMessage(cause) });
@@ -137,7 +150,7 @@ function streamCall(
 				});
 		},
 		cancel() {
-			listening = false;
+			leave();
 		},
 	});
 	return new Response(body, { headers: JSON_LINES });
@@ -314,8 +327,10 @@ function createRoute(program: Program, folder: string) {
 				}),
 			);
 		const input = parseJson(await request.text());
-		return streamCall((onUpdate) =>
-			answerCall(program, app, action, input, onUpdate),
+		return streamCall(
+			(onUpdate, signal) =>
+				answerCall(program, app, action, input, onUpdate, signal),
+			request,
 		);
 	};
 }

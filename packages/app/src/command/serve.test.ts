@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from '../action.ts';
+import { postAction } from '../call.ts';
 import { defineData } from '../data.ts';
 import { defineEpicenter } from '../epicenter.ts';
 import { field } from '../field.ts';
@@ -107,6 +108,21 @@ async function setup() {
 			return Ok('finished');
 		},
 	});
+	/** Each time `listens` saw its caller leave. */
+	const left: string[] = [];
+	const listens = defineAction({
+		description: 'Sends an update, then waits for its caller to leave',
+		input: {},
+		mcp: false,
+		async run(_input, update: Update<string>, signal) {
+			update('listening');
+			await new Promise((gone) =>
+				signal.addEventListener('abort', gone, { once: true }),
+			);
+			left.push('left');
+			return Ok(null);
+		},
+	});
 	const program = programOf(
 		defineEpicenter({
 			apps: {
@@ -123,6 +139,7 @@ async function setup() {
 						bare,
 						send,
 						waits,
+						listens,
 					},
 				},
 			},
@@ -136,7 +153,7 @@ async function setup() {
 				headers: { host: '127.0.0.1:4747', ...init.headers },
 			}),
 		);
-	return { folder, request, release: held.resolve };
+	return { folder, request, release: held.resolve, answer, left };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the tests read JSON whose shape they assert.
@@ -444,6 +461,50 @@ test('an answer is gzipped for a caller that accepts it, and its update arrives 
 	for (let part = await reader.read(); !part.done; part = await reader.read())
 		rest += part.value;
 	expect(JSON.parse(rest)).toEqual({ answer: Ok('finished') });
+});
+
+test("an action's signal aborts when its caller cancels the stream, gzipped or not", async () => {
+	const { request, left } = await setup();
+	for (const [index, headers] of [{}, GZIP].entries()) {
+		const response = await request('/actions/writing/listens', {
+			...post({}),
+			headers,
+		});
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+		await reader.read();
+		expect(left).toHaveLength(index);
+		await reader.cancel();
+		await Bun.sleep(10);
+		expect(left).toHaveLength(index + 1);
+	}
+});
+
+test("an action's signal aborts when a caller over the network abandons the call", async () => {
+	const { answer, left } = await setup();
+	const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: answer });
+	try {
+		const abandon = new AbortController();
+		const heard: unknown[] = [];
+		const call = postAction(
+			`http://127.0.0.1:${server.port}/actions/writing/listens`,
+			'{}',
+			{
+				headers: { ...GZIP },
+				onUpdate: (update) => {
+					heard.push(update);
+					abandon.abort();
+				},
+				signal: abandon.signal,
+			},
+		);
+		expect((await call).error?.name).toBe('Unreachable');
+		expect(heard).toEqual(['listening']);
+		for (let tries = 0; left.length === 0 && tries < 100; tries++)
+			await Bun.sleep(10);
+		expect(left).toEqual(['left']);
+	} finally {
+		await server.stop(true);
+	}
 });
 
 test('pages are gzipped, while images, data files and callers without gzip get exact bytes', async () => {

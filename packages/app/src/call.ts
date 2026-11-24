@@ -146,9 +146,12 @@ export async function postAction(
 	{
 		headers,
 		onUpdate,
+		signal,
 	}: {
 		headers?: Record<string, string>;
 		onUpdate?: (value: unknown) => unknown;
+		/** Abandons the call: serve's `signal` for it aborts, and the call answers Unreachable. */
+		signal?: AbortSignal;
 	} = {},
 ): Promise<Answer> {
 	const cut = () => ActionError.Unreachable({ message: CUT });
@@ -158,6 +161,7 @@ export async function postAction(
 			method: 'POST',
 			headers: { 'content-type': 'application/json', ...headers },
 			body,
+			signal,
 		},
 		CUT,
 	);
