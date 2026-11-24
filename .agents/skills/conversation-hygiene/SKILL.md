@@ -81,8 +81,8 @@ A new backlog item follows the shape of the existing entries:
 ```
 
 Omit fields that add no information, and keep the backlog short enough to scan.
-When someone takes an item, remove it and give the work an active task, issue,
-or Draft spec as the repository workflow requires.
+Record where the work continues in the backlog entry. Follow the backlog’s
+conventions for when to remove the entry.
 
 A blocked task can close when its wanted outcome has a destination and the user
 does not need to resume that task. Pinning, historical importance, and valuable
