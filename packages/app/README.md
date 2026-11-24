@@ -338,6 +338,11 @@ a rule here in the same pull request as the code.
 
 ### Running the home
 
+- **Serve gzips action answers and pages, and sends `data/` byte for byte.**
+  One action can answer with a whole document, and an app should not compress
+  its own answers. Each write is flushed, so an update still arrives live.
+  Refused: compressing inside an action, which hides it from every other app;
+  a binary route beside actions, a second way to call one.
 - **After an action's words the command takes at most one more word, a JSON
   object. No input means `{}`.** One grammar covers every input shape.
   Refused: flags spelling the same JSON; JSON5 or `key=value`.

@@ -16,7 +16,9 @@
  * sends, then `{"answer": {data, error}}`. A call refused before it begins
  * is a 200 with that one line, a `NotStarted`; any other status means serve
  * did not take the call. An action runs to its end whether or not its
- * caller stays, and serve writes one line to stderr when it ends.
+ * caller stays, and serve writes one line to stderr when it ends. Answers and
+ * pages are gzipped for a caller that accepts it; a file under `data/` is sent
+ * byte for byte.
  *
  * Serve has no sign-in: it listens only on 127.0.0.1, and another device
  * reaches it only through a proxy the owner runs on this computer, such as
@@ -38,6 +40,8 @@ import { constants, realpathSync } from 'node:fs';
 import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { pipeline, Readable } from 'node:stream';
+import { createGzip, constants as zlib } from 'node:zlib';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, trySync } from 'wellcrafted/result';
@@ -316,6 +320,43 @@ function createRoute(program: Program, folder: string) {
 	};
 }
 
+const COMPRESSIBLE =
+	/^(?:text\/|image\/svg|application\/(?:json|javascript|manifest\+json|x-ndjson))/;
+
+/**
+ * `response` gzipped when the caller accepts it. Each write is flushed, so an
+ * action's update reaches its caller as it is sent rather than with the answer.
+ * Files under `data/` stay exact, since a media player asks for byte ranges.
+ */
+function gzipped(request: Request, response: Response) {
+	if (
+		!/^\/(?:actions|apps)\//.test(new URL(request.url).pathname) ||
+		!response.ok ||
+		response.body === null ||
+		!COMPRESSIBLE.test(response.headers.get('content-type') ?? '')
+	)
+		return response;
+	response.headers.append('vary', 'accept-encoding');
+	if (
+		request.method === 'HEAD' ||
+		request.headers.has('range') ||
+		!/\bgzip\b(?!\s*;\s*q=0(?:\.0*)?\s*(?:,|$))/i.test(
+			request.headers.get('accept-encoding') ?? '',
+		)
+	)
+		return response;
+	const compressor = createGzip({ flush: zlib.Z_SYNC_FLUSH });
+	// Ending the pipe either way tells the action's stream its caller is gone.
+	pipeline(Readable.fromWeb(response.body as never), compressor, () => {});
+	const headers = new Headers(response.headers);
+	headers.set('content-encoding', 'gzip');
+	headers.delete('content-length');
+	return new Response(Readable.toWeb(compressor) as ReadableStream, {
+		status: response.status,
+		headers,
+	});
+}
+
 /** Whether a `Host` header names this computer or the tailnet. */
 function isAllowedHost(host: string | null) {
 	const hostname = URL.parse(`http://${host}`)?.hostname.toLowerCase();
@@ -356,7 +397,7 @@ export function createHandler(home: Home, program: Promise<Program> | Program) {
 		createRoute(loaded, home.folder),
 	);
 	return async (request: Request) =>
-		guard(request, home) ?? (await route)(request);
+		guard(request, home) ?? gzipped(request, await (await route)(request));
 }
 
 /**
