@@ -1,6 +1,6 @@
 ---
 name: code-collapse
-description: Find a simpler design by setting aside existing choices and building from scratch around what callers need. Use when asked for a collapse pass, a refactoring or simplification pass, another pass over a simplification, "simplify this", a code audit or smell search, or to judge what a technical surface actually does by describing it in one sentence. Answer a plain code-comprehension question directly.
+description: Find a simpler design by setting aside existing choices and building from scratch around what callers need. Use when asked for a collapse pass, a refactoring or simplification pass, another pass over a simplification, "simplify this", a code audit or smell search, or to judge what a technical surface actually does by describing it in one sentence. Not for a plain code-comprehension question; answer it directly.
 metadata:
   author: epicenter
   version: '2.0'
