@@ -20,6 +20,11 @@ another copy, remove it. When a copy conflicts, work out which is true from the
 code and the user's intent, correct the canonical version, and delete the
 conflicting one. Archives and `docs/history.md` are records, so leave them.
 
+Leave out what the code already shows, so the words stay true when the code
+changes: a command lists its own actions, and an error explains itself. When
+something must never happen, make the code refuse it rather than writing a
+warning.
+
 Sparse documentation is a failure too. Let the canonical version be as full as
 its reader needs, and use taste about what earns a place.
 
