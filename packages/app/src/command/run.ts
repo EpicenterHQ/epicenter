@@ -39,6 +39,7 @@ export async function answerCall(
 	action: string,
 	input: unknown,
 	onUpdate?: (value: unknown) => unknown,
+	signal?: AbortSignal,
 ): Promise<Answer> {
 	if (program.problem)
 		return ActionError.NotStarted({
@@ -74,7 +75,7 @@ export async function answerCall(
 	// A throw while running or while reading what the run returned, such as a
 	// getter on its error, means it ran and broke.
 	const ran = await tryAsync({
-		try: async () => answerOf(action, await run(input, { onUpdate })),
+		try: async () => answerOf(action, await run(input, { onUpdate, signal })),
 		catch: (cause) =>
 			ActionError.Threw({ message: extractErrorMessage(cause) }),
 	});

@@ -133,6 +133,11 @@ async run({ recheck = false }, update: Update<{ checked: number }>) {
 }
 ```
 
+Its third argument, `signal`, aborts when the caller is gone: a page closed
+or abandoned the call, the command stopped, or the connection dropped. An
+action that ignores it runs to the end. One that only streams, such as a
+feed of changes, returns when it aborts.
+
 An app is a function of `Data` returning `{ description, actions }`. Its
 name is its key in `defineEpicenter({ apps })`. Serve refuses an app or
 action name that is not lowercase letters, digits and dashes, starting
@@ -190,7 +195,9 @@ const added = await epicenter.writing.add({ body: 'Fares drop in late March' });
 ```
 
 Each call resolves to a Result typed by the action. Pass
-`{ onUpdate }` as the second argument to hear its updates.
+`{ onUpdate, signal }` as the second argument to hear its updates and to
+abandon the call; abandoning aborts the action's `signal` and answers
+Unreachable.
 
 ## Files
 
@@ -323,6 +330,12 @@ a rule here in the same pull request as the code.
   duration; never the input or the result).** What must outlast a call goes
   in a file, and progress goes through `run`'s second argument.
   Refused: `async function*` and `yield`; an ambient `report()`.
+- **A caller leaving aborts `run`'s `signal` and stops nothing by itself.**
+  A command interrupted after starting a send must not cancel it halfway,
+  and a stream of changes must stop listening once its page is gone. The
+  action decides which it is.
+  Refused: aborting every action when its caller leaves; a stream that ends
+  on a timer, which repeats the page's own reconnect deadline on the server.
 - **An action writes files and makes no commit and takes no lock. No
   command commits, stages or pushes.** Only the person or their agent knows
   why a change was made, and a commit per action could sweep in someone

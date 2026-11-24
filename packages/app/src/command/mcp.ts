@@ -68,7 +68,7 @@ export function createMcp(program: Program, listing: Listing) {
 				);
 			return { tools };
 		});
-		server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+		server.setRequestHandler(CallToolRequestSchema, async ({ params }, extra) => {
 			const [app = '', ...action] = params.name.split('_');
 			// As on the route, a throw that escapes the call is still an answer
 			// rather than a protocol error.
@@ -77,6 +77,8 @@ export function createMcp(program: Program, listing: Listing) {
 				app,
 				action.join('_'),
 				params.arguments ?? {},
+				undefined,
+				extra.signal,
 			).catch((cause: unknown) =>
 				ActionError.Threw({ message: extractErrorMessage(cause) }),
 			);

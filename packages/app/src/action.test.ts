@@ -23,6 +23,31 @@ test('a direct call hands each update to its listener', async () => {
 	expect(heard).toEqual([{ at: 1 }, { at: 2 }]);
 });
 
+test("a direct call's signal reaches run, and one without a signal never aborts", async () => {
+	const waits = defineAction({
+		description: 'Waits for its caller to leave',
+		input: {},
+		async run(_input, _update, signal) {
+			if (!signal.aborted)
+				await new Promise((gone) =>
+					signal.addEventListener('abort', gone, { once: true }),
+				);
+			return Ok('left');
+		},
+	});
+	const leave = new AbortController();
+	const answer = waits({}, { signal: leave.signal });
+	leave.abort();
+	expect(await answer).toEqual(Ok('left'));
+
+	const seen = defineAction({
+		description: 'Reports whether it was asked to stop',
+		input: {},
+		run: (_input, _update, signal) => Ok(signal.aborted),
+	});
+	expect(await seen({})).toEqual(Ok(false));
+});
+
 /** Types only: checked, never run. */
 export function typed() {
 	const app = { description: 'Counts', actions: { count } };
