@@ -96,12 +96,34 @@ async function setup() {
 		mcp: false,
 		run: () => Ok('sent'),
 	});
+	const held = Promise.withResolvers<void>();
+	const waits = defineAction({
+		description: 'Sends an update, then waits to be released',
+		input: {},
+		mcp: false,
+		async run(_input, update: Update<string>) {
+			update('started');
+			await held.promise;
+			return Ok('finished');
+		},
+	});
 	const program = programOf(
 		defineEpicenter({
 			apps: {
 				writing: {
 					description: 'Notes for later',
-					actions: { add, fail, fake, tag, big, sly, hostile, bare, send },
+					actions: {
+						add,
+						fail,
+						fake,
+						tag,
+						big,
+						sly,
+						hostile,
+						bare,
+						send,
+						waits,
+					},
 				},
 			},
 		}),
@@ -114,7 +136,7 @@ async function setup() {
 				headers: { host: '127.0.0.1:4747', ...init.headers },
 			}),
 		);
-	return { folder, request };
+	return { folder, request, release: held.resolve };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the tests read JSON whose shape they assert.
@@ -400,6 +422,57 @@ test("an app's page is its built files, and nothing outside them", async () => {
 	expect((await request('/apps/writing/', { method: 'POST' })).status).toBe(
 		405,
 	);
+});
+
+const GZIP = { 'accept-encoding': 'gzip' };
+
+test('an answer is gzipped for a caller that accepts it, and its update arrives before the answer', async () => {
+	const { request, release } = await setup();
+	const response = await request('/actions/writing/waits', {
+		...post({}),
+		headers: GZIP,
+	});
+	expect(response.headers.get('content-encoding')).toBe('gzip');
+	expect(response.headers.get('vary')).toContain('accept-encoding');
+	const reader = (response.body as ReadableStream<Uint8Array>)
+		.pipeThrough(new DecompressionStream('gzip'))
+		.pipeThrough(new TextDecoderStream())
+		.getReader();
+	expect((await reader.read()).value).toBe('{"update":"started"}\n');
+	release();
+	let rest = '';
+	for (let part = await reader.read(); !part.done; part = await reader.read())
+		rest += part.value;
+	expect(JSON.parse(rest)).toEqual({ answer: Ok('finished') });
+});
+
+test('pages are gzipped, while images, data files and callers without gzip get exact bytes', async () => {
+	const { folder, request } = await setup();
+	const dist = join(folder, 'apps', 'writing', 'ui', 'dist');
+	await mkdir(dist, { recursive: true });
+	await mkdir(join(folder, 'data'), { recursive: true });
+	await writeFile(join(dist, 'app.js'), 'const repeated = 1;\n'.repeat(100));
+	await writeFile(join(dist, 'icon.png'), 'not really a png');
+	await writeFile(join(folder, 'data', 'notes.txt'), 'exact words');
+
+	const script = await request('/apps/writing/app.js', { headers: GZIP });
+	expect(script.headers.get('content-encoding')).toBe('gzip');
+	const packed = await script.arrayBuffer();
+	expect(packed.byteLength).toBeLessThan(2000);
+	expect(new TextDecoder().decode(Bun.gunzipSync(packed))).toBe(
+		'const repeated = 1;\n'.repeat(100),
+	);
+
+	for (const [path, headers] of [
+		['/apps/writing/icon.png', GZIP],
+		['/data/notes.txt', GZIP],
+		['/apps/writing/app.js', {}],
+		['/apps/writing/app.js', { 'accept-encoding': 'gzip;q=0' }],
+		['/apps/writing/app.js', { ...GZIP, range: 'bytes=0-4' }],
+	] as const) {
+		const plain = await request(path, { headers });
+		expect(plain.headers.get('content-encoding')).toBeNull();
+	}
 });
 
 test('a PUT stores a file whatever the layout, and keeps what it replaces', async () => {
