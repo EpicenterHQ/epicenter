@@ -8,92 +8,43 @@ description: Develop a shared understanding of an unsettled idea and how it coul
 Dialectic develops a shared understanding of what the user is reaching
 for and how it could take shape.
 
-Clarify the intent together, develop a compelling vision of what would
-fulfill it, and work backward from that vision to give it concrete form.
-Exercise greenfield thinking throughout: consider how you would approach
-the work if you were starting from scratch.
+An articulation gives an idea a form the user can examine. The user can
+often recognize what is right or missing before they can put it into
+words. They might recognize the idea itself or point to a phrase,
+example, or detail they want to keep. Carry those choices through the
+intent, the vision, and the work that follows. Preserve selected wording
+exactly.
 
-The user can often recognize what is right or missing before they can
-put it into words. Offer something specific they can recognize, correct,
-or extend. Let their response shape the next proposal.
-
-Show the person what they need to see to think it through with you.
-Start with the concepts and terms they already know. Make it clear how
-the pieces that matter fit together. Bring in more detail when it could
-change what they say next.
-
-Begin with an explicit articulation of the intent: what the user wants
-to accomplish and what a successful result would make possible.
-Explain your reasoning and invite correction. Develop that articulation
-together until you have a shared understanding from which to develop
-the vision.
-
-When you’ve already agreed on the intent, briefly state it and
+Work through the steps in order. Wait for the user to say “that's right”
+or otherwise explicitly confirm the whole articulation before moving to
+the next step. If they have already confirmed the intent or vision,
 continue from there.
 
-A shared understanding can be a complete result when it fulfills
-the user's purpose.
+## Articulate the intent
 
-## Clarify the intent
+Give your best reading of what the user is trying to accomplish in a
+short, standalone block quote. If they came with a solution, articulate
+what they want that solution to accomplish. Let them respond to the
+statement as a whole. If they correct it, write a revised articulation.
+When they say it captures what they mean, carry it forward into the vision.
 
-When the user brings a suggested solution, explore what they want it
-to accomplish. Let that purpose guide how you frame the work and
-whether the suggested solution fits.
+## Articulate a greenfield vision
 
-When something feels wrong before the user can explain why, take that
-reaction seriously. Use the concrete situation to offer an interpretation
-they can examine and develop.
+From the shared intent, imagine from scratch a future that would fulfill
+it. Describe that future in a separate block quote. Make it concrete
+enough for the user to picture what would be different and how it would
+work in practice. Show an example, draft, or mockup when it would help
+them judge the vision. Revise it in response to what they tell you. When
+they confirm it as the future they want, use it to guide the work.
 
-If two readings of the intent would lead to different outcomes, use a
-concrete case to show where they diverge.
+## Work backward and build
 
-When the user asks the same question again, reconsider what they're
-trying to understand and whether your answer addresses it.
-
-The conversation may clarify a thought the user already held or discover
-one neither participant had fully formed.
-
-## Develop the vision
-
-Imagine what would best fulfill the shared intent. Develop that idea
-far enough for the user to see what it would make possible.
-
-Show what the user would read, experience, or be able to do. When a
-design choice changes that experience, show the choice and its effect
-together.
-
-Let the user recognize the vision before implementing it or making
-commitments based on it. Recognizing one part doesn't settle the
-parts they haven't examined.
-
-## Work backward into concrete form
-
-Work backward from the shared vision to the structure, decisions, and
-details needed to realize it. Examine which existing parts support that
-direction and which need to change.
-
-Show the actual wording, design, interface, or code the user needs to judge.
-Use a whole version when a fragment would hide how the parts work together.
-When revising, show current and proposed versions together.
-Let the vision guide the whole while reviewing pieces at the user's pace.
-
-Follow through on agreed choices. Continue the agreed work without
-asking the user to confirm each step. Bring back important choices
-that still need their judgment.
-
-## Develop understanding together
-
-Preserve selected wording exactly. Compose the next attempt yourself.
-
-When we're unsure which way to go, show what different approaches would
-actually produce. Explain which you favor and why. Use the user's
-response to develop the next proposal, which may combine parts or take
-a different direction.
-
-Revisit your earlier understanding when a correction changes what
-success means or new information changes an assumption you were
-working from. Let the conversation change your understanding as
-well as the work.
+Start with the agreed vision and ask what has to be true for it to become
+real. Look at what already supports it, identify what needs to change,
+and work out the order. If the user asked you to build it, carry out that
+work and check the result against the vision. Bring back decisions that
+would change the agreed experience. If the conversation gave the user
+what they came for, that can be the stopping point.
 
 ## References
 
