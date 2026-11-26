@@ -77,30 +77,10 @@ function scheduleText(schedule: ScheduleListing) {
 		minute: '2-digit',
 		timeZoneName: 'short',
 	});
-	const date = (value: string) => format.format(new Date(value));
-	const last = schedule.lastAttempt;
-	let status = 'No attempt recorded';
-	if (schedule.attemptUnreadable) status = 'Attempt record unreadable';
-	else if (last) {
-		const outcome =
-			last.status === 'dispatching'
-				? schedule.running
-					? 'Running'
-					: 'Outcome unknown'
-				: last.status === 'error'
-					? `Error (${last.error})`
-					: 'Returned';
-		const times =
-			last.status === 'dispatching'
-				? date(last.attemptedAt)
-				: `${date(last.attemptedAt)} → ${date(last.returnedAt)}`;
-		status = `${times} · ${outcome}`;
-	}
-	return [
-		`  ${schedule.name} → ${schedule.action.join(' ')}`,
-		`    Next run       ${schedule.nextRun ? date(schedule.nextRun) : 'None'}`,
-		`    Last attempt   ${status}`,
-	];
+	const next = schedule.nextRun
+		? format.format(new Date(schedule.nextRun))
+		: 'None';
+	return `  ${schedule.name} → ${schedule.action.join(' ')} · Next run ${next}`;
 }
 
 /** What bare `epicenter` prints. */
@@ -118,7 +98,7 @@ function homeText(listing: Listing, home: Home) {
 		'',
 		'Run: epicenter <app>',
 		...(listing.schedules?.length
-			? ['', 'Scheduled actions', ...listing.schedules.flatMap(scheduleText)]
+			? ['', 'Scheduled actions', ...listing.schedules.map(scheduleText)]
 			: []),
 	].join('\n');
 }

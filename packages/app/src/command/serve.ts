@@ -514,7 +514,7 @@ export async function serveHome(home: Home): Promise<Answer> {
 			stopping.promise,
 		]);
 		if (program) {
-			schedules = startSchedules(program, state);
+			schedules = startSchedules(program);
 			loading.resolve(program);
 			const base = `http://${LOOPBACK}:${home.port}`;
 			writeErr(`Listening on ${base}. The listing: ${base}/actions/`);

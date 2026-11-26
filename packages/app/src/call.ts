@@ -46,26 +46,13 @@ export type AppListing = {
 	actions: ActionListing[];
 };
 
-/** A saved observation about one scheduled call. */
-export type ScheduleAttempt = {
-	scheduledFor: string;
-	attemptedAt: string;
-} & (
-	| { status: 'dispatching' }
-	| { status: 'returned'; returnedAt: string }
-	| { status: 'error'; returnedAt: string; error: string }
-);
-
-/** A schedule and the latest attempt serve can account for. */
+/** A schedule and its next occurrence. */
 export type ScheduleListing = {
 	name: string;
 	action: readonly [string, string];
 	cron: string;
 	timeZone: string;
 	nextRun: string | null;
-	lastAttempt?: ScheduleAttempt;
-	running?: boolean;
-	attemptUnreadable?: boolean;
 };
 
 /** Everything serve offers, as `GET /actions/` answers it. */

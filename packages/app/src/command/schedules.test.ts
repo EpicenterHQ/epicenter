@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import {
-	mkdir,
 	mkdtemp,
 	readFile,
 	rename,
@@ -51,7 +50,7 @@ async function fixture() {
 	folders.push(folder);
 	const clock = join(folder, 'clock.txt');
 	const preload = join(folder, 'clock.ts');
-	const attempt = join(folder, '.epicenter/schedules/morning-flights.json');
+	const legacyState = join(folder, '.epicenter/schedules');
 	const invocations = join(folder, 'invocations.txt');
 	const marker = join(folder, 'imported.txt');
 	const env = { ...process.env, TZ: zone };
@@ -67,19 +66,12 @@ async function fixture() {
 		};
 		const arm = globalThis.setTimeout;
 		globalThis.setTimeout = (callback, delay, ...args) => arm(callback, Math.min(delay, 20), ...args);
-		if (process.env.STOP_AFTER_ATTEMPT) {
-			const write = process.stderr.write.bind(process.stderr);
-			process.stderr.write = (chunk, ...args) => {
-				if (String(chunk).includes('scheduled action started')) process.kill(process.pid, 'SIGKILL');
-				return write(chunk, ...args);
-			};
-		}
 	`,
 	);
 	await writeFile(
 		join(folder, 'epicenter.ts'),
 		`
-		import { appendFileSync, readFileSync } from 'node:fs';
+		import { appendFileSync } from 'node:fs';
 		import { defineAction, defineData, defineEpicenter, field, Ok } from ${JSON.stringify(app)};
 		appendFileSync(${JSON.stringify(marker)}, 'imported\\n');
 		const data = defineData(import.meta.dir, {
@@ -89,12 +81,9 @@ async function fixture() {
 			description: 'Write a flight check',
 			input: { recheck: field.boolean({ optional: true }) },
 			async run({ recheck = false }) {
-				if (!recheck) {
-					const saved = JSON.parse(readFileSync(${JSON.stringify(attempt)}, 'utf8'));
-					if (saved.status !== 'dispatching') throw Error('The attempt was not saved before dispatch');
-				}
 				appendFileSync(${JSON.stringify(invocations)}, JSON.stringify({ recheck }) + '\\n');
 				if (process.env.DAILY_THROWS) throw Error('fixture action failure');
+				if (process.env.HOLD_DAILY) await new Promise(() => {});
 				const result = await data.checks.create(recheck ? 'manual' : 'scheduled', { recheck, body: 'Fixture flight check' });
 				return result.error ? result : Ok({ state: 'unfinished' });
 			},
@@ -123,14 +112,14 @@ async function fixture() {
 		);
 		return `http://127.0.0.1:${port}/actions/`;
 	}
-	function launch({ crash = false, fails = false, cwd = folder } = {}) {
+	function launch({ hold = false, fails = false, cwd = folder } = {}) {
 		const child = Bun.spawn(
 			[process.execPath, '--preload', preload, cli, 'serve'],
 			{
 				cwd,
 				env: {
 					...env,
-					STOP_AFTER_ATTEMPT: crash ? '1' : '',
+					HOLD_DAILY: hold ? '1' : '',
 					DAILY_THROWS: fails ? '1' : '',
 				},
 				stdout: 'ignore',
@@ -167,7 +156,7 @@ async function fixture() {
 	}
 	return {
 		folder,
-		attempt,
+		legacyState,
 		invocations,
 		marker,
 		setTime,
@@ -178,13 +167,16 @@ async function fixture() {
 	};
 }
 
-test('serve dispatches one 8am action through the CLI home and saves the attempt before it writes', async () => {
+test('serve dispatches once at 8am even when the old scheduler state path is unusable', async () => {
 	const home = await fixture();
 	const url = await home.usePort();
 	await home.setTime('07:59:59');
 	const primary = home.launch();
 	await home.list(url);
-	expect(await home.command()).toContain('No attempt recorded');
+	expect(await home.command()).toContain(
+		'morning-flights → flights daily · Next run',
+	);
+	await writeFile(home.legacyState, 'old scheduler state path is a file');
 
 	// A second launcher resolves the same home even through a directory link and a new port.
 	await home.usePort();
@@ -206,81 +198,44 @@ test('serve dispatches one 8am action through the CLI home and saves the attempt
 		JSON.stringify({ epicenter: { port: Number(port) } }),
 	);
 	await home.setTime('08:00:20');
-	await waitFor(async () =>
-		(await home.list(url)).schedules?.[0]?.lastAttempt?.status === 'returned'
-			? true
-			: undefined,
-	);
-	expect(await home.command()).toContain('Returned');
-	const snapshot = await readFile(home.attempt, 'utf8');
-	expect(JSON.parse(snapshot)).toMatchObject({
-		scheduledFor: `${date}T16:00:00.000Z`,
-		status: 'returned',
-	});
-	expect(snapshot).not.toContain('unfinished');
+	const check = join(home.folder, 'data/checks/scheduled.md');
+	await waitFor(() => (existsSync(check) ? true : undefined));
+	expect(await readFile(check, 'utf8')).toContain('Fixture flight check');
 	expect(await readFile(home.invocations, 'utf8')).toBe('{"recheck":false}\n');
-	expect(
-		await readFile(join(home.folder, 'data/checks/scheduled.md'), 'utf8'),
-	).toContain('Fixture flight check');
+	expect(await readFile(home.legacyState, 'utf8')).toBe(
+		'old scheduler state path is a file',
+	);
+	expect((await home.list(url)).schedules?.[0]?.nextRun).toBe(
+		'2026-11-27T16:00:00.000Z',
+	);
 
 	const manual = await home.command('flights', 'daily', '{"recheck":true}');
 	expect(JSON.parse(manual)).toEqual({ state: 'unfinished' });
-	expect(await readFile(home.attempt, 'utf8')).toBe(snapshot);
+	expect(await readFile(home.invocations, 'utf8')).toBe(
+		'{"recheck":false}\n{"recheck":true}\n',
+	);
 	primary.child.kill('SIGTERM');
 	expect(await primary.child.exited).toBe(0);
-	expect(await primary.stderr).toContain('scheduled action returned');
+	expect(await primary.stderr).toContain('action run ended');
 });
 
-test('a crash after the save but before dispatch releases the home and leaves an unknown attempt', async () => {
+test('a crash releases the home lock and a restart during the minute skips the run', async () => {
 	const home = await fixture();
 	const url = await home.usePort();
 	await home.setTime('07:59:59');
-	const original = home.launch({ crash: true });
+	const original = home.launch({ hold: true });
 	await home.list(url);
 	await home.setTime('08:00:05');
+	await waitFor(() => (existsSync(home.invocations) ? true : undefined));
+	original.child.kill('SIGKILL');
 	expect(await original.child.exited).toBe(137);
-	expect(JSON.parse(await readFile(home.attempt, 'utf8')).status).toBe(
-		'dispatching',
-	);
-	expect(existsSync(home.invocations)).toBe(false);
 
 	await home.setTime('08:00:45');
 	home.launch();
 	const listing = await home.list(url);
 	expect(listing.schedules?.[0]?.nextRun).toBe('2026-11-27T16:00:00.000Z');
-	expect(await home.command()).toContain('Outcome unknown');
-	expect(existsSync(home.invocations)).toBe(false);
-});
-
-test('failing to save the attempt skips that occurrence and leaves the earlier snapshot intact', async () => {
-	const home = await fixture();
-	const url = await home.usePort();
-	await home.setTime('07:59:59');
-	const service = home.launch();
-	await home.list(url);
-	const prior =
-		'{"scheduledFor":"2026-11-25T16:00:00Z","attemptedAt":"2026-11-25T16:00:00Z","returnedAt":"2026-11-25T16:01:00Z","status":"returned"}';
-	await mkdir(join(home.attempt, '..'), { recursive: true });
-	await writeFile(home.attempt, prior);
-	const temp = join(home.folder, '.epicenter/tmp');
-	await rm(temp, { recursive: true });
-	await writeFile(temp, 'a file where the atomic-write directory would go');
-	await home.setTime('08:00:00');
-	await waitFor(async () =>
-		(await home.list(url)).schedules?.[0]?.nextRun ===
-		'2026-11-27T16:00:00.000Z'
-			? true
-			: undefined,
-	);
-	expect(await readFile(home.attempt, 'utf8')).toBe(prior);
-	expect(existsSync(home.invocations)).toBe(false);
-	await rm(temp);
-	await mkdir(temp);
-	await Bun.sleep(60);
-	expect(existsSync(home.invocations)).toBe(false);
-	service.child.kill('SIGTERM');
-	expect(await service.child.exited).toBe(0);
-	expect(await service.stderr).toContain('could not save scheduled attempt');
+	expect(await readFile(home.invocations, 'utf8')).toBe('{"recheck":false}\n');
+	expect(existsSync(home.legacyState)).toBe(false);
 });
 
 test('starting at the exact due time skips today', async () => {
@@ -290,7 +245,7 @@ test('starting at the exact due time skips today', async () => {
 	home.launch();
 	const listing = await home.list(url);
 	expect(listing.schedules?.[0]?.nextRun).toBe('2026-11-27T16:00:00.000Z');
-	expect(existsSync(home.attempt)).toBe(false);
+	expect(existsSync(home.invocations)).toBe(false);
 });
 
 test('a late wake skips the expired minute, and next 8am follows the local DST change', async () => {
@@ -306,21 +261,21 @@ test('a late wake skips the expired minute, and next 8am follows the local DST c
 			? true
 			: undefined,
 	);
-	expect(existsSync(home.attempt)).toBe(false);
+	expect(existsSync(home.invocations)).toBe(false);
 });
 
-test('an action error is saved as an error and does not stop serve', async () => {
+test('a scheduled action error uses the usual runner log and serve stays available', async () => {
 	const home = await fixture();
 	const url = await home.usePort();
 	await home.setTime('07:59:59');
-	home.launch({ fails: true });
+	const service = home.launch({ fails: true });
 	await home.list(url);
 	await home.setTime('08:00:00');
-	await waitFor(async () =>
-		(await home.list(url)).schedules?.[0]?.lastAttempt?.status === 'error'
-			? true
-			: undefined,
+	await waitFor(() => (existsSync(home.invocations) ? true : undefined));
+	expect(await home.command()).toContain(
+		'morning-flights → flights daily · Next run',
 	);
-	expect(await home.command()).toContain('Error (Threw)');
-	expect(await readFile(home.invocations, 'utf8')).toBe('{"recheck":false}\n');
+	service.child.kill('SIGTERM');
+	expect(await service.child.exited).toBe(0);
+	expect(await service.stderr).toContain('"outcome":"error","error":"Threw"');
 });

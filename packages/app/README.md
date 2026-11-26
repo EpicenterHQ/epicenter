@@ -256,12 +256,10 @@ serve became ready, and its local minute must still be current when serve checks
 the clock. A serve that finishes starting at 8:00 or later waits until tomorrow
 for the example above.
 
-Bare `epicenter` shows the next occurrence and the latest attempt. Serve saves
-one private JSON file per schedule in `.epicenter/schedules/` before it calls the
-action. A failed save skips the call and appears on stderr. A saved attempt with
-no answer after a restart has outcome unknown, even if the process stopped just
-before dispatch. Missed calls and unknown attempts are skipped. App results
-belong to the app. The server's attempt file keeps timing and any error name.
+Bare `epicenter` lists each schedule and its next occurrence. Serve calls
+scheduled actions through the usual action runner, which logs each answer
+to stderr. After a restart the clock considers future occurrences. Apps
+own any saved results.
 
 ## Not built yet
 
