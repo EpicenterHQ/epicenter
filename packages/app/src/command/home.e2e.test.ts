@@ -163,8 +163,8 @@ test('an input serve refuses exits 2 and writes nothing', async () => {
 	expect(await readdir(join(home, 'data', 'notes'))).toEqual(before);
 });
 
-test('a second serve refuses the port and runs no app code', async () => {
+test('a second serve refuses the home before it runs app code', async () => {
 	const { stderr, code } = await epicenter('serve');
 	expect(code).toBe(2);
-	expect(stderr).toContain('is in use');
+	expect(stderr).toContain('Epicenter is already running for this home');
 });

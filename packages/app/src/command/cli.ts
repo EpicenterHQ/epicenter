@@ -17,6 +17,7 @@ import {
 	HOME_HEADER,
 	type Listing,
 	postAction,
+	type ScheduleListing,
 } from '../call.ts';
 import { isName } from '../name.ts';
 import { findHome, type Home } from './home.ts';
@@ -66,6 +67,42 @@ function table(rows: [string, string][]) {
 	return rows.map(([name, text]) => `${name.padEnd(width)}  ${text}`);
 }
 
+function scheduleText(schedule: ScheduleListing) {
+	const format = new Intl.DateTimeFormat('en-US', {
+		timeZone: schedule.timeZone,
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit',
+		timeZoneName: 'short',
+	});
+	const date = (value: string) => format.format(new Date(value));
+	const last = schedule.lastAttempt;
+	let status = 'No attempt recorded';
+	if (schedule.attemptUnreadable) status = 'Attempt record unreadable';
+	else if (last) {
+		const outcome =
+			last.status === 'dispatching'
+				? schedule.running
+					? 'Running'
+					: 'Outcome unknown'
+				: last.status === 'error'
+					? `Error (${last.error})`
+					: 'Returned';
+		const times =
+			last.status === 'dispatching'
+				? date(last.attemptedAt)
+				: `${date(last.attemptedAt)} → ${date(last.returnedAt)}`;
+		status = `${times} · ${outcome}`;
+	}
+	return [
+		`  ${schedule.name} → ${schedule.action.join(' ')}`,
+		`    Next run       ${schedule.nextRun ? date(schedule.nextRun) : 'None'}`,
+		`    Last attempt   ${status}`,
+	];
+}
+
 /** What bare `epicenter` prints. */
 function homeText(listing: Listing, home: Home) {
 	const lines = [`Home: ${home.folder} (epicenter ${listing.version})`, ''];
@@ -80,6 +117,9 @@ function homeText(listing: Listing, home: Home) {
 		...table(listing.apps.map((app) => [app.name, app.description])),
 		'',
 		'Run: epicenter <app>',
+		...(listing.schedules?.length
+			? ['', 'Scheduled actions', ...listing.schedules.flatMap(scheduleText)]
+			: []),
 	].join('\n');
 }
 

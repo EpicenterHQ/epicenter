@@ -159,10 +159,8 @@ elsewhere: recordings, arrivals in an inbox, received mail.
 
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
-in a personal app. Scheduling belongs to your Epicenter, but routines, which would
-run an action on a schedule while `serve` runs, are
-[not built yet](../packages/app/README.md#not-built-yet). Until then launchd
-or cron calls `epicenter <app> <action>`, which runs only while `serve` does.
+in a personal app. Your home declares [scheduled actions](../packages/app/README.md#scheduled-actions)
+in `epicenter.ts`. Serve calls them while it runs.
 
 | You want | Reach for |
 | --- | --- |
@@ -328,7 +326,7 @@ Whispering is whole at rung 1.
 | Back up your Epicenter | Git and an optional private origin | never |
 | Reach | MCP | never |
 | An interface | Claude, any agent, or the terminal | you want to see or tap: an app's page, not built yet. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
-| Run something later | launchd or cron calling `epicenter <app> <action>` | routines, not built yet, run an action on a schedule while `serve` runs |
+| Run something later | a scheduled action in `epicenter.ts` | catch-up after downtime |
 
 ## Next, not yet, and never
 
