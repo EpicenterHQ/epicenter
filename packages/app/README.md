@@ -236,13 +236,38 @@ const mailApp = mail(defineData(tmp, data), join(tmp, 'mail'));
 `defineData(tmp, data)` takes an earlier result as its spec and returns
 the same type, with every key.
 
+## Scheduled actions
+
+A home can name an action and its input on a cron schedule in `epicenter.ts`:
+
+```ts
+schedules: {
+  'morning-flights': {
+    cron: '0 8 * * *',
+    action: ['flights', 'daily'],
+    input: {},
+  },
+},
+```
+
+Use Bun 1.4 or later for the cron parser's local-time behavior. Serve validates
+the target, input and cron when it loads the home. An occurrence must be after
+serve became ready, and its local minute must still be current when serve checks
+the clock. A serve that finishes starting at 8:00 or later waits until tomorrow
+for the example above.
+
+Bare `epicenter` shows the next occurrence and the latest attempt. Serve saves
+one private JSON file per schedule in `.epicenter/schedules/` before it calls the
+action. A failed save skips the call and appears on stderr. A saved attempt with
+no answer after a restart has outcome unknown, even if the process stopped just
+before dispatch. Missed calls and unknown attempts are skipped. App results
+belong to the app. The server's attempt file keeps timing and any error name.
+
 ## Not built yet
 
 Each is designed when the first rebuilt app needs it. What the earlier
 design taught each one must keep:
 
-- **Routines.** A schedule that runs an action must appear in the listing
-  and be checked when serve starts.
 - **An app's `fetch`.** A handler for OAuth, a feed or a webhook must sit
   behind serve's guards, and must learn its public address without
   `epicenter.ts` passing it.
@@ -361,12 +386,12 @@ a rule here in the same pull request as the code.
   Refused: flags spelling the same JSON; JSON5 or `key=value`.
 - **The command exits 0 for success, 2 for `NotStarted` and 1 otherwise.**
   A script can retry what never started without guessing.
-- **One serve per home runs every action, and the port is its lock. The
-  command never starts serve, never runs an action itself, and loads no app
-  code: it sends the input to serve, which alone reads it.** One writer
-  holds while serve is up, and two loads cannot disagree.
-  Refused: a lock file the command tries; the command running the action
-  when serve is down.
+- **One serve per home holds a SQLite write lock in
+  `.epicenter/serve-lock.sqlite` from before app loading through exit.** The
+  lock covers the home even if the configured port changes. It requires a
+  local filesystem and a stable lock file while serve runs. Every CLI call
+  asks that one process; it alone loads the apps.
+  Refused: relying on the listening port alone to protect the home.
 - **Serve imports the program once at start and never reloads.** Restart it
   to run changed code. Reloading exposes half-written code to every caller,
   and only the agent making edits knows when they are complete.

@@ -21,9 +21,32 @@ export type App = {
 	readonly actions: { readonly [name: string]: Action };
 };
 
-/** A home's program: its apps, by name. */
+/** One scheduled call, with the input of its named action. */
+type Schedule<TApps extends Record<string, App>> = {
+	[AppName in keyof TApps & string]: {
+		[ActionName in keyof TApps[AppName]['actions'] & string]: {
+			readonly cron: string;
+			readonly action: readonly [AppName, ActionName];
+			readonly input: Parameters<TApps[AppName]['actions'][ActionName]>[0];
+		};
+	}[keyof TApps[AppName]['actions'] & string];
+}[keyof TApps & string];
+
+/** A home's program: its apps and scheduled calls, by name. */
 export type Epicenter<TApps extends Record<string, App> = Record<string, App>> =
-	{ readonly apps: TApps };
+	{
+		readonly apps: TApps;
+		readonly schedules?: Readonly<
+			Record<
+				string,
+				{
+					readonly cron: string;
+					readonly action: readonly [string, string];
+					readonly input: unknown;
+				}
+			>
+		>;
+	};
 
 /**
  * Define a home's program from its apps. Serve checks the names when it
@@ -34,6 +57,9 @@ export const defineEpicenter = <
 	const TApps extends Record<string, App> & { serve?: never },
 >({
 	apps,
+	schedules,
 }: {
 	apps: TApps;
-}): Epicenter<TApps> => ({ apps });
+	schedules?: Readonly<Record<string, Schedule<NoInfer<TApps>>>>;
+}): Epicenter<TApps> =>
+	schedules === undefined ? { apps } : { apps, schedules };

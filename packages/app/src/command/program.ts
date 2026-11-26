@@ -14,10 +14,12 @@ import type { Action } from '../action.ts';
 import type { App, Epicenter } from '../epicenter.ts';
 import { isPlainObject } from '../json.ts';
 import { isName, NAME_RULE } from '../name.ts';
+import { compileSchedules, type Schedule } from './schedules.ts';
 
 /** The home's program as serve answers from it. */
 export type Program = {
 	apps: Record<string, App>;
+	schedules?: readonly Schedule[];
 	/**
 	 * Each action's input schema, compiled once when the program loaded.
 	 * Every call runs this checker, so one that compiled cannot fail a call.
@@ -101,5 +103,11 @@ export function programOf(exported: unknown): Program {
 		}
 	}
 	if (problems.length) return refused(problems.join('\n'));
-	return { apps: (exported as Epicenter).apps, inputChecks };
+	const program = { apps: (exported as Epicenter).apps, inputChecks };
+	if (!isPlainObject(exported) || exported.schedules === undefined)
+		return program;
+	const schedules = compileSchedules(program, exported.schedules);
+	return typeof schedules === 'string'
+		? refused(schedules)
+		: { ...program, schedules };
 }

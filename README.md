@@ -73,8 +73,8 @@ epicenter writing add '{"body":"Fares drop in late March"}'
 only there; your private network, such as Tailscale, brings your other devices
 in. Nothing syncs and no one signs in: your phone, your laptop, and your agents
 reach the one copy on your computer, and keep nothing of their own. Your
-Epicenter's optional `origin` is its backup remote. Routines and an app's page in a browser
-are [not built yet](packages/app/README.md#not-built-yet).
+Epicenter's optional `origin` is its backup remote. Your home can
+[schedule action calls](packages/app/README.md#scheduled-actions) while `serve` is running.
 
 Software that works without an Epicenter is an outside app: Gmail, Todoist,
 Whispering. An inside app brings its data in through actions. The author's

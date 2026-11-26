@@ -48,16 +48,18 @@ import { Err, trySync } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { Answer } from '../answer.ts';
 import { ActionError } from '../answer.ts';
-import { HOME_HEADER, type Listing } from '../call.ts';
+import { HOME_HEADER, type Listing, type ScheduleListing } from '../call.ts';
 import { prepareEpicenter } from '../disk.ts';
 import { parseJson } from '../json.ts';
 import { isName } from '../name.ts';
 import { timeId } from '../time.ts';
 import type { Home } from './home.ts';
+import { lockHome } from './home-lock.ts';
 import { createMcp } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import { loadProgram, type Program } from './program.ts';
 import { answerCall } from './run.ts';
+import { startSchedules } from './schedules.ts';
 
 /** Serve listens only here. */
 const LOOPBACK = '127.0.0.1';
@@ -277,7 +279,11 @@ async function putFile(
  * MCP tools made once. An app or action name is `[a-z0-9-]`, which no
  * percent-encoding spells, so only a file's path is decoded.
  */
-function createRoute(program: Program, folder: string) {
+function createRoute(
+	program: Program,
+	folder: string,
+	listSchedules?: () => ScheduleListing[] | undefined,
+) {
 	const listing = listingOf(program);
 	const offered = offeredToMcp(program);
 	const mcp = createMcp(offered, listingOf(offered));
@@ -286,12 +292,17 @@ function createRoute(program: Program, folder: string) {
 		const { pathname } = new URL(request.url);
 		if (pathname === '/')
 			return method === 'POST' ? mcp(request) : methodNotAllowed('POST');
-		if (pathname === '/actions/')
-			return method === 'GET' || method === 'HEAD'
-				? Response.json(listing, {
-						headers: { 'cache-control': 'no-store' },
-					})
-				: methodNotAllowed('GET, HEAD');
+		if (pathname === '/actions/') {
+			if (method !== 'GET' && method !== 'HEAD')
+				return methodNotAllowed('GET, HEAD');
+			const schedules = listSchedules?.();
+			return Response.json(
+				schedules?.length ? { ...listing, schedules } : listing,
+				{
+					headers: { 'cache-control': 'no-store' },
+				},
+			);
+		}
 		const [first, app, action, ...rest] = pathname.slice(1).split('/');
 		if (first === 'apps' && app !== undefined) {
 			if (method !== 'GET' && method !== 'HEAD')
@@ -407,9 +418,13 @@ function guard(request: Request, home: Home) {
  * `program` once it has loaded. A request that arrives while serve loads
  * waits for it.
  */
-export function createHandler(home: Home, program: Promise<Program> | Program) {
+export function createHandler(
+	home: Home,
+	program: Promise<Program> | Program,
+	listSchedules?: () => ScheduleListing[] | undefined,
+) {
 	const route = Promise.resolve(program).then((loaded) =>
-		createRoute(loaded, home.folder),
+		createRoute(loaded, home.folder, listSchedules),
 	);
 	return async (request: Request) =>
 		guard(request, home) ?? gzipped(request, await (await route)(request));
@@ -437,7 +452,7 @@ export async function serveHome(home: Home): Promise<Answer> {
 			next: `cd ${home.folder} && epicenter serve`,
 		});
 	// Before any app runs, so its private files land in a private folder.
-	const { error: unprepared } = trySync({
+	const { data: state, error: unprepared } = trySync({
 		try: () => prepareEpicenter(home.folder),
 		catch: (cause) =>
 			ActionError.NotStarted({
@@ -445,8 +460,11 @@ export async function serveHome(home: Home): Promise<Answer> {
 			}),
 	});
 	if (unprepared !== null) return Err(unprepared);
+	const { data: lock, error: locked } = lockHome(state);
+	if (locked !== null) return Err(locked);
 	const loading = Promise.withResolvers<Program>();
-	// Listen before loading, so a second serve fails here and runs no app code.
+	let schedules: ReturnType<typeof startSchedules>;
+	// Fail on an unavailable address before any app loads.
 	const { data: server, error: unheard } = trySync({
 		try: () =>
 			Bun.serve({
@@ -456,9 +474,9 @@ export async function serveHome(home: Home): Promise<Answer> {
 				maxRequestBodySize: MAX_BODY_BYTES,
 				// Bun's development mode answers a throw with its stack.
 				development: false,
-				// The port is serve's lock, so a second serve must not share it.
+				// An address still belongs to one listener, even across different homes.
 				reusePort: false,
-				fetch: createHandler(home, loading.promise),
+				fetch: createHandler(home, loading.promise, () => schedules?.list()),
 				error: (error) => {
 					serveLog.error(ServeError.Unanswered({ cause: error }).error);
 					return new Response('serve could not answer', { status: 500 });
@@ -472,7 +490,10 @@ export async function serveHome(home: Home): Promise<Answer> {
 						: `serve could not listen on ${LOOPBACK}:${home.port}: ${extractErrorMessage(cause)}`,
 			}),
 	});
-	if (unheard !== null) return Err(unheard);
+	if (unheard !== null) {
+		lock.close();
+		return Err(unheard);
+	}
 	// One app's stray timer or late rejection must not stop every app.
 	process.on('unhandledRejection', (cause) =>
 		serveLog.error(ServeError.Unhandled({ cause }).error),
@@ -480,16 +501,33 @@ export async function serveHome(home: Home): Promise<Answer> {
 	process.on('uncaughtException', (cause) =>
 		serveLog.error(ServeError.Uncaught({ cause }).error),
 	);
-	const program = await loadProgram(home.folder);
-	loading.resolve(program);
-	const base = `http://${LOOPBACK}:${home.port}`;
-	writeErr(`Listening on ${base}. The listing: ${base}/actions/`);
-	if (program.problem) writeErr(program.problem);
-	await new Promise<void>((resolve) => {
-		process.once('SIGINT', resolve);
-		process.once('SIGTERM', resolve);
-	});
-	// A call still running is cut; every write published a whole file.
-	await server.stop(true);
-	return process.exit(0);
+	const stopping = Promise.withResolvers<void>();
+	const stop = () => {
+		schedules?.stop();
+		stopping.resolve();
+	};
+	process.once('SIGINT', stop);
+	process.once('SIGTERM', stop);
+	try {
+		const program = await Promise.race([
+			loadProgram(home.folder),
+			stopping.promise,
+		]);
+		if (program) {
+			schedules = startSchedules(program, state);
+			loading.resolve(program);
+			const base = `http://${LOOPBACK}:${home.port}`;
+			writeErr(`Listening on ${base}. The listing: ${base}/actions/`);
+			if (program.problem) writeErr(program.problem);
+			await stopping.promise;
+		}
+		// Keep the lock while any app code can still run. Exit cuts pending calls.
+		await server.stop(true);
+		return process.exit(0);
+	} catch (cause) {
+		serveLog.error(ServeError.Uncaught({ cause }).error);
+		return process.exit(1);
+	} finally {
+		lock.close();
+	}
 }

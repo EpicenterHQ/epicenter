@@ -125,7 +125,11 @@ function answerOf(action: string, returned: unknown): Answer {
  * name the one at fault, is part of a schema that compiled. A key the
  * action does not take is refused, naming the keys it does.
  */
-function inputProblem(check: Validator, schema: ObjectSchema, value: unknown) {
+export function inputProblem(
+	check: Validator,
+	schema: ObjectSchema,
+	value: unknown,
+) {
 	if (check.Check(value)) return undefined;
 	if (!isPlainObject(value)) return 'The input is not one JSON object';
 	const keys = Object.keys(schema.properties);
