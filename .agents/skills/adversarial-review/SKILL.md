@@ -33,7 +33,7 @@ Compare what each design makes people and callers do. Show what work disappears,
 what moves elsewhere, what is introduced, and what people gain or lose. Include
 the cost of changing systems. Work transferred to a person still counts.
 Judge objections against what each alternative actually promises.
-See [deletion prizes](references/deletion-prizes.md)
+See [deletion prizes](../rethink/references/deletion-prizes.md)
 for examples of these tradeoffs.
 
 For implemented code, use [post-implementation-review](../post-implementation-review/SKILL.md)'s

@@ -1,4 +1,39 @@
-# Examples that teach the judgment
+# Product behavior
+
+Read this when rethinking how a product behaves: its workflows, settings,
+modes, fidelity, or scope. Ask which requirements serve the person's purpose
+and which ones the current design brought with it. When the direction needs
+the person's judgment, develop it with them through
+[dialectic](../../dialectic/SKILL.md), offering something specific they can
+recognize, correct, or extend.
+
+## Imagine the experience afresh
+
+Ask how you would design this today for that purpose. Look beyond
+adjusting the existing screens and settings.
+
+A recurring choice might be resolved once. A mode or degree of fidelity
+might be unnecessary. Actions might belong together, or a combined action
+might work better as separate decisions. Something the browser or
+operating system already does may be enough.
+
+An editor window that can switch between folders has to close files, settle
+pending work, and clean up. If each window stays with one folder, opening
+another folder opens a new window, and all of that goes away. The person
+waits a moment and may lose unsaved work, so decide whether that is
+acceptable before the code goes.
+
+## Show what changes
+
+Show what the person does, what gets easier, what they give up, and
+what still needs doing. Include interruptions and failures when they
+would change the choice.
+
+Account for work added as well as removed. An extra step may make the
+whole experience simpler. Removing a step may leave the person with more
+to remember, check, or repair later.
+
+## Examples that teach the judgment
 
 These examples apply dialectic's intent, greenfield vision, and working backward
 to product choices. The alternatives make particular differences visible; they
@@ -9,7 +44,7 @@ runs or new product decisions. The Tasks case describes a previously chosen
 behavior. Transfer each question to the current job and verify machinery claims
 against its code.
 
-## Configurability: could the product resolve this choice once?
+### Configurability: could the product resolve this choice once?
 
 A personal activity tracker has a report builder with selectable columns,
 grouping, order, layout, and saved views. The person says setup feels heavy.
@@ -37,7 +72,7 @@ has no remaining callers. A default alone reduces setup; the narrower behavior
 can remove an implementation responsibility. Two possibilities were enough to
 expose this choice.
 
-## Books: does unfinished input need another owner?
+### Books: does unfinished input need another owner?
 
 Suppose an Add book form has title and URL fields, a reactive draft, and browser
 storage that restores unfinished entries after navigation. Nothing reads the
@@ -78,7 +113,7 @@ captured values. Neither a reactive mirror nor navigation persistence has a
 remaining job here. A live preview would justify reactive input; composing on
 one device and finishing on another could justify a durable draft.
 
-## Modes: does the person need both experiences?
+### Modes: does the person need both experiences?
 
 An app with live and demo modes may have a source interface, separate cache
 keys, simulated writes, mode transitions, and explanatory UI. If the person
@@ -90,7 +125,7 @@ Keep demo mode when rehearsing without external effects is a valuable job.
 The relevant distinction is which experience someone needs, rather than how
 many implementations exist. Trace the actual mode before claiming a deletion.
 
-## Tasks: does unfinished editing need a separate life?
+### Tasks: does unfinished editing need a separate life?
 
 The chosen Tasks behavior treats leaving the notes field as submitting its
 current value. Previously, notes had an explicit Save step and a per-task
@@ -112,7 +147,7 @@ updates and visible failure with access to the submitted text for retry.
 This does not establish that all notes should save on blur. Returning to a long
 composition may be the job, and a durable draft can be its simplest complete owner.
 
-## Forms: which values make one decision?
+### Forms: which values make one decision?
 
 A trip form can contain departure bounds, duration bounds, and a return choice.
 Each intermediate edit need not describe a valid trip. Submit accepts the
@@ -133,7 +168,7 @@ For settled input behavior, use
 native controls, reactive drafts, and their lifetimes, and
 [query-layer](../../query-layer/SKILL.md) for submission and mutation lifecycle.
 
-## Dictation: can composition finish before delivery begins?
+### Dictation: can composition finish before delivery begins?
 
 Consider a proposed change from "Stop & send, then advance" to "Stop transcribes
 into the ordinary composer; Send delivers the reviewed text." This is a design
@@ -155,7 +190,7 @@ the composer. Keep ordinary send-outcome recovery too: a failed acknowledgment
 does not prove the recipient received nothing. Separating the stages relocates
 responsibility to existing owners; it does not erase failures within a stage.
 
-## Recovery: what would be unknowable or lost without this record?
+### Recovery: what would be unknowable or lost without this record?
 
 Name the information recovery preserves, its owner, and how long it is needed.
 Distinguish replaceable UI bookkeeping from unfinished work, the only copy of

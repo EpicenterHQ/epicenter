@@ -2,7 +2,7 @@
 
 Choose the product's acceptance boundary before choosing the input owner.
 When that behavior is unsettled, use
-[product-collapse](../../product-collapse/SKILL.md) to decide what should be
+[rethink](../../rethink/SKILL.md) to decide what should be
 accepted on typing, blur, change, or Submit, and which unfinished work should
 survive leaving. The guidance below implements that choice.
 

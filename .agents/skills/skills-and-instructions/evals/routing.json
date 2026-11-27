@@ -33,18 +33,18 @@
 			"cluster": "review",
 			"prompt": "Does the migration UI need to be pixel perfect, or is there an asymmetric win in dropping that promise?",
 			"anchors": ["asymmetric win", "pixel perfect"],
-			"expect": "product-collapse",
-			"forbid": ["rethink"],
-			"why": "The move owns its phrase. rethink mentions asymmetric deletions in its body, which is the kind of near-neighbour that over-triggers."
+			"expect": "rethink",
+			"forbid": ["code-collapse"],
+			"why": "rethink owns the phrase in its description. code-collapse rebuilds code around callers and must not claim the product bargain."
 		},
 		{
 			"id": "review-disproportionate-complexity",
 			"cluster": "review",
 			"prompt": "Find the one change here that would delete disproportionate complexity for a small refusal.",
 			"anchors": ["delete disproportionate complexity"],
-			"expect": "product-collapse",
+			"expect": "rethink",
 			"forbid": [],
-			"why": "product-collapse owns the phrase outright. rethink covers the whole design, while one named promise to refuse belongs to product-collapse."
+			"why": "Refusing one named promise is rethink's \"What could we refuse?\" section."
 		},
 		{
 			"id": "review-rethink-clean-break",
@@ -52,8 +52,8 @@
 			"prompt": "Nothing ships against this yet and we have no users. Take a clean break: what does the design look like if the old path never existed?",
 			"anchors": ["clean break", "no users"],
 			"expect": "rethink",
-			"forbid": ["product-collapse"],
-			"why": "A clean break across the whole design belongs to rethink."
+			"forbid": ["code-collapse"],
+			"why": "A clean break across the whole design belongs to rethink, not to a code collapse pass."
 		},
 		{
 			"id": "review-one-sentence",
