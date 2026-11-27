@@ -14,22 +14,21 @@
 	import { HEARD, type Input } from '#lib/platform/recorder/recorder.ts';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
-	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
+	import {
+		microphonesQueries,
+		queryClient,
+		settingsMutations,
+		settingsQueries,
+	} from '#lib/queries.ts';
 	import LevelMeter from '../LevelMeter.svelte';
 
 	/** The value the list gives the system default; a microphone's own id never looks like it. */
 	const DEFAULT = '';
 
-	let inputs = $state<Input[]>([]);
-	let listError = $state<string>();
-
-	/** Ask again for the microphones connected now: when the page opens and each time the list does. */
-	async function refresh() {
-		const { data, error } = await recorder.inputs();
-		listError = error?.message;
-		if (data) inputs = data;
-	}
-	void refresh();
+	/** The microphones connected now: asked when the page opens and each time the list does. */
+	const connected = createQuery(() => microphonesQueries.list());
+	const inputs = $derived<Input[]>(connected.data ?? []);
+	const listError = $derived(connected.error?.message);
 
 	const settings = createQuery(() => settingsQueries.read());
 	const microphone = $derived(settings.data?.microphone);
@@ -87,7 +86,7 @@
 			value={chosen}
 			onValueChange={(value) => void choose(value)}
 			onOpenChange={(open) => {
-				if (open) void refresh();
+				if (open) void connected.refetch();
 			}}
 		>
 			<Select.Trigger id="microphone" class="w-full">{label}</Select.Trigger>

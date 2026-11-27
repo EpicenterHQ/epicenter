@@ -17,7 +17,13 @@
 	import { originOf, PRESETS } from '#lib/transcription-server.ts';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
-	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
+	import {
+		keysMutations,
+		keysQueries,
+		queryClient,
+		settingsMutations,
+		settingsQueries,
+	} from '#lib/queries.ts';
 	import { servers } from '#lib/platform/index.ts';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import RecordingBar from '../RecordingBar.svelte';
@@ -43,19 +49,7 @@
 	);
 
 	/** Whether a key is kept for `origin`'s server; asked again when the origin changes. */
-	let keySaved = $state(false);
-	$effect(() => {
-		const asked = origin;
-		keySaved = false;
-		if (!asked) return;
-		let gone = false;
-		void servers.hasKey(asked).then(({ data }) => {
-			if (!gone) keySaved = data ?? false;
-		});
-		return () => {
-			gone = true;
-		};
-	});
+	const keySaved = createQuery(() => ({ ...keysQueries.has(origin ?? ''), enabled: !!origin }));
 
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
@@ -64,7 +58,10 @@
 		const server = { baseUrl: baseUrl.trim(), model: model.trim() };
 		saving = true;
 		if (key.trim()) {
-			const kept = await servers.setKey(server.baseUrl, key.trim());
+			const kept = await runMutation(queryClient, keysMutations.set, {
+				baseUrl: server.baseUrl,
+				key: key.trim(),
+			});
 			if (kept.error) {
 				saving = false;
 				return toastOnError(kept, 'Could not save the API key');
@@ -79,9 +76,8 @@
 
 	async function forgetKey() {
 		if (!origin) return;
-		const forgotten = await servers.setKey(origin, '');
-		if (forgotten.error) return toastOnError(forgotten, 'Could not remove the API key');
-		keySaved = false;
+		const forgotten = await runMutation(queryClient, keysMutations.set, { baseUrl: origin, key: '' });
+		toastOnError(forgotten, 'Could not remove the API key');
 	}
 </script>
 
@@ -157,12 +153,12 @@
 							id="api-key"
 							type="password"
 							autocomplete="off"
-							placeholder={keySaved ? 'Saved; type to replace' : 'Leave blank for a local server'}
+							placeholder={keySaved.data ? 'Saved; type to replace' : 'Leave blank for a local server'}
 							bind:value={key}
 						/>
 						<Field.Description>
 							Kept in {servers.keyKeptIn} for this server.
-							{#if keySaved}
+							{#if keySaved.data}
 								<Button variant="link" size="sm" class="h-auto p-0" onclick={forgetKey}>
 									Remove the saved key
 								</Button>

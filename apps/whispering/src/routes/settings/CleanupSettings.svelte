@@ -21,7 +21,7 @@
 	import { DEFAULT_PROMPT } from '#lib/cleanup.ts';
 	import { CLEANUP_PROMPT, DICTIONARY } from '#lib/data/text-files.ts';
 	import { servers } from '#lib/platform/index.ts';
-	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
+	import { keysMutations, queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
 	import { originOf } from '#lib/transcription-server.ts';
 	import TextFileEditor from './TextFileEditor.svelte';
 
@@ -58,7 +58,10 @@
 		triedToSave = true;
 		if (urlError || modelError) return;
 		if (otherOrigin && key.trim()) {
-			const keptKey = await servers.setKey(baseUrl.trim(), key.trim());
+			const keptKey = await runMutation(queryClient, keysMutations.set, {
+				baseUrl: baseUrl.trim(),
+				key: key.trim(),
+			});
 			if (keptKey.error) return toastOnError(keptKey, 'Could not save the API key');
 			key = '';
 		}

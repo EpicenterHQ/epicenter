@@ -47,7 +47,7 @@ src/
   routes/                    screens: read through queries, write through mutations
   lib/
     dictation.svelte.ts      live state, and record → save → transcribe → clean up → copy
-    queries.ts               the cache: TanStack Query over data/
+    queries.ts               the cache: TanStack Query over data/, keys, and microphones
     data/
       recordings.ts          the rules for recordings/ (no cache)
       settings.ts            the rules for settings.json (no cache)
