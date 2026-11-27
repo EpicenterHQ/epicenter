@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pause-playback"
+description = "Enables the pause_playback command without any pre-configured scope."
+commands.allow = ["pause_playback"]
+
+[[permission]]
+identifier = "deny-pause-playback"
+description = "Denies the pause_playback command without any pre-configured scope."
+commands.deny = ["pause_playback"]

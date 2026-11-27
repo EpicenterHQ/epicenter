@@ -19,6 +19,8 @@ mod cli;
 mod files;
 mod keys;
 mod local;
+mod media;
+mod paste;
 mod pill;
 mod servers;
 mod shortcuts;
@@ -68,7 +70,12 @@ fn main() {
             servers::complete,
             local::transcribe_local,
             pill::pill_show,
-            shortcuts::shortcuts_set
+            shortcuts::shortcuts_set,
+            media::pause_playback,
+            media::resume_playback,
+            paste::paste_allowed,
+            paste::paste_ask,
+            paste::paste
         ])
         .build(tauri::generate_context!())
         .expect("Whispering could not start");

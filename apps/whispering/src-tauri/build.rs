@@ -19,6 +19,11 @@ fn main() {
         "transcribe_local",
         "pill_show",
         "shortcuts_set",
+        "pause_playback",
+        "resume_playback",
+        "paste_allowed",
+        "paste_ask",
+        "paste",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build Whispering's Tauri manifest");

@@ -10,6 +10,7 @@
  * | `local` | models on this computer, run by transcribe.cpp (`local.rs`) | none |
  * | `copyText` | the clipboard plugin, which works while another app is in front | the page's clipboard |
  * | `shortcuts` | keys that work from any app, held in Rust (`shortcuts.rs`) | none |
+ * | `media` | pauses music and video for a take (`media.rs`) | none |
  * | `pill` | a floating window over every app (`pill.rs`) | none |
  *
  * ```txt
@@ -24,6 +25,8 @@ import { opfsFiles } from './files/opfs';
 import { tauriFiles } from './files/tauri';
 import { browserLocal } from './local/browser';
 import { nativeLocal } from './local/native';
+import { browserMedia } from './media/browser';
+import { nativeMedia } from './media/native';
 import { browserPill } from './pill/browser';
 import { nativePill } from './pill/native';
 import { createBrowserRecorder } from './recorder/browser';
@@ -40,6 +43,7 @@ export const recorder = desktop ? nativeRecorder : createBrowserRecorder(files);
 export const servers = desktop ? nativeServers : createBrowserServers(files);
 export const local = desktop ? nativeLocal : browserLocal;
 export const pill = desktop ? nativePill : browserPill;
+export const media = desktop ? nativeMedia : browserMedia;
 export const shortcuts = desktop ? nativeShortcuts : browserShortcuts;
 export const copyText = desktop
 	? writeText

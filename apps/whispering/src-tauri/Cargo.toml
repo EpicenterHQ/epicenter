@@ -14,6 +14,8 @@ tauri-build = { version = "2.6", features = [] }
 [dependencies]
 # The transcription server's API key, as a Keychain item per server (`keys.rs`).
 keyring = "4.2"
+# Presses the paste keys in the app in front (`paste.rs`).
+enigo = "0.5.0"
 log = "0.4"
 # Sends a recording to the transcription server (`transcribe.rs`).
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
@@ -37,7 +39,19 @@ tauri-plugin-single-instance = "2.5"
 # transcription plugin chooses its features.
 transcribe-cpp = { version = "0.1.0", default-features = false }
 
+[target.'cfg(windows)'.dependencies]
+# Pauses and resumes system media through GSMTC (`media/windows.rs`).
+windows = { version = "0.62", features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
+tokio = { version = "1", features = ["rt"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Pauses and resumes system media through MPRIS on the session D-Bus (`media/linux.rs`).
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["time"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
+# Reads which apps are playing sound, so media is resumed only if it was playing (`media/macos/audio.rs`).
+core-foundation-sys = "0.8.7"
 # The pill's window as a panel that takes clicks without activating Whispering (`pill.rs`).
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
 
