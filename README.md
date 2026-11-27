@@ -14,10 +14,7 @@
     <img alt="GitHub stars" src="https://img.shields.io/github/stars/EpicenterHQ/epicenter?style=flat-square" />
   </a>
   <a href="#license">
-    <img alt="Apps license: AGPL-3.0" src="https://img.shields.io/badge/apps-AGPL--3.0-blue?style=flat-square" />
-  </a>
-  <a href="#license">
-    <img alt="Packages license: AGPL-3.0-or-later" src="https://img.shields.io/badge/packages-AGPL--3.0--or--later-blue?style=flat-square" />
+    <img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue?style=flat-square" />
   </a>
   <a href="https://go.epicenter.so/discord" target="_blank">
     <img alt="Discord" src="https://img.shields.io/badge/Discord-Join%20us-5865F2?style=flat-square&logo=discord&logoColor=white" />
@@ -139,38 +136,9 @@ packages/app/src/command       epicenter: serve, MCP, and calls to serve
 
 ## Development
 
-Use Bun in this repo.
-
-```bash
-git clone https://github.com/EpicenterHQ/epicenter.git
-cd epicenter
-bun install
-```
-
-Every app starts from the repo root. `bun dev:<app>` runs that app's dev server, and `bun run` with no arguments lists every target.
-
-| Command | Starts | App port |
-| --- | --- | --- |
-| `bun dev:whispering` | Whispering in a browser tab | 1420 |
-| `bun dev:landing` | Landing site | 4321 |
-
-Rust is needed for Whispering's desktop build.
-
-`bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
-
-```bash
-bun run check
-```
-
-Run the pieces on their own while you work:
-
-```bash
-bun run format          # rewrite formatting (CI autofixes this for you)
-bun run lint            # fix lint findings
-bun run typecheck
-bun run test
-bun run check          # the whole merge gate: the above plus unused code (knip), doc paths, catalog pins, UI boundary, boot purity
-```
+Use Bun, and start every app from the repo root with `bun dev:<app>`. Setup,
+the dev servers, and the `bun run check` gate are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Design notes
 
@@ -187,7 +155,7 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 ## License
 
 Epicenter is free and open source under the
-[AGPL](licenses/LICENSE-AGPL-3.0). Feel free to use it, change it, and run it
+[AGPL](LICENSE). Feel free to use it, change it, and run it
 for yourself however you like. Our only ask is that if you share it with
 others, whether you give it away, sell it, or run a changed version as a
 service for them, you must share your source under the same license, so your improvements can come
@@ -196,6 +164,8 @@ back to the community.
 If you or your team want a hand setting it up or building your apps, I plan to
 offer paid support. I started Epicenter as a hobbyist building software for
 myself, and support is how I plan to keep it free for everyone doing the same.
+
+Copyright 2023-2026 Braden Wong.
 
 ---
 

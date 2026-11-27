@@ -17,57 +17,40 @@ its [README](apps/whispering/README.md) covers the app.
    bun install
    ```
 
-3. Start Whispering from the repository root:
+3. Start an app from the repository root. `bun run` with no arguments lists
+   every target, and [`scripts/README.md`](scripts/README.md) explains them.
 
-   ```bash
-   bun dev:whispering
-   ```
+   | Command | Starts | Port |
+   | --- | --- | --- |
+   | `bun dev:whispering` | Whispering in a browser tab | 1420 |
+   | `bun dev:whispering:desktop` | Whispering in its desktop window | |
+   | `bun dev:landing` | The landing site | 4321 |
 
    The desktop app also needs [Rust](https://www.rust-lang.org/tools/install)
    and [CMake](https://cmake.org/download/).
 
-[`scripts/README.md`](scripts/README.md) explains the other root commands.
-
 ## Making a change
 
 1. Branch from an up-to-date `main` (`git fetch upstream && git rebase upstream/main`).
-2. Run the gate before you push. It is the same gate CI runs:
+2. Run the gate before you push. It is the same gate CI runs: lint,
+   typecheck, every test, unused code, doc paths, and the structural checks.
+   Formatting is fixed for you by the autofix workflow.
 
    ```bash
    bun run check
    ```
 
-   Formatting is fixed for you by the autofix workflow.
 3. Commit with [Conventional Commits](https://www.conventionalcommits.org/),
    for example `fix(whispering): keep the model picker open while loading`.
-4. Push and open a pull request against `EpicenterHQ/epicenter:main`.
+4. Open a pull request against `main`. The template asks for a changelog line
+   when the change is user-visible.
 
 Repository conventions (writing style, logging, error handling, Svelte and
 TypeScript patterns) live in [`AGENTS.md`](AGENTS.md) and the skills under
 `.agents/skills/`.
 
-### Changelog entries
-
-A `feat:` or `fix:` PR includes a `## Changelog` section in its description:
-one line per user-visible change, in the imperative, written for people who
-use the app.
-
-- Good: "Fix audio clipping when switching transcription providers mid-session"
-- Bad: "refactor(services): flatten isomorphic/ to services root"
-
-Internal PRs (`chore:`, `refactor:`, `docs:`) leave the section out.
-
-## Releases
-
-Merging to `main` deploys the landing site's Cloudflare Worker
-([workflows](.github/workflows/README.md)). `@epicenter/app` is the one
-package meant to be published; it is not on npm yet.
-
-## License
-
-Everything under `packages/` and `apps/` is AGPL-3.0-or-later, and
-contributions are accepted under the same license with no CLA. See the
-root [LICENSE](LICENSE).
+Contributions are accepted under the AGPL-3.0-or-later, the project's
+[license](LICENSE), with no CLA.
 
 ## Help
 

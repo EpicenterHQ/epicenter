@@ -3,21 +3,17 @@
 Epicenter runs personal apps on a computer their owner controls. Each app
 keeps its code and records together in your Epicenter's private Git repository.
 The CLI runs app actions, and `epicenter serve` makes them available to
-the owner's devices and agents. The earlier folder sync product is retired.
-Some of its packages still have callers in Whispering. The hosted API is retired for now.
+the owner's devices and agents. Whispering is a program that works without
+an Epicenter. The folder sync product and the hosted API are retired.
 
 For orientation, read the relevant app or package README and verify it against
 current code. Package and app READMEs describe their contracts. Load only the context needed for the task.
 
 ## License
 
-Everything under `packages/` and `apps/` is AGPL-3.0-or-later. `@epicenter/app`,
-which holds the library and the `epicenter` command, is the one package meant
-to be published, so an Epicenter can depend on it; it is not on npm yet. Every other
-package is private. `@epicenter/cli` is retired
-at its last published version.
-Previously published MIT versions remain MIT for those versions. Do not add an
-MIT package; `docs/history.md` records why the MIT tier was dropped.
+Everything is AGPL-3.0-or-later; do not add another license. `@epicenter/app` is
+the one package meant to be published (not on npm yet); every other package is
+private.
 
 ## Always use bun
 
@@ -57,27 +53,6 @@ Skip this for stable basics and repo-local patterns already documented in skills
 
 Do not use direct `console.*` in library code. Use `wellcrafted/logger`. Biome refuses `console` under `packages/*/src`; a deliberate call there carries a `biome-ignore` with its reason.
 
-## Read APIs
-
-For new or deliberately redesigned APIs, prefer explicit read methods in
-JavaScript, TypeScript, React and Svelte alike; Svelte reads a capability
-through `reactive`, which keeps its methods. Choose by the API's role, not
-its file extension. Existing
-getters and upstream protocols are current contracts; change them only as part
-of an authorized redesign. See the `typescript` and `svelte` skills.
-
-## Agent instruction files
-
-`AGENTS.md` is the canonical shared instructions file. Keep it to constraints
-that apply across tasks and routing to specialized guidance. Current
-architecture, API examples, migration status, and decision history belong in
-READMEs and `docs/history.md`, where they can be checked with the implementation.
-
-- `CLAUDE.md` files are compatibility shims for Claude Code. They should only import a sibling `AGENTS.md` with `@AGENTS.md`, plus rare Claude-specific notes.
-- Add a nested `AGENTS.md` only for a local constraint that must apply to every edit beneath it. Never use one as an index or README substitute; subsystem orientation belongs in that subsystem's README.
-- When adding a nested `AGENTS.md`, add a sibling `CLAUDE.md` shim.
-- Do not create orphan `CLAUDE.md` files.
-
 ## Planning docs and decisions
 
 Package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
@@ -93,10 +68,8 @@ README beside that code: the rule, why it holds, and the alternative that lost.
 Change the rule in the same pull request as the code, and delete it when it
 stops being true. The `documentation` skill gives the entry format.
 
-**Records.** `docs/adr/` is deleted; Epicenter writes no decision records. A
-bare `ADR-NNNN` in a comment or the history names one of the old records, all
-of which are in the annotated `adr-archive` Git tag:
-`git show "adr-archive:$(git ls-tree --name-only adr-archive docs/adr/ | grep /NNNN-)"`.
+**Records.** Epicenter writes no decision records. A bare `ADR-NNNN` names one
+in the `adr-archive` Git tag; `docs/history.md` says how to read it.
 
 **History.** [docs/history.md](docs/history.md) logs what Epicenter tried,
 kept, and turned down, oldest first, with why. It is background, never
@@ -109,10 +82,9 @@ Treat conflicts among READMEs, code, and user intent as judgment
 points, not an automatic precedence hierarchy. Explain a conflict with the
 requested outcome rather than silently inheriting an old decision.
 
-**Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
-
-- Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented` or `Superseded` should be deleted.
-- When a design pass settles a durable decision, write the rule into the `## Decisions` section of the README it governs, propose a history entry if an agent might propose the losing option again, and delete the now-spent spec. Git keeps the body recoverable.
+**Specs.** Any `specs/` folder holds in-flight scaffolding, not current truth.
+A finished spec is deleted after its rule moves to a README
+([lifecycle](specs/README.md#lifecycle)).
 
 ## Writing conventions
 
@@ -167,6 +139,8 @@ Keep procedures in skills; keep `AGENTS.md` to routing.
 
 | When | Load |
 | --- | --- |
+| designing or redesigning an API that reads values (prefer explicit read methods over getters) | `typescript`, and `svelte` for Svelte |
+| editing `AGENTS.md`, `CLAUDE.md`, or a skill | `skills-and-instructions` |
 | substantial implemented changes, or changes with caller or contract consequences, including refactors, public API changes, and clean breaks | `post-implementation-review`, before final handoff or staging |
 | continuous indirection-reduction work | `code-collapse` directly |
 | during review: an unresolved ownership, lifecycle, API, package-boundary, clean-break, or compatibility-refusal question | borrow `rethink`'s reasoning |

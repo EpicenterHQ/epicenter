@@ -81,6 +81,18 @@ Keep durable personal guidance in the tracked dotfiles repository.
 When importing a skill, inspect its scripts, dependencies, and external
 actions before using it. Identify the tools and credentials it needs.
 
+`AGENTS.md` is the canonical instructions file: constraints that apply across
+tasks, and routing to specialized guidance. Architecture, API examples,
+migration status, and decision history belong in READMEs and
+`docs/history.md`, where they can be checked against the code.
+
+- A `CLAUDE.md` is a compatibility shim for Claude Code: it imports its sibling
+  with `@AGENTS.md`, plus rare Claude-specific notes. Never create one without
+  a sibling `AGENTS.md`.
+- Add a nested `AGENTS.md` only for a local constraint that must apply to every
+  edit beneath it, never as an index or README substitute, and give it a
+  sibling `CLAUDE.md` shim.
+
 ## Keep technical guidance grounded
 
 When revising technical guidance or upgrading a dependency, recheck the
