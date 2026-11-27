@@ -11,6 +11,7 @@
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
+	import { DEFAULTS } from '#lib/data/settings.ts';
 	import { modelDownloads } from '#lib/model-downloads.svelte.ts';
 	import { local } from '#lib/platform/index.ts';
 	import {
@@ -25,6 +26,15 @@
 	const models = createQuery(() => modelsQueries.list());
 	const settings = createQuery(() => settingsQueries.read());
 	const inUse = $derived(settings.data?.['transcription.local.model']);
+
+	/** The recommended model first, then the rest as the catalog orders them. */
+	const listed = $derived(
+		[...(models.data ?? [])].sort(
+			(a, b) =>
+				Number(b.id === DEFAULTS['transcription.local.model']) -
+				Number(a.id === DEFAULTS['transcription.local.model']),
+		),
+	);
 
 	const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
 
@@ -54,13 +64,17 @@
 	{#if models.error}
 		<p class="px-4 py-3.5 text-sm text-destructive" role="alert">{models.error.message}</p>
 	{/if}
-	{#each models.data ?? [] as model (model.id)}
+	{#each listed as model (model.id)}
 		{@const share = modelDownloads.share(model.id)}
 		<div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3.5">
 			<div class="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
 				<p class="flex items-center gap-2 text-sm font-medium">
 					{model.name}
-					{#if model.downloaded && model.id === inUse}<Badge variant="secondary">In use</Badge>{/if}
+					{#if model.downloaded && model.id === inUse}
+						<Badge variant="secondary">In use</Badge>
+					{:else if model.id === DEFAULTS['transcription.local.model']}
+						<Badge variant="outline">Recommended</Badge>
+					{/if}
 				</p>
 				<p class="text-sm text-muted-foreground">
 					{model.description} · {megabytes(model.sizeBytes)}{model.supportsPrompt

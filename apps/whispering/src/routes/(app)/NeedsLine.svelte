@@ -12,7 +12,7 @@
 </script>
 
 {#each dictation.needs() as need (need.id)}
-	<p class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-sm">
+	<p class="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-sm">
 		<CircleAlertIcon class="size-4 shrink-0 text-destructive" />
 		<span>{need.problem}</span>
 		<Button variant="link" size="sm" class="h-auto p-0" href={need.fix.href}>{need.fix.label}</Button>

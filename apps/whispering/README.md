@@ -78,7 +78,7 @@ src/
       local/                 local.ts (contract), native.ts, browser.ts: models on this computer
       pill/                  pill.ts (contract), native.ts, browser.ts: the two windows talking
     cleanup.ts               pure rules: the dictionary, when cleanup runs, what it is told
-    feed.ts                  pure rules: a recording's time, day, and search match
+    feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
 src-tauri/src/
   files.rs                   reads many files in one call
@@ -222,6 +222,11 @@ again so the model cannot undo them.
   `SettingsRow` puts what a setting is on the left and its control on the
   right, with a switch for on or off. Refused: forms of stacked fields
   straight on the page, which gave each settings page its own shape.
+- **Home is three numbers, the recorder in a card, and the latest takes.**
+  The numbers (days, words, words a minute) are counted from the
+  recordings each time, and show once there is a word. The record button
+  is a solid tile with an icon. Refused: the microphone picture as the
+  button, which at that size read as clip art; it is the logo, small.
 - **Home says what is wrong once, in words.** A missing setup is one line
   under the recorder, and the sidebar only marks Settings. Refused: a card,
   a status count and a summary line saying the same thing three times.

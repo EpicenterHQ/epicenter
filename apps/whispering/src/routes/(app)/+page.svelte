@@ -1,6 +1,7 @@
 <!--
-	Home: the recorder, or the first-run panel while the chosen model is
-	not downloaded; anything dictation still needs; and what you said last, to read and copy again, with the two takes before it. Finding an
+	Home: how much has been dictated, once there is any; the recorder, or
+	the first-run panel while the chosen model is not downloaded; anything
+	dictation still needs; and what you said last, to read and copy again, with the two takes before it. Finding an
 	older one is Recordings' job.
 -->
 <script lang="ts">
@@ -9,12 +10,13 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { transcriber } from '#lib/data/settings.ts';
 	import { getDictation } from '#lib/dictation-view.ts';
-	import { formatDuration } from '#lib/feed.ts';
+	import { formatDuration, usage } from '#lib/feed.ts';
 	import { modelDownloads } from '#lib/model-downloads.svelte.ts';
 	import { modelsQueries, recordingsQueries, settingsQueries } from '#lib/queries.ts';
 	import AddSampleButton from './AddSampleButton.svelte';
 	import FirstRun from './FirstRun.svelte';
 	import NeedsLine from './NeedsLine.svelte';
+	import PageHeader from './PageHeader.svelte';
 	import RecorderPanel from './RecorderPanel.svelte';
 	import RecordingRow from './RecordingRow.svelte';
 
@@ -24,6 +26,7 @@
 	/** Newest first; the list arrives oldest first. */
 	const recent = $derived((list.data ?? []).slice(-3).reverse());
 	const latest = $derived(recent[0]);
+	const stats = $derived(usage(list.data ?? []));
 	const chosen = $derived(settings.data && transcriber(settings.data));
 	const models = createQuery(() => modelsQueries.list());
 	/** What transcribes, as the line under the recorder names it. */
@@ -57,7 +60,25 @@
 
 <svelte:head><title>Whispering</title></svelte:head>
 
-<main class="mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
+<main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+	<div class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 pt-8 pb-10">
+	<PageHeader title="Whispering" description="Speak in any app, and the text is on your clipboard." />
+
+	{#if stats.words > 0}
+		<dl class="grid grid-cols-3 gap-3">
+			{#each [
+				{ label: stats.days === 1 ? 'day' : 'days', value: stats.days.toLocaleString() },
+				{ label: stats.words === 1 ? 'word' : 'words', value: stats.words.toLocaleString() },
+				{ label: 'words a minute', value: stats.wordsPerMinute?.toLocaleString() ?? '–' },
+			] as stat (stat.label)}
+				<div class="flex flex-col gap-0.5 rounded-xl bg-card px-4 py-3 shadow-xs ring-1 ring-foreground/10">
+					<dd class="text-2xl font-semibold tabular-nums">{stat.value}</dd>
+					<dt class="text-xs text-muted-foreground">{stat.label}</dt>
+				</div>
+			{/each}
+		</dl>
+	{/if}
+
 	{#if missing}
 		<FirstRun
 			name={missing.name}
@@ -67,21 +88,25 @@
 			ondownload={() => download(missing.id)}
 		/>
 	{:else}
-		<RecorderPanel />
-
-		{#if unmet}
-			<NeedsLine />
-		{:else if transcribedBy}
-			<p class="text-center text-xs text-muted-foreground">
-				{transcribedBy} · Copies to the clipboard ·
-				<a class="underline underline-offset-2 hover:text-foreground" href="/settings/transcription">Change</a>
-			</p>
-		{/if}
+		<div class="flex flex-col gap-2">
+			<RecorderPanel />
+			{#if unmet}
+				<NeedsLine />
+			{:else if transcribedBy}
+				<p class="px-1 text-xs text-muted-foreground">
+					{transcribedBy} · Copies to the clipboard ·
+					<a class="underline underline-offset-2 hover:text-foreground" href="/settings/transcription">Change</a>
+				</p>
+			{/if}
+		</div>
 	{/if}
 
 	{#if latest}
-		<section class="flex flex-col gap-2" aria-labelledby="latest">
-			<div class="flex items-center gap-2 px-3">
+		<section
+			class="flex flex-col gap-2 rounded-xl bg-card py-3 text-card-foreground shadow-xs ring-1 ring-foreground/10"
+			aria-labelledby="latest"
+		>
+			<div class="flex items-center gap-2 px-4">
 				<h2 id="latest" class="flex-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					Latest
 				</h2>
@@ -90,7 +115,7 @@
 			</div>
 
 			{#if latest.transcript && !dictation.isTranscribing(latest.id)}
-				<div class="flex flex-col gap-2 px-3">
+				<div class="flex flex-col gap-2 px-4">
 					<p class="line-clamp-4 text-base leading-relaxed">{latest.transcript}</p>
 					<div class="flex items-center gap-2 text-xs text-muted-foreground">
 						<a class="hover:text-foreground" href="/recordings?id={encodeURIComponent(latest.id)}">
@@ -105,7 +130,7 @@
 			{/if}
 
 			{#if recent.length > 1}
-				<div class="flex flex-col border-t pt-2">
+				<div class="flex flex-col border-t px-1 pt-2">
 					{#each recent.slice(1) as recording (recording.id)}
 						<RecordingRow {recording} copy />
 					{/each}
@@ -115,4 +140,5 @@
 	{:else if import.meta.env.DEV}
 		<div class="flex justify-center"><AddSampleButton /></div>
 	{/if}
+	</div>
 </main>

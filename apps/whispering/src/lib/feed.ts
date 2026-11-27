@@ -58,6 +58,40 @@ export function groupByDay<T extends { at: Date | undefined }>(
 	return groups;
 }
 
+/**
+ * How much has been dictated: the days with a take, the words in every
+ * transcript, and the pace. The pace counts only takes that have both text
+ * and a length, and is undefined until one does.
+ */
+export function usage(
+	recordings: {
+		at: Date | undefined;
+		durationMs: number | undefined;
+		transcript: string;
+	}[],
+): { days: number; words: number; wordsPerMinute: number | undefined } {
+	const days = new Set<string>();
+	let words = 0;
+	let timedWords = 0;
+	let timedMs = 0;
+	for (const { at, durationMs, transcript } of recordings) {
+		if (at) days.add(localDay(at));
+		const count = transcript.split(/\s+/).filter(Boolean).length;
+		words += count;
+		if (count && durationMs) {
+			timedWords += count;
+			timedMs += durationMs;
+		}
+	}
+	return {
+		days: days.size,
+		words,
+		wordsPerMinute: timedMs
+			? Math.round(timedWords / (timedMs / 60_000))
+			: undefined,
+	};
+}
+
 /** `0:42`, `12:05`, or `1:02:05`. */
 export function formatDuration(ms: number): string {
 	const total = Math.round(ms / 1000);

@@ -7,6 +7,7 @@ import {
 	groupByDay,
 	matches,
 	recordedAt,
+	usage,
 } from './feed';
 
 describe('recordedAt', () => {
@@ -89,5 +90,31 @@ describe('excerpt', () => {
 			text: 'Dana',
 			hit: true,
 		});
+	});
+});
+
+describe('usage', () => {
+	test('counts days, words, and the pace of takes with text and a length', () => {
+		const day = new Date(2026, 4, 1, 9);
+		expect(
+			usage([
+				{ at: day, durationMs: 30_000, transcript: 'one two three four five' },
+				{
+					at: new Date(2026, 4, 1, 17),
+					durationMs: 30_000,
+					transcript: ' six  seven ',
+				},
+				{
+					at: new Date(2026, 4, 2),
+					durationMs: undefined,
+					transcript: 'eight',
+				},
+				{ at: undefined, durationMs: 60_000, transcript: '' },
+			]),
+		).toEqual({ days: 2, words: 8, wordsPerMinute: 7 });
+	});
+
+	test('has no pace before any take has text and a length', () => {
+		expect(usage([])).toEqual({ days: 0, words: 0, wordsPerMinute: undefined });
 	});
 });

@@ -10,7 +10,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Progress } from '@epicenter/ui/progress';
-	import studioMicrophone from '#lib/assets/studio-microphone.png';
+	import DownloadIcon from '@lucide/svelte/icons/download';
 
 	let {
 		name,
@@ -29,40 +29,47 @@
 		ondownload: () => void;
 	} = $props();
 
-	const megabytes = $derived(`${Math.round(sizeBytes / 1_000_000)} MB`);
+	const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
 </script>
 
-<section class="flex flex-col items-center gap-6 py-8 text-center" aria-label="Set up transcription">
-	<img src={studioMicrophone} alt="" class="size-36 drop-shadow-lg" />
-
-	<div class="flex max-w-md flex-col items-center gap-2">
-		<h1 class="text-2xl font-medium">Download a model to start dictating</h1>
-		<p class="text-sm text-muted-foreground">
-			Whispering turns speech into text on this computer. The model is a {megabytes} download,
-			once. After that it works offline, and nothing you say leaves your computer.
-		</p>
+<section
+	class="flex flex-col gap-5 rounded-xl bg-card p-6 text-card-foreground shadow-xs ring-1 ring-foreground/10"
+	aria-label="Set up transcription"
+>
+	<div class="flex items-start gap-4">
+		<div class="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+			<DownloadIcon class="size-6" />
+		</div>
+		<div class="flex min-w-0 flex-col gap-1">
+			<h2 class="text-lg font-semibold">One download, then you can dictate</h2>
+			<p class="text-sm text-muted-foreground">
+				Whispering turns speech into text on this computer. It needs a speech model, {name}, once.
+				After that it works offline, and nothing you say leaves your computer.
+			</p>
+		</div>
 	</div>
 
 	{#if share !== undefined}
-		<div class="flex w-full max-w-xs flex-col items-center gap-2" role="status">
+		<div class="flex flex-col gap-2" role="status">
 			<Progress value={share * 100} aria-label="Downloading {name}" />
-			<p class="text-sm text-muted-foreground tabular-nums">
-				Downloading {name}: {Math.round(share * 100)}%
+			<p class="flex justify-between text-sm text-muted-foreground tabular-nums">
+				<span>{megabytes(share * sizeBytes)} of {megabytes(sizeBytes)}</span>
+				<span>{Math.round(share * 100)}%</span>
 			</p>
 			<p class="text-xs text-muted-foreground">You can leave this screen. The download carries on.</p>
 		</div>
 	{:else}
-		<div class="flex flex-col items-center gap-2">
-			<Button size="lg" onclick={ondownload}>
-				{error ? 'Try again' : `Download ${name}`}
+		{#if error}
+			<p class="text-sm text-destructive" role="alert">{error}</p>
+		{/if}
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+			<Button onclick={ondownload}>
+				<DownloadIcon />
+				{error ? 'Try again' : 'Download'} · {megabytes(sizeBytes)}
 			</Button>
-			{#if error}
-				<p class="max-w-md text-sm text-destructive" role="alert">{error}</p>
-			{/if}
+			<Button variant="link" size="sm" class="h-auto p-0 text-muted-foreground" href="/settings/transcription">
+				Use another model, or a server
+			</Button>
 		</div>
 	{/if}
-
-	<Button variant="link" size="sm" class="h-auto p-0 text-muted-foreground" href="/settings/transcription">
-		Use another model, or a server
-	</Button>
 </section>
