@@ -16,6 +16,10 @@ example, or detail they want to keep. Carry those choices through the
 intent, the vision, and the work that follows. Preserve selected wording
 exactly.
 
+Show an articulation in the form its audience will meet it: a sentence in
+its paragraph, a title on its cover, a frame at phone size. When there is a
+real choice, put the options together and vary only that choice.
+
 Work through the steps in order. If the user picks an idea, exact phrase,
 or example, carry it forward while the step is still open. Move to the
 next step only when the user says “that’s right” about the step as a
