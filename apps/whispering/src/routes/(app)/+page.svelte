@@ -16,7 +16,7 @@
 	import AddSampleButton from './AddSampleButton.svelte';
 	import FirstRun from './FirstRun.svelte';
 	import NeedsLine from './NeedsLine.svelte';
-	import PageHeader from './PageHeader.svelte';
+	import Page from './Page.svelte';
 	import RecorderPanel from './RecorderPanel.svelte';
 	import RecordingRow from './RecordingRow.svelte';
 
@@ -61,9 +61,7 @@
 
 <svelte:head><title>Whispering</title></svelte:head>
 
-<main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
-	<div class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 pt-8 pb-10">
-	<PageHeader title="Whispering" description="Speak in any app, and the text is on your clipboard." />
+<Page title="Whispering" description="Speak in any app, and the text is on your clipboard.">
 
 	{#if stats.words > 0}
 		<dl class="grid grid-cols-3 gap-3">
@@ -141,5 +139,4 @@
 	{:else if import.meta.env.DEV}
 		<div class="flex justify-center"><AddSampleButton /></div>
 	{/if}
-	</div>
-</main>
+</Page>

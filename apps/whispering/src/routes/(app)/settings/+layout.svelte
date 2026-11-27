@@ -8,7 +8,7 @@
 	import { cn } from '@epicenter/ui/utils';
 	import { page } from '$app/state';
 	import { getDictation } from '#lib/dictation-view.ts';
-	import PageHeader from '../PageHeader.svelte';
+	import Page from '../Page.svelte';
 
 	let { children } = $props();
 
@@ -26,11 +26,9 @@
 	const marked = $derived(new Set(dictation.needs().map((need) => need.fix.href)));
 </script>
 
-<main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
-	<div class="mx-auto flex w-full max-w-5xl flex-col px-6 pt-8 pb-10">
-		<PageHeader title="Settings" description="How Whispering records, transcribes and hands you the text." />
-		<Separator class="my-6" />
-		<div class="flex flex-col gap-6 md:flex-row md:gap-10">
+<Page title="Settings" description="How Whispering records, transcribes and hands you the text." class="max-w-5xl">
+		<Separator />
+	<div class="flex flex-col gap-6 md:flex-row md:gap-10">
 			<nav aria-label="Settings sections" class="flex shrink-0 gap-1 overflow-x-auto md:w-44 md:flex-col">
 				{#each SECTIONS as section (section.href)}
 					{@const active = page.url.pathname === section.href}
@@ -54,5 +52,4 @@
 				{@render children()}
 			</div>
 		</div>
-	</div>
-</main>
+</Page>

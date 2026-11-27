@@ -7,6 +7,8 @@ once, or with a transcription server you choose, can have a chat model
 clean up the text, and keeps every recording and transcript as files you
 can open.
 
+![Whispering's Home: three numbers, the recorder, and the latest takes](docs/home.png)
+
 It runs in two places from the same page: a desktop app (Tauri) and a
 browser tab. Only the desktop app transcribes on the device; a browser tab
 needs a server.
@@ -69,6 +71,7 @@ src/
       +layout.svelte         the sidebar frame; hands the screens the real dictation
       +page.svelte           Home: the recorder or the first run, what dictation needs, the latest take
       recordings/            the list and the reading pane, chosen by `?id=`
+      Page.svelte            a page that scrolls as one column, under its name
       PageHeader.svelte      a page's name and the line under it
       settings/<section>/    one page per settings section, built of SettingsSection and SettingsRow
       preview/               development only: the screens fed a made-up dictation
@@ -315,6 +318,12 @@ again so the model cannot undo them.
   step lighter, borders a faint line. Only colors differ; the components,
   the radius and the fonts are the shared ones. Refused: the shared
   graphite, on which this app's flat pages read as grey and unfinished.
+- **The frame is the window, and a page scrolls inside it.** The sidebar
+  frame is pinned to the window's edges and is its one `<main>`; `Page`
+  is the one element that scrolls on Home and Settings, and Recordings
+  scrolls its list and its reading pane. Refused: sizing the frame with a
+  viewport unit and giving each page its own `<main>` and scroll classes,
+  which let the document scroll under the page and showed two scrollbars.
 - **Every page opens with its name and one line about it, and a setting
   is a row in a card.** `SettingsSection` is a heading over one card;
   `SettingsRow` puts what a setting is on the left and its control on the

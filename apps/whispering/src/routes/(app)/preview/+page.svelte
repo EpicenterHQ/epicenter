@@ -142,7 +142,7 @@
 
 <svelte:head><title>Preview · Whispering</title></svelte:head>
 
-<main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+<div class="min-h-0 flex-1 overflow-y-auto">
 	<div class="flex flex-wrap gap-1 border-b p-3" role="group" aria-label="State">
 		{#each SCENES as option (option.label)}
 			<Button
@@ -201,4 +201,4 @@
 			{/each}
 		</div>
 	</section>
-</main>
+</div>

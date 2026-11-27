@@ -158,9 +158,18 @@
 <QueryClientProvider client={queryClient}>
 	<Tooltip.Provider>
 		{#await settingsRead then}
-			<Sidebar.Provider bind:open={() => wide.current && sidebarOpen, (open) => (sidebarOpen = open)}>
+			<!--
+				The frame is pinned to the window's edges, so it is exactly the
+				window whatever a viewport unit says, and the document under it
+				has nothing to scroll. Each page scrolls inside the inset, which
+				is the window's one `<main>`.
+			-->
+			<Sidebar.Provider
+				class="fixed inset-0 min-h-0"
+				bind:open={() => wide.current && sidebarOpen, (open) => (sidebarOpen = open)}
+			>
 				<AppSidebar />
-				<Sidebar.Inset class="h-dvh min-w-0">
+				<Sidebar.Inset class="min-h-0">
 					{#if page.url.pathname !== '/' && dictation.take().kind !== 'idle'}
 						<RecordingBar />
 					{/if}
