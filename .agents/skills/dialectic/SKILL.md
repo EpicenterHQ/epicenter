@@ -54,4 +54,4 @@ illustrations of how intent, vision, and concrete form develop
 through conversation.
 
 When helping the user write in their own voice, use their personal
-`writing-voice` skill if one is available.
+writing skill if one is available.
