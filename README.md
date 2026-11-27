@@ -186,12 +186,16 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 
 ## License
 
-Everything is [AGPL-3.0-or-later](licenses/LICENSE-AGPL-3.0), and
-contributions come in under the same license with no CLA. Versions published
-under MIT before 2026-08 stay MIT for those versions ([LICENSE](LICENSE)).
+Epicenter is free and open source under the
+[AGPL-3.0-or-later](licenses/LICENSE-AGPL-3.0). Use it, change it, and run it
+for yourself however you like. If you share it with others, whether you give it
+away, sell it, or run it as a service for them, you share your source under the
+same license, so improvements come back to everyone. Contributions come in
+under that license too, with no CLA. Versions published under MIT before
+2026-08 stay MIT for those versions ([LICENSE](LICENSE)).
 
-Epicenter is paid for by support: if your team runs Epicenter and wants help
-setting it up or building its apps, get in touch below.
+If you or your team want a hand setting it up or building your apps, I offer
+paid support, and that's how the project keeps going. Get in touch below.
 
 ---
 
